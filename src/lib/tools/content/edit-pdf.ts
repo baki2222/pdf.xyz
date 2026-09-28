@@ -135,7 +135,7 @@ const content: ToolContent = {
     },
     {
       title: "Apply the edits and download",
-      body: "The Apply button counts the queued edits. When “Edited PDF ready” appears, Download edited PDF saves a copy named after yours, with “-edited” before the .pdf.",
+      body: "The Apply button counts the queued edits. When “Edited PDF ready” appears, Download edited PDF saves a copy named after yours, with -edited before the .pdf.",
     },
   ],
 
@@ -158,7 +158,7 @@ const content: ToolContent = {
     },
     {
       q: "How do I find the right X and Y values?",
-      a: "Larger Y values sit higher. A line above the fields reads “Page N is W × H pt” for the chosen page, and Y = H is the top of that full page box; a file cropped to a smaller visible area can show its top edge lower. For text, Y is the baseline of the first line. On a page stored with a rotation setting, positions are measured on the unrotated page, so new content turns with it.",
+      a: "Larger Y values sit higher. A line above the fields gives the chosen page's width and height in points (W × H), and Y = H is the top of that full page box; a file cropped to a smaller visible area can show its top edge lower. For text, Y is the baseline of the first line. On a page stored with a rotation setting, positions are measured on the unrotated page, so new content turns with it.",
     },
   ],
 

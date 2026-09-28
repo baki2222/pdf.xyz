@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_RESOLUTION_ID,
+  RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTIONS,
   pageImageName,
   rasterScaleForDpi,
@@ -103,7 +104,7 @@ const content: ToolContent = {
   metaDescription: `Convert PDF to JPG in your browser, with no upload. Each page becomes a JPEG at ${presetNameList} resolution; several pages download as one ZIP.`,
 
   intro: [
-    `PDF to JPG paints every page of your PDF onto a canvas with pdf.js and saves each one as a JPEG picture, with the page's built-in rotation applied. The renderer and its WebAssembly decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
+    `PDF to JPG paints every page of your PDF onto a canvas with pdf.js and saves each one as a JPEG picture, with the page's built-in rotation applied. The renderer and its decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
     `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}, with ${standard.label} selected at the start. There is no quality slider; every JPEG is encoded at quality ${quality} out of 100 on a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). A longer one arrives as a ZIP: a ${EXAMPLE_PAGES}-page report.pdf becomes ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order.`,
     `It converts a single PDF per run, up to ${maxMb} MB. Encrypted PDFs stop at the loading step with a request to unlock them first. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
   ],
@@ -142,7 +143,7 @@ const content: ToolContent = {
     },
     {
       title: "Download the images",
-      body: `A one-page PDF gives a "Download JPG" button; a ${EXAMPLE_PAGES}-page one gives "Download ZIP (${EXAMPLE_PAGES} images)" instead. You can also use the download button on a preview tile to save that page alone. "Change resolution" goes back to the resolution choice so you can render again.`,
+      body: `A one-page PDF gives a "Download JPG" button; a PDF of more than one page, say ${EXAMPLE_PAGES}, gives "Download ZIP (${EXAMPLE_PAGES} images)" instead. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from the download button on its preview tile. "Change resolution" goes back to the resolution choice so you can render again.`,
     },
   ],
 
@@ -153,7 +154,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I convert only some pages?",
-      a: "The tool always renders every page. For a subset, run Extract Pages first and convert the smaller PDF. You can also save single pages from the preview tiles, but on a long document the grid shows only the opening pages; the rest are only in the ZIP.",
+      a: "The tool always renders every page. For a subset, run Extract Pages first and convert the smaller PDF. You can also save single pages from the preview tiles, but on a long document the grid shows only the opening pages; the rest are only in the ZIP that a PDF of several pages gets.",
     },
     {
       q: "Why was my password-protected PDF rejected?",

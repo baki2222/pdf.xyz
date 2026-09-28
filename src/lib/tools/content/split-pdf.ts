@@ -41,7 +41,6 @@ function toolName(slug: string, processing: "client" | "server"): string {
 }
 const DELETE_PAGES = toolName("remove-pages", "client");
 const EXTRACT_PAGES = toolName("extract-pages", "client");
-const FLATTEN_PDF = toolName("flatten-pdf", "client");
 const UNLOCK_PDF = toolName("unlock-pdf", "server");
 const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 
@@ -77,7 +76,7 @@ const content: ToolContent = {
 
   intro: [
     `Split PDF cuts one document into several smaller PDFs in one of three ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. Before anything runs, a preview lists every file the split will create, with its name and page count.`,
-    `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and the document itself is not uploaded anywhere: reading the pages, building each piece and packing the ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
+    `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and there is no upload anywhere: reading the pages, building each piece and packing the ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
     `Every piece is a new PDF built from copies of the original pages, so their text, images, page size and rotation come through unchanged. What belongs to the document rather than to a page stays behind: the pieces carry no bookmarks, no title or author entry and no AcroForm. An encrypted file is refused as it loads, even one that opens without a password and only restricts printing or copying.`,
   ],
 
@@ -119,7 +118,7 @@ const content: ToolContent = {
     },
     {
       title: "Split and download",
-      body: "Press the Split into … files button, whose label carries the exact number of pieces. The finished panel then offers Download ZIP (N files) for the whole set in one archive, or Download PDF when the split produced a single piece.",
+      body: "Press the Split into … files button, whose label carries the exact number of pieces. When the split produced more than one piece, the finished panel offers Download ZIP (N files) for the whole set in one archive; a single piece gets Download PDF.",
     },
   ],
 
@@ -134,11 +133,7 @@ const content: ToolContent = {
     },
     {
       q: "What are the split files called?",
-      a: "Each piece takes the original name, a sequence number and its page span, for example report-01-pages-1-3.pdf or report-12-page-40.pdf. With ten or more pieces the number is zero-padded so they sort in order, and the ZIP is named after the original with -split added.",
-    },
-    {
-      q: "Do bookmarks, metadata and form fields survive the split?",
-      a: `Bookmarks and the title and author entries do not. Form fields are left half-copied: the widget that draws a field on its page travels with that page, but the document's AcroForm, which is what ties those widgets into a fillable form, does not, so how a piece's fields look and behave depends on the PDF reader. To make typed values a fixed part of the page before cutting, run ${FLATTEN_PDF} on the original first.`,
+      a: "Each piece takes the original name, a sequence number and its page span, for example report-01-pages-1-3.pdf or report-12-page-40.pdf. With ten or more pieces the number is zero-padded so they sort in order, and the ZIP that holds multiple pieces is named after the original with -split added.",
     },
     {
       q: "Can I split a password-protected PDF?",

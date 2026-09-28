@@ -67,7 +67,7 @@ const content: ToolContent = {
 
   intro: [
     "Extract Pages builds a new PDF out of only the pages you pick. Load one document, click the page thumbnails you want or type a list such as 1-3, 5, 12-, and the tool copies exactly those pages into a fresh file. The download is named after your original with -extracted added, and the source PDF itself is left untouched.",
-    `The document stays on your device: your browser opens the PDF locally, assembles the new file on the spot, and pdf.xyz never receives a copy. Pages are copied object by object rather than re-rendered, so text stays selectable, images are not recompressed or downscaled, and each page keeps its rotation. Files up to ${MAX_MB} MB are accepted.`,
+    `The document stays on your device, with no upload: your browser opens the PDF locally, assembles the new file on the spot, and pdf.xyz never receives a copy. Pages are copied object by object rather than re-rendered, so text stays selectable, images are not recompressed or downscaled, and each page keeps its rotation. Files up to ${MAX_MB} MB are accepted.`,
     "Three behaviours are worth knowing. The new PDF always follows the original page order, so picking page 9 before page 2 still gives you 2 then 9. Document-level parts such as bookmarks, the form definition behind fillable fields, and the original title and author properties do not come across with the pages. And links between pages are handled with care: a link from one kept page to another still opens it in the new file, while a link to a page you left out is switched off, so the pages you skipped do not travel inside the new file.",
   ],
 
@@ -93,7 +93,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: "Bring in one document: drag it over the dashed “Drop your PDF here, or browse” area, or click that area for the file picker. Once it is read, a strip across the top lists the file name, its page count and its size, and a grid of page thumbnails fills in underneath.",
+      body: "Bring in one document: drag it over the dashed drop area, or click that area for the file picker. Once it is read, a strip across the top lists the file name, its page count and its size, and a grid of page thumbnails fills in underneath.",
     },
     {
       title: "Select the pages to keep",
@@ -101,7 +101,7 @@ const content: ToolContent = {
     },
     {
       title: "Run the extraction",
-      body: "The button counts your selection, reading “Extract 4 pages” when four are chosen, and stays disabled until at least one is. Press it and the new file is built on your device.",
+      body: "The button counts your selection — Extract 4 pages when four are chosen — and stays disabled until at least one is. Press it and the new file is built on your device.",
     },
     {
       title: "Download the new PDF",
@@ -119,10 +119,6 @@ const content: ToolContent = {
       a: "Single pages (5), inclusive ranges (1-3), and open ranges that run to the last page (8-) or from the first (-4), with a comma between entries; a space on its own does not separate two pages. Overlaps are merged, so 1-3, 2 selects three pages. A page past the end, a 0, or a backwards range like 7-3 is refused, and the note under the box quotes the entry it could not use. Applying a range replaces the current selection, which you can then fine-tune by clicking thumbnails.",
     },
     {
-      q: "Can I extract pages in a different order than the original?",
-      a: "Not in this tool. Whatever order you click or type them in, the extracted pages are written in their original document order. To change the sequence, rearrange the result in Organize Pages.",
-    },
-    {
       q: "How do I save each page as its own PDF?",
       a: "Extract Pages always produces one combined file. If you want every page, or several ranges, as separate PDFs, use Split PDF instead: its Custom ranges, Every N pages and Each page modes cut the document into pieces, and more than one piece downloads as a single ZIP.",
     },
@@ -132,7 +128,7 @@ const content: ToolContent = {
     },
     {
       q: "Why won't my PDF open in Extract Pages?",
-      a: `The message on screen names the cause. A file over ${MAX_MB} MB is too large for in-browser processing. Any encrypted PDF is stopped with a request to unlock it first, even one whose only protection is a printing or copying restriction. Knowing the password lets Unlock PDF produce a decrypted copy you can bring back here. Unlock PDF, unlike extracting, works off your device: the encrypted PDF and the password you type travel over TLS to pdf.xyz's secure worker, which deletes that input once the job ends; the decrypted file's download link stops working after ${LINK_MINUTES} minutes, and a daily storage rule erases the worker's copy after that. A file with neither a .pdf name nor the PDF file type is turned away, a 0-byte file is refused as empty, and a damaged PDF that cannot be parsed is reported as unreadable.`,
+      a: `The message on screen names the cause. A file over ${MAX_MB} MB is too large for in-browser processing. Any encrypted PDF is stopped with a request to unlock it first, even one whose only protection is a printing or copying restriction. Knowing the password lets Unlock PDF produce a decrypted copy you can bring back here. Unlock PDF, unlike extracting, works off your device: the encrypted PDF and the password you type travel over TLS to pdf.xyz's secure worker, which deletes that input once the job ends; the decrypted file's download link stops working after ${LINK_MINUTES} minutes, and a daily storage rule erases the worker's copy after that. A file with neither a .pdf name nor the PDF file type is turned away, an empty file is refused, and a damaged PDF that cannot be parsed is reported as unreadable.`,
     },
   ],
 

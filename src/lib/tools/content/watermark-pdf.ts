@@ -128,16 +128,12 @@ const content: ToolContent = {
 
   faqs: [
     {
-      q: "Can I use a logo or image as the watermark?",
-      a: "Not here: Add Watermark stamps text only. Edit PDF places a PNG or JPG with its own Opacity slider, one page at a time. Overlay / Stamp lays a page from a second PDF over every page, also with an Opacity slider, so a logo works there when it sits on a transparent background. A page made with JPG to PDF or PNG to PDF does not: those tools paint the whole page white behind the picture, so at full opacity it covers your pages and at lower opacity it washes them out.",
-    },
-    {
       q: "Can I watermark only some pages, or move the mark off-center?",
       a: "No. The text goes on every page, centered, and the only placement control is the angle. For wording along the top or bottom edge, Header & Footer does that; to mark only part of a document, split that part off, watermark it and merge the pieces back.",
     },
     {
       q: "Can someone remove the watermark?",
-      a: "It is written into the page content, not added as a comment, so a viewer's comments toggle cannot hide it. But the words are selectable text, and an editor that edits page content can delete them: treat a watermark as a label and a deterrent, not protection.",
+      a: "Not by switching it off: it is written into the page content, not added as a layer or a comment, so a viewer's toggle cannot hide it. But the words are selectable text, and an editor that edits page content can delete them: treat a watermark as a label and a deterrent, not protection.",
     },
     {
       q: "Which languages can the watermark text be in?",

@@ -91,7 +91,7 @@ const content: ToolContent = {
     },
     {
       title: "Add one PDF",
-      body: `Drop the PDF on the dashed zone marked “Add a PDF, or browse”, or click that zone to open a file picker. It takes a single document; drop several and all but the first are ignored. The chosen name then replaces the zone, with “Remove” beside it to start over. The upload is requested with the file's size and a type read from its name, so a file over ${ceilingMb} MB, or one whose name does not end in .pdf, is turned away before any of its bytes are sent.`,
+      body: `Drop the PDF on the dashed drop zone, or click that zone to open a file picker. It takes a single document; drop several and all but the first are ignored. The chosen name then replaces the zone, with “Remove” beside it to start over. The upload is requested with the file's size and a type read from its name, so a file over ${ceilingMb} MB, or one whose name does not end in .pdf, is turned away before any of its bytes are sent.`,
     },
     {
       title: "Click “Optimize on the worker”",
@@ -109,16 +109,12 @@ const content: ToolContent = {
       a: "It reorders the objects inside the file so the first page and a hint table come first, letting a viewer that requests parts of a file render page one early and fetch other pages on demand. What the pages show does not change.",
     },
     {
-      q: "Will optimizing for web make my PDF smaller?",
-      a: "Not reliably. qpdf drops objects nothing refers to, which can trim a heavily edited file, but the hint table it adds costs bytes, so the size can move either way. To cut the size, run Compress PDF first, then linearize its output here.",
-    },
-    {
       q: "Does a linearized PDF load faster everywhere?",
       a: "No. It helps when a viewer that requests byte ranges opens the PDF from a server that honours them. An email attachment is downloaded whole before it opens, and a file on your disk can already be read in any order, so neither gains anything.",
     },
     {
       q: "How can I check that the result is linearized?",
-      a: "In Adobe Acrobat or Reader, open File › Properties and look for “Fast Web View: Yes”. From a command line, `qpdf --check-linearization yourfile.pdf` reports whether the linearization data is valid.",
+      a: "In Adobe Acrobat or Reader, open File › Properties and check that the Fast Web View line reads Yes. From a command line, `qpdf --check-linearization yourfile.pdf` reports whether the linearization data is valid.",
     },
     {
       q: "Why was my PDF refused or why did the job fail?",

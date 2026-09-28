@@ -103,7 +103,7 @@ const content: ToolContent = {
 
   intro: [
     "Paste Markdown into the editor or drop in a .md, .markdown or .mdown file, and pdf.xyz typesets it as a US Letter PDF with real, selectable text. For Western European text, # headings are bold, with level 1 largest, level 2 next and levels 3 to 6 sharing one size; list items are indented; each > quote line is italic with an accent bar beside its first line; and fenced code is set in a monospaced face under its language tag. The foot of each page shows its number and the total page count, and the file name without its extension appears small at the top of page one and becomes the PDF's document title.",
-    `The whole conversion runs in your browser tab, so the Markdown is not uploaded. Sources can be up to ${MAX_SOURCE_MB} MB, counted in UTF-8 bytes, which means Chinese, Japanese or Korean text reaches the cap in fewer characters than English.`,
+    `The whole conversion runs in your browser tab, so there is no upload: the Markdown never leaves your device. Sources can be up to ${MAX_SOURCE_MB} MB, counted in UTF-8 bytes, which means Chinese, Japanese or Korean text reaches the cap in fewer characters than English.`,
     "This is a clean document renderer, not a GitHub-style web page engine. Inline bold, italics and backtick code are flattened into plain body text. A link prints as its label followed by the address in parentheses and is not clickable. Images are not embedded; the alt text and URL, or the URL alone when there is no alt text, stand in their place. Tables and YAML front matter are not recognised, so their lines are parsed like any other Markdown and mostly print as plain paragraphs, and a --- rule prints as three hyphens rather than a line.",
   ],
 
@@ -129,7 +129,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your Markdown",
-      body: "Use “Drop a Markdown file here, or browse” to load one .md, .markdown or .mdown file, or paste straight into the Markdown content box. A loaded file replaces the box's text and stays editable there.",
+      body: "Use the drop area at the top to load one .md, .markdown or .mdown file, or paste straight into the Markdown content box. A loaded file replaces the box's text and stays editable there.",
     },
     {
       title: "Check the size",

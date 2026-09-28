@@ -115,7 +115,7 @@ const content: ToolContent = {
 
   intro: [
     `Annotate PDF adds four kinds of markup to an existing document: a translucent Highlight bar, an outlined Box, a free-text Note, and a Line that can end in an arrowhead. You place each one with typed numbers rather than by dragging: a page, then distances in points across and up from the lower-left corner. Markups collect in a list and are applied in one pass. A preview outline drawn to the page's proportions shows where each falls; it is not a picture of the page.`,
-    `The whole job runs in your browser: pdf-lib opens, marks and saves the document there, and the PDF is not uploaded. The limit is ${CEILING_MB} MB, and an encrypted PDF will not load, even one a viewer opens without asking for a password. When every note in the job stays within the Western European character set, they are drawn in the built-in Helvetica; otherwise the page fetches a Noto typeface from this site, covering ${noteScripts}. A note with characters none of those faces draws, such as ${refusedExamples}${emojiClause}, stops the export with a message naming them.${rtlClause}`,
+    `The whole job runs in your browser: pdf-lib opens, marks and saves the document there, with no upload: the PDF stays on your device. The limit is ${CEILING_MB} MB, and an encrypted PDF will not load, even one a viewer opens without asking for a password. When every note in the job stays within the Western European character set, they are drawn in the built-in Helvetica; otherwise the page fetches a Noto typeface from this site, covering ${noteScripts}. A note with characters none of those faces draws, such as ${refusedExamples}${emojiClause}, stops the export with a message naming them.${rtlClause}`,
     `Markups are drawn as vector content inside the page, so the original text stays selectable and nothing becomes an image. They are therefore not PDF comments: a viewer's comment panel shows nothing to toggle, reply to or delete, and a highlight is a rectangle you position, not a selection that follows the text.`,
   ],
 
@@ -167,8 +167,8 @@ const content: ToolContent = {
       a: "Neither. There is no drawing canvas and no text selection: a highlight is a coloured rectangle whose corner and size you type, so covering a line of text means matching its position and height. To hide text rather than mark it, use Redact PDF.",
     },
     {
-      q: "Are these PDF comments that someone can reply to or remove?",
-      a: "No. Each markup is drawn into the page's content like ink, not stored as a comment object, so a viewer's comment list will not show it and there is no switch to hide it. Taking one out later needs an editor that can change page content, so keep the original if you may want an unmarked copy.",
+      q: "Can I take a markup out after saving?",
+      a: "Only with an editor that can change page content: each markup is drawn into the page like ink rather than stored as a separate object. Keep the original if you may want an unmarked copy.",
     },
     {
       q: "How do I work out the X and Y numbers?",

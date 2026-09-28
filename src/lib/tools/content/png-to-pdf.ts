@@ -93,10 +93,6 @@ const content: ToolContent = {
       a: "Each image is drawn over a white page, so see-through areas look white on screen and in print. The alpha channel is kept as a soft mask in the PDF, so partly transparent edges blend smoothly into the white. A PNG with no transparent pixels at all is stored without a mask.",
     },
     {
-      q: "Can I choose the page size, orientation or margins?",
-      a: "No. Every page is portrait US Letter, and every image is kept at least the same fixed distance from each edge. To make a small PNG fill more of the page, crop away empty borders or upscale it in an image editor before converting, since this tool only ever shrinks.",
-    },
-    {
       q: "Will my screenshots lose quality?",
       a: "No pixel is re-saved as JPEG, so edges and on-screen text survive intact, even when a large image is shown scaled down on the page. Two caveats. A sixteen-bit PNG is reduced to eight bits per channel. And every image is stored as eight-bit RGB without PNG's own row filtering, so a palette or greyscale PNG is expanded to full colour and can make a PDF far heavier than the file you added.",
     },

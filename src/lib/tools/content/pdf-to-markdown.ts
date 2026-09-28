@@ -103,7 +103,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Pick the PDF",
-      body: `Hand over a single PDF through the "Drop your PDF here, or browse" panel, either by dropping the file on it or by clicking it and choosing from your device. A file over ${MAX_MB} MB, a 0-byte file, a file that is not a PDF or cannot be read as one, and a password-protected PDF are each refused with a message; otherwise the file's name, page count and size appear.`,
+      body: `Hand over a single PDF through the "Drop your PDF here, or browse" panel, either by dropping the file on it or by clicking it and choosing from your device. A file over ${MAX_MB} MB, an empty file, a file that is not a PDF or cannot be read as one, and a password-protected PDF are each refused with a message; otherwise the file's name, page count and size appear.`,
     },
     {
       title: "Press Create Markdown",

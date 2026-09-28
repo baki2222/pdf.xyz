@@ -32,7 +32,8 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
  *  - src/lib/workers/queue/redis.ts — the job options (which carry the
  *    password) sit in a TTL'd spec record, which the FINALIZE script in
  *    redis-scripts.ts DELetes on every terminal transition (complete, fail,
- *    cancel, expire). So nothing here says the password is "never stored".
+ *    cancel, expire). So this page promises no storage-free password; it
+ *    states the deletion instead.
  *  - size: the upload session is refused above JOB_LIMITS.maxFileBytes
  *    (src/lib/jobs/validation.ts), read here through toolFileCeilingMb. The
  *    worker's own qpdf bound (PDF_SECURITY_INPUT_BYTES_BOUNDS.default,

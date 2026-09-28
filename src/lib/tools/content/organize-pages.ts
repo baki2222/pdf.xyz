@@ -49,7 +49,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: "Drag a PDF onto the dashed box headed “Drop your PDF here, or browse”; clicking anywhere in that box opens your file picker instead. If several files land at once, only the first is opened. The board then shows one tile per page.",
+      body: "Drag a PDF onto the dashed drop box; clicking anywhere in that box opens your file picker instead. If several files land at once, only the first is opened. The board then shows one tile per page.",
     },
     {
       title: "Arrange the pages",
@@ -61,7 +61,7 @@ const content: ToolContent = {
     },
     {
       title: "Apply & export, then download",
-      body: "Apply & export unlocks once something has changed. A “Pages organized” panel reports the page count and file size, and Download organized PDF saves it with “-organized” appended, so report.pdf becomes report-organized.pdf.",
+      body: "Apply & export unlocks once something has changed. A “Pages organized” panel reports the page count and file size, and Download organized PDF saves it with -organized appended, so report.pdf becomes report-organized.pdf.",
     },
   ],
 
@@ -73,10 +73,6 @@ const content: ToolContent = {
     {
       q: "How do I rotate only one page of a PDF?",
       a: "Press the rotate button on that page's tile. Each press turns it 90° clockwise, so four presses bring it back. The angle is saved as the page's rotation setting, so text and images are not redrawn or degraded.",
-    },
-    {
-      q: "Do bookmarks, links and form fields survive reordering?",
-      a: "Web links and comments belong to a page and move with it. Internal links, the kind that jump you elsewhere in this same file, follow their target page to its new position; a link to a page you deleted is switched off. The bookmark list, page labels, the Title and Author entries and the form dictionary are left out of the export; each field's box stays drawn on its page, but whether you can still type into it varies from viewer to viewer. If only a form's typed answers matter, fix them into the page with Flatten PDF first.",
     },
     {
       q: "Is there a limit on file size or page count?",

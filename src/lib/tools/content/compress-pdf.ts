@@ -1,6 +1,7 @@
 import type { ToolContent } from "./types";
 import { IMAGE_HEAVY_SHARE, LOSSLESS_MIN_RATIO } from "@/lib/pdf/analyze";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { HYBRID_WORKER_STEP } from "@/lib/tools/processing";
 import {
   RUNNER_FILE_CEILINGS,
   WORKER_FILE_CEILING,
@@ -60,7 +61,7 @@ const content: ToolContent = {
 
   intro: [
     "Compress PDF starts by showing you why a file is big. Add a PDF and your browser counts its pages and images, measures the images' share of the file, and repacks it losslessly into compressed object streams. A verdict (“Lossless cleanup shrank this file”, “This PDF is image-heavy” or “This PDF is already lean”) sits above four figures: current size, pages, images and the lossless result.",
-    `That first pass runs on your device, and the PDF is not uploaded for it. Pages, text, bookmarks, filled-in form fields, title and author all carry over. Only a few metadata entries change: Producer and Creator become pdf.xyz, the modification date is updated, and a missing creation date is filled in. The drop box takes PDFs of up to ${MAX_MB} MB each.`,
+    `That first pass runs online in your browser, on your device, and the PDF is not uploaded for it. Pages, text, bookmarks, filled-in form fields, title and author all carry over. Only a few metadata entries change: Producer and Creator become pdf.xyz, the modification date is updated, and a missing creation date is filled in. The drop box takes PDFs of up to ${MAX_MB} MB each.`,
     `A lossless repack cannot shrink images. So when it saves less than ${LOSSLESS_PCT}% and images make up ${IMAGE_PCT}% or more of the file, the headline points you to the optional deep image compression step, which uploads the PDF over TLS to pdf.xyz's secure worker. There, Ghostscript downsamples and re-encodes images toward the resolution your Quality setting picks. A worker without Ghostscript falls back to qpdf, which recompresses streams and may re-encode some images as JPEG, or to mutool, which only cleans up and recompresses the structure; neither downsamples, and neither reads the Quality setting. Your upload is deleted when the job finishes, the result link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.${DEEP_CAP_SENTENCE}`,
   ],
 
@@ -105,11 +106,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will compressing my PDF make it look worse?",
-      a: "Not the lossless copy, which changes how the file is packed, not what is on the pages. Deep image compression is lossy: Smaller gives up the most detail, High quality the least, and Balanced is the default. Afterwards the worker checks that the result opens as a PDF and, when it can count them, that no pages went missing; nothing compares how the images look, so open the result before deleting your original.",
+      a: "Not the lossless copy, which changes how the file is packed, not what is on the pages. Deep image compression is lossy: Smaller gives up the most detail, High quality the least, and Balanced is the default. Afterwards the worker checks that the result opens as a PDF and, if it can count them, that no pages went missing; nothing compares how the images look, so open the result before deleting your original.",
     },
     {
-      q: "Is my PDF uploaded?",
-      a: `Not for the analysis or the lossless copy; both run in your browser. It is uploaded only when you press “Compress images on the worker”, a button shown only once the panel has confirmed a secure worker is available. The uploaded file is deleted when that job finishes, the link to the compressed copy expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
+      q: "Is my file uploaded when I use Compress PDF?",
+      a: `Not by default. ${HYBRID_WORKER_STEP} Here that step is the “Compress images on the worker” button: the analysis and the lossless copy both run in your browser, and the button is shown only once the panel has confirmed a secure worker is available.`,
     },
     {
       q: "Can I compress a PDF to a specific target size?",

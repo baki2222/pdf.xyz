@@ -40,7 +40,7 @@ const content: ToolContent = {
 
   intro: [
     "Crop PDF trims the edges of a page so readers see less of it: wide white margins, a scanner's dark border, printer's marks around a proof. You set how much to cut in points, the unit PDF page sizes are measured in, either as one value for all four sides or separately for Top, Right, Bottom and Left. The crop can go on every page or only on the pages you type, such as 1-3, 5.",
-    `It runs inside your browser tab: your browser reads the PDF from your device, rewrites the crop box in memory, and sends nothing to pdf.xyz. The size check comes first, so anything larger than ${ceilingMb} MB, the most this in-browser runner accepts, is refused without being read. Encrypted PDFs are refused when they are opened, including a file that shows its pages without any password but restricts printing or editing, so remove the protection first.`,
+    `It runs online, inside your browser tab: your browser reads the PDF from your device, rewrites the crop box in memory, and sends nothing to pdf.xyz. The size check comes first, so anything larger than ${ceilingMb} MB, the most this in-browser runner accepts, is refused without being read. Encrypted PDFs are refused when they are opened, including a file that shows its pages without any password but restricts printing or editing, so remove the protection first.`,
     `Under the hood the tool shrinks each page's crop box, the region a PDF viewer shows. The page content itself is left as it was: any text you could select before is still selectable, nothing is redrawn, and whatever sits outside the new edges is still in the file, just out of view. Margins are measured from the page's current visible area, so cropping an already-cropped file trims further, and no page is allowed to end up narrower or shorter than ${minPt} points.`,
   ],
 
@@ -83,10 +83,6 @@ const content: ToolContent = {
   ],
 
   faqs: [
-    {
-      q: "Does cropping delete what is outside the margins?",
-      a: "No. The tool changes the crop box, which controls what a viewer displays, and leaves the page content itself untouched. Anyone with an editor that resets or inspects page boxes can bring the hidden area back. To remove sensitive material for good, use Redact PDF, which rebuilds every page as a picture with solid fill painted over the areas you mark.",
-    },
     {
       q: "Can I crop each side by a different amount?",
       a: "Yes. Under Crop margins, switch from Uniform to Per side and four sliders appear, one per edge. Setting only Bottom, for instance, removes a footer strip and leaves the other three edges alone.",

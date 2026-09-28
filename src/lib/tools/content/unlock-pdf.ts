@@ -49,8 +49,8 @@ import {
  *    and keeps the spec, and a job never finalized keeps it until
  *    jobTtlSeconds, which is env-configured with no exported owner — so no
  *    figure is given. The queue's REST base URL may be http: or https:, so
- *    TLS is claimed only for the upload, not for the queue hop. So nothing
- *    here says the password is "never stored". NOTE: the privacy page says
+ *    TLS is claimed only for the upload, not for the queue hop. So this page
+ *    promises no storage-free password; it states the deletion. NOTE: the privacy page says
  *    the password "sits in that job record for the same ~24 hours"; the code
  *    deletes it at the terminal state, so this page states the shorter,
  *    code-true lifetime and the privacy page is the more cautious surface.
@@ -100,7 +100,7 @@ const content: ToolContent = {
     "Remove the password from a PDF you can already open: type it once, qpdf decrypts the file, and you download an unlocked copy. It won't crack unknown passwords.",
 
   intro: [
-    "Unlock PDF takes an encrypted PDF plus the password that opens it and gives you back the same document with the encryption removed, so it opens without a prompt and other tools can work on it. It is for files you are entitled to open, such as a statement or a contract a colleague locked before emailing it. It is not a password cracker: if the password you type does not open the file, the job stops and says so.",
+    "Unlock PDF takes an encrypted PDF plus the password that opens it and gives you back the same document with the encryption removed, so it opens without a prompt and other tools can work on it. It is for files you are entitled to open and whose password is known to you, such as a statement or a contract a colleague locked before emailing it. It is not a password cracker: if the password you type does not open the file, the job stops and says so.",
     `The decryption is done by qpdf, which rewrites the file without its security settings rather than printing the pages to images, so any text the original had stays selectable and searchable. Before anything is delivered the worker checks the result again, and a copy that still reports encryption counts as a failure, not a download.`,
     `This tool runs on a server: your PDF, up to ${ceilingMb} MB, is uploaded over TLS to pdf.xyz's secure worker, and the password rides along in the job request, where it waits in the job queue until the job finishes. The input is deleted when the job finishes, the download link stops working after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that.`,
   ],

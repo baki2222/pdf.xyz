@@ -1,7 +1,7 @@
 import type { ToolContent } from "./types";
-import { AI_INPUT_LIMITS, DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
-  MAX_CONTEXT_TURNS,
+  CHAT_MAX_CHARACTERS_PER_QUESTION,
   MAX_QUESTION_CHARS,
   chatAnswerOutputName,
 } from "@/lib/jobs/chat-with-pdf";
@@ -40,18 +40,22 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *  - src/app/api/jobs/route.ts + src/lib/jobs/delivery-cap.ts — the chat panel
  *    declares no character count, so each question reserves deliveryCapFor's
  *    fallback at submit time (computed below with the route's own arguments);
- *    only processor/translate.ts reads the delivery cap back, so the chat
- *    engine still reads up to AI_INPUT_LIMITS.maxInputCharacters;
+ *    since wave1/L08 the chat engine reads at most that same figure,
+ *    CHAT_MAX_CHARACTERS_PER_QUESTION, with the question and the carried
+ *    conversation paid out of it first (this file was written before L08 and
+ *    said it read up to AI_INPUT_LIMITS.maxInputCharacters; corrected at the
+ *    seo/content merge);
  *  - src/app/privacy/page.tsx §2–§3 — input deleted at the job's end, link
  *    expiry, daily storage rule; text, not the PDF, goes to the provider;
  *    training prohibited by agreement; the provider cache lasts minutes;
  *    "There are no accounts." (the meta description's "No account needed").
  *
  * Adversarial re-check, same day — corrected here:
- *  - "every question reserves the most one run can take" was FALSE: a question
- *    is charged the translate-sized fallback while the chat engine reads up to
- *    AI_INPUT_LIMITS.maxInputCharacters, many times more. The FAQ now says the
- *    charge is fixed, not that it bounds the reading;
+ *  - "every question reserves the most one run can take" was FALSE when
+ *    written: a question was charged the translate-sized fallback while the
+ *    chat engine read up to AI_INPUT_LIMITS.maxInputCharacters. L08 made the
+ *    engine read at most the charge, so the FAQ states the per-question
+ *    reading ceiling and a flat charge, and no longer contrasts them;
  *  - the "about N pages of dense text" gloss was removed, as summarize-pdf's
  *    page did: aiPagesAtDensest divides by densities measured through the
  *    browser's pdfjs extractor, and the worker reads with `pdftotext -layout`;
@@ -96,10 +100,9 @@ if (capabilityForMode(linkedTool("chat-with-pdf").processing) !== "ai") {
 
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
 const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
-const READ_CHARS = AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US");
+/** What ONE question reads, question and conversation included (L08). */
+const READ_CHARS = CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US");
 const QUESTION_CHARS = MAX_QUESTION_CHARS.toLocaleString("en-US");
-/** Exchanges = two turns each; the conversation module caps at this too. */
-const MAX_EXCHANGES = Math.floor(MAX_CONTEXT_TURNS / 2);
 /** The download name the panel shows, from the function the worker names it with. */
 const EXAMPLE_ZIP = chatAnswerOutputName("lease.pdf");
 
@@ -135,13 +138,6 @@ if (
 ) {
   throw new Error(
     "chat-with-pdf content: published and bucket units disagree on questions per day",
-  );
-}
-// The FAQ contrasts the fixed charge with a far larger reading window; if the
-// charge ever reaches the window, that contrast is false.
-if (PER_QUESTION_PUBLISHED >= AI_INPUT_LIMITS.maxInputCharacters) {
-  throw new Error(
-    "chat-with-pdf content: a question's charge no longer sits below the reading window",
   );
 }
 const PER_QUESTION_CHARS = PER_QUESTION_PUBLISHED.toLocaleString("en-US");
@@ -210,15 +206,15 @@ const content: ToolContent = {
     },
     {
       q: "What if the answer is in a part of the document it did not read?",
-      a: `Past the first ${READ_CHARS} characters, the model is told not to claim the document lacks something but to say how far it can see, and the notice above the answer says where the reading ended. For a very long file, pull the section you need into its own PDF with ${EXTRACT_TOOL} and ask that; its citations then count the pages of the extracted copy, not the original.`,
+      a: `Each question reads at most ${READ_CHARS} characters, the question and the conversation sent with it included; the document gets what is left. Past that point, the model is told not to claim the document lacks something but to say how far it can see, and the notice above the answer says where the reading ended. For a very long file, pull the section you need into its own PDF with ${EXTRACT_TOOL} and ask that; its citations then count the pages of the extracted copy, not the original.`,
     },
     {
-      q: "Does it remember my earlier questions?",
-      a: `Only while the page stays open. Nothing carries over on the worker from one question to the next, so this page re-sends up to ${MAX_EXCHANGES} of the latest question-and-answer pairs with each follow-up, fewer when they are long, and uploads the PDF again. Removing the file or reloading the page starts over.`,
+      q: "What happens to the conversation if I reload the page?",
+      a: "It starts over. Nothing carries over on the worker from one question to the next: the conversation lives in this page, which re-sends the recent exchanges with each follow-up and uploads the PDF again. Removing the file or reloading the page starts a new conversation.",
     },
     {
       q: "How many questions can I ask in a day?",
-      a: `Each question is paid for out of ${AI_ALLOWANCE_CLAUSE}, allotted to your connection rather than to this tool alone. The page does not measure your document before sending it, so each question, follow-ups included, costs a flat ${PER_QUESTION_CHARS} characters of that pool, whether the PDF is one page or runs past the ${READ_CHARS}-character reading window. That is ${QUESTIONS_PHRASE} a day if nothing else has used the pool; on a shared network, other people's AI jobs count against it too. Apart from that, a service-wide daily limit on AI processing can pause every AI tool until the next day.`,
+      a: `Each question is paid for out of ${AI_ALLOWANCE_CLAUSE}, allotted to your connection rather than to this tool alone. The page does not measure your document before sending it, so each question, follow-ups included, costs a flat ${PER_QUESTION_CHARS} characters of that pool, whether the PDF is one page or a thousand. That is ${QUESTIONS_PHRASE} a day if nothing else has used the pool; on a shared network, other people's AI jobs count against it too. Apart from that, a service-wide daily limit on AI processing can pause every AI tool until the next day.`,
     },
     {
       q: "Does the AI provider train on my PDF or keep a copy?",

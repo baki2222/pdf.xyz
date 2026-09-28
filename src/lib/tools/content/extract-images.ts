@@ -115,11 +115,11 @@ const content: ToolContent = {
     },
     {
       title: "Review the previews and the skipped list",
-      body: "A grid shows each image's width, height and format; a long result draws only the first previews, with a note that the ZIP holds them all. A skipped box lists each reason with a count. If nothing could be extracted, you see No extractable images found instead.",
+      body: "A grid shows each image's width, height and format; a long result draws only the first previews, with a note that the ZIP of several images holds them all. A skipped box lists each reason with a count. If nothing could be extracted, you see No extractable images found instead.",
     },
     {
       title: "Download what you need",
-      body: `Use Download ZIP for all of them in one archive, named like ${zipExample}, or Download image when only one was found. Each preview also has its own download button. Scan again returns to the Extract images button with the same file, and Start over lets you pick a different PDF.`,
+      body: `When more than one image was found, use Download ZIP for all of them in one archive, named like ${zipExample}; Download image appears when only one was found. Each preview also has its own download button. Scan again returns to the Extract images button with the same file, and Start over lets you pick a different PDF.`,
     },
   ],
 
@@ -133,8 +133,8 @@ const content: ToolContent = {
       a: "The pixels do. Embedded JPEGs are copied byte-for-byte, and RGB or grayscale pixel images become lossless PNGs at native size. A colour profile the PDF assigns to an image is not written into the saved file (a JPEG keeps only what its own bytes contain), so colours can look different in profile-aware apps. The page's drawing instructions are not applied either: an image the page crops, rotates or flips is saved whole, in the orientation it was stored. If the author shrank an image before making the PDF, that smaller version is all the file holds.",
     },
     {
-      q: "Why were some images skipped, or none found?",
-      a: "Skipped images use an encoding this tool cannot rebuild faithfully yet, such as JPEG 2000, CCITT or JBIG2 (common in black-and-white scans), palette colour or CMYK pixels. If nothing is found, the pages may hold only text and vector drawings. Images written inline in the page's drawing instructions, used as fill patterns, or inside annotations such as stamps are not scanned and not listed as skipped.",
+      q: "Why were no images found at all?",
+      a: "The pages may hold only text and vector drawings. Images written inline in the page's drawing instructions, used as fill patterns, or inside annotations such as stamps are not scanned, and are not listed as skipped either.",
     },
     {
       q: "Is transparency kept on logos and cut-out images?",
@@ -142,7 +142,7 @@ const content: ToolContent = {
     },
     {
       q: "Does my PDF get uploaded?",
-      a: `No. The file is read, the images are rebuilt and the ZIP is assembled in your browser. The whole PDF is held in your browser's memory while you work, and a file over ${maxMb} MB is turned away as too large for in-browser processing.`,
+      a: `No. The file is read, the images are rebuilt and, when there is more than one, the ZIP is assembled in your browser. The whole PDF is held in your browser's memory while you work, and a file over ${maxMb} MB is turned away as too large for in-browser processing.`,
     },
     {
       q: "Can I extract images from a password-protected PDF?",

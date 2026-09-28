@@ -97,8 +97,8 @@ const content: ToolContent = {
       a: "The comparison works line by line: if any character on a line differs, the old line is listed as removed and the new one as added. The same happens when the wording is identical but the text wraps differently, for example after a font or margin change, because the lines no longer match.",
     },
     {
-      q: "Can I compare scanned PDFs?",
-      a: `Not as they are. This tool reads selectable text only, so two scans produce a report saying no selectable text was found in either PDF, and if one file is a scan, every line of the other is listed as added or removed. OCR PDF can add a text layer first, but unlike this tool it uploads the scan over TLS to pdf.xyz's secure worker, which deletes it when the job finishes; the OCR'd copy's link expires after ${OCR_LINK_MINUTES} minutes and a daily storage rule erases the stored copy after that. Any OCR misreading will then show up here as a difference.`,
+      q: "What if one of the two PDFs is a scan?",
+      a: `This tool reads selectable text only, so every line of the other file is listed as added or removed, and two scans produce a report saying no selectable text was found in either PDF. OCR PDF can add a text layer first, but unlike this tool it uploads the scan over TLS to pdf.xyz's secure worker, which deletes it when the job finishes; the OCR'd copy's link expires after ${OCR_LINK_MINUTES} minutes and a daily storage rule erases the stored copy after that. Any OCR misreading will then show up here as a difference.`,
     },
     {
       q: "Are my PDFs uploaded to compare them?",

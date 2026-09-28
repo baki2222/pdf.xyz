@@ -113,8 +113,8 @@ const content: ToolContent = {
       a: "No. The fields are added by code running in your browser tab and the file is saved straight to your device, so pdf.xyz never receives the document or what you type into the cards.",
     },
     {
-      q: "Can I add a signature field or style the fields?",
-      a: "No. Fields come in one plain default style, and there is no signature field type. To put a signature on the page itself, run Sign PDF on the finished document.",
+      q: "Can I style the fields?",
+      a: "No. Fields come in one plain default style, with no choice of font, colour or border.",
     },
     {
       q: "Why was a field name or option refused for its characters?",
@@ -122,7 +122,7 @@ const content: ToolContent = {
     },
     {
       q: "How do people complete and lock the form afterwards?",
-      a: "Any PDF reader with form support can fill it, as can Fill Forms here, which has a “Flatten after filling” option. Flatten PDF does that step on its own, baking the values into the page so they stop being editable.",
+      a: "Any PDF reader with form support can fill it, as can Fill Forms here, which can flatten the form once it is filled. Flatten PDF does that step on its own, baking the values into the page so they stop being editable.",
     },
   ],
 

@@ -1538,15 +1538,7 @@ export function modeFaq(tool: Tool): readonly ToolFaqEntry[] {
         answer:
           "No. This tool runs entirely in your browser — the file stays on your device from start to finish.",
       });
-      entries.push({
-        question: `Does ${tool.name} work offline?`,
-        // Composed per tool from the fetches its runner reaches — see
-        // `offlineAnswer`. Two earlier answers were each false: "a dropped
-        // connection does not interrupt work in progress" (fonts, decoders
-        // and character maps are fetched mid-run), and then the same with
-        // "One exception" (the font), which denied the pdfjs fetches.
-        answer: `Not fully. ${offlineAnswer(tool.slug)}`,
-      });
+      // The offline answer is a per-tool FACT, not template: see factFaq.
       break;
     }
     case "hybrid": {
@@ -1556,11 +1548,8 @@ export function modeFaq(tool: Tool): readonly ToolFaqEntry[] {
         question: `Is my file uploaded when I use ${tool.name}?`,
         answer: `Not by default. ${HYBRID_SUMMARY}`,
       });
-      // Retention is true of the worker step only, so it is asked of that step.
-      entries.push({
-        question: `What happens to my file if I run the optional secure-worker step?`,
-        answer: `Only then does the file leave your device. Inputs are wiped when the job finishes, ${retention}`,
-      });
+      // The optional step's retention is a FACT from DEFAULT_RETENTION: see
+      // factFaq.
       break;
     }
     case "secure-worker":
@@ -1608,6 +1597,34 @@ export function modeFaq(tool: Tool): readonly ToolFaqEntry[] {
 export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
   const capability = capabilityForMode(tool.processing);
   const entries: ToolFaqEntry[] = [];
+
+  /*
+   * Two answers that were in the mode template until the seo/content merge
+   * and are FACTS of this tool, so they stay on a page with authored content:
+   *
+   *  - an in-browser tool's offline answer is composed from the fetches ITS
+   *    runner reaches (`offlineAnswer`), and `offline-answer.test.ts` holds
+   *    every in-browser page to serving it. Two earlier answers were each
+   *    false: "a dropped connection does not interrupt work in progress"
+   *    (fonts, decoders and character maps are fetched mid-run), and then
+   *    the same with "One exception" (the font), which denied the pdfjs
+   *    fetches.
+   *  - a hybrid tool's retention is true of the optional worker step only, so
+   *    it is asked of that step, from DEFAULT_RETENTION (`hybrid-copy.test.ts`
+   *    reads it off the served FAQ).
+   */
+  if (capability === "in-browser") {
+    entries.push({
+      question: `Does ${tool.name} work offline?`,
+      answer: `Not fully. ${offlineAnswer(tool.slug)}`,
+    });
+  }
+  if (capability === "hybrid") {
+    entries.push({
+      question: `What happens to my file if I run the optional secure-worker step?`,
+      answer: `Only then does the file leave your device. Inputs are wiped when the job finishes, the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+    });
+  }
 
   /*
    * The size question, asked of every tool that takes a file — and answered

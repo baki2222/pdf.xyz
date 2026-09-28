@@ -60,7 +60,7 @@ const content: ToolContent = {
     },
     {
       title: "Photos to print on Letter paper",
-      body: "Each image is scaled to sit inside the page margin and is never cropped, so no photo runs off the edge of a Letter sheet. On a printer loaded with A4, use the print dialog's scale-to-fit setting, whatever that app calls it, so the taller Letter page is shrunk onto the sheet.",
+      body: "Each image is scaled to sit inside the page margin and is never cropped, so no photo runs off the edge of a Letter sheet. On a printer loaded with a different paper size, use the print dialog's scale-to-fit setting, whatever that app calls it, so the taller Letter page is shrunk onto the sheet.",
     },
   ],
   steps: [
@@ -82,10 +82,6 @@ const content: ToolContent = {
     },
   ],
   faqs: [
-    {
-      q: "What page size does the PDF use, and can I change it?",
-      a: "Every page is US Letter in portrait, white, with each photo centred inside a fixed margin. This tool has no control for page size, orientation or margins, so a landscape photo is placed on a tall page rather than a wide one.",
-    },
     {
       q: "Why is one of my phone photos sideways in the PDF?",
       a: "Many phones store the pixels in one orientation plus a tag telling viewers to rotate them. Your browser's thumbnail honours that tag, but this tool places the stored pixels as they are and does not read it. Open the PDF in Rotate PDF, which also runs in your browser, and turn just the affected pages.",

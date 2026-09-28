@@ -20,8 +20,9 @@ import { formatBytes } from "@/lib/utils";
  *    relative and root-relative references (style.css, /img/logo.png) have
  *    nothing to resolve to, and scripts run inside a bounded window;
  *  - refusals: engine.ts / processor/html-render.ts — exactly one input; an
- *    input-size check before Chromium starts ("The HTML input exceeds the
- *    worker's size limit.", non-retryable), separate from the upload ceiling;
+ *    input-size check before Chromium starts (non-retryable), separate from
+ *    the upload ceiling — and since wave1 the panel refuses a file over the
+ *    stated ceiling when it is picked, before any upload (pickRefusal);
  *    "Chromium could not render this HTML file." for a crash, timeout or bad
  *    output, which is `retryable: true`, so executor/executor.ts requeues it
  *    while attempts remain before the job fails;
@@ -81,7 +82,7 @@ const CEILING_TEXT = formatBytes(CEILING.bytes ?? 0);
 /** Who refuses above the ceiling, computed rather than assumed. */
 const SIZE_SENTENCE =
   CEILING.tier === "worker" && CEILING.engine
-    ? `One HTML file of up to ${CEILING_TEXT} per run: the renderer refuses a larger one before Chromium starts, with “The HTML input exceeds the worker's size limit.”`
+    ? `One HTML file of up to ${CEILING_TEXT} per run, the most ${CEILING.engine} is handed: a larger one is refused as soon as you pick it, before anything is uploaded.`
     : `One HTML file of up to ${CEILING_TEXT} is accepted per run.`;
 
 const content: ToolContent = {
@@ -120,7 +121,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your HTML file",
-      body: "Drag one .html or .htm file onto “Add an HTML file, or browse”, or click it to pick one. The name then appears with a Remove button. When no secure worker is ready, the drop area is not shown at all: you get the worker's status and a “Notify me when this ships” button.",
+      body: "Drag one .html or .htm file onto the dashed drop zone, or click it to pick one. The name then appears with a Remove button. When no secure worker is ready, the drop area is not shown at all: you get the worker's status and a “Notify me when this ships” button.",
     },
     {
       title: "Click Render PDF",
@@ -155,7 +156,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens if the file is too big or will not render?",
-      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, the worker tries again, and when every attempt fails the note reads “Chromium could not render this HTML file.” A render still running when the page stops waiting ends instead with “Stopped waiting for the worker — the job may still finish.” and the job's id.`,
+      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, the worker tries again, and when every attempt fails the note says Chromium could not render the file. A render still running when the page stops waiting ends instead with a note that the job may still finish, and the job's id.`,
     },
   ],
 

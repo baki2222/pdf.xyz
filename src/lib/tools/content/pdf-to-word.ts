@@ -126,7 +126,7 @@ const content: ToolContent = {
       a: "Because no page gave up any selectable text. Most often every page is a picture, as with a scan or a phone photo saved as PDF; lettering converted to vector outlines has the same effect. The converter refuses rather than return an empty file. If you cannot highlight a word in your viewer, add a text layer with OCR PDF, then convert that result.",
     },
     {
-      q: "What if only some of my pages are scanned?",
+      q: "What if only some of my pages are scans?",
       a: "The job still succeeds as long as one page has selectable text; the image-only pages simply add nothing, and no placeholder marks where they were. If the DOCX seems short, look for pages you cannot highlight and run the whole file through OCR PDF before converting again.",
     },
     {

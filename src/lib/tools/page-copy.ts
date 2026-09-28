@@ -118,8 +118,12 @@ export function pageDescription(tool: Tool): string {
  * out (`guides/tool-page-guides-band.test.ts` reads the rendered band) — with
  * the guides this tool's authored content names ranked first within each
  * role. The content's list orders the band; it cannot add a guide the band's
- * rules leave out, which is how two content files named the opposite task
- * (Word to PDF → "PDF to Word") without it reaching the page.
+ * rules leave out. Measured at the seo/content merge (2026-09-28): two content
+ * files named the opposite task (Word to PDF → the PDF to Word guide, PDF to
+ * JPG → the JPG to PDF guide) and fourteen named a guide whose `tools` field
+ * does not list the tool (the scanned-PDF guide from the AI and export pages,
+ * the form guide from Edit, Flatten and Request Signatures); none of those
+ * sixteen reaches the page.
  */
 export function pageGuides(tool: Tool): readonly ToolGuide[] {
   const named = pageRelatedGuideSlugs(tool);

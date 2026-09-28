@@ -52,7 +52,7 @@ const content: ToolContent = {
 
   intro: [
     "Rotate PDF fixes pages that open sideways or upside down: a scan fed through the wrong way, a wide spreadsheet inside a portrait report, a receipt photographed at a quarter turn. Open one PDF and each page appears as a tile previewing its current angle, with the angle printed on any tile not at 0°. Every page starts selected, so Left, Right or 180° turn the whole document at once, while a tile's own arrows fix just that page.",
-    `The new angle goes into each page's /Rotate entry rather than into its drawing, so text stays selectable, images are not recompressed, and any standards-following viewer opens the page the right way up. Page count and order stay exactly as they were. Your browser does the work locally and the document is not uploaded; it takes one file of up to ${ceilingMb} MB.`,
+    `The new angle is saved permanently in each page's /Rotate entry rather than into its drawing, so text stays selectable, images are not recompressed, and any standards-following viewer opens the page the right way up. Page count and order stay exactly as they were. Your browser does the work locally and the document is not uploaded; it takes one file of up to ${ceilingMb} MB.`,
     "One trade-off: the rotated copy is rebuilt from the pages alone. Web links and comments stay on their pages, but bookmarks, the document's title and author properties, and the form definition that makes fields fillable are left behind. Links that jump to another page of the same PDF are re-aimed at the rotated pages, so they keep working. For an interactive form or a tagged, accessible PDF, read the FAQ below first.",
   ],
 
@@ -105,7 +105,7 @@ const content: ToolContent = {
     },
     {
       q: "Does rotating reduce quality or re-render the pages?",
-      a: "No. The page content is copied across unchanged and only its rotation setting is updated, so text stays text and images keep their original resolution.",
+      a: "No. The pages are not re-rendered: only each page's rotation setting is updated, and its content is left exactly as it was, so text stays text and images keep their original resolution.",
     },
     {
       q: "Why is the Apply rotation button greyed out?",

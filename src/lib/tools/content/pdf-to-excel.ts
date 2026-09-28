@@ -122,7 +122,7 @@ const content: ToolContent = {
     },
     {
       q: "Does it work on scanned PDFs or password-protected files?",
-      a: "A fully scanned PDF holds only pictures of its pages, so the job stops and says there is no selectable text; run OCR PDF first. If only some pages are scans, the export succeeds and those pages add no rows, with nothing marking the gap. An open-password PDF fails with a general export error that does not mention the password, since this page has no password field; take it through Unlock PDF, which asks for that password, and convert the copy it returns.",
+      a: "A fully scanned PDF holds only pictures of its pages, so the job is refused with a message that there is no selectable text; run OCR PDF first. If only some pages are scans, the export succeeds and those pages add no rows, with nothing marking the gap. An open-password PDF fails with a general export error that does not mention the password, since this page has no password field; take it through Unlock PDF, which asks for that password, and convert the copy it returns.",
     },
     {
       q: "Are formatting, formulas and very wide rows kept?",

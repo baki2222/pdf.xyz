@@ -198,7 +198,7 @@ const content: ToolContent = {
 
   intro: [
     `Translate PDF has an AI model rewrite your document's text between any two of ${LANGUAGE_COUNT} languages, from ${list(["es", "bn"])} to ${list(["ja", "ar"])}. The model is told to keep headings and lists, leave names, numbers, code and URLs alone unless they clearly need translating, and add, drop or summarise nothing. You get a ZIP such as ${EXAMPLE_ZIP} holding translation.md, translation.txt, a README and a manifest naming the model and languages: translated text, not a rebuilt PDF, so fonts, columns and images are not recreated.`,
-    `The work happens on pdf.xyz's secure worker. Your PDF, one file up to ${CEILING_MB} MB, is uploaded over TLS; the worker extracts its text and sends that text, plus any instruction you typed, but not the PDF file, to a third-party AI provider used under agreements that prohibit training on data sent through the API. The uploaded PDF is deleted when the job finishes, the ZIP's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy.`,
+    `The work happens online, on pdf.xyz's secure worker. Your PDF, one file up to ${CEILING_MB} MB, is uploaded over TLS; the worker extracts its text and sends that text, plus any instruction you typed, but not the PDF file, to a third-party AI provider used under agreements that prohibit training on data sent through the API. The uploaded PDF is deleted when the job finishes, the ZIP's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy.`,
     `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass, or a scan with no text layer, is stopped without touching the allowance. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, has to be split into smaller files first.`,
   ],
 
@@ -255,11 +255,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I translate a scanned PDF?",
-      a: `Not directly. Only text the PDF already contains as text is read, and your browser stops a file with none before it uploads or uses your allowance. Run the scan through ${OCR_TOOL} with the right recognition language and the ${OCR_MODE_LABEL} output, then translate the PDF it returns.`,
-    },
-    {
-      q: "Which languages can I translate between?",
-      a: `Any pair from these ${LANGUAGE_COUNT}: ${list(TRANSLATE_LANGUAGES)}. The target is required; the source can stay on Auto-detect.`,
+      a: `Not directly. Only text the PDF already contains as text is read, and your browser stops a file with none before it uploads or draws on the free allowance. Run the scan through ${OCR_TOOL} with the right recognition language and the ${OCR_MODE_LABEL} output, then translate the PDF it returns.`,
     },
     {
       q: "Does the AI provider train on the document I translate?",
@@ -267,7 +263,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens if one page holds too much text?",
-      a: `A page over ${PASS_CHARS} characters cannot fit one pass, so it is skipped rather than cut off, and a notice where it sat names the page and its character count. Extracting that page on its own does not help, because the page itself is over the limit. Separately, if the worker finds more text than the job reserved from your allowance, or more pages with text than your browser counted, translation stops at that page and one notice there names the untranslated pages and which limit ran out.`,
+      a: `A page over ${PASS_CHARS} characters cannot fit one pass, so it is skipped rather than cut off, and a notice where it sat names the page and its character count. Extracting that page on its own does not help, because the page itself is over the limit. Separately, if the worker finds more text than the job reserved from the free allowance, or more pages with text than your browser counted, translation stops at that page and one notice there names the untranslated pages and which limit ran out.`,
     },
     {
       q: "How accurate is an AI translation of a PDF?",

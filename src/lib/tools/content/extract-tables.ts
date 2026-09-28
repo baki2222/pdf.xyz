@@ -103,8 +103,8 @@ const content: ToolContent = {
       a: "PDF to Excel returns a single XLSX with every line of text in one sheet, cut into cells at tabs, commas and gaps of two or more spaces, so a multi-word description stays in one cell but 1,250.00 splits in two and a blank field shifts later values left. Extract Tables places each word by position, so 1,250.00 stays whole and an empty cell stays empty, but a description spreads over several columns; it also skips pages that do not form a grid and gives each qualifying page its own sheet and CSV.",
     },
     {
-      q: "Can it read tables in a scanned PDF?",
-      a: "No. A scan is a picture of a page with no words to position, so a fully scanned file stops with a message telling you to run OCR PDF first. Add a text layer there, then bring the searchable PDF back. In a file that mixes scanned and text pages, the scanned pages simply produce nothing.",
+      q: "What if only some pages of my PDF are scans?",
+      a: "The pages with text are read as usual, and the scanned pages simply produce nothing. A file with no text on any page stops with a message telling you to run OCR PDF first; add a text layer there, then bring the searchable PDF back.",
     },
     {
       q: "Why are words from one cell spread over several columns?",

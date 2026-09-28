@@ -191,7 +191,7 @@ const content: ToolContent = {
     },
     {
       q: "How many extractions can I run a day?",
-      a: `Every AI tool on pdf.xyz spends from one pool per connection, ${AI_ALLOWANCE_CLAUSE}. The extraction panel sends no count of your document's text, so each run is charged a flat ${EXTRACTION_SHARE} characters of it, whether the PDF is one page or hundreds: ${EXTRACTIONS_PHRASE} a day if no other AI job has used the pool. It is deducted at submission, once the upload is done and before the worker opens the file, so a scan that is turned away still costs a run. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of your allowance is left.`,
+      a: `Every AI tool on pdf.xyz spends from one pool per connection, ${AI_ALLOWANCE_CLAUSE}. The extraction panel sends no count of your document's text, so each run is charged a flat ${EXTRACTION_SHARE} characters of it, whether the PDF is one page or hundreds: ${EXTRACTIONS_PHRASE} a day if no other AI job has used the pool. It is deducted at submission, once the upload is done and before the worker opens the file, so a scan that is turned away still costs a run. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
     },
     {
       q: "What happens with a very long PDF?",

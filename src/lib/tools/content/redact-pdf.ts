@@ -61,7 +61,7 @@ const content: ToolContent = {
     "Black out names, account numbers or signatures in a PDF. Pages are rebuilt as images, so nothing survives under the boxes. Done in your browser tab.",
 
   intro: [
-    "Redact PDF removes the parts of a document you mark instead of hiding them. A black rectangle drawn with an annotation tool is a separate object on top of the page, and the words beneath it can still be copied out of the file. Here each area is painted into the pixels of a rendered page image, and the output is built from those images alone, so under a box there is no text, vector or form layer left to recover.",
+    "Redact PDF removes the parts of a document you mark instead of hiding them. A black rectangle drawn with an annotation tool is a separate object on top of the page, and the words beneath it can still be copied out of the file. Here each black-out area is painted into the pixels of a rendered page image, and the output is built from those images alone, so under a box there is no text, vector or form layer left to recover.",
     `The whole job runs in your browser tab: pdf.js, shipped with the page, draws each page and the new file is assembled there, so the PDF is not uploaded. You place each area by typing its page, its position from the bottom-left corner and its size in PDF points, then pick a black or white fill and a resolution, ${PRESET_LABELS}. One PDF at a time, up to ${MAX_MB} MB.`,
     "Every page is rebuilt as a picture, including pages you did not mark, so the result cannot be selected, searched or filled in, and links, bookmarks and the original title and author are not carried over. There is no word search: a name that appears on several pages needs a box on each.",
   ],

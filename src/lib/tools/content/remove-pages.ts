@@ -85,7 +85,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Load the document",
-      body: "Drag your document onto “Drop your PDF here, or browse”, or press anywhere inside that box for the file picker; if several files are dropped, only the first is read. A header line then shows the file's name with its page total and file size, and the board below holds one tile per page, labelled Page 1, Page 2 and so on.",
+      body: "Drag your document onto the dashed drop box, or press anywhere inside that box for the file picker; if several files are dropped, only the first is read. A header line then shows the file's name with its page total and file size, and the board below holds one tile per page, labelled Page 1, Page 2 and so on.",
     },
     {
       title: "Select the pages to remove",
@@ -109,10 +109,6 @@ const content: ToolContent = {
     {
       q: "Can I delete every page in the PDF?",
       a: "No. The tool always leaves at least one page behind: with every page selected the delete button switches off and a note asks you to deselect one. If what you really want is a short file made of a few pages, Extract Pages builds one from just those.",
-    },
-    {
-      q: "Will bookmarks, form fields and document info survive?",
-      a: "Not all of it. Page content, rotation and annotations on the pages you keep are copied, but the new file has no bookmarks and no custom page labels, and form fields lose the document-level form definition, so a viewer may no longer offer them for filling even where their boxes still show. The title and author properties are missing, the producer and creator fields both read pdf.xyz, and the creation date becomes the moment you ran the deletion.",
     },
     {
       q: "Are the deleted pages completely gone from the file?",

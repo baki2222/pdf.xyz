@@ -1,6 +1,7 @@
 import type { ToolContent } from "./types";
 import {
   DEFAULT_RESOLUTION_ID,
+  RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTIONS,
   pageImageName,
   rasterScaleForDpi,
@@ -92,8 +93,8 @@ const content: ToolContent = {
   metaDescription: `Turn every PDF page into a lossless PNG at ${dpiList} DPI. Rendering happens on your device with no upload, and a multi-page PDF downloads as one ZIP.`,
 
   intro: [
-    "PDF to PNG draws each page of a PDF onto a canvas and saves the result as a PNG: a picture of the whole page, with text, vector graphics and photos flattened into one image. PNG is lossless, so small type and hairline rules keep their edges instead of gaining the ringing JPEG leaves around sharp contrast. As with any page image, the words inside can no longer be selected or searched.",
-    `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the WebAssembly code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. Each run converts a single PDF of at most ${ceilingMb} MB. Encryption of any kind stops the file as it loads, with a message that it is password-protected and must be unlocked first; that includes a PDF that opens without a password and merely restricts printing or copying.`,
+    "PDF to PNG, a page-to-image converter, draws each page of a PDF onto a canvas and saves the result as a PNG: a picture of the whole page, with text, vector graphics and photos flattened into one image. PNG is lossless, so small type and hairline rules keep their edges instead of gaining the ringing JPEG leaves around sharp contrast. As with any page image, the words inside can no longer be selected or searched.",
+    `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. Each run converts a single PDF of at most ${ceilingMb} MB. Encryption of any kind stops the file as it loads, with a message that it is password-protected and must be unlocked first; that includes a PDF that opens without a password and merely restricts printing or copying.`,
     `Pick ${presetSentence}; pages render at that density and keep the rotation stored in the PDF, though an oversized page such as a poster is scaled down to a fixed pixel ceiling. Pages are painted onto white, so the PNGs are opaque. A one-page PDF saves as a single image (logo.pdf gives ${exampleSingle}). Anything longer is bundled into a ZIP, with leading zeros on the page numbers so they have as many digits as the page count: a ${EXAMPLE_PAGES}-page manual.pdf gives ${exampleZip}, which contains ${exampleFirst} up to ${exampleLast}.`,
   ],
 
@@ -131,7 +132,7 @@ const content: ToolContent = {
     },
     {
       title: "Download the PNGs",
-      body: 'Press "Download PNG" for a single-page file, or "Download ZIP" (followed by the image count) for a longer one; each preview tile also has its own download button. "Change resolution" takes you back to render again at a different setting.',
+      body: `Press "Download PNG" for a single-page file, or "Download ZIP" (followed by the image count) for a file of more than one page. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from the download button on its preview tile. "Change resolution" takes you back to render again at a different setting.`,
     },
   ],
 
@@ -141,16 +142,12 @@ const content: ToolContent = {
       a: "No. pdf.js renders the pages inside your browser, and the PNG files are built in the same tab. The PDF is not sent to a pdf.xyz server, or anywhere else, to be converted.",
     },
     {
-      q: "Can the PNG have a transparent background?",
-      a: "No, there is no transparency option. Each page is painted onto white before it is encoded, so even a page with no background of its own becomes an opaque PNG. Knocking the white out in an image editor afterwards can also remove white that belongs to the page's own artwork.",
-    },
-    {
       q: "Which resolution should I choose?",
       a: `PDF pages are sized in points, ${POINTS_PER_INCH} of them per inch, and the renderer turns every inch of page into as many pixels as the chosen DPI, unless the page is big enough to reach the pixel ceiling. Choose ${lowest.label} (${lowest.dpi} DPI) for pages that will only be looked at on a monitor, keep the preselected ${standard.label} (${standard.dpi} DPI) when unsure, and move up to ${highest.label} (${highest.dpi} DPI) for printing or for zooming into small print. Doubling the DPI roughly quadruples the pixels on each page, so files grow and rendering slows.`,
     },
     {
       q: "Can I convert only one page instead of the whole PDF?",
-      a: "Not directly: pressing Render always converts the whole document. Afterwards a preview tile's own download button saves just that page, but a long file shows previews for a fixed number of leading pages only, and anything past them is reachable through the ZIP alone. To end up with PNGs of chosen pages only, cut the PDF down with Extract Pages and convert what it produces.",
+      a: "Not directly: pressing Render always converts the whole document. Afterwards a preview tile's own download button saves just that page, but a long file shows previews for a fixed number of leading pages only, and anything past them is reachable only through the ZIP that a file of several pages gets. To end up with PNGs of chosen pages only, cut the PDF down with Extract Pages and convert what it produces.",
     },
     {
       q: "Why is a picture missing from one of my PNGs?",

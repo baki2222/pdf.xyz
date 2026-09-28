@@ -86,7 +86,7 @@ const content: ToolContent = {
 
   intro: [
     "Fill Forms completes the interactive fields a PDF already has: the text boxes, checkboxes, radio groups, dropdowns and list boxes the form's author built in. Each fillable field gets a matching control: a dropdown offers its own options, and a text field with a character limit counts against it and stops at it. Values the form already holds are pre-loaded, so it works as well for correcting a half-finished form as for a blank one.",
-    `Forms collect names, addresses and account details, so where the typing happens matters: this PDF is opened, filled and saved again by your own browser, with no copy sent to pdf.xyz. Your answers go into the original document rather than a rebuilt copy, so its pages and bookmarks are kept. The size ceiling for one form is ${ceilingMb} MB.`,
+    `Forms collect names, addresses and account details, so where the typing happens matters: this PDF is opened, filled and saved again online by your own browser, with no upload and no copy sent to pdf.xyz. Your answers go into the original document rather than a rebuilt copy, so its pages and bookmarks are kept. The size ceiling for one form is ${ceilingMb} MB.`,
     "Three limits first. It never adds fields, so a flat or scanned page has nothing to fill. Push buttons and signature fields are shown in a separate note and never filled; flattening bakes a push button into the page, but an unsigned signature field with no drawn appearance makes flattening fail for the whole form. And fields accept only the standard PDF fonts' Western alphabet, so Cyrillic, Greek, Arabic, Bengali or Chinese text, and letters such as Polish ł or Czech č, are refused rather than saved as question marks.",
   ],
 

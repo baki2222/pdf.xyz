@@ -57,7 +57,7 @@ const content: ToolContent = {
     "Combine two or more PDFs into one file in the order you choose. Drag rows or use the arrow buttons, then merge in your browser. Your files are not uploaded.",
 
   intro: [
-    "Merge PDF joins whole documents end to end: every page of the first file in your list, then every page of the next, down to the bottom. Each row gives the file's page count and size next to a thumbnail of its first page (a plain file icon stands in if that page can't be drawn), and a running total of files and pages heads the list, so you know how long the result will be before you merge. It all happens in your browser; the PDFs you add are read on your device, not uploaded to pdf.xyz.",
+    "Merge PDF joins whole documents end to end: every page of the first file in your list, then every page of the next, down to the bottom. Each row gives the file's page count and size next to a thumbnail of its first page (a plain file icon stands in if that page can't be drawn), and a running total of files and pages heads the list, so you know how long the result will be before you merge. It all happens online in your browser: the PDFs you add are read on your device, not uploaded to pdf.xyz.",
     "Pages are copied with their content, dimensions and rotation intact, so a landscape spreadsheet printout stays landscape next to portrait letters, and links to web addresses on a page still point where they did. What belongs to a document rather than to its pages does not come along: the bookmarks panel, the title and author fields, and the form definition. Form fields may still show what was typed in them, but they stop behaving as a fillable form.",
     `Each file can be up to ${maxMb} MB, and the merge button stays disabled until at least two files are in the list. The tool sets no count limit of its own, but every file you add is held in your browser's memory until you remove its row, press “Start over” or leave the page, so the practical ceiling is your device's memory. If one file in a batch is password-protected, only that file is refused, by name, and the others remain in the list.`,
   ],
@@ -96,15 +96,11 @@ const content: ToolContent = {
     },
     {
       title: "Merge and download",
-      body: "Press “Merge N PDFs”, then “Download merged PDF”. The download is named after whichever PDF is at the top, so march-report.pdf there gives march-report-merged.pdf, and “Start over” clears the list for a new batch.",
+      body: "Press the Merge button, whose label counts your files, then “Download merged PDF”. The download is named after whichever PDF is at the top, so march-report.pdf there gives march-report-merged.pdf, and “Start over” clears the list for a new batch.",
     },
   ],
 
   faqs: [
-    {
-      q: "Are bookmarks, form fields and the document title kept?",
-      a: "No. Merge copies pages, and those belong to the document rather than to any page, so the result has no bookmarks and an empty title and author. Form fields may still show their values but no longer work as a form; to keep entries permanent, run Flatten PDF on that file first. A digital signature will not validate in the merged copy either, since merging writes a brand-new file and a signature holds only for the precise bytes that were signed; sign once the files are combined.",
-    },
     {
       q: "Why was one of my PDFs refused?",
       a: "A warning box lists each file that couldn't be added and why: not a PDF, empty, over the size limit, unreadable, or password-protected. Encrypted files are refused even when they open without a password and only restrict editing or printing. Accepted files stay in the list while you fix the one that failed.",

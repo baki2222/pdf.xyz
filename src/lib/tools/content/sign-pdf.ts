@@ -83,7 +83,7 @@ const content: ToolContent = {
 
   intro: [
     `Sign PDF puts your signature on a document you already have, such as an offer letter, a lease or a consent form. Draw it with a mouse, pen or fingertip, type your name in the Script (serif italic) or Print style, or pick a PNG or JPEG of the signature you already use under Upload; the image is read on your device. Then pick the page and one of ${anchorCount} anchor points (corners, edge midpoints or center) and tune Size and Margin until it sits on the line.`,
-    `Everything runs in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. Ink is added to the chosen page only; the other pages, fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. A name with letters beyond the Western European alphabet (a Polish Ł counts) is drawn in a Noto font the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
+    `Everything runs online in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. Ink is added to the chosen page only; the other pages, fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. A name with letters beyond the Western European alphabet (a Polish Ł counts) is drawn in a Noto font the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
     "The result is a visual electronic signature: no certificate, no PKI, no tamper evidence. The FAQ below says what that means if someone asks how you signed.",
   ],
 
@@ -126,10 +126,6 @@ const content: ToolContent = {
   ],
 
   faqs: [
-    {
-      q: "Is a signature added here legally binding?",
-      a: "That depends on the document, the jurisdiction and whoever asked for your signature, so pdf.xyz cannot promise it. This tool adds a picture of your signature with no certificate attached, and nothing in the file would reveal a later edit. If the recipient needs a certificate-based, witnessed or notarised signature, this is not that; ask which kind they accept before sending.",
-    },
     {
       q: "Is the document I sign uploaded to pdf.xyz?",
       a: "No. Reading the PDF, preparing your signature and writing the signed copy all happen in this browser tab, and neither the document nor the signature is sent to pdf.xyz. The only things signing itself downloads are code and fonts: the tool, its PDF library, and, only for a name that needs one, a Noto font file.",
