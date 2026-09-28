@@ -51,6 +51,7 @@ import { REDIS_QUEUE_ENV } from "@/lib/workers/queue/redis-config";
 import { createFakeRedis } from "@/lib/workers/queue/redis-fake";
 import { redisRestFetch } from "@/lib/workers/queue/redis-rest-fake";
 import { POST } from "./route";
+import { aiToolOptionExample } from "@/lib/jobs/ai-tool-options.examples";
 
 function post(body: unknown): Request {
   return new Request("http://localhost/api/jobs", {
@@ -62,7 +63,15 @@ function post(body: unknown): Request {
 
 /** The minimal request for a tool, and whether the route would parse it. */
 function minimalJob(slug: string) {
-  return { tool: slug, inputs: ["f_1234567890"] };
+  // With options the route ADMITS: since 2026-09-28 an AI job's options are
+  // parsed before the allowance, so an option-less job is a 400 that never
+  // reaches the charge this file is about.
+  const options = aiToolOptionExample(slug);
+  return {
+    tool: slug,
+    inputs: ["f_1234567890"],
+    ...(options ? { options } : {}),
+  };
 }
 
 const AI_TOOLS = tools

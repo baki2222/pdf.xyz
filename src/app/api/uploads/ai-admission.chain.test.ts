@@ -54,6 +54,7 @@ import {
   AI_CHARACTER_ALLOWANCE,
 } from "@/lib/jobs/ai-allowance";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
+import { aiToolOptionExample } from "@/lib/jobs/ai-tool-options.examples";
 import {
   runSecurityJob,
   type FetchLike,
@@ -78,6 +79,9 @@ const uploadOf = (slug: string) => ({
 const jobOf = (slug: string, declaredCharacters?: number) => ({
   tool: slug,
   inputs: ["f_1234567890"],
+  // Options the route ADMITS — AI options are parsed before the allowance
+  // since 2026-09-28, and this file compares the two routes' allowance verdicts.
+  ...(aiToolOptionExample(slug) ? { options: aiToolOptionExample(slug) } : {}),
   ...(declaredCharacters !== undefined ? { declaredCharacters } : {}),
 });
 

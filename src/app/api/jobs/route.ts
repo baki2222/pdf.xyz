@@ -25,6 +25,7 @@ import {
   type AiAllowanceReservation,
 } from "@/lib/ratelimit/guard";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
+import { parseAiToolOptions } from "@/lib/jobs/ai-tool-options";
 import { apiError } from "@/lib/jobs/responses";
 import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
 import { readJsonBody, respond, respondRateLimited } from "../_lib/http";
@@ -60,6 +61,16 @@ export async function POST(request: Request): Promise<Response> {
   // the job names — and the refusal names the allowance, not a generic
   // throttle (see AI_ALLOWANCE_USED_MESSAGE).
   const tool = getToolBySlug(parsed.value.tool);
+
+  // AN AI JOB'S OPTIONS ARE CHECKED BEFORE ANYTHING IS CHARGED. Until
+  // 2026-09-28 only the worker parsed them, so a request the contract already
+  // knew was bad — two schema fields both named "Total" — reserved a third of
+  // the day and failed on the worker, which gives nothing back. The table is
+  // the one the processors read, so this check and the worker's cannot
+  // disagree about what is admissible (`@/lib/jobs/ai-tool-options`).
+  const aiOptions = parseAiToolOptions(parsed.value.tool, parsed.value.options);
+  if (aiOptions && !aiOptions.ok) return respond(aiOptions.error);
+
   /**
    * What this job may deliver, in the two units the reservation is exposed in.
    *

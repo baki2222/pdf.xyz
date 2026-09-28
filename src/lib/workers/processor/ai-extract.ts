@@ -13,10 +13,7 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import {
-  parseExtractOptions,
-  extractionOutputName,
-} from "@/lib/jobs/ai-extract";
+import { extractionOutputName } from "@/lib/jobs/ai-extract";
 import {
   AI_EXTRACT_TOOL,
   runAiExtract,
@@ -32,6 +29,7 @@ import {
   type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
+import { AI_TOOL_OPTION_PARSERS } from "@/lib/jobs/ai-tool-options";
 import { boundReadLimits } from "./read-cap";
 
 type Failure = Extract<AiExtractRun, { ok: false }>;
@@ -147,7 +145,10 @@ export function createAiExtractProcessor(deps: AiExtractDeps): Processor {
           retryable: false,
         });
       }
-      const parsed = parseExtractOptions(input.options);
+      // The SAME parser the route ran before it charged the allowance
+      // (`@/lib/jobs/ai-tool-options`), kept here as the second line of
+      // defence for a job queued by anything but that route.
+      const parsed = AI_TOOL_OPTION_PARSERS[AI_EXTRACT_TOOL](input.options);
       if (!parsed.ok) {
         return processorFail({
           code: parsed.error.body.error.code,

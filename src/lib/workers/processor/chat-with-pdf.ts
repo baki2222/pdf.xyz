@@ -13,10 +13,7 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import {
-  parseChatOptions,
-  chatAnswerOutputName,
-} from "@/lib/jobs/chat-with-pdf";
+import { chatAnswerOutputName } from "@/lib/jobs/chat-with-pdf";
 import {
   CHAT_TOOL,
   runChatWithPdf,
@@ -32,6 +29,7 @@ import {
   type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
+import { AI_TOOL_OPTION_PARSERS } from "@/lib/jobs/ai-tool-options";
 import { boundReadLimits } from "./read-cap";
 
 type Failure = Extract<ChatWithPdfRun, { ok: false }>;
@@ -149,7 +147,10 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
           retryable: false,
         });
       }
-      const parsed = parseChatOptions(input.options);
+      // The SAME parser the route ran before it charged the allowance
+      // (`@/lib/jobs/ai-tool-options`), kept here as the second line of
+      // defence for a job queued by anything but that route.
+      const parsed = AI_TOOL_OPTION_PARSERS[CHAT_TOOL](input.options);
       if (!parsed.ok) {
         return processorFail({
           code: parsed.error.body.error.code,
