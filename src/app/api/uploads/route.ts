@@ -16,6 +16,7 @@ import {
 } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
+import { runningWorkerEnforcesAiReadCap } from "@/lib/workers/heartbeat";
 import {
   enforceRateLimit,
   peekAiCharacterAllowance,
@@ -75,11 +76,12 @@ export async function POST(request: Request): Promise<Response> {
    * (audit at 67e8d0f). Both are asked here too, with the same answers the
    * job route would give, and both are PEEKS: this route never spends.
    *
-   * The allowance is asked about the SMALLEST reservation any job could make,
-   * not the file's likely cost — an upload does not know what its job will
-   * declare, and refusing a file some honest declaration could still run
-   * would be the opposite defect. Pinned against the job route's own verdict
-   * in `ai-admission.chain.test.ts`.
+   * The allowance is asked about the SMALLEST reservation a job of THIS tool
+   * could make, priced as the job route prices it (per call, and by the
+   * running worker's proof) — not the file's likely cost: an upload does not
+   * know what its job will declare, and refusing a file some honest
+   * declaration could still run would be the opposite defect. Pinned against
+   * the job route's own verdict in `ai-admission.chain.test.ts`.
    */
   const tool = getToolBySlug(parsed.value.tool);
   if (tool && capabilityForMode(tool.processing) === "ai") {
@@ -90,7 +92,9 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
     const allowance = await peekAiCharacterAllowance(
-      smallestAiReservation(),
+      await smallestAiReservation(tool.slug, () =>
+        runningWorkerEnforcesAiReadCap(),
+      ),
       request,
     );
     if (!allowance.allowed) return respondRateLimited(allowance);

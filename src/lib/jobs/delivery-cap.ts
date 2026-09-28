@@ -377,19 +377,33 @@ export const AI_DELIVERY_LIMITS = {
 } as const;
 
 /**
- * The least any AI job can reserve: the smallest declaration the job contract
- * accepts (one character — `declaredCharacters` must be a positive whole
- * number), under the same limits the charge uses. It is translate's price for
- * that declaration; a per-call run never costs less (`aiReservationFor`
- * charges it at least its read bound, and at most the whole-run fallback), so
- * it is below every AI tool's cheapest job.
+ * The least a job of `tool` can reserve: the smallest declaration the job
+ * contract accepts (one character — `declaredCharacters` must be a positive
+ * whole number), priced by {@link aiReservationFor} exactly as `POST /api/jobs`
+ * prices it, under the same limits and the same witness of the running worker.
  *
- * It is a LOWER bound on purpose. The upload route uses it to refuse a file
- * whose job no declaration could get admitted — never one that some honest
- * declaration could. The relationship to the validator and to the job route's
- * own refusal is pinned in `api/uploads/ai-admission.chain.test.ts`.
+ * PER TOOL, AND ASKED OF THE SAME PRICING. L01 wrote this as one number for
+ * every AI tool — translate's price for one character, four — while the job
+ * route it merged into prices a per-call run at the whole-run fallback
+ * whenever the running worker has not proved its read cap. Four is below every
+ * such job, so on a worker without the proof (production until its image is
+ * rebuilt) the upload route admitted a Summarize, Chat or Extract file with
+ * too little of the day left for ANY job of it to run: the upload-then-refuse
+ * this function exists to prevent (`ai-admission.chain.test.ts`).
+ *
+ * It is still a LOWER bound where it can only be one: a per-call run under a
+ * proving worker is also charged its options, which an upload does not know,
+ * so they are counted as none. The upload route refuses a file only when no
+ * job of its tool could be admitted — never one an honest job still could.
  */
-export function smallestAiReservation(): number {
-  return deliveryCapFor({ declaredCharacters: 1 }, AI_DELIVERY_LIMITS)
-    .characters;
+export async function smallestAiReservation(
+  tool: string,
+  readCapEnforced: () => Promise<boolean>,
+): Promise<number> {
+  const reservation = await aiReservationFor(
+    tool,
+    { declaredCharacters: 1 },
+    { ...AI_DELIVERY_LIMITS, readCapEnforced },
+  );
+  return reservation.charge;
 }

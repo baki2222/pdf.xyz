@@ -35,12 +35,12 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
   REQUIRED_WORKER_ENV,
   capabilityForMode,
-  deliveryCapFor,
   parseCreateJobRequest,
   parseCreateUploadSessionRequest,
   smallestAiReservation,
   AI_DELIVERY_LIMITS,
 } from "@/lib/jobs";
+import { aiReservationFor } from "@/lib/jobs/delivery-cap";
 import { tools } from "@/lib/tools";
 import { RATE_LIMIT_ENV, policyFor } from "@/lib/ratelimit";
 import {
@@ -97,7 +97,32 @@ const NON_AI_UPLOAD_TOOLS = tools
   .map((tool) => tool.slug)
   .filter(uploadable);
 
-const SMALLEST = smallestAiReservation();
+/**
+ * The least a job of `slug` can reserve, as the upload route asks it. No
+ * heartbeat is served in this file, so the running worker has proved nothing
+ * and a per-call tool is priced as a whole run whatever it declares — the
+ * price on a worker whose image predates the read-cap proof.
+ *
+ * INTEGRATED: this lane first had ONE smallest reservation for every tool
+ * (four characters). On the branch it merged into, a per-call job costs the
+ * whole-run fallback until the worker proves its read cap, so four admitted a
+ * Summarize, Chat or Extract upload that no job of it could follow — the
+ * "refused exactly when" check below failed on it, correctly.
+ */
+const NO_PROOF = async () => false;
+const smallestFor = (slug: string) => smallestAiReservation(slug, NO_PROOF);
+
+/** What the job route charges this job, priced as it prices it. */
+async function chargeOf(body: unknown): Promise<number> {
+  const parsed = parseCreateJobRequest(body);
+  if (!parsed.ok) throw new Error("the job body stopped parsing");
+  return (
+    await aiReservationFor(parsed.value.tool, parsed.value, {
+      ...AI_DELIVERY_LIMITS,
+      readCapEnforced: NO_PROOF,
+    })
+  ).charge;
+}
 
 /** Spend the connection's bucket down to `remaining` characters. */
 async function leave(remaining: number): Promise<void> {
@@ -125,7 +150,7 @@ describe("the corpus", () => {
     expect(NON_AI_UPLOAD_TOOLS.length).toBeGreaterThanOrEqual(5);
   });
 
-  it("the smallest reservation is what the smallest ACCEPTED declaration costs", () => {
+  it("the smallest reservation is what the smallest ACCEPTED declaration costs", async () => {
     // One character is the least the job contract accepts, and zero is not.
     // If the validator ever accepted less, the upload would be asking about a
     // job size that is not the smallest, and could refuse a runnable file.
@@ -134,31 +159,49 @@ describe("the corpus", () => {
       const one = parseCreateJobRequest(jobOf(slug, 1));
       expect(one.ok, slug).toBe(true);
       if (!one.ok) continue;
-      expect(deliveryCapFor(one.value, AI_DELIVERY_LIMITS).characters).toBe(
-        SMALLEST,
-      );
+      const smallest = await smallestFor(slug);
+      expect(await chargeOf(jobOf(slug, 1)), slug).toBe(smallest);
+      expect(smallest).toBeGreaterThan(0);
+      expect(smallest).toBeLessThan(AI_CHARACTER_ALLOWANCE);
     }
-    expect(SMALLEST).toBeGreaterThan(0);
-    expect(SMALLEST).toBeLessThan(AI_CHARACTER_ALLOWANCE);
+  });
+
+  it("under a worker that proves its read cap, it is a LOWER bound on every tool's cheapest job", async () => {
+    // The one place it can only be a bound: a proven per-call run is also
+    // charged its options, which an upload does not know. Below every real
+    // job, so no file an honest job could run is refused.
+    const proven = async () => true;
+    for (const slug of AI_TOOLS) {
+      const parsed = parseCreateJobRequest(jobOf(slug, 1));
+      if (!parsed.ok) throw new Error(`${slug}: the job body stopped parsing`);
+      const cheapest = (
+        await aiReservationFor(slug, parsed.value, {
+          ...AI_DELIVERY_LIMITS,
+          readCapEnforced: proven,
+        })
+      ).charge;
+      expect(
+        await smallestAiReservation(slug, proven),
+        slug,
+      ).toBeLessThanOrEqual(cheapest);
+    }
   });
 });
 
 describe("POST /api/uploads agrees with POST /api/jobs about the allowance", () => {
   it("refuses an AI upload exactly when no job could be admitted", async () => {
-    const undeclared = deliveryCapFor(
-      jobOf(AI_TOOLS[0]!),
-      AI_DELIVERY_LIMITS,
-    ).characters;
-    const states = [
-      0,
-      SMALLEST - 1,
-      SMALLEST,
-      undeclared - 1,
-      undeclared,
-      AI_CHARACTER_ALLOWANCE,
-    ];
     const seen = new Set<boolean>();
     for (const slug of AI_TOOLS) {
+      const smallest = await smallestFor(slug);
+      const undeclared = await chargeOf(jobOf(slug));
+      const states = [
+        0,
+        smallest - 1,
+        smallest,
+        undeclared - 1,
+        undeclared,
+        AI_CHARACTER_ALLOWANCE,
+      ];
       for (const remaining of states) {
         await leave(remaining);
         const upload = await UPLOAD(post("/api/uploads", uploadOf(slug)));
@@ -286,8 +329,10 @@ describe("what the panel receives", () => {
       expect(result.ok, slug).toBe(false);
       const message = !result.ok ? result.message : "";
       expect(message.startsWith(AI_ALLOWANCE_USED_MESSAGE), slug).toBe(true);
-      // What the panel renders: a wait a reader can act on, not a header name.
-      expect(message, slug).toMatch(/ It resets in about \d+ hours?\.$/);
+      // What the panel renders: a wait a reader can act on, not a header name
+      // — said by the browser client from the route's Retry-After.
+      expect(message, slug).toMatch(/ Try again in about [^.]+\.$/);
+      expect(message, slug).not.toMatch(/header|retry-after/i);
       expect(calls, `${slug} went past the refused upload`).toEqual([
         "/api/uploads",
       ]);
