@@ -236,7 +236,13 @@ async function renderReady(Panel: ComponentType<{ tool: Tool }>, tool: Tool) {
     expect(found, `${tool.slug} shows no file picker`).not.toBeNull();
     return found!;
   });
-  const run = container.querySelector('button[aria-disabled="true"]');
+  // The RUN button: `WorkerRunButton` always carries `aria-busy`. Not "the
+  // first aria-disabled button" — since the wave-1 L03 merge (2026-09-28) the
+  // OCR panel's language chips for packs the worker lacks are aria-disabled
+  // too, and come first, so that query picked a chip and read its state.
+  const run = container.querySelector(
+    'button[aria-busy][aria-disabled="true"]',
+  );
   expect(
     run,
     `${tool.slug}: no blocked run button before a pick`,
