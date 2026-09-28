@@ -558,7 +558,10 @@ describe("the fetch-site graph is healthy", () => {
     // capturePdfPages when L08 (85ee451) made rasterizePdf a thin wrapper.
     expect(ids).toContain("lib/pdf/render.ts#capturePdfPages");
     expect(ids).toContain("lib/pdf/render.ts#createThumbnailRenderer");
-    expect(ids).toContain("lib/pdf/text.ts#extractPdfText");
+    // The text site moved from extractPdfText into readPageTextItems when L10
+    // (ed6a206) gave extractPdfText and extractPdfLines one shared
+    // `getDocument` call; extractPdfText is now a wrapper around it.
+    expect(ids).toContain("lib/pdf/text.ts#readPageTextItems");
     expect(ids).toContain("lib/pdf/unicode-font.ts#fetchFromOrigin");
     const classesOf = (id: string) =>
       [...all.values()].filter((s) => rel(s.id) === id)[0]?.classes ?? [];
@@ -575,7 +578,7 @@ describe("the fetch-site graph is healthy", () => {
     expect(access, "the metadata-only site is not discovered").toBeDefined();
     expect(access!.classified).toBe(true);
     expect(access!.classes).toEqual([]);
-    expect(classesOf("lib/pdf/text.ts#extractPdfText")).toEqual([
+    expect(classesOf("lib/pdf/text.ts#readPageTextItems")).toEqual([
       "character-map",
     ]);
     expect(classesOf("lib/pdf/unicode-font.ts#fetchFromOrigin")).toEqual([
