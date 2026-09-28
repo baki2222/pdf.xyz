@@ -25,7 +25,7 @@
  * included, and a fixture is no reason to open a second way in.
  */
 import { PDFDocument } from "pdf-lib";
-import { embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 
 /** A 1×1 opaque PNG — enough for a page that is all image and no text. */
@@ -41,9 +41,12 @@ export async function imageOnlyPdf(pageCount = 1): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const image = await embedRasterImage(doc, PNG_1PX, "png");
   for (let i = 0; i < pageCount; i += 1) {
-    doc
-      .addPage([612, 792])
-      .drawImage(image, { x: 0, y: 0, width: 612, height: 792 });
+    await drawRasterImage(doc.addPage([612, 792]), image, {
+      x: 0,
+      y: 0,
+      width: 612,
+      height: 792,
+    });
   }
   return doc.save();
 }

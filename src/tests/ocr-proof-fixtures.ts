@@ -7,7 +7,7 @@
  */
 import { PDFDocument } from "pdf-lib";
 import { encodePng } from "@/lib/pdf/extract-images";
-import { embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { skippedSidecarPages } from "@/lib/workers/ocr-sidecar";
 
@@ -38,7 +38,7 @@ export async function mixedScanPdf(): Promise<Uint8Array> {
     encodePng(size, size, "rgb8", samples),
     "png",
   );
-  scan.drawImage(img, { x: 60, y: 400, width: 400, height: 400 });
+  await drawRasterImage(scan, img, { x: 60, y: 400, width: 400, height: 400 });
   return doc.save();
 }
 

@@ -1,4 +1,4 @@
-import { embedRasterImage, loadPdfLib } from "./pdf-lib";
+import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { baseName } from "./files";
 import { encodeGrayJpeg } from "./gray-jpeg";
 import { clampJpegQuality } from "./pdf-to-image";
@@ -150,7 +150,7 @@ export async function createGrayscaleBuilder({
       }
       // pdf-lib maps a one-component JPEG to DeviceGray.
       const image = await embedRasterImage(doc, jpeg, "jpg");
-      outPage.drawImage(image, {
+      await drawRasterImage(outPage, image, {
         x: 0,
         y: 0,
         width: pageWidth,
