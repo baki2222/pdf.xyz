@@ -413,7 +413,7 @@ export default async function ToolPage({
               ) : tool.slug === "ai-extract" ? (
                 /* AI Data Extraction: selectable-text extraction turned into structured
                    JSON by a configured AI provider, packaged as a real extraction ZIP
-                   (extraction.json + extraction.md + manifest) on the worker. Fails
+                   (extraction.json + model-output.json + extraction.md + manifest) on the worker. Fails
                    honestly when no provider is configured or the reply isn't JSON — never faked. */
                 <ErrorBoundary boundary="ai-extract-worker-panel">
                   <AiExtractWorkerPanel tool={tool} />

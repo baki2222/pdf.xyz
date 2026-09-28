@@ -191,7 +191,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={Download}
             label="Output"
-            value="ZIP · extraction.json + extraction.md + manifest"
+            value="ZIP · extraction.json + model-output.json + extraction.md + manifest"
           />
           <SpecRow
             icon={Timer}

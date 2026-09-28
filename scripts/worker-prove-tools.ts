@@ -63,6 +63,11 @@ import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
+import {
+  PROOF_EXTRACTION_SCHEMA,
+  PROOF_TABLE_ROWS,
+  verifyExtractionProof,
+} from "@/lib/probes/extraction-proof";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { capabilityForMode, usesWorkerBackend } from "@/lib/jobs/capabilities";
 import {
@@ -189,13 +194,9 @@ async function tablePdf(): Promise<Buffer> {
   const page = doc.addPage([595, 842]);
   page.drawText("Quarterly results", { x: 60, y: 780, size: 16, font: bold });
   const cols = [60, 200, 330, 450];
-  const rows = [
-    ["Region", "Q1", "Q2", "Q3"],
-    ["North", "1200", "1350", "1410"],
-    ["South", "980", "1020", "1105"],
-    ["East", "1560", "1490", "1620"],
-    ["West", "720", "860", "915"],
-  ];
+  // Shared with the ai-extract proof's verifier, so the figures it accepts are
+  // the figures this PDF draws — derived, never typed twice.
+  const rows = PROOF_TABLE_ROWS;
   rows.forEach((row, r) => {
     row.forEach((cell, c) => {
       page.drawText(cell, {
@@ -844,13 +845,13 @@ const SPECS: ProofSpec[] = [
     type: PDF_MIME,
     options: {
       mode: "schema",
-      schema: [
-        { name: "region", type: "string", description: "The region name" },
-        { name: "q1", type: "number", description: "The Q1 figure" },
-      ],
+      schema: PROOF_EXTRACTION_SCHEMA.map((field) => ({ ...field })),
     },
     expect: isZipContainer,
     want: "extraction ZIP",
+    // The VALUES, not the container: a ZIP whose extraction.json was `{}`
+    // passed this spec until 2026-09-28 (`@/lib/probes/extraction-proof`).
+    verify: (bytes) => verifyExtractionProof(bytes),
   },
   {
     tool: "chat-with-pdf",

@@ -6,9 +6,10 @@
  *
  * It changes none of the engine's honesty guarantees: no configured AI provider ⇒
  * `not_implemented` with operator requirements; no selectable text ⇒ a `no_text`
- * failure pointing at OCR; a non-JSON model reply ⇒ `unprocessable_entity` rather
- * than a fabricated result; and the shipped extraction is exactly the model's real
- * JSON. The text extractor and provider are injected (the same {@link AiExtractDeps}
+ * failure pointing at OCR; a non-JSON model reply ⇒ a typed failure rather than a
+ * fabricated result; the model's reply ships verbatim as model-output.json, and in
+ * schema mode extraction.json is that reply reconciled with the requested fields
+ * (see the engine). The text extractor and provider are injected (the same {@link AiExtractDeps}
  * the engine takes), so this module stays free of Node built-ins and unit-testable.
  */
 
@@ -123,7 +124,7 @@ export function createAiExtractProcessor(deps: AiExtractDeps): Processor {
         tools: [AI_EXTRACT_TOOL],
         ready,
         detail: ready
-          ? "AI Data Extraction ready: the PDF's selectable text is sent to a configured AI provider which returns structured JSON, packaged as an extraction ZIP (extraction.json + extraction.md + manifest) on an encrypted, auto-deleting secure worker."
+          ? "AI Data Extraction ready: the PDF's selectable text is sent to a configured AI provider which returns structured JSON, packaged as an extraction ZIP (extraction.json + model-output.json + extraction.md + manifest) on an encrypted, auto-deleting secure worker."
           : deps.extract == null
             ? "AI Data Extraction needs the PDF text extractor, which isn't available on this worker."
             : "AI Data Extraction needs a configured AI provider (PDFXYZ_AI_PROVIDER + API key). None is configured, so it fails honestly as not-implemented.",
