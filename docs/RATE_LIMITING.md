@@ -258,9 +258,11 @@ you are out does not push your reset further away. Asking twice returns the same
 
 **The upload route asks the same question for free.** `POST /api/uploads` for an
 AI tool peeks the allowance (`peekAiCharacterAllowance` in
-`ratelimit/guard.ts`) for the smallest reservation any job could make, before a
-slot is minted, and answers the same `429` + allowance message when no job could
-be admitted. It never spends a character; it costs one of `uploads.create`'s 60
+`ratelimit/guard.ts`) for the smallest reservation a job of THAT tool could
+make, priced as the job route prices it (`smallestAiReservation`: a per-call
+tool costs a whole run until the running worker proves its read cap), before a
+slot is minted, and answers the same `429` + allowance message when no job of
+it could be admitted. It never spends a character; it costs one of `uploads.create`'s 60
 an hour. The route exists to spare a user the upload of a file whose job was
 certain to be refused — pinned against the job route's own verdict by
 `src/app/api/uploads/ai-admission.chain.test.ts`.
