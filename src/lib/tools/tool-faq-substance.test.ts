@@ -50,6 +50,8 @@ import type { Tool } from "./types";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { extractPages, getPageCount, mergePdfs } from "@/lib/pdf/engine";
+import { PDF_ENCRYPTED_UNKNOWN_MESSAGE } from "@/lib/pdf/encryption";
+import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { parseRanges } from "@/lib/pdf/ranges";
 import {
   IMAGE_HEAVY_SHARE,
@@ -391,13 +393,31 @@ describe("merge, split and extract answer what their engines do", () => {
   });
 
   it("a locked PDF is turned away when it is added, and the page says so", async () => {
-    const locked = await lockedPdf();
+    /*
+     * AMENDED at the merge of wave1/l06-copy-other (2026-09-28), history kept.
+     * This used `lockedPdf()` — a trailer /Encrypt with no /O or /U — and
+     * expected "password-protected". pdf-lib refuses on the /Encrypt entry
+     * alone, but since L06 the loader asks pdf.js WHICH lock a file has, and
+     * no reader can open that file, so the only true message for it is the
+     * one true of both kinds. The FAQ's claim is about a password-protected
+     * PDF, so it is now checked with a real one (Standard handler, a user
+     * password); the unclassifiable file stays as a second case.
+     */
+    const locked = userPasswordEncryptedPdf();
     // Positive control: without the /Encrypt entry the same file loads.
     await expect(getPageCount(await pdfWithPages([[200, 200]]))).resolves.toBe(
       1,
     );
     await expect(getPageCount(locked)).rejects.toThrow(/password-protected/);
     await expect(mergePdfs([locked])).rejects.toThrow(/password-protected/);
+    // A lock no reader can classify is turned away too, in words true of both.
+    const unclassifiable = await lockedPdf();
+    await expect(getPageCount(unclassifiable)).rejects.toThrow(
+      PDF_ENCRYPTED_UNKNOWN_MESSAGE,
+    );
+    await expect(mergePdfs([unclassifiable])).rejects.toThrow(
+      PDF_ENCRYPTED_UNKNOWN_MESSAGE,
+    );
     for (const tool of mounting("merge")) {
       // The runner parses each file as it is added, and files the rejection
       // against that file — which is the "turned away when you add it".

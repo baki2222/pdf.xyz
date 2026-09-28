@@ -18,6 +18,7 @@ import {
   type SignatureRequestOptions,
 } from "@/lib/jobs/request-signatures";
 import { normalizeAngle } from "@/lib/pdf/engine";
+import { ENCRYPTED_PDF_MESSAGES } from "@/lib/pdf/encryption";
 import { DEFAULT_RETENTION } from "@/lib/jobs";
 import { DevWorkerStore } from "../store";
 import { createLocalDevQueue } from "../queue/local-dev";
@@ -139,6 +140,25 @@ async function encryptedPdf(): Promise<Uint8Array> {
   return doc.save({ useObjectStreams: false });
 }
 
+/**
+ * What the loader says of an encrypted upload: one of the three sentences
+ * `@/lib/pdf/encryption` writes, each naming Unlock PDF.
+ *
+ * AMENDED at the merge of wave1/l06-copy-other (2026-09-28), history kept. This
+ * was /password-protected\. Unlock it first/, the loader's one sentence for
+ * every encrypted file. Since L06 the loader asks pdf.js which lock the file
+ * has: the fixture above carries no /O or /U, so no reader can open it and the
+ * true answer is the "could not tell" sentence — which is also what the worker
+ * says in production, where the browser pdf.js build does not load under Node.
+ * What this test protects is unchanged: the loader's own reason reaches the
+ * user, once, as a non-retryable bad request.
+ */
+const ENCRYPTED_REASON = new RegExp(
+  `^(?:${ENCRYPTED_PDF_MESSAGES.map((m) =>
+    m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  ).join("|")})$`,
+);
+
 async function unreadable(): Promise<
   { label: string; bytes: Uint8Array; reason: RegExp }[]
 > {
@@ -147,7 +167,7 @@ async function unreadable(): Promise<
     {
       label: "password-protected",
       bytes: await encryptedPdf(),
-      reason: /password-protected\. Unlock it first/,
+      reason: ENCRYPTED_REASON,
     },
     {
       label: "truncated",
@@ -256,9 +276,7 @@ describe("request-signatures on a PDF the worker cannot open", () => {
       code: "unprocessable_entity",
       retryable: false,
     });
-    expect(locked.job?.error?.message).toMatch(
-      /password-protected\. Unlock it first/,
-    );
+    expect(locked.job?.error?.message).toMatch(ENCRYPTED_REASON);
   });
 });
 
