@@ -1,5 +1,6 @@
 import { looksLikePdf } from "../compression/engine";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import { inspectPdfAMarkers, type PdfAMarkerReport } from "./pdfa-markers";
 
 export const PDF_TO_PDFA_TOOL = "pdf-to-pdfa";
 export const PDF_ARCHIVE_TOOLS = [PDF_TO_PDFA_TOOL] as const;
@@ -28,9 +29,52 @@ export interface GhostscriptPdfARunner {
   ): Promise<PdfAConversion>;
 }
 
+/**
+ * WHY a conversion failed, as the runner knows it. Carried as a type rather
+ * than a sentence because the retry decision hangs on it.
+ *
+ * Every Ghostscript failure used to be one bare `throw`, which the engine
+ * mapped to one `failed`, which the processor marked `retryable: true`. So an
+ * open-password PDF — which Ghostscript cannot read, every time — ran three
+ * times and ended in "could not process this file"; and a file that hit the
+ * 120 s engine timeout held the single serial worker for about six minutes
+ * (3 × 120 s + back-off), stalling every other worker tool for every user.
+ * The same bytes fail the same way. Only the failures that are NOT about the
+ * bytes — the temp directory, the spawn — are worth a second attempt.
+ */
+export type GhostscriptFailureReason =
+  /** Ghostscript exited non-zero. Deterministic for the same bytes. */
+  | "engine_exit"
+  /** Killed at the engine timeout. Deterministic enough: a retry costs another full timeout. */
+  | "timeout"
+  /** Exit 0 but no usable PDF came back. Deterministic. */
+  | "bad_output"
+  /** The input needs an OPEN password (qpdf `--requires-password` exit 0). */
+  | "password_required"
+  /** Temp-dir / file I/O on the worker. Not about the bytes: retryable. */
+  | "io"
+  /** The process could not be started (ENOENT, EAGAIN, …). Not about the bytes: retryable. */
+  | "spawn";
+
+export class GhostscriptRunError extends Error {
+  constructor(
+    readonly reason: GhostscriptFailureReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = "GhostscriptRunError";
+  }
+}
+
 export interface PdfArchiveDeps {
   ghostscript?: GhostscriptPdfARunner;
   validate?: (bytes: Uint8Array) => boolean | Promise<boolean>;
+  /**
+   * The PDF/A declaration check run on every output before it ships. Defaults
+   * to {@link inspectPdfAMarkers}; injectable only so a test can prove the
+   * engine consults it.
+   */
+  inspectOutput?: (bytes: Uint8Array) => Promise<PdfAMarkerReport>;
   limits?: { maxInputBytes?: number };
 }
 
@@ -50,19 +94,77 @@ export interface PdfArchiveResultMeta {
   notes: string[];
 }
 
+/**
+ * Why a `failed` run failed. `transient` is the ONLY retryable reason — see
+ * {@link GhostscriptFailureReason} for what it cost when every reason was.
+ * `not_pdfa`: the engine returned a PDF that does not declare PDF/A-2b (no
+ * `/GTS_PDFA1` OutputIntent, or no XMP `part 2 / B`), which the same argv will
+ * reproduce on every attempt.
+ */
+export type PdfArchiveFailureReason =
+  "engine_exit" | "timeout" | "bad_output" | "not_pdfa" | "transient";
+
 export type PdfArchiveRun =
   | { ok: true; output: Uint8Array; meta: PdfArchiveResultMeta }
   | { ok: false; kind: "unsupported"; message: string }
   | { ok: false; kind: "invalid_pdf"; message: string }
+  | { ok: false; kind: "password_required"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
-  | { ok: false; kind: "failed"; message: string };
+  | {
+      ok: false;
+      kind: "failed";
+      reason: PdfArchiveFailureReason;
+      message: string;
+    };
 
 const unsupported = (): PdfArchiveRun => ({
   ok: false,
   kind: "unsupported",
   message:
-    "PDF/A conversion requires the native Ghostscript engine, which is not installed in this environment.",
+    "PDF/A conversion requires the native Ghostscript engine and its sRGB colour profile, which are not installed in this environment.",
 });
+
+export const PASSWORD_REQUIRED_MESSAGE =
+  "This PDF needs a password to open, so it can't be converted as it is. Unlock it first with Unlock PDF, then convert the unlocked copy to PDF/A.";
+
+const FAILURE_MESSAGES: Record<PdfArchiveFailureReason, string> = {
+  engine_exit:
+    "The PDF/A engine could not process this file. No output was produced.",
+  timeout:
+    "The PDF/A engine ran out of time on this file, so no output was produced. Very large or complex files can take longer than the worker allows; splitting the file into smaller parts may help.",
+  bad_output: "The PDF/A engine produced no usable PDF output.",
+  not_pdfa:
+    "The converter's output did not carry the PDF/A-2b identification and colour profile an archive checks for, so it was not returned rather than handed to you as PDF/A. No output was produced.",
+  transient:
+    "The worker hit a temporary problem before the PDF/A engine could finish. No output was produced.",
+};
+
+function failed(reason: PdfArchiveFailureReason): PdfArchiveRun {
+  return {
+    ok: false,
+    kind: "failed",
+    reason,
+    message: FAILURE_MESSAGES[reason],
+  };
+}
+
+/** Map what the runner threw to a run. An untyped throw is NOT assumed transient. */
+function runFailure(error: unknown): PdfArchiveRun {
+  if (!(error instanceof GhostscriptRunError)) return failed("engine_exit");
+  switch (error.reason) {
+    case "password_required":
+      return {
+        ok: false,
+        kind: "password_required",
+        message: PASSWORD_REQUIRED_MESSAGE,
+      };
+    case "io":
+    case "spawn":
+      return failed("transient");
+    default:
+      return failed(error.reason);
+  }
+}
 
 export async function runPdfToPdfA(
   input: Uint8Array,
@@ -93,22 +195,21 @@ export async function runPdfToPdfA(
     conversion = await deps.ghostscript.convertToPdfA(input, {
       standard: PDF_A_STANDARD,
     });
-  } catch {
-    return {
-      ok: false,
-      kind: "failed",
-      message:
-        "The PDF/A engine could not process this file. No output was produced.",
-    };
+  } catch (error) {
+    return runFailure(error);
   }
   const output = conversion.bytes;
-  if (!(await validate(output))) {
-    return {
-      ok: false,
-      kind: "failed",
-      message: "The PDF/A engine produced no usable PDF output.",
-    };
-  }
+  if (!(await validate(output))) return failed("bad_output");
+
+  // The file is about to be handed over as PDF/A-2b. Before this check the only
+  // gate was `looksLikePdf` above — a `%PDF-` header — so an output that claimed
+  // part 2 in its XMP but carried no OutputIntent (which is what the argv
+  // produced until the Ghostscript PDF/A recipe was followed) shipped as a
+  // success. A validator at the user's archive would reject it; nothing here
+  // could. Refuse instead: no file is better than a false claim.
+  const inspect = deps.inspectOutput ?? inspectPdfAMarkers;
+  const markers = await inspect(output);
+  if (!markers.ok) return failed("not_pdfa");
 
   // A conversion that discarded something is NOT a failure. The user asked for
   // PDF/A and PDF/A cannot hold what was removed — the file is correct and the

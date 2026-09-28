@@ -1,37 +1,42 @@
 // @vitest-environment node
 /**
  * THE PROPERTY: every chat request the API accepts leaves room for document
- * text inside its own reservation.
+ * text inside what one question may read.
  *
- * The chat engine refuses a question with `over_reservation` when the
- * conversation alone uses up `delivery.characters`, and its comment says only
- * "a cap the route did not make" can reach that branch. That holds for one
- * reason nothing named: the route caps a chat reservation at
- * `CHAT_MAX_CHARACTERS_PER_QUESTION` (41,032), and the conversation is paid out
- * of it — so a conversation of 41,032 characters or more would be refused on
- * EVERY question, however small its document, after being charged a third of
- * the day. The chat parser alone does not prevent that: it accepts a
+ * The chat engine refuses a question (`conversation_too_long`) when the
+ * conversation alone uses up the per-question ceiling,
+ * `CHAT_MAX_CHARACTERS_PER_QUESTION` (41,032), because the conversation is paid
+ * out of it (`chatDocumentBudget`) — so a conversation of 41,032 characters or
+ * more would be refused on EVERY question, however small its document, after
+ * being charged. The chat parser alone does not prevent that: it accepts a
  * 2,000-character question plus 12 turns of 4,000, i.e. 50,000 characters.
  * What prevents it is the 8 KB options limit in `validation.ts`, a constant in
  * a different file with no relationship to the chat ceiling. A comment was the
  * only guard; this is the test that replaces it.
  *
- * Run through the real request parser and the real reservation formula, not
- * by restating the arithmetic.
+ * Until 2026-09-27 (history kept) the conversation was paid out of the job's
+ * RESERVATION, which the route capped at the same number. The per-call pricing
+ * of Summarize, Chat and Extract made the job's cap a DOCUMENT bound, charged
+ * the conversation beside it, and the ceiling is where the conversation is
+ * paid from now — with or without a cap, declared or not, proven or not.
+ *
+ * Run through the real request parser, the real route pricing
+ * (`aiReservationFor`) and the engine's own budget function, not by restating
+ * the arithmetic.
  */
 import { describe, expect, it } from "vitest";
 import {
   CHAT_MAX_CHARACTERS_PER_QUESTION,
-  CHAT_TOOL_SLUG,
   MAX_CONTEXT_TURNS,
   MAX_QUESTION_CHARS,
   MAX_TURN_CHARS,
   chatConversationCharacters,
-  chatReservationTerms,
+  chatDocumentBudget,
   parseChatOptions,
   type ChatOptions,
 } from "./chat-with-pdf";
-import { deliveryCapFor } from "./delivery-cap";
+import { aiReservationFor } from "./delivery-cap";
+import { CHAT_TOOL } from "@/lib/workers/chat-with-pdf/engine";
 import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -59,25 +64,42 @@ function conversationOf(total: number, char = "a"): ChatOptions {
   return context.length > 0 ? { question, context } : { question };
 }
 
-/** What the route would do with this chat request: accept it, and reserve what. */
-function throughTheRoute(options: ChatOptions, declaredCharacters?: number) {
-  const parsed = parseCreateJobRequest({
-    tool: CHAT_TOOL_SLUG,
+/** The chat job body the route receives for `options`. */
+function parseJob(options: ChatOptions, declaredCharacters?: number) {
+  return parseCreateJobRequest({
+    tool: CHAT_TOOL,
     inputs: [FILE_ID],
     options,
     ...(declaredCharacters !== undefined ? { declaredCharacters } : {}),
   });
+}
+
+/**
+ * What the route and the worker would do with this chat request: accept it,
+ * price it (with or without a worker proving its read cap), and how much
+ * document text the engine may then send with it.
+ */
+async function throughTheRoute(
+  options: ChatOptions,
+  declaredCharacters: number | undefined,
+  proven: boolean,
+) {
+  const parsed = parseJob(options, declaredCharacters);
   if (!parsed.ok) return { accepted: false as const };
-  const delivery = deliveryCapFor(parsed.value, {
+  const reservation = await aiReservationFor(CHAT_TOOL, parsed.value, {
     fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
     headroom: TRANSLATE_EXTRACTOR_HEADROOM,
-    ...chatReservationTerms(parsed.value.options),
+    readCapEnforced: async () => proven,
   });
-  const conversation = chatConversationCharacters(options);
+  // What the worker holds: the options as the processor validates them.
+  const validated = parseChatOptions(
+    parsed.value.options as Record<string, unknown>,
+  );
+  if (!validated.ok) throw new Error("the route accepted what chat refuses");
   return {
     accepted: true as const,
-    conversation,
-    documentBudget: delivery.characters - conversation,
+    conversation: chatConversationCharacters(validated.value),
+    documentBudget: chatDocumentBudget(validated.value, reservation.delivery),
   };
 }
 
@@ -87,7 +109,7 @@ function longestAccepted(char: string): number {
   let hi = MAX_QUESTION_CHARS + MAX_CONTEXT_TURNS * MAX_TURN_CHARS;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    if (throughTheRoute(conversationOf(mid, char), 1).accepted) lo = mid;
+    if (parseJob(conversationOf(mid, char), 1).ok) lo = mid;
     else hi = mid - 1;
   }
   return lo;
@@ -109,7 +131,7 @@ describe("the conversation can never consume a chat question's whole reservation
       CHAT_MAX_CHARACTERS_PER_QUESTION,
     );
     // …and the request parser refuses it, which is the bound doing the work.
-    expect(throughTheRoute(maximal, 1).accepted).toBe(false);
+    expect(parseJob(maximal, 1).ok).toBe(false);
   });
 
   it("health check: the search finds a conversation that IS accepted, near the byte limit", () => {
@@ -124,21 +146,24 @@ describe("the conversation can never consume a chat question's whole reservation
     // One UTF-16 unit, three UTF-8 bytes: fewer characters fit, never more.
     ["Bengali", "ক"],
   ])(
-    "the longest %s conversation the API accepts still leaves document room, declared or not",
-    (_label, char) => {
+    "the longest %s conversation the API accepts still leaves document room, declared or not, proven or not",
+    async (_label, char) => {
       const longest = longestAccepted(char);
       const options = conversationOf(longest, char);
       for (const declared of [1, undefined]) {
-        const routed = throughTheRoute(options, declared);
-        expect(routed.accepted).toBe(true);
-        if (!routed.accepted) continue;
-        expect(
-          routed.documentBudget,
-          `a ${routed.conversation.toLocaleString("en-US")}-character conversation ` +
-            "is accepted by the API but leaves no document text inside the " +
-            `${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")}-character ` +
-            "cap — every such question is charged, then refused (over_reservation)",
-        ).toBeGreaterThan(0);
+        for (const proven of [true, false]) {
+          const routed = await throughTheRoute(options, declared, proven);
+          expect(routed.accepted).toBe(true);
+          if (!routed.accepted) continue;
+          expect(
+            routed.documentBudget,
+            `a ${routed.conversation.toLocaleString("en-US")}-character conversation ` +
+              "is accepted by the API but leaves no document text inside the " +
+              `${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")}-character ` +
+              "per-question ceiling — every such question is charged, then " +
+              "refused (conversation_too_long)",
+          ).toBeGreaterThan(0);
+        }
       }
     },
   );

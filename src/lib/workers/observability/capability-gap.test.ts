@@ -174,6 +174,7 @@ describe("the 2026-08-12 worker, as it actually was", () => {
         ...JSON.parse(oldWorkerRecord()).capabilities,
         chunkedTranslate: true,
         deliveryCap: true,
+        aiReadCap: true,
       },
     });
     const row = collectWebOperationsSnapshot(DRAINABLE_ENV, {

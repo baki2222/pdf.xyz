@@ -7,7 +7,7 @@ import { jpegComponentCount } from "../../src/lib/pdf/gray-jpeg";
 import {
   createGrayscaleBuilder,
   grayscaleTitle,
-} from "../../src/lib/pdf/grayscale";
+} from "../../src/lib/pdf/grayscale-builder";
 import {
   addDocumentStructure,
   lostStructure,
@@ -18,24 +18,31 @@ import {
   rasterScaleForDpi,
   resolutionById,
 } from "../../src/lib/pdf/pdf-to-image";
+import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
 import { fileInput, waitForHydration } from "../helpers";
 import {
+  collapsedStructuredProse,
+  inkBlockRect,
   makeBlankImageInPage,
   makeFormPdf,
   makeImageBearingPdf,
   makeJpegFixtureInPage,
   makeNeutralInkJpegInPage,
   makePngFixture,
+  makeRasterPageInPage,
   makeRasterizedPdf,
+  makeStructuredProsePdf,
   makeTextPdf,
   pageMarker,
+  structuredProseProblems,
   writeTempFixture,
+  type PointRect,
 } from "./fixtures";
 import {
   captureDownload,
-  decodeEmbeddedJpegs,
   decodeEmbeddedPageImages,
   decodeImageInPage,
+  decodePageRegions,
   expectMagic,
   normalizeText,
   pdfCropBoxes,
@@ -102,6 +109,55 @@ export interface ToolCase {
    * other half unfalsified.
    */
   control: (ctx: CaseContext) => Promise<Buffer | Buffer[]>;
+  /**
+   * WHY each control must be rejected: for control N, a fragment of the
+   * assertion message it must fail on. Optional, but set it wherever a case
+   * returns one control per property — "rejected" alone accepts any throw,
+   * including a precondition (a region that shrank to nothing, a page count)
+   * that fires before the check the control exists to falsify. redact-pdf's
+   * blank control was rejected exactly that way, so its "page 2 is blank"
+   * check had never been shown able to fail. Share the fragment with the
+   * assertion through one constant, so rewording one cannot orphan the other.
+   */
+  rejectsBecause?: string[];
+}
+
+/**
+ * Run one control through its case's assertion and require the assertion to
+ * reject it — and, where the case declares `rejectsBecause`, to reject it with
+ * the message of the check that control exists for. Exported so the spec and
+ * any offline replay of a case run the same verdict.
+ */
+export async function expectControlRejected(
+  slug: string,
+  proof: ToolCase,
+  controls: Buffer[],
+  index: number,
+  ctx: CaseContext,
+): Promise<void> {
+  if (proof.rejectsBecause) {
+    expect(
+      proof.rejectsBecause.length,
+      `"${slug}" declares ${proof.rejectsBecause.length} rejection reasons for ${controls.length} controls — every control needs exactly one`,
+    ).toBe(controls.length);
+  }
+  let reason: string | null = null;
+  try {
+    await proof.assert(controls[index]!, ctx);
+  } catch (error) {
+    reason = error instanceof Error ? error.message : String(error);
+  }
+  expect(
+    reason,
+    `the content assertion for "${slug}" ACCEPTED control #${index + 1}. It cannot distinguish a correct artifact from that one, so a green result here means nothing.`,
+  ).not.toBeNull();
+  const want = proof.rejectsBecause?.[index];
+  if (want !== undefined) {
+    expect(
+      reason,
+      `"${slug}" rejected control #${index + 1} for the wrong reason: the check it exists to falsify never ran, so that check has never been shown able to fail`,
+    ).toContain(want);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -195,6 +251,78 @@ const input = (ctx: CaseContext, key: string): Buffer => {
 
 /** Marker helper bound to a fixture file name. */
 const marker = (name: string, page: number) => pageMarker(name, page);
+
+/** The redact proof's page size, in points: makeTextPdf's default. */
+const REDACT_PAGE: [number, number] = [320, 240];
+
+/**
+ * The redact proof's pixel checks, by the message each fails with. One
+ * definition, read by the assertion AND by `rejectsBecause`, so each control
+ * is pinned to the check it falsifies rather than to any throw.
+ */
+const REDACT_FAILS = {
+  blankRender: "page 2 (no box) is blank — nothing was rendered",
+  noInkUnderBox:
+    "page 2 has no ink under the box's position — the white check on page 1 would prove nothing",
+  unpainted: "the redaction box is not painted — the content under it survived",
+  overpainted:
+    "ink OUTSIDE the box is gone on page 1 — the redaction destroyed more than the box",
+} as const;
+
+function intersect(a: PointRect, b: PointRect): PointRect | null {
+  const x0 = Math.max(a.x, b.x);
+  const y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.width, b.x + b.width);
+  const y1 = Math.min(a.y + a.height, b.y + b.height);
+  return x1 > x0 && y1 > y0
+    ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
+    : null;
+}
+
+/**
+ * The regions the redact proof reads, derived from the two definitions they
+ * describe — the runner's default box and the fixture's ink block — so moving
+ * either moves the proof. Fails LOUDLY if they stop overlapping enough for the
+ * proof to mean anything, instead of letting a region shrink into a vacuous
+ * "at least 98% of nothing".
+ */
+function redactRegions(): {
+  box: PointRect;
+  overBlock: PointRect;
+  blockOutsideBox: PointRect;
+} {
+  const box: PointRect = {
+    x: DEFAULT_REDACTION_DRAFT.x,
+    y: DEFAULT_REDACTION_DRAFT.y,
+    width: DEFAULT_REDACTION_DRAFT.width,
+    height: DEFAULT_REDACTION_DRAFT.height,
+  };
+  const block = inkBlockRect(REDACT_PAGE);
+  const overBlock = intersect(box, block);
+  if (
+    !overBlock ||
+    overBlock.width * overBlock.height < 0.5 * box.width * box.height
+  ) {
+    throw new Error(
+      "redact proof precondition: the default box must sit mostly over the fixture's ink block, or a white box proves nothing",
+    );
+  }
+  // The block's band above the box: fixture ink the box must NOT touch.
+  const boxTop = box.y + box.height;
+  const blockTop = block.y + block.height;
+  const blockOutsideBox: PointRect = {
+    x: block.x,
+    y: boxTop,
+    width: block.width,
+    height: blockTop - boxTop,
+  };
+  if (blockOutsideBox.height < 6) {
+    throw new Error(
+      "redact proof precondition: the fixture's ink block must extend above the default box, or (c) has nothing to measure",
+    );
+  }
+  return { box, overBlock, blockOutsideBox };
+}
 
 /**
  * US Letter, in points. Several runners default to stamp sizes scaled for a
@@ -480,7 +608,17 @@ export const CASES: Record<string, ToolCase> = {
     kind: "pdf-to-markdown",
     artifact: "text",
     run: async (ctx) => {
-      await uploadTextPdf(ctx, "notes.pdf", { pages: 2 });
+      // Its own fixture, not `uploadTextPdf`: that one draws a single line per
+      // page, so a converter that collapsed every page into ONE paragraph
+      // passed this proof — there was no second block on the page to lose.
+      const bytes = Buffer.from(
+        await makeStructuredProsePdf("notes.pdf", { pages: 2 }),
+      );
+      ctx.data["notes.pdf"] = bytes;
+      await uploadPayloads(ctx.page, [
+        { name: "notes.pdf", mimeType: "application/pdf", buffer: bytes },
+      ]);
+      await expect(ctx.page.getByText("notes.pdf")).toBeVisible();
       return runAndDownload(
         ctx,
         /create markdown/i,
@@ -492,10 +630,17 @@ export const CASES: Record<string, ToolCase> = {
       const text = buf.toString("utf8");
       expect(text).not.toContain("%PDF-");
       expect(text).not.toContain("endstream");
-      expect(text).toContain(marker("notes.pdf", 1));
-      expect(text).toContain(marker("notes.pdf", 2));
+      // Every heading, paragraph and list item of both pages is its own
+      // block — read from the downloaded text the way a renderer splits it.
+      expect(structuredProseProblems(text, "notes.pdf", 2)).toEqual([]);
     },
-    control: async (ctx) => input(ctx, "notes.pdf"),
+    // The identity control fails on the container; the collapsed control is
+    // the pre-geometry output — every word present, every boundary gone —
+    // and fails only on structure.
+    control: async (ctx) => [
+      input(ctx, "notes.pdf"),
+      Buffer.from(collapsedStructuredProse("notes.pdf", 2)),
+    ],
   },
 
   "text-to-pdf": {
@@ -531,10 +676,31 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       const heading = "Markdown Proof Heading";
-      const body = "markdown-body-proof-line";
+      // A snake_case word and an inline code span: the old inline stripper
+      // printed this line as "markdownbodyproof MAXSIZE line". What is
+      // expected is what a reader should see, not what was typed.
+      const body = "markdown_body_proof `MAX_SIZE` line";
       ctx.data.heading = heading;
-      ctx.data.body = body;
-      await ctx.page.locator("textarea").fill(`# ${heading}\n\n${body}`);
+      ctx.data.body = "markdown_body_proof MAX_SIZE line";
+      ctx.data.cellKey = "proof_cell_key";
+      ctx.data.cellValue = "proof_cell_value";
+      ctx.data.nested = "nested_proof_child";
+      await ctx.page
+        .locator("textarea")
+        .fill(
+          [
+            `# ${heading}`,
+            "",
+            body,
+            "",
+            "| Key | Value |",
+            "| --- | ----- |",
+            `| ${ctx.data.cellKey} | ${ctx.data.cellValue} |`,
+            "",
+            "- parent_proof_item",
+            `  - ${ctx.data.nested}`,
+          ].join("\n"),
+        );
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -546,6 +712,11 @@ export const CASES: Record<string, ToolCase> = {
       const text = normalizeText((await pdfPageTexts(buf)).join(" "));
       expect(text).toContain(normalizeText(String(ctx.data.heading)));
       expect(text).toContain(normalizeText(String(ctx.data.body)));
+      expect(text).toContain(String(ctx.data.cellKey));
+      expect(text).toContain(String(ctx.data.cellValue));
+      expect(text).toContain(String(ctx.data.nested));
+      // The table is drawn as a grid, not printed as its own syntax.
+      expect(text).not.toMatch(/\|\s*-{3,}|(?:^|\s)-{3,}(?:\s|$)/);
     },
     control: async () => Buffer.from(await makeTextPdf("unrelated.pdf")),
   },
@@ -706,15 +877,19 @@ export const CASES: Record<string, ToolCase> = {
     kind: "watermark",
     artifact: "pdf",
     run: async (ctx) => {
-      // LETTER, not the 320x240 default. The runner's own default watermark is
-      // 60pt "CONFIDENTIAL" — about 480pt wide — so on the small fixture it
-      // hangs off both edges, and pdfjs omits glyphs that fall outside the page
-      // box from getTextContent. Measured: 320x240 tilt 45 extracts
-      // "NFIDENTIAL", tilt 0 extracts "ONFIDENTIA", 612x792 extracts the whole
-      // word. That is a FIXTURE too small for the tool's defaults, not an
-      // engine defect — and the trap it sets is that the obvious "fix" is to
-      // assert the truncated string, which would pin the wrong behaviour
-      // forever.
+      // LETTER, not the 320x240 default. History: the runner's default
+      // watermark is 60pt "CONFIDENTIAL" — about 480pt wide — and the engine
+      // used to draw it at that size on any page, so on the small fixture it
+      // hung off both edges and pdfjs (which omits glyphs outside the page box
+      // from getTextContent) extracted "NFIDENTIAL" at tilt 45 and
+      // "ONFIDENTIA" at tilt 0. This comment called that a fixture too small
+      // for the defaults, not an engine defect. It WAS an engine defect — a
+      // real A6 page or a long company name hit it — and the engine now
+      // shrinks the text to fit each page's visible box and the result panel
+      // says how many pages it shrank (src/lib/pdf/watermark.test.ts sweeps
+      // every pdf-lib page size through pdfjs). LETTER stays so this proof
+      // exercises the unshrunk, full-size path; asserting a truncated string
+      // would still pin the wrong behaviour.
       await uploadTextPdf(ctx, "stamped.pdf", { pages: 2, size: LETTER });
       // Default watermark text is CONFIDENTIAL; the fixture never contains it.
       return runAndDownload(
@@ -989,7 +1164,18 @@ export const CASES: Record<string, ToolCase> = {
     kind: "redact",
     artifact: "pdf",
     run: async (ctx) => {
-      await uploadTextPdf(ctx, "secret.pdf", { pages: 2 });
+      await uploadTextPdf(ctx, "secret.pdf", { pages: 2, size: REDACT_PAGE });
+      // WHITE, deliberately. The fixture's black block sits under most of the
+      // default box, so a black fill cannot be told from a box that was never
+      // painted — that is exactly how the previous version of this proof
+      // passed with no paint at all. White over black can only come from the
+      // paint. (The black fill's paint is pinned by
+      // src/lib/pdf/redact-paint.test.ts, which reads the canvas directly.)
+      const white = ctx.page
+        .getByRole("radiogroup", { name: /redaction fill/i })
+        .getByRole("radio", { name: /^white$/i });
+      await white.click();
+      await expect(white).toHaveAttribute("aria-checked", "true");
       const addArea = ctx.page.getByRole("button", { name: /add area/i });
       await expect(addArea).toBeEnabled();
       await addArea.click();
@@ -1011,31 +1197,100 @@ export const CASES: Record<string, ToolCase> = {
       expect(texts.join("").trim()).toBe("");
       expect((await pdfImages(buf)).length).toBeGreaterThanOrEqual(2);
 
-      // "No text and some images" is also a perfect description of two blank
-      // pages, and a blank page is a redaction tool's most flattering failure:
-      // it satisfies the guarantee by destroying the document. Check that the
-      // page was actually rendered, and that the redaction box is real ink.
-      const stats = await decodeEmbeddedJpegs(ctx.page, buf);
-      expect(stats.length).toBeGreaterThanOrEqual(2);
-      for (const page of stats) {
-        expect(
-          (page.totalPixels - page.whitePixels) / page.totalPixels,
-          "the redacted page is blank — nothing was rendered under the box",
-        ).toBeGreaterThan(0.1);
-        expect(
-          page.inkPixels / page.totalPixels,
-          "no dark pixels at all: neither the page content nor the redaction box survived",
-        ).toBeGreaterThan(0.05);
-      }
+      // "No text and some images" also describes two blank pages, and whole-
+      // page ink counts describe the FIXTURE: its own black block is 17% of
+      // the page and sits under the default box, so they passed with the paint
+      // deleted. Every check below is about a REGION, located from the
+      // runner's own default box and the fixture's own block definition.
+      const { box, overBlock, blockOutsideBox } = redactRegions();
+      // Inset 8px: one JPEG block. The box borders the fixture's black block
+      // on two sides, and DCT ringing stays inside the 8x8 block that holds
+      // the edge — a 3px inset would let it decide the 98% verdict.
+      const [first, second] = await decodePageRegions(
+        ctx.page,
+        buf,
+        [box, overBlock, blockOutsideBox],
+        8,
+      );
+      if (!first || !second) throw new Error("expected two decoded pages");
+      const ratio = (n: number, of: { totalPixels: number }) =>
+        n / of.totalPixels;
+
+      // Page 2 has no box: it was rendered, and the fixture's ink really is
+      // where the box goes. Without this, (a) could pass on a blank render.
+      expect(
+        ratio(
+          second.whole.totalPixels - second.whole.whitePixels,
+          second.whole,
+        ),
+        REDACT_FAILS.blankRender,
+      ).toBeGreaterThan(0.1);
+      expect(
+        ratio(second.regions[1]!.inkPixels, second.regions[1]!),
+        REDACT_FAILS.noInkUnderBox,
+      ).toBeGreaterThan(0.9);
+
+      // (a) The box: on page 1 it is the chosen fill, over ink that page 2
+      //     shows is there. A no-op paint leaves it ~80% black.
+      const onBox = first.regions[0]!;
+      expect(
+        ratio(onBox.whitePixels, onBox),
+        REDACT_FAILS.unpainted,
+      ).toBeGreaterThan(0.98);
+
+      // (c) Only the box changed: the fixture's block, where it sticks out of
+      //     the box, is still solid ink on page 1. Catches a paint that
+      //     whitewashed the page, and a render that produced nothing.
+      const outside = first.regions[2]!;
+      expect(
+        ratio(outside.inkPixels, outside),
+        REDACT_FAILS.overpainted,
+      ).toBeGreaterThan(0.9);
     },
-    // A rasterized 2-page output that rendered nothing: structurally identical
-    // to a correct redaction, and the only failure mode this tool has had.
-    control: async (ctx) =>
-      makeRasterizedPdf(
-        await makeBlankImageInPage(ctx.page, "image/jpeg", 320, 240),
-        2,
-        [320, 240],
-      ),
+    // One control per property, each run through the assertion above:
+    //  1. a well-formed 2-page raster that rendered nothing;
+    //  2. the fixture rendered faithfully with NO box painted — the output of
+    //     a no-op paint, and what the old whole-page ink checks accepted;
+    //  3. page 1 whitewashed entirely (box "painted" over everything), page 2
+    //     faithful — (a) and page 2's checks pass, so only (c) can reject it.
+    // Each carries one image PER PAGE, like the real output, at the real
+    // output's px/pt scale. Both were once wrong, and both times the control
+    // was still "rejected" — for a reason that says nothing about rendering:
+    //  - one image shared across both pages tripped the "at least two
+    //    images" check before any pixel was read;
+    //  - then a 320x240 px blank for a 320x240 pt page (1 px/pt) left the
+    //    12pt band of region (c) at 12 px, which the 8px inset on each side
+    //    shrinks to nothing, so decodePageRegions threw "covers no pixels"
+    //    and the page-2 blank check below it never ran.
+    // `rejectsBecause` now pins each control to its check's message, so a
+    // control that dies on a precondition is red, not "rejected".
+    control: async (ctx) => {
+      const scale = 150 / 72;
+      const unpainted = await makeRasterPageInPage(
+        ctx.page,
+        REDACT_PAGE,
+        scale,
+        [{ rect: inkBlockRect(REDACT_PAGE), color: "#000000" }],
+      );
+      const whitewashed = await makeRasterPageInPage(
+        ctx.page,
+        REDACT_PAGE,
+        scale,
+        [],
+      );
+      // A well-formed render of nothing: the same all-white page as
+      // `whitewashed`, on BOTH pages, so page 2's own checks must reject it.
+      return [
+        await makeRasterizedPdf([whitewashed, whitewashed], 2, REDACT_PAGE),
+        await makeRasterizedPdf([unpainted, unpainted], 2, REDACT_PAGE),
+        await makeRasterizedPdf([whitewashed, unpainted], 2, REDACT_PAGE),
+      ];
+    },
+    rejectsBecause: [
+      REDACT_FAILS.blankRender,
+      REDACT_FAILS.unpainted,
+      REDACT_FAILS.overpainted,
+    ],
   },
 
   "fill-forms": {
@@ -1265,7 +1520,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "edit-pdf":
     "Only a text insertion at the default position through the form controls. The Box, Line/arrow and Image elements are not exercised, and neither is placement accuracy. (There is no drag-to-place canvas: elements are placed by numeric coordinates.)",
   "redact-pdf":
-    "Only the default draft area added via the Add area button. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven.",
+    "Proves, on the decoded page images, that the default area added via the Add area button is painted with the WHITE fill over the fixture's ink on page 1, that the same spot on page 2 (no box) keeps its ink, and that fixture ink outside the box survives — sampled only in the fixture block's band ABOVE the box, so white paint spilling left of or below the box is not seen here (the unit test's outside-the-box tally covers that). Only the White fill is proven here: the fixture's black block sits under the default box, so a Black fill cannot be told from an unpainted one in this browser proof, and its paint is pinned only by the unit test src/lib/pdf/redact-paint.test.ts. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven, and rotated (/Rotate 90) pages are not exercised.",
   "fill-forms":
     "Only a text field is written. Checkboxes, radio groups, dropdowns and the appearance-stream regeneration those need are not exercised.",
   "create-forms":
@@ -1273,7 +1528,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "crop-pdf":
     "Only the default uniform margins applied to every page of an unrotated PDF. Per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
   "compare-pdf":
-    "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. Comparison of scanned/image-only PDFs (the 'no comparable text' branch) is not exercised.",
+    "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text.",
   "compress-pdf":
     "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-worker step this tool offers is a server path and is covered by worker:prove-tools, not here.",
   "split-pdf":
@@ -1281,11 +1536,11 @@ export const PROOF_LIMITS: Record<string, string> = {
   "organize-pages":
     "Only the Reverse bulk action. Drag reordering, duplication and per-page rotation inside the organizer are not exercised.",
   "pdf-to-jpg":
-    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
+    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx drives the same runner and the real rasterizePdf at Print in jsdom, but for PNG output only, so the JPEG encoder at those presets is not exercised anywhere.",
   "pdf-to-png":
-    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised.",
+    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx covers Print in jsdom through the real rasterizePdf: an A2 page and an ARCH D page are capped at 5,000 px and the note names the DPI of the downloaded pixels, while Letter stays at 2550 x 3300 with no note, both as a single PNG and as a ZIP. It uses pdfjs's legacy build, a render that paints nothing, and a stub encoder that writes the canvas size, so it proves pixel dimensions and the note, not pixel content.",
   "extract-images":
-    "Only a single Flate-coded RGB PNG. JPEG2000 and JBIG2 embedded images — the formats the wasmUrl defect blanked — are not exercised. Note that e2e/pdfjs-decoders.spec.ts does NOT close this: it proves the decoder assets are SERVED, and says in its own docblock that it does not prove pdfjs decodes with them. Nothing in this repo yet renders a JPEG2000 or JBIG2 fixture end to end.",
+    "Only a single opaque Flate-coded RGB image. This tool never decodes JPEG 2000 or JBIG2 (nor goes through pdfjs at all): it deliberately lists them as skipped, and that skip disclosure is what is unexercised here, not decoding. Transparency (/SMask, /Mask, the PNG's alpha), palette (Indexed) images, inline-image disclosure and the saved-without-transparency caveat are covered only by unit tests — src/lib/pdf/extract-images.test.ts and src/components/tools/runner/extract-images-runner.test.tsx — not by this browser proof.",
   "grayscale-pdf":
     "Only the default DPI preset. The screen/print preset difference is not exercised. The fixture's pages are flat blocks and text, which the tool stores as lossless Flate DeviceGray planes; the one-component JPEG branch it picks for photographic pages is proven in Node (src/lib/pdf/grayscale-output.test.ts, decoded by pdf.js), not in a browser here.",
   "watermark-pdf":

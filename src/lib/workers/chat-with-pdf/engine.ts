@@ -12,10 +12,10 @@ import {
 import {
   CHAT_MAX_CHARACTERS_PER_QUESTION,
   chatConversationCharacters,
+  chatDocumentBudget,
   type ChatOptions,
   type ChatTurn,
 } from "@/lib/jobs/chat-with-pdf";
-import type { JobDeliveryCap } from "@/lib/jobs/delivery-cap";
 import {
   validateCompletionRequest,
   type AiCompletionResult,
@@ -69,17 +69,23 @@ export type PdfTextExtractor = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 export interface ChatWithPdfLimits {
   maxInputBytes?: number;
   maxOutputBytes?: number;
-  /** Max source characters sent to the model; longer input is truncated (never silently). */
+  /**
+   * Max DOCUMENT characters sent to the model; longer input is truncated (never
+   * silently). Defaults to {@link CHAT_MAX_CHARACTERS_PER_QUESTION}. The
+   * per-question ceiling — that same number, conversation included — applies
+   * on top of it ({@link chatDocumentBudget}).
+   */
   maxInputChars?: number;
   /**
-   * What THIS job reserved, as the route decided when it charged the allowance.
-   * Per job, so it arrives here from the processor rather than from the
-   * worker's start-up wiring. The conversation is paid out of it first and the
-   * document gets the rest; `pages`, when declared, stops the document after
-   * that many pages with text. Absent means unbounded BY THE CAP — the
-   * `maxInputChars` ceiling above still applies.
+   * The DOCUMENT read bound THIS job was charged for, as the route priced it
+   * (`aiReservationFor`). Per job, so it arrives here from the processor
+   * rather than from the worker's start-up wiring. It bounds the document
+   * alone — the conversation was charged separately — so it is never the
+   * number the conversation is taken out of ({@link chatDocumentBudget}).
+   * Absent means unbounded BY THE CAP — an undeclared or unproven run — and
+   * the per-question ceiling still applies.
    */
-  delivery?: JobDeliveryCap;
+  delivery?: { readonly characters: number };
   /** Ceiling on the model's generated tokens; the default budget is clamped to it. */
   maxOutputTokens?: number;
 }
@@ -142,7 +148,7 @@ export interface ChatWithPdfMeta {
 
 export type ChatWithPdfFailureKind =
   | "unsupported"
-  | "over_reservation"
+  | "conversation_too_long"
   | "ai_unconfigured"
   | "no_text"
   /** The PDF needs a password, or is not a readable PDF: a fact about the file. */
@@ -439,43 +445,28 @@ export async function runChatWithPdf(
     };
   }
 
-  // What this job may read. The engine's own ceiling first, then the job's
-  // reservation: the conversation is AI text the model reads too, so it is
-  // paid out of the same cap and the document gets what is left.
-  let maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
-  const delivery = deps.limits?.delivery;
-  if (delivery) {
+  // What this question may read: the per-question ceiling with the
+  // conversation paid out of it, the job's document cap, and the engine's own
+  // document limit. The first two are one definition, shared with the test
+  // that holds every accepted conversation to it.
+  if (chatDocumentBudget(options) <= 0) {
+    // Before any provider call. Unreachable through the API today: the 8 KB
+    // options limit keeps every accepted conversation under the ceiling, and
+    // `chat-with-pdf.conversation-bound.test.ts` fails if that stops holding.
+    // The chat parser alone admits 50,000 characters, so a job that reached
+    // the worker some other way can still arrive here.
     const conversation = chatConversationCharacters(options);
-    const documentBudget = delivery.characters - conversation;
-    if (documentBudget <= 0) {
-      // Before any provider call. The route adds the conversation to every
-      // reservation it makes — even a declaration of one character reserves
-      // the conversation plus four — so only a cap the route did not make
-      // reaches this. That holds only while every conversation the API
-      // accepts is shorter than the route's per-question cap: the chat parser
-      // alone admits 50,000 characters, and it is the 8 KB options limit that
-      // keeps them under 41,032. `chat-with-pdf.conversation-bound.test.ts`
-      // runs the longest accepted conversation through the real request
-      // parser and reservation formula and fails if it leaves no room.
-      return {
-        ok: false,
-        kind: "over_reservation",
-        retryable: false,
-        message: `This question and its conversation are ${conversation.toLocaleString("en-US")} characters, which is more than the ${delivery.characters.toLocaleString("en-US")} this job reserved, so no document text could be sent with them. Nothing was sent to the AI model.`,
-      };
-    }
-    maxChars = Math.min(maxChars, documentBudget);
-    // The EXACT bound: stop at the end of the last declared page with text.
-    // Only a grounded document has page offsets to stop at; an ungrounded one
-    // is bounded by characters alone.
-    const lastDeclared =
-      delivery.pages !== undefined && pageStarts.length > delivery.pages
-        ? pageStarts[delivery.pages - 1]
-        : undefined;
-    if (lastDeclared) {
-      maxChars = Math.min(maxChars, lastDeclared.offset + lastDeclared.length);
-    }
+    return {
+      ok: false,
+      kind: "conversation_too_long",
+      retryable: false,
+      message: `This question and its conversation are ${conversation.toLocaleString("en-US")} characters, which uses up all ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters Chat with PDF reads for one question, so no document text could be sent with them. Nothing was sent to the AI model. Start a new conversation to ask about this PDF.`,
+    };
   }
+  const maxChars = Math.min(
+    deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS,
+    chatDocumentBudget(options, deps.limits?.delivery),
+  );
   // One description of the window, shared by the prompt, the meta and the ZIP,
   // so the model and the user cannot be told different things about it.
   const window = describeWindow(

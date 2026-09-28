@@ -18,9 +18,41 @@ export interface ExtractedPdfText {
   hasText: boolean;
 }
 
-interface TextItemLike {
+export interface TextItemLike {
   str?: unknown;
   hasEOL?: unknown;
+  /** pdfjs transform [a, b, c, d, e, f]; e = x, f = baseline y (PDF points, y up). */
+  transform?: unknown;
+  height?: unknown;
+  fontName?: unknown;
+}
+
+/**
+ * One visual line of a page, with the geometry of the text that starts it.
+ *
+ * `x`/`y` come from the line's first item that carries VISIBLE text, and `size`
+ * is the largest glyph height among those items. Both skip the zero-size
+ * `{str:"", hasEOL:true}` items pdfjs's `appendEOL` pushes: those carry the
+ * transform of the NEXT line (measured on pdfjs 6.1.200: the EOL after a title
+ * at y=740 reports y=704, the heading below it), so reading geometry from them
+ * would place every line one line too low. A line with no visible text has
+ * `null` geometry rather than a guessed one.
+ */
+export interface TextLine {
+  text: string;
+  x: number | null;
+  y: number | null;
+  size: number | null;
+  fontName: string | null;
+}
+
+/** An extracted page that also keeps its visual lines (see `extractPdfLines`). */
+export interface ExtractedLinePage extends ExtractedTextPage {
+  lines: TextLine[];
+}
+
+export interface ExtractedPdfLines extends ExtractedPdfText {
+  pages: ExtractedLinePage[];
 }
 
 let workerConfigured = false;
@@ -50,6 +82,71 @@ export function textItemsToPlainText(items: TextItemLike[]): string {
     if (item.hasEOL === true) text += "\n";
   }
   return normalizeExtractedText(text);
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Glyph size of one item: its height, or the transform's vertical scale when
+ * pdfjs reports a height of 0 (it does for some fonts, and for spaces). */
+function itemSize(item: TextItemLike): number | null {
+  const height = finiteNumber(item.height);
+  if (height !== null && height > 0) return height;
+  if (Array.isArray(item.transform) && item.transform.length >= 4) {
+    const c = finiteNumber(item.transform[2]);
+    const d = finiteNumber(item.transform[3]);
+    if (c !== null && d !== null) {
+      const scale = Math.hypot(c, d);
+      if (scale > 0) return scale;
+    }
+  }
+  return null;
+}
+
+/**
+ * Split pdfjs text items into visual lines, keeping each line's geometry.
+ *
+ * The line boundaries are EXACTLY `textItemsToPlainText`'s — an item's
+ * `hasEOL`, or a newline inside its string — so the lines' text, joined with
+ * `\n` and normalized, is that function's output byte for byte (text.test.ts
+ * pins the equality). Only the geometry is new.
+ */
+export function textItemsToLines(items: TextItemLike[]): TextLine[] {
+  const lines: TextLine[] = [];
+  let current: TextLine = emptyLine();
+
+  function emptyLine(): TextLine {
+    return { text: "", x: null, y: null, size: null, fontName: null };
+  }
+  const push = () => {
+    lines.push(current);
+    current = emptyLine();
+  };
+
+  for (const item of items) {
+    if (typeof item.str !== "string") continue;
+    const segments = item.str.split(/\r\n?|\n/);
+    segments.forEach((segment, index) => {
+      if (index > 0) push();
+      current.text += segment;
+      if (segment.trim().length === 0) return;
+      const transform = Array.isArray(item.transform) ? item.transform : [];
+      if (current.y === null) {
+        current.x = finiteNumber(transform[4]);
+        current.y = finiteNumber(transform[5]);
+        current.fontName =
+          typeof item.fontName === "string" ? item.fontName : null;
+      }
+      const size = itemSize(item);
+      if (size !== null && (current.size === null || size > current.size)) {
+        current.size = size;
+      }
+    });
+    if (item.hasEOL === true) push();
+  }
+  if (current.text.length > 0) push();
+  return lines;
 }
 
 /** Normalize line endings and whitespace without changing the words themselves. */
@@ -148,19 +245,25 @@ export function textOutputName(sourceName: string): string {
 }
 
 /**
- * Extract selectable text from a PDF in the browser. It deliberately does not
- * perform OCR; scanned/image-only documents return `hasText:false` so the UI can
- * honestly point users to OCR PDF.
+ * Which pdfjs build reads the bytes. The browser build is the only one a user
+ * runs; a jsdom test passes pdfjs's legacy build, which is the same parser with
+ * the DOM polyfills Node lacks, so the rest of the extraction — the part that
+ * decides `hasText` — is the code that ships.
  */
-export async function extractPdfText(
+export type PdfTextReader = () => Promise<
+  Pick<typeof import("pdfjs-dist"), "getDocument">
+>;
+
+/**
+ * Open a PDF with pdfjs and hand each page's text items to `perPage`. The one
+ * `getDocument` call both extractors share, so they cannot drift in options.
+ */
+async function readPageTextItems<T>(
   bytes: Uint8Array,
-  // Injectable so the load-failure mapping can be run under Node with the
-  // legacy build; the modern build needs `DOMMatrix`.
-  load: () => Promise<
-    Pick<typeof import("pdfjs-dist"), "getDocument">
-  > = loadPdfjs,
-): Promise<ExtractedPdfText> {
-  const pdfjs = await load();
+  perPage: (items: TextItemLike[], pageNumber: number) => T,
+  loadReader: PdfTextReader = loadPdfjs,
+): Promise<{ pageCount: number; pages: T[] }> {
+  const pdfjs = await loadReader();
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   let doc: Awaited<typeof loadingTask.promise>;
@@ -175,32 +278,19 @@ export async function extractPdfText(
   }
 
   try {
-    const pages: ExtractedTextPage[] = [];
+    const pages: T[] = [];
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
       const page = await doc.getPage(pageNumber);
       try {
         const content = await page.getTextContent({
           includeMarkedContent: false,
         });
-        const text = textItemsToPlainText(content.items as TextItemLike[]);
-        pages.push({
-          pageNumber,
-          text,
-          characterCount: text.length,
-        });
+        pages.push(perPage(content.items as TextItemLike[], pageNumber));
       } finally {
         page.cleanup();
       }
     }
-
-    const text = joinPageTexts(pages);
-    return {
-      pageCount: doc.numPages,
-      pages,
-      text,
-      characterCount: text.length,
-      hasText: text.trim().length > 0,
-    };
+    return { pageCount: doc.numPages, pages };
   } finally {
     try {
       doc.cleanup();
@@ -209,4 +299,76 @@ export async function extractPdfText(
     }
     await loadingTask.destroy().catch(() => {});
   }
+}
+
+function textPage(
+  items: TextItemLike[],
+  pageNumber: number,
+): ExtractedTextPage {
+  const text = textItemsToPlainText(items);
+  return { pageNumber, text, characterCount: text.length };
+}
+
+/**
+ * One page as `extractPdfLines` builds it, from that page's pdfjs items.
+ * Exported so a test can drive the exact per-page composition over items from
+ * a real pdfjs run (the browser build cannot load in Node).
+ */
+export function linePageFromItems(
+  items: TextItemLike[],
+  pageNumber: number,
+): ExtractedLinePage {
+  return { ...textPage(items, pageNumber), lines: textItemsToLines(items) };
+}
+
+/** Assemble per-page results into the document result both extractors return. */
+export function assembleExtraction<P extends ExtractedTextPage>(
+  pageCount: number,
+  pages: P[],
+): Omit<ExtractedPdfText, "pages"> & { pages: P[] } {
+  const text = joinPageTexts(pages);
+  return {
+    pageCount,
+    pages,
+    text,
+    characterCount: text.length,
+    hasText: text.trim().length > 0,
+  };
+}
+
+/**
+ * Extract selectable text from a PDF in the browser. It deliberately does not
+ * perform OCR; scanned/image-only documents return `hasText:false` so the UI can
+ * honestly point users to OCR PDF.
+ */
+export async function extractPdfText(
+  bytes: Uint8Array,
+  /** See {@link PdfTextReader}; tests pass pdfjs's legacy build. */
+  loadReader: PdfTextReader = loadPdfjs,
+): Promise<ExtractedPdfText> {
+  const { pageCount, pages } = await readPageTextItems(
+    bytes,
+    textPage,
+    loadReader,
+  );
+  return assembleExtraction(pageCount, pages);
+}
+
+/**
+ * `extractPdfText`, plus each page's visual lines with their geometry.
+ *
+ * A separate function rather than a new field on `extractPdfText`, because
+ * pdf-to-text, compare-pdf and translate (whose `pageTextChunks` offsets and
+ * page numbers depend on the text) must not change. Every text field here is
+ * computed by the same code from the same items, so `hasText`, `pageCount` and
+ * `characterCount` — the scanned-PDF path — are identical.
+ */
+export async function extractPdfLines(
+  bytes: Uint8Array,
+): Promise<ExtractedPdfLines> {
+  const { pageCount, pages } = await readPageTextItems(
+    bytes,
+    linePageFromItems,
+  );
+  return assembleExtraction(pageCount, pages);
 }

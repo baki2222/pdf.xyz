@@ -163,6 +163,20 @@ RUN apt-get update \
       tesseract-ocr-ben \
       poppler-utils \
  && rm -rf /var/lib/apt/lists/*
+# PDF/A OutputIntent profile. A PDF/A file that uses device colour must embed an
+# ICC profile as its OutputIntent, and Ghostscript's PDF/A recipe reads one from
+# disk (src/lib/workers/pdf-archive/native.ts writes the prefix that does). The
+# profile is Ghostscript's OWN sRGB, found wherever this distro's package put it
+# and copied to one fixed path, so the runtime never guesses a distro layout.
+# `test -s` fails the BUILD if no profile was found: an image without it would
+# otherwise run PDF/A and refuse every job at the output gate. The path must
+# equal DEFAULT_PDFA_ICC_PROFILE in pdf-archive/native-config.ts;
+# src/deploy/artifacts.test.ts pins the two together.
+RUN icc="$(find /usr/share -path '*ghostscript*' -name srgb.icc -print -quit)" \
+ && test -n "$icc" \
+ && mkdir -p /usr/share/pdfxyz \
+ && cp -L "$icc" /usr/share/pdfxyz/srgb.icc \
+ && test -s /usr/share/pdfxyz/srgb.icc
 # Run as a non-root user. Corepack may need to hydrate pnpm shims at runtime
 # (`docker run … pnpm worker:smoke` in CI), so the worker-owned HOME/cache and
 # PNPM_HOME must exist before `USER worker` or Corepack fails with EACCES.

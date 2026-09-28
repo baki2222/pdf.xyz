@@ -1,4 +1,10 @@
-import type { PDFFont, PDFImage, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
+import type {
+  PDFFont,
+  PDFImage,
+  PDFPage,
+  RGB as PdfLibRGB,
+  Rotation,
+} from "pdf-lib";
 import { embedRasterImage, loadPdfLib } from "./pdf-lib";
 import {
   arrowHeadSegments,
@@ -11,6 +17,7 @@ import {
 } from "./annotate";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import { viewToContent, viewerFrame, type PageBox } from "./page-frame";
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
 import type { EditOpType } from "./offered-kinds";
 
@@ -31,14 +38,22 @@ import type { EditOpType } from "./offered-kinds";
  * underneath, draw a filled rectangle over it (this hides but does not remove the
  * covered content — use the redact tool when the data must actually be gone).
  *
- * Coordinate model: PDF points from the page's bottom-left corner, in the page's
- * *unrotated* content space (pdf-lib's draw space) — the same honest caveat the
- * annotate tool documents. On the uncommon page carrying a `/Rotate` flag, new
- * content follows the content, not the viewer's rotation.
+ * Coordinate model: PDF points from the bottom-left corner of the page AS THE
+ * READER SEES IT — the visible CropBox, after the page's `/Rotate`. Every op is
+ * validated against that displayed size ({@link getEditPageSizes}) and mapped
+ * into pdf-lib's unrotated content space at draw time ({@link viewToContent}),
+ * with text, boxes and images counter-rotated so they read upright. Pages from
+ * our own Rotate PDF and Crop PDF carry exactly those entries; before this
+ * mapping, text placed on them came out sideways or outside the visible page.
+ * `edit-placement.test.ts` reads the output back through pdfjs to pin it.
+ *
+ * Text must also FIT: {@link editPdf} measures every wrapped line with the font
+ * it will draw with and refuses text that would run past an edge, because the
+ * viewer clips it silently and the export would otherwise report success.
  *
  * Geometry, color, wrapping, and validation are pure functions so they can be
- * unit-tested with plain numbers; only {@link getEditPageSizes} and
- * {@link editPdf} touch pdf-lib and load a document.
+ * unit-tested with plain numbers; only {@link getEditPageSizes},
+ * {@link checkEditTextFit} and {@link editPdf} touch pdf-lib.
  */
 
 const EDGE_EPSILON = 0.5;
@@ -395,13 +410,158 @@ export function validateEditOps(
   return issues;
 }
 
-/** Read each page's size (unrotated content space) for bounding/validation. */
+/**
+ * One page as the reader sees it: the visible box in content space, its
+ * normalized `/Rotate`, and the displayed size every op is validated against.
+ * The UI's sizes and editPdf's validation both come from here, so they cannot
+ * disagree about what "the page" is.
+ */
+interface EditPageFrame {
+  box: PageBox;
+  rotation: 0 | 90 | 180 | 270;
+  size: PageSize;
+}
+
+function editPageFrame(page: PDFPage): EditPageFrame {
+  const { box, rotation, width, height } = viewerFrame(page);
+  return { box, rotation, size: { width, height } };
+}
+
+/**
+ * Read each page's DISPLAYED size — its visible CropBox, width and height
+ * swapped on a 90°/270° page — for bounding and validation in the UI.
+ */
 export async function getEditPageSizes(bytes: Uint8Array): Promise<PageSize[]> {
   const doc = await loadPdf(bytes);
-  return doc.getPages().map((page) => {
-    const { width, height } = page.getSize();
-    return { width, height };
+  return doc.getPages().map((page) => editPageFrame(page).size);
+}
+
+/** The font metrics text layout needs; a pdf-lib `PDFFont` satisfies it. */
+export interface EditTextMetrics {
+  widthOfTextAtSize(text: string, size: number): number;
+  heightAtSize(size: number, options?: { descender?: boolean }): number;
+}
+
+/** A text op laid out exactly as {@link editPdf} will draw it. */
+interface TextLayout {
+  size: number;
+  lineHeight: number;
+  /** Every line, including blank ones (which are skipped but still advance). */
+  lines: string[];
+}
+
+/**
+ * Lay out a text op: sanitize, wrap, and size it. The ONE layout both the fit
+ * check and the drawing use, so the check sees the lines that get drawn.
+ */
+function layoutText(op: TextEditOp, font: EditTextMetrics): TextLayout {
+  const size = op.size && op.size > 0 ? op.size : DEFAULT_TEXT_SIZE;
+  const lines = wrapText(sanitizeNoteText(op.text), op.maxWidth ?? 0, (s) =>
+    font.widthOfTextAtSize(s, size),
+  );
+  return { size, lineHeight: size * TEXT_LINE_HEIGHT_RATIO, lines };
+}
+
+/**
+ * Where a text op's drawn glyphs would cross the displayed page's edge, or
+ * `null` when every line fits. Measured with the font that will draw it:
+ *
+ * - right: the widest drawn line's advance, from the anchor x;
+ * - bottom: the LAST drawn line's baseline (a baseline test, so text anchored
+ *   at the bottom margin is not refused for its descenders);
+ * - top: the first line's ascent above its baseline.
+ *
+ * The anchor itself is checked by {@link validateEditOps}, which has no font.
+ */
+function textOverflow(
+  op: TextEditOp,
+  page: PageSize,
+  font: EditTextMetrics,
+): { edge: "right" | "bottom" | "top"; message: string } | null {
+  const { size, lineHeight, lines } = layoutText(op, font);
+  let widest = 0;
+  let lastDrawn = -1;
+  lines.forEach((line, i) => {
+    if (line.length === 0) return;
+    widest = Math.max(widest, font.widthOfTextAtSize(line, size));
+    lastDrawn = i;
   });
+  if (lastDrawn < 0) return null;
+
+  const room = Math.max(0, Math.floor(page.width - op.x));
+  if (op.x + widest > page.width + EDGE_EPSILON) {
+    return {
+      edge: "right",
+      message: `the text runs past the right edge of the ${pageDims(page)} page and would be cut off. Set a Wrap width of ${room} pt or less, move it left, or make it smaller.`,
+    };
+  }
+  if (op.y - lastDrawn * lineHeight < -EDGE_EPSILON) {
+    return {
+      edge: "bottom",
+      message: `the text runs below the bottom of the ${pageDims(page)} page and would be cut off. Move it up, shorten it, or make it smaller.`,
+    };
+  }
+  if (
+    op.y + font.heightAtSize(size, { descender: false }) >
+    page.height + EDGE_EPSILON
+  ) {
+    return {
+      edge: "top",
+      message: `the text runs above the top of the ${pageDims(page)} page and would be cut off. Move it down or make it smaller.`,
+    };
+  }
+  return null;
+}
+
+/** One issue per text op that would not fit its page, measured with `font`. */
+function textFitIssues(
+  ops: EditOp[],
+  pageSizes: PageSize[],
+  font: EditTextMetrics,
+): EditIssue[] {
+  const issues: EditIssue[] = [];
+  ops.forEach((op, index) => {
+    if (op.type !== "text") return;
+    const page = pageSizes[op.page - 1];
+    if (!page) return;
+    const over = textOverflow(op, page, font);
+    if (over) {
+      issues.push({
+        index,
+        code: "out-of-bounds",
+        message: `Edit ${index + 1}: ${over.message}`,
+      });
+    }
+  });
+  return issues;
+}
+
+/** The text of every text op, as the font is chosen from it. */
+function textsOf(ops: EditOp[]): string[] {
+  return ops
+    .filter((op): op is TextEditOp => op.type === "text")
+    .map((op) => sanitizeNoteText(op.text));
+}
+
+/**
+ * Check, before export, that every text op fits its page — with the SAME font
+ * {@link editPdf} will embed for this batch (Helvetica for Western text, the
+ * matching Noto face otherwise), so the answer is the export's answer. The UI
+ * calls this when an edit is added, with every edit placed so far.
+ *
+ * Rejects with the same typed error editPdf would for text no shipped face can
+ * draw.
+ */
+export async function checkEditTextFit(
+  ops: EditOp[],
+  pageSizes: PageSize[],
+): Promise<EditIssue[]> {
+  const texts = textsOf(ops);
+  if (texts.length === 0) return [];
+  const { PDFDocument } = await loadPdfLib();
+  const scratch = await PDFDocument.create();
+  const font = await embedStampFont(scratch, texts);
+  return textFitIssues(ops, pageSizes, font);
 }
 
 /** Resolve an op's validated hex color into a pdf-lib color. */
@@ -413,26 +573,39 @@ function opColor(
   return rgbFn(parsed.r, parsed.g, parsed.b);
 }
 
-/** Draw wrapped free text at its baseline anchor. */
+/** The pdf-lib pieces the draw helpers need, threaded through from one load. */
+interface DrawKit {
+  rgb: (r: number, g: number, b: number) => PdfLibRGB;
+  degrees: (angle: number) => Rotation;
+}
+
+/**
+ * Draw wrapped free text at its baseline anchor. Each line's anchor is stepped
+ * down in the VIEWER's frame and only then mapped: mapping once and stepping in
+ * content space would stack lines sideways on a 90°/270° page.
+ */
 function drawTextOp(
   page: PDFPage,
+  frame: EditPageFrame,
   op: TextEditOp,
   font: PDFFont,
-  rgbFn: (r: number, g: number, b: number) => PdfLibRGB,
+  kit: DrawKit,
 ): void {
-  const color = opColor(rgbFn, op.color);
+  const color = opColor(kit.rgb, op.color);
   const opacity = clampOpacity(op.opacity ?? 1);
-  const size = op.size && op.size > 0 ? op.size : DEFAULT_TEXT_SIZE;
-  const safe = sanitizeNoteText(op.text);
-  const lines = wrapText(safe, op.maxWidth ?? 0, (s) =>
-    font.widthOfTextAtSize(s, size),
-  );
-  const lineHeight = size * TEXT_LINE_HEIGHT_RATIO;
+  const { size, lineHeight, lines } = layoutText(op, font);
   lines.forEach((line, i) => {
     if (line.length === 0) return;
+    const at = viewToContent(
+      op.x,
+      op.y - i * lineHeight,
+      frame.box,
+      frame.rotation,
+    );
     page.drawText(line, {
-      x: op.x,
-      y: op.y - i * lineHeight,
+      x: at.x,
+      y: at.y,
+      rotate: kit.degrees(frame.rotation),
       size,
       font,
       color,
@@ -444,19 +617,26 @@ function drawTextOp(
 /** Draw a filled/outlined rectangle or a line/arrow. Needs no font. */
 function drawShapeOp(
   page: PDFPage,
+  frame: EditPageFrame,
   op: RectEditOp | LineEditOp,
-  rgbFn: (r: number, g: number, b: number) => PdfLibRGB,
+  kit: DrawKit,
 ): void {
-  const color = opColor(rgbFn, op.color);
+  const color = opColor(kit.rgb, op.color);
   const opacity = clampOpacity(op.opacity ?? 1);
 
   if (op.type === "rect") {
+    // pdf-lib rotates a rectangle about its (x, y) corner, so the anchor is the
+    // viewer's bottom-left corner mapped into content space; width then runs
+    // along the viewer's +x and height along its +y.
+    const at = viewToContent(op.x, op.y, frame.box, frame.rotation);
+    const rotate = kit.degrees(frame.rotation);
     if (op.filled ?? true) {
       page.drawRectangle({
-        x: op.x,
-        y: op.y,
+        x: at.x,
+        y: at.y,
         width: op.width,
         height: op.height,
+        rotate,
         color,
         opacity,
       });
@@ -468,10 +648,11 @@ function drawShapeOp(
       // Pass only borderColor (no `color`) so pdf-lib strokes an outline without
       // filling — see its drawRectangle default-color behavior.
       page.drawRectangle({
-        x: op.x,
-        y: op.y,
+        x: at.x,
+        y: at.y,
         width: op.width,
         height: op.height,
+        rotate,
         borderColor: color,
         borderWidth,
         borderOpacity: opacity,
@@ -482,16 +663,14 @@ function drawShapeOp(
 
   const thickness =
     op.thickness && op.thickness > 0 ? op.thickness : DEFAULT_LINE_THICKNESS;
-  page.drawLine({
-    start: { x: op.x1, y: op.y1 },
-    end: { x: op.x2, y: op.y2 },
-    thickness,
-    color,
-    opacity,
-  });
+  // A line needs no rotation: map both endpoints. The mapping is rigid, so an
+  // arrowhead computed from the mapped endpoints is the viewer's arrowhead.
+  const start = viewToContent(op.x1, op.y1, frame.box, frame.rotation);
+  const end = viewToContent(op.x2, op.y2, frame.box, frame.rotation);
+  page.drawLine({ start, end, thickness, color, opacity });
   if (op.arrow) {
     const head = Math.max(6, thickness * 4);
-    for (const seg of arrowHeadSegments(op.x1, op.y1, op.x2, op.y2, head)) {
+    for (const seg of arrowHeadSegments(start.x, start.y, end.x, end.y, head)) {
       page.drawLine({
         start: seg.start,
         end: seg.end,
@@ -501,6 +680,18 @@ function drawShapeOp(
       });
     }
   }
+}
+
+/** Throw the first issue (with a count of the rest) as a user-facing error. */
+function refuseIssues(issues: EditIssue[]): void {
+  if (issues.length === 0) return;
+  const first = issues[0]!;
+  const rest = issues.length - 1;
+  throw new PdfEngineError(
+    rest > 0
+      ? `${first.message} (${rest} more issue${rest === 1 ? "" : "s"}.)`
+      : first.message,
+  );
 }
 
 /**
@@ -515,7 +706,8 @@ export async function editPdf(
   bytes: Uint8Array,
   ops: EditOp[],
 ): Promise<EditResult> {
-  const { rgb } = await loadPdfLib();
+  const { rgb, degrees } = await loadPdfLib();
+  const kit: DrawKit = { rgb, degrees };
   const list = ops ?? [];
   if (list.length === 0) {
     throw new PdfEngineError("Add at least one edit before applying.");
@@ -523,21 +715,10 @@ export async function editPdf(
 
   const doc = await loadPdf(bytes);
   const pages = doc.getPages();
-  const pageSizes: PageSize[] = pages.map((page) => {
-    const { width, height } = page.getSize();
-    return { width, height };
-  });
+  const frames = pages.map(editPageFrame);
+  const pageSizes: PageSize[] = frames.map((frame) => frame.size);
 
-  const issues = validateEditOps(list, pageSizes);
-  if (issues.length > 0) {
-    const first = issues[0]!;
-    const rest = issues.length - 1;
-    throw new PdfEngineError(
-      rest > 0
-        ? `${first.message} (${rest} more issue${rest === 1 ? "" : "s"}.)`
-        : first.message,
-    );
-  }
+  refuseIssues(validateEditOps(list, pageSizes));
 
   // Embed the font ONCE, up front, from every text op in the batch — not lazily
   // at the first one. Two reasons, both about order rather than correctness:
@@ -546,10 +727,11 @@ export async function editPdf(
   // image has been embedded or any rectangle drawn. An image/shape-only edit
   // still costs nothing: `texts` is empty, WinAnsi answers, and the standard
   // face embeds without a download.
-  const texts = list
-    .filter((op) => op.type === "text")
-    .map((op) => sanitizeNoteText((op as { text: string }).text));
-  const font: PDFFont = await embedStampFont(doc, texts);
+  const font: PDFFont = await embedStampFont(doc, textsOf(list));
+  // Same ordering argument for FIT: the refusal for text that would be clipped
+  // at a page edge needs the font's metrics, and must still arrive before
+  // anything is drawn.
+  refuseIssues(textFitIssues(list, pageSizes, font));
   const counts: Record<EditOpType, number> = {
     text: 0,
     rect: 0,
@@ -559,7 +741,8 @@ export async function editPdf(
 
   for (const op of list) {
     const page = pages[op.page - 1];
-    if (!page) continue;
+    const frame = frames[op.page - 1];
+    if (!page || !frame) continue;
 
     if (op.type === "image") {
       let image: PDFImage;
@@ -570,11 +753,14 @@ export async function editPdf(
           `An inserted image on page ${op.page} couldn't be decoded as a ${op.format === "png" ? "PNG" : "JPG"}.`,
         );
       }
+      // Anchored and rotated exactly like a rectangle.
+      const at = viewToContent(op.x, op.y, frame.box, frame.rotation);
       page.drawImage(image, {
-        x: op.x,
-        y: op.y,
+        x: at.x,
+        y: at.y,
         width: op.width,
         height: op.height,
+        rotate: degrees(frame.rotation),
         opacity: clampOpacity(op.opacity ?? 1),
       });
       counts.image += 1;
@@ -582,13 +768,13 @@ export async function editPdf(
     }
 
     if (op.type === "text") {
-      drawTextOp(page, op, font, rgb);
+      drawTextOp(page, frame, op, font, kit);
       counts.text += 1;
       continue;
     }
 
     // rect | line — no font needed.
-    drawShapeOp(page, op, rgb);
+    drawShapeOp(page, frame, op, kit);
     counts[op.type] += 1;
   }
 

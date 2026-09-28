@@ -1,5 +1,6 @@
 import {
   countUndecodedImages,
+  rasterPageScale,
   renderDimensions,
   type Thumbnail,
 } from "./render-utils";
@@ -9,7 +10,6 @@ import {
   RASTER_MAX_DEVICE_PX,
   RASTER_MIME,
   clampJpegQuality,
-  rasterScaleForDpi,
   type RasterFormat,
 } from "./pdf-to-image";
 
@@ -290,6 +290,17 @@ export interface RasterPage {
   /** Source page height, in PDF points. */
   pageHeight: number;
   /**
+   * Resolution this page was ACTUALLY rendered at, in DPI. Equal to the
+   * requested DPI unless {@link RasterPage.dpiCapped}.
+   */
+  dpi: number;
+  /**
+   * True when the requested DPI would have exceeded `RASTER_MAX_DEVICE_PX` on
+   * a side, so the page was rendered at the lower `dpi`. A tool that names a
+   * DPI to the user has to say so when this is set.
+   */
+  dpiCapped: boolean;
+  /**
    * Images on this page that pdfjs could not decode, and which are therefore
    * MISSING from `bytes` — the engine's own verdict, counted so a tool can say
    * so instead of handing back a confidently blank picture. Normally 0.
@@ -375,6 +386,10 @@ export async function rasterizePdf(
 export interface CapturedPage<T> extends RasterCanvasInfo {
   /** Whatever the capture hook made of the rendered canvas. */
   data: T;
+  /** See {@link RasterPage.dpi}. */
+  dpi: number;
+  /** See {@link RasterPage.dpiCapped}. */
+  dpiCapped: boolean;
   /** See {@link RasterPage.undecodedImages}. */
   undecodedImages: number;
 }
@@ -437,7 +452,6 @@ export async function capturePdfPages<T>(
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
   const doc = await loadingTask.promise;
 
-  const scale = rasterScaleForDpi(dpi);
   const pages: CapturedPage<T>[] = [];
 
   try {
@@ -458,14 +472,10 @@ export async function capturePdfPages<T>(
         // Render at the page's embedded rotation (the default viewport rotation)
         // so the exported image matches the page as it is displayed.
         const base = page.getViewport({ scale: 1 });
-        const dims = renderDimensions(
-          base.width,
-          base.height,
-          base.width * scale,
-          1,
-          RASTER_MAX_DEVICE_PX,
-        );
-        const viewport = page.getViewport({ scale: dims.scale });
+        // The scale AND the verdict on it: a page too large for `dpi` is
+        // rendered lower, and the page record below carries that fact out.
+        const fit = rasterPageScale(base.width, base.height, dpi);
+        const viewport = page.getViewport({ scale: fit.scale });
 
         const canvas = document.createElement("canvas");
         const width = Math.max(1, Math.floor(viewport.width));
@@ -514,6 +524,8 @@ export async function capturePdfPages<T>(
         const rendered: CapturedPage<T> = {
           ...info,
           data: captured,
+          dpi: fit.dpi,
+          dpiCapped: fit.dpiCapped,
           undecodedImages,
         };
         pages.push(rendered);

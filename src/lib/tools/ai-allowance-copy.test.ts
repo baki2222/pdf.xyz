@@ -194,10 +194,20 @@ describe("there is exactly one copy of the sentence", () => {
     // character figure, and Summarize, Chat and Extract are charged per run.
     // "One copy" is still the rule; it is now one FUNCTION, keyed by tool, and
     // the panel note must be exactly what the tool's own fact line says.
+    //
+    // A sibling lane had meanwhile split the note in two
+    // (`AI_DAILY_ALLOWANCE_NOTE` for translate, `AI_PER_CALL_ALLOWANCE_NOTE`
+    // for the per-call tools) and asserted each equal to its source. Since the
+    // merge that per-call sentence is the head of every per-call tool's own
+    // fact, so its reach is asserted per tool below, through the pricing map
+    // the route charges by.
     const { aiDailyAllowanceNote } =
       await import("@/lib/workers/ai-tool-availability");
     const { AI_ALLOWANCE_FACT: fromTools, toolFacts } =
       await import("./tool-facts");
+    const { AI_PER_CALL_ALLOWANCE_FACT } =
+      await import("@/lib/jobs/ai-allowance");
+    const { AI_RUN_PRICING } = await import("@/lib/jobs/delivery-cap");
     const { AI_ALLOWANCE_USED_MESSAGE: fromRateLimit } =
       await import("@/lib/ratelimit/response");
     const { tools } = await import("./index");
@@ -205,6 +215,8 @@ describe("there is exactly one copy of the sentence", () => {
 
     const ai = tools.filter((t) => capabilityForMode(t.processing) === "ai");
     expect(ai.length, "no AI tool in the catalogue — blind").toBeGreaterThan(0);
+    const perCall = ai.filter((t) => AI_RUN_PRICING[t.slug] === "per-call");
+    expect(perCall.length, "no per-call AI tool — blind").toBeGreaterThan(0);
     for (const tool of ai) {
       const fact = toolFacts(tool.slug).find(
         (f) => f.label === "Free allowance",
@@ -212,6 +224,14 @@ describe("there is exactly one copy of the sentence", () => {
       expect(fact, `${tool.slug} publishes no allowance fact`).toBeDefined();
       expect(aiDailyAllowanceNote(tool.slug)).toBe(fact!.value);
       expect(fact!.value).toBe(aiAllowanceFactFor(tool.slug));
+      if (AI_RUN_PRICING[tool.slug] === "per-call") {
+        expect(
+          fact!.value.startsWith(AI_PER_CALL_ALLOWANCE_FACT),
+          `${tool.slug}'s panel does not reach the per-call sentence`,
+        ).toBe(true);
+      } else {
+        expect(fact!.value.startsWith(AI_ALLOWANCE_FACT)).toBe(true);
+      }
     }
     expect(fromTools).toBe(AI_ALLOWANCE_FACT);
     expect(fromRateLimit).toBe(AI_ALLOWANCE_USED_MESSAGE);

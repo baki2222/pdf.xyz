@@ -15,6 +15,7 @@ import {
 import {
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
   TRANSLATE_MAX_INPUT_CHARS,
+  translateEveryPageTooLongMessage,
 } from "@/lib/jobs/translate-limits";
 
 const OPTIONS: TranslateOptions = {
@@ -453,10 +454,17 @@ describe("translate refuses more text than the model may write back", () => {
     }
   });
 
-  it("still names both numbers when NOTHING is deliverable", async () => {
+  it("names the page and its size when NOTHING is deliverable — and does not say to split the file", async () => {
     // The refusal survives for the case that is genuinely undeliverable: a
     // single page larger than one call cannot be chunked, so there is no
     // partial delivery to offer and "too long" still has to be actionable.
+    //
+    // INVERTED 2026-09-27. This test used to assert the message matched
+    // /Split it into smaller files/ — it pinned the defect. Pages are already
+    // the unit this engine splits at, so a smaller file holds the same page at
+    // the same length: the advice could not work, and the test held the engine
+    // to giving it. The browser gave it too, to scanned PDFs, as "0 characters
+    // of text" (see `preflight.test.ts`). Now both name the page instead.
     const huge = "a".repeat(TRANSLATE_MAX_INPUT_CHARS + 5_000);
     const pages = [{ pageNumber: 1, text: huge, characterCount: huge.length }];
     const provider = providerReturning(SUCCESS("Une traduction."));
@@ -474,8 +482,48 @@ describe("translate refuses more text than the model may write back", () => {
     if (run.ok) return;
     expect(run.kind).toBe("too_much_text");
     expect(run.ceilingCharacters).toBe(TRANSLATE_MAX_INPUT_CHARS);
-    expect(run.message).toMatch(/Split it into smaller files/);
+    expect(run.message).not.toMatch(/Split it into smaller files/);
+    expect(run.message).toBe(
+      translateEveryPageTooLongMessage(
+        [{ pageNumber: 1, characters: huge.length }],
+        TRANSLATE_MAX_INPUT_CHARS,
+      ),
+    );
+    expect(run.message).toContain(
+      `Page 1 alone holds ${huge.length.toLocaleString("en-US")} characters`,
+    );
     // Still nothing billed: there was never a call that could have succeeded.
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  it("does not claim EVERY page is too long when the delivery cap withheld one that was not", async () => {
+    // The page-naming sentence says "every page with text" is oversize. With a
+    // delivery cap, page 1 can be oversize while page 2 — perfectly
+    // translatable — is withheld because the reservation ran out. Saying the
+    // document's pages are all too long would then be false about page 2.
+    const huge = "a".repeat(TRANSLATE_MAX_INPUT_CHARS + 5_000);
+    const small = "Bonjour, voici une page ordinaire.";
+    const pages = [
+      { pageNumber: 1, text: huge, characterCount: huge.length },
+      { pageNumber: 2, text: small, characterCount: small.length },
+    ];
+    const text = `${huge}\n\n${small}`;
+    const provider = providerReturning(SUCCESS("Une traduction."));
+    const run = await runTranslate(INPUT, OPTIONS, {
+      extract: vi.fn(async () => ({
+        pageCount: 2,
+        pages,
+        text,
+        characterCount: text.length,
+        hasText: true,
+      })),
+      provider,
+      limits: { delivery: { characters: 4 } },
+    });
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("too_much_text");
+    expect(run.message).not.toMatch(/alone holds|Every page with text/);
     expect(provider.calls).toHaveLength(0);
   });
 

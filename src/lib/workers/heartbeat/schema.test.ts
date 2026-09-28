@@ -25,6 +25,7 @@ const CAPS: HeartbeatCapabilities = {
   atomicQueue: true,
   chunkedTranslate: true,
   deliveryCap: true,
+  aiReadCap: true,
 };
 
 describe("coarseRelease", () => {
@@ -84,6 +85,7 @@ describe("buildHeartbeat / serialize / parse", () => {
       atomicQueue: false,
       chunkedTranslate: true,
       deliveryCap: true,
+      aiReadCap: false,
     });
     expect(JSON.stringify(hb)).not.toContain("evil.example.com");
     expect(JSON.stringify(hb)).not.toContain("secretEndpoint");
@@ -189,6 +191,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         atomicQueue: true,
         chunkedTranslate: true,
         deliveryCap: true,
+        aiReadCap: true,
       },
       // Everything below is injected and must not survive.
       host: "worker-07.internal.example.com",
@@ -216,6 +219,7 @@ describe("buildHeartbeat / serialize / parse", () => {
         atomicQueue: true,
         chunkedTranslate: true,
         deliveryCap: true,
+        aiReadCap: true,
       },
       at: 1234,
     });

@@ -50,7 +50,7 @@ export function SplitRunner() {
   );
 }
 
-function SplitEditor({
+export function SplitEditor({
   pdf,
   onReset,
 }: {
@@ -110,12 +110,14 @@ function SplitEditor({
         summary={`${result.length} file${result.length === 1 ? "" : "s"} created · ${formatBytes(totalBytes(result))} total`}
         onReset={onReset}
       >
+        {zipError && <ErrorNote message={zipError} />}
         <button
           type="button"
           onClick={() => {
-            if (!zipping) downloadResult(result);
+            if (!zipping) void downloadResult(result);
           }}
           aria-disabled={zipping || undefined}
+          aria-busy={zipping}
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
           {zipping ? (
@@ -132,7 +134,6 @@ function SplitEditor({
             </>
           )}
         </button>
-        {zipError && <ErrorNote message={zipError} />}
       </ResultPanel>
     );
   }

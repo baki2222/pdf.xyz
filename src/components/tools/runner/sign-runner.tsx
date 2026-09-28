@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, PenLine, ShieldAlert } from "lucide-react";
 import {
   DEFAULT_SIGNATURE_WIDTH,
@@ -8,6 +8,7 @@ import {
   MIN_SIGNATURE_WIDTH,
   signatureOutputName,
   signPdf,
+  type ImageSignature,
   type SignatureInput,
   type SignaturePosition,
   type SignatureStyle,
@@ -20,6 +21,7 @@ import {
   type SignatureSource,
 } from "@/lib/pdf/offered-kinds";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { isOpaque, type RgbaImage } from "@/lib/pdf/signature-image";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -41,6 +43,7 @@ import {
 } from "./stamp-controls";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { SignaturePad } from "./signature-pad";
+import { decodeImageFile, signatureFromPixels } from "./signature-bitmap";
 import type { LoadedPdf } from "./use-single-pdf";
 
 type Source = SignatureSource;
@@ -62,8 +65,21 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   const [source, setSource] = useState<Source>("type");
   const [text, setText] = useState("");
   const [style, setStyle] = useState<SignatureStyle>("signature");
-  const [drawnPng, setDrawnPng] = useState<Uint8Array | null>(null);
-  const [uploadPng, setUploadPng] = useState<Uint8Array | null>(null);
+  const [drawn, setDrawn] = useState<ImageSignature | null>(null);
+  // The decoded upload is kept so "Remove paper background" can be toggled
+  // without asking for the file again.
+  const [uploadPixels, setUploadPixels] = useState<RgbaImage | null>(null);
+  // Whether the upload is a photo/scan (no transparency) — read ONCE per file:
+  // it is a pass over every pixel, and this component re-renders per keystroke.
+  const [uploadIsPhoto, setUploadIsPhoto] = useState(false);
+  // Preparing is async; only the latest request may land, or a slow encode of
+  // an earlier file or toggle state could overwrite the current one.
+  const prepareSeq = useRef(0);
+  const [removeBackground, setRemoveBackground] = useState(true);
+  // Read by an upload when its decode finishes, so a toggle made while the
+  // file was still decoding is honoured rather than the value at drop time.
+  const removeBackgroundRef = useRef(removeBackground);
+  const [uploaded, setUploaded] = useState<ImageSignature | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [position, setPosition] = useState<SignaturePosition>("bottom-right");
@@ -73,8 +89,8 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 
   const { busy, error, result, run } = useAsyncRun<Uint8Array>();
 
-  const drawnUrl = useObjectUrl(drawnPng);
-  const uploadUrl = useObjectUrl(uploadPng);
+  const drawnUrl = useObjectUrl(drawn);
+  const uploadUrl = useObjectUrl(uploaded);
 
   // The signature the active source currently describes, or null when it has no
   // usable content yet (empty text / no drawing / no upload).
@@ -82,21 +98,63 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     if (source === "type") {
       return text.trim().length > 0 ? { kind: "typed", text, style } : null;
     }
-    if (source === "draw") {
-      return drawnPng ? { kind: "image", png: drawnPng } : null;
+    if (source === "draw") return drawn;
+    return uploaded;
+  }, [source, text, style, drawn, uploaded]);
+
+  const prepareUpload = async (
+    seq: number,
+    pixels: RgbaImage,
+    removeBg: boolean,
+  ) => {
+    let signature: ImageSignature | null = null;
+    let problem: string | null = null;
+    try {
+      signature = await signatureFromPixels(pixels, {
+        removeBackground: removeBg,
+      });
+      if (!signature) {
+        problem =
+          "We couldn't find a signature in that image. Use a photo or scan of dark ink on light paper, or a PNG with a transparent background.";
+      }
+    } catch (err) {
+      problem = errorMessage(err);
     }
-    return uploadPng ? { kind: "image", png: uploadPng } : null;
-  }, [source, text, style, drawnPng, uploadPng]);
+    if (seq !== prepareSeq.current) return;
+    setUploaded(problem ? null : signature);
+    setUploadError(problem);
+  };
 
   const onUpload = async (files: File[]) => {
     const file = files[0];
     if (!file) return;
+    const seq = ++prepareSeq.current;
     setUploadError(null);
+    // The previous file stops being the signature the moment a new one is
+    // dropped: Run must not place it while this one decodes, and a toggle in
+    // the meantime must not re-prepare it (which would supersede this upload).
+    setUploaded(null);
+    setUploadPixels(null);
     try {
-      setUploadPng(await imageToPng(file));
+      const pixels = await decodeImageFile(file);
+      if (seq !== prepareSeq.current) return;
+      setUploadPixels(pixels);
+      setUploadIsPhoto(isOpaque(pixels));
+      await prepareUpload(seq, pixels, removeBackgroundRef.current);
     } catch (err) {
-      setUploadPng(null);
+      if (seq !== prepareSeq.current) return;
+      setUploadPixels(null);
+      setUploadIsPhoto(false);
+      setUploaded(null);
       setUploadError(errorMessage(err));
+    }
+  };
+
+  const onRemoveBackground = (value: boolean) => {
+    removeBackgroundRef.current = value;
+    setRemoveBackground(value);
+    if (uploadPixels) {
+      void prepareUpload(++prepareSeq.current, uploadPixels, value);
     }
   };
 
@@ -167,12 +225,17 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           </div>
         )}
 
-        {source === "draw" && (
-          <div className="flex flex-col gap-3">
-            <SignaturePad onChange={setDrawnPng} />
-            {drawnUrl && <SignaturePreview url={drawnUrl} />}
-          </div>
-        )}
+        {/* Kept mounted while another source is shown, so switching away
+            and back keeps the drawing — and its Clear button — in step with
+            the signature that would be placed. No `flex` while hidden, so
+            hiding does not rest on preflight's [hidden] rule beating it. */}
+        <div
+          className={source === "draw" ? "flex flex-col gap-3" : undefined}
+          hidden={source !== "draw"}
+        >
+          <SignaturePad onChange={setDrawn} />
+          {drawnUrl && <SignaturePreview url={drawnUrl} />}
+        </div>
 
         {source === "upload" && (
           <div className="flex flex-col gap-3">
@@ -182,8 +245,19 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
               multiple={false}
               compact
               title="Drop a signature image, or"
-              hint="PNG or JPEG · converted and placed locally"
+              hint="PNG or JPEG · cropped to the ink and placed locally"
             />
+            {uploadIsPhoto && (
+              <label className="text-muted inline-flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={removeBackground}
+                  onChange={(event) => onRemoveBackground(event.target.checked)}
+                  className="accent-accent size-4"
+                />
+                Remove paper background
+              </label>
+            )}
             {uploadError && <ErrorNote message={uploadError} />}
             {uploadUrl && <SignaturePreview url={uploadUrl} />}
           </div>
@@ -284,7 +358,7 @@ function TypedPreview({
   );
 }
 
-/** Preview a drawn or uploaded signature PNG on a light card. */
+/** Preview a drawn or uploaded signature on a light card. */
 function SignaturePreview({ url }: { url: string }) {
   return (
     <div className="border-line flex items-center justify-center rounded-[4px] border bg-white p-4">
@@ -298,16 +372,21 @@ function SignaturePreview({ url }: { url: string }) {
   );
 }
 
-/** Object URL for PNG bytes, revoked whenever the bytes change or on unmount. */
-function useObjectUrl(bytes: Uint8Array | null): string | null {
+/** Object URL for a signature image, revoked when it changes or on unmount. */
+function useObjectUrl(image: ImageSignature | null): string | null {
   const url = useMemo(() => {
-    if (!bytes || bytes.byteLength === 0 || typeof window === "undefined") {
+    if (
+      !image ||
+      image.bytes.byteLength === 0 ||
+      typeof window === "undefined"
+    ) {
       return null;
     }
-    const copy = new ArrayBuffer(bytes.byteLength);
-    new Uint8Array(copy).set(bytes);
-    return URL.createObjectURL(new Blob([copy], { type: "image/png" }));
-  }, [bytes]);
+    const copy = new ArrayBuffer(image.bytes.byteLength);
+    new Uint8Array(copy).set(image.bytes);
+    const type = image.format === "jpg" ? "image/jpeg" : "image/png";
+    return URL.createObjectURL(new Blob([copy], { type }));
+  }, [image]);
 
   useEffect(() => {
     if (!url) return;
@@ -315,48 +394,4 @@ function useObjectUrl(bytes: Uint8Array | null): string | null {
   }, [url]);
 
   return url;
-}
-
-/**
- * Convert an uploaded PNG/JPEG File into PNG bytes via a canvas, entirely in the
- * browser. Guards DOM access so it never runs during SSR.
- */
-async function imageToPng(file: File): Promise<Uint8Array> {
-  if (typeof document === "undefined") {
-    throw new Error("Image conversion is only available in the browser.");
-  }
-  const url = URL.createObjectURL(file);
-  try {
-    const image = await loadImage(url);
-    const canvas = document.createElement("canvas");
-    canvas.width = image.naturalWidth || image.width;
-    canvas.height = image.naturalHeight || image.height;
-    if (canvas.width === 0 || canvas.height === 0) {
-      throw new Error("That image has no visible content.");
-    }
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Couldn't read that image.");
-    ctx.drawImage(image, 0, 0);
-    const blob = await canvasToBlob(canvas);
-    if (!blob) throw new Error("Couldn't convert that image to PNG.");
-    return new Uint8Array(await blob.arrayBuffer());
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () =>
-      reject(new Error("That image couldn't be loaded. Use a PNG or JPEG."));
-    image.src = src;
-  });
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), "image/png");
-  });
 }

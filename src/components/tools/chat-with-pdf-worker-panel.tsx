@@ -372,7 +372,10 @@ function ChatBuilder({
         bytes,
         question: asked,
         ...(context.turns.length > 0 ? { context: context.turns } : {}),
-        declaration: measured.kind === "counted" ? measured.count : null,
+        // Only the DOCUMENT is declared: the route measures the question and
+        // the carried turns off the job's options and charges them itself.
+        documentCharacters:
+          measured.kind === "counted" ? measured.count.characters : null,
       });
       // The document changed while this was running: the answer is about a file the user
       // has already replaced, so it belongs to no transcript on screen. Drop it rather

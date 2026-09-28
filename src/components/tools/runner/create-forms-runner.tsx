@@ -418,8 +418,8 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
         <span>
           Positions are <span className="text-fg">PDF points</span> (1 pt =
           1/72&quot;), measured from the{" "}
-          <span className="text-fg">bottom-left</span> corner of the page — X
-          goes right, Y goes up.
+          <span className="text-fg">bottom-left</span> corner of the page as
+          it&apos;s displayed — X goes right, Y goes up.
           {first
             ? ` Page 1 is ${Math.round(first.width)} × ${Math.round(first.height)} pt.`
             : ""}

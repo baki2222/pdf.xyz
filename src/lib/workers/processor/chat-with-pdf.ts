@@ -12,7 +12,7 @@
  * takes), so this module stays free of Node built-ins and unit-testable.
  */
 
-import { readDeliveryCap, type JobError } from "@/lib/jobs";
+import type { JobError } from "@/lib/jobs";
 import {
   parseChatOptions,
   chatAnswerOutputName,
@@ -32,6 +32,7 @@ import {
   type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
+import { perCallReadCap } from "./read-cap-limit";
 
 type Failure = Extract<ChatWithPdfRun, { ok: false }>;
 
@@ -55,9 +56,9 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
-    case "over_reservation":
-      // Not retryable and not a size error: the same request under the same
-      // reservation is refused the same way, and the message names both numbers.
+    case "conversation_too_long":
+      // Not retryable and not a size error: the same conversation under the
+      // same ceiling is refused the same way, and the message names both numbers.
       return {
         code: "unprocessable_entity",
         message: run.message,
@@ -168,24 +169,22 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
       }
       /**
        * The delivery cap arrives on the INPUT, not on `deps`: `deps` is the
-       * worker's wiring, built once at start-up, and the cap is per job — the
-       * same shape as `processor/translate.ts`, which until 2026-09-27 was the
-       * ONLY processor that read it. Chat was charged a reservation per
-       * question and read up to 500,000 characters regardless.
+       * worker's wiring, built once at start-up, and the cap is per job.
        *
        * RE-READ, NOT TRUSTED, and FAIL-CLOSED: it came back from the queue as
        * `JSON.parse(raw) as T`. A malformed cap must not read as "no cap",
        * because the convenient reading of a broken value is "deliver
        * everything" — precisely what the cap exists to prevent.
+       *
+       * It is the DOCUMENT read bound the route charged for (`aiReservationFor`,
+       * see `./read-cap-limit`); the question and the turns were charged
+       * separately, off the options. So it goes to the engine as its own bound,
+       * NOT folded into `maxInputChars`: that is chat's per-question ceiling,
+       * which the conversation IS paid out of, and folding the two would take
+       * the conversation out of the document this job paid for.
        */
-      const cap = readDeliveryCap(input.delivery);
-      if (!cap.ok) {
-        return processorFail({
-          code: "internal_error",
-          message: `This job could not be run because ${cap.reason}.`,
-          retryable: false,
-        });
-      }
+      const cap = perCallReadCap(input.delivery);
+      if (!cap.ok) return processorFail(cap.error);
       const run = await runChatWithPdf(file.bytes, parsed.value, {
         ...deps,
         limits: {

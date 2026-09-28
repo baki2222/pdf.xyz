@@ -1,5 +1,7 @@
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import { displayedSize, pageFrame, toContentSpace } from "./page-frame";
+import { loadPdfLib } from "./pdf-lib";
 import { loadPdf, stampProducer } from "./stamp";
 import { assertFormFieldTextDrawable } from "./unicode-font";
 import {
@@ -21,7 +23,10 @@ import {
  * create signature fields (pdf-lib cannot render a usable signature widget) and
  * it does NOT produce XFA (dynamic XML) forms — only the classic AcroForm
  * dictionary every viewer understands. Coordinates are measured in PDF points
- * (1pt = 1/72") from the *bottom-left* corner of the page.
+ * (1pt = 1/72") from the *bottom-left* corner of the page AS A READER SEES IT:
+ * the visible (crop) box, turned by the page's `/Rotate`. They are mapped into
+ * pdf-lib's unrotated draw space through page-frame.ts, and each widget is
+ * given the page's rotation so its contents read upright.
  */
 
 /*
@@ -128,7 +133,10 @@ function isChoiceField(spec: NewFormField): spec is ChoiceField {
   );
 }
 
-/** The displayed size of one page, in points. */
+/**
+ * The displayed size of one page, in points — the visible (crop) box, with
+ * width and height swapped on a page turned a quarter by `/Rotate`.
+ */
 export interface PageDimensions {
   width: number;
   height: number;
@@ -200,11 +208,47 @@ function fieldBoxes(spec: NewFormField): Placement[] {
 }
 
 /**
+ * PDF field names are hierarchical: a period splits a name into a GROUP and the
+ * field inside it, so "address.city" creates a group "address" holding a field
+ * "city". A name cannot be both a field and a group — pdf-lib refuses the
+ * second of "address" and "address.city", in either order, with a raw library
+ * error. Returns the user-facing problem for `name` (the spec at `index`),
+ * checked against every other new name and every name the PDF already has, or
+ * null when it can coexist with all of them.
+ */
+function groupClash(
+  name: string,
+  index: number,
+  specs: NewFormField[],
+  reserved: ReadonlySet<string>,
+): string | null {
+  const others: { other: string; inPdf: boolean }[] = [
+    ...[...reserved].map((other) => ({ other, inPdf: true })),
+    ...specs.flatMap((spec, i) =>
+      i === index || !spec.name.trim()
+        ? []
+        : [{ other: spec.name.trim(), inPdf: false }],
+    ),
+  ];
+  for (const { other, inPdf } of others) {
+    const where = inPdf ? " in this PDF" : "";
+    if (other.startsWith(`${name}.`)) {
+      return `"${name}" is also the group of "${other}"${where} — a period in a field name makes the part before it a group, and a group can't also be a field. Rename one of them.`;
+    }
+    if (name.startsWith(`${other}.`)) {
+      return `"${other}" ${inPdf ? "is already a field in this PDF" : "is also a field here"}, so "${name}" can't use it as a group — a period in a field name makes the part before it a group. Rename one of them.`;
+    }
+  }
+  return null;
+}
+
+/**
  * Validate a list of field specs against the target PDF. Returns every problem
  * found (empty array means the specs are safe to create), each tagged with the
  * offending spec's index so a builder UI can show issues inline. Checks: at
  * least one field, non-empty and unique names (including against the PDF's
- * existing fields), in-range pages, positive sizes, on-page placement, per-type
+ * existing fields, and the group/field hierarchy a period in a name creates),
+ * in-range pages, positive sizes, on-page placement, per-type
  * option requirements, and default values that match their options.
  */
 export function validateFormFields(
@@ -240,6 +284,13 @@ export function validateFormFields(
       );
     } else if ((nameCounts.get(name) ?? 0) > 1) {
       push(`Duplicate field name "${name}" — names must be unique.`);
+    } else if (name.split(".").some((part) => part.length === 0)) {
+      push(
+        `"${name}" can't be used as a name — a period separates a group from the field inside it, so it can't start or end a name or appear twice in a row.`,
+      );
+    } else {
+      const clash = groupClash(name, index, specs, reserved);
+      if (clash) push(clash);
     }
 
     // Page — a whole number within the document.
@@ -340,10 +391,12 @@ export async function readFormContext(
   bytes: Uint8Array,
 ): Promise<NewFormContext> {
   const doc = await loadPdf(bytes);
-  const pageSizes = doc.getPages().map((page) => {
-    const { width, height } = page.getSize();
-    return { width, height };
-  });
+  // Sizes AS DISPLAYED, from the same frames createFormFields maps through, so
+  // the runner's "Page 1 is W × H pt" and its bounds describe the page the
+  // user is measuring on — not the unrotated media box underneath it.
+  const pageSizes = doc
+    .getPages()
+    .map((page) => displayedSize(pageFrame(page)));
   const existingNames = doc
     .getForm()
     .getFields()
@@ -364,18 +417,18 @@ function summarizeErrors(errors: FieldSpecError[]): string {
  * validated first (against the loaded PDF's pages and existing field names); an
  * invalid spec throws a typed, user-facing {@link PdfEngineError} rather than
  * producing a corrupt form. The source PDF's own pages and any existing fields
- * are preserved untouched.
+ * are preserved untouched: appearances are drawn for the NEW fields only, and
+ * the save does not regenerate anyone else's (see the save call).
  */
 export async function createFormFields(
   bytes: Uint8Array,
   specs: NewFormField[],
 ): Promise<CreateFormResult> {
   const doc = await loadPdf(bytes);
+  const { degrees } = await loadPdfLib();
   const pages = doc.getPages();
-  const pageSizes = pages.map((page) => {
-    const { width, height } = page.getSize();
-    return { width, height };
-  });
+  const frames = pages.map(pageFrame);
+  const pageSizes = frames.map(displayedSize);
   const form = doc.getForm();
   const existingNames = form.getFields().map((field) => field.getName());
 
@@ -388,7 +441,8 @@ export async function createFormFields(
   // default values, the dropdown/list options, and the field names themselves
   // (pdf-lib writes those into the AcroForm dictionary). Checked here, before a
   // single widget is added, because the failure otherwise surfaces from
-  // `doc.save()` as a raw `WinAnsi cannot encode` with the form half-built.
+  // pdf-lib's appearance drawing (`addToPage`) as a raw `WinAnsi cannot
+  // encode` with the form half-built.
   assertFormFieldTextDrawable([
     ...specs.map((spec) => spec.name),
     ...specs.map((spec) =>
@@ -403,14 +457,22 @@ export async function createFormFields(
 
   for (const spec of specs) {
     const page = pages[spec.page - 1];
-    if (!page) continue; // Unreachable after validation; satisfies the type checker.
+    const frame = frames[spec.page - 1];
+    if (!page || !frame) continue; // Unreachable after validation; satisfies the type checker.
     const name = spec.name.trim();
-    const box: Placement = {
-      x: spec.x,
-      y: spec.y,
-      width: spec.width,
-      height: spec.height,
-    };
+    // The user's box is in the DISPLAYED frame. pdf-lib takes the widget's
+    // lower-left ANCHOR plus a rotation and turns the box about that anchor
+    // itself (`rotateRectangle`), so only the anchor is mapped here — mapping
+    // the whole rectangle as well would turn it twice. The same rotation lands
+    // in the widget's /MK /R, which cancels the page's /Rotate so the field's
+    // contents read upright to the viewer.
+    const place = (at: Placement) => ({
+      ...toContentSpace({ x: at.x, y: at.y }, frame),
+      width: at.width,
+      height: at.height,
+      rotate: degrees(frame.rotation),
+    });
+    const box = place(spec);
 
     switch (spec.type) {
       case "text": {
@@ -423,8 +485,12 @@ export async function createFormFields(
       }
       case "checkbox": {
         const field = form.createCheckBox(name);
-        if (spec.checked) field.check();
         field.addToPage(page, box);
+        // AFTER addToPage: `check()` sets /V and turns each EXISTING widget's
+        // /AS on, and `addToPage` creates its widget with /AS /Off. Checked
+        // first, the box carried /V /Yes with /AS /Off — "starts checked" in
+        // the data, drawn unchecked by any viewer that paints /AS.
+        if (spec.checked) field.check();
         break;
       }
       case "dropdown": {
@@ -446,10 +512,11 @@ export async function createFormFields(
       }
       case "radio": {
         const field = form.createRadioGroup(name);
+        // Each stacked button's box is in the displayed frame too; map each.
         const boxes = fieldBoxes(spec);
         spec.options.forEach((option, i) => {
           const at = boxes[i];
-          if (at) field.addOptionToPage(option, page, at);
+          if (at) field.addOptionToPage(option, page, place(at));
         });
         if (spec.defaultValue) field.select(spec.defaultValue);
         break;
@@ -458,7 +525,17 @@ export async function createFormFields(
   }
 
   stampProducer(doc);
-  const out = await doc.save();
+  // `updateFieldAppearances: false`: pdf-lib's default regenerates EVERY field
+  // lacking an appearance, the PDF's existing ones included — redrawing them in
+  // Helvetica, and throwing a raw `WinAnsi cannot encode` on an existing value
+  // in Bengali or CJK (common from generators that set NeedAppearances and omit
+  // /AP). Existing fields stay as they came. The NEW fields need nothing from
+  // the save: each one's appearance is drawn by `addToPage`, AFTER its text or
+  // selection is set, and a checkbox or radio only flips /AS between on/off
+  // streams its widgets already have. Reorder a setter below `addToPage` and
+  // that field ships blank — "each new field shows its starting value" in
+  // create-forms.pdfjs.test.ts is the check.
+  const out = await doc.save({ updateFieldAppearances: false });
   return {
     bytes: out,
     fieldCount: specs.length,

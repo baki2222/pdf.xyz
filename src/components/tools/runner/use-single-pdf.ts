@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { PdfEngineError, getPageRotations } from "@/lib/pdf/engine";
 import { classifyPdfAccess, type PdfAccess } from "@/lib/pdf/encryption";
 import { readFileBytes } from "@/lib/pdf/browser";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { validatePdfFile } from "@/lib/pdf/files";
 import type { Rotation } from "@/lib/pdf/types";
 import { errorMessage } from "./runner-kit";
@@ -14,6 +15,12 @@ export interface LoadedPdf {
   pageCount: number;
   /** Each page's current rotation, in document order. */
   rotations: Rotation[];
+  /**
+   * Digital (certificate) signatures the file already carries. Any PDF a tool
+   * saves from it is a full rewrite, so they stop verifying — the runner says
+   * so before Run.
+   */
+  digitalSignatures: number;
 }
 
 /**
@@ -65,7 +72,13 @@ export function useSinglePdf({
       try {
         bytes = await readFileBytes(file);
         const rotations = await getPageRotations(bytes);
-        setPdf({ file, bytes, pageCount: rotations.length, rotations });
+        setPdf({
+          file,
+          bytes,
+          pageCount: rotations.length,
+          rotations,
+          digitalSignatures: countDigitalSignatures(bytes),
+        });
       } catch (err) {
         setPdf(null);
         const access =

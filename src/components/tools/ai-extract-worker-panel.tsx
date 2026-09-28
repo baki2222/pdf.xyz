@@ -30,6 +30,7 @@ import {
   aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
+import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
 import {
   canRunAiExtract,
   runWorkerAiExtract,
@@ -250,6 +251,9 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
     try {
       setOutcome(null);
       const bytes = new Uint8Array(await file.arrayBuffer());
+      // Counted before upload so the run is charged what this document holds,
+      // not a third of the day. `null` sends it undeclared at the old price.
+      const declaredCharacters = await countDeclaredCharacters(bytes);
       const result = await runWorkerAiExtract(
         mode === "prompt"
           ? {
@@ -257,10 +261,12 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
               bytes,
               mode: "prompt",
               prompt: prompt.trim(),
+              declaredCharacters,
             }
           : {
               filename: file.name,
               bytes,
+              declaredCharacters,
               mode: "schema",
               schema: namedFields.map((f) => ({
                 name: f.name.trim(),

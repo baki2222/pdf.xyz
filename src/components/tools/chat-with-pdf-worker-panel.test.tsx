@@ -410,12 +410,18 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
   /**
    * Until 2026-09-27 the panel declared nothing, so every question reserved a
    * whole call's worth of the daily allowance — a third of the day for a
-   * question about one page. The declaration is read here off the request the
-   * DRIVER receives, which is what goes on the wire
+   * question about one page, and three questions the whole day's chat. Each
+   * question now declares the document's characters, measured ONCE per file —
+   * the document does not change between questions. The declaration is read
+   * here off the request the DRIVER receives, which is what goes on the wire
    * (`workers/chat-allowance.chain.test.ts` follows it from there through the
    * real route and limiter).
+   *
+   * Two lanes wrote this block the same day with two measuring helpers; the
+   * panel keeps `measureChatDocument`, because only it tells a scan (upload
+   * nothing) from a file the browser could not read (send it undeclared).
    */
-  it("declares the document it measured on every question, measuring it once", async () => {
+  it("declares the document it measured on every question, measuring it once per file", async () => {
     stubStatus();
     runWorkerChatWithPdf
       .mockImplementationOnce(() => workerSuccess("Q one", "A one [p.1]."))
@@ -435,13 +441,42 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
 
     for (const index of [0, 1]) {
       expect(
-        (requestAt(index) as { declaration?: unknown }).declaration,
-        "a question went out without the document's count, so it reserves " +
-          "a whole call's worth of the daily allowance",
-      ).toEqual(MEASURED);
+        (requestAt(index) as { documentCharacters?: unknown })
+          .documentCharacters,
+        `question ${index + 1} went out without the document's count, so it ` +
+          "reserves a whole call's worth of the daily allowance",
+      ).toBe(MEASURED.characters);
     }
     // Once per FILE: a follow-up re-sends the same document, not a new one.
-    expect(measureChatDocument).toHaveBeenCalledTimes(1);
+    expect(
+      measureChatDocument,
+      "the same document was re-measured for a follow-up question",
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("measures again after the document is swapped", async () => {
+    stubStatus();
+    runWorkerChatWithPdf.mockImplementation(() =>
+      workerSuccess("Q one", "A one [p.1]."),
+    );
+
+    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+    expect(await screen.findByText("A one [p.1].")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /remove/i }));
+    measureChatDocument.mockResolvedValueOnce({
+      kind: "counted",
+      count: { characters: 99, textPages: 1 },
+    });
+    await ask("Q one");
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    expect(
+      (requestAt(1) as { documentCharacters?: unknown }).documentCharacters,
+      "a new document was charged at the previous document's size",
+    ).toBe(99);
+    expect(measureChatDocument).toHaveBeenCalledTimes(2);
   });
 
   it("goes undeclared, not refused, when the browser cannot read the PDF", async () => {
@@ -454,7 +489,9 @@ describe("ChatWithPdfWorkerPanel — what each question declares", () => {
     await screen.findByRole("textbox");
     await ask("Q");
     await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
-    expect((requestAt(0) as { declaration?: unknown }).declaration).toBeNull();
+    expect(
+      (requestAt(0) as { documentCharacters?: unknown }).documentCharacters,
+    ).toBeNull();
   });
 
   it("uploads nothing, and says why, for a PDF with no selectable text", async () => {

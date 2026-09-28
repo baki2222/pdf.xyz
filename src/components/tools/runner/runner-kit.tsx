@@ -16,6 +16,7 @@ import {
   Download,
   Image as ImageIcon,
   ImageOff,
+  Info,
   Loader2,
   RefreshCw,
   TriangleAlert,
@@ -298,7 +299,19 @@ export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
   return { ref, tabIndex: -1 } as const;
 }
 
-export function ErrorNote({ message }: { message: string }) {
+/**
+ * A failure, announced. `action` is the next step when there is one — a link
+ * to the tool that can do what this one could not — and it renders INSIDE the
+ * alert, so it is announced with the error and reached by keyboard right after
+ * it, rather than sitting somewhere the reader has to go and find.
+ */
+export function ErrorNote({
+  message,
+  action,
+}: {
+  message: string;
+  action?: ReactNode;
+}) {
   // A message that sends the user to Unlock PDF (every encrypted-file message
   // does) carries the way there, rather than a tool name to go and find.
   const offersUnlock = message.includes(UNLOCK_TOOL_NAME);
@@ -321,6 +334,7 @@ export function ErrorNote({ message }: { message: string }) {
             </Link>
           </>
         )}
+        {action ? <> {action}</> : null}
       </span>
     </p>
   );
@@ -584,8 +598,12 @@ export function ResultPanel({
   /**
    * `warn` for an outcome that finished but did not give the user what they
    * came for (a PDF with no selectable text), so it does not read as success.
+   *
+   * `neutral` for a run that finished but did not do the tool's job — a
+   * "flatten" of a PDF with nothing to flatten. A green check on that panel is
+   * a claim the file does not back.
    */
-  tone?: "ok" | "warn";
+  tone?: "ok" | "warn" | "neutral";
   /**
    * What to say when focus cannot be moved. Defaults to `title`, which is right
    * for most tools; override where the title alone is thin out of context
@@ -607,20 +625,28 @@ export function ResultPanel({
         "animate-float-up flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2",
         tone === "warn"
           ? "border-warn/40 bg-warn/10 focus-visible:ring-warn/50"
-          : "border-ok/30 bg-ok/10 focus-visible:ring-ok/50",
+          : tone === "ok"
+            ? "border-ok/30 bg-ok/10 focus-visible:ring-ok/50"
+            : "border-line bg-wash focus-visible:ring-line-strong",
       )}
     >
       <div className="flex items-start gap-3">
         <span
           className={cn(
             "grid size-10 shrink-0 place-items-center rounded-[3px]",
-            tone === "warn" ? "bg-warn/15 text-warn" : "bg-ok/15 text-ok",
+            tone === "warn"
+              ? "bg-warn/15 text-warn"
+              : tone === "ok"
+                ? "bg-ok/15 text-ok"
+                : "bg-panel text-muted",
           )}
         >
           {tone === "warn" ? (
             <AlertTriangle className="size-5" aria-hidden />
-          ) : (
+          ) : tone === "ok" ? (
             <CheckCircle2 className="size-5" aria-hidden />
+          ) : (
+            <Info className="size-5" aria-hidden />
           )}
         </span>
         <div className="flex flex-col gap-1">

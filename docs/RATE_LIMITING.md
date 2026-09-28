@@ -237,6 +237,18 @@ unrelated reasons and they are told apart only by the message:
 The reservation is what the allowance is debited by, so a probe that declares
 one character pays four and no more.
 
+**Keep the tool `translate-pdf`.** Summarize, Chat and Extract are priced per
+call (`AI_RUN_PRICING` in `src/lib/jobs/delivery-cap.ts`): a declaration on them
+is honoured only while the running worker publishes `aiReadCap: true` on a fresh
+heartbeat — the proof that it reads no more of a document than was declared,
+and sends nothing else the charge does not count. Until then, and whenever the
+heartbeat is stale or absent, the same probe sent as `summarize-pdf` costs a
+whole run: 41,032 of the 123,096, a third of the day. Even with the proof, a
+per-call run also pays for its options (measured by the server from the body,
+never declared) and for the engine's own instructions
+(`AI_PER_CALL_INSTRUCTION_CHARACTERS`), so a one-character probe there is not
+the four-character question this section describes.
+
 **A refusal costs nothing at all.** The allowance guard peeks before it spends
 (`spendIfItFits` in `ratelimit/guard.ts`): when the budget cannot cover the
 reservation it refuses without recording anything, so asking "am I out?" while

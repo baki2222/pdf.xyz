@@ -8,14 +8,17 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Eraser } from "lucide-react";
+import type { ImageSignature } from "@/lib/pdf/signature";
 import { ChipButton } from "./runner-kit";
+import { canvasPixels, signatureFromPixels } from "./signature-bitmap";
 import { cn } from "@/lib/utils";
 
 /**
  * A lightweight, SSR-safe canvas signature pad. Strokes are dark ink drawn on a
  * transparent canvas — the light card behind it only makes them visible on
  * screen — so the exported PNG overlays cleanly onto a PDF page. After each
- * stroke ends the current drawing is exported to PNG bytes and handed to
+ * stroke ends the drawing is cropped to its ink (`signature-image.ts`), so the
+ * Size control sizes the signature and not the pad, encoded, and handed to
  * `onChange`; an empty pad reports `null`.
  */
 
@@ -27,12 +30,15 @@ export function SignaturePad({
   onChange,
   className,
 }: {
-  onChange: (png: Uint8Array | null) => void;
+  onChange: (signature: ImageSignature | null) => void;
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const inkedRef = useRef(false);
+  // Exports are async; only the latest one may report, or a slow encode of an
+  // earlier stroke could overwrite the finished drawing.
+  const exportSeq = useRef(0);
   const [hasInk, setHasInk] = useState(false);
 
   const context = useCallback((): CanvasRenderingContext2D | null => {
@@ -65,20 +71,18 @@ export function SignaturePad({
   }, []);
 
   const exportInk = useCallback(() => {
+    const seq = ++exportSeq.current;
     const canvas = canvasRef.current;
-    if (!canvas || !inkedRef.current) {
+    const pixels = canvas && inkedRef.current ? canvasPixels(canvas) : null;
+    if (!pixels) {
       onChange(null);
       return;
     }
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        onChange(null);
-        return;
-      }
-      void blob
-        .arrayBuffer()
-        .then((buffer) => onChange(new Uint8Array(buffer)));
-    }, "image/png");
+    void signatureFromPixels(pixels, { removeBackground: false })
+      .catch(() => null)
+      .then((signature) => {
+        if (seq === exportSeq.current) onChange(signature);
+      });
   }, [onChange]);
 
   const startStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -116,6 +120,7 @@ export function SignaturePad({
     if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawingRef.current = false;
     inkedRef.current = false;
+    exportSeq.current += 1;
     setHasInk(false);
     onChange(null);
   };

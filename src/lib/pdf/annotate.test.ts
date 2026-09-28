@@ -6,17 +6,23 @@ import {
   annotatedOutputName,
   arrowHeadSegments,
   clampOpacity,
+  displayedSize,
   getAnnotatePageSizes,
   isValidHexColor,
   isWinAnsiEncodable,
+  noteFitIssues,
   nonWinAnsiCharacters,
   parseHexColor,
   sanitizeNoteText,
+  toContentSpace,
   validateAnnotations,
   wrapText,
   type Annotation,
+  type NoteMetrics,
+  type PageFrame,
   type PageSize,
 } from "./annotate";
+import { STAMP_POSITIONS, placeStamp, resolveAlign } from "./stamp";
 
 /** A blank PDF with the given page sizes (points). */
 async function blankPdf(sizes: [number, number][]): Promise<Uint8Array> {
@@ -456,8 +462,164 @@ describe("annotatePdf", () => {
   });
 });
 
+describe("toContentSpace / displayedSize", () => {
+  const QUARTER_TURNS = Array.from(
+    { length: 4 },
+    (_, q) => (q * 90) as PageFrame["rotation"],
+  );
+  const frameFor = (rotation: PageFrame["rotation"]): PageFrame => ({
+    x: 0,
+    y: 0,
+    width: 600,
+    height: 800,
+    rotation,
+  });
+
+  it("agrees with placeStamp, the site's other viewer-frame placement, on every rotation", () => {
+    // Every alignment is an anchor on the displayed page; with a zero-size
+    // text the anchor IS the point.
+    //
+    // CHANGED 2026-09-27 (integration), history kept. This was "two
+    // independent statements of the same transform": placeStamp carried its
+    // own rotation switch, over a box at 0,0. The merge made both map through
+    // page-frame's `viewToContent`, and gave placeStamp the VISIBLE box
+    // (header/footer fix) — origin included. So what this now pins is
+    // placeStamp's alignment anchors AND its use of the box origin against
+    // annotate's displayed-frame mapping, on a box that does not start at 0,0.
+    let compared = 0;
+    for (const rotation of QUARTER_TURNS) {
+      const frame = { ...frameFor(rotation), x: 30, y: 50 };
+      const shown = displayedSize(frame);
+      for (const position of STAMP_POSITIONS) {
+        const { h, v } = resolveAlign(position);
+        const margin = 36;
+        const stamp = placeStamp({
+          box: {
+            x: frame.x,
+            y: frame.y,
+            width: frame.width,
+            height: frame.height,
+          },
+          pageRotation: rotation,
+          textWidth: 0,
+          textHeight: 0,
+          h,
+          v,
+          margin,
+        });
+        const vx =
+          h === "left"
+            ? margin
+            : h === "right"
+              ? shown.width - margin
+              : shown.width / 2;
+        const vy =
+          v === "bottom"
+            ? margin
+            : v === "top"
+              ? shown.height - margin
+              : shown.height / 2;
+        expect(toContentSpace({ x: vx, y: vy }, frame)).toEqual({
+          x: stamp.x,
+          y: stamp.y,
+        });
+        expect(stamp.rotate).toBe(rotation);
+        compared += 1;
+      }
+    }
+    expect(compared).toBe(QUARTER_TURNS.length * STAMP_POSITIONS.length);
+  });
+
+  it("maps the displayed page onto the whole box, offset by its origin", () => {
+    for (const rotation of QUARTER_TURNS) {
+      const frame = { ...frameFor(rotation), x: 30, y: 50 };
+      const { width, height } = displayedSize(frame);
+      expect([width, height]).toEqual(
+        rotation % 180 === 0 ? [600, 800] : [800, 600],
+      );
+      const mapped = [
+        [0, 0],
+        [width, 0],
+        [0, height],
+        [width, height],
+      ].map(([x, y]) => toContentSpace({ x: x!, y: y! }, frame));
+      const xs = mapped.map((p) => p.x).sort((a, b) => a - b);
+      const ys = mapped.map((p) => p.y).sort((a, b) => a - b);
+      expect([xs[0], xs[3], ys[0], ys[3]]).toEqual([30, 630, 50, 850]);
+    }
+  });
+});
+
+describe("noteFitIssues", () => {
+  // Plain metrics: every character 10 pt wide at size 10, ascent 8, descent 2.
+  const metrics: NoteMetrics = {
+    widthOfTextAtSize: (text, size) => text.length * size,
+    heightAtSize: (size, options) =>
+      options?.descender === false ? size * 0.8 : size,
+  };
+  const page: PageSize[] = [{ width: 200, height: 100 }];
+  const note = (over: Partial<Annotation>): Annotation =>
+    ({
+      type: "note",
+      page: 1,
+      x: 10,
+      y: 50,
+      text: "hello",
+      color: "#000",
+      size: 10,
+      ...over,
+    }) as Annotation;
+
+  it("POSITIVE CONTROL: a note that fits has no issue", () => {
+    expect(noteFitIssues([note({})], page, metrics)).toEqual([]);
+    // Right to the edge is still on the page: 10 + 19 * 10 = 200.
+    expect(
+      noteFitIssues([note({ text: "x".repeat(19) })], page, metrics),
+    ).toEqual([]);
+  });
+
+  it("flags each edge by the amount the words leave the page", () => {
+    const [right] = noteFitIssues(
+      [note({ text: "x".repeat(20) })],
+      page,
+      metrics,
+    );
+    expect(right?.message).toMatch(/runs 10 pt past the right edge/);
+    const [top] = noteFitIssues([note({ y: 95 })], page, metrics);
+    expect(top?.message).toMatch(/rises 3 pt above the top edge/);
+    // Three lines at 11.8 pt spacing from y 20: last baseline 20 - 23.6,
+    // minus the 2 pt descent.
+    const [bottom] = noteFitIssues(
+      [note({ y: 20, text: "a\nb\nc" })],
+      page,
+      metrics,
+    );
+    expect(bottom?.message).toMatch(/runs 6 pt below the bottom edge/);
+  });
+
+  it("measures the wrapped lines, not the anchor", () => {
+    // Unwrapped, 30 characters run off a 200 pt page; wrapped at 100 pt they
+    // fit, three lines down from y 80.
+    const text = "aaaa bbbb cccc dddd eeee ffff";
+    expect(noteFitIssues([note({ text, y: 80 })], page, metrics)).toHaveLength(
+      1,
+    );
+    expect(
+      noteFitIssues([note({ text, y: 80, maxWidth: 100 })], page, metrics),
+    ).toEqual([]);
+  });
+
+  it("leaves invalid markups to validateAnnotations", () => {
+    expect(
+      noteFitIssues([note({ page: 5, text: "x".repeat(50) })], page, metrics),
+    ).toEqual([]);
+  });
+});
+
 describe("getAnnotatePageSizes", () => {
-  it("reads each page's content-space size", async () => {
+  // Rotated and cropped pages are pinned against what pdfjs displays, in
+  // annotate.pdfjs.test.ts.
+  it("reads each unrotated page's size", async () => {
     const base = await blankPdf([
       [612, 792],
       [400, 300],

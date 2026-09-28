@@ -42,7 +42,9 @@ import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 // A third independent copy of the same sentence until 2026-08-11. Then ONE
 // constant for four panels — which was the next defect: the figure is
 // translate's, and Summarize, Chat and Extract are charged per run. So the note
-// is per tool now, from the same function the tool page's fact line reads.
+// is per tool now, from the same function the tool page's fact line reads —
+// and for Summarize, Chat and Extract that sentence carries the per-run
+// ceiling per-call pricing guarantees (`AI_PER_CALL_ALLOWANCE_FACT`).
 export function aiDailyAllowanceNote(slug: string): string {
   return aiAllowanceFactFor(slug);
 }

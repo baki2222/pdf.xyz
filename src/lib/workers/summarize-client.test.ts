@@ -168,6 +168,7 @@ describe("summarize-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        declaredCharacters: null,
         length: "brief",
         format: "bullets",
         focus: "risks",
@@ -242,6 +243,7 @@ describe("summarize-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        declaredCharacters: null,
         length: "standard",
         format: "paragraphs",
       },
@@ -297,6 +299,7 @@ describe("summarize-client", () => {
       {
         filename: "in.pdf",
         bytes: new Uint8Array([1]),
+        declaredCharacters: null,
         length: "brief",
         format: "bullets",
       },

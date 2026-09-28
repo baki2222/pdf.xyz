@@ -133,6 +133,24 @@ export interface HeartbeatCapabilities {
    * translation, which is invisible and expensive.
    */
   readonly deliveryCap: boolean;
+  /**
+   * Every `per-call` AI processor in this image (summarize, chat, extract)
+   * reads no more of a document than the cap it is handed, and sends the
+   * provider nothing beyond that document, the job's options and
+   * `AI_PER_CALL_INSTRUCTION_CHARACTERS` of its own: the three things the
+   * route charges. The cap bounds the document ONLY; the options are bounded
+   * by the route's byte cap and charged by the server's own measure.
+   *
+   * Separate from {@link deliveryCap} because that one was proved on translate
+   * alone, by images that ignored the cap on the other three tools — so an old
+   * image publishes `deliveryCap: true` and could not be told apart. This key
+   * did not exist before those processors honoured the cap, so an image built
+   * earlier publishes nothing and parses as `false`.
+   *
+   * It is not only reported: `POST /api/jobs` honours a declared character
+   * count for those tools only while this reads `true` on a fresh heartbeat.
+   */
+  readonly aiReadCap: boolean;
 }
 
 /**

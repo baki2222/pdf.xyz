@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { resolveNativePdfArchiveConfig } from "@/lib/workers/pdf-archive/native-config";
 
 const ROOT = process.cwd();
 const read = (rel: string): string =>
@@ -92,6 +93,25 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
   it("the worker image installs LibreOffice for Office to PDF conversion", () => {
     const worker = stageInstructions(stages, "worker");
     expect(worker).toMatch(/apt-get install[\s\S]*libreoffice/);
+  });
+
+  it("the worker image provisions the PDF/A ICC profile at exactly the path the engine reads", () => {
+    // The PDF/A OutputIntent embeds an ICC profile read from disk. The runtime
+    // path is DEFAULT_PDFA_ICC_PROFILE; if the image put the profile anywhere
+    // else, the engine's boot probe would report PDF/A unavailable (or, with a
+    // wrong override, every job would fail the output gate). The derivation
+    // runs from the engine's constant to the Dockerfile, never the reverse.
+    const worker = stageInstructions(stages, "worker");
+    const expected = resolveNativePdfArchiveConfig({}).iccProfile;
+    const copied = /cp -L "\$icc" (\S+)/.exec(worker)?.[1];
+    expect(copied, "the worker stage copies no ICC profile").toBeDefined();
+    expect(copied).toBe(expected);
+    // …found from Ghostscript's own install, and the build FAILS if absent.
+    expect(worker).toMatch(
+      /find \/usr\/share -path '\*ghostscript\*' -name srgb\.icc/,
+    );
+    expect(worker).toContain('test -n "$icc"');
+    expect(worker).toContain(`test -s ${expected}`);
   });
 
   it("the worker image installs the proof-only pdftotext tool (poppler-utils)", () => {

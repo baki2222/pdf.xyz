@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Download,
   Languages,
@@ -31,15 +32,11 @@ import {
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { PdfEngineError } from "@/lib/pdf/engine";
-import {
-  extractPdfText,
-  pageTextChunks,
-  type ExtractedPdfText,
-} from "@/lib/pdf/text";
-import { planTranslateChunks } from "@/lib/workers/translate/chunking";
+import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
+import { translatePreflight } from "@/lib/workers/translate/preflight";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
-  translateTooLongMessage,
+  TRANSLATE_NO_TEXT_MESSAGE,
 } from "@/lib/jobs/translate-limits";
 import { TruncationNotice } from "./truncation-notice";
 import { DeliveryNotice, deliverySummary } from "./delivery-notice";
@@ -323,20 +320,18 @@ function TranslateBuilder({
       // the refusal below and the page count declared with the job. Counting
       // them twice — here and again at the call site — is how the declaration
       // and the refusal end up describing different documents.
-      const textPages = pageTextChunks(extracted.pages);
-      const plan = planTranslateChunks(textPages, TRANSLATE_MAX_INPUT_CHARS);
-      const noPageStructure = extracted.pages.length === 0;
-      const nothingFits = noPageStructure
-        ? extracted.characterCount > TRANSLATE_MAX_INPUT_CHARS
-        : plan.chunks.length === 0;
-      if (nothingFits) {
-        setOutcome({
-          ok: false,
-          message: translateTooLongMessage(
-            extracted.characterCount,
-            TRANSLATE_MAX_INPUT_CHARS,
-          ),
-        });
+      //
+      // AND THE REFUSAL SAYS WHY. "No chunks" used to be read as "too long",
+      // so a scanned PDF — no text pages, therefore no chunks — was told it had
+      // "0 characters of text" and should be split into smaller files. The
+      // preflight tells no-text, every-page-oversize and too-long apart, in
+      // the worker's order and with the worker's sentences.
+      const { textPages, refusal } = translatePreflight(
+        extracted,
+        TRANSLATE_MAX_INPUT_CHARS,
+      );
+      if (refusal !== null) {
+        setOutcome({ ok: false, message: refusal });
         return;
       }
 
@@ -470,7 +465,25 @@ function TranslateBuilder({
         Translate PDF
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      {outcome?.ok === false && (
+        <ErrorNote
+          message={outcome.message}
+          action={
+            // Keyed on the SHARED sentence, so the next step appears whether
+            // the browser refused the scan or the worker did (its extractor
+            // can disagree with the browser's). Equality, not a pattern: the
+            // two sides import one constant.
+            outcome.message === TRANSLATE_NO_TEXT_MESSAGE ? (
+              <Link
+                href="/tools/ocr-pdf"
+                className="text-fg font-medium underline underline-offset-2"
+              >
+                Open OCR PDF
+              </Link>
+            ) : undefined
+          }
+        />
+      )}
       {outcome?.ok === true && (
         <ResultCard
           announce={

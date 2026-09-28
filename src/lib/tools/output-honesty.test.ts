@@ -40,6 +40,12 @@ import { withoutComments } from "./copy-surface";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { REQUEST_PACKAGE_FILES } from "@/lib/jobs/request-signatures";
 
+/**
+ * A call that hands the user an archive in the browser: `zipFiles(` itself, or
+ * the hook every runner now builds its ZIP through (`use-zip-download.ts`).
+ */
+const ARCHIVE_CALL = /\b(?:zipFiles|useZipDownload)\s*\(/;
+
 /** Tools whose downloadable artifact is a ZIP bundle, and the engine that writes it. */
 const BUNDLE_TOOLS: readonly { slug: string; engine: string }[] = [
   { slug: "summarize-pdf", engine: "src/lib/workers/summarize/engine.ts" },
@@ -218,9 +224,8 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       // build is shown to the user — by calling that hook. The refactor moved
       // the call out of every runner, and this walk's positive control
       // (compress-pdf, split-pdf) went red on it: the subject moved, so the
-      // predicate follows it. Still a CALL, never an import.
-      if (/zipFiles\(|=\s*useZipDownload\(/.test(withoutComments(source)))
-        return true;
+      // predicate follows it. Still a CALL, never an import (ARCHIVE_CALL).
+      if (ARCHIVE_CALL.test(withoutComments(source))) return true;
       if (depth === 0) return false;
       for (const m of source.matchAll(
         /import\s+(?:type\s+)?\{[^}]*\}\s+from\s+"(\.\/[^"]+)"/g,
@@ -232,6 +237,19 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       }
       return false;
     };
+
+    // `useZipDownload(` counts as a call because the hook is the ZIP: since the
+    // silent-failure fix every runner archive goes through it, and a walk that
+    // looked only for `zipFiles(` lost compress-pdf AND split-pdf the moment it
+    // landed (the positive controls below are what said so). That equivalence
+    // is checked here, not asserted: if the hook stops calling `zipFiles(`,
+    // counting its callers as archive tools is no longer licensed.
+    expect(
+      /\bzipFiles\s*\(/.test(
+        withoutComments(read(`${RUNNER_DIR}/use-zip-download.ts`)),
+      ),
+      "useZipDownload no longer calls zipFiles(",
+    ).toBe(true);
 
     // Health check FIRST: a walk that resolved nothing would make the
     // assertion below vacuously true, which is the strongest possible pass.
@@ -259,6 +277,7 @@ describe("a tool's advertised outputs match what its engine writes", () => {
     // reason the walk follows imports and reads the registry at all.
     expect([...archiveSlugs].sort()).toContain("compress-pdf"); // one level down
     expect([...archiveSlugs].sort()).toContain("split-pdf"); // in the component
+    expect([...archiveSlugs].sort()).toContain("pdf-to-png"); // through the hook
 
     const underDeclared = [...archiveSlugs]
       .filter((slug) => !getToolBySlug(slug)?.outputs.includes("ZIP"))

@@ -24,8 +24,8 @@ import { cn, formatBytes } from "@/lib/utils";
 import type { BatchItem } from "@/lib/batch";
 import { HandoffLoadedBadge } from "./handoff-notice";
 import { ErrorNote, Spinner } from "./runner-kit";
-import { useZipDownload } from "./use-zip-download";
 import { useBatchRunner, type BatchUnit } from "./use-batch-runner";
+import { useZipDownload } from "./use-zip-download";
 
 /** Deterministic, on-device result of losslessly repacking one PDF. */
 export interface CompressResult {
@@ -135,7 +135,11 @@ export function CompressBatchRunner({
       bytes: item.result.bytes,
     }));
     if (named.length === 0) return;
-    await downloadZip(named, "pdfxyz-compressed.zip");
+    await downloadZip(named, "pdfxyz-compressed.zip", {
+      // Every file in the ZIP has its own download button above: a signed
+      // one only once it is opted in, which is also when it joins the ZIP.
+      fallback: "If it keeps failing, download the files one at a time above.",
+    });
   }, [downloadable, downloadZip]);
 
   return (
@@ -239,6 +243,8 @@ export function CompressBatchRunner({
         {state.phase === "canceled" && "Batch canceled."}
       </p>
 
+      {zipError && <ErrorNote message={zipError} />}
+
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-muted text-xs">
@@ -296,6 +302,8 @@ export function CompressBatchRunner({
               {downloadable.length > 0 && (
                 <button
                   type="button"
+                  // `aria-disabled`, not `disabled`, so zipping does not blur
+                  // the user out of the button they just pressed.
                   onClick={() => {
                     if (!zipping) void downloadAll();
                   }}
@@ -317,7 +325,6 @@ export function CompressBatchRunner({
           )}
         </div>
       </div>
-      {zipError && <ErrorNote message={zipError} />}
     </div>
   );
 }

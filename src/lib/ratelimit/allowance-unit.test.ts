@@ -31,7 +31,10 @@ import {
   AI_ALLOWANCE_RUNS,
   AI_ALLOWANCE_USED_MESSAGE,
   AI_CHARACTER_ALLOWANCE,
+  AI_PER_CALL_ALLOWANCE_FACT,
 } from "@/lib/jobs/ai-allowance";
+import { AI_RUN_PRICING, aiReservationFor } from "@/lib/jobs/delivery-cap";
+import { PER_CALL_PROCESSORS } from "@/lib/workers/processor/read-cap-proof";
 import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
@@ -118,6 +121,83 @@ describe("the advertised allowance is what a client can actually translate", () 
       "the bucket is not the advertised figure times the headroom, so one of " +
         "the two is typed rather than derived",
     ).toBe(advertised * TRANSLATE_EXTRACTOR_HEADROOM);
+  });
+
+  it("states the most one Summarize, Chat or Extract run can take, as the route prices it", async () => {
+    /**
+     * Added 2026-09-27, when those three tools began declaring their size.
+     * The sentence promises a per-run CEILING in the reader's unit. The number
+     * in it is read back out of the sentence and compared with the largest
+     * charge `aiReservationFor` produces for a per-call run — undeclared, and
+     * declared far past any real document — with the headroom taken back out,
+     * exactly as the daily figure is.
+     */
+    const perCall = Object.entries(AI_RUN_PRICING)
+      .filter(([, pricing]) => pricing === "per-call")
+      .map(([slug]) => slug);
+    expect(perCall.length, "no per-call tool to price").toBeGreaterThan(0);
+
+    const figures = [...AI_PER_CALL_ALLOWANCE_FACT.matchAll(/\d[\d,]*/g)].map(
+      (m) => Number(m[0].replace(/,/g, "")),
+    );
+    const daily = deliverableInADay(TRANSLATE_MAX_INPUT_CHARS);
+    expect(figures, "the sentence lost the daily figure").toContain(daily);
+    const ceiling = figures.find((n) => n !== daily);
+    expect(
+      ceiling,
+      "no per-run figure could be read from the sentence",
+    ).toBeDefined();
+
+    for (const tool of perCall) {
+      // With the heaviest bodies too: since 2026-09-27 a run is also charged
+      // its options, and the sentence's ceiling has to survive them.
+      const bodies = [
+        undefined,
+        ...(PER_CALL_PROCESSORS[tool]?.heavyOptions ?? []),
+      ];
+      expect(bodies.length, `${tool}: no heavy body to price`).toBeGreaterThan(
+        1,
+      );
+      for (const [declared, options] of [
+        undefined,
+        1,
+        2_000,
+        5_000_000,
+      ].flatMap((d) => bodies.map((o) => [d, o] as const))) {
+        for (const enforced of [true, false]) {
+          const { charge } = await aiReservationFor(
+            tool,
+            {
+              ...(declared === undefined
+                ? {}
+                : { declaredCharacters: declared }),
+              ...(options === undefined ? {} : { options }),
+            },
+            {
+              fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
+              headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+              readCapEnforced: async () => enforced,
+            },
+          );
+          expect(
+            charge / TRANSLATE_EXTRACTOR_HEADROOM,
+            `${tool} declared ${String(declared)} took more of the day than ` +
+              "the sentence says one run can",
+          ).toBeLessThanOrEqual(ceiling!);
+        }
+      }
+      // And the ceiling is REACHED, so it is the maximum and not a loose bound.
+      const { charge } = await aiReservationFor(
+        tool,
+        {},
+        {
+          fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
+          headroom: TRANSLATE_EXTRACTOR_HEADROOM,
+          readCapEnforced: async () => true,
+        },
+      );
+      expect(charge / TRANSLATE_EXTRACTOR_HEADROOM).toBe(ceiling);
+    }
   });
 
   it("says the same number in the offer and in the refusal", () => {

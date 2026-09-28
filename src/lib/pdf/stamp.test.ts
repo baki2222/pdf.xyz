@@ -57,8 +57,7 @@ describe("applyTokens", () => {
 
 describe("placeStamp — unrotated pages", () => {
   const base = {
-    pageWidth: 600,
-    pageHeight: 800,
+    box: { x: 0, y: 0, width: 600, height: 800 },
     pageRotation: 0,
     textWidth: 100,
     textHeight: 12,
@@ -89,8 +88,7 @@ describe("placeStamp — unrotated pages", () => {
 
 describe("placeStamp — rotated pages keep the stamp in the visual frame", () => {
   const base = {
-    pageWidth: 600,
-    pageHeight: 800,
+    box: { x: 0, y: 0, width: 600, height: 800 },
     textWidth: 100,
     textHeight: 12,
     margin: 36,
@@ -117,8 +115,7 @@ describe("placeStamp — rotated pages keep the stamp in the visual frame", () =
 
 describe("placeCenteredStamp — watermarks", () => {
   const base = {
-    pageWidth: 600,
-    pageHeight: 800,
+    box: { x: 0, y: 0, width: 600, height: 800 },
     textWidth: 200,
     textHeight: 60,
   };
@@ -145,5 +142,50 @@ describe("placeCenteredStamp — watermarks", () => {
   it("absorbs page rotation into the tilt so the visual angle is preserved", () => {
     const p = placeCenteredStamp({ ...base, pageRotation: 90, tilt: 45 });
     expect(p.rotate).toBe(135);
+  });
+});
+
+describe("placement is relative to the VISIBLE box, origin included", () => {
+  // A cropped page: CropBox [100 150 480 700] inside a Letter MediaBox. The
+  // mapping happens within the box's own size and is THEN translated, so every
+  // rotation is the zero-origin answer shifted by (100, 150) — the property,
+  // stated against the zero-origin cases above rather than as new constants.
+  const box = { x: 100, y: 150, width: 380, height: 550 };
+  const at0 = { ...box, x: 0, y: 0 };
+  const common = {
+    textWidth: 40,
+    textHeight: 9,
+    margin: 30,
+    h: "left" as const,
+    v: "top" as const,
+  };
+
+  for (const pageRotation of [0, 90, 180, 270]) {
+    it(`shifts a /Rotate ${pageRotation} stamp by exactly the box origin`, () => {
+      const shifted = placeStamp({ ...common, box, pageRotation });
+      const origin = placeStamp({ ...common, box: at0, pageRotation });
+      expect(shifted).toEqual({
+        x: origin.x + box.x,
+        y: origin.y + box.y,
+        rotate: origin.rotate,
+      });
+    });
+  }
+
+  it("keeps an unrotated top-left stamp at the margin from the VISIBLE corner", () => {
+    const p = placeStamp({ ...common, box, pageRotation: 0 });
+    expect(p).toEqual({ x: 100 + 30, y: 150 + 550 - 30 - 9, rotate: 0 });
+  });
+
+  it("centres a watermark on the visible box, not on the page", () => {
+    const p = placeCenteredStamp({
+      box,
+      pageRotation: 0,
+      tilt: 0,
+      textWidth: 40,
+      textHeight: 10,
+    });
+    expect(p.x + 20).toBeCloseTo(100 + 380 / 2, 6);
+    expect(p.y + 5).toBeCloseTo(150 + 550 / 2, 6);
   });
 });

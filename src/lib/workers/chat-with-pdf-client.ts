@@ -32,7 +32,9 @@ export interface ChatWithPdfWorkerInput {
   /** Optional prior conversation (complete user/assistant pairs) for a follow-up. */
   context?: ChatTurn[];
   /**
-   * The document as the browser counted it, or `null` when it could not.
+   * Characters of selectable text in the DOCUMENT, as the panel measured it
+   * once per file ({@link measureChatDocument}), or `null` when it could not
+   * count.
    *
    * **REQUIRED, and `null` has to be said out loud.** Until 2026-09-27 this
    * client sent no count at all, so every question fell to the route's
@@ -42,18 +44,28 @@ export interface ChatWithPdfWorkerInput {
    * caller that can count must not be able to stop counting quietly: a
    * missing field is a compile error here, not a quietly expensive job.
    *
-   * Only the DOCUMENT is declared. The question and the carried turns are in
-   * the job's options, where the route counts them itself — exactly, with no
-   * extractor headroom (`chatReservationTerms`).
+   * This is the whole declaration. Every question re-sends the document, the
+   * question and the carried turns, but the question and turns travel in
+   * `options`, and the route measures and charges those itself
+   * (`optionCharacters` in `jobs/delivery-cap.ts`). A client that added them
+   * to the count would have them charged twice. No page count is declared
+   * either: a per-call run is bounded in characters, and nothing enforces a
+   * page bound on one (`aiReservationFor`).
    */
-  declaration: ChatDocumentCount | null;
+  documentCharacters: number | null;
 }
 
 /** What the panel measured about a PDF before uploading it. */
 export interface ChatDocumentCount {
-  /** Selectable-text characters, as pdfjs extracted them. Always > 0. */
+  /**
+   * Selectable-text characters, as pdfjs extracted them. Always > 0. The same
+   * count `countDeclaredCharacters` takes for Summarize and Extract.
+   */
   characters: number;
-  /** Pages that carry text — the set both extractors agree on exactly. */
+  /**
+   * Pages that carry text. Not declared (see `documentCharacters`); it is what
+   * tells a scan with a stray space apart from a document with text.
+   */
   textPages: number;
 }
 
@@ -71,7 +83,7 @@ export type ChatDocumentMeasurement =
  * the panel passes `extractPdfText`.
  *
  * THREE OUTCOMES, and each is honest in its own direction:
- *  - `counted` — the job reserves what this document will use.
+ *  - `counted` — the job declares what this document holds.
  *  - `no-text` — the worker would refuse it anyway (`no_text`), and a zero
  *    cannot be declared (the contract answers 400). The panel says so and
  *    uploads nothing, so nothing is charged.
@@ -115,8 +127,7 @@ export function runWorkerChatWithPdf(
     input.bytes,
     jobOptions,
     options,
-    input.declaration?.characters,
-    input.declaration?.textPages,
+    input.documentCharacters ?? undefined,
   );
 }
 

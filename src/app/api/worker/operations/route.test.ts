@@ -174,6 +174,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
           atomicQueue: true,
           chunkedTranslate: true,
           deliveryCap: true,
+          aiReadCap: true,
         },
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window
       }),

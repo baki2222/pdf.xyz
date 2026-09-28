@@ -109,7 +109,10 @@ const COPY: { where: string; text: string }[] = [
   },
   // Per tool since the allowance became per-tool copy: ONE panel note used to
   // serve all four AI panels, quoting translate's character figure on the
-  // three tools charged per run. Walked from the catalogue, never listed.
+  // three tools charged per run. Walked from the catalogue, never listed —
+  // which also covers the two notes a sibling lane named here by hand (the
+  // translate note and the per-call note Summarize, Chat and Extract show):
+  // since the merge each of those panels shows exactly its own entry below.
   ...tools
     .filter((t) => capabilityForMode(t.processing) === "ai")
     .map((t) => ({

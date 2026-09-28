@@ -4,6 +4,8 @@
  * without pulling in the (heavy, browser-only) rendering pipeline.
  */
 
+import { rasterScaleForDpi } from "./pdf-to-image";
+
 /** A rendered thumbnail: an object URL plus its pixel dimensions. */
 export interface Thumbnail {
   /** 0-based index of the source page this thumbnail belongs to. */
@@ -103,6 +105,62 @@ export function renderDimensions(
     width: Math.max(1, Math.round(w * scale)),
     height: Math.max(1, Math.round(h * scale)),
   };
+}
+
+/**
+ * Cap on either rendered dimension (px) for full-page rasterization (PDF to
+ * PNG / JPG, grayscale, redact). Higher than the thumbnail cap so print-DPI
+ * output stays crisp, but still bounds peak canvas memory (one page's bitmap is
+ * freed before the next renders).
+ *
+ * It is a promise-breaker by design: any page longer than
+ * `RASTER_MAX_DEVICE_PX / dpi` inches on a side (16.67 in at 300 DPI — tabloid
+ * already) renders BELOW the DPI the user chose. {@link rasterPageScale}
+ * reports that on every page (`dpiCapped`), but a report is only as good as
+ * its reader: PDF to PNG / JPG reads it and says so on the result
+ * (proved through `rasterizePdf` by pdf-to-image-chain.test.tsx). Grayscale
+ * and redact also name a DPI on their presets and do NOT read it yet, so a
+ * large page there is still lowered without a word.
+ */
+export const RASTER_MAX_DEVICE_PX = 5000;
+
+export interface RasterPageScale {
+  /** Scale to pass to `getViewport`. */
+  scale: number;
+  /** Resolution the page is actually rendered at: `scale * 72`. */
+  dpi: number;
+  /**
+   * True when the requested DPI would have put a side over `maxDevicePx`, so
+   * the page is rendered at the lower {@link RasterPageScale.dpi} instead.
+   */
+  dpiCapped: boolean;
+}
+
+/**
+ * The render scale for a full page at `dpi`, and the rasterizer's verdict on
+ * it. `renderDimensions` clamps the same way but returns only the scale, which
+ * left no layer above it able to say that a clamp had happened; this returns
+ * the decision alongside the number. Bad page sizes fall back to A4.
+ */
+export function rasterPageScale(
+  pageWidthPt: number,
+  pageHeightPt: number,
+  dpi: number,
+  maxDevicePx = RASTER_MAX_DEVICE_PX,
+): RasterPageScale {
+  const w =
+    Number.isFinite(pageWidthPt) && pageWidthPt > 0
+      ? pageWidthPt
+      : FALLBACK_WIDTH_PT;
+  const h =
+    Number.isFinite(pageHeightPt) && pageHeightPt > 0
+      ? pageHeightPt
+      : FALLBACK_HEIGHT_PT;
+  const requested = rasterScaleForDpi(dpi);
+  const maxScale = Math.min(maxDevicePx / w, maxDevicePx / h);
+  const dpiCapped = requested > maxScale;
+  const scale = dpiCapped ? maxScale : requested;
+  return { scale, dpi: scale * 72, dpiCapped };
 }
 
 /* ------------------------------------------------------------------ *

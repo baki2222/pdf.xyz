@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { Download, Stamp } from "lucide-react";
-import { addWatermark, watermarkedOutputName } from "@/lib/pdf/watermark";
+import {
+  watermarkPdf,
+  watermarkedOutputName,
+  type WatermarkReport,
+} from "@/lib/pdf/watermark";
 import type { RGB } from "@/lib/pdf/stamp";
 import { WATERMARK_INK } from "@/lib/pdf/stamp";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -42,7 +46,7 @@ export function WatermarkRunner() {
   );
 }
 
-function WatermarkEditor({
+export function WatermarkEditor({
   pdf,
   onReset,
 }: {
@@ -54,13 +58,13 @@ function WatermarkEditor({
   const [rotation, setRotation] = useState(45);
   const [fontSize, setFontSize] = useState(60);
   const [color, setColor] = useState<keyof typeof COLORS>("gray");
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run } = useAsyncRun<WatermarkReport>();
 
   const trimmed = text.trim();
 
   const onRun = () =>
     run(() =>
-      addWatermark(pdf.bytes, text, {
+      watermarkPdf(pdf.bytes, text, {
         opacity: opacity / 100,
         rotation,
         fontSize,
@@ -69,16 +73,25 @@ function WatermarkEditor({
     );
 
   if (result) {
+    const pages = result.pages;
+    const plural = (n: number) => (n === 1 ? "" : "s");
+    // The size is a ceiling: a page too small for it got the largest size that
+    // fits. Say so — the reader otherwise finds a smaller watermark than the
+    // slider showed and no reason why.
+    const shrunk =
+      result.shrunkPages > 0
+        ? ` · Shrunk to fit on ${result.shrunkPages} of ${pages} page${plural(pages)}`
+        : "";
     return (
       <ResultPanel
         title="Watermark added"
-        summary={`Stamped on all ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"} · ${formatBytes(result.byteLength)}`}
+        summary={`Stamped on all ${pages} page${plural(pages)}${shrunk} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
       >
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result, watermarkedOutputName(pdf.file.name))
+            downloadBytes(result.bytes, watermarkedOutputName(pdf.file.name))
           }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
@@ -121,7 +134,7 @@ function WatermarkEditor({
             format={(v) => `${v}°`}
           />
           <RangeField
-            label="Font size"
+            label="Max font size"
             value={fontSize}
             min={16}
             max={160}

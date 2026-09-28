@@ -20,6 +20,7 @@ import {
   aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
+import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
 import {
   canRunSummarize,
   runWorkerSummarize,
@@ -244,12 +245,17 @@ function SummaryBuilder({ refuse }: { refuse: PickRefusal }) {
     try {
       setOutcome(null);
       const trimmedFocus = focus.trim();
+      const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await runWorkerSummarize({
         filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
+        bytes,
         length,
         format,
         ...(trimmedFocus ? { focus: trimmedFocus } : {}),
+        // Counted before upload so the run is charged what this document
+        // holds, not a third of the day. `null` (a scan, a file pdfjs cannot
+        // open) sends it undeclared at the old price rather than refusing it.
+        declaredCharacters: await countDeclaredCharacters(bytes),
       });
       setOutcome(result);
     } catch {
