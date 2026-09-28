@@ -149,37 +149,58 @@ const overlapsY = (a: Box, b: Box) =>
   Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom) > 0;
 
 /**
+ * Above this many blocks a page keeps stream order. Ordering is quadratic in
+ * a page's blocks, and a page where every label is its own block (a map, a
+ * CAD drawing, a table drawn cell by cell) must not stall the tab it runs in.
+ * `text-reading-order.test.ts` pins the boundary from both sides.
+ */
+export const MAX_ORDERED_BLOCKS = 1000;
+
+interface Block {
+  lines: number[];
+  box: Box;
+}
+
+/**
  * The order to emit a page's lines in, as blocks of line indices — or `null`
  * when stream order already is the reading order (the common case, which then
  * stays byte-identical).
  *
  * pdfjs gives items in CONTENT-STREAM order, and generators draw out of visual
  * order constantly: a title after the body it heads, a running header last, a
- * footer first. A global sort by y then x is NOT the fix — a two-column page
- * is drawn a column at a time, stream order is right for it, and a y-sort
- * interleaves the columns line by line. So:
+ * footer or page number first. A global sort by y then x is NOT the fix — a
+ * two-column page is drawn a column at a time, stream order is right for it,
+ * and a y-sort interleaves the columns line by line. So:
  *
  *  1. Consecutive lines form a BLOCK while each sits just below the last
  *     (no upward step, no gap over two line heights) and overlaps it
  *     horizontally — a paragraph, a column run.
- *  2. Blocks keep stream order, except that a block is moved in front of the
- *     first earlier block it overlaps horizontally AND lies wholly above.
- *     Side-by-side columns never overlap horizontally, so they are never
- *     reordered against each other; a title, header or earlier paragraph
- *     drawn late in the same column is put back above what it heads.
- *  3. Except: a block that runs beside one already placed is a later column,
- *     and does not jump a block that spans that column too (a full-width
- *     footnote joined to the left column's foot) — that would interleave.
+ *  2. BANDS ({@link bandOrder}): where a horizontal cut crosses no block and
+ *     the blocks above it are drawn as one unbroken run, everything above
+ *     reads before everything below. That is how a footer drawn first sinks
+ *     under BOTH columns, and a header drawn last rises over both, as one
+ *     move — rather than the columns being lifted past it one at a time,
+ *     which is how the first version of this put the right column above the
+ *     left. A cut the stream crosses back and forth (two columns, each in two
+ *     sections) is not trusted: that page reads a column at a time.
+ *  3. Within a band ({@link columnOrder}), blocks keep stream order, except
+ *     that a block moves in front of the first earlier block it overlaps
+ *     horizontally AND lies wholly above — a title or heading drawn after
+ *     what it heads. A block that runs BESIDE one already placed is a later
+ *     column, and never moves in front of it, nor in front of a block that
+ *     spans that column (a full-width footnote joined to the left column's
+ *     foot).
  *
- * Rotated, mirrored or vertical text anywhere on the page, or items without
- * geometry, keep the whole page in stream order: no judgement is better than
- * a wrong one.
+ * Rotated, mirrored or vertical text anywhere on the page, items without
+ * geometry, or more than {@link MAX_ORDERED_BLOCKS} blocks keep the whole page
+ * in stream order: no judgement is better than a wrong one.
  *
- * `text-reading-order.test.ts` pins both directions on real PDFs.
+ * `text-reading-order.test.ts` pins both directions on real PDFs, and every
+ * body composed with every piece of header and footer furniture.
  */
 function readingOrder(lines: ItemLine[]): number[][] | null {
-  const blocks: { lines: number[]; box: Box }[] = [];
-  let current: { lines: number[]; box: Box } | null = null;
+  const blocks: Block[] = [];
+  let current: Block | null = null;
   let last: Box | null = null;
   for (let i = 0; i < lines.length; i++) {
     const box = lines[i]!.box;
@@ -204,43 +225,79 @@ function readingOrder(lines: ItemLine[]): number[][] | null {
     }
     last = box;
   }
+  if (blocks.length > MAX_ORDERED_BLOCKS) return null;
 
-  const ordered: typeof blocks = [];
-  let moved = false;
-  for (const block of blocks) {
-    let at = isEmptyBox(block.box)
-      ? -1
-      : ordered.findIndex(
-          (earlier) =>
-            !isEmptyBox(earlier.box) &&
-            overlapsX(block.box, earlier.box) &&
-            block.box.bottom >= earlier.box.top - earlier.box.size * 0.25,
-        );
-    // A block that runs BESIDE something already placed is a later column.
-    // If the block it would jump spans that column too (a full-width footnote
-    // that joined the bottom of the left column), jumping it would interleave
-    // the columns — so it keeps stream order instead.
-    if (at >= 0) {
-      const target = ordered[at]!.box;
-      const beside = ordered
-        .slice(0, at)
-        .some(
-          (placed) =>
-            !isEmptyBox(placed.box) &&
-            !overlapsX(placed.box, block.box) &&
-            overlapsY(placed.box, block.box) &&
-            overlapsX(placed.box, target),
-        );
-      if (beside) at = -1;
-    }
-    if (at < 0) {
-      ordered.push(block);
-    } else {
-      ordered.splice(at, 0, block);
-      moved = true;
+  // Only leading blank lines can form a box-less block; they stay in front.
+  const ordered = [
+    ...blocks.filter((block) => isEmptyBox(block.box)),
+    ...bandOrder(blocks.filter((block) => !isEmptyBox(block.box))),
+  ];
+  const moved = ordered.some((block, i) => block !== blocks[i]);
+  return moved ? ordered.map((block) => block.lines) : null;
+}
+
+/** Whether `upper` lies wholly above `lower`, within a quarter line. */
+const liesAbove = (upper: Box, lower: Box) =>
+  upper.bottom >= lower.top - lower.size * 0.25;
+
+/**
+ * Split `blocks` (in stream order) at the highest horizontal cut that no block
+ * crosses and whose upper side is drawn as one unbroken run, then order each
+ * side the same way; with no such cut, fall back to {@link columnOrder}.
+ */
+function bandOrder(blocks: Block[]): Block[] {
+  if (blocks.length < 2) return blocks;
+  const byTop = blocks
+    .map((block, at) => ({ block, at }))
+    .sort((a, b) => b.block.box.top - a.block.box.top || a.at - b.at);
+  let floor: Box | null = null;
+  let first = Infinity;
+  let final = -Infinity;
+  for (let k = 1; k < byTop.length; k++) {
+    const { block, at } = byTop[k - 1]!;
+    if (!floor || block.box.bottom < floor.bottom) floor = block.box;
+    first = Math.min(first, at);
+    final = Math.max(final, at);
+    // Blocks after k have tops no higher than this one's, so clearing it
+    // clears them all.
+    const cut = liesAbove(floor, byTop[k]!.block.box);
+    const unbroken = final - first + 1 === k;
+    if (cut && unbroken) {
+      const above = new Set(byTop.slice(0, k).map((entry) => entry.block));
+      return [
+        ...bandOrder(blocks.filter((b) => above.has(b))),
+        ...bandOrder(blocks.filter((b) => !above.has(b))),
+      ];
     }
   }
-  return moved ? ordered.map((block) => block.lines) : null;
+  return columnOrder(blocks);
+}
+
+/** Stream order, with a block drawn late lifted over what it heads. */
+function columnOrder(blocks: Block[]): Block[] {
+  const ordered: Block[] = [];
+  for (const block of blocks) {
+    let at = ordered.findIndex(
+      (earlier) =>
+        overlapsX(block.box, earlier.box) && liesAbove(block.box, earlier.box),
+    );
+    if (at >= 0) {
+      const target = ordered[at]!.box;
+      // A block that runs BESIDE one already placed is a later column. It
+      // must not land in front of that column, nor in front of a block that
+      // spans it (a full-width footnote joined to the left column's foot).
+      const refused = ordered.some(
+        (placed, i) =>
+          !overlapsX(placed.box, block.box) &&
+          overlapsY(placed.box, block.box) &&
+          (i >= at || overlapsX(placed.box, target)),
+      );
+      if (refused) at = -1;
+    }
+    if (at < 0) ordered.push(block);
+    else ordered.splice(at, 0, block);
+  }
+  return ordered;
 }
 
 function union(a: Box, b: Box): Box {

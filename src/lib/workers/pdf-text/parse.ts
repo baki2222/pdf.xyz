@@ -25,7 +25,8 @@
  * The two are different programs, not two configurations of one. `-layout` (see
  * `pdfTextArgs`) reconstructs the page's horizontal arrangement by padding
  * between columns with spaces; the browser's `textItemsToPlainText` appends
- * `item.str` and a newline on `hasEOL`, so it structurally cannot emit a space
+ * `item.str` and a newline on `hasEOL` (plus one after the page's last line when
+ * reading order moves it off the end), so it structurally cannot emit a space
  * that is not inside a text item. Shared normalization cannot remove the
  * difference because it only strips TRAILING whitespace — inter-column padding
  * is interior.
