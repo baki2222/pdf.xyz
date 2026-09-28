@@ -5,7 +5,7 @@ import type {
   RGB as PdfLibRGB,
   Rotation,
 } from "pdf-lib";
-import { embedRasterImage, loadPdfLib } from "./pdf-lib";
+import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import {
   arrowHeadSegments,
   clampOpacity,
@@ -753,9 +753,11 @@ export async function editPdf(
           `An inserted image on page ${op.page} couldn't be decoded as a ${op.format === "png" ? "PNG" : "JPG"}.`,
         );
       }
-      // Anchored and rotated exactly like a rectangle.
+      // Anchored and rotated exactly like a rectangle. The box is in the
+      // shape the browser showed the image (its natural size honours EXIF);
+      // drawRasterImage turns the stored pixels to fit inside it.
       const at = viewToContent(op.x, op.y, frame.box, frame.rotation);
-      page.drawImage(image, {
+      await drawRasterImage(page, image, {
         x: at.x,
         y: at.y,
         width: op.width,

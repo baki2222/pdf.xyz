@@ -40,6 +40,11 @@ import {
   workerFileCeilingBytes,
 } from "./engine-file-ceilings";
 import { readWorkerError } from "./read-error";
+import {
+  NO_SELECTABLE_TEXT_MESSAGE,
+  readsOnlySelectableText,
+} from "@/lib/jobs/ai-no-text";
+import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const PROTECT_TOOL = "protect-pdf";
 const UNLOCK_TOOL = "unlock-pdf";
@@ -79,7 +84,11 @@ export interface PdfSecurityWorkerFailure {
   ok: false;
   /** A client-safe, honest message (from the server's typed error when present). */
   message: string;
-  /** The contract error code or job error code, when one is available. */
+  /**
+   * The contract error code or job error code, when one is available — or
+   * `timeout` when polling stopped while the job was still running. Read by
+   * the `tool_failed` telemetry (`toolErrorReason`), never shown to a user.
+   */
   code?: string;
   /**
    * The job this failure is about, once one exists. It used to be folded into
@@ -154,6 +163,24 @@ async function readError(
 }
 
 /**
+ * Whether the PDF has selectable text: `true`, `false`, or `undefined` when the
+ * browser could not tell (an encrypted or damaged file pdfjs cannot open).
+ * Only a definite `false` refuses — a verdict the browser never reached is left
+ * to the worker. pdfjs is imported on demand so a panel that never runs an AI
+ * job never downloads it.
+ */
+async function selectableTextVerdict(
+  bytes: Uint8Array,
+): Promise<boolean | undefined> {
+  try {
+    const { pdfHasSelectableText } = await import("@/lib/pdf/text");
+    return await pdfHasSelectableText(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Shared driver: reserve an upload, upload the bytes, create the job with the given
  * (password-bearing) options, poll to a terminal state, and download the single
  * result. Returns the downloaded bytes or an honest, typed failure. The `options`
@@ -178,9 +205,51 @@ export async function runSecurityJob(
    */
   declaredTextPages?: number,
 ): Promise<PdfSecurityWorkerResult> {
+  // Every panel that runs a worker job comes through here, so this is where
+  // its outcome is reported — see `@/lib/telemetry/tool-outcome`.
+  return withToolOutcome(tool, () =>
+    runSecurityJobSteps(
+      tool,
+      filename,
+      bytes,
+      options,
+      opts,
+      declaredCharacters,
+      declaredTextPages,
+    ),
+  );
+}
+
+async function runSecurityJobSteps(
+  tool: string,
+  filename: string,
+  bytes: Uint8Array,
+  options: Record<string, unknown>,
+  opts: PdfSecurityWorkerOptions,
+  declaredCharacters?: number,
+  declaredTextPages?: number,
+): Promise<PdfSecurityWorkerResult> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
   opts.onPhase?.("uploading");
+
+  // 0. A tool that reads only selectable text cannot do anything with a PDF
+  //    that has none — and asking the worker costs the user a whole upload AND
+  //    a reservation of their daily AI allowance that a worker-side refusal
+  //    never gives back (three scans locked a connection out for the day,
+  //    audit at 67e8d0f). So the browser asks first, and answers with the
+  //    worker's own words (`@/lib/jobs/ai-no-text`).
+  if (readsOnlySelectableText(tool)) {
+    const hasText = await selectableTextVerdict(bytes);
+    if (hasText === false) {
+      return {
+        ok: false,
+        message: NO_SELECTABLE_TEXT_MESSAGE[tool],
+        // The code the worker's own `no_text` refusal maps to.
+        code: "unprocessable_entity",
+      };
+    }
+  }
 
   // 1. Reserve an upload slot for exactly this file.
   //
@@ -194,6 +263,7 @@ export async function runSecurityJob(
     return {
       ok: false,
       message: "This tool doesn't accept that file type.",
+      code: "unsupported_file_type",
     };
   }
   // Refused HERE, before a request is made, when the file is over what this
@@ -302,7 +372,9 @@ export async function finishSecurityJob(
       ok: false,
       message: polled.message,
       jobId: polled.jobId,
-      ...(polled.stillRunning ? { stillRunning: true } : {}),
+      // `timeout` is read by the `tool_failed` telemetry only; the resume path
+      // reads `stillRunning`.
+      ...(polled.stillRunning ? { stillRunning: true, code: "timeout" } : {}),
     };
   }
   const job = polled.job;

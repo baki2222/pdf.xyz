@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import {
   Download,
   Plus,
@@ -21,6 +21,8 @@ import {
   MAX_EXTRACTION_FIELDS,
   MAX_EXTRACTION_PROMPT_CHARS,
   MAX_FIELD_NAME_CHARS,
+  duplicateFieldMessage,
+  duplicateFieldNames,
   type ExtractionField,
   type ExtractionFieldType,
   type ExtractionMode,
@@ -169,7 +171,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={Download}
             label="Output"
-            value="ZIP · extraction.json + extraction.md + manifest"
+            value="ZIP · extraction.json + model-output.json + extraction.md + manifest"
           />
           <SpecRow
             icon={Timer}
@@ -222,8 +224,16 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
   const { busy, outcome, setOutcome, run } = job;
 
   const namedFields = fields.filter((f) => f.name.trim().length > 0);
+  // The worker refuses two fields with the same name (case and spacing
+  // ignored). Until 2026-09-28 the panel allowed them, so the refusal arrived
+  // AFTER the upload and after a third of the day's AI allowance was reserved.
+  // The same rule as the parser, from the same module, checked here first.
+  const duplicates = duplicateFieldNames(fields.map((f) => f.name));
   const requestReady =
-    mode === "prompt" ? prompt.trim().length > 0 : namedFields.length > 0;
+    mode === "prompt"
+      ? prompt.trim().length > 0
+      : namedFields.length > 0 && duplicates.size === 0;
+  const fieldIds = useId();
   const canRun = file != null && !busy && requestReady;
 
   const start = useCallback(async () => {
@@ -327,54 +337,73 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
       ) : (
         <div className="flex flex-col gap-2">
           <span className="text-muted text-xs">Fields to extract</span>
-          {fields.map((field, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input
-                type="text"
-                value={field.name}
-                onChange={(e) => {
-                  const name = e.target.value.slice(0, MAX_FIELD_NAME_CHARS);
-                  setFields((prev) =>
-                    prev.map((f, j) => (j === i ? { ...f, name } : f)),
-                  );
-                }}
-                placeholder="field name (e.g. total)"
-                className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
-              />
-              <select
-                value={field.type}
-                onChange={(e) => {
-                  const type = e.target.value as ExtractionFieldType;
-                  setFields((prev) =>
-                    prev.map((f, j) => (j === i ? { ...f, type } : f)),
-                  );
-                }}
-                className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-2 py-1.5 text-sm outline-none"
-              >
-                {EXTRACTION_FIELD_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                // aria-disabled, never native: this disables at the LOWER bound,
-                // i.e. right after the user removing fields reaches the last one —
-                // the TileAction shape. The setter already no-ops at the bound.
-                onClick={() =>
-                  setFields((prev) =>
-                    prev.length > 1 ? prev.filter((_, j) => j !== i) : prev,
-                  )
-                }
-                aria-disabled={fields.length <= 1 || undefined}
-                aria-label="Remove field"
-                className="border-line text-muted hover:text-fg grid size-8 shrink-0 place-items-center rounded-lg border transition aria-disabled:opacity-40"
-              >
-                <Trash2 className="size-3.5" aria-hidden />
-              </button>
-            </div>
-          ))}
+          {fields.map((field, i) => {
+            const earlier = duplicates.get(i);
+            const problemId = `${fieldIds}-field-${i}-problem`;
+            return (
+              <div key={i} className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    aria-label={`Field ${i + 1} name`}
+                    aria-invalid={earlier !== undefined || undefined}
+                    aria-describedby={
+                      earlier !== undefined ? problemId : undefined
+                    }
+                    value={field.name}
+                    onChange={(e) => {
+                      const name = e.target.value.slice(
+                        0,
+                        MAX_FIELD_NAME_CHARS,
+                      );
+                      setFields((prev) =>
+                        prev.map((f, j) => (j === i ? { ...f, name } : f)),
+                      );
+                    }}
+                    placeholder="field name (e.g. total)"
+                    className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+                  />
+                  <select
+                    value={field.type}
+                    onChange={(e) => {
+                      const type = e.target.value as ExtractionFieldType;
+                      setFields((prev) =>
+                        prev.map((f, j) => (j === i ? { ...f, type } : f)),
+                      );
+                    }}
+                    className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-2 py-1.5 text-sm outline-none"
+                  >
+                    {EXTRACTION_FIELD_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    // aria-disabled, never native: this disables at the LOWER bound,
+                    // i.e. right after the user removing fields reaches the last one —
+                    // the TileAction shape. The setter already no-ops at the bound.
+                    onClick={() =>
+                      setFields((prev) =>
+                        prev.length > 1 ? prev.filter((_, j) => j !== i) : prev,
+                      )
+                    }
+                    aria-disabled={fields.length <= 1 || undefined}
+                    aria-label="Remove field"
+                    className="border-line text-muted hover:text-fg grid size-8 shrink-0 place-items-center rounded-lg border transition aria-disabled:opacity-40"
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </button>
+                </div>
+                {earlier !== undefined && (
+                  <p id={problemId} className="text-err text-xs">
+                    {duplicateFieldMessage(i, earlier)}
+                  </p>
+                )}
+              </div>
+            );
+          })}
           <button
             type="button"
             onClick={() =>

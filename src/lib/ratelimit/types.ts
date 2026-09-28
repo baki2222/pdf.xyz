@@ -210,6 +210,29 @@ export interface RateLimiterCore {
     nowMs: number,
     cost: number,
   ): void;
+  /**
+   * Give back `cost` previously recorded against `key` by {@link spend}.
+   *
+   * The inverse of a reservation whose work never happened — `POST /api/jobs`
+   * charges the character allowance before it asks the adapter to create the
+   * job, so a creation that fails must hand the charge back or the caller pays
+   * for a job that does not exist.
+   *
+   * Three properties, all load-bearing:
+   *  - it NEVER creates a window: with no live window there is nothing to give
+   *    back, and inventing one would start an accounting day at zero;
+   *  - it NEVER goes below zero, so a refund can only undo a charge, never
+   *    bank credit against a future one;
+   *  - it NEVER moves the window's reset time — a refund is not a new hit.
+   *
+   * A non-positive or non-finite `cost` records nothing.
+   */
+  refund(
+    policy: RateLimitPolicy,
+    key: string,
+    nowMs: number,
+    cost: number,
+  ): void;
   /** Current number of tracked buckets (for tests / bounded-memory assertions). */
   size(): number;
 }

@@ -13,7 +13,10 @@ import {
 import {
   imagesToPdf,
   imagePdfOutputName,
+  imagePickerAccept,
   isImageAllowedForKind,
+  sniffRasterFormat,
+  unsupportedImageMessage,
   type ImagePdfKind,
 } from "@/lib/pdf/image-to-pdf";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
@@ -78,7 +81,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         if (!isImageAllowedForKind(kind, file)) {
           rejected.push({
             name: file.name,
-            reason: `Choose ${label} images only.`,
+            reason: "Choose PNG or JPG images.",
           });
         } else if (file.size <= 0) {
           rejected.push({ name: file.name, reason: "File is empty." });
@@ -91,24 +94,62 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           accepted.push(file);
         }
       }
-      if (rejected.length) setRejections((prev) => [...prev, ...rejected]);
+      // Each pick reports its own rejections; an old note about a file the
+      // user already replaced is not news.
+      setRejections(rejected);
       if (!accepted.length) return;
       setLoading((n) => n + accepted.length);
-      const loaded = await Promise.all(
-        accepted.map(async (file) => ({
+      // SETTLED, not `all`, and the counter comes down in a `finally`. A file
+      // moved or deleted after it was picked (or a cloud placeholder that is
+      // not on disk) rejects its read; under `Promise.all` that one file
+      // dropped the whole pick, left "Loading N images…" on screen forever and
+      // kept Create PDF disabled for the images already in the list.
+      let settled: PromiseSettledResult<Uint8Array>[];
+      try {
+        settled = await Promise.allSettled(
+          accepted.map((file) => readFileBytes(file)),
+        );
+      } finally {
+        setLoading((n) => Math.max(0, n - accepted.length));
+      }
+      // Decide by the bytes, now, rather than after the user has arranged
+      // every image: a ".png" saved from the web is often a JPEG (fine) or a
+      // WebP (not), and the name cannot tell those apart. Pick order is kept:
+      // `settled[i]` is `accepted[i]`.
+      const loaded: ImageItem[] = [];
+      const unreadable: Rejection[] = [];
+      for (const [index, outcome] of settled.entries()) {
+        const file = accepted[index]!;
+        if (outcome.status === "rejected") {
+          unreadable.push({
+            name: file.name,
+            reason: "Could not read this file — pick it again.",
+          });
+          continue;
+        }
+        const bytes = outcome.value;
+        const format = sniffRasterFormat(bytes);
+        if (!format) {
+          unreadable.push({
+            name: file.name,
+            reason: unsupportedImageMessage(file.name, bytes),
+          });
+          continue;
+        }
+        loaded.push({
           id: `${Date.now()}-${idRef.current++}`,
           name: file.name,
-          type: file.type || (kind === "jpg" ? "image/jpeg" : "image/png"),
+          type: format === "png" ? "image/png" : "image/jpeg",
           size: file.size,
-          bytes: await readFileBytes(file),
+          bytes,
           previewUrl: URL.createObjectURL(file),
-        })),
-      );
+        });
+      }
+      if (unreadable.length) setRejections([...rejected, ...unreadable]);
       loaded.forEach((item) => previewUrls.current.add(item.previewUrl));
       setItems((prev) => [...prev, ...loaded]);
-      setLoading((n) => Math.max(0, n - accepted.length));
     },
-    [kind, label],
+    [kind],
   );
 
   useEffect(() => {
@@ -121,7 +162,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     }
   }, [handoff.status, handoff.files, addFiles]);
 
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const move = (from: number, to: number) =>
     setItems((prev) => reorder(prev, from, to));
   const remove = (id: string) =>
@@ -134,10 +175,17 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       return prev.filter((item) => item.id !== id);
     });
 
+  /**
+   * Back to an empty picker: images, old rejection notes, and the finished
+   * result. The result lives in this component's hook, so emptying the list
+   * alone left the success panel up ("0 images") with the old PDF behind it.
+   */
   const clearItems = () => {
     previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
     previewUrls.current.clear();
     setItems([]);
+    setRejections([]);
+    reset();
   };
   const onRun = () =>
     run(() =>
@@ -181,7 +229,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       )}
       <Dropzone
         onFiles={addFiles}
-        accept={kind === "jpg" ? "image/jpeg,.jpg,.jpeg" : "image/png,.png"}
+        accept={imagePickerAccept(kind)}
         multiple
         title={`Drop ${label} images here, or`}
         hint="One image per PDF page · converted locally in your browser"

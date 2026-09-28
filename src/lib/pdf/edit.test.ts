@@ -11,6 +11,15 @@ import {
   type EditOp,
   type PageSize,
 } from "./edit";
+import { swapsAxes } from "./jpeg-orientation";
+import { boxOf, drawnImages } from "@/tests/drawn-images";
+import { placementMismatches } from "@/tests/exif-display";
+import {
+  JPEG_30X20_EXIF6,
+  JPEG_HEIGHT,
+  JPEG_WIDTH,
+  jpegWithOrientation,
+} from "@/tests/jpeg-fixtures";
 
 /** A blank PDF with the given page sizes (points). */
 async function blankPdf(sizes: [number, number][]): Promise<Uint8Array> {
@@ -506,5 +515,62 @@ describe("getEditPageSizes", () => {
       { width: 612, height: 792 },
       { width: 400, height: 300 },
     ]);
+  });
+});
+
+/**
+ * An inserted phone photo fills its box upright.
+ *
+ * The editor sizes the box from `naturalWidth`/`naturalHeight`, which browsers
+ * report AFTER applying EXIF Orientation — so a portrait phone photo gets a
+ * portrait box. The engine then drew the raw landscape pixels into it:
+ * sideways and squeezed. Read back from the saved file, against what the
+ * browser shows (`exif-display.ts`).
+ */
+describe("editPdf: EXIF Orientation of an inserted JPG", () => {
+  const place = async (bytes: Uint8Array, box: [number, number]) => {
+    const base = await blankPdf([[300, 300]]);
+    const result = await editPdf(base, [
+      {
+        type: "image",
+        page: 1,
+        x: 40,
+        y: 50,
+        width: box[0],
+        height: box[1],
+        format: "jpg",
+        bytes,
+        opacity: 0.5,
+      },
+    ]);
+    const drawn = await drawnImages(result.bytes);
+    expect(drawn).toHaveLength(1);
+    return drawn[0]!;
+  };
+
+  it("draws every orientation upright into the box the user placed", async () => {
+    for (const o of [1, 2, 3, 4, 5, 6, 7, 8] as const) {
+      // The box the editor makes: the DISPLAYED shape, at 4 pt per pixel.
+      const shown = swapsAxes(o)
+        ? [JPEG_HEIGHT, JPEG_WIDTH]
+        : [JPEG_WIDTH, JPEG_HEIGHT];
+      const drawn = await place(jpegWithOrientation(o), [
+        shown[0]! * 4,
+        shown[1]! * 4,
+      ]);
+      expect(placementMismatches(drawn, o)).toEqual([]);
+      const box = boxOf(drawn.ctm);
+      expect(box.x0).toBeCloseTo(40, 6);
+      expect(box.y0).toBeCloseTo(50, 6);
+      expect(box.x1).toBeCloseTo(40 + shown[0]! * 4, 6);
+      expect(box.y1).toBeCloseTo(50 + shown[1]! * 4, 6);
+      // The opacity the user chose survives the turned path too.
+      expect(drawn.fillOpacity).toBe(0.5);
+    }
+  });
+
+  it("a real writer's Orientation 6 fills a portrait box upright", async () => {
+    const drawn = await place(JPEG_30X20_EXIF6, [80, 120]);
+    expect(placementMismatches(drawn, 6)).toEqual([]);
   });
 });

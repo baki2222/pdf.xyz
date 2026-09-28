@@ -5,6 +5,7 @@ import {
   type Thumbnail,
 } from "./render-utils";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
+import { awaitPdfjsDocument, loadPdfjs } from "./pdfjs";
 import {
   DEFAULT_JPEG_QUALITY,
   RASTER_MAX_DEVICE_PX,
@@ -32,21 +33,6 @@ import {
  *    it a private copy — the caller's bytes must stay intact for the real op.
  *  - Each render can be cancelled promptly via an AbortSignal.
  */
-
-let workerConfigured = false;
-
-/** Lazily import pdfjs and point it at the locally-bundled worker (once). */
-async function loadPdfjs() {
-  const pdfjs = await import("pdfjs-dist");
-  if (!workerConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
-    workerConfigured = true;
-  }
-  return pdfjs;
-}
 
 export interface RenderPageOptions {
   /** Target CSS width in px for the thumbnail (device pixels are derived). */
@@ -99,7 +85,7 @@ export async function createThumbnailRenderer(
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
-  const doc = await loadingTask.promise;
+  const doc = await awaitPdfjsDocument(loadingTask);
   let destroyed = false;
 
   const renderPage = async (
@@ -450,7 +436,7 @@ export async function capturePdfPages<T>(
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
-  const doc = await loadingTask.promise;
+  const doc = await awaitPdfjsDocument(loadingTask);
 
   const pages: CapturedPage<T>[] = [];
 

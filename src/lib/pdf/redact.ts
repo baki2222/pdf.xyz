@@ -1,4 +1,4 @@
-import { embedRasterImage, loadPdfLib } from "./pdf-lib";
+import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { displayedPageSize } from "./page-frame";
@@ -417,7 +417,7 @@ export async function assembleRedactedPdf(
       color: rgb(1, 1, 1),
     });
     const image = await embedRasterImage(doc, page.bytes, REDACT_IMAGE_FORMAT);
-    outPage.drawImage(image, {
+    await drawRasterImage(outPage, image, {
       x: 0,
       y: 0,
       width: pageWidth,

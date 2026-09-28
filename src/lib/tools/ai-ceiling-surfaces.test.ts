@@ -59,6 +59,8 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { createElement, type ComponentType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import type { TranslateOptions } from "@/lib/jobs/translate-pdf";
@@ -223,6 +225,12 @@ const PAGE = path.join(ROOT, "src", "app", "tools", "[slug]", "page.tsx");
  * page's own import statements. A typed slug→panel table here would be a list,
  * and a list cannot see the panel it does not name.
  */
+/** slug → the panel's module specifier and exported component, as the page imports it. */
+const panelComponents = new Map<
+  string,
+  { specifier: string; component: string }
+>();
+
 function panelsFromDispatch(): Map<string, string> {
   const source = withoutComments(read(PAGE));
   const imports = new Map<string, string>();
@@ -255,7 +263,13 @@ function panelsFromDispatch(): Map<string, string> {
       "src",
       moduleSpecifier.replace(/^@\//, "").replace(/\//g, path.sep) + ".tsx",
     );
-    for (const slug of pending) bySlug.set(slug, file);
+    for (const slug of pending) {
+      bySlug.set(slug, file);
+      panelComponents.set(slug, {
+        specifier: moduleSpecifier,
+        component: token[2]!,
+      });
+    }
     pending = [];
   }
   return bySlug;
@@ -629,7 +643,49 @@ describe("every stated ceiling is the honoured one", () => {
       }
     },
   );
+
+  it.each(aiTools.map((tool) => [tool.slug, tool] as const))(
+    "%s's panel, AS RENDERED, states its own ceiling and no other",
+    async (slug, tool) => {
+      // The panel a visitor receives, not its source (wave1/l01-page-leak): a
+      // source scan for the constant's NAME is satisfied by any sentence that
+      // interpolates it, whatever else the rendered row says beside it.
+      const honoured = honouredCeiling(slug);
+      const text = await renderedPanelText(slug, tool);
+      const claims = characterClaims(text);
+      expect(
+        claims.length,
+        `${relative(panels.get(slug)!)} renders no character ceiling at all`,
+      ).toBeGreaterThanOrEqual(1);
+      for (const claim of claims) {
+        expect(
+          claim,
+          `${relative(panels.get(slug)!)} renders "${claim.toLocaleString("en-US")} ` +
+            `characters" but one run of ${slug} honours ` +
+            honoured.toLocaleString("en-US"),
+        ).toBe(honoured);
+      }
+    },
+  );
 });
+
+/** The panel as a visitor receives it: server-rendered, tags stripped. */
+async function renderedPanelText(slug: string, tool: Tool): Promise<string> {
+  const entry = panelComponents.get(slug);
+  if (!entry) throw new Error(`no dispatched panel component for ${slug}`);
+  const mod = (await import(/* @vite-ignore */ entry.specifier)) as Record<
+    string,
+    ComponentType<{ tool: Tool }>
+  >;
+  const Panel = mod[entry.component];
+  if (!Panel) {
+    throw new Error(`${entry.specifier} exports no ${entry.component}`);
+  }
+  return renderToStaticMarkup(createElement(Panel, { tool }))
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ");
+}
 
 describe("the third surface someone adds next month", () => {
   it("no copy file hand-writes a ceiling-scale character figure", () => {

@@ -85,8 +85,11 @@ export function HandoffLoadedBadge({
       <ShieldCheck className="text-ok size-3.5 shrink-0" aria-hidden />
       <span className="text-ok">
         Still in this browser; nothing was uploaded.
+        {/* Not "non-PDF": the image and text tools skip PDFs and keep
+            images or text, so the only wording true for every tool is
+            what the skip actually means. */}
         {skipped > 0
-          ? ` ${skipped} non-PDF ${skipped === 1 ? "file was" : "files were"} skipped.`
+          ? ` ${skipped} ${skipped === 1 ? "file" : "files"} this tool can't open ${skipped === 1 ? "was" : "were"} skipped.`
           : ""}
       </span>
     </p>

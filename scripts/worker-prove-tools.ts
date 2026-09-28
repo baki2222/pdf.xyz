@@ -63,7 +63,7 @@ import { proveDeclaredPdfA } from "@/lib/workers/pdf-archive/pdfa-markers";
 import { deflateSync } from "node:zlib";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { linearizationVerdict } from "@/lib/pdf/linearization";
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
@@ -95,6 +95,11 @@ import {
 } from "@/tests/repair-proof-fixtures";
 import type { JobResults } from "@/lib/jobs/results";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
+import {
+  PROOF_EXTRACTION_SCHEMA,
+  PROOF_TABLE_ROWS,
+  verifyExtractionProof,
+} from "@/lib/probes/extraction-proof";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
 import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
@@ -259,13 +264,9 @@ async function tablePdf(): Promise<Buffer> {
   const page = doc.addPage([595, 842]);
   page.drawText("Quarterly results", { x: 60, y: 780, size: 16, font: bold });
   const cols = [60, 200, 330, 450];
-  const rows = [
-    ["Region", "Q1", "Q2", "Q3"],
-    ["North", "1200", "1350", "1410"],
-    ["South", "980", "1020", "1105"],
-    ["East", "1560", "1490", "1620"],
-    ["West", "720", "860", "915"],
-  ];
+  // Shared with the ai-extract proof's verifier, so the figures it accepts are
+  // the figures this PDF draws — derived, never typed twice.
+  const rows = PROOF_TABLE_ROWS;
   rows.forEach((row, r) => {
     row.forEach((cell, c) => {
       page.drawText(cell, {
@@ -289,7 +290,7 @@ async function imagePdf(): Promise<Buffer> {
   const raw = Buffer.alloc(size * size * 3);
   for (let i = 0; i < raw.length; i++) raw[i] = (i * 7919) % 251;
   const img = await embedRasterImage(doc, encodePng(raw, size, size), "png");
-  page.drawImage(img, { x: 60, y: 400, width: 400, height: 400 });
+  await drawRasterImage(page, img, { x: 60, y: 400, width: 400, height: 400 });
   page.drawRectangle({
     x: 60,
     y: 300,
@@ -1191,13 +1192,13 @@ const SPECS: ProofSpec[] = [
     type: PDF_MIME,
     options: {
       mode: "schema",
-      schema: [
-        { name: "region", type: "string", description: "The region name" },
-        { name: "q1", type: "number", description: "The Q1 figure" },
-      ],
+      schema: PROOF_EXTRACTION_SCHEMA.map((field) => ({ ...field })),
     },
     expect: isZipContainer,
     want: "extraction ZIP",
+    // The VALUES, not the container: a ZIP whose extraction.json was `{}`
+    // passed this spec until 2026-09-28 (`@/lib/probes/extraction-proof`).
+    verify: (bytes) => verifyExtractionProof(bytes),
   },
   {
     tool: "chat-with-pdf",

@@ -30,18 +30,22 @@ import path from "node:path";
 import { OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import {
   FONT_PACKS,
+  MONOSPACE_CLAIMS,
   SUPPORTED_SCRIPTS,
   UNSUPPORTED_SCRIPTS,
   fontPackUrl,
   unsupportedScriptFor,
+  type StandardFace,
 } from "./font-packs";
 import {
   candidatePacks,
   loadCoverage,
+  packCovers,
   uncoveredCodePoints,
 } from "./font-coverage";
 import { installedPackageVersion, notoTtfPath } from "./noto-source";
 import { copyNotoFonts } from "../../../scripts/copy-noto-fonts";
+import { monospaceClaimMembers } from "@/tests/unicode-fonts";
 
 /**
  * A real phrase per advertised OCR language — "confidential document", the
@@ -84,6 +88,19 @@ const SAMPLE: Record<string, string> = {
  * exit condition and still produce a page that reads backwards, so the
  * condition is bidirectional layout.
  */
+/**
+ * Every face a caller can ask `embedDrawingFont` for. Written as a record so
+ * the COMPILER checks it is complete: a StandardFace missing here is a type
+ * error, not a face silently left out of the walks below.
+ */
+const EVERY_FACE = Object.keys({
+  sans: true,
+  "sans-bold": true,
+  "sans-oblique": true,
+  mono: true,
+  "serif-italic": true,
+} satisfies Record<StandardFace, true>) as StandardFace[];
+
 const KNOWN_GAPS: Record<string, string> = {
   tha: "no Thai face is shipped",
   ara: "right-to-left layout is not implemented, so an Arabic line would render reversed",
@@ -155,11 +172,17 @@ describe("what we read and what we can draw", () => {
   });
 
   it("exercises every shipped face — no pack draws nothing", async () => {
+    // Every face a caller can ask for, not just the default: the monospace
+    // pack is only ever chosen for "mono", so a sans-only walk would call it
+    // dead weight. The record makes the list complete by type — a new
+    // StandardFace that is not added here fails to compile.
     const coverage = await loadCoverage();
     const used = new Set<string>();
-    for (const { code } of OCR_LANGUAGES) {
-      const [first] = candidatePacks(coverage, SAMPLE[code]!);
-      if (first) used.add(first.id);
+    for (const face of EVERY_FACE) {
+      for (const { code } of OCR_LANGUAGES) {
+        const [first] = candidatePacks(coverage, SAMPLE[code]!, face);
+        if (first) used.add(first.id);
+      }
     }
     const idle = FONT_PACKS.map((p) => p.id).filter((id) => !used.has(id));
     expect(
@@ -181,6 +204,162 @@ describe("what we read and what we can draw", () => {
     expect(candidatePacks(coverage, SAMPLE.ben!)[0]!.id).toBe("bengali");
     expect(candidatePacks(coverage, SAMPLE.rus!)[0]!.id).toBe("latin");
     expect(candidatePacks(coverage, SAMPLE.hin!)[0]!.id).toBe("latin");
+  });
+
+  it("offers the monospace pack only to 'mono', and first there whenever it can draw the text", async () => {
+    const coverage = await loadCoverage();
+    const monospace = FONT_PACKS.filter((p) => p.role === "monospace");
+    // Health check: the property below is vacuous without a monospace pack.
+    expect(monospace.length).toBe(1);
+    const leaked: string[] = [];
+    const outranked: string[] = [];
+    let drawnMono = 0;
+    for (const face of EVERY_FACE) {
+      for (const { code } of OCR_LANGUAGES) {
+        const text = SAMPLE[code]!;
+        const packs = candidatePacks(coverage, text, face);
+        const offered = packs.some((p) => p.role === "monospace");
+        if (face !== "mono") {
+          if (offered) leaked.push(`${face}: ${code}`);
+          continue;
+        }
+        if (!offered) continue;
+        drawnMono++;
+        if (packs[0]!.role !== "monospace") outranked.push(code);
+      }
+    }
+    expect(
+      leaked,
+      "a watermark, header or page number would be set in the monospace face",
+    ).toEqual([]);
+    expect(
+      outranked,
+      "a proportional face was preferred for text the monospace face can draw",
+    ).toEqual([]);
+    // Positive control: Latin-script, Cyrillic and Vietnamese samples are all
+    // inside the monospace face, so the preference is actually exercised.
+    expect(drawnMono).toBeGreaterThanOrEqual(10);
+  });
+
+  it("the scripts the monospace pack names are ones it draws, for real sentences", async () => {
+    // The tile USED to be built from `scripts` ("Latin and Cyrillic text …"),
+    // and this test was offered as its guard. It could not be one: it reads
+    // the OCR sample sentences, which contain no ⇒ and no pinyin ǐ, and the
+    // face draws neither. The tile is now built from MONOSPACE_CLAIMS and
+    // guarded by the next test; this one only says what it can — every OCR
+    // sample written in a named script (by the Unicode Script property of the
+    // sample itself) is drawn by the monospace pack.
+    const coverage = await loadCoverage();
+    const mono = FONT_PACKS.find((p) => p.role === "monospace")!;
+    expect(mono.scripts.length).toBeGreaterThan(0);
+    for (const script of mono.scripts) {
+      const letter = new RegExp(`\\p{Script=${script}}`, "u");
+      const samples = Object.entries(SAMPLE).filter(([, text]) =>
+        [...text].every((ch) => !/\p{L}/u.test(ch) || letter.test(ch)),
+      );
+      expect(
+        samples.length,
+        `no sample is written in ${script}`,
+      ).toBeGreaterThan(0);
+      for (const [code, text] of samples) {
+        const [first] = candidatePacks(coverage, text, "mono");
+        expect(first?.id, `${script} (${code}): "${text}"`).toBe(mono.id);
+      }
+    }
+  });
+
+  it("every character the Text to PDF tile promises is set in the monospace face", async () => {
+    // Each MONOSPACE_CLAIMS label is expanded from a definition that exists
+    // without our font (a Windows code page, a Unicode block, the literal
+    // characters) and EVERY member must route to the monospace pack — one at
+    // a time, so a miss names itself, and all at once, as a document would.
+    const coverage = await loadCoverage();
+    expect(MONOSPACE_CLAIMS.length).toBeGreaterThan(0);
+    const missed: Record<string, string> = {};
+    const all: string[] = [];
+    for (const claim of MONOSPACE_CLAIMS) {
+      const members = monospaceClaimMembers(claim);
+      expect(
+        members.length,
+        `"${claim.label}" expands to nothing`,
+      ).toBeGreaterThan(0);
+      all.push(...members);
+      const wrong = members.filter(
+        (ch) => candidatePacks(coverage, ch, "mono")[0]?.role !== "monospace",
+      );
+      if (wrong.length > 0) missed[claim.label] = wrong.join("");
+      if ("characters" in claim.members) {
+        // A literal claim is exactly what the reader sees printed.
+        expect(claim.label.replace(/\s+/g, "")).toBe(claim.members.characters);
+      }
+    }
+    expect(
+      missed,
+      "the tile names these, and they are set proportionally",
+    ).toEqual({});
+    expect(candidatePacks(coverage, all.join(""), "mono")[0]?.role).toBe(
+      "monospace",
+    );
+    // Bounded both ways: five code pages and a block are hundreds of
+    // characters (529 distinct on 2026-09-27); a decoder that returned nothing
+    // would make every assertion above vacuous.
+    const distinct = new Set(all).size;
+    expect(distinct).toBeGreaterThan(400);
+    expect(distinct).toBeLessThan(2000);
+  });
+
+  it("drops only the soft hyphen from the claimed code pages, by name", async () => {
+    // `monospaceClaimMembers` keeps graphic characters. What that filter
+    // removes from a code page, other than C0/C1 controls and undefined bytes,
+    // is printed here rather than trusted: it is U+00AD SOFT HYPHEN, which
+    // Geist Mono does not carry, so a note with a soft hyphen AND an arrow is
+    // set proportionally. The tile's second sentence ("other characters … can
+    // move the whole document") covers it; this keeps the exclusion visible.
+    const coverage = await loadCoverage();
+    const mono = FONT_PACKS.find((p) => p.role === "monospace")!;
+    const dropped = new Set<string>();
+    for (const claim of MONOSPACE_CLAIMS) {
+      if (!("codePages" in claim.members)) continue;
+      const kept = new Set(monospaceClaimMembers(claim));
+      for (const label of claim.members.codePages) {
+        const decoded = new TextDecoder(label).decode(
+          Uint8Array.from({ length: 256 }, (_, i) => i),
+        );
+        for (const ch of decoded) {
+          if (kept.has(ch) || /\p{Cc}/u.test(ch)) continue;
+          if (ch.codePointAt(0) === 0xfffd) continue;
+          dropped.add(ch);
+        }
+      }
+    }
+    expect([...dropped].map((ch) => ch.codePointAt(0))).toEqual([0xad]);
+    expect(packCovers(coverage, mono, 0xad)).toBe(false);
+  });
+
+  it("refusals and the 'what we draw' list are about scripts, and the monospace pack adds none", async () => {
+    const coverage = await loadCoverage();
+    const scriptPacks = FONT_PACKS.filter((p) => p.role === "script");
+    expect(SUPPORTED_SCRIPTS).toEqual([
+      ...new Set(scriptPacks.flatMap((p) => p.scripts)),
+    ]);
+    // Every code point only the monospace pack draws is still refused to a
+    // face that did not ask for monospace — derived from the coverage tables.
+    const mono = FONT_PACKS.find((p) => p.role === "monospace")!;
+    const monoOnly: number[] = [];
+    for (let cp = 0x20; cp <= 0xffff; cp++) {
+      if (!packCovers(coverage, mono, cp)) continue;
+      if (scriptPacks.some((p) => packCovers(coverage, p, cp))) continue;
+      monoOnly.push(cp);
+    }
+    for (const cp of monoOnly) {
+      const text = String.fromCodePoint(cp);
+      expect(uncoveredCodePoints(coverage, text, "sans"), text).toEqual([cp]);
+      expect(uncoveredCodePoints(coverage, text, "mono"), text).toEqual([]);
+    }
+    // Bound it both ways: 17 such code points (↵ ⌫ ␋ …) on 2026-09-27. None
+    // would make the loop vacuous; thousands would mean a broken table.
+    expect(monoOnly.length).toBeGreaterThan(0);
+    expect(monoOnly.length).toBeLessThan(200);
   });
 });
 

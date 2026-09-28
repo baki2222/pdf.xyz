@@ -230,7 +230,8 @@ describe("the route passes the cap it charged for", () => {
   it("charges the allowance and caps delivery from the SAME binding", () => {
     /**
      * The drift this prevents is invisible in review: two correct expressions
-     * that agree today. The amount handed to `enforceAiCharacterAllowance` and
+     * that agree today. The amount the allowance is charged (by
+     * `reserveAiCharacterAllowance` or `enforceAiCharacterAllowance`) and
      * the cap handed to the adapter must be properties of ONE object, so what
      * is billed and what may be delivered cannot come apart.
      *
@@ -248,7 +249,14 @@ describe("the route passes the cap it charged for", () => {
      * relationship between them (never charged for more than may be read).
      */
     const sf = routeAst();
-    const charge = callsNamed(sf, "enforceAiCharacterAllowance");
+    // Either entry point charges: `reserveAiCharacterAllowance` is the one
+    // that can also give the charge back when `createJob` fails (2026-09-27),
+    // `enforceAiCharacterAllowance` is the decision alone. Exactly one charge,
+    // whichever it is.
+    const charge = [
+      ...callsNamed(sf, "enforceAiCharacterAllowance"),
+      ...callsNamed(sf, "reserveAiCharacterAllowance"),
+    ];
     expect(
       charge.length,
       "the route no longer charges the AI allowance at all",

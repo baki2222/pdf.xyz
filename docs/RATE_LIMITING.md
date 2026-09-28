@@ -225,11 +225,12 @@ curl -sS -w '\n%{http_code}\n' \
 **Read the body, not the status.** `POST /api/jobs` returns `429` for two
 unrelated reasons and they are told apart only by the message:
 
-| you get                                                                                       | it means                                                          |
-| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `429` + _"The free AI allowance for this connection is used up for today. It covers 30,774…"_ | the **allowance** is spent                                        |
-| `429` + _"Too many requests. This endpoint is rate-limited…"_                                 | you hit `jobs.create` (60/hour); the allowance is unknown         |
-| anything else (`503`, `404`)                                                                  | the allowance had room, and you just spent **4** characters of it |
+| you get                                                                                          | it means                                                          |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `429` + _"The free AI allowance for this connection is used up for today, or too little of it…"_ | the **allowance** is spent                                        |
+| `429` + _"Too many requests. This endpoint is rate-limited…"_                                    | you hit `jobs.create` (60/hour); the allowance is unknown         |
+| `202`                                                                                            | the allowance had room, and you just spent **4** characters of it |
+| anything else (`503`, `500`)                                                                     | no job was created, so nothing was charged                        |
 
 ### Why it costs almost nothing, and why the obvious version does not work
 
@@ -250,15 +251,30 @@ never declared) and for the engine's own instructions
 the four-character question this section describes.
 
 **A refusal costs nothing at all.** The allowance guard peeks before it spends
-(`spendIfItFits` in `ratelimit/guard.ts`): when the budget cannot cover the
+(`allowanceRefusal` in `ratelimit/guard.ts`): when the budget cannot cover the
 reservation it refuses without recording anything, so asking "am I out?" while
 you are out does not push your reset further away. Asking twice returns the same
 `Retry-After`.
 
+**The upload route asks the same question for free.** `POST /api/uploads` for an
+AI tool peeks the allowance (`peekAiCharacterAllowance` in
+`ratelimit/guard.ts`) for the smallest reservation any job could make, before a
+slot is minted, and answers the same `429` + allowance message when no job could
+be admitted. It never spends a character; it costs one of `uploads.create`'s 60
+an hour. The route exists to spare a user the upload of a file whose job was
+certain to be refused — pinned against the job route's own verdict by
+`src/app/api/uploads/ai-admission.chain.test.ts`.
+
+**A job that is not created costs nothing.** The allowance is reserved before
+the route asks the adapter to create the job, and a creation that fails (the
+queue or storage is not configured, or the broker errors) gives the reservation
+back — the caller never receives a job id, so could never receive a result.
+
 **The file id must be well-formed and may be imaginary.** `f_` plus ten or more
 `[A-Za-z0-9_-]` is all the contract checks — existence is the _worker's_
-problem, and the request never reaches a worker. Nothing is uploaded, no job is
-created, no AI provider is called.
+problem. Nothing is uploaded and no AI provider is called, but on a configured
+deployment a job IS queued (`202`): the worker later fails it because the file
+does not exist, and the **4** characters stay spent.
 
 **Do not use a malformed id.** _"Send an invalid file id, the guard refuses
 before validation"_ is the intuitive version and it answers the wrong question:

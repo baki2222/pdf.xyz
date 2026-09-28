@@ -76,6 +76,21 @@ export interface RateLimitProvider {
     nowMs: number,
     cost: number,
   ): Promise<void>;
+  /**
+   * Give back `cost` previously recorded by {@link spend} — the undo of a
+   * reservation whose work never happened (a job the adapter failed to
+   * create). Same three rules as the in-memory core: never create a window,
+   * never go below zero, never move the reset time. Optional so a backend
+   * registered before this existed still satisfies the contract; without it
+   * the charge simply stands, which is the pre-refund behaviour. May throw on
+   * a backend error; the guard reports that as "not refunded".
+   */
+  refund?(
+    policy: RateLimitPolicy,
+    key: string,
+    nowMs: number,
+    cost: number,
+  ): Promise<void>;
 }
 
 // The single registered backend, or none. Module-level so a boot hook sets it once

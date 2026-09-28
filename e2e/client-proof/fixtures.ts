@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { Page } from "@playwright/test";
-import { embedRasterImage } from "../../src/lib/pdf/pdf-lib";
+import { drawRasterImage, embedRasterImage } from "../../src/lib/pdf/pdf-lib";
 
 /**
  * Fixture generators for the in-browser tool proofs. Every input is synthesized
@@ -324,7 +324,7 @@ export async function makeImageBearingPdf(label: string): Promise<{
   const page = doc.addPage([320, 240]);
   page.drawText(pageMarker(label, 1), { x: 20, y: 210, size: 12, font });
   const image = await embedRasterImage(doc, png, "png");
-  page.drawImage(image, { x: 40, y: 60, width: 192, height: 128 });
+  await drawRasterImage(page, image, { x: 40, y: 60, width: 192, height: 128 });
   return { pdf: await doc.save(), imageWidth: width, imageHeight: height };
 }
 
@@ -478,7 +478,12 @@ export async function makeRasterizedPdf(
       "jpg",
     );
     const page = doc.addPage(size);
-    page.drawImage(image, { x: 0, y: 0, width: size[0], height: size[1] });
+    await drawRasterImage(page, image, {
+      x: 0,
+      y: 0,
+      width: size[0],
+      height: size[1],
+    });
   }
   return Buffer.from(await doc.save());
 }

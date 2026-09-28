@@ -42,16 +42,51 @@ a free-form string. The events today:
 | Event                       | Fields (all privacy-safe)                                                        |
 | --------------------------- | -------------------------------------------------------------------------------- |
 | `tool_viewed`               | `toolSlug` (route id), `capability`                                              |
-| `tool_completed`            | `toolSlug`, `capability`, `inputCount`, `outputSize?`, `duration?`               |
+| `tool_completed`            | `toolSlug`, `capability`, `inputCount?`, `outputSize?`, `duration?`              |
 | `tool_failed`               | `toolSlug`, `capability`, `reason` (coarse category)                             |
 | `workspace_handoff_created` | `toolSlug`, `mode`, `fileCount`                                                  |
 | `worker_status_checked`     | `mode`, `enabled`                                                                |
 | `worker_operations_checked` | `mode`, `health` (SLO class), `recommendedAction`, `drainable`, `daemonObserved` |
-| `worker_contract_hit`       | `capability`, `ok`, `code?` (contract/job error code)                            |
+| `gated_tool_interest`       | `toolSlug`, `capability`                                                         |
 
 Every field is one of: a **public route slug**, a **fixed enum**, a **boolean**,
 or a **coarse bucket label**. No field is a filename, a raw byte count, a raw
 duration, page text, a raw URL, or an identifier.
+
+**Every event in this table is sent by something, and nothing sends an event
+that is not in it.** Until 2026-09-27 five of them were declared and sent by
+nothing — `tool_viewed`, `tool_completed`, `tool_failed`,
+`workspace_handoff_created` and `worker_contract_hit` (since deleted) — so GA4
+saw page views and not one tool failure.
+[`event-call-sites.test.ts`](../src/lib/telemetry/event-call-sites.test.ts)
+now walks every product file for `track()` calls and fails on a declared event
+with no sender, a sender naming an undeclared event, or a sender nothing calls
+or mounts; it also checks this table against `EVENT_NAMES`. Where they come
+from:
+
+- `tool_viewed` — `ToolTelemetry`, mounted by the tool page. It is re-sent once
+  when a real sink is first configured, because GA4 is enabled from the root
+  layout's effect, which React runs after the page's. The first send goes to
+  the environment default (`defaultSinkFor`: a console sink in development, a
+  no-op everywhere else), the second to the configured sink — one send per
+  sink, never two to the same one.
+- `tool_completed` / `tool_failed` — `useAsyncRun` (every browser runner that
+  uses it), compress's own on-device analysis and the batch runner (one
+  outcome per file), and `withToolOutcome` around every function that creates
+  a job — `runSecurityJob`, `runWorkerOcr`, `runWorkerCompression` and
+  `runWorkerWebpageToPdf` — via
+  [`tool-outcome.ts`](../src/lib/telemetry/tool-outcome.ts). The reason is
+  `toolErrorReason(code)` — a fixed category from the error CODE, never the
+  message. Output size is deliberately not sent. A first version reported from
+  `useAsyncRun`, `runSecurityJob` and `runWorkerOcr` only, and compress-pdf
+  and webpage-to-pdf — which hold their own run state — sent nothing.
+  [`run-outcome-coverage.test.ts`](../src/lib/telemetry/run-outcome-coverage.test.ts)
+  now discovers every job creation and every function that declares its own
+  busy/running state, and fails on one that reaches no reporter. It checks that
+  a run CALLS a reporter, not that every branch of it does; the behavioural
+  chain is `tool-outcome.test.tsx`.
+- `workspace_handoff_created` — `launchHandoff` in the workspace, only when a
+  hand-off token was really created.
 
 ### Privacy by construction
 
@@ -91,8 +126,11 @@ chosen by environment:
   are visible while building locally).
 - **production and test** → a **no-op**. Nothing is sent anywhere.
 
-There is **no third-party SDK** and **no network call** in this module. It is
-inert in production until a deployment explicitly wires a destination.
+There is **no third-party SDK** and **no network call** in this module. In
+production the only destination wired is Google Analytics, and only after the
+visitor allows analytics: `Ga4Gate` calls `configureTelemetry` with a sink that
+forwards each redacted event to `gtag` (see
+[`src/lib/analytics/ga4.ts`](../src/lib/analytics/ga4.ts)).
 
 ### Wiring a real destination later
 

@@ -237,3 +237,96 @@ describe("there is exactly one copy of the sentence", () => {
     expect(fromRateLimit).toBe(AI_ALLOWANCE_USED_MESSAGE);
   });
 });
+
+describe("the refusal speaks to a reader, about every AI tool", () => {
+  /**
+   * Until 2026-09-28 the served refusal ended *"On a shared network that can
+   * include text translated by someone else. The allowance resets daily; retry
+   * after the interval in the Retry-After header."* Summarize, Chat and AI Data
+   * Extraction spend the same bucket, and the panel renders this string
+   * verbatim — so a reader refused after three extractions was told about
+   * somebody's translations and pointed at an HTTP header.
+   *
+   * INTEGRATED (wave1/l01-page-leak onto integrate/wave1-seo). This lane wrote
+   * the refusal to name NO tool's work and to append its own "It resets in
+   * about N hours." The branch it merged into had already fixed the same
+   * sentence the other way — naming EVERY AI tool's unit, so it is true on each
+   * page (`ratelimit/allowance-copy.test.ts`: all of them or none) — and says
+   * the wait in words in the browser, from the same `Retry-After` seconds
+   * (`@/lib/workers/read-error`), for every 429 rather than this one. The two
+   * checks below keep what this lane pinned: never ONE tool's work, and never a
+   * header, with the wait stated in words where the reader receives it.
+   */
+  it("names every AI tool's work or none — never one", async () => {
+    // Derived from the catalog: the verb of every AI tool, as a stem, so
+    // "translated", "summarised" and "extracting" are all caught.
+    const { tools } = await import("./index");
+    const { capabilityForMode } = await import("@/lib/jobs/capabilities");
+    const aiTools = tools.filter(
+      (tool) => capabilityForMode(tool.processing) === "ai",
+    );
+    expect(aiTools.length).toBeGreaterThanOrEqual(4);
+    const STEMS: Record<string, RegExp> = {
+      "translate-pdf": /translat/i,
+      "summarize-pdf": /summar/i,
+      "ai-extract": /extract/i,
+      "chat-with-pdf": /\bchat/i,
+    };
+    // Every AI tool has a stem, so a fifth tool fails here until it is added.
+    expect(Object.keys(STEMS).sort()).toEqual(
+      aiTools.map((tool) => tool.slug).sort(),
+    );
+    const named = (sentence: string) =>
+      Object.entries(STEMS)
+        .filter(([, stem]) => stem.test(sentence))
+        .map(([slug]) => slug);
+    const served = named(AI_ALLOWANCE_USED_MESSAGE);
+    expect(
+      served.length === 0 || served.length === Object.keys(STEMS).length,
+      `the refusal names only ${served.join(", ")}'s work`,
+    ).toBe(true);
+    // Positive control: the sentence that shipped names exactly one.
+    expect(
+      named(
+        "On a shared network that can include text translated by someone else.",
+      ),
+    ).toEqual(["translate-pdf"]);
+  });
+
+  it("states the wait in words where it is read, and never names a header", async () => {
+    const { readWorkerError, describeWait } =
+      await import("@/lib/workers/read-error");
+    expect(AI_ALLOWANCE_USED_MESSAGE).not.toMatch(/header|retry-after/i);
+    for (const seconds of [1, 59, 60, 61, 3599, 3600, 3601, 86_400]) {
+      // The refusal as the browser client reads it off the wire: the served
+      // body, and the `Retry-After` the same decision filled.
+      const read = await readWorkerError(
+        {
+          status: 429,
+          json: async () => ({
+            error: {
+              code: "rate_limited",
+              message: AI_ALLOWANCE_USED_MESSAGE,
+            },
+          }),
+          headers: {
+            get: (name: string) =>
+              name.toLowerCase() === "retry-after" ? String(seconds) : null,
+          },
+        },
+        "fallback",
+      );
+      expect(read.message.startsWith(AI_ALLOWANCE_USED_MESSAGE)).toBe(true);
+      expect(read.message).toBe(
+        `${AI_ALLOWANCE_USED_MESSAGE} Try again in ${describeWait(seconds)}.`,
+      );
+      expect(read.message).not.toMatch(/header|retry-after/i);
+    }
+    // Rounded UP: a reader told a time at which the refusal still stands comes
+    // back early and is refused again.
+    expect(describeWait(30)).toBe("about 30 seconds");
+    expect(describeWait(60)).toBe("about 1 minute");
+    expect(describeWait(3 * 3600 + 1)).toBe("about 3 h 1 min");
+    expect(describeWait(86_400)).toBe("about 24 hours");
+  });
+});

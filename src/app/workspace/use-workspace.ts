@@ -36,6 +36,7 @@ import {
 } from "@/lib/workspace";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { indexSummaries, type WorkspaceToolSummary } from "./summary";
+import { handoffCreatedEvent, track } from "@/lib/telemetry/track";
 
 /** In-browser tools never load files larger than this. Exported so the copy
  * DERIVES the figure — the old comment admitted it was "manually kept in
@@ -396,11 +397,22 @@ export function useWorkspace(
 
       setLaunchingSlug(tool.slug);
       void stashHandoff(tool.slug, toStash)
-        .then((token) =>
+        .then((token) => {
+          // Only a hand-off that really exists is counted: a `null` token is
+          // the honest plain-open fallback, not a hand-off.
+          if (token) {
+            track(
+              handoffCreatedEvent({
+                toolSlug: tool.slug,
+                mode: cap.mode,
+                fileCount: toStash.length,
+              }),
+            );
+          }
           router.push(
             token ? `${target}?handoff=${encodeURIComponent(token)}` : target,
-          ),
-        )
+          );
+        })
         .catch(() => router.push(target));
     },
     [launchBatch, router],

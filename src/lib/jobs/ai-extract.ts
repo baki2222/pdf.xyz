@@ -101,26 +101,74 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Parse a single schema field defensively, returning a typed field or an error. */
+/**
+ * The key two field names collide on — the ONE rule for "the same name",
+ * shared by the parser below and the panel that stops a user typing a
+ * duplicate before anything is uploaded or reserved. Two copies of the rule is
+ * how a panel lets through what the worker then refuses.
+ */
+export function fieldNameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
+ * For each name that repeats an earlier one (by {@link fieldNameKey}), the
+ * index of the FIRST field it repeats. Blank names are not compared: an unnamed
+ * row is unfinished, not a duplicate.
+ */
+export function duplicateFieldNames(
+  names: readonly string[],
+): Map<number, number> {
+  const first = new Map<string, number>();
+  const duplicates = new Map<number, number>();
+  names.forEach((name, index) => {
+    const key = fieldNameKey(name);
+    if (key.length === 0) return;
+    const earlier = first.get(key);
+    if (earlier === undefined) first.set(key, index);
+    else duplicates.set(index, earlier);
+  });
+  return duplicates;
+}
+
+/**
+ * The sentence for a duplicate, numbered from one as the panel shows fields —
+ * said once for the parser's refusal and the panel's inline warning.
+ */
+export function duplicateFieldMessage(index: number, earlier: number): string {
+  return `Field ${index + 1} has the same name as field ${earlier + 1}. Give each field a different name.`;
+}
+
+/**
+ * Parse a single schema field defensively, returning a typed field or an error.
+ *
+ * MESSAGES ARE FOR A READER; THE POINTER IS FOR A PROGRAM. Until 2026-09-28
+ * these read like "`schema[1].name` duplicates an earlier field name." — a
+ * zero-based JSON path in backticks — and the processor forwarded that
+ * verbatim to the panel, where a person who had typed "Total" twice read it.
+ * The sentence now counts fields from one, as the panel shows them; the
+ * machine-readable path stays in `details[].field` for API callers.
+ */
 function parseField(raw: unknown, index: number): ParseResult<ExtractionField> {
   const at = `schema[${index}]`;
+  const n = index + 1;
   if (!isObject(raw)) {
-    return invalid(`\`${at}\` must be an object with a \`name\`.`, at);
+    return invalid(`Field ${n} must be an object with a name.`, at);
   }
 
   if (typeof raw.name !== "string" || raw.name.trim().length === 0) {
-    return invalid(`\`${at}.name\` is required.`, `${at}.name`);
+    return invalid(`Field ${n} needs a name.`, `${at}.name`);
   }
   const name = raw.name.trim();
   if (CONTROL_CHAR_STRICT.test(name)) {
     return invalid(
-      `\`${at}.name\` cannot contain control characters.`,
+      `Field ${n}'s name cannot contain control characters.`,
       `${at}.name`,
     );
   }
   if (name.length > MAX_FIELD_NAME_CHARS) {
     return invalid(
-      `\`${at}.name\` is too long (max ${MAX_FIELD_NAME_CHARS} characters).`,
+      `Field ${n}'s name is too long (max ${MAX_FIELD_NAME_CHARS} characters).`,
       `${at}.name`,
     );
   }
@@ -129,7 +177,7 @@ function parseField(raw: unknown, index: number): ParseResult<ExtractionField> {
   if (raw.type !== undefined) {
     if (typeof raw.type !== "string" || !FIELD_TYPE_SET.has(raw.type)) {
       return invalid(
-        `\`${at}.type\` must be one of ${EXTRACTION_FIELD_TYPES.join(", ")}.`,
+        `Field ${n}'s type must be one of ${EXTRACTION_FIELD_TYPES.join(", ")}.`,
         `${at}.type`,
       );
     }
@@ -141,7 +189,7 @@ function parseField(raw: unknown, index: number): ParseResult<ExtractionField> {
   if (raw.description !== undefined) {
     if (typeof raw.description !== "string") {
       return invalid(
-        `\`${at}.description\` must be a string.`,
+        `Field ${n}'s description must be text.`,
         `${at}.description`,
       );
     }
@@ -149,13 +197,13 @@ function parseField(raw: unknown, index: number): ParseResult<ExtractionField> {
     if (description.length > 0) {
       if (CONTROL_CHAR_STRICT.test(description)) {
         return invalid(
-          `\`${at}.description\` cannot contain control characters.`,
+          `Field ${n}'s description cannot contain control characters.`,
           `${at}.description`,
         );
       }
       if (description.length > MAX_FIELD_DESCRIPTION_CHARS) {
         return invalid(
-          `\`${at}.description\` is too long (max ${MAX_FIELD_DESCRIPTION_CHARS} characters).`,
+          `Field ${n}'s description is too long (max ${MAX_FIELD_DESCRIPTION_CHARS} characters).`,
           `${at}.description`,
         );
       }
@@ -177,12 +225,12 @@ export function parseExtractOptions(
   options: Record<string, unknown>,
 ): ParseResult<ExtractOptions> {
   if (!isObject(options)) {
-    return invalid("`options` must be an object.", "options");
+    return invalid("The extraction options must be an object.", "options");
   }
 
   if (typeof options.mode !== "string" || !MODE_SET.has(options.mode)) {
     return invalid(
-      `\`mode\` is required and must be one of ${EXTRACTION_MODES.join(", ")}.`,
+      `Choose how to describe what to extract: mode must be one of ${EXTRACTION_MODES.join(", ")}.`,
       "mode",
     );
   }
@@ -194,17 +242,17 @@ export function parseExtractOptions(
       options.prompt.trim().length === 0
     ) {
       return invalid(
-        "`prompt` is required in prompt mode — describe what to extract.",
+        "Describe what to extract — the prompt is empty.",
         "prompt",
       );
     }
     const prompt = options.prompt.trim();
     if (CONTROL_CHAR_ALLOW_WS.test(prompt)) {
-      return invalid("`prompt` cannot contain control characters.", "prompt");
+      return invalid("The prompt cannot contain control characters.", "prompt");
     }
     if (prompt.length > MAX_EXTRACTION_PROMPT_CHARS) {
       return invalid(
-        `\`prompt\` is too long (max ${MAX_EXTRACTION_PROMPT_CHARS} characters).`,
+        `The prompt is too long (max ${MAX_EXTRACTION_PROMPT_CHARS} characters).`,
         "prompt",
       );
     }
@@ -213,32 +261,29 @@ export function parseExtractOptions(
 
   // schema mode
   if (!Array.isArray(options.schema) || options.schema.length === 0) {
-    return invalid(
-      "`schema` must be a non-empty array of fields in schema mode.",
-      "schema",
-    );
+    return invalid("Add at least one field to extract.", "schema");
   }
   if (options.schema.length > MAX_EXTRACTION_FIELDS) {
     return invalid(
-      `\`schema\` has too many fields (max ${MAX_EXTRACTION_FIELDS}).`,
+      `There are too many fields to extract (max ${MAX_EXTRACTION_FIELDS}).`,
       "schema",
     );
   }
 
   const fields: ExtractionField[] = [];
-  const seen = new Set<string>();
   for (let i = 0; i < options.schema.length; i++) {
     const parsed = parseField(options.schema[i], i);
     if (!parsed.ok) return parsed;
-    const key = parsed.value.name.toLowerCase();
-    if (seen.has(key)) {
-      return invalid(
-        `\`schema[${i}].name\` duplicates an earlier field name.`,
-        `schema[${i}].name`,
-      );
-    }
-    seen.add(key);
     fields.push(parsed.value);
+  }
+  // The SAME rule the panel applies before upload (`duplicateFieldNames`).
+  const [duplicate] = duplicateFieldNames(fields.map((field) => field.name));
+  if (duplicate) {
+    const [index, earlier] = duplicate;
+    return invalid(
+      duplicateFieldMessage(index, earlier),
+      `schema[${index}].name`,
+    );
   }
 
   return { ok: true, value: { mode, schema: fields } };

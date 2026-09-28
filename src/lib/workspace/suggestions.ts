@@ -5,6 +5,7 @@
  * exist. Used by the workspace to turn "I dropped these files" into next steps.
  */
 
+import { eligibleFilesFor } from "@/lib/handoff/capability";
 import { getToolBySlug } from "@/lib/tools";
 import type { FileFamily, WorkspaceFile } from "./types";
 
@@ -64,11 +65,29 @@ export function suggestTools(
     add("pdf-to-jpg", "Export pages as image files.", 30);
   }
   if (c.image >= 1) {
-    // Prefer PNG→PDF only when every image is a PNG; otherwise JPG→PDF covers the mix.
+    // The count promised is the count the tool will RECEIVE: read from the
+    // same hand-off filter the launch uses, not from the "image" family (which
+    // also holds WebP, GIF, HEIC… that neither image tool can embed). It used
+    // to promise "your 5 images" for 3 PNGs + 2 JPGs and deliver 2.
     const images = files.filter((f) => f.family === "image");
-    const allPng = images.every((f) => f.kind === "PNG");
-    const slug = allPng ? "png-to-pdf" : "jpg-to-pdf";
-    add(slug, `Turn your ${c.image} image${plural(c.image)} into a PDF.`, 90);
+    const slug = images.every((f) => f.kind === "PNG")
+      ? "png-to-pdf"
+      : "jpg-to-pdf";
+    const convertible = eligibleFilesFor(
+      slug,
+      images.map((f) => ({ name: f.name, type: f.mime })),
+    ).length;
+    const other = images.length - convertible;
+    if (convertible > 0) {
+      add(
+        slug,
+        `Turn your ${convertible} image${plural(convertible)} into a PDF.` +
+          (other > 0
+            ? ` ${other} other image${plural(other)} (not PNG or JPG) can't be converted here.`
+            : ""),
+        90,
+      );
+    }
   }
   if (c.word >= 1) {
     add(

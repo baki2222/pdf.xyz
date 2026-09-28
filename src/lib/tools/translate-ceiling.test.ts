@@ -165,6 +165,16 @@ describe("the two numbers cannot drift back together", () => {
     ).not.toContain("AI_INPUT_LIMITS");
   });
 
+  // INVERTED 2026-09-28 ON wave1/l01-page-leak, RESTORED AT ITS INTEGRATION.
+  // That lane clamped every read-bound declaration to one day's allowance in
+  // the browser and had its panels state the resulting 30,774 "characters read
+  // per run"; this test was inverted to require that figure. The branch it
+  // merged into had fixed the same pricing defect the other way — a per-call
+  // run is charged at most one whole run and READ up to its declaration, to the
+  // engine window (`aiReservationFor`, `processor/read-cap-limit.ts`) — and the
+  // clamp was not kept. So the engine window IS what one run can read again,
+  // and the panel must state it; `ai-ceiling-surfaces.test.ts` holds the
+  // rendered panel to the same figure.
   it.each(SHARED_CAP_PANELS)(
     "%s still states the shared reading cap, which is correct for it",
     (panel) => {

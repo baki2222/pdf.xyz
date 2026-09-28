@@ -9,6 +9,7 @@ import {
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
 import { readWorkerError } from "./read-error";
+import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const HTML_TO_PDF_TOOL = "html-to-pdf";
 const WEBPAGE_TO_PDF_TOOL = "webpage-to-pdf";
@@ -53,6 +54,17 @@ const defaultFetch: FetchLike = (input, init) =>
 export async function runWorkerWebpageToPdf(
   url: string,
   options: PdfSecurityWorkerOptions = {},
+): Promise<HtmlRenderWorkerResult> {
+  // This lifecycle has no upload, so it does not pass through `runSecurityJob`
+  // and must report its own outcome — see `@/lib/telemetry/tool-outcome`.
+  return withToolOutcome(WEBPAGE_TO_PDF_TOOL, () =>
+    runWorkerWebpageToPdfSteps(url, options),
+  );
+}
+
+async function runWorkerWebpageToPdfSteps(
+  url: string,
+  options: PdfSecurityWorkerOptions,
 ): Promise<HtmlRenderWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
 

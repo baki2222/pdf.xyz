@@ -1,4 +1,5 @@
 import {
+  drawRasterImage,
   embedRasterImage,
   loadPdfLib,
   type RasterImageFormat,
@@ -219,7 +220,13 @@ export async function signPdf(
     // pdf-lib rotates an image about its (x, y) corner, so the viewer-frame
     // bottom-left maps to the draw origin exactly as a text baseline does.
     const { x, y } = viewToContent(at.x, at.y, frame.box, frame.rotation);
-    page.drawImage(image, { x, y, width: boxWidth, height: boxHeight, rotate });
+    await drawRasterImage(page, image, {
+      x,
+      y,
+      width: boxWidth,
+      height: boxHeight,
+      rotate,
+    });
   } else {
     const text = input.text.trim();
     // A typed signature is a person's name. Refusing to draw it because the

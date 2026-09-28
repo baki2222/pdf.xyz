@@ -49,12 +49,11 @@ describe("sanitizeEvent", () => {
 
   it("redacts a handoff token that leaks into a field", () => {
     const out = sanitizeEvent({
-      name: "worker_contract_hit",
+      name: "gated_tool_interest",
       capability: "secure-worker",
-      ok: false,
-      code: "h_abcDEF123456",
+      toolSlug: "h_abcDEF123456",
     } as unknown as ProductEvent);
-    expect(out?.code).toBe("h_[redacted]");
+    expect(out?.toolSlug).toBe("h_[redacted]");
   });
 });
 

@@ -28,6 +28,10 @@ import {
   type CompressWorkerResult,
 } from "@/lib/workers/client";
 import type { WorkerStatus } from "@/lib/workers/status";
+import {
+  reportToolCompleted,
+  reportToolFailed,
+} from "@/lib/telemetry/tool-outcome";
 import { cn, formatBytes } from "@/lib/utils";
 import {
   ChipButton,
@@ -38,6 +42,7 @@ import {
   Spinner,
   WorkerRunButton,
   errorMessage,
+  failureCode,
   useOutcomeFocus,
 } from "./runner-kit";
 import { CompressBatchRunner } from "./compress-batch";
@@ -368,15 +373,22 @@ function CompressEditor({
 
   useEffect(() => {
     let active = true;
+    const started = Date.now();
+    // This is the tool's in-browser run — the analysis IS the lossless
+    // recompression, and its output is the download below. It holds its own
+    // state rather than `useAsyncRun`'s, so it reports its own outcome (see
+    // `@/lib/telemetry/tool-outcome`); a superseded run reports nothing.
     void analyzePdf(pdf.bytes)
       .then((r) => {
         if (active) {
           setState({ result: r, error: null, busy: false });
+          reportToolCompleted({ elapsedMs: Date.now() - started });
         }
       })
       .catch((err) => {
         if (active) {
           setState({ result: null, error: errorMessage(err), busy: false });
+          reportToolFailed({ code: failureCode(err) });
         }
       });
     return () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
 import { createWorkspaceFile } from "./classify";
+import { eligibleFilesFor } from "@/lib/handoff";
 import { suggestTools } from "./suggestions";
 import type { WorkspaceFile } from "./types";
 
@@ -35,10 +36,49 @@ describe("suggestTools", () => {
 
   it("suggests PNG→PDF only when every image is a PNG", () => {
     expect(slugs([file("a.png"), file("b.png")])).toContain("png-to-pdf");
-    // A mixed image set routes to JPG→PDF, which handles both.
+    // A mixed image set routes to JPG→PDF. (This comment used to say "which
+    // handles both" while JPG→PDF dropped every PNG; the promise is now
+    // checked against the hand-off below instead of asserted here.)
     const mixed = slugs([file("a.png"), file("b.jpg")]);
     expect(mixed).toContain("jpg-to-pdf");
     expect(mixed).not.toContain("png-to-pdf");
+  });
+
+  /**
+   * The composed chain: the NUMBER the suggestion promises must equal the files
+   * the suggested tool's hand-off keeps. Before, 3 PNGs + 2 JPGs were promised
+   * as "your 5 images" and JPG to PDF received 2.
+   */
+  it("promises exactly the images the suggested tool will receive", () => {
+    const mixes: WorkspaceFile[][] = [
+      [
+        file("a.png"),
+        file("b.png"),
+        file("c.png"),
+        file("d.jpg"),
+        file("e.jpeg"),
+      ],
+      [file("a.png"), file("b.jpg")],
+      [file("a.png"), file("b.png")],
+      [file("a.jpg"), file("b.webp"), file("c.png"), file("d.heic")],
+    ];
+    for (const files of mixes) {
+      const suggestion = suggestTools(files).find(
+        (s) => /-to-pdf$/.test(s.slug) && /image/.test(s.reason),
+      );
+      expect(suggestion, files.map((f) => f.name).join(",")).toBeDefined();
+      const promised = Number(suggestion!.reason.match(/(\d+)/)![1]);
+      const handed = eligibleFilesFor(
+        suggestion!.slug,
+        files.map((f) => ({ name: f.name, type: f.mime })),
+      ).length;
+      expect(promised, suggestion!.reason).toBe(handed);
+    }
+  });
+
+  it("does not promise a conversion for images no tool can take", () => {
+    expect(slugs([file("a.webp"), file("b.heic")])).not.toContain("jpg-to-pdf");
+    expect(slugs([file("a.webp"), file("b.heic")])).not.toContain("png-to-pdf");
   });
 
   it("suggests the matching converter for office + text files", () => {

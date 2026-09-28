@@ -45,6 +45,7 @@ import {
   FONT_PACKS,
   type FontPack,
   type FontPackId,
+  type MonospaceClaim,
 } from "@/lib/pdf/font-packs";
 import { openNotoFont, readNotoTtf } from "@/lib/pdf/noto-source";
 import { setFontByteSource, resetFontCache } from "@/lib/pdf/unicode-font";
@@ -162,28 +163,108 @@ export function toUnicodeMap(doc: PDFDocument): Map<number, string> {
     if (!(ref instanceof PDFRef)) continue;
     const stream = doc.context.lookup(ref);
     if (!(stream instanceof PDFRawStream)) continue;
-    const text = Buffer.from(inflateMaybe(rawBytes(stream))).toString("latin1");
-    for (const block of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
-      for (const pair of block[1]!.matchAll(
-        /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
-      )) {
-        map.set(parseInt(pair[1]!, 16), utf16beToString(pair[2]!));
-      }
+    readToUnicodeStream(stream, map);
+  }
+  return map;
+}
+
+function readToUnicodeStream(
+  stream: PDFRawStream,
+  map: Map<number, string>,
+): void {
+  const text = Buffer.from(inflateMaybe(rawBytes(stream))).toString("latin1");
+  for (const block of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+    for (const pair of block[1]!.matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
+    )) {
+      map.set(parseInt(pair[1]!, 16), utf16beToString(pair[2]!));
     }
-    for (const block of text.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
-      for (const row of block[1]!.matchAll(
-        /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
-      )) {
-        const lo = parseInt(row[1]!, 16);
-        const hi = parseInt(row[2]!, 16);
-        const start = parseInt(row[3]!, 16);
-        for (let id = lo; id <= hi; id++) {
-          map.set(id, String.fromCodePoint(start + (id - lo)));
-        }
+  }
+  for (const block of text.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+    for (const row of block[1]!.matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,
+    )) {
+      const lo = parseInt(row[1]!, 16);
+      const hi = parseInt(row[2]!, 16);
+      const start = parseInt(row[3]!, 16);
+      for (let id = lo; id <= hi; id++) {
+        map.set(id, String.fromCodePoint(start + (id - lo)));
       }
     }
   }
-  return map;
+}
+
+/** One embedded (Type0) face, as a reader of the saved file receives it. */
+export interface EmbeddedFace {
+  readonly baseFont: string;
+  /** The characters this face draws, per `/ToUnicode`. */
+  readonly characters: string;
+  /**
+   * Advance width, in the EMBEDDED subset's own units, of every glyph the face
+   * maps to a character. One distinct value means the face is monospaced for
+   * everything it draws in this file; that is the property a column of `tree`
+   * output depends on, and it is read from the bytes, not from a font's name.
+   */
+  readonly advanceWidths: ReadonlySet<number>;
+  /**
+   * Characters whose glyph in the subset has no drawing commands although the
+   * character is not whitespace — blanks where a letter should be. The same
+   * question {@link proveGlyphs} asks, per face.
+   */
+  readonly blankCharacters: readonly string[];
+}
+
+/**
+ * Every embedded Unicode face in a saved PDF, each with the characters it
+ * draws and the widths of their glyphs.
+ *
+ * Per face, where {@link proveGlyphs} insists on exactly one: a document that
+ * sets code in a monospace face and prose in a proportional one legitimately
+ * carries two, and the question is which face drew which characters.
+ */
+export async function embeddedFaces(
+  bytes: Uint8Array,
+): Promise<EmbeddedFace[]> {
+  const doc = await PDFDocument.load(bytes);
+  const out: EmbeddedFace[] = [];
+  for (const [, object] of doc.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFDict)) continue;
+    if (object.get(PDFName.of("Subtype"))?.toString() !== "/Type0") continue;
+    const unicode = new Map<number, string>();
+    const toUnicode = doc.context.lookup(object.get(PDFName.of("ToUnicode")));
+    if (toUnicode instanceof PDFRawStream) {
+      readToUnicodeStream(toUnicode, unicode);
+    }
+    const descendants = doc.context.lookup(
+      object.get(PDFName.of("DescendantFonts")),
+    );
+    if (!(descendants instanceof PDFArray)) continue;
+    const cidFont = doc.context.lookup(descendants.get(0));
+    if (!(cidFont instanceof PDFDict)) continue;
+    const descriptor = doc.context.lookup(
+      cidFont.get(PDFName.of("FontDescriptor")),
+    );
+    if (!(descriptor instanceof PDFDict)) continue;
+    const file = doc.context.lookup(descriptor.get(PDFName.of("FontFile2")));
+    if (!(file instanceof PDFRawStream)) continue;
+    const subset = await openNotoFont(inflateMaybe(rawBytes(file)));
+    const advanceWidths = new Set<number>();
+    const blankCharacters: string[] = [];
+    for (const [id, text] of unicode) {
+      const glyph = subset.getGlyph(id);
+      advanceWidths.add(glyph.advanceWidth);
+      if (glyph.path.commands.length === 0 && text.trim() !== "") {
+        blankCharacters.push(text);
+      }
+    }
+    out.push({
+      baseFont: String(object.get(PDFName.of("BaseFont"))),
+      characters: [...unicode.values()].join(""),
+      advanceWidths,
+      blankCharacters,
+    });
+  }
+  return out;
 }
 
 function utf16beToString(hex: string): string {
@@ -286,4 +367,38 @@ export function packById(id: FontPackId): FontPack {
   const pack = FONT_PACKS.find((entry) => entry.id === id);
   if (!pack) throw new Error(`no font pack ${id}`);
   return pack;
+}
+
+/**
+ * Every character a {@link MonospaceClaim} promises, expanded from a
+ * definition that exists without our font: a Windows code page through the
+ * WHATWG decoder, a whole Unicode block, or the literal characters printed.
+ *
+ * Graphic characters only — letters, digits, punctuation, symbols, spaces.
+ * Controls and format characters are not text a reader sees; the one format
+ * character
+ * this drops from the code pages is U+00AD SOFT HYPHEN, which Geist Mono does
+ * not carry (see `font-packs.test.ts`, which pins that exclusion by name).
+ * U+FFFD is dropped too: it is what the decoder returns for a byte the code
+ * page leaves undefined, not a member of it.
+ */
+export function monospaceClaimMembers(claim: MonospaceClaim): string[] {
+  const graphic = /[\p{L}\p{N}\p{P}\p{S}\p{Zs}]/u;
+  const REPLACEMENT = String.fromCharCode(0xfffd);
+  const out = new Set<string>();
+  const { members } = claim;
+  if ("codePages" in members) {
+    for (const label of members.codePages) {
+      const decoded = new TextDecoder(label).decode(
+        Uint8Array.from({ length: 256 }, (_, i) => i),
+      );
+      for (const ch of decoded) if (ch !== REPLACEMENT) out.add(ch);
+    }
+  } else if ("block" in members) {
+    const [lo, hi] = members.block;
+    for (let cp = lo; cp <= hi; cp++) out.add(String.fromCodePoint(cp));
+  } else {
+    for (const ch of members.characters) out.add(ch);
+  }
+  return [...out].filter((ch) => graphic.test(ch));
 }

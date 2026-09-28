@@ -589,6 +589,12 @@ The validator rejects:
 - too many files or oversized files
 - URL-only tools such as `webpage-to-pdf`
 
+For an AI tool the route then asks, before any slot is minted, the two questions
+`POST /api/jobs` would ask later: is the global AI spend ceiling spent (`503`,
+the job route's own message), and could ANY job still fit in this connection's
+daily allowance (`429`, the allowance message). Both are peeks and spend
+nothing; see Step 5 of [`RATE_LIMITING.md`](./RATE_LIMITING.md).
+
 ### `POST /api/jobs`
 
 Creates a job for a worker-capable tool once files have been uploaded, or directly for URL-input tools.

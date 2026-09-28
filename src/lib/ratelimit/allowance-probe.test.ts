@@ -31,7 +31,7 @@
  * they have merely been throttled.
  */
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isValidFileId } from "@/lib/jobs";
 import { RATE_LIMIT_ENV } from "@/lib/ratelimit";
 import {
@@ -44,7 +44,25 @@ import {
   AI_ALLOWANCE_USED_MESSAGE,
 } from "@/lib/jobs/ai-allowance";
 import { TRANSLATE_EXTRACTOR_HEADROOM } from "@/lib/jobs/translate-limits";
+import { S3_ENV } from "@/lib/workers/storage/s3-config";
+import { REDIS_QUEUE_ENV } from "@/lib/workers/queue/redis-config";
+import { createFakeRedis } from "@/lib/workers/queue/redis-fake";
+import { redisRestFetch } from "@/lib/workers/queue/redis-rest-fake";
 import { POST } from "@/app/api/jobs/route";
+
+/** A wired S3 + Redis environment, so the REAL adapter creates the job. */
+const QUEUE_URL = "https://queue-example-12345.upstash.io";
+const WIRED_ENV: Record<string, string> = {
+  [S3_ENV.provider]: "s3",
+  [S3_ENV.endpoint]: "https://s3.us-east-1.amazonaws.com",
+  [S3_ENV.region]: "us-east-1",
+  [S3_ENV.bucket]: "pdfxyz-test",
+  [S3_ENV.accessKeyId]: "AKIAEXAMPLE0000000",
+  [S3_ENV.secretAccessKey]: "s3cr3tEXAMPLEkeyValue00000000000000000000",
+  [REDIS_QUEUE_ENV.provider]: "redis",
+  [REDIS_QUEUE_ENV.restUrl]: QUEUE_URL,
+  [REDIS_QUEUE_ENV.restToken]: "AX_tokenEXAMPLEvalue000000000000000000000",
+};
 
 /** A file id in the shape the contract requires. It does not have to exist. */
 const WELL_FORMED = "f_probe0000000000";
@@ -80,18 +98,26 @@ afterEach(() => {
   // with every other file in this worker.
   resetRateLimitGuardForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
+  for (const name of Object.keys(WIRED_ENV)) delete process.env[name];
+  vi.unstubAllGlobals();
 });
 
 describe("the zero-cost allowance probe", () => {
-  it("costs exactly one character's reservation when the allowance is available", async () => {
-    const response = await POST(probeRequest(WELL_FORMED));
+  it("costs exactly one character's reservation when its job is created", async () => {
+    // A wired queue, so the REAL adapter creates the job — which is what a
+    // configured production deployment does with an imaginary file id: the
+    // contract checks the id's shape, and existence is the worker's problem.
+    Object.assign(process.env, WIRED_ENV);
+    vi.stubGlobal("fetch", redisRestFetch(createFakeRedis(), QUEUE_URL));
 
-    // It got PAST the allowance. What it hits next is the unconfigured worker,
-    // which is the point: no job is created, no worker runs, no AI call.
+    const response = await POST(probeRequest(WELL_FORMED));
     expect(
       response.status,
       "the probe was refused before it could reveal anything",
     ).not.toBe(429);
+    expect(response.status, "health: the probe's job was not created").toBe(
+      202,
+    );
 
     // Exactly `1 × headroom` was taken — proven by spending the rest and then
     // failing to spend one more, which pins the figure from both sides. A
@@ -111,6 +137,29 @@ describe("the zero-cost allowance probe", () => {
       `the probe cost less than ${PROBE_COST} characters, so the documented ` +
         "figure is wrong in the cheap direction",
     ).toBe(false);
+  });
+
+  it("INVERTED: a probe whose job is NOT created costs nothing", async () => {
+    /**
+     * HISTORY. Until 2026-09-27 the test above ran against the unconfigured
+     * worker — "no job is created, no worker runs" — and pinned that the probe
+     * STILL cost four characters. It was pinning the defect: the route charged
+     * the allowance before `createJob` and never gave it back when creation
+     * failed, so a queue outage spent a third of a day per undeclared job.
+     * The same request against the same unconfigured worker now costs nothing,
+     * because no job exists that the caller could ever receive.
+     */
+    const response = await POST(probeRequest(WELL_FORMED));
+    expect(response.status).toBe(503);
+
+    const untouched = await enforceAiCharacterAllowance(
+      AI_CHARACTER_ALLOWANCE,
+      bare(),
+    );
+    expect(
+      untouched.allowed,
+      "a job that was never created kept part of the allowance",
+    ).toBe(true);
   });
 
   it("reveals an exhausted allowance, and spends nothing doing it", async () => {

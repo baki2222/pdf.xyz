@@ -73,6 +73,34 @@ end
 local pttl = redis.call('PTTL', KEYS[1])
 return { count, pttl }`;
 
+/**
+ * The refund script: give back up to `ARGV[1]` units of a live window. Constant
+ * text, key in `KEYS[1]`, like {@link FIXED_WINDOW_SCRIPT}. Returns
+ * `{ count, pttlMs }` after the refund.
+ *
+ * Each line answers one way a refund can do harm:
+ *  - `PTTL <= 0` ⇒ return untouched. -2 is a missing key (the window expired and
+ *    took the charge with it); -1 is a key with no expiry, which this limiter
+ *    never writes — touching it could only make a permanent key. Either way the
+ *    script writes NOTHING, so a refund can never create a window.
+ *  - `DECRBY` by `min(cost, count)`, never by `cost`: the counter cannot go
+ *    below zero, so a refund undoes a charge and never banks credit.
+ *  - `DECRBY` keeps the key's TTL, and no `PEXPIRE`/`SET` appears here: the
+ *    window's reset time does not move.
+ */
+export const REFUND_SCRIPT = `
+local cost = tonumber(ARGV[1]) or 0
+local pttl = redis.call('PTTL', KEYS[1])
+if cost <= 0 or pttl <= 0 then
+  return { tonumber(redis.call('GET', KEYS[1])) or 0, pttl }
+end
+local count = tonumber(redis.call('GET', KEYS[1])) or 0
+local take = math.min(cost, count)
+if take > 0 then
+  count = redis.call('DECRBY', KEYS[1], take)
+end
+return { count, redis.call('PTTL', KEYS[1]) }`;
+
 /** Injectable transport seams so the provider is testable without a real broker. */
 export interface RateLimitRedisDeps {
   /** A ready Redis client; defaults to one built from `config` + `fetchImpl`. */
@@ -213,6 +241,19 @@ export function createRedisRateLimitProvider(
       // already happened; "over budget" is information for the NEXT peek, not a
       // reason to drop the measurement that put us over.
       await evaluate(policy, key, Math.floor(cost));
+    },
+    async refund(policy, key, _nowMs, cost): Promise<void> {
+      if (!Number.isFinite(cost) || cost <= 0) return;
+      const res = await client.command([
+        "EVAL",
+        REFUND_SCRIPT,
+        "1",
+        rateLimitBucketKey(config.keyPrefix, policy.id, key),
+        String(Math.floor(cost)),
+      ]);
+      // Content-free on failure, like every other path here: the guard turns a
+      // throw into "not refunded" and the charge stands.
+      if (!res.ok) throw new Error("rate-limit store unavailable");
     },
   };
 }

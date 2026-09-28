@@ -12,10 +12,7 @@
  */
 
 import { readDeliveryCap, type JobError } from "@/lib/jobs";
-import {
-  parseTranslateOptions,
-  translationOutputName,
-} from "@/lib/jobs/translate-pdf";
+import { translationOutputName } from "@/lib/jobs/translate-pdf";
 import {
   TRANSLATE_TOOL,
   runTranslate,
@@ -31,6 +28,7 @@ import {
   type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
+import { AI_TOOL_OPTION_PARSERS } from "@/lib/jobs/ai-tool-options";
 
 type Failure = Extract<TranslateRun, { ok: false }>;
 
@@ -155,7 +153,10 @@ export function createTranslateProcessor(deps: TranslateDeps): Processor {
           retryable: false,
         });
       }
-      const parsed = parseTranslateOptions(input.options);
+      // The SAME parser the route ran before it charged the allowance
+      // (`@/lib/jobs/ai-tool-options`), kept here as the second line of
+      // defence for a job queued by anything but that route.
+      const parsed = AI_TOOL_OPTION_PARSERS[TRANSLATE_TOOL](input.options);
       if (!parsed.ok) {
         return processorFail({
           code: parsed.error.body.error.code,

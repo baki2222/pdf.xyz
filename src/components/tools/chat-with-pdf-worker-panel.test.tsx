@@ -18,7 +18,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
@@ -620,5 +621,62 @@ describe("ChatWithPdfWorkerPanel — every answer carries its caveat", () => {
     expect(await screen.findByText("Second [p.1].")).toBeInTheDocument();
     expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(2);
     expect(AI_ANSWER_CAVEAT).toMatch(/AI-generated/);
+  });
+});
+
+describe("ChatWithPdfWorkerPanel — what the job declares", () => {
+  it("sends the extracted character count with its job, not nothing", async () => {
+    // Review of 2026-09-28: the only panel-level assertion checked that the
+    // key was PRESENT, and a present key holding `undefined` passed it — an
+    // undeclared chat-with-pdf job reserves a third of the day. A REAL
+    // pdf-lib PDF, counted by the real extractor, dropped into the panel; the
+    // driver must receive that count. (The driver is this file's stub; the
+    // MEASUREMENT is the panel's own default — `measureChatDocument` over the
+    // real `extractPdfText` — and the client → wire → route half is
+    // `per-call-declared.chain.test.ts`.)
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([612, 792]);
+    for (let l = 0; l < 8; l += 1) {
+      page.drawText(`Invoice 2026-0412, line ${l + 1}: total 1200.`, {
+        x: 20,
+        y: 760 - l * 18,
+        size: 10,
+        font,
+      });
+    }
+    const bytes = await doc.save();
+    const counted = (await extractPdfText(bytes)).characterCount;
+    // Health: a real count, so equality below means THIS document's count.
+    expect(counted).toBeGreaterThan(100);
+
+    stubStatus();
+    runWorkerChatWithPdf.mockResolvedValue({ ok: false, message: "stop" });
+    // No `measureChat`: the panel measures the dropped file itself.
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
+    await screen.findByRole("textbox");
+    fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([bytes.slice()], "invoice.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "What is the total?" },
+    });
+    const submit = screen.getByRole("button", { name: /ask the pdf/i });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    // Only the DOCUMENT is declared; the route measures the question itself.
+    expect(runWorkerChatWithPdf.mock.calls[0]![0].documentCharacters).toBe(
+      counted,
+    );
   });
 });

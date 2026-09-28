@@ -124,6 +124,23 @@ export function formatRange({ start, end }: PageRange): string {
 }
 
 /**
+ * Human label for a set of 1-based page numbers, runs compressed with
+ * {@link formatRange}: [2, 7, 8, 9] -> "2, 7–9". Sorted and de-duplicated, so
+ * the label reads the same whatever order the pages were found in; with "–"
+ * typed as "-" it parses back to the same pages through {@link parsePageList}.
+ */
+export function formatPageNumbers(pageNumbers: readonly number[]): string {
+  const sorted = [...new Set(pageNumbers)].sort((a, b) => a - b);
+  const runs: PageRange[] = [];
+  for (const page of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && page - 1 === last.end + 1) last.end = page - 1;
+    else runs.push({ start: page - 1, end: page - 1 });
+  }
+  return runs.map(formatRange).join(", ");
+}
+
+/**
  * Build named split parts from ranges. Names are zero-padded and carry the page
  * range so a folder of outputs sorts and reads sensibly.
  */

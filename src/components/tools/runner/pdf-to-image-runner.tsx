@@ -65,6 +65,7 @@ export function PdfToImageRunner({ format }: { format: RasterFormat }) {
       handoffSlug={format === "png" ? "pdf-to-png" : "pdf-to-jpg"}
       toolName={`PDF to ${label}`}
       writesPdf={false}
+      reader="pdfjs"
     >
       {(pdf, reset) => (
         <PdfToImageEditor pdf={pdf} format={format} onReset={reset} />

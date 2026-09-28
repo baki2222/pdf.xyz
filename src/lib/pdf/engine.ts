@@ -4,6 +4,7 @@ import {
   probePdfEncryption,
   type EncryptionVerdict,
 } from "./encryption";
+import { assemblePages } from "./page-copy";
 import { loadPdfLib } from "./pdf-lib";
 import type {
   NamedBytes,
@@ -178,16 +179,18 @@ export async function getPageRotations(bytes: Uint8Array): Promise<Rotation[]> {
 
 /** Concatenate several PDFs into one, in the order given. */
 export async function mergePdfs(files: Uint8Array[]): Promise<Uint8Array> {
-  const { PDFDocument } = await loadPdfLib();
+  const lib = await loadPdfLib();
   if (files.length === 0) {
     throw new PdfEngineError("Add at least one PDF to merge.");
   }
-  const out = await PDFDocument.create();
+  const sources = [];
   for (const bytes of files) {
-    const src = await load(bytes);
-    const pages = await out.copyPages(src, src.getPageIndices());
-    for (const page of pages) out.addPage(page);
+    const doc = await load(bytes);
+    sources.push({ doc, indices: doc.getPageIndices() });
   }
+  const { out } = await assemblePages(lib, sources, {
+    documentState: "merge",
+  });
   stamp(out);
   return out.save();
 }
@@ -197,15 +200,15 @@ export async function extractPages(
   bytes: Uint8Array,
   indices: number[],
 ): Promise<Uint8Array> {
-  const { PDFDocument } = await loadPdfLib();
+  const lib = await loadPdfLib();
   const src = await load(bytes);
   const clean = sanitizeIndices(indices, src.getPageCount());
   if (clean.length === 0) {
     throw new PdfEngineError("Select at least one page to extract.");
   }
-  const out = await PDFDocument.create();
-  const pages = await out.copyPages(src, clean);
-  for (const page of pages) out.addPage(page);
+  const { out } = await assemblePages(lib, [{ doc: src, indices: clean }], {
+    documentState: "subset",
+  });
   stamp(out);
   return out.save();
 }
@@ -215,7 +218,7 @@ export async function deletePages(
   bytes: Uint8Array,
   indices: number[],
 ): Promise<Uint8Array> {
-  const { PDFDocument } = await loadPdfLib();
+  const lib = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();
   const remove = new Set(sanitizeIndices(indices, count));
@@ -228,9 +231,9 @@ export async function deletePages(
       "You can't delete every page — keep at least one.",
     );
   }
-  const out = await PDFDocument.create();
-  const pages = await out.copyPages(src, keep);
-  for (const page of pages) out.addPage(page);
+  const { out } = await assemblePages(lib, [{ doc: src, indices: keep }], {
+    documentState: "subset",
+  });
   stamp(out);
   return out.save();
 }
@@ -298,7 +301,7 @@ export async function splitPdf(
   bytes: Uint8Array,
   parts: SplitPart[],
 ): Promise<NamedBytes[]> {
-  const { PDFDocument } = await loadPdfLib();
+  const lib = await loadPdfLib();
   if (parts.length === 0) {
     throw new PdfEngineError("Nothing to split — add at least one range.");
   }
@@ -308,9 +311,11 @@ export async function splitPdf(
   for (const part of parts) {
     const clean = sanitizeIndices(part.indices, count);
     if (clean.length === 0) continue;
-    const out = await PDFDocument.create();
-    const pages = await out.copyPages(src, clean);
-    for (const page of pages) out.addPage(page);
+    // Each part is assembled from the same parsed source: the assembler never
+    // mutates it, so part 2 cannot inherit part 1's pruning.
+    const { out } = await assemblePages(lib, [{ doc: src, indices: clean }], {
+      documentState: "subset",
+    });
     stamp(out);
     results.push({ name: part.name, bytes: await out.save() });
   }
@@ -323,12 +328,15 @@ export async function splitPdf(
 /**
  * Rebuild a PDF from an ordered plan. Supports reordering, deleting (omit an
  * item), duplicating (repeat a sourceIndex), and per-page absolute rotation.
+ * A plan that keeps every page once, in order, is applied in place; any other
+ * goes through the page assembler, which carries a subset's document state
+ * (`document-structure.ts`) but not attachments, XMP or the tag tree.
  */
 export async function organizePages(
   bytes: Uint8Array,
   plan: OrganizePlanItem[],
 ): Promise<Uint8Array> {
-  const { PDFDocument, degrees } = await loadPdfLib();
+  const lib = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();
   const valid = plan.filter(
@@ -340,14 +348,28 @@ export async function organizePages(
   if (valid.length === 0) {
     throw new PdfEngineError("Keep at least one page.");
   }
-  const out = await PDFDocument.create();
-  const pages = await out.copyPages(
-    src,
-    valid.map((item) => item.sourceIndex),
+  // Every page, once, in its own order — what Rotate PDF always sends, and
+  // Organize when only rotations changed. Nothing leaves the document, so
+  // nothing can leak from it, and it is rotated in place: the assembler below
+  // rebuilds only what a SUBSET needs, and dropped the attachments, XMP
+  // stream, tag tree and custom /Info keys of a file the user only rotated
+  // (measured at 8e270e8; page-copy.test.ts "removes no page").
+  const removesNothing =
+    valid.length === count && valid.every((item, i) => item.sourceIndex === i);
+  if (removesNothing) {
+    src.getPages().forEach((page, i) => {
+      page.setRotation(lib.degrees(normalizeAngle(valid[i]!.rotation)));
+    });
+    stamp(src);
+    return src.save();
+  }
+  const { out, pages } = await assemblePages(
+    lib,
+    [{ doc: src, indices: valid.map((item) => item.sourceIndex) }],
+    { documentState: "subset" },
   );
   pages.forEach((page, i) => {
-    page.setRotation(degrees(normalizeAngle(valid[i]!.rotation)));
-    out.addPage(page);
+    page.setRotation(lib.degrees(normalizeAngle(valid[i]!.rotation)));
   });
   stamp(out);
   return out.save();

@@ -10,7 +10,19 @@ import {
   type BatchSeed,
   type BatchState,
 } from "@/lib/batch";
-import { errorMessage } from "./runner-kit";
+import { errorMessage, failureCode } from "./runner-kit";
+import {
+  reportToolCompleted,
+  reportToolFailed,
+} from "@/lib/telemetry/tool-outcome";
+
+function isAbort(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
 
 /** One file to run through the batch, plus a stable id for its slot. */
 export interface BatchUnit {
@@ -98,11 +110,20 @@ export function useBatchRunner<R>(
     for (const unit of unitsRef.current) {
       if (controller.signal.aborted || !mountedRef.current) break;
       dispatch({ type: "item-start", id: unit.id });
+      const started = Date.now();
       try {
         const result = await process(unit.file, controller.signal);
+        // Each file is one run of the tool, reported as it settles — the
+        // batch holds its own state rather than `useAsyncRun`'s, so it must
+        // (see `@/lib/telemetry/tool-outcome`).
+        reportToolCompleted({ elapsedMs: Date.now() - started });
         if (!mountedRef.current) return;
         dispatch({ type: "item-success", id: unit.id, result });
       } catch (err) {
+        // Stopping is the user's choice, not the tool failing.
+        if (!controller.signal.aborted && !isAbort(err)) {
+          reportToolFailed({ code: failureCode(err) });
+        }
         if (!mountedRef.current) return;
         dispatch({ type: "item-error", id: unit.id, error: errorMessage(err) });
       }

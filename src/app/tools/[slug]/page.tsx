@@ -37,6 +37,8 @@ import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel"
 import { AiExtractWorkerPanel } from "@/components/tools/ai-extract-worker-panel";
 import { ChatWithPdfWorkerPanel } from "@/components/tools/chat-with-pdf-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
+import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
+import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import {
@@ -152,6 +154,12 @@ export default async function ToolPage({
 
   return (
     <div className="bg-canvas text-fg py-10 sm:py-14">
+      {/* Names this page's tool for run-outcome telemetry and sends
+          `tool_viewed`. Renders nothing. */}
+      <ToolTelemetry
+        toolSlug={tool.slug}
+        capability={capabilityForMode(tool.processing)}
+      />
       <JsonLd
         data={[
           toolApplicationSchema(tool),
@@ -407,7 +415,7 @@ export default async function ToolPage({
               ) : tool.slug === "ai-extract" ? (
                 /* AI Data Extraction: selectable-text extraction turned into structured
                    JSON by a configured AI provider, packaged as a real extraction ZIP
-                   (extraction.json + extraction.md + manifest) on the worker. Fails
+                   (extraction.json + model-output.json + extraction.md + manifest) on the worker. Fails
                    honestly when no provider is configured or the reply isn't JSON — never faked. */
                 <ErrorBoundary boundary="ai-extract-worker-panel">
                   <AiExtractWorkerPanel tool={tool} />

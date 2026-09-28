@@ -89,8 +89,16 @@ describe("createAiExtractProcessor", () => {
       expect(result.artifacts[0]!.filename).toBe("invoice-extraction.zip");
       expect(result.artifacts[0]!.contentType).toBe("application/zip");
       const zip = await JSZip.loadAsync(result.artifacts[0]!.bytes);
+      // INVERTED 2026-09-28. This asserted extraction.json === the model's
+      // reply, `total` included — a key the schema never asked for — which is
+      // the shape that let a DROPPED requested field vanish unnoticed.
+      // extraction.json is now the request reconciled; the reply ships
+      // verbatim beside it.
       expect(
         JSON.parse(await zip.file("extraction.json")!.async("string")),
+      ).toEqual({ invoice_number: "INV-9" });
+      expect(
+        JSON.parse(await zip.file("model-output.json")!.async("string")),
       ).toEqual({
         invoice_number: "INV-9",
         total: 500,

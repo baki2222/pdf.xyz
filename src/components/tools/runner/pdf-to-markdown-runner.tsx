@@ -33,6 +33,7 @@ export function PdfToMarkdownRunner() {
       handoffSlug="pdf-to-markdown"
       toolName="PDF to Markdown"
       writesPdf={false}
+      reader="pdfjs"
     >
       {(pdf, reset) => <PdfToMarkdownEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>

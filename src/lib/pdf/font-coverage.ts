@@ -11,8 +11,10 @@
 import {
   FONT_PACKS,
   isSignalCodePoint,
+  packsForFace,
   type FontPack,
   type FontPackId,
+  type StandardFace,
 } from "./font-packs";
 import {
   coverageHas,
@@ -131,56 +133,74 @@ export function packCovers(
  * re-measuring and re-placing every fragment at eight call sites. A string
  * mixing Bengali and Korean therefore returns nothing here and is refused with
  * a message naming the two scripts, instead of a half-drawn line.
+ *
+ * `face` gates the monospace pack: it is a candidate only for `"mono"`, and
+ * there it ranks FIRST whenever it covers the text — ahead of signal and size,
+ * because a caller that asked for monospace asked for equal widths, and a
+ * proportional face that "also draws it" breaks every column in the document.
+ * Where it does not cover the text (Greek, ✓, CJK) the script packs follow in
+ * their usual order: a correct proportional rendering, never a refusal.
  */
 export function candidatePacks(
   coverage: Record<FontPackId, DecodedCoverage>,
   text: string,
+  face: StandardFace = "sans",
 ): FontPack[] {
   const codePoints: number[] = [];
   for (const ch of text) {
     const cp = ch.codePointAt(0);
     if (cp !== undefined) codePoints.push(cp);
   }
-  const able = FONT_PACKS.filter((pack) =>
+  const able = packsForFace(face).filter((pack) =>
     codePoints.every((cp) => packCovers(coverage, pack, cp)),
   );
   return able.sort((a, b) => {
+    const aRole = a.role === "monospace" ? 0 : 1;
+    const bRole = b.role === "monospace" ? 0 : 1;
     const aSignal = codePoints.some((cp) => isSignalCodePoint(a, cp)) ? 0 : 1;
     const bSignal = codePoints.some((cp) => isSignalCodePoint(b, cp)) ? 0 : 1;
-    return aSignal - bSignal || a.bytes - b.bytes;
+    return aRole - bRole || aSignal - bSignal || a.bytes - b.bytes;
   });
 }
 
-/** The distinct code points in `text` no shipped face has a glyph for. */
+/** The distinct code points in `text` no face available to `face` has a glyph for. */
 export function uncoveredCodePoints(
   coverage: Record<FontPackId, DecodedCoverage>,
   text: string,
+  face: StandardFace = "sans",
 ): number[] {
+  const packs = packsForFace(face);
   const missing = new Set<number>();
   for (const ch of text) {
     const cp = ch.codePointAt(0);
     if (cp === undefined) continue;
-    if (FONT_PACKS.some((pack) => packCovers(coverage, pack, cp))) continue;
+    if (packs.some((pack) => packCovers(coverage, pack, cp))) continue;
     missing.add(cp);
   }
   return [...missing];
 }
 
-/** Which of our faces each character in `text` belongs to — for a mixed-script message. */
+/**
+ * Which of our SCRIPT faces each character in `text` belongs to — for a
+ * mixed-script message, which names alphabets. The monospace pack is a
+ * typeface, not an alphabet, so it never appears here: "this text mixes
+ * monospace and Bengali" would describe nothing a user wrote.
+ */
 export function packLabelsInText(
   coverage: Record<FontPackId, DecodedCoverage>,
   text: string,
 ): string[] {
+  const scripts = FONT_PACKS.filter((pack) => pack.role === "script");
   const labels = new Set<string>();
   for (const ch of text) {
     const cp = ch.codePointAt(0);
     if (cp === undefined) continue;
-    const signalled = FONT_PACKS.find((pack) => isSignalCodePoint(pack, cp));
+    const signalled = scripts.find((pack) => isSignalCodePoint(pack, cp));
     if (signalled) {
       labels.add(signalled.label);
       continue;
     }
-    const any = FONT_PACKS.find((pack) => packCovers(coverage, pack, cp));
+    const any = scripts.find((pack) => packCovers(coverage, pack, cp));
     if (any) labels.add(any.label);
   }
   return [...labels];

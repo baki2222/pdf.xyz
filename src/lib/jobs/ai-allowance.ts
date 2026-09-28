@@ -66,7 +66,11 @@ import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
 } from "./translate-limits";
-import { AI_RUN_PRICING, deliveryCapFor } from "./delivery-cap";
+import {
+  AI_DELIVERY_LIMITS,
+  AI_RUN_PRICING,
+  deliveryCapFor,
+} from "./delivery-cap";
 import { CHAT_TOOL_SLUG } from "./chat-with-pdf";
 
 /**
@@ -184,12 +188,11 @@ export const AI_ALLOWANCE_ACTION = "ai.characters";
 /**
  * The limits `POST /api/jobs` prices an AI job under — the route spreads THIS
  * object into `aiReservationFor`, so the charges below and the charge the route
- * makes are one expression, not two that happen to agree.
+ * makes are one expression, not two that happen to agree. It IS
+ * `AI_DELIVERY_LIMITS` (`./delivery-cap`), which the upload route's admission
+ * peek reads too: one object under the name each module's readers know.
  */
-export const AI_JOB_DELIVERY_LIMITS = {
-  fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
-  headroom: TRANSLATE_EXTRACTOR_HEADROOM,
-} as const;
+export const AI_JOB_DELIVERY_LIMITS = AI_DELIVERY_LIMITS;
 
 /**
  * What ONE undeclared job reserves: a whole call's worth, whatever the
@@ -423,8 +426,13 @@ const PER_CALL_UNITS = listed(
  *    run cost the ceiling. Per-call pricing (2026-09-27) makes a short run on
  *    a proving worker cost what it sends, so it states the per-run CEILING —
  *    true of every worker image — and names each per-call tool's run.
+ *  - "used up" alone was false for a connection refused with part of its day
+ *    left: the limiter refuses when `used + this job` would pass the bucket,
+ *    not only when the bucket is empty. "or too little of it is left for this
+ *    document" says which of the two it can be without claiming to know
+ *    (wave1/l01-page-leak, 2026-09-28).
  * `ratelimit/allowance-copy.test.ts` holds it to every AI tool in the
  * catalogue (all of them or none), and `tools/ai-allowance-per-tool.test.ts`
  * holds its per-run clause to the pages' own units.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The free AI allowance for this connection is used up for today. It covers ${AI_ALLOWANCE_CLAUSE}, shared across the AI tools: ${listed(Object.values(PER_CHARACTER_JOB_COST), "and")}, and ${PER_CALL_UNITS} never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them. On a shared network that can include AI work by someone else. The allowance resets daily.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The free AI allowance for this connection is used up for today, or too little of it is left for this document. It covers ${AI_ALLOWANCE_CLAUSE}, shared across the AI tools: ${listed(Object.values(PER_CHARACTER_JOB_COST), "and")}, and ${PER_CALL_UNITS} never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them. On a shared network that can include AI work by someone else. The allowance resets daily.`;

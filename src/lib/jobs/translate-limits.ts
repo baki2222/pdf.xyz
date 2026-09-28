@@ -253,7 +253,8 @@ export const TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS = 8_000;
  * THE MECHANISM, measured rather than reasoned about. `pdftotext -layout`
  * reconstructs the page's horizontal arrangement by padding between columns
  * with spaces. `textItemsToPlainText` structurally cannot do that: it appends
- * `item.str` and a newline on `hasEOL`, so it can never emit a space that is not
+ * `item.str` and a newline on `hasEOL` (plus one after the page's last line when
+ * reading order moves it off the end), so it can never emit a space that is not
  * inside a text item. The surplus is therefore inter-column whitespace, and it
  * scales with PAGE GEOMETRY rather than with text length.
  *

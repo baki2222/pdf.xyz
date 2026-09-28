@@ -19,12 +19,14 @@ import { getToolBySlug } from "@/lib/tools";
 import { getWorkerAdapter } from "@/lib/workers";
 import { runningWorkerEnforcesAiReadCap } from "@/lib/workers/heartbeat";
 import {
-  enforceAiCharacterAllowance,
   enforceRateLimit,
   peekAiSpendCeiling,
+  reserveAiCharacterAllowance,
+  type AiAllowanceReservation,
 } from "@/lib/ratelimit/guard";
 import { AI_JOB_DELIVERY_LIMITS } from "@/lib/jobs/ai-allowance";
 import { AI_CEILING_REACHED_MESSAGE } from "@/lib/jobs/ai-spend-ceiling";
+import { parseAiToolOptions } from "@/lib/jobs/ai-tool-options";
 import { apiError } from "@/lib/jobs/responses";
 import { evaluateJobInputCount, intakeErrorResult } from "@/lib/uploads/intake";
 import {
@@ -69,6 +71,16 @@ export async function POST(request: Request): Promise<Response> {
   // the job names — and the refusal names the allowance, not a generic
   // throttle (see AI_ALLOWANCE_USED_MESSAGE).
   const tool = getToolBySlug(parsed.value.tool);
+
+  // AN AI JOB'S OPTIONS ARE CHECKED BEFORE ANYTHING IS CHARGED. Until
+  // 2026-09-28 only the worker parsed them, so a request the contract already
+  // knew was bad — two schema fields both named "Total" — reserved a third of
+  // the day and failed on the worker, which gives nothing back. The table is
+  // the one the processors read, so this check and the worker's cannot
+  // disagree about what is admissible (`@/lib/jobs/ai-tool-options`).
+  const aiOptions = parseAiToolOptions(parsed.value.tool, parsed.value.options);
+  if (aiOptions && !aiOptions.ok) return respond(aiOptions.error);
+
   /**
    * What this job is charged, and what it may then deliver.
    *
@@ -79,6 +91,12 @@ export async function POST(request: Request): Promise<Response> {
    * means this job is not AI-capability: no charge, no cap.
    */
   let reservation: AiReservation | undefined;
+  /**
+   * The allowance this request DEBITED, held until the job exists. See the
+   * release below the adapter call — the charge is taken BEFORE the fork and
+   * so must be settled on BOTH of its branches.
+   */
+  let allowance: AiAllowanceReservation | undefined;
   if (tool && capabilityForMode(tool.processing) === "ai") {
     // The GLOBAL ceiling first, and it is not a 429. A spent cost control is
     // OUR limit, not this caller's quota — answering it as a rate limit would
@@ -141,15 +159,35 @@ export async function POST(request: Request): Promise<Response> {
       ...AI_JOB_DELIVERY_LIMITS,
       readCapEnforced: () => runningWorkerEnforcesAiReadCap(),
     });
-    const aiLimit = await enforceAiCharacterAllowance(
-      reservation.charge,
-      request,
-    );
-    if (!aiLimit.allowed) return respondRateLimited(aiLimit);
+    allowance = await reserveAiCharacterAllowance(reservation.charge, request);
+    if (!allowance.decision.allowed)
+      return respondRateLimited(allowance.decision);
   }
 
+  /**
+   * A JOB THAT WAS NOT CREATED COSTS NOTHING.
+   *
+   * The allowance is charged above, before the job exists, and on 67e8d0f
+   * nothing gave it back: a queue outage, storage not ready, a broker error —
+   * each returned its honest error AND kept a third of the caller's day. Three
+   * of those and the connection was refused AI until tomorrow, with no job to
+   * show for it. The guard was correct; the defect was that the success branch
+   * was the only branch anyone had thought about.
+   *
+   * Every failure is released, including an ambiguous broker error that might
+   * have recorded the job: the caller never receives a job id, so can never
+   * receive its result, and the money bound is `ai.spend`, recorded by the
+   * worker on what it actually runs — not this fairness counter.
+   */
   const adapter = await getWorkerAdapter();
-  const outcome = await adapter.createJob(parsed.value, reservation?.delivery);
+  let outcome: Awaited<ReturnType<typeof adapter.createJob>>;
+  try {
+    outcome = await adapter.createJob(parsed.value, reservation?.delivery);
+  } catch (error) {
+    await allowance?.release();
+    throw error;
+  }
+  if (!outcome.ok) await allowance?.release();
   return respond(
     outcome.ok
       ? { status: outcome.status, body: outcome.value }
