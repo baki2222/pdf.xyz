@@ -345,7 +345,7 @@ function SummaryBuilder({ refuse }: { refuse: PickRefusal }) {
 
       <WorkerJobStatus job={job} />
       {outcome?.ok === false && !outcome.stillRunning && (
-        <OfficeExportNextStep code={outcome.code} />
+        <OfficeExportNextStep code={outcome.code} message={outcome.message} />
       )}
       {outcome?.ok === true && (
         <ResultCard announce="Your AI summary package is ready.">

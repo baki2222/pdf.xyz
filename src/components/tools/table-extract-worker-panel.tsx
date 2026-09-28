@@ -232,7 +232,7 @@ function TableExtractRunArea({ refuse }: { refuse: PickRefusal }) {
       </WorkerRunButton>
       <WorkerJobStatus job={job} />
       {outcome?.ok === false && !outcome.stillRunning && (
-        <OfficeExportNextStep code={outcome.code} />
+        <OfficeExportNextStep code={outcome.code} message={outcome.message} />
       )}
       {outcome?.ok === true && (
         <ResultCard announce="Your tables are ready as a ZIP of CSV files plus a combined Excel workbook.">

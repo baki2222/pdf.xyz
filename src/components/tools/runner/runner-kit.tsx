@@ -300,6 +300,16 @@ export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
 }
 
 /**
+ * Does {@link ErrorNote} put an "Open Unlock PDF" link inside this message's
+ * alert? Exported so a panel with its own next-step link (the office-export
+ * codes) can tell the alert already carries that one, rather than render it
+ * twice: two "Open Unlock PDF" links, one inside the alert and one below it.
+ */
+export function errorNoteLinksUnlock(message: string): boolean {
+  return message.includes(UNLOCK_TOOL_NAME);
+}
+
+/**
  * A failure, announced. `action` is the next step when there is one — a link
  * to the tool that can do what this one could not — and it renders INSIDE the
  * alert, so it is announced with the error and reached by keyboard right after
@@ -314,7 +324,7 @@ export function ErrorNote({
 }) {
   // A message that sends the user to Unlock PDF (every encrypted-file message
   // does) carries the way there, rather than a tool name to go and find.
-  const offersUnlock = message.includes(UNLOCK_TOOL_NAME);
+  const offersUnlock = errorNoteLinksUnlock(message);
   return (
     <p
       role="alert"

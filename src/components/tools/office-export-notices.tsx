@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ScanText } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
+import { UNLOCK_TOOL_HREF } from "@/lib/pdf/encryption";
+import { errorNoteLinksUnlock } from "./runner/runner-kit";
 import {
   LITTLE_TEXT_CHARS,
   OFFICE_EXPORT_ERROR_CODES,
@@ -24,7 +26,7 @@ export const OFFICE_EXPORT_NEXT_STEPS: Record<
     label: "Open OCR PDF",
   },
   [OFFICE_EXPORT_ERROR_CODES.passwordProtected]: {
-    href: "/tools/unlock-pdf",
+    href: UNLOCK_TOOL_HREF,
     label: "Open Unlock PDF",
   },
   [OFFICE_EXPORT_ERROR_CODES.unreadable]: {
@@ -47,8 +49,17 @@ function nextStepFor(code: string | undefined) {
 export function OfficeExportNextStep({
   code,
   from,
+  message,
 }: {
   code: string | undefined;
+  /**
+   * The failure's sentence, when the panel shows it in an {@link ErrorNote}.
+   * That note links Unlock PDF by itself whenever the sentence names it
+   * (`errorNoteLinksUnlock`), so the same link here would be the second one
+   * on screen. Found at the merge of wave-1 L03 with the integration branch
+   * (2026-09-28): each side added one of the two links.
+   */
+  message?: string;
   /**
    * The slug of the tool the user is on. A next step that is this tool is not
    * a next step: Repair PDF failing with "unreadable" must not say "Open
@@ -58,6 +69,12 @@ export function OfficeExportNextStep({
 }) {
   const step = nextStepFor(code);
   if (!step || (from && step.href === `/tools/${from}`)) return null;
+  if (
+    step.href === UNLOCK_TOOL_HREF &&
+    message !== undefined &&
+    errorNoteLinksUnlock(message)
+  )
+    return null;
   return (
     <Link
       href={step.href}

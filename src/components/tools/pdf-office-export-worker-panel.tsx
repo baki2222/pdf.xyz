@@ -272,7 +272,7 @@ function PdfOfficeRunArea({
       </WorkerRunButton>
       <WorkerJobStatus job={job} />
       {outcome?.ok === false && !outcome.stillRunning && (
-        <OfficeExportNextStep code={outcome.code} />
+        <OfficeExportNextStep code={outcome.code} message={outcome.message} />
       )}
       {outcome?.ok === true && (
         <ResultCard announce={`Your ${output} file is ready.`}>

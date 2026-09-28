@@ -333,6 +333,7 @@ function StructureRunArea({
         <OfficeExportNextStep
           code={outcome.code}
           from={mode === "repair" ? "repair-pdf" : "optimize-web"}
+          message={outcome.message}
         />
       )}
       {outcome?.ok === true && (
