@@ -176,13 +176,17 @@ interface Block {
  *     (no upward step, no gap over two line heights) and overlaps it
  *     horizontally — a paragraph, a column run.
  *  2. BANDS ({@link bandOrder}): where a horizontal cut crosses no block and
- *     the blocks above it are drawn as one unbroken run, everything above
- *     reads before everything below. That is how a footer drawn first sinks
- *     under BOTH columns, and a header drawn last rises over both, as one
- *     move — rather than the columns being lifted past it one at a time,
- *     which is how the first version of this put the right column above the
- *     left. A cut the stream crosses back and forth (two columns, each in two
- *     sections) is not trusted: that page reads a column at a time.
+ *     the blocks above it are drawn as one unbroken run at an END of the
+ *     stream — first or last — everything above reads before everything
+ *     below. That is how a footer drawn first sinks under BOTH columns, and a
+ *     header drawn last rises over both, as one move — rather than the
+ *     columns being lifted past it one at a time, which is how the first
+ *     version of this put the right column above the left. A cut the stream
+ *     crosses back and forth (two columns, each in two sections) is not
+ *     trusted, and neither is a run in the MIDDLE of the stream: that is the
+ *     right column's top section when the left column starts lower (a figure
+ *     over it) and the right one has a gap below that section, and lifting it
+ *     read `R1 | L | R2`. Both pages read a column at a time.
  *  3. Within a band ({@link columnOrder}), blocks keep stream order, except
  *     that a block moves in front of the first earlier block it overlaps
  *     horizontally AND lies wholly above — a title or heading drawn after
@@ -190,6 +194,10 @@ interface Block {
  *     column, and never moves in front of it, nor in front of a block that
  *     spans that column (a full-width footnote joined to the left column's
  *     foot).
+ *
+ * One shape stays ambiguous: a right column that ENDS above where the left
+ * one starts, with none of it beside the left, is — to stream order and
+ * geometry alike — a header drawn last over the right column, and reads first.
  *
  * Rotated, mirrored or vertical text anywhere on the page, items without
  * geometry, or more than {@link MAX_ORDERED_BLOCKS} blocks keep the whole page
@@ -242,8 +250,9 @@ const liesAbove = (upper: Box, lower: Box) =>
 
 /**
  * Split `blocks` (in stream order) at the highest horizontal cut that no block
- * crosses and whose upper side is drawn as one unbroken run, then order each
- * side the same way; with no such cut, fall back to {@link columnOrder}.
+ * crosses and whose upper side is drawn as one unbroken run at the start or
+ * the end of the stream, then order each side the same way; with no such cut,
+ * fall back to {@link columnOrder}.
  */
 function bandOrder(blocks: Block[]): Block[] {
   if (blocks.length < 2) return blocks;
@@ -261,8 +270,14 @@ function bandOrder(blocks: Block[]): Block[] {
     // Blocks after k have tops no higher than this one's, so clearing it
     // clears them all.
     const cut = liesAbove(floor, byTop[k]!.block.box);
+    // The upper side must be one unbroken run at an END of the stream: drawn
+    // first (the order already reads right) or last (a header drawn last, a
+    // body drawn after its footer). A run in the MIDDLE is a later column's
+    // top section when an earlier column beside it starts lower, and lifting
+    // it would put the later column in front of the earlier one.
     const unbroken = final - first + 1 === k;
-    if (cut && unbroken) {
+    const atAnEnd = first === 0 || final === blocks.length - 1;
+    if (cut && unbroken && atAnEnd) {
       const above = new Set(byTop.slice(0, k).map((entry) => entry.block));
       return [
         ...bandOrder(blocks.filter((b) => above.has(b))),

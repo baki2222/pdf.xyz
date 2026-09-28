@@ -71,11 +71,17 @@ const PROSE = [
  * leave most of the page empty, which is how a footer drawn first slipped
  * past every fixture. `the page furniture is where it claims` measures it.
  */
-const wideCol = (side: "Left" | "Right", x: number, top: number, n: number) =>
+const wideCol = (
+  side: "Left" | "Right",
+  x: number,
+  top: number,
+  n: number,
+  { from = 1, lead = 14 }: { from?: number; lead?: number } = {},
+) =>
   Array.from({ length: n }, (_, i) => ({
-    text: `${side} column line ${i + 1} set wide enough to fill its column`,
+    text: `${side} column line ${from + i} set wide enough to fill its column`,
     x,
-    y: top - i * 14,
+    y: top - i * lead,
     size: 10,
   }));
 const WIDE_LEFT = wideCol("Left", 72, 700, 4);
@@ -198,8 +204,84 @@ const OUT_OF_ORDER: Record<string, Fixture> = {
   },
 };
 
+/**
+ * Two-column pages drawn a column at a time — so stream order is already
+ * right — where the LEFT column starts LOWER than the right one (a figure or
+ * photo over it), and the right column has a gap (a figure, a pull quote)
+ * above where the left one starts. The right column's first section then lies
+ * wholly above everything else and is drawn as one unbroken run: the shape
+ * that let a band cut lift a later column over an earlier one (485db77 put
+ * `R1 | L | R2`). Common in IEEE/ACM papers and magazines.
+ */
+interface ColumnPage {
+  /** Lines in DRAW order; each line is in `left` or `right`, or neither. */
+  draw: Line[];
+  left: Line[];
+  right: Line[];
+}
+
+const STAGGER_LEFT = wideCol("Left", 72, 500, 36, { lead: 12 });
+const STAGGER_RIGHT_UPPER = wideCol("Right", 320, 700, 11, { lead: 12 });
+const STAGGER_RIGHT_LOWER = wideCol("Right", 320, 380, 26, {
+  from: 12,
+  lead: 12,
+});
+const FIG_1: Line = {
+  text: "Fig. 1. The figure over the left column",
+  x: 72,
+  y: 515,
+  size: 10,
+};
+const FIG_2: Line = {
+  text: "Fig. 2. The figure between the right column's sections",
+  x: 320,
+  y: 395,
+  size: 10,
+};
+const MINI_LEFT = wideCol("Left", 72, 500, 8);
+const MINI_RIGHT_UPPER = wideCol("Right", 320, 700, 4);
+const MINI_RIGHT_LOWER = wideCol("Right", 320, 600, 10, { from: 5 });
+const MAG_LEFT = wideCol("Left", 72, 430, 20);
+const MAG_RIGHT_UPPER = wideCol("Right", 320, 700, 8);
+const MAG_QUOTE: Line[] = [
+  { text: "A pull quote set large", x: 320, y: 550, size: 16 },
+  { text: "between the two sections", x: 320, y: 530, size: 16 },
+];
+const MAG_RIGHT_LOWER = wideCol("Right", 320, 480, 23, { from: 9 });
+
+const STAGGERED: Record<string, ColumnPage> = {
+  "IEEE staggered figures: left text from y=500, right column split by a figure":
+    {
+      draw: [
+        FIG_1,
+        ...STAGGER_LEFT,
+        ...STAGGER_RIGHT_UPPER,
+        FIG_2,
+        ...STAGGER_RIGHT_LOWER,
+      ],
+      left: [FIG_1, ...STAGGER_LEFT],
+      right: [...STAGGER_RIGHT_UPPER, FIG_2, ...STAGGER_RIGHT_LOWER],
+    },
+  "a left column starting lower beside a right column in two sections": {
+    draw: [...MINI_LEFT, ...MINI_RIGHT_UPPER, ...MINI_RIGHT_LOWER],
+    left: MINI_LEFT,
+    right: [...MINI_RIGHT_UPPER, ...MINI_RIGHT_LOWER],
+  },
+  "magazine: a photo over the left column, a pull quote in the right": {
+    draw: [...MAG_LEFT, ...MAG_RIGHT_UPPER, ...MAG_QUOTE, ...MAG_RIGHT_LOWER],
+    left: MAG_LEFT,
+    right: [...MAG_RIGHT_UPPER, ...MAG_QUOTE, ...MAG_RIGHT_LOWER],
+  },
+};
+
 /** Pages whose stream order is ALREADY the reading order — the controls. */
 const IN_ORDER: Record<string, Fixture> = {
+  ...Object.fromEntries(
+    Object.entries(STAGGERED).map(([name, page]) => [
+      name,
+      { draw: page.draw, read: texts(page.draw) },
+    ]),
+  ),
   "two columns drawn a column at a time": {
     draw: [...LEFT, ...RIGHT],
     read: [...texts(LEFT), ...texts(RIGHT)],
@@ -430,7 +512,7 @@ describe("page furniture composes with every body", () => {
     expect(Object.keys(BODIES).length).toBe(
       Object.keys(IN_ORDER).length + Object.keys(OUT_OF_ORDER).length,
     );
-    expect(Object.keys(BODIES).length).toBeGreaterThanOrEqual(14);
+    expect(Object.keys(BODIES).length).toBeGreaterThanOrEqual(18);
     expect(Object.keys(FURNITURE).length).toBeGreaterThanOrEqual(6);
   });
 
@@ -455,7 +537,10 @@ describe("page furniture composes with every body", () => {
   }
 });
 
-describe("reading order never puts a later column before an earlier one", () => {
+// Scope: "beside" means some of the later column runs beside the earlier one.
+// A right column that ENDS above where the left starts is not beside it, and
+// is the one shape `readingOrder`'s docblock names as ambiguous — pinned last.
+describe("a later column never comes before an earlier one it runs beside", () => {
   // No clean band separates this page number from the body: the left column
   // runs longer and passes beside it. Lifting the right column in front of it
   // (it lies above it) would put the right column before the left one — the
@@ -492,6 +577,99 @@ describe("reading order never puts a later column before an earlier one", () => 
     expect(
       lines.slice(lines.indexOf(texts(LONG_LEFT)[0]!), lastLeft + 1),
     ).toEqual(texts(LONG_LEFT));
+  });
+
+  it("the staggered pages have the shape that tempts a band cut (health check)", async () => {
+    expect(Object.keys(STAGGERED).length).toBeGreaterThanOrEqual(3);
+    for (const [name, page] of Object.entries(STAGGERED)) {
+      // `left` and `right` partition what the page draws.
+      expect([...texts(page.left), ...texts(page.right)].sort(), name).toEqual(
+        texts(page.draw).sort(),
+      );
+      const items = await pageItems(await pdfOf({ draw: page.draw, read: [] }));
+      const side = (lines: Line[]) => {
+        const own = new Set(texts(lines));
+        const hits = items.filter((item) => own.has(item.str));
+        expect(hits.length, name).toBe(lines.length);
+        return hits;
+      };
+      const left = side(page.left);
+      const right = side(page.right);
+      const extent = (hits: ReadItem[]) => ({
+        left: Math.min(...hits.map((item) => item.transform[4]!)),
+        right: Math.max(...hits.map((i) => i.transform[4]! + i.width)),
+      });
+      // Side by side: no line of one column overlaps the other horizontally.
+      expect(overlap(extent(left), extent(right)), name).toBe(false);
+      // The left column starts LOWER, and the right column has a gap of more
+      // than two line heights ABOVE where the left one starts.
+      const leftTop = Math.max(...left.map((item) => item.transform[5]!));
+      const ys = right.map((item) => item.transform[5]!).sort((a, b) => b - a);
+      expect(ys[0]!, name).toBeGreaterThan(leftTop);
+      // (Baselines; 32 pt is over two lines of the largest size drawn, 16 pt.)
+      const gap = ys.some(
+        (y, i) => i > 0 && ys[i - 1]! > leftTop && ys[i - 1]! - y > 2 * 16,
+      );
+      expect(gap, name).toBe(true);
+    }
+  });
+
+  // Every staggered page, bare and under every piece of furniture both where
+  // it reads and where generators misplace it: the left column comes out
+  // wholly before the right, every line exactly once.
+  for (const [name, page] of Object.entries(STAGGERED)) {
+    it(`keeps the left column before the right: ${name}`, async () => {
+      const body: Fixture = { draw: page.draw, read: texts(page.draw) };
+      const pages: [string, Fixture][] = [["bare", body]];
+      for (const [furnitureName, furniture] of Object.entries(FURNITURE)) {
+        for (const placement of ["natural", "inverted"] as const) {
+          pages.push([
+            `${furnitureName}, ${placement}`,
+            compose(body, furniture, placement),
+          ]);
+        }
+      }
+      expect(pages.length).toBe(1 + 2 * Object.keys(FURNITURE).length);
+      for (const [label, fixture] of pages) {
+        const lines = linesOf(
+          (await extractPdfText(await pdfOf(fixture))).text,
+        );
+        const at = (line: Line) => {
+          expect(
+            lines.filter((l) => l === line.text),
+            `${label}: ${line.text}`,
+          ).toHaveLength(1);
+          return lines.indexOf(line.text);
+        };
+        const lastLeft = Math.max(...page.left.map(at));
+        const firstRight = Math.min(...page.right.map(at));
+        expect(lastLeft, `${label}: last left line before first right`).toBe(
+          firstRight - 1,
+        );
+      }
+    }, 60_000);
+  }
+
+  it("the ambiguous shape reads as the docblock says: a right column ending above the left", async () => {
+    // NOT a claim that this is the right reading. With nothing of the right
+    // column beside the left one, the page is the same shape, to stream order
+    // and geometry, as a header drawn last over the right column (which the
+    // matrix above requires to read first). This pins the sentence in
+    // `readingOrder`'s docblock: whoever changes the behaviour must change
+    // that sentence, and invert this test, not delete it.
+    const left = wideCol("Left", 72, 500, 8);
+    const right = wideCol("Right", 320, 700, 4);
+    const bytes = await pdfOf({ draw: [...left, ...right], read: [] });
+    // Health: the right column's last line is above the left column's first.
+    expect(right.at(-1)!.y).toBeGreaterThan(left[0]!.y + 2 * 14);
+    expect(linesOf(await streamOrderText(bytes))).toEqual([
+      ...texts(left),
+      ...texts(right),
+    ]);
+    expect(linesOf((await extractPdfText(bytes)).text)).toEqual([
+      ...texts(right),
+      ...texts(left),
+    ]);
   });
 });
 
