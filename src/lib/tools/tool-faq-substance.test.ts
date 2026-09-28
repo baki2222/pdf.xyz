@@ -78,7 +78,10 @@ import { extractPdfImages } from "@/lib/pdf/extract-images";
 import { embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { compareExtractedPdfText } from "@/lib/pdf/compare-pdf";
 import { joinPageTexts, type ExtractedPdfText } from "@/lib/pdf/text";
-import { extractedTextToMarkdown } from "@/lib/pdf/pdf-to-markdown";
+import {
+  extractedTextToMarkdown,
+  type PdfToMarkdownInput,
+} from "@/lib/pdf/pdf-to-markdown";
 import {
   ANNOTATION_FACT,
   ANNOTATION_TYPES,
@@ -1138,15 +1141,24 @@ describe("the remaining in-browser tools answer what their engines do", () => {
       expect(answer(tool.slug, /scanned/)).toMatch(/^Not on its own/);
     }
 
-    const extracted: ExtractedPdfText = {
+    // `lines: null` written out, as L10's PdfToMarkdownPage requires (ed6a206):
+    // this block exercises the TEXT fallback the page's answer describes, so
+    // it states that it carries no line geometry rather than omitting it.
+    const extracted: PdfToMarkdownInput = {
       pageCount: 2,
       pages: [
         {
           pageNumber: 1,
           text: "Intro line one\nline two\n\n- a bullet",
           characterCount: 0,
+          lines: null,
         },
-        { pageNumber: 2, text: "1. numbered\nplain", characterCount: 0 },
+        {
+          pageNumber: 2,
+          text: "1. numbered\nplain",
+          characterCount: 0,
+          lines: null,
+        },
       ],
       text: "x",
       characterCount: 1,

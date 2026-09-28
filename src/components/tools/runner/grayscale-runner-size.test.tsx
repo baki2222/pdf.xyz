@@ -42,6 +42,7 @@ import { formatBytes } from "@/lib/utils";
 import { GRAYSCALE_GREW_NOTE } from "@/lib/pdf/grayscale";
 import { GrayscaleEditor } from "./grayscale-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 const requireHere = createRequire(import.meta.url);
 const napi = createRequire(requireHere.resolve("pdfjs-dist/package.json"))(
@@ -114,6 +115,9 @@ function loaded(bytes: Uint8Array, pageCount: number): LoadedPdf {
     bytes,
     pageCount,
     rotations: Array.from({ length: pageCount }, () => 0 as const),
+    // Required since L09's sign-pdf fix (46e8432): every loaded PDF carries
+    // the count of digital signatures a re-save would break.
+    digitalSignatures: countDigitalSignatures(bytes),
   };
 }
 

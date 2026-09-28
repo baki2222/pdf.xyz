@@ -629,9 +629,11 @@ describe("PDF to PDF/A names the part Ghostscript is asked for", () => {
   it("the page's standard is the -dPDFA part in the argv", () => {
     const m = /^PDF\/A-(\d)([abu])$/.exec(PDF_A_STANDARD);
     expect(m, PDF_A_STANDARD).not.toBeNull();
-    expect(ghostscriptPdfAArgs("in.pdf", "out.pdf")).toContain(
-      `-dPDFA=${m![1]}`,
-    );
+    // L13 (75d7a4b) added the PDF/A definition file and ICC profile paths;
+    // the part flag this checks does not depend on them.
+    expect(
+      ghostscriptPdfAArgs("in.pdf", "out.pdf", "PDFA_def.ps", "srgb.icc"),
+    ).toContain(`-dPDFA=${m![1]}`);
     const served = answer("pdf-to-pdfa", /validated/i);
     expect(served).toMatch(/^No\./);
     expect(served).toContain(PDF_A_STANDARD);
