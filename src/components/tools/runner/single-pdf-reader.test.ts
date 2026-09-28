@@ -1,6 +1,10 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
+import type * as TS from "typescript";
 import { describe, expect, it } from "vitest";
+
+const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 
 /**
  * Which single-PDF runners may read their page board with pdfjs.
@@ -31,58 +35,150 @@ const PDF_LIB_OPEN = /\b(loadPdf|loadPdfLib|load|PDFDocument\.load)\s*\(/;
 const SEARCH_DIRS = [PDF_DIR, RUNNER_DIR];
 
 /** Every non-test source file in SEARCH_DIRS, read once per run. */
-let sources: string[] | null = null;
-const searchSources = (): string[] =>
+let sources: { file: string; text: string }[] | null = null;
+const searchSources = (): { file: string; text: string }[] =>
   (sources ??= SEARCH_DIRS.flatMap((dir) =>
     readdirSync(dir)
       .filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file))
-      .map((file) => readFileSync(join(dir, file), "utf8")),
+      .map((file) => ({
+        file: join(dir, file),
+        text: readFileSync(join(dir, file), "utf8"),
+      })),
   ));
 
-/**
- * Memoized per name: the recursive walk asks for the same callees many times,
- * and re-reading and re-scanning two directories on every lookup took ~8 s and
- * timed out on a slower filesystem.
- */
-const bodies = new Map<string, string | null>();
+interface Definition {
+  file: string;
+  body: string;
+}
 
-/** Body of `export (async) function name(` in src/lib/pdf or the runners. */
-function functionBody(name: string): string | null {
-  if (bodies.has(name)) return bodies.get(name)!;
-  let body: string | null = null;
-  const definition = new RegExp(`export (async )?function ${name}\\s*[(<]`);
-  for (const source of searchSources()) {
-    const start = source.search(definition);
-    if (start < 0) continue;
-    // Up to the next top-level declaration.
-    const rest = source.slice(start + 1);
-    const end = rest.search(
-      /\n(export |function |async function |const |\/\*\*)/,
-    );
-    body = end < 0 ? rest : rest.slice(0, end);
-    break;
+/**
+ * Memoized per name (and calling file): the recursive walk asks for the same
+ * callees many times, and re-reading and re-scanning two directories on every
+ * lookup took ~8 s and timed out on a slower filesystem.
+ */
+const bodies = new Map<string, Definition | null>();
+
+/** The body from `start` up to the next top-level declaration. */
+function bodyFrom(text: string, start: number): string {
+  const rest = text.slice(start + 1);
+  const end = rest.search(
+    /\n(export |function |async function |const |\/\*\*)/,
+  );
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
+/**
+ * The definition a call to `name` runs: a function of that name in the
+ * CALLING file (`from`) when there is one — exported or not — and otherwise
+ * `export (async) function name(` anywhere in src/lib/pdf or the runners.
+ *
+ * Module-private functions since the integration of wave1/l01-page-leak: the
+ * text extractors open the document in ONE private helper both of them call
+ * (`readPageTextItems`), and a search for exported definitions answered
+ * "opens no document" for both — a blind classifier, not a clean one. A
+ * private function is looked for only in the file that calls it, as the
+ * language resolves it; searched everywhere, one module's private helper
+ * answered for another module's call of the same name.
+ */
+function functionBody(name: string, from?: string): Definition | null {
+  const key = `${from ?? ""}#${name}`;
+  if (bodies.has(key)) return bodies.get(key)!;
+  let found: Definition | null = null;
+  const local = new RegExp(
+    `\\n(?:export )?(?:async )?function ${name}\\s*[(<]`,
+  );
+  const exported = new RegExp(`export (?:async )?function ${name}\\s*[(<]`);
+  const own = from
+    ? searchSources().find((source) => source.file === from)
+    : undefined;
+  const at = own ? own.text.search(local) : -1;
+  if (own && at >= 0) {
+    found = { file: own.file, body: bodyFrom(own.text, at + 1) };
+  } else {
+    for (const source of searchSources()) {
+      const start = source.text.search(exported);
+      if (start < 0) continue;
+      found = { file: source.file, body: bodyFrom(source.text, start) };
+      break;
+    }
   }
-  bodies.set(name, body);
-  return body;
+  bodies.set(key, found);
+  return found;
 }
 
 type Opener = "pdfjs" | "pdf-lib";
 
 /**
+ * Functions that run ONLY once a load has already failed — every call to them
+ * in the searched sources sits in a `catch` clause. DERIVED, never listed.
+ *
+ * Since the integration of wave1/l01-page-leak, pdf-lib's refusal of an
+ * encrypted file is classified by asking pdf.js whether it opens without a
+ * password (`pdfLoadError` → `classifyPdfAccess`, which now awaits through
+ * `awaitPdfjsDocument`). That pdf.js open decides which refusal to SHOW; it
+ * reads nothing for the tool, and a pdf-lib tool is not a pdfjs reader because
+ * it can explain why pdf-lib refused. Without this, every pdf-lib engine
+ * classified as `["pdf-lib", "pdfjs"]`.
+ */
+let refusalOnly: Set<string> | null = null;
+function refusalOnlyFunctions(): Set<string> {
+  if (refusalOnly) return refusalOnly;
+  const inCatch = new Map<string, boolean>();
+  for (const { file, text } of searchSources()) {
+    const sf = ts.createSourceFile(
+      file,
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const visit = (node: TS.Node): void => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        let cur: TS.Node | undefined = node.parent;
+        let caught = false;
+        while (cur && !ts.isSourceFile(cur)) {
+          if (ts.isCatchClause(cur)) {
+            caught = true;
+            break;
+          }
+          if (ts.isFunctionLike(cur)) break;
+          cur = cur.parent;
+        }
+        const name = node.expression.text;
+        inCatch.set(name, (inCatch.get(name) ?? true) && caught);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  refusalOnly = new Set(
+    [...inCatch].filter(([, only]) => only).map(([name]) => name),
+  );
+  return refusalOnly;
+}
+
+/**
  * Which libraries `name` opens a document with — directly, or through the
  * functions it calls (a thumbnail hook reaches pdfjs via its renderer).
  */
-function openersOf(name: string, seen = new Set<string>()): Set<Opener> {
+function openersOf(
+  name: string,
+  seen = new Set<string>(),
+  from?: string,
+): Set<Opener> {
   const found = new Set<Opener>();
-  if (seen.has(name)) return found;
-  seen.add(name);
-  const body = functionBody(name);
-  if (body === null) return found;
+  const definition = functionBody(name, from);
+  if (definition === null) return found;
+  const key = `${definition.file}#${name}`;
+  if (seen.has(key)) return found;
+  seen.add(key);
+  const { body } = definition;
   if (PDFJS_OPEN.test(body)) found.add("pdfjs");
   if (PDF_LIB_OPEN.test(body)) found.add("pdf-lib");
   for (const [, callee] of body.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)) {
-    if (callee === name) continue;
-    for (const o of openersOf(callee!, seen)) found.add(o);
+    // A refusal's explanation is not a read (see refusalOnlyFunctions).
+    if (callee === name || refusalOnlyFunctions().has(callee!)) continue;
+    for (const o of openersOf(callee!, seen, definition.file)) found.add(o);
   }
   return found;
 }
@@ -131,6 +227,10 @@ describe("single-PDF runners read with the library they run on", () => {
     expect(openerOf("extractPdfText")).toEqual(["pdfjs"]);
     expect(openerOf("usePdfThumbnails")).toEqual(["pdfjs"]);
     expect(() => openerOf("noSuchFunction")).toThrow(/no definition/);
+    // The refusal path is derived, in both directions: pdf-lib's refusal
+    // classifier runs only in a catch; the loader it explains does not.
+    expect(refusalOnlyFunctions().has("pdfLoadError")).toBe(true);
+    expect(refusalOnlyFunctions().has("loadPdf")).toBe(false);
   });
 
   const runners = singlePdfRunners();
