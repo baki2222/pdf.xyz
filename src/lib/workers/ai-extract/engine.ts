@@ -624,8 +624,9 @@ interface SchemaReconciliation {
 /**
  * Match a reply to the request. Exact names first, for EVERY field, so a
  * respelling can never steal the key another field asked for verbatim; then one
- * respelled key per remaining field, and only when exactly one key matches — an
- * ambiguous respelling is reported missing rather than guessed.
+ * respelled key per remaining field, and only when exactly one key matches AND
+ * no other remaining field shares that respelling — an ambiguous respelling,
+ * in either direction, is reported missing rather than guessed.
  */
 function reconcileWithSchema(
   data: Record<string, unknown>,
@@ -641,9 +642,21 @@ function reconcileWithSchema(
     }
   }
   const renamedKeys: Record<string, string> = {};
+  // Ambiguity runs BOTH ways: two keys respelling one field, or one key
+  // respelling two fields (`invoice number` and `invoice_number` are distinct
+  // to the parser and one loose key to this matcher). Counted over the fields
+  // still unmatched, so an exact match above never makes a respelling look
+  // ambiguous.
+  const fieldsPerLooseKey = new Map<string, number>();
   for (const field of schema) {
     if (chosen.has(field.name)) continue;
     const want = looseKey(field.name);
+    fieldsPerLooseKey.set(want, (fieldsPerLooseKey.get(want) ?? 0) + 1);
+  }
+  for (const field of schema) {
+    if (chosen.has(field.name)) continue;
+    const want = looseKey(field.name);
+    if (fieldsPerLooseKey.get(want) !== 1) continue;
     const candidates = Object.keys(data).filter(
       (key) => !used.has(key) && looseKey(key) === want,
     );

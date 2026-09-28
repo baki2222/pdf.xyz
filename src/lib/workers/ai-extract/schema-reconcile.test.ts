@@ -159,6 +159,39 @@ describe("schema mode reconciles the reply with the request", () => {
     expect(pkg.manifest.extraction.extraKeys).toEqual(["due_date", "due-date"]);
   });
 
+  it("an AMBIGUOUS respelling in the other direction — two FIELDS, one key — is not guessed either", async () => {
+    // Review of 2026-09-28: the parser admits "invoice number" and
+    // "invoice_number" as two fields (its duplicate rule only trims and
+    // lowercases), and one reply key "Invoice Number" is a respelling of BOTH.
+    // Ambiguity was counted across the reply's keys only, so the value went to
+    // whichever field came first — a guess, under a docblock saying it never
+    // guesses. Both are missing; the key is listed with its value.
+    const pkg = await run(schema("invoice number", "invoice_number"), {
+      "Invoice Number": "INV-7",
+    });
+    expect(pkg.extraction).toEqual({
+      "invoice number": null,
+      invoice_number: null,
+    });
+    expect(pkg.manifest.extraction.missingKeys).toEqual([
+      "invoice number",
+      "invoice_number",
+    ]);
+    expect(pkg.manifest.extraction.renamedKeys).toEqual({});
+    expect(pkg.manifest.extraction.extraKeys).toEqual(["Invoice Number"]);
+  });
+
+  it("POSITIVE CONTROL for the above: the same key with ONE loose-matching field is respelled", async () => {
+    const pkg = await run(schema("invoice number", "total"), {
+      "Invoice Number": "INV-7",
+      total: 5,
+    });
+    expect(pkg.extraction).toEqual({ "invoice number": "INV-7", total: 5 });
+    expect(pkg.manifest.extraction.renamedKeys).toEqual({
+      "invoice number": "Invoice Number",
+    });
+  });
+
   it("keys nobody asked for stay out of extraction.json and are listed, with their values, in the table", async () => {
     const pkg = await run(schema("invoice"), {
       invoice: "INV-7",
