@@ -404,7 +404,10 @@ describe("pages left out of an output are not carried inside it", () => {
     const tree = new Set(doc.getPages().map((page) => page.ref.toString()));
     return doc.getPages().map((page) => {
       const annots = page.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
-      const annot = annots?.lookup(0, PDFDict);
+      // A link the engine REMOVED opens nothing, the same as an inert one:
+      // the assembler drops a link whose target page was left out rather
+      // than keep a hot-spot that goes nowhere (src/lib/pdf/page-copy.ts).
+      const annot = annots?.lookupMaybe(0, PDFDict);
       const action = annot?.lookupMaybe(PDFName.of("A"), PDFDict);
       const dest =
         annot?.lookupMaybe(PDFName.of("Dest"), PDFArray) ??
