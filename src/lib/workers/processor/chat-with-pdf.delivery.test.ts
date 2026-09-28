@@ -43,6 +43,7 @@ import type { ExtractedPdfText, ExtractedTextPage } from "@/lib/pdf/text";
 import type { JobDeliveryCap } from "@/lib/jobs";
 import {
   CHAT_MAX_CHARACTERS_PER_QUESTION,
+  CHAT_TOOL_SLUG,
   MAX_CONTEXT_TURNS,
   MAX_QUESTION_CHARS,
   MAX_TURN_CHARS,
@@ -331,5 +332,15 @@ describe("the route and the worker name the same tool", () => {
     // pricing replaced.)
     expect(AI_RUN_PRICING[CHAT_TOOL]).toBe("per-call");
     expect(getToolBySlug(CHAT_TOOL)?.processing).toBeDefined();
+  });
+
+  it("the contract's slug, which the page copy branches on, is the engine's", () => {
+    // RESTORED at the L04/L07 × L10 merge, history kept: the route no longer
+    // reads `CHAT_TOOL_SLUG`, but chat's FAQ ceiling (`tool-facts.ts`) and its
+    // allowance sentence (`ai-allowance.ts`) do. A drifted literal would give
+    // the chat page the shared 500,000-character answer and the generic
+    // per-call sentence, with nothing else red.
+    expect(CHAT_TOOL_SLUG).toBe(CHAT_TOOL);
+    expect(getToolBySlug(CHAT_TOOL_SLUG)?.processing).toBeDefined();
   });
 });

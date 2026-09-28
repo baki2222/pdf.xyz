@@ -37,6 +37,18 @@ import {
   TRANSLATE_MAX_INPUT_CHARS,
 } from "./translate-limits";
 
+/**
+ * The tool this contract describes. The worker engine's `CHAT_TOOL` is the same
+ * literal (kept literal there because `ai-ceiling-surfaces.test.ts` discovers
+ * engines by it); `chat-with-pdf.delivery.test.ts` pins the two together.
+ *
+ * Removed by L10 on 2026-09-27 when the route stopped comparing against it
+ * (per-call pricing keys chat by `AI_RUN_PRICING`); restored at the merge with
+ * L04/L07, whose copy branches on it — the chat FAQ's per-question ceiling in
+ * `tool-facts.ts` and chat's allowance sentence in `ai-allowance.ts`.
+ */
+export const CHAT_TOOL_SLUG = "chat-with-pdf" as const;
+
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
 
