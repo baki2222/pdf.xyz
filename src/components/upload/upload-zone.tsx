@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { FileText, UploadCloud, X } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -8,19 +17,33 @@ import { cn, formatBytes } from "@/lib/utils";
 import { acceptAttribute, acceptHint } from "./accepted-kinds";
 import { useEarlyFilePick } from "./use-early-file-pick";
 
-type StagedFile = { id: string; name: string; size: number };
+type StagedFile = { id: string; name: string; size: number; file: File };
+
+/** Loaded when the first file is staged, never on page load. */
+const StagedFileActions = lazy(() => import("./staged-file-actions"));
 
 /**
  * Client-side file staging zone. Files are held in browser memory only — nothing
- * is uploaded here. The user then continues to a tool/workspace to process them.
- * This keeps the privacy promise literal, even in the demo flow.
+ * is uploaded here. The staged `File`s themselves are kept (not just their
+ * names), and once a file is staged the zone offers the tools that fit it; a
+ * tool that can receive a hand-off opens with the files already loaded (see
+ * `staged-file-actions.tsx`). This keeps the privacy promise literal.
+ *
+ * `ctaHref` is the older shape, a plain link, kept for the tool page's
+ * overview panel (no tool reaches that branch today). Without it, the zone
+ * offers tools itself.
+ *
+ * With an `id`, the zone is a link target: `href="#<id>"` scrolls to it and a
+ * `hashchange` to that id focuses the file input, so "Start for free" lands a
+ * keyboard user on the control that starts.
  */
 export function UploadZone({
   accept = acceptAttribute(),
   multiple = true,
-  ctaLabel = "Open in workspace",
-  ctaHref = "/workspace",
+  ctaLabel,
+  ctaHref,
   hint = acceptHint(),
+  id,
   className,
 }: {
   accept?: string;
@@ -28,12 +51,17 @@ export function UploadZone({
   ctaLabel?: string;
   ctaHref?: string;
   hint?: string;
+  id?: string;
   className?: string;
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<StagedFile[]>([]);
   const [dragging, setDragging] = useState(false);
+  const stagedFiles = useMemo(
+    () => files.map((staged) => staged.file),
+    [files],
+  );
 
   const addFiles = useCallback(
     (list: FileList | null) => {
@@ -42,11 +70,23 @@ export function UploadZone({
         id: `${file.name}-${file.size}-${file.lastModified}-${i}`,
         name: file.name,
         size: file.size,
+        file,
       }));
       setFiles((prev) => (multiple ? [...prev, ...next] : next.slice(0, 1)));
     },
     [multiple],
   );
+
+  useEffect(() => {
+    if (!id) return;
+    const focusIfTargeted = () => {
+      if (window.location.hash === `#${id}`) {
+        inputRef.current?.focus({ preventScroll: true });
+      }
+    };
+    window.addEventListener("hashchange", focusIfTargeted);
+    return () => window.removeEventListener("hashchange", focusIfTargeted);
+  }, [id]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -64,7 +104,7 @@ export function UploadZone({
   useEarlyFilePick(inputRef, addFiles);
 
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    <div id={id} className={cn("flex scroll-mt-24 flex-col gap-4", className)}>
       <label
         htmlFor={inputId}
         onDragOver={(e) => {
@@ -139,6 +179,12 @@ export function UploadZone({
         </ul>
       )}
 
+      {files.length > 0 && !ctaHref && (
+        <Suspense fallback={null}>
+          <StagedFileActions files={stagedFiles} />
+        </Suspense>
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-muted inline-flex items-center gap-2 text-xs">
           <span
@@ -155,12 +201,14 @@ export function UploadZone({
           >
             Add files
           </button>
-          <Link
-            href={ctaHref}
-            className={buttonVariants({ variant: "primary", size: "sm" })}
-          >
-            {ctaLabel}
-          </Link>
+          {ctaHref && (
+            <Link
+              href={ctaHref}
+              className={buttonVariants({ variant: "primary", size: "sm" })}
+            >
+              {ctaLabel ?? "Continue"}
+            </Link>
+          )}
         </div>
       </div>
     </div>

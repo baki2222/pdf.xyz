@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { Container } from "@/components/ui/container";
+import { proseMeasure } from "@/components/ui/prose";
+import { cn } from "@/lib/utils";
 
 /**
  * Shared shell for the policy pages.
@@ -8,6 +10,11 @@ import { Container } from "@/components/ui/container";
  * visual density: a constrained measure, real heading hierarchy, and a visible
  * "last updated" date, because a policy whose age you cannot tell is a policy
  * you cannot rely on.
+ *
+ * "Constrained measure" was not true when that was first written: the body sat
+ * at 14px across the full max-w-3xl column. It is now {@link proseMeasure},
+ * and `src/app/guides/guide-page.test.tsx` renders both policy pages and fails
+ * if the body copy loses it.
  */
 export function LegalPage({
   title,
@@ -47,7 +54,12 @@ export function LegalPage({
               {summary}
             </div>
           </header>
-          <div className="legal-prose text-muted flex flex-col gap-6 text-sm leading-relaxed">
+          <div
+            className={cn(
+              "legal-prose text-muted flex flex-col gap-6",
+              proseMeasure,
+            )}
+          >
             {children}
           </div>
         </div>

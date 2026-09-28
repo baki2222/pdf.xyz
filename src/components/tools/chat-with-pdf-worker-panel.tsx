@@ -156,7 +156,11 @@ export function ChatWithPdfWorkerPanel({
               No question box is shown until the worker is ready, so {tool.name}{" "}
               never pretends to answer from a document it cannot actually read.
             </p>
-            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={phase === "loading"}
+            />
           </div>
         ) : (
           <WorkerStatusPending phase={phase} onRetry={retry} />

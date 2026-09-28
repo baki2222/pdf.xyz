@@ -1502,7 +1502,22 @@ export const OFFICE_TO_PDF_SLUGS: ReadonlySet<string> = new Set([
   "powerpoint-to-pdf",
 ]);
 
+/**
+ * The whole derived FAQ: the mode template, then the per-tool facts. A page
+ * with authored content (`page-copy.ts`) keeps the facts and drops the
+ * template, whose questions its own FAQ answers in that tool's words.
+ */
 export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
+  return [...modeFaq(tool), ...factFaq(tool)];
+}
+
+/**
+ * The capability TEMPLATE: the same questions, with the tool's name swapped
+ * in, on every tool of a capability — "Is my file uploaded when I use X?".
+ * True everywhere, and identical everywhere, which is why a page that has
+ * authored content does not repeat it.
+ */
+export function modeFaq(tool: Tool): readonly ToolFaqEntry[] {
   const capability = capabilityForMode(tool.processing);
   const entries: ToolFaqEntry[] = [];
 
@@ -1581,6 +1596,19 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
     }
   }
 
+  return entries;
+}
+
+/**
+ * The per-tool FACTS, each derived from the constant its engine enforces: the
+ * file ceiling, the AI allowance and reading (or translating) ceiling, and
+ * OCR's language count. These stay on every page, authored content or not —
+ * the ceiling guards (`file-ceilings`, `ai-ceiling-surfaces`) hold them.
+ */
+export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
+  const capability = capabilityForMode(tool.processing);
+  const entries: ToolFaqEntry[] = [];
+
   /*
    * The size question, asked of every tool that takes a file — and answered
    * from THAT tool's ceiling.
@@ -1594,7 +1622,8 @@ export function toolFaq(tool: Tool): readonly ToolFaqEntry[] {
    * engine cap reached this branch the page would have advertised 100 MB
    * against a gate that refuses at 2 MB. Deriving it per tool
    * closes both: `toolFileCeilingMb` reads the constant the tool's own runner
-   * (or the worker upload gate) compares against, and returns `null` only for a
+   * (or the worker upload gate, or the lower engine cap behind it) compares
+   * against, and returns `null` only for a
    * tool with no file input at all, whose page must not state a per-file cap.
    */
   const ceilingMb = toolFileCeilingMb(tool);

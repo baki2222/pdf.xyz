@@ -131,7 +131,11 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
               never pretends to produce an extraction it cannot actually
               generate.
             </p>
-            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={phase === "loading"}
+            />
           </div>
         ) : (
           <WorkerStatusPending phase={phase} onRetry={retry} />

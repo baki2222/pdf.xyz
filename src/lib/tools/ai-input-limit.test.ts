@@ -23,7 +23,9 @@ import {
 } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
-import { toolFaq } from "./tool-facts";
+// The FAQ the page renders (authored + derived facts), not the derived one
+// alone: since 2026-09-27 the page reads `pageFaq`.
+import { pageFaq } from "./page-copy";
 import { getToolBySlug } from "./index";
 
 const ROOT = process.cwd();
@@ -144,7 +146,7 @@ describe("the page range in copy is derived, and survives being checked", () => 
     for (const slug of ["summarize-pdf", "ai-extract"]) {
       const tool = getToolBySlug(slug);
       expect(tool, `${slug} is missing from the catalogue`).toBeDefined();
-      const answers = toolFaq(tool!).map((entry) => entry.answer);
+      const answers = pageFaq(tool!).map((entry) => entry.answer);
       const stated = answers.filter((a) =>
         a.includes(AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")),
       );
@@ -167,7 +169,7 @@ describe("the page range in copy is derived, and survives being checked", () => 
     // now refuses it.
     const tool = getToolBySlug("translate-pdf");
     expect(tool, "translate-pdf is missing from the catalogue").toBeDefined();
-    const answers = toolFaq(tool!).map((entry) => entry.answer);
+    const answers = pageFaq(tool!).map((entry) => entry.answer);
     const stated = answers.filter((a) =>
       a.includes(TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")),
     );
@@ -198,7 +200,7 @@ describe("the page range in copy is derived, and survives being checked", () => 
     // independently of whatever the copy computes.
     const tool = getToolBySlug("chat-with-pdf");
     expect(tool, "chat-with-pdf is missing from the catalogue").toBeDefined();
-    const answers = toolFaq(tool!).map((entry) => entry.answer);
+    const answers = pageFaq(tool!).map((entry) => entry.answer);
     const stated = answers.filter((a) =>
       a.includes(CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")),
     );
@@ -224,7 +226,7 @@ describe("the page range in copy is derived, and survives being checked", () => 
     // A limit answer on merge-pdf would be a claim about a cap that does not
     // exist there — the same class of wrongness in the opposite direction.
     const merge = getToolBySlug("merge-pdf")!;
-    const answers = toolFaq(merge)
+    const answers = pageFaq(merge)
       .map((e) => e.answer)
       .join(" ");
     expect(answers).not.toContain(

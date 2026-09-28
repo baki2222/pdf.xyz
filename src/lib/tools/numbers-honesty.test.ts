@@ -44,7 +44,7 @@ import {
 } from "@/lib/retention-windows";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import { processingSplit } from "./processing-split";
-import { copyFiles as sharedCopyFiles } from "./copy-surface";
+import { copyFiles as sharedCopyFiles, toolContentFiles } from "./copy-surface";
 
 const ROOT = process.cwd();
 
@@ -306,9 +306,20 @@ const ALLOWED: { file: string; literal: RegExp; reason: string }[] = [
 const BASELINE: { file: string; literal: string }[] = [];
 
 function censusFindings(): Finding[] {
+  return copyFiles().flatMap((file) =>
+    findingsIn(file, readFileSync(file, "utf8")),
+  );
+}
+
+/**
+ * The census of ONE source. Extracted so the corpus run and the positive
+ * control below go through the same code: a control that exercises a copy of
+ * the logic proves nothing about the original.
+ */
+function findingsIn(file: string, raw: string): Finding[] {
   const findings: Finding[] = [];
-  for (const file of copyFiles()) {
-    const source = withoutComments(readFileSync(file, "utf8"));
+  {
+    const source = withoutComments(raw);
     for (const found of unitLiterals(source)) {
       const { literal, unit } = found;
       if (
@@ -380,6 +391,38 @@ describe("user-facing copy does not hand-write figures the code owns", () => {
         `the census no longer reads ${expected} — figures stated or owned there are unchecked`,
       ).toContain(expected);
     }
+  });
+
+  it("reads every tool page's content file", () => {
+    // The fifty content files reach this census through the `src/lib/tools`
+    // walk. Proven here rather than assumed, against the set the PAGE
+    // consumes (the content index), with the catalogue as the size bound.
+    const read = new Set(copyFiles());
+    const content = toolContentFiles();
+    expect(content.size).toBe(toolCount);
+    const unread = [...content.values()].filter((f) => !read.has(f));
+    expect(unread.map(relative)).toEqual([]);
+  });
+
+  it("positive control: a hand-written figure in real tool content is caught", () => {
+    const file = toolContentFiles().get("merge-pdf")!;
+    const real = readFileSync(file, "utf8");
+    expect(findingsIn(file, real)).toEqual([]);
+    // The shape the deleted pricing tier shipped, planted in a real answer.
+    const planted = real.replace(
+      "Merge copies pages,",
+      "Files up to 100 MB each. Links expire after 60 minutes. Merge copies pages,",
+    );
+    expect(planted).not.toBe(real);
+    const found = findingsIn(file, planted).map(
+      (f) => `${f.literal} [${f.rule}]`,
+    );
+    expect(found).toEqual(
+      expect.arrayContaining([
+        "100 MB [must-derive]",
+        "60 minutes [must-derive]",
+      ]),
+    );
   });
 
   it("every unit-bearing literal is derived, allowed, or in the reported baseline", () => {

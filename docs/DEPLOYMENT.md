@@ -51,13 +51,17 @@ pulling_ — it answers 200 while running the old image. The worker must use
 - For deploys: nothing by hand. The pipeline needs `COOLIFY_TOKEN` — a
   deploy-ability token — as a repository secret, which is already set.
 
-All **security headers, the CSP, and the CDN cache rules** for `robots.txt`,
-`sitemap.xml`, and the manifest live in [`next.config.mjs`](../next.config.mjs),
-so they apply identically in local `next start` and in production. Those cache
-rules used to live in `vercel.json` and silently stopped applying at the
-migration — measured 2026-08-28, `/sitemap.xml` was serving `max-age=0` with
-`cf-cache-status: DYNAMIC` — which is why that file is gone and the rules are
-here.
+All **security headers and the CSP** live in [`next.config.mjs`](../next.config.mjs),
+and apply identically in local `next start` and in production. The
+**crawler-file cache header** does NOT behave identically, and the rest of this
+section is why. Its origin half lives in the repo: a `next.config.mjs` rule for
+`robots.txt`, `sitemap.xml`, `sitemap-index.xml` and the manifest, plus the two
+sitemap Route Handlers (`src/app/sitemap-index.xml/route.ts`,
+`src/app/sitemaps/pages.xml/route.ts`), which set the same value on their own
+responses. Those cache rules used to live in `vercel.json` and silently stopped
+applying at the migration — measured 2026-08-28, `/sitemap.xml` was serving
+`max-age=0` with `cf-cache-status: DYNAMIC` — which is why that file is gone
+and the rules are here.
 
 **The header alone was not enough, and that is worth knowing before you
 measure.** Vercel's edge honoured `s-maxage` on any response; Cloudflare only
@@ -67,8 +71,33 @@ still read `DYNAMIC`. A **Cache Rule** on the zone —
 `http.request.uri.path in {"/sitemap.xml" "/manifest.webmanifest"
 "/robots.txt" "/sitemap-index.xml"}` → _Eligible for cache_, Edge TTL
 deliberately UNSET so the origin's `s-maxage` still governs — is what turned
-it into `HIT`. Two systems, one behaviour: change the duration in
-`next.config.mjs`, never in Cloudflare.
+it into `HIT`.
+
+**The same Cloudflare rule also decides what BROWSERS get, and today it
+overrides the origin.** The origin sends `max-age=0`. Measured 2026-09-27,
+every path in that Cache Rule was served
+`public, max-age=14400, s-maxage=86400, stale-while-revalidate=604800` — a
+four-hour browser TTL — while `/sitemaps/pages.xml`, which is not in the rule
+and served `DYNAMIC`, came through with the origin's `max-age=0` unchanged.
+So: the EDGE duration (`s-maxage`) is set in this repo; edge ELIGIBILITY and,
+at present, the BROWSER duration are set in Cloudflare.
+
+**OWNER ACTIONS (Cloudflare dashboard, Caching → Cache Rules → "crawler files:
+edge-cacheable"):**
+
+1. **Add `/sitemaps/pages.xml`** — the sitemap-index child Google actually
+   reads. It is still `DYNAMIC` (measured 2026-09-27, twice), so every crawler
+   fetch of it reaches the one-vCPU origin. The rule then has FIVE paths.
+2. **Set the rule's Browser TTL to "Respect origin"** — on this rule only, not
+   the zone-wide Browser Cache TTL, which would change browser caching for
+   every asset on the zone. After that the origin's `max-age=0` is what
+   browsers get, and the duration is once again changed in this repo only.
+
+Verify both at the wire:
+`curl -sI https://pdf.xyz/<file> | grep -iE 'cf-cache-status|cache-control'`
+twice per path — expect `MISS` then `HIT`, and `max-age=0`. Until (2) is done,
+`max-age=14400` on the four older paths is the expected, known reading, not a
+regression.
 
 **ADDING A CRAWLER FILE IS TWO EDITS, AND ONLY ONE OF THEM IS IN THIS REPO.**
 Measured 2026-09-20, the day `/sitemap-index.xml` shipped: the `next.config.mjs`
@@ -77,14 +106,18 @@ file still served `cf-cache-status: DYNAMIC` while its three siblings served
 `HIT`, because the **Cloudflare** half is a dashboard rule no test in this
 repository can see. Every crawler fetch went to the one-vCPU origin. The fix
 was adding the path to that rule by hand (Caching → Cache Rules → "crawler
-files: edge-cacheable"), after which the file went `MISS` then `HIT`.
+files: edge-cacheable"), after which the file went `MISS` then `HIT`. It
+happened again one file later: `/sitemaps/pages.xml` shipped 2026-09-27 and is
+owner action (1) above.
 
-So when you add a file to the `source` regex in `next.config.mjs`, add the same
-path to the zone's Cache Rule in the same sitting, and verify at the wire —
-`curl -sI https://pdf.xyz/<file> | grep cf-cache-status` twice, expecting
-`MISS` then `HIT`. A green test here proves the origin header, never the edge.
-(Watch the dashboard's chip editor: clicking near a chip's × deletes it. The
-rule must end with FOUR paths; re-read the expression preview before saving.)
+So when you add a crawler file — a metadata route, or a Route Handler in a
+folder named `*.xml`/`*.txt`/`*.webmanifest` — add the same path to the zone's
+Cache Rule in the same sitting, and verify at the wire as above.
+`cdn-cache-rules.test.ts` derives the crawler set from `src/app` and proves the
+ORIGIN header for each; a green run there proves nothing about the edge or the
+browser. (Watch the dashboard's chip editor: clicking near a chip's × deletes
+it. Re-read the expression preview before saving and count the paths against
+that test's derived set.)
 
 ## 3. Environment variables
 
@@ -283,6 +316,45 @@ Notes specific to this feature:
      Proxied is deliberate: it hides the origin IP and gives a valid edge
      certificate immediately. SSL/TLS mode is **Full** — the origin presents a
      self-signed certificate, which Full accepts and Full (strict) would not.
+
+   **`www` redirects to the apex, permanently, from the app.** Because `www` is
+   a proxied CNAME, requests for it reach the app with `Host: www.pdf.xyz`, and
+   until 2026-09-27 the app served the whole site there with `200` (measured:
+   `https://www.pdf.xyz/tools/merge-pdf` → `200 OK`, `x-nextjs-cache: HIT`) —
+   every URL on two hosts, consolidated only by the canonical tag.
+   `next.config.mjs` `redirects()` now answers every path on `www.pdf.xyz`
+   with **308** to the same path and query on `https://pdf.xyz`
+   (`src/deploy/www-redirect.test.ts` derives the host from `siteConfig.url`
+   and runs the rule through Next's own route matcher). That is a claim about
+   the image, not the wire: after the deploy, confirm
+   `curl -sI https://www.pdf.xyz/tools/merge-pdf` answers `308` with
+   `location: https://pdf.xyz/tools/merge-pdf`. It is not yet watched
+   hourly: the assertion belongs in `check-public-surface.mjs` (with
+   `redirect: "manual"`), added only once production serves it — the
+   `/sitemaps/pages.xml` precedent in that file, so the watch cannot alarm
+   during the deploy window.
+
+   **http → https is a temporary redirect, and it is NOT fixed in this
+   repo.** Measured 2026-09-27: a GET of `http://pdf.xyz/tools/merge-pdf` →
+   `302 Found`, `Location: https://pdf.xyz/tools/merge-pdf`; `http://www.pdf.xyz/…`
+   → `302` to `https://www.pdf.xyz/…` (so, with the `www` redirect above
+   deployed, http+www takes two hops to the apex). **The status depends on the
+   method:** `curl -sI` sends HEAD, and the same URLs answer HEAD with
+   `307 Temporary Redirect` (re-measured 2026-09-27). Re-verify with
+   `curl -s -o /dev/null -w '%{http_code}' <url>` (a GET, which is what a
+   crawler sends), or expect `307` from `-I`.
+   Nothing in this repository issues it. Both responses carried
+   `cf-cache-status: DYNAMIC` and a 5-byte body reading `Found`, which points
+   at the origin proxy (Coolify's Traefik HTTP→HTTPS redirect) rather than a
+   Cloudflare edge redirect — but either way it is fixed outside the repo.
+   **Owner action:** in Cloudflare, SSL/TLS → Edge Certificates → turn on
+   **Always Use HTTPS** (documented as a `301` at the edge, before the request
+   reaches Coolify), and optionally a Redirect Rule `http://www.pdf.xyz/*` →
+   `https://pdf.xyz/${1}`, 301, preserve query string, so http+www is one hop.
+   Then re-request both `http://` URLs with a GET and with HEAD, and confirm
+   both statuses are `301`/`308` — read them, do not assume them from the
+   setting's name.
+
 3. `beta.pdf.xyz` also resolves here and is marked **noindex** per-domain in
    Coolify. That pairing is watched hourly by
    [`check-public-surface.mjs`](../scripts/check-public-surface.mjs) in both

@@ -171,6 +171,21 @@ function securityHeaders() {
   return headers;
 }
 
+/**
+ * The one origin every URL lives on. `www.<apex>` is a proxied CNAME of the
+ * apex (docs/DEPLOYMENT.md §4), so the app sees both hosts — and until this
+ * rule it answered both with 200, the whole site served twice with only the
+ * canonical tag saying which copy counts. Measured 2026-09-27:
+ * `https://www.pdf.xyz/tools/merge-pdf` → `200 OK`.
+ *
+ * `src/deploy/www-redirect.test.ts` derives the www host from
+ * `siteConfig.url` and runs this rule through Next's own route matcher, so a
+ * domain change that updates one and not the other fails there, not in
+ * Search Console.
+ */
+const CANONICAL_ORIGIN = "https://pdf.xyz";
+const WWW_HOST_PATTERN = "www\\.pdf\\.xyz";
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -184,12 +199,28 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },
+  async redirects() {
+    return [
+      {
+        // Every path, query string preserved (Next carries it over). The host
+        // value is a regex Next anchors, hence the escaped dots. `permanent`
+        // → 308: a temporary redirect is a weaker consolidation signal, which
+        // is the whole point of this rule. Next exempts `/_next/*` from
+        // redirects; nothing links to www assets once no www page is served.
+        source: "/:path*",
+        has: [{ type: "host", value: WWW_HOST_PATTERN }],
+        destination: `${CANONICAL_ORIGIN}/:path*`,
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders() },
       {
-        // The three files crawlers fetch and users never see. This rule lived
-        // in `vercel.json` and stopped applying the moment the site left
+        // The crawler files served from the app's metadata routes (plus the
+        // sitemap index, whose Route Handler also sets this itself). This rule
+        // lived in `vercel.json` and stopped applying the moment the site left
         // Vercel — silently, because a dropped cache header changes nothing a
         // visitor can see. Measured on production 2026-08-28, before this:
         // `/sitemap.xml` and `/manifest.webmanifest` served
@@ -197,10 +228,19 @@ const nextConfig = {
         // every crawler hit reached a one-vCPU origin that had already
         // rendered the same bytes.
         //
-        // `max-age=0` keeps browsers honest while `s-maxage` lets the edge
-        // hold it for a day, and `stale-while-revalidate` means a rebuild
-        // never makes a crawler wait. Same values the Vercel file carried, now
-        // expressed where the platform we actually run can read them.
+        // What this header does and does not decide. `s-maxage` gives the
+        // edge a day and `stale-while-revalidate` means a rebuild never makes
+        // a crawler wait — both honoured by Cloudflare, but ONLY for paths its
+        // Cache Rule "crawler files: edge-cacheable" makes eligible
+        // (docs/DEPLOYMENT.md §2). `max-age=0` is what the ORIGIN asks of
+        // browsers, and it is not what browsers get: measured 2026-09-27,
+        // every path in that Cache Rule was served `max-age=14400`, while
+        // `/sitemaps/pages.xml` (not in the rule, `DYNAMIC`) was served its
+        // origin `max-age=0` unchanged — so Cloudflare rewrites the browser
+        // TTL on exactly the paths it caches. Until the owner sets that
+        // rule's Browser TTL to "Respect origin" (an override scoped to these
+        // paths, whether the 4h comes from the rule or the zone default),
+        // browsers hold these files for four hours.
         source:
           "/(robots.txt|sitemap.xml|sitemap-index.xml|manifest.webmanifest)",
         headers: [

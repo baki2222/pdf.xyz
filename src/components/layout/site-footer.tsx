@@ -16,7 +16,7 @@ export function SiteFooter() {
   return (
     <footer className="bg-canvas border-line border-t">
       <Container className="py-14">
-        <div className="grid gap-10 lg:grid-cols-[1.5fr_repeat(3,1fr)]">
+        <div className="grid gap-10 lg:grid-cols-[1.5fr_4fr]">
           <div className="flex flex-col gap-4">
             <Logo />
             <p className="text-muted max-w-xs text-sm leading-relaxed">
@@ -32,29 +32,36 @@ export function SiteFooter() {
             </p>
           </div>
 
-          {footerNav.map((column) => (
-            <div key={column.title} className="flex flex-col gap-3">
-              <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                {column.title}
-              </h3>
-              <ul className="flex flex-col gap-2.5">
-                {column.items.map((item) => (
-                  <li key={item.label}>
-                    {item.href ? (
-                      <Link
-                        href={item.href}
-                        className="text-muted hover:text-fg text-sm transition-colors"
-                      >
-                        {item.label}
-                      </Link>
-                    ) : (
-                      <span className="text-muted text-sm">{item.label}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          {/* The link columns are the footer's navigation: a landmark, so a
+              screen-reader user can reach them from the rotor. */}
+          <nav
+            aria-label="Footer"
+            className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4"
+          >
+            {footerNav.map((column) => (
+              <div key={column.title} className="flex flex-col gap-3">
+                <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
+                  {column.title}
+                </h3>
+                <ul className="flex flex-col gap-2.5">
+                  {column.items.map((item) => (
+                    <li key={item.label}>
+                      {item.href ? (
+                        <Link
+                          href={item.href}
+                          className="text-muted hover:text-fg text-sm transition-colors"
+                        >
+                          {item.label}
+                        </Link>
+                      ) : (
+                        <span className="text-muted text-sm">{item.label}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </nav>
         </div>
 
         <div className="border-line mt-12 flex flex-col items-start justify-between gap-4 border-t pt-6 sm:flex-row sm:items-center">

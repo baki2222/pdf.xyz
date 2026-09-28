@@ -86,7 +86,15 @@ import {
   emptyCapabilities,
   serializeHeartbeat,
 } from "@/lib/workers/heartbeat";
-import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
+import { toolFacts } from "./tool-facts";
+import {
+  pageContent,
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "./page-copy";
 
 /* ------------------------------------------------------------------ *
  *  The copy corpus — discovered from the catalogue, never listed.
@@ -114,15 +122,27 @@ function catalogueCopy(): CopyEntry[] {
     at("tagline", tool.tagline);
     at("description", tool.description);
     tool.keywords.forEach((k, i) => at(`keywords[${i}]`, k));
-    howToSteps(tool).forEach((s, i) => at(`how[${i}]`, s));
+    // Through `page-copy`, the accessors the page renders — since
+    // 2026-09-27 that is the authored content where a tool has it.
+    pageSteps(tool).forEach((s, i) => at(`how[${i}]`, stepText(s)));
     toolFacts(tool.slug).forEach((f, i) => {
       at(`facts[${i}].label`, f.label);
       at(`facts[${i}].value`, f.value);
     });
-    toolFaq(tool).forEach((f, i) => {
+    pageFaq(tool).forEach((f, i) => {
       at(`faq[${i}].question`, f.question);
       at(`faq[${i}].answer`, f.answer);
     });
+    pageIntro(tool).forEach((p, i) => at(`intro[${i}]`, p));
+    pageUseCases(tool).forEach((u, i) => {
+      at(`useCases[${i}].title`, u.title);
+      at(`useCases[${i}].body`, u.body);
+    });
+    const content = pageContent(tool);
+    if (content) {
+      at("seoTitle", content.seoTitle);
+      at("metaDescription", content.metaDescription);
+    }
   }
   // The guides catalogue, through its own accessors — the same idiom, added
   // with the /guides section (2026-09-17). Guide steps and FAQ ship as

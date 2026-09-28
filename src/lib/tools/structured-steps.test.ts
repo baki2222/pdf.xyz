@@ -20,6 +20,7 @@ import { tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { howToSteps } from "./tool-facts";
 import { toolFileCeiling } from "./file-ceilings";
+import { pageSteps, stepText } from "./page-copy";
 
 const CLAIMS_UPLOAD = /\bupload/i;
 
@@ -41,7 +42,7 @@ describe("structured steps are mode-true", () => {
   it("covers every tool (the walk cannot quietly empty)", () => {
     expect(tools.length).toBeGreaterThanOrEqual(50);
     for (const tool of tools) {
-      expect(howToSteps(tool).length).toBeGreaterThanOrEqual(3);
+      expect(pageSteps(tool).length).toBeGreaterThanOrEqual(3);
     }
   });
 
@@ -49,7 +50,9 @@ describe("structured steps are mode-true", () => {
     const offenders: string[] = [];
     for (const tool of tools) {
       if (capabilityForMode(tool.processing) !== "in-browser") continue;
-      for (const step of howToSteps(tool)) {
+      // The steps the page renders and ships as HowTo — authored content
+      // where a tool has it (since 2026-09-27), not the catalogue's.
+      for (const step of pageSteps(tool).map(stepText)) {
         if (CLAIMS_UPLOAD.test(step)) {
           offenders.push(`${tool.slug}: "${step}"`);
         }

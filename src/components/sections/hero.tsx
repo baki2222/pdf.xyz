@@ -5,6 +5,9 @@ import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
 import { UploadZone } from "@/components/upload/upload-zone";
 
+/** The homepage drop zone's id: the target of every "Start for free". */
+export const UPLOAD_ANCHOR = "upload";
+
 const trust = [
   "No sign-up to start",
   "Most tools run in-browser",
@@ -43,13 +46,18 @@ export function Hero() {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-            <Link
-              href="/workspace"
+            {/* Was a link to /workspace: a staging page that processes
+                nothing, reached empty. The drop zone beside this is where
+                starting actually happens. A plain anchor, so the browser
+                fires the `hashchange` the zone listens for to focus its
+                input (a client-side Link navigation does not). */}
+            <a
+              href={`#${UPLOAD_ANCHOR}`}
               className={buttonVariants({ variant: "primary", size: "lg" })}
             >
               Start for free
               <ArrowRight className="size-4" aria-hidden />
-            </Link>
+            </a>
             <Link
               href="/tools"
               className="text-fg decoration-line-strong hover:decoration-accent inline-flex items-center gap-1.5 text-[15px] font-medium underline decoration-1 underline-offset-[6px] transition-colors"
@@ -85,7 +93,7 @@ export function Hero() {
               className="border-line bg-panel absolute -top-[5px] right-2 left-2 h-16 border"
             />
             <div className="border-line bg-panel crop-marks relative border p-4 shadow-[0_28px_48px_-32px_rgba(12,18,26,0.45)] sm:p-5">
-              <UploadZone />
+              <UploadZone id={UPLOAD_ANCHOR} />
             </div>
           </div>
 

@@ -19,6 +19,11 @@ import { test, expect } from "@playwright/test";
 const ROUTES = [
   { path: "/", title: "pdf.xyz — Every PDF tool. Private by design." },
   { path: "/tools", title: "All PDF tools — pdf.xyz" },
+  // A category landing page — the shape added with /tools/category/[category].
+  {
+    path: "/tools/category/ai",
+    title: "AI PDF tools: chat, summarize, translate — pdf.xyz",
+  },
   { path: "/tools/merge-pdf", title: "Merge PDF — pdf.xyz" },
   { path: "/tools/ocr-pdf", title: "OCR PDF — pdf.xyz" },
   { path: "/workspace", title: "Workspace — pdf.xyz" },

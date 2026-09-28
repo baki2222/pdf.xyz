@@ -11,10 +11,11 @@ import {
 import { useRouter } from "next/navigation";
 import {
   clearHandoffs,
-  eligibleFilesFor,
   handoffCapabilityFor,
+  handoffHref,
+  handoffPayload,
   purgeExpiredHandoffs,
-  stashHandoff,
+  readHandoffId,
 } from "@/lib/handoff";
 import { isLikelyPdf, MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { countPdfPages } from "@/lib/pdf/page-count";
@@ -379,41 +380,38 @@ export function useWorkspace(
    */
   const launchHandoff = useCallback(
     (tool: WorkspaceToolSummary, ids: string[]) => {
-      const cap = handoffCapabilityFor(tool.slug);
-      const target = `/tools/${tool.slug}`;
       const ordered = ids
         .map((id) => fileHandles.current.get(id))
         .filter((file): file is File => file !== undefined);
-      const eligible = eligibleFilesFor(tool.slug, ordered);
-      const toStash = cap.mode === "single" ? eligible.slice(0, 1) : eligible;
+      // The gating (capability, eligibility, single-file slice) is
+      // `handoffPayload`'s, shared with the homepage drop zone.
+      const toStash = handoffPayload(tool.slug, ordered);
 
       // Record the launch as name-free activity, same as a plain batch launch.
       launchBatch(tool, toStash.length || ids.length);
 
-      if (!cap.supported || toStash.length === 0) {
-        router.push(target);
+      if (toStash.length === 0) {
+        router.push(`/tools/${tool.slug}`);
         return;
       }
 
       setLaunchingSlug(tool.slug);
-      void stashHandoff(tool.slug, toStash)
-        .then((token) => {
-          // Only a hand-off that really exists is counted: a `null` token is
-          // the honest plain-open fallback, not a hand-off.
-          if (token) {
-            track(
-              handoffCreatedEvent({
-                toolSlug: tool.slug,
-                mode: cap.mode,
-                fileCount: toStash.length,
-              }),
-            );
-          }
-          router.push(
-            token ? `${target}?handoff=${encodeURIComponent(token)}` : target,
+      void handoffHref(tool.slug, toStash).then((href) => {
+        // Only a hand-off that really exists is counted: `handoffHref` falls
+        // back to the plain tool URL (no token) when nothing could be stashed,
+        // and that honest plain open is not a hand-off.
+        const query = href.includes("?") ? href.slice(href.indexOf("?")) : "";
+        if (readHandoffId(query)) {
+          track(
+            handoffCreatedEvent({
+              toolSlug: tool.slug,
+              mode: handoffCapabilityFor(tool.slug).mode,
+              fileCount: toStash.length,
+            }),
           );
-        })
-        .catch(() => router.push(target));
+        }
+        router.push(href);
+      });
     },
     [launchBatch, router],
   );

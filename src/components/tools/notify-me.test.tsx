@@ -18,7 +18,13 @@ describe("NotifyMe", () => {
     const seen: RedactedEvent[] = [];
     configureTelemetry((e) => seen.push(e));
 
-    render(<NotifyMe toolName="Chat with PDF" toolSlug="chat-with-pdf" />);
+    render(
+      <NotifyMe
+        toolName="Chat with PDF"
+        toolSlug="chat-with-pdf"
+        checking={false}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     // Exactly the tool and its capability class — no identifier, no free text.
@@ -35,7 +41,13 @@ describe("NotifyMe", () => {
     const seen: RedactedEvent[] = [];
     configureTelemetry((e) => seen.push(e));
 
-    render(<NotifyMe toolName="Word to PDF" toolSlug="word-to-pdf" />);
+    render(
+      <NotifyMe
+        toolName="Word to PDF"
+        toolSlug="word-to-pdf"
+        checking={false}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     expect(seen[0]).toMatchObject({
@@ -49,7 +61,9 @@ describe("NotifyMe", () => {
     const seen: RedactedEvent[] = [];
     configureTelemetry((e) => seen.push(e));
 
-    render(<NotifyMe toolName="Nope" toolSlug="not-a-real-tool" />);
+    render(
+      <NotifyMe toolName="Nope" toolSlug="not-a-real-tool" checking={false} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     expect(seen).toEqual([]);
@@ -62,7 +76,13 @@ describe("NotifyMe", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(null, { status: 202 }));
 
-    render(<NotifyMe toolName="Chat with PDF" toolSlug="chat-with-pdf" />);
+    render(
+      <NotifyMe
+        toolName="Chat with PDF"
+        toolSlug="chat-with-pdf"
+        checking={false}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -80,7 +100,9 @@ describe("NotifyMe", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(null, { status: 202 }));
 
-    render(<NotifyMe toolName="Nope" toolSlug="not-a-real-tool" />);
+    render(
+      <NotifyMe toolName="Nope" toolSlug="not-a-real-tool" checking={false} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -89,7 +111,13 @@ describe("NotifyMe", () => {
   it("a failing beacon never changes what the user sees", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
 
-    render(<NotifyMe toolName="Chat with PDF" toolSlug="chat-with-pdf" />);
+    render(
+      <NotifyMe
+        toolName="Chat with PDF"
+        toolSlug="chat-with-pdf"
+        checking={false}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     expect(screen.getByRole("status")).toBeInTheDocument();
@@ -100,7 +128,13 @@ describe("NotifyMe", () => {
       new Response(null, { status: 202 }),
     );
 
-    render(<NotifyMe toolName="Chat with PDF" toolSlug="chat-with-pdf" />);
+    render(
+      <NotifyMe
+        toolName="Chat with PDF"
+        toolSlug="chat-with-pdf"
+        checking={false}
+      />,
+    );
     // Visible plain text, not a hover or a link (the ruling's condition).
     expect(
       screen.getByText(
@@ -114,7 +148,13 @@ describe("NotifyMe", () => {
       new Response(null, { status: 202 }),
     );
 
-    render(<NotifyMe toolName="Chat with PDF" toolSlug="chat-with-pdf" />);
+    render(
+      <NotifyMe
+        toolName="Chat with PDF"
+        toolSlug="chat-with-pdf"
+        checking={false}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     const status = screen.getByRole("status");
@@ -129,7 +169,9 @@ describe("NotifyMe", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(null, { status: 202 }));
 
-    render(<NotifyMe toolName="Nope" toolSlug="not-a-real-tool" />);
+    render(
+      <NotifyMe toolName="Nope" toolSlug="not-a-real-tool" checking={false} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     expect(fetchSpy).not.toHaveBeenCalled();

@@ -17,6 +17,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GET } from "./sitemap-index.xml/route";
+import { GET as pagesXml } from "./sitemaps/pages.xml/route";
 import sitemap from "./sitemap";
 import robots from "./robots";
 import { siteConfig } from "@/lib/site";
@@ -76,12 +77,24 @@ describe("the sitemap index points at a sitemap that exists", () => {
     }
   });
 
-  it("carries a lastmod derived from the catalogue, never a literal", async () => {
+  it("carries the newest lastmod its child serves, never a literal", async () => {
+    // WAS "derived from the catalogue": `startsWith(newest guide.updated)`.
+    // That held while the child stamped every entry with "now", which made
+    // the index OLDER than every page inside its child — a relationship this
+    // test was asserting against the wrong source. The value must be the
+    // child's own newest `<lastmod>`, read from the child's served bytes;
+    // `sitemap-lastmod.test.ts` carries the clock-independence checks.
     const xml = await indexXml();
     const lastmod = /<lastmod>([^<]+)<\/lastmod>/.exec(xml)?.[1] ?? "";
     expect(Number.isNaN(Date.parse(lastmod))).toBe(false);
-    // The value must be one the guides catalogue actually holds — a date typed
-    // into this route would drift the moment content changed.
+    const child = await pagesXml().text();
+    const newestInChild = [...child.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)]
+      .map((m) => m[1]!)
+      .sort()
+      .at(-1);
+    expect(newestInChild, "the child serves no lastmod at all").toBeTruthy();
+    expect(lastmod).toBe(newestInChild);
+    // Still a date a human recorded: today, that is a guide's edit date.
     const newestGuideEdit = guides
       .map((guide) => guide.updated)
       .sort()

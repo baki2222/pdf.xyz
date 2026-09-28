@@ -59,7 +59,8 @@ function textOf(markup: string): string {
  * bodies, the Guides band's cards — rather than a flattened string. Two lanes
  * added the same flag under two names (`rendered-tool-pages.ts` passes
  * `--markup`, `guides/tool-page-guides-band.test.ts` passes `--html`); both
- * are kept so neither caller changes.
+ * are kept so neither caller changes (`notify-me-ssr.test.ts` passes `--markup`
+ * too).
  */
 const RAW =
   process.argv.includes("--markup") || process.argv.includes("--html");

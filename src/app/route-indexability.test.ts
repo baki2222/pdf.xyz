@@ -39,61 +39,21 @@
  * `noindex, nofollow` and deliberately absent from the sitemap, so it exercises
  * the "correctly omitted" arm that the `/status` defect never would.
  */
-import { readdirSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Metadata } from "next";
 import { describe, expect, it } from "vitest";
 import sitemap from "./sitemap";
 import robots from "./robots";
 import { siteConfig } from "@/lib/site";
-import { tools } from "@/lib/tools";
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
+import { categories, tools } from "@/lib/tools";
+import { guides } from "@/lib/guides";
+import { categoryHref } from "@/lib/tools/category-href";
+import { concreteRoute, discoverPageFiles } from "@/tests/app-routes";
 
 /* ------------------------------------------------------------------ *
  *  1. Discover the routes. Walk the tree; never type a list.
+ *     The walk lives in `src/tests/app-routes.ts`, shared with the
+ *     internal-link graph so both guards ask about the same pages.
  * ------------------------------------------------------------------ */
-
-interface PageFile {
-  /** Import specifier relative to this file, e.g. `./tools/[slug]/page`. */
-  specifier: string;
-  /** Route pattern, e.g. `/tools/[slug]`. */
-  pattern: string;
-}
-
-/**
- * Every `page.{ts,tsx}` under `src/app` — Next's own convention for "this
- * directory is a route", which is the artifact the framework already depends
- * on. Route groups `(name)` contribute no path segment; `_private` folders and
- * `@parallel` slots are not routes at all.
- */
-function discoverPageFiles(dir = HERE, segments: string[] = []): PageFile[] {
-  const found: PageFile[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (entry.name.startsWith("_") || entry.name.startsWith("@")) continue;
-      const isGroup = entry.name.startsWith("(") && entry.name.endsWith(")");
-      found.push(
-        ...discoverPageFiles(
-          path.join(dir, entry.name),
-          isGroup ? segments : [...segments, entry.name],
-        ),
-      );
-    } else if (/^page\.tsx?$/.test(entry.name)) {
-      const rel = path
-        .relative(HERE, path.join(dir, entry.name))
-        .split(path.sep)
-        .join("/")
-        .replace(/\.tsx?$/, "");
-      found.push({
-        specifier: `./${rel}`,
-        pattern: `/${segments.join("/")}`,
-      });
-    }
-  }
-  return found;
-}
 
 /* ------------------------------------------------------------------ *
  *  2. Resolve each route's indexability from the metadata Next renders.
@@ -135,15 +95,15 @@ function readsAsIndexable(meta: Metadata, route: string): boolean {
 async function resolveRoutes(): Promise<RouteMetadata[]> {
   const resolved: RouteMetadata[] = [];
   for (const page of discoverPageFiles()) {
-    const mod: PageModule = await import(/* @vite-ignore */ page.specifier);
+    const mod: PageModule = await import(
+      /* @vite-ignore */ `./${page.fromApp}`
+    );
     const paramSets = mod.generateStaticParams
       ? mod.generateStaticParams()
       : [{}];
 
     for (const params of paramSets) {
-      const route = page.pattern.replace(/\[(\.{3})?(\w+)\]/g, (_m, _rest, k) =>
-        String(params[k as string]),
-      );
+      const route = concreteRoute(page.pattern, params);
       const meta = mod.generateMetadata
         ? await mod.generateMetadata({ params: Promise.resolve(params) })
         : mod.metadata;
@@ -190,15 +150,47 @@ describe("routes, the sitemap, and the robots directives agree", () => {
     // have expanded through `generateStaticParams`, so the concrete route count
     // has to clear the catalogue. A walk that found the static pages but silently
     // failed to expand the dynamic one lands inside the range above.
-    expect(routes.length).toBeGreaterThanOrEqual(tools.length + 5);
-    // Raised from +25 on 2026-09-27, with guides/catalog.test.ts's guide
-    // ceiling, when two lanes each added five guides (21 guide routes). It
-    // tolerates 25; a count near that is the signal to revisit both.
-    expect(routes.length).toBeLessThan(tools.length + 33);
+    //
+    // The dynamic segments are the catalogues, so the expected expansion is
+    // DERIVED from them rather than folded into a slack constant: the bound
+    // was `tools.length + 25` until the eight category pages arrived and
+    // tripped it — correctly, but only because the slack ran out, not because
+    // anything knew categories were a dynamic segment. (A parallel lane met
+    // the same slack running out when ten guides landed and raised it to +33;
+    // with guides counted here that raise is subsumed.) Every catalogue that
+    // backs a `[param]` route is named here, and the fixed pages sit inside
+    // the small window on top.
+    const expanded = tools.length + guides.length + categories.length;
+    expect(routes.length).toBeGreaterThanOrEqual(expanded + 5);
+    expect(routes.length).toBeLessThan(expanded + 25);
     expect(entries.length).toBeGreaterThanOrEqual(tools.length);
     // It resolves every route module (~1 s alone); under a full parallel run
     // it passed vitest's 5 s default intermittently. Measured 2026-09-27.
   }, 30_000);
+
+  it("the category landing pages are discovered, indexable, self-canonical and in the sitemap", async () => {
+    // A POSITIVE CONTROL for the walk, not a second list of routes: every
+    // generic assertion here would also pass if `/tools/category/[category]`
+    // were never expanded (an unexpanded segment contributes no route, and
+    // `[] ⊆ X`). So the members are derived from `categories` — the array the
+    // segment's `generateStaticParams` reads — and must each come out of the
+    // walk with the properties the generic checks only imply.
+    const routes = new Map((await resolveRoutes()).map((r) => [r.route, r]));
+    const inSitemap = new Set(sitemap().map((e) => pathnameOf(e.url)));
+    const expected = categories.map((c) => categoryHref(c.id));
+    expect(expected.length).toBeGreaterThanOrEqual(8);
+    for (const route of expected) {
+      const found = routes.get(route);
+      expect(found, `${route} was not discovered by the walk`).toBeDefined();
+      expect(found?.indexable, route).toBe(true);
+      expect(found?.canonical, route).toBe(
+        new URL(route, siteConfig.url).toString(),
+      );
+      expect(inSitemap.has(route), `${route} missing from sitemap()`).toBe(
+        true,
+      );
+    }
+  });
 
   it("both classifications are populated, so the predicate is not blind", async () => {
     const routes = await resolveRoutes();
