@@ -111,6 +111,8 @@ const FIELD_WEIGHTS = { name: 8, keywords: 4, tagline: 2, description: 1 };
 interface SearchIndexEntry {
   tool: Tool;
   name: string[];
+  /** Each keyword as the words a query is compared with, joined. */
+  keywordPhrases: string[];
   fields: { words: string[]; weight: number }[];
 }
 
@@ -121,6 +123,9 @@ function getSearchIndex(): SearchIndexEntry[] {
     return {
       tool,
       name,
+      keywordPhrases: tool.keywords.map((keyword) =>
+        wordsOf(keyword).join(" "),
+      ),
       fields: [
         { words: name, weight: FIELD_WEIGHTS.name },
         {
@@ -206,6 +211,12 @@ export function searchTools(query: string): Tool[] {
         }
       }
     }
+    // A query that IS one of the tool's keywords, word for word, names that
+    // tool: "pdf to docx" is PDF to Word's keyword, and without this it tied
+    // with Word to PDF (whose "docx to pdf" holds the same two words) and lost
+    // on catalogue order — so the 404 page offered the reverse converter for
+    // /tools/pdf-to-docx.
+    if (entry.keywordPhrases.includes(exact)) score += 50;
     if (entry.name.join(" ") === exact) score += 100;
     scored.push({ tool: entry.tool, score, order });
   });
