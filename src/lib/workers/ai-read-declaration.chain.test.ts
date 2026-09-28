@@ -233,9 +233,14 @@ function stoppedJob(tool: string) {
   };
 }
 
-const response = (status: number, body: unknown) => ({
+const response = (
+  status: number,
+  body: unknown,
+  headers: Headers = new Headers(),
+) => ({
   ok: status >= 200 && status < 300,
   status,
+  headers,
   json: async () => body,
   arrayBuffer: async () => new ArrayBuffer(0),
 });
@@ -289,7 +294,9 @@ function toRoute(tool: string) {
         body: JSON.stringify(body),
       }),
     );
-    return response(res.status, await res.json());
+    // The route's headers too: its Retry-After is what the client states the
+    // wait from, in words.
+    return response(res.status, await res.json(), res.headers);
   });
   return { ...t, bodies };
 }
