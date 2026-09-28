@@ -33,6 +33,13 @@ export const siteConfig = {
   // to sit in this slot were also emitted as schema.org `sameAs`, which asserts
   // to search engines that those accounts are officially ours. Add them back
   // only when the accounts exist and are actually controlled by us.
+  /**
+   * The X (Twitter) handle pdf.xyz CONTROLS, e.g. "@example". `null` while
+   * none is registered to us. It is the only source of `twitter:creator`
+   * (see `twitterAttribution` in `seo.ts`); every page used to name
+   * "@pdfxyz", an account nothing records as ours.
+   */
+  xHandle: null as string | null,
 } as const;
 
 export type NavItem = {

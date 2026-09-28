@@ -30,7 +30,12 @@ import {
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { extractPdfText, pageTextChunks } from "@/lib/pdf/text";
+import { PdfEngineError } from "@/lib/pdf/engine";
+import {
+  extractPdfText,
+  pageTextChunks,
+  type ExtractedPdfText,
+} from "@/lib/pdf/text";
 import { planTranslateChunks } from "@/lib/workers/translate/chunking";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
@@ -40,6 +45,7 @@ import { TruncationNotice } from "./truncation-notice";
 import { DeliveryNotice, deliverySummary } from "./delivery-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -69,7 +75,33 @@ function badgeFor(
     : { tone: "muted", label: "Not enabled", pulse: false };
 }
 
-export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
+/**
+ * What the user reads when the run throws. The local text parse runs in the
+ * same `try` as the network job, and the catch used to call EVERY throw a lost
+ * connection — so a password-protected or damaged PDF, which never touches
+ * the network, told the user to check their network. The parse now throws a
+ * typed `PdfEngineError` with the same copy the other PDF tools use;
+ * `runWorkerTranslate` reports its own failures as a returned result, so what
+ * is left is genuinely a transport failure.
+ */
+export function translateFailureMessage(err: unknown): string {
+  if (err instanceof PdfEngineError) return err.message;
+  return "Lost the connection before the job finished. Check your network and try again.";
+}
+
+/** The local text parse the builder runs before anything is uploaded. */
+type ExtractText = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+
+export function TranslateWorkerPanel({
+  tool,
+  // Injectable for one reason: the modern pdf.js build needs `DOMMatrix`, which
+  // jsdom lacks, so the panel test passes the REAL `extractPdfText` bound to the
+  // legacy build. The page never passes it.
+  extractText = extractPdfText,
+}: {
+  tool: Tool;
+  extractText?: ExtractText;
+}) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState<WorkerStatus | null>(null);
 
@@ -131,9 +163,11 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
             configured AI model to translate only that text into your target
             language, then returns a translation package — Markdown, plain text,
             and a manifest recording the model and scope. It produces translated
-            text (not a layout-preserving PDF) and never fabricates a
-            translation: with no AI model configured, or a scanned PDF with no
-            selectable text, it fails honestly instead of guessing.
+            text (not a layout-preserving PDF). With no AI model configured, or
+            a scanned PDF with no selectable text, the job fails instead of
+            guessing. The model is instructed to translate only the
+            document&apos;s text, but AI output can still be wrong, so check
+            important passages against your PDF.
           </p>
         </div>
 
@@ -143,7 +177,10 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         )}
         {available ? (
-          <TranslateBuilder />
+          <TranslateBuilder
+            extractText={extractText}
+            refuse={(file) => pickRefusal(tool, file)}
+          />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -234,7 +271,13 @@ function SpecRow({
   );
 }
 
-function TranslateBuilder() {
+function TranslateBuilder({
+  extractText,
+  refuse,
+}: {
+  extractText: ExtractText;
+  refuse: PickRefusal;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [targetLanguage, setTargetLanguage] =
     useState<TranslateLanguage>(DEFAULT_TARGET);
@@ -275,7 +318,7 @@ function TranslateBuilder() {
       // The same planner runs on both sides for exactly that reason: two
       // hand-written versions of "does this fit" is how a browser refusal ends
       // up hiding a worker that would have succeeded.
-      const extracted = await extractPdfText(bytes);
+      const extracted = await extractText(bytes);
       // THE SAME BLOCKS THE WORKER WILL CHUNK, computed once and used for both
       // the refusal below and the page count declared with the job. Counting
       // them twice — here and again at the call site — is how the declaration
@@ -316,27 +359,21 @@ function TranslateBuilder() {
         declaredTextPages: textPages.length,
       });
       setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
+    } catch (err) {
+      setOutcome({ ok: false, message: translateFailureMessage(err) });
     } finally {
       setBusy(false);
     }
-  }, [file, targetLanguage, sourceLanguage, instructions]);
+  }, [file, targetLanguage, sourceLanguage, instructions, extractText]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker translates
-        only the PDF&apos;s selectable text with a configured AI model — it does
-        not read scanned images (run OCR first) and does not invent content.
+        Running this uses a private secure-worker job. The worker sends only the
+        PDF&apos;s selectable text to a configured AI model — it does not read
+        scanned images (run OCR first) — and the model is told to translate only
+        that text. AI output can still be wrong.
       </p>
 
       {file ? (
@@ -355,7 +392,13 @@ function TranslateBuilder() {
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          refuse={refuse}
+          onFiles={(files) => {
+            // `refuse` has already turned away a non-PDF (a drop is not
+            // filtered by `accept`), so it never reaches the local parse.
+            setOutcome(null);
+            setFile(files[0] ?? null);
+          }}
           accept="application/pdf,.pdf"
           multiple={false}
           compact

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import { toolCount } from "./tools";
+import { processingSplit } from "./tools/processing-split";
 
 /**
  * Server-only helpers for generating brand imagery at build time — Open Graph /
@@ -218,9 +219,24 @@ const BRAND_MARK_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(
  * and the palette changed. The route is now three lines of delegation, which is
  * the fix that cannot drift again — there is no second copy left to forget.
  */
+/**
+ * The three chips on the shared card. The middle one used to read "Runs in
+ * your browser" — of a catalogue in which about two in five tools upload the
+ * file to a worker. It now states the conservative union every
+ * privacy-framed count takes (see `processing-split.ts`): the tools that can
+ * NEVER send the file anywhere. Exported so a test reads what the card paints.
+ */
+export function socialCardChips(): string[] {
+  return [
+    `${toolCount} tools`,
+    `${processingSplit().neverUploads.length} never upload your file`,
+    "No sign-up",
+  ];
+}
+
 export async function renderSocialImage(): Promise<ImageResponse> {
   const fonts = await loadCardFonts();
-  const chips = [`${toolCount} tools`, "Runs in your browser", "No sign-up"];
+  const chips = socialCardChips();
 
   return new ImageResponse(
     <div

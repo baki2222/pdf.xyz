@@ -27,7 +27,10 @@ import { OFFICE_TO_PDF_TOOLS } from "./office-conversion/tools";
  * `src/lib/tools/worker-engine-ceilings.test.ts` walks every engine the worker
  * daemon wires (`resolveProcessorDeps`) and fails if any stated ceiling
  * exceeds the engine that runs it — so an engine added with a lower limit, or
- * a default lowered in place, turns it red until it is listed here.
+ * a default lowered in place, turns it red until it is listed here; and
+ * `src/lib/tools/worker-engine-ceilings-declared.test.ts` walks every
+ * `*native-config.ts` under `src/lib/workers`, wired or not, and fails if one
+ * whose default is under the global cap is missing from this table.
  *
  * Keyed by the id of the processor that owns the tools; the same test checks
  * each key against the worker's real routing.
@@ -62,7 +65,7 @@ const MIB = 1024 * 1024;
 /**
  * A byte ceiling the way a person reads one: "50 MB" for the defaults, which
  * are whole mebibytes; otherwise one decimal rounded DOWN, so an operator's
- * lowered override is never described as more than it accepts; and plain
+ * raised override is never described as more than it accepts; and plain
  * bytes below 1 MB, so a small limit never prints as "0 MB".
  */
 export function describeByteCeiling(bytes: number): string {

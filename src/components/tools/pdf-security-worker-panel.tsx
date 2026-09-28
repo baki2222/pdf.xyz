@@ -31,6 +31,7 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -45,6 +46,20 @@ import { NotifyMe } from "./notify-me";
 
 type Phase = "loading" | "error" | "ready";
 type Mode = "protect" | "unlock";
+
+/**
+ * Whether the run must wait for a password — in BOTH modes. Protect needs one
+ * to set. Unlock needs one the file accepts: the password that opens it, or,
+ * for a file that opens freely but locks printing, copying or editing, its
+ * owner (permissions) password. A blank unlock would lift those locks without
+ * the owner password, which Unlock never does, and the job parser refuses it.
+ *
+ * (wave1/l06-copy-other let unlock run blank; the merge kept the rule the
+ * other lane had kept, a50c54c — see `parseUnlockPdfOptions`.)
+ */
+export function isPasswordMissing(_mode: Mode, password: string): boolean {
+  return password.length === 0;
+}
 
 /** Number of UTF-8 bytes a password occupies (the bound qpdf actually enforces). */
 function passwordByteLength(password: string): number {
@@ -202,7 +217,11 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Status-dependent action area */}
         {available && status ? (
-          <SecurityRunArea mode={mode} localDevOnly={status.localDevOnly} />
+          <SecurityRunArea
+            mode={mode}
+            localDevOnly={status.localDevOnly}
+            refuse={(file) => pickRefusal(tool, file)}
+          />
         ) : (
           <SecurityUnavailable
             phase={phase}
@@ -391,9 +410,11 @@ export function PasswordField({
 function SecurityRunArea({
   mode,
   localDevOnly,
+  refuse,
 }: {
   mode: Mode;
   localDevOnly: boolean;
+  refuse: PickRefusal;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
@@ -405,10 +426,11 @@ function SecurityRunArea({
 
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
-  const canSubmit = file !== null && password.length > 0 && !tooLong && !busy;
+  const passwordMissing = isPasswordMissing(mode, password);
+  const canSubmit = file !== null && !passwordMissing && !tooLong && !busy;
 
   const start = useCallback(async () => {
-    if (!file || password.length === 0 || tooLong) return;
+    if (!file || passwordMissing || tooLong) return;
     setBusy(true);
     try {
       setOutcome(null);
@@ -435,7 +457,7 @@ function SecurityRunArea({
     } finally {
       setBusy(false);
     }
-  }, [file, password, keyLength, mode, tooLong]);
+  }, [file, password, keyLength, mode, tooLong, passwordMissing]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -462,6 +484,7 @@ function SecurityRunArea({
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf"
           multiple={false}
@@ -469,7 +492,7 @@ function SecurityRunArea({
           title={
             mode === "protect"
               ? "Add a PDF to password-protect, or"
-              : "Add a password-protected PDF, or"
+              : "Add a locked PDF, or"
           }
           hint="PDF"
         />

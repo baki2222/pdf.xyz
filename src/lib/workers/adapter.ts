@@ -36,10 +36,8 @@ import {
 import type { WorkerMode } from "./mode";
 import { resolveWorkerMode } from "./mode";
 import { newJobId, newSessionId } from "./ids";
-import { createNotConfiguredStorage } from "./storage/not-configured";
 import { mapStorageFailure } from "./storage/errors";
 import type { StorageProvider } from "./storage/types";
-import { createNotConfiguredQueue } from "./queue/not-configured";
 import { mapQueueFailure } from "./queue/errors";
 import { deletionTarget } from "./queue/state";
 import type { ClaimableQueue } from "./queue/claim";
@@ -228,24 +226,6 @@ function composedAdapter(
   };
 }
 
-/** The default adapter: no backend, no dev worker. Answers `worker_not_configured`. */
-export function createDisabledAdapter(): WorkerAdapter {
-  return composedAdapter(
-    "disabled",
-    createNotConfiguredStorage("disabled"),
-    createNotConfiguredQueue("disabled"),
-  );
-}
-
-/** Backend endpoints present but no pipeline shipped. Answers `not_implemented`. */
-export function createRemoteNotImplementedAdapter(): WorkerAdapter {
-  return composedAdapter(
-    "remote-configured",
-    createNotConfiguredStorage("remote-unimplemented"),
-    createNotConfiguredQueue("remote-unimplemented"),
-  );
-}
-
 /**
  * Resolve the active adapter from the environment. The local-dev adapter (and
  * with it every Node built-in it depends on) is imported lazily, so the default
@@ -254,6 +234,13 @@ export function createRemoteNotImplementedAdapter(): WorkerAdapter {
  * environment (a real S3/R2 provider and/or a real Redis broker when configured,
  * else the honest not-configured providers) — independently, so either can be
  * ready without the other.
+ *
+ * There is no separate "disabled" adapter. With no backend env at all, both
+ * factories fall back to the not-configured providers and the composed adapter
+ * answers every operation `503 worker_not_configured`; with the legacy backend
+ * variables present it answers `501 not_implemented`. `adapter.test.ts` asserts
+ * both ("returns the disabled adapter by default", "returns the remote
+ * not-implemented adapter when backend vars are present").
  */
 export async function getWorkerAdapter(
   env: Record<string, string | undefined> = process.env,

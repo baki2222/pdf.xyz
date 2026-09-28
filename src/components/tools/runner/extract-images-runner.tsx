@@ -15,12 +15,7 @@ import type {
   ExtractedImage,
   SkippedImage,
 } from "@/lib/pdf/extract-images";
-import {
-  downloadBlob,
-  downloadBytes,
-  outputName,
-  zipFiles,
-} from "@/lib/pdf/browser";
+import { downloadBytes, outputName } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -34,6 +29,7 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { useZipDownload } from "./use-zip-download";
 
 /** Cap on how many image previews render in the grid; the ZIP still holds all. */
 const PREVIEW_LIMIT = 24;
@@ -231,7 +227,7 @@ function ExtractionActions({
   zip: boolean;
   onReset: () => void;
 }) {
-  const [zipping, setZipping] = useState(false);
+  const { zipping, zipError, downloadZip } = useZipDownload();
 
   const downloadOne = (image: ExtractedImage) => {
     downloadBytes(image.bytes, image.name, MIME[image.format]);
@@ -242,18 +238,13 @@ function ExtractionActions({
       if (images[0]) downloadOne(images[0]);
       return;
     }
-    setZipping(true);
-    try {
-      const blob = await zipFiles(
-        images.map((image) => ({ name: image.name, bytes: image.bytes })),
-        // Our PNGs use uncompressed IDAT, so DEFLATE meaningfully shrinks them;
-        // already-compressed JPEGs simply pass through near their stored size.
-        { compression: "DEFLATE" },
-      );
-      downloadBlob(blob, outputName(pdf.file.name, "images", "zip"));
-    } finally {
-      setZipping(false);
-    }
+    await downloadZip(
+      images.map((image) => ({ name: image.name, bytes: image.bytes })),
+      outputName(pdf.file.name, "images", "zip"),
+      // Our PNGs use uncompressed IDAT, so DEFLATE meaningfully shrinks them;
+      // already-compressed JPEGs simply pass through near their stored size.
+      { compression: "DEFLATE" },
+    );
   };
 
   return (
@@ -296,6 +287,7 @@ function ExtractionActions({
           Scan again
         </button>
       </div>
+      {zipError && <ErrorNote message={zipError} />}
 
       <ImageGrid images={images} onDownload={downloadOne} />
 

@@ -46,8 +46,15 @@ export const DEFAULT_QUEUE_PREFIX = "pdfxyz";
 // and no single value can make the broker retain data or lease a job for an
 // unreasonable length of time. All are seconds unless noted.
 const LEASE_MIN_SECONDS = 5;
-const LEASE_MAX_SECONDS = 3600; // 1h ceiling on a single lease/heartbeat window.
-const DEFAULT_LEASE_SECONDS = 300; // 5 min: ample for one processing slice.
+/**
+ * The most {@link REDIS_QUEUE_ENV.leaseSeconds} may be set to: a 1h ceiling on a
+ * single lease/heartbeat window. Exported because the daemon's `--lease-ms` bound
+ * is derived from it (`daemon/args.ts`), so the CLI cannot accept a lease no queue
+ * configuration could ever grant.
+ */
+export const LEASE_MAX_SECONDS = 3600;
+/** The lease ceiling when {@link REDIS_QUEUE_ENV.leaseSeconds} is unset — 5 min. */
+export const DEFAULT_LEASE_SECONDS = 300;
 const ATTEMPTS_MIN = 1;
 const ATTEMPTS_MAX = 20;
 const DEFAULT_MAX_ATTEMPTS = 5; // dead-letter after this many delivery attempts.
@@ -81,6 +88,20 @@ export interface RedisQueueConfig {
   readonly maxAttempts: number;
   /** TTL (seconds) applied to every broker key so nothing is retained forever. */
   readonly jobTtlSeconds: number;
+}
+
+/**
+ * The lease the Redis queue actually grants for a requested one: never more than the
+ * configured {@link RedisQueueConfig.leaseCeilingMs}. The single definition of the
+ * clamp — `claim` and `heartbeat` in `./redis.ts` apply it, and the daemon runtime
+ * uses it to report a `--lease-ms` the queue will shorten, instead of shortening it
+ * silently.
+ */
+export function grantedLeaseMs(
+  requestedMs: number,
+  config: Pick<RedisQueueConfig, "leaseCeilingMs">,
+): number {
+  return Math.min(requestedMs, config.leaseCeilingMs);
 }
 
 /** Outcome of parsing the environment for a Redis queue configuration. */

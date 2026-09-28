@@ -15,12 +15,7 @@ import {
   SPLIT_MODES,
   type SplitMode,
 } from "@/lib/pdf/offered-kinds";
-import {
-  downloadBlob,
-  downloadBytes,
-  totalBytes,
-  zipFiles,
-} from "@/lib/pdf/browser";
+import { downloadBytes, totalBytes } from "@/lib/pdf/browser";
 import { baseName, outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -35,6 +30,7 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { useZipDownload } from "./use-zip-download";
 
 /** The modes offered — the same list the tool page counts (`offered-kinds`). */
 const MODES: { id: SplitMode; label: string }[] = SPLIT_MODES.map((id) => ({
@@ -67,7 +63,7 @@ function SplitEditor({
     return pdf.pageCount > 1 ? `1-${half}, ${half + 1}-${pdf.pageCount}` : "1";
   });
   const [size, setSize] = useState(1);
-  const [zipping, setZipping] = useState(false);
+  const { zipping, zipError, downloadZip } = useZipDownload();
   const { busy, error, result, run } = useAsyncRun<NamedBytes[]>();
 
   const { parts, previewError } = useMemo((): {
@@ -104,13 +100,7 @@ function SplitEditor({
       downloadBytes(files[0]!.bytes, files[0]!.name);
       return;
     }
-    setZipping(true);
-    try {
-      const zip = await zipFiles(files);
-      downloadBlob(zip, outputName(pdf.file.name, "split", "zip"));
-    } finally {
-      setZipping(false);
-    }
+    await downloadZip(files, outputName(pdf.file.name, "split", "zip"));
   };
 
   if (result) {
@@ -142,6 +132,7 @@ function SplitEditor({
             </>
           )}
         </button>
+        {zipError && <ErrorNote message={zipError} />}
       </ResultPanel>
     );
   }

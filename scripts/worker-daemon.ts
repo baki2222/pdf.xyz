@@ -533,6 +533,11 @@ async function main(): Promise<number> {
     log: (event: ExecutorLogEvent) => emit({ src: "executor", ...event }),
     metrics: metrics.sink,
   });
+  // The Redis queue grants min(--lease-ms, PDFXYZ_QUEUE_LEASE_SECONDS). Say so once
+  // when that shortens the request, rather than letting the lease shrink silently.
+  if (runtime.leaseClamp) {
+    emit({ src: "daemon", event: "lease_clamped", ...runtime.leaseClamp });
+  }
   // `reportObservability` folds the readiness gauges into the collector just before it
   // snapshots (in every mode that emits), so there is no separate recording step here.
 

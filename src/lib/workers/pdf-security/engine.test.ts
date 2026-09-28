@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ProtectPdfOptions,
-  UnlockPdfOptions,
+import {
+  parseUnlockPdfOptions,
+  type ProtectPdfOptions,
+  type UnlockPdfOptions,
 } from "@/lib/jobs/pdf-security";
 import {
   runProtect,
@@ -352,6 +353,22 @@ describe("runUnlock", () => {
     });
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("failed");
+  });
+
+  /*
+   * INVERTED 2026-09-28 at the merge of wave1/l06-copy-other, history kept.
+   * That lane (0cf157b) added "a BLANK password on a file that needs one says a
+   * password is needed, not that it was wrong", for a blank-password unlock
+   * path. The path lifted a restrictions-only file's locks without its owner
+   * password, which the rule this file already pins forbids ("tells the owner
+   * of a restrictions-only PDF which password it needs", a50c54c): the parser
+   * refuses an empty password, so no job — and no engine run — carries one.
+   */
+  it("a BLANK password never becomes an unlock job", () => {
+    const blank = parseUnlockPdfOptions({ password: "" });
+    expect(blank.ok).toBe(false);
+    // Control: a typed password parses, so the refusal is about the blank.
+    expect(parseUnlockPdfOptions({ password: "p" }).ok).toBe(true);
   });
 
   it("decrypts and returns bytes + content-free meta", async () => {

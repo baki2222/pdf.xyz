@@ -13,6 +13,7 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -105,7 +106,7 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available ? (
-          <TableExtractRunArea />
+          <TableExtractRunArea refuse={(file) => pickRefusal(tool, file)} />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -187,7 +188,7 @@ function SpecRow({
   );
 }
 
-function TableExtractRunArea() {
+function TableExtractRunArea({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<TableExtractWorkerResult | null>(null);
@@ -238,6 +239,7 @@ function TableExtractRunArea() {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}

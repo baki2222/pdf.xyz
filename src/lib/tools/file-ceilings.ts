@@ -52,8 +52,11 @@ import type { Tool } from "./types";
  *    so Word, Excel and PowerPoint to PDF promised 100 MB against LibreOffice's
  *    50, and HTML to PDF 100 against Chromium's 20. The global cap is the
  *    FIRST gate a file meets; a page has to state the tightest one it must
- *    pass. `worker-engine-ceilings.test.ts` walks the worker's own wiring to
- *    hold that for every engine, not only the two that bind today.
+ *    pass. The upload validator refuses above the same figure, so a file the
+ *    page says is too big never moves. `worker-engine-ceilings.test.ts` walks
+ *    the worker's own wiring to hold that for every engine, not only the two
+ *    that bind today, and `worker-engine-ceilings-declared.test.ts` walks every
+ *    `*native-config.ts` so an engine the daemon does not wire yet is seen too.
  */
 
 /**
@@ -142,6 +145,21 @@ export function toolFileCeilingBytes(tool: Tool): number | null {
 export function toolFileCeilingMb(tool: Tool): number | null {
   const bytes = toolFileCeilingBytes(tool);
   return bytes === null ? null : Math.round(bytes / (1024 * 1024));
+}
+
+/**
+ * What a panel says when a picked file is over the tool's ceiling, BEFORE it
+ * uploads anything — the same figure the page states, so the refusal can
+ * never disagree with the promise. `null` when the file fits (or the tool
+ * takes no file).
+ */
+export function fileOverCeilingMessage(
+  tool: Tool,
+  size: number,
+): string | null {
+  const bytes = toolFileCeilingBytes(tool);
+  if (bytes === null || size <= bytes) return null;
+  return `This file is larger than ${toolFileCeilingMb(tool)} MB, the most ${tool.name} accepts.`;
 }
 
 /**

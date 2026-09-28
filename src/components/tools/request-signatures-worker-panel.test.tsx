@@ -20,6 +20,7 @@ import {
 import { PDFDocument } from "pdf-lib";
 import { getToolBySlug } from "@/lib/tools";
 import { signatureBlockFields } from "@/lib/jobs/request-signatures";
+import { pickRefusal } from "@/lib/uploads/pick-check";
 import {
   RequestBuilder,
   UNLOCK_TOOL_HREF,
@@ -29,6 +30,10 @@ import {
 afterEach(() => {
   cleanup();
 });
+
+/** The panel's own pick refusal, so the builder is driven as the panel mounts it. */
+const refuse = (file: File) =>
+  pickRefusal(getToolBySlug("request-signatures")!, file);
 
 async function pdfFile(
   pages: number,
@@ -77,7 +82,7 @@ describe("clampSignaturePage", () => {
 
 describe("RequestBuilder signature page", () => {
   it("defaults to the LAST page of the picked PDF and caps the input at its page count", async () => {
-    const { container } = render(<RequestBuilder />);
+    const { container } = render(<RequestBuilder refuse={refuse} />);
     // Before a file, the default is page 1 with no known upper bound.
     expect(pageInput().value).toBe("1");
 
@@ -93,7 +98,7 @@ describe("RequestBuilder signature page", () => {
   });
 
   it("previews the exact layout the request carries, on the chosen page", async () => {
-    const { container } = render(<RequestBuilder />);
+    const { container } = render(<RequestBuilder refuse={refuse} />);
     pick(container, await pdfFile(2));
     await waitFor(() => expect(pageInput().value).toBe("2"));
     // No valid signer yet: nothing would be sent, so nothing is drawn.
@@ -128,7 +133,7 @@ describe("RequestBuilder signature page", () => {
   });
 
   it("blocks a password-protected PDF and routes to a real Unlock tool", async () => {
-    const { container } = render(<RequestBuilder />);
+    const { container } = render(<RequestBuilder refuse={refuse} />);
     addSigner();
     pick(container, await pdfFile(2, { encrypted: true }));
 
@@ -148,7 +153,7 @@ describe("RequestBuilder signature page", () => {
   });
 
   it("control: an unlocked PDF with a signer is runnable and shows no lock alert", async () => {
-    const { container } = render(<RequestBuilder />);
+    const { container } = render(<RequestBuilder refuse={refuse} />);
     addSigner();
     pick(container, await pdfFile(1));
     await screen.findByTestId("signature-page-preview");

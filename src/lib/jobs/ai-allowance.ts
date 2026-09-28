@@ -145,9 +145,14 @@ export const AI_CHARACTER_ALLOWANCE = Math.floor(
   AI_CHARACTER_ALLOWANCE_DELIVERED * TRANSLATE_EXTRACTOR_HEADROOM,
 );
 
-/** Where the figure came from, so its age is visible rather than implicit. */
+/**
+ * Where the figure came from, and since when it has been provisional.
+ * `provisionalSince` is the commit that introduced it (3f17b0d). The age limit
+ * is enforced by `provisional-age.test.ts`, not by this comment.
+ */
 export const AI_CHARACTER_ALLOWANCE_BASIS = {
   measuredOn: "provisional",
+  provisionalSince: "2026-08-21",
   /** The PUBLISHED figure. The bucket is this times the extractor headroom. */
   derivedFrom: "TRANSLATE_MAX_INPUT_CHARS × aiRunsPerDayPerClient",
   /** Why pages lost: the measured density spread this budget maps onto. */
@@ -350,9 +355,12 @@ const PER_RUN_UNITS = listed(
  *  - until 2026-09-27 its middle sentence said "text translated by someone
  *    else" — one tool's use, false on the chat, summarize and extract pages,
  *    which is where the refusal was met most (a chat question used to cost a
- *    third of the day).
+ *    third of the day);
+ *  - it ended "retry after the interval in the Retry-After header", developer
+ *    copy a person cannot act on. The browser client now reads that header and
+ *    says the wait in words (`@/lib/workers/read-error`).
  * `ratelimit/allowance-copy.test.ts` holds it to every AI tool in the
  * catalogue (all of them or none), and `tools/ai-allowance-per-tool.test.ts`
  * holds its per-run clause to the pages' own counts.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The free AI allowance for this connection is used up for today. It covers ${AI_ALLOWANCE_RUNS} — ${listed(Object.values(DECLARED_JOB_COST), "and")} — or ${AI_UNDECLARED_RUNS_PER_DAY} ${PER_RUN_UNITS}, shared across the AI tools. On a shared network that can include AI work by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The free AI allowance for this connection is used up for today. It covers ${AI_ALLOWANCE_RUNS} — ${listed(Object.values(DECLARED_JOB_COST), "and")} — or ${AI_UNDECLARED_RUNS_PER_DAY} ${PER_RUN_UNITS}, shared across the AI tools. On a shared network that can include AI work by someone else. The allowance resets daily.`;

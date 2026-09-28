@@ -22,6 +22,9 @@ import {
 } from "./capabilities";
 import { apiError, type ParseResult } from "./responses";
 import { sanitizeDisplayFilename } from "./filenames";
+// The intake gate's normalizer, not a copy: both layers must read a content type the
+// same way. Imported from the import-free leaf, not the intake barrel.
+import { normalizeContentType } from "@/lib/uploads/intake/families";
 import {
   JOB_LIMITS,
   type CreateJobRequest,
@@ -35,7 +38,6 @@ import {
 const FILE_ID = /^f_[A-Za-z0-9_-]{10,64}$/;
 const JOB_ID = /^job_[A-Za-z0-9_-]{10,64}$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,200}$/;
-const MIME_SHAPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 
 export function isValidJobId(id: string): boolean {
   return JOB_ID.test(id);
@@ -61,6 +63,7 @@ export function isValidFileId(id: string): boolean {
 // tool catalogue with it). Re-exported under the same name for existing callers.
 export { MIME_BY_FORMAT } from "./mime-by-format";
 import { MIME_BY_FORMAT } from "./mime-by-format";
+import { formatByteLimit } from "@/lib/uploads/byte-limit";
 
 function allowedMimeTypesForTool(tool: Tool): Set<string> {
   const set = new Set<string>();
@@ -96,14 +99,6 @@ function isValidFilename(name: unknown): name is string {
   if (/[\\/]/.test(trimmed)) return false; // no path separators
   if (hasControlChars(trimmed)) return false;
   return true;
-}
-
-function normalizeContentType(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  // Strip any parameters, e.g. "text/plain; charset=utf-8".
-  const base = value.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!MIME_SHAPE.test(base)) return null;
-  return base;
 }
 
 function byteLength(text: string): number {
@@ -236,7 +231,7 @@ function parseFileDescriptor(
   }
   if (bytes > maxFileBytes) {
     return tooLarge(
-      `${field}.bytes exceeds the ${maxFileBytes}-byte per-file limit.`,
+      `A file is larger than ${formatByteLimit(maxFileBytes)}, the most this tool accepts.`,
       `${field}.bytes`,
     );
   }
@@ -281,7 +276,8 @@ export function parseCreateUploadSessionRequest(
   const allowedMimes = allowedMimeTypesForTool(tool);
   // The tighter of the global cap and the ENGINE's: refusing here, before a
   // slot is minted, is what keeps a file LibreOffice will refuse from being
-  // uploaded in full and malware-scanned first.
+  // uploaded in full and malware-scanned first — and at the same figure the
+  // tool page states (`toolFileCeiling` reads this same function).
   const maxFileBytes = workerFileCeilingBytes(tool.slug);
   const descriptors: UploadFileDescriptor[] = [];
   let totalBytes = 0;
@@ -293,7 +289,7 @@ export function parseCreateUploadSessionRequest(
   }
   if (totalBytes > JOB_LIMITS.maxTotalBytes) {
     return tooLarge(
-      `Combined size exceeds the ${JOB_LIMITS.maxTotalBytes}-byte session limit.`,
+      `These files add up to more than ${formatByteLimit(JOB_LIMITS.maxTotalBytes)}, the most one job can take.`,
       "files",
     );
   }
@@ -310,7 +306,7 @@ function parseOptions(value: unknown): ParseResult<Record<string, unknown>> {
   }
   if (byteLength(JSON.stringify(value)) > JOB_LIMITS.maxOptionsBytes) {
     return tooLarge(
-      `\`options\` exceeds the ${JOB_LIMITS.maxOptionsBytes}-byte limit.`,
+      `\`options\` is larger than ${formatByteLimit(JOB_LIMITS.maxOptionsBytes)}, the most a job's settings can be.`,
       "options",
     );
   }

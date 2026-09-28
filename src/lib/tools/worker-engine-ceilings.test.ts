@@ -204,8 +204,10 @@ const WITH_FAKE_BINARY: Partial<
 /**
  * For each binding engine, the variable an operator sets to change its limit.
  * The web tier publishes the CODE default because it cannot read the worker's
- * environment; so the override may lower the limit (the refusal then names the
- * lower figure) but must never raise it past the number the page promised.
+ * environment; so the override may RAISE the engine's limit (harmless: the
+ * upload API refuses above the published figure, so no request reaches the
+ * extra bytes) but must never LOWER it below the number the page promised — a
+ * file between the two would be uploaded in full and then refused.
  */
 const OVERRIDE_ENV: Partial<Record<DepsKey, string>> = {
   officeConversion: "PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES",
@@ -334,31 +336,71 @@ describe("the worker's wiring is discovered, not listed", () => {
   });
 });
 
-describe("the published figure is an upper bound the worker's env cannot move", () => {
+describe("the published figure is a floor the worker's env cannot move", () => {
   it("every binding engine names its override variable, and only those do", () => {
     expect(Object.keys(OVERRIDE_ENV).sort()).toEqual([...BINDING_KEYS].sort());
   });
 
+  /**
+   * INVERTED 2026-09-28, at the merge of wave1/l06-copy-other. This case was
+   * "an override above the default is clamped; one below still applies", and
+   * it pinned the lowering direction as an operator's safety valve. Lowering
+   * is the defect this file exists to catch: the page states the code default,
+   * so with the engine lowered to 1 MB a 2 MB workbook is given an upload
+   * slot, uploaded in full, scanned and then refused — the section below
+   * ("states no more than its engine accepts") would fail on that worker, and
+   * it only passed because it reads env `{}`. The other lane fixed the same
+   * defect with the opposite clamp (`Math.max`), which is what the code does
+   * now. Its "no request can reach a raised figure" half is kept, as an
+   * assertion instead of a clamp: with the engine raised, the upload API
+   * still refuses one byte over the published figure.
+   */
   it.each(BINDING_KEYS)(
-    "%s: an override above the default is clamped; one below still applies",
+    "%s: an override below the default is clamped; one above applies and is unreachable",
     (key) => {
       const variable = OVERRIDE_ENV[key]!;
       const published = engineCeiling(key);
+      const lowered = resolveProcessorDeps({ [variable]: "1048576" });
+      expect(
+        (lowered[key] as { limits?: { maxInputBytes?: number } }).limits
+          ?.maxInputBytes,
+        `${variable} lowered ${key} below the figure every page states`,
+      ).toBe(published);
+      // Positive control: the variable is really the one this engine reads,
+      // so the clamp above is not a variable that does nothing.
       const raised = resolveProcessorDeps({
         [variable]: String(published * 4),
       });
       expect(
         (raised[key] as { limits?: { maxInputBytes?: number } }).limits
           ?.maxInputBytes,
-        `${variable} raised ${key} past the figure every page states`,
-      ).toBe(published);
-      // Positive control: the variable is really the one this engine reads,
-      // so the clamp above is not a variable that does nothing.
-      const lowered = resolveProcessorDeps({ [variable]: "1048576" });
-      expect(
-        (lowered[key] as { limits?: { maxInputBytes?: number } }).limits
-          ?.maxInputBytes,
-      ).toBe(1_048_576);
+      ).toBe(published * 4);
+      // ...and the raised figure is one no upload can reach: the API refuses
+      // one byte over the PUBLISHED figure for every tool this engine owns.
+      const owned = ROUTED_FILE_TOOLS.filter((entry) => entry.key === key);
+      expect(owned.length).toBeGreaterThanOrEqual(1);
+      for (const { tool } of owned) {
+        const filename = filenameFor(tool);
+        const session = (bytes: number) =>
+          parseCreateUploadSessionRequest({
+            tool: tool.slug,
+            files: [
+              {
+                filename,
+                contentType: declaredContentTypeFor(filename),
+                bytes,
+              },
+            ],
+          }).ok;
+        // Control: the session is refused for its size, not for anything else.
+        expect(session(published), `${tool.slug} refused at ${published}`).toBe(
+          true,
+        );
+        expect(
+          session(published + 1),
+          `${tool.slug} accepted ${published + 1} bytes`,
+        ).toBe(false);
+      }
     },
   );
 });

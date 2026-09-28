@@ -29,6 +29,7 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import { TruncationNotice } from "./truncation-notice";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -128,9 +129,10 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
             The worker extracts your PDF&apos;s selectable text and asks a
             configured AI model to summarize only that text, then returns a
             summary package — Markdown, plain text, and a manifest recording the
-            model and scope. It never fabricates a summary: with no AI model
-            configured, or a scanned PDF with no selectable text, it fails
-            honestly instead of guessing.
+            model and scope. With no AI model configured, or a scanned PDF with
+            no selectable text, the job fails instead of guessing. The model is
+            instructed to use only the document&apos;s text, but AI output can
+            still be wrong, so check important details against your PDF.
           </p>
         </div>
 
@@ -140,7 +142,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         )}
         {available ? (
-          <SummaryBuilder />
+          <SummaryBuilder refuse={(file) => pickRefusal(tool, file)} />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -226,7 +228,7 @@ function SpecRow({
   );
 }
 
-function SummaryBuilder() {
+function SummaryBuilder({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
   const [length, setLength] = useState<SummaryLength>(DEFAULT_SUMMARY_LENGTH);
   const [format, setFormat] = useState<SummaryFormat>(DEFAULT_SUMMARY_FORMAT);
@@ -268,9 +270,10 @@ function SummaryBuilder() {
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker summarizes
-        only the PDF&apos;s selectable text with a configured AI model — it does
-        not read scanned images (run OCR first) and does not invent content.
+        Running this uses a private secure-worker job. The worker sends only the
+        PDF&apos;s selectable text to a configured AI model — it does not read
+        scanned images (run OCR first) — and the model is told to summarize only
+        that text. AI output can still be wrong.
       </p>
 
       {file ? (
@@ -289,6 +292,7 @@ function SummaryBuilder() {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}

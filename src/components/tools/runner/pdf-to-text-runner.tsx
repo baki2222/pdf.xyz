@@ -18,6 +18,7 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { NoSelectableTextNote } from "./no-text-note";
 
 export function PdfToTextRunner() {
   return (
@@ -52,6 +53,7 @@ function PdfToTextEditor({
             : `Scanned/image-only PDFs need OCR. This browser tool only extracts embedded selectable text.`
         }
         onReset={onReset}
+        tone={result.hasText ? "ok" : "warn"}
       >
         {result.hasText ? (
           <div className="flex flex-col gap-4">
@@ -74,10 +76,7 @@ function PdfToTextEditor({
             </button>
           </div>
         ) : (
-          <p className="border-warn/40 bg-warn/10 text-warn rounded-[4px] border p-4 text-sm leading-relaxed">
-            This PDF does not contain selectable text. Use OCR PDF when OCR is
-            enabled to recognize text from scanned pages or photos.
-          </p>
+          <NoSelectableTextNote />
         )}
       </ResultPanel>
     );

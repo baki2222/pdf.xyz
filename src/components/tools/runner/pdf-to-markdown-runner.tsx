@@ -24,6 +24,7 @@ import {
 } from "./runner-kit";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
+import { NoSelectableTextNote } from "./no-text-note";
 
 export function PdfToMarkdownRunner() {
   return (
@@ -64,6 +65,7 @@ function PdfToMarkdownEditor({
             : "Scanned/image-only PDFs need OCR before text can be converted to Markdown."
         }
         onReset={onReset}
+        tone={result.hasMarkdown ? "ok" : "warn"}
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
@@ -87,11 +89,7 @@ function PdfToMarkdownEditor({
             </button>
           </div>
         ) : (
-          <p className="border-warn/40 bg-warn/10 text-warn rounded-[4px] border p-4 text-sm leading-relaxed">
-            This PDF does not contain selectable text. Use OCR PDF first for
-            scanned pages, or Extract Tables for table-heavy documents when AI
-            table extraction is enabled.
-          </p>
+          <NoSelectableTextNote extra="For table-heavy documents, Extract Tables may also help when AI table extraction is enabled." />
         )}
       </ResultPanel>
     );

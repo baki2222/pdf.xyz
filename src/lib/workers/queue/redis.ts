@@ -71,7 +71,7 @@ import {
   sealOptions,
   type OptionSealing,
 } from "./sealed-options";
-import { redisQueueCapability } from "./redis-config";
+import { grantedLeaseMs, redisQueueCapability } from "./redis-config";
 import {
   createRedisClient,
   type RedisArg,
@@ -368,7 +368,7 @@ export function createRedisQueue(
 
     async claim(options: ClaimOptions) {
       const nowMs = now();
-      const effectiveLeaseMs = Math.min(options.leaseMs, config.leaseCeilingMs);
+      const effectiveLeaseMs = grantedLeaseMs(options.leaseMs, config);
 
       // 1. Redelivery sweep: return jobs whose lease expired to the ready list.
       // ZREM is the atomic hand-off — only the claimer whose ZREM removes the
@@ -536,7 +536,7 @@ export function createRedisQueue(
       // live lease + attempt ownership) and recomputes the lease server-side.
       const jobRes = await loadJob(jobId);
       if (!jobRes.ok) return jobRes;
-      const leaseExpiresAt = now() + Math.min(leaseMs, config.leaseCeilingMs);
+      const leaseExpiresAt = now() + grantedLeaseMs(leaseMs, config);
       const outcome = await runTransition(client, "heartbeat", keysFor(jobId), [
         String(leaseExpiresAt),
         attemptArg(expectedAttempt),

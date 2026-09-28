@@ -32,6 +32,18 @@ const DEFAULT_SHARE_IMAGE_PATH = "/opengraph-image";
  * Build consistent, SEO-complete metadata for any page. Titles are templated
  * as "Page — pdf.xyz" via the root layout's title.template.
  */
+/**
+ * `twitter:creator`, present only when `siteConfig.xHandle` records a handle
+ * we control. A card's creator is an attribution a reader and a crawler take
+ * at face value, so it follows the same rule as `sameAs` in
+ * `structured-data.ts`: claim nothing until there is an account to claim.
+ */
+export function twitterAttribution(
+  handle: string | null = siteConfig.xHandle,
+): { creator?: string } {
+  return handle ? { creator: handle } : {};
+}
+
 export function buildMetadata({
   title,
   description = siteConfig.description,
@@ -68,7 +80,7 @@ export function buildMetadata({
       card: "summary_large_image",
       title: socialTitle,
       description,
-      creator: "@pdfxyz",
+      ...twitterAttribution(),
       images: [shareImage],
     },
     robots: noIndex

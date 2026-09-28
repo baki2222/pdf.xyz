@@ -213,7 +213,14 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       } catch {
         return false;
       }
-      if (withoutComments(source).includes("zipFiles(")) return true;
+      // A ZIP is built by calling `zipFiles(` or — since 2026-09-27, when the
+      // four hand-written download paths became `useZipDownload()` so a failed
+      // build is shown to the user — by calling that hook. The refactor moved
+      // the call out of every runner, and this walk's positive control
+      // (compress-pdf, split-pdf) went red on it: the subject moved, so the
+      // predicate follows it. Still a CALL, never an import.
+      if (/zipFiles\(|=\s*useZipDownload\(/.test(withoutComments(source)))
+        return true;
       if (depth === 0) return false;
       for (const m of source.matchAll(
         /import\s+(?:type\s+)?\{[^}]*\}\s+from\s+"(\.\/[^"]+)"/g,

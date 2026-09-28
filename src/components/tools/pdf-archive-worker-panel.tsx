@@ -13,6 +13,7 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -125,7 +126,10 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available && status ? (
-          <ArchiveRunArea localDevOnly={status.localDevOnly} />
+          <ArchiveRunArea
+            localDevOnly={status.localDevOnly}
+            refuse={(file) => pickRefusal(tool, file)}
+          />
         ) : (
           <ArchiveUnavailable phase={phase} status={status} />
         )}
@@ -204,7 +208,13 @@ function ArchiveUnavailable({
   );
 }
 
-function ArchiveRunArea({ localDevOnly }: { localDevOnly: boolean }) {
+function ArchiveRunArea({
+  localDevOnly,
+  refuse,
+}: {
+  localDevOnly: boolean;
+  refuse: PickRefusal;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<PdfArchiveWorkerResult | null>(null);
@@ -253,6 +263,7 @@ function ArchiveRunArea({ localDevOnly }: { localDevOnly: boolean }) {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf"
           multiple={false}

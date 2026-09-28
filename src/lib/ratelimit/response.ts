@@ -21,9 +21,16 @@ import {
   AI_ALLOWANCE_USED_MESSAGE,
 } from "@/lib/jobs/ai-allowance";
 
-/** Client-facing 429 message. Generic by design; names no caller and no identity. */
+/**
+ * Client-facing 429 message. Generic by design; names no caller and no
+ * identity. Written for the PERSON reading a tool panel, which is where it
+ * lands: it used to tell them to "retry after the interval in the
+ * Retry-After header. See docs/SECURITY.md." The wait is still in that
+ * header, for API clients, and the browser clients now read it and say it in
+ * words (`@/lib/workers/read-error`).
+ */
 export const RATE_LIMITED_MESSAGE =
-  "Too many requests. This endpoint is rate-limited to protect the service; retry after the interval in the Retry-After header. See docs/SECURITY.md.";
+  "Too many requests from this connection right now. Please wait a little and try again.";
 
 /**
  * The AI-allowance refusal names the true reason. A user who hits the free

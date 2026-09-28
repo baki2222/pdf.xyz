@@ -16,19 +16,15 @@ import {
 import { optimizeLossless, type LosslessResult } from "@/lib/pdf/analyze";
 import { classifyPdfAccess, LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
 import { PdfEngineError } from "@/lib/pdf/engine";
-import {
-  downloadBlob,
-  downloadBytes,
-  readFileBytes,
-  zipFiles,
-} from "@/lib/pdf/browser";
+import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import type { NamedBytes } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import type { BatchItem } from "@/lib/batch";
 import { HandoffLoadedBadge } from "./handoff-notice";
-import { Spinner } from "./runner-kit";
+import { ErrorNote, Spinner } from "./runner-kit";
+import { useZipDownload } from "./use-zip-download";
 import { useBatchRunner, type BatchUnit } from "./use-batch-runner";
 
 /** Deterministic, on-device result of losslessly repacking one PDF. */
@@ -132,15 +128,15 @@ export function CompressBatchRunner({
     (item) => includeSigned || item.result.signatureCount === 0,
   );
 
+  const { zipping, zipError, downloadZip } = useZipDownload();
   const downloadAll = useCallback(async () => {
     const named: NamedBytes[] = downloadable.map((item) => ({
       name: item.result.outputName,
       bytes: item.result.bytes,
     }));
     if (named.length === 0) return;
-    const blob = await zipFiles(named);
-    downloadBlob(blob, "pdfxyz-compressed.zip");
-  }, [downloadable]);
+    await downloadZip(named, "pdfxyz-compressed.zip");
+  }, [downloadable, downloadZip]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -300,17 +296,28 @@ export function CompressBatchRunner({
               {downloadable.length > 0 && (
                 <button
                   type="button"
-                  onClick={downloadAll}
+                  onClick={() => {
+                    if (!zipping) void downloadAll();
+                  }}
+                  aria-disabled={zipping || undefined}
+                  aria-busy={zipping}
                   className={buttonVariants({ variant: "primary", size: "sm" })}
                 >
-                  <FileArchive className="size-4" aria-hidden />
-                  Download all ({downloadable.length})
+                  {zipping ? (
+                    <Spinner />
+                  ) : (
+                    <FileArchive className="size-4" aria-hidden />
+                  )}
+                  {zipping
+                    ? "Preparing ZIP…"
+                    : `Download all (${downloadable.length})`}
                 </button>
               )}
             </>
           )}
         </div>
       </div>
+      {zipError && <ErrorNote message={zipError} />}
     </div>
   );
 }

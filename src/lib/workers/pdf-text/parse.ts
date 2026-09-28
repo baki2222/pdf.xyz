@@ -1,8 +1,9 @@
 /**
  * Pure parsers for poppler `pdftotext` output.
  *
- * The worker cannot use the pdfjs-backed extractors in `@/lib/pdf/text` and
- * `@/lib/pdf/layout`: those are browser modules — pdfjs touches `DOMMatrix` at
+ * The worker cannot use the pdfjs-backed extractor in `@/lib/pdf/text` (nor the
+ * pdfjs layout extractor that sat beside it until it was removed, unused, on
+ * 2026-09-27): those are browser modules — pdfjs touches `DOMMatrix` at
  * import time and resolves a worker bundle via a browser URL, so on Node they
  * throw before reading a single byte. Everything that depended on them
  * (`pdf-to-word`, `pdf-to-excel`, `pdf-to-powerpoint`, `extract-tables`)

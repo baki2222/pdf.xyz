@@ -913,7 +913,7 @@ export const tools: Tool[] = [
     name: "Unlock PDF",
     tagline: "Remove a password you know.",
     description:
-      "Remove the password from a PDF you can already open — enter the password that works and download an unprotected copy. It can't recover or bypass an unknown password.",
+      "Remove a password you know: the one that opens the PDF, or the owner (permissions) password of a file that only locks editing. It never bypasses a password.",
     category: "security",
     icon: "unlock",
     processing: "server",

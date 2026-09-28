@@ -13,6 +13,7 @@ import {
 import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -128,6 +129,7 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
           <PdfOfficeRunArea
             tool={officeTool}
             output={extensionFor(officeTool)}
+            refuse={(file) => pickRefusal(tool, file)}
           />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
@@ -217,9 +219,11 @@ function SpecRow({
 function PdfOfficeRunArea({
   tool,
   output,
+  refuse,
 }: {
   tool: PdfOfficeTool;
   output: string;
+  refuse: PickRefusal;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -274,6 +278,7 @@ function PdfOfficeRunArea({
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}

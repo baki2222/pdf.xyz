@@ -13,6 +13,11 @@ import {
   LIFECYCLE_PROVIDERS,
   type LifecycleProvider,
 } from "../lifecycle";
+import {
+  DEFAULT_LEASE_SECONDS,
+  LEASE_MAX_SECONDS,
+  REDIS_QUEUE_ENV,
+} from "../queue/redis-config";
 
 /** How the daemon runs one invocation. */
 export type DaemonMode =
@@ -63,7 +68,14 @@ const MAX_IDLE_SLEEP_MS = 3_600_000; // 1h — a generous upper bound.
 const MIN_MAX_TICKS = 1;
 const MAX_MAX_TICKS = 1_000_000;
 const MIN_LEASE_MS = 1_000;
-const MAX_LEASE_MS = 3_600_000; // 1h — matches the queue's lease ceiling.
+/**
+ * The most the Redis queue can be CONFIGURED to grant ({@link LEASE_MAX_SECONDS}),
+ * so the CLI never accepts a lease no configuration could honour. It is not what a
+ * claim gets: the Redis queue grants `min(--lease-ms, PDFXYZ_QUEUE_LEASE_SECONDS)`,
+ * {@link DEFAULT_LEASE_SECONDS} s when that is unset, and the runtime reports the
+ * shortening as `leaseClamp`. The in-process local-dev queue does not clamp.
+ */
+const MAX_LEASE_MS = LEASE_MAX_SECONDS * 1000;
 
 /** The mutually-exclusive mode flags (default is `loop`). */
 const MODE_FLAGS: Record<string, DaemonMode> = {
@@ -99,9 +111,12 @@ Modes (choose at most one; default: --loop):
   --lifecycle-verify    Verify a generated policy against an observed bucket config.
 
 Options:
-  --max-ticks=<n>       Cap total ticks for --loop/--drain (1..1000000).
-  --idle-sleep-ms=<ms>  --loop sleep after an idle tick (0..3600000; default 1000).
-  --lease-ms=<ms>       Lease requested per claimed job (1000..3600000).
+  --max-ticks=<n>       Cap total ticks for --loop/--drain (${MIN_MAX_TICKS}..${MAX_MAX_TICKS}).
+  --idle-sleep-ms=<ms>  --loop sleep after an idle tick (${MIN_IDLE_SLEEP_MS}..${MAX_IDLE_SLEEP_MS}; default ${DEFAULT_IDLE_SLEEP_MS}).
+  --lease-ms=<ms>       Lease requested per claimed job (${MIN_LEASE_MS}..${MAX_LEASE_MS}).
+                        The Redis queue grants at most ${REDIS_QUEUE_ENV.leaseSeconds}
+                        (default ${DEFAULT_LEASE_SECONDS} s) and logs lease_clamped when it
+                        shortens a request; the local-dev queue grants it as asked.
   --provider=<name>     --lifecycle-policy/--lifecycle-verify target: ${LIFECYCLE_PROVIDERS.join(" | ")}.
   --key-prefix=<p>      --lifecycle-policy/--lifecycle-verify: structural key prefix rules nest under.
   --versioned           --lifecycle-policy/--lifecycle-verify: also expect versioned-bucket rules.

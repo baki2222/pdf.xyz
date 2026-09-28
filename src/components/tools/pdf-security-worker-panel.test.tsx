@@ -33,6 +33,7 @@ import {
 import {
   PasswordField,
   PdfSecurityWorkerPanel,
+  isPasswordMissing,
 } from "./pdf-security-worker-panel";
 
 afterEach(() => {
@@ -161,5 +162,24 @@ describe("Unlock form names every password the engine accepts", () => {
     expect(hint).not.toMatch(
       /^Enter the password that currently opens this PDF\.$/,
     );
+  });
+});
+
+describe("isPasswordMissing — neither mode runs with a blank password", () => {
+  /**
+   * INVERTED 2026-09-28 at the merge of wave1/l06-copy-other, history kept.
+   * That lane wrote "unlock runs with a blank password; protect does not": a
+   * blank unlock lifted an owner-only file's printing/copying/editing locks
+   * without the owner password. The integrated product keeps the other lane's
+   * rule (a50c54c) — the suite above requires the form to ask for the owner
+   * (permissions) password instead — and the job parser refuses "" anyway, so
+   * a form that started a blank unlock would only earn a refusal.
+   */
+  it("unlock and protect both wait for a password", () => {
+    expect(isPasswordMissing("unlock", "")).toBe(true);
+    expect(isPasswordMissing("protect", "")).toBe(true);
+    // Control: a typed password is never "missing" in either mode.
+    expect(isPasswordMissing("protect", "p")).toBe(false);
+    expect(isPasswordMissing("unlock", "p")).toBe(false);
   });
 });

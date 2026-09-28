@@ -131,6 +131,24 @@ describe("argument builders", () => {
     ]);
     expect(isEncryptedArgs("/in")).toEqual(["--is-encrypted", "/in"]);
   });
+
+  /**
+   * INVERTED at the merge of wave1/l06-copy-other (2026-09-28), history kept.
+   * That lane made a blank password emit no `--password`, so qpdf opened an
+   * owner-only file with the empty user password and `--decrypt` lifted its
+   * printing/copying/editing locks without the owner password. The integrated
+   * product keeps L02's rule (a50c54c): restrictions go only with the owner
+   * password that set them. The parser refuses a blank password before any job
+   * exists; here, no password shape reaches qpdf as a bare `--decrypt`.
+   */
+  it("every decrypt passes --password, even an empty one — never a bare --decrypt", () => {
+    expect(unlockArgs("/in", "/out", { password: "" })).toEqual([
+      "--password=",
+      "--decrypt",
+      "/in",
+      "/out",
+    ]);
+  });
 });
 
 describe("createNativeQpdfRunner — protect", () => {

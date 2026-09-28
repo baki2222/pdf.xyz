@@ -14,6 +14,7 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -129,7 +130,11 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available ? (
-          <OfficeRunArea tool={officeTool} accept={acceptFor(officeTool)} />
+          <OfficeRunArea
+            tool={officeTool}
+            catalogTool={tool}
+            accept={acceptFor(officeTool)}
+          />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -216,7 +221,15 @@ function SpecRow({
   );
 }
 
-function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
+function OfficeRunArea({
+  tool,
+  catalogTool,
+  accept,
+}: {
+  tool: OfficeTool;
+  catalogTool: Tool;
+  accept: string;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<OfficeConversionWorkerResult | null>(
@@ -270,7 +283,13 @@ function OfficeRunArea({ tool, accept }: { tool: OfficeTool; accept: string }) {
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          refuse={(file) => pickRefusal(catalogTool, file)}
+          onFiles={(files) => {
+            // An over-ceiling or wrong-format file never gets here: `refuse`
+            // turned it away at the pick, before it was read or uploaded.
+            setOutcome(null);
+            setFile(files[0] ?? null);
+          }}
           accept={accept}
           multiple={false}
           compact

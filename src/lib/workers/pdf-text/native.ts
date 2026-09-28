@@ -3,8 +3,8 @@
  * worker, plus a presence-only binary probe.
  *
  * This is the ONLY module here that touches Node built-ins. It exists because the
- * pdfjs-backed extractors in `@/lib/pdf/text` and `@/lib/pdf/layout` are browser
- * modules that cannot run under Node at all (see `./parse`), so the worker needs a
+ * pdfjs-backed extractor in `@/lib/pdf/text` is a browser module that cannot run
+ * under Node at all (see `./parse`), so the worker needs a
  * native path — the same shape `../office-conversion/native` uses for LibreOffice.
  *
  * Honesty rules it preserves:
@@ -15,6 +15,8 @@
  *    invoked with a fixed argv array (no shell, no user-supplied path), bounded by a
  *    timeout and byte ceilings, and the temp dir is removed on every exit path;
  *  - failures throw so the engines classify them, and no fabricated text is returned.
+ *    A file poppler cannot OPEN throws a typed {@link PdfTextOpenError} saying
+ *    whether it needs a password or is unreadable (see `./errors`).
  */
 
 import { execFile } from "node:child_process";
@@ -32,13 +34,23 @@ import type {
   PdfOfficeExportDeps,
   PdfTextExtractor,
 } from "@/lib/workers/pdf-office-export/engine";
+import {
+  classifyOpenFailure,
+  PdfTextExecError,
+  PdfTextOpenError,
+  POPPLER_EXIT_OPEN_FAILED,
+} from "./errors";
 import { parseBboxLayout, parseLayoutText } from "./parse";
 import {
   resolveNativePdfTextConfig,
   type NativePdfTextConfig,
 } from "./native-config";
 
-/** Run a subprocess by argv (never a shell) and return its stdout. Injectable for tests. */
+/**
+ * Run a subprocess by argv (never a shell) and return its stdout. Injectable
+ * for tests. A failure rejects with a {@link PdfTextExecError} carrying the exit
+ * status, which is what tells "could not open the file" apart from a timeout.
+ */
 export type PdfTextExec = (
   command: string,
   args: readonly string[],
@@ -68,7 +80,16 @@ const defaultExec: PdfTextExec = (command, args, options) =>
       [...args],
       { ...options, encoding: "utf8" },
       (error, stdout) => {
-        if (error) return reject(new Error("pdftotext failed."));
+        if (error) {
+          // `code` is the exit status when the process exited on its own; a
+          // timeout, a signal or an overflowing buffer leaves it non-numeric.
+          const code = (error as { code?: unknown }).code;
+          return reject(
+            new PdfTextExecError(
+              typeof code === "number" && !error.killed ? code : null,
+            ),
+          );
+        }
         resolve(typeof stdout === "string" ? stdout : String(stdout));
       },
     );
@@ -156,12 +177,24 @@ async function runPdfText(
   const inputPath = path.join(dir, "input.pdf");
   try {
     await fs.writeFile(inputPath, input);
-    const stdout = await exec(binary, pdfTextArgs(mode, inputPath), {
-      timeout: config.timeoutMs,
-      maxBuffer: config.maxOutputBytes,
-      windowsHide: true,
-    });
-    return stdout;
+    try {
+      return await exec(binary, pdfTextArgs(mode, inputPath), {
+        timeout: config.timeoutMs,
+        maxBuffer: config.maxOutputBytes,
+        windowsHide: true,
+      });
+    } catch (err) {
+      // poppler could not OPEN the file. Say why, from the file's own bytes
+      // (see ./errors for why not from poppler's words), so the engine can
+      // tell the user instead of reporting a retryable internal error.
+      if (
+        err instanceof PdfTextExecError &&
+        err.exitCode === POPPLER_EXIT_OPEN_FAILED
+      ) {
+        throw new PdfTextOpenError(classifyOpenFailure(input));
+      }
+      throw err;
+    }
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }

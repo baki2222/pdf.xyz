@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_LEASE_SECONDS,
+  LEASE_MAX_SECONDS,
+  REDIS_QUEUE_ENV,
+} from "../queue/redis-config";
+import {
+  DAEMON_USAGE,
   DEFAULT_IDLE_SLEEP_MS,
   parseDaemonArgs,
   type DaemonArgs,
@@ -201,5 +207,43 @@ describe("parseDaemonArgs — validation", () => {
 
   it("caps oversized values", () => {
     expect(parseDaemonArgs(["--idle-sleep-ms=99999999"]).ok).toBe(false);
+  });
+});
+
+/**
+ * `--lease-ms` used to be bounded by `MAX_LEASE_MS = 3_600_000 // 1h — matches the
+ * queue's lease ceiling.` Nothing compared the two: the queue's ceiling was a private
+ * `LEASE_MAX_SECONDS` in redis-config.ts. And "matches" was the wrong claim anyway —
+ * the queue grants `min(--lease-ms, PDFXYZ_QUEUE_LEASE_SECONDS)`, default 300 s, so a
+ * `--lease-ms=1800000` the CLI accepted became a five-minute lease without a word.
+ * These pin the bound to the queue's constant and the help text to what is granted.
+ */
+describe("parseDaemonArgs — --lease-ms against the queue that grants it", () => {
+  const ceilingMs = LEASE_MAX_SECONDS * 1000;
+
+  it("accepts exactly the most the queue can be configured to grant, and no more", () => {
+    // Health check: the imported ceiling is a real, positive number.
+    expect(Number.isInteger(ceilingMs) && ceilingMs > 0).toBe(true);
+    expect(run([`--lease-ms=${ceilingMs}`]).leaseMs).toBe(ceilingMs);
+    expect(parseDaemonArgs([`--lease-ms=${ceilingMs + 1}`]).ok).toBe(false);
+  });
+
+  it("--help states the bounds and the clamp from the constants that own them", () => {
+    const leaseHelp = DAEMON_USAGE.slice(
+      DAEMON_USAGE.indexOf("--lease-ms="),
+      DAEMON_USAGE.indexOf("--provider="),
+    );
+    // Health check: the slice found the --lease-ms entry and stopped at the next one.
+    expect(leaseHelp.startsWith("--lease-ms=")).toBe(true);
+    expect(leaseHelp.length).toBeGreaterThan(20);
+    // The bounds the parser enforces, read from the parser's own behaviour.
+    const min = [...Array(5000).keys()].find(
+      (ms) => parseDaemonArgs([`--lease-ms=${ms}`]).ok,
+    );
+    expect(min).toBeDefined();
+    expect(leaseHelp).toContain(`${min}..${ceilingMs}`);
+    // What the Redis queue actually grants: the env var that caps it and its default.
+    expect(leaseHelp).toContain(REDIS_QUEUE_ENV.leaseSeconds);
+    expect(leaseHelp).toContain(`default ${DEFAULT_LEASE_SECONDS}`);
   });
 });

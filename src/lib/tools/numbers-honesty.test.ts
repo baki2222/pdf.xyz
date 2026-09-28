@@ -30,7 +30,7 @@
  * scoping decision — remove entries as they are fixed; never add to ship a new
  * literal.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RETENTION, JOB_LIMITS, RATE_LIMITS } from "@/lib/jobs/types";
@@ -43,6 +43,7 @@ import {
 } from "@/lib/retention-windows";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import { processingSplit } from "./processing-split";
+import { copyFiles as sharedCopyFiles } from "./copy-surface";
 
 const ROOT = process.cwd();
 
@@ -221,52 +222,17 @@ function ownersOf({ value, unit }: UnitLiteral): string[] {
  *  The copy surface (same walk as pricing-honesty + the workspace UI)
  * ------------------------------------------------------------------ */
 
+/**
+ * The shared copy walk, IMPORTED since 2026-09-27. This census kept its own
+ * copy of the root list (sections, tools, app, lib/tools, lib/guides + two
+ * listed files), and when the shared walk was found to skip the site footer,
+ * the upload zone and the social card, this copy was blind to the same files
+ * — plus `site.ts`, which the shared walk had carried all along. Two lists of
+ * one surface is how the census and the other guards came to read different
+ * pages; importing the walk is the mechanical version of "the same surface".
+ */
 function copyFiles(): string[] {
-  const roots = [
-    path.join(ROOT, "src", "components", "sections"),
-    path.join(ROOT, "src", "components", "tools"),
-    path.join(ROOT, "src", "app"),
-    // WALKED, not listed, since 2026-08-10: this census kept its own list of
-    // three files here (catalog, tool-facts, faq) while the shared copy walk
-    // had already been converted for exactly this reason — a list is the thing
-    // that drifts. `limits.ts` landed in this directory owning two of the caps
-    // the copy states, outside the list, and nothing would have said so. The
-    // reach-proof below pins the members that must stay in view.
-    path.join(ROOT, "src", "lib", "tools"),
-    // The guides catalogue — long-form how-to prose that states caps, windows,
-    // and counts more often than any other surface. Joined 2026-09-17, before
-    // the first guide shipped, per the same in-order rule as tool-facts. The
-    // shared copy walk gained it the same day; these two surfaces are
-    // deliberately separate, so each registers on its own.
-    path.join(ROOT, "src", "lib", "guides"),
-  ];
-  const out: string[] = [
-    // Outside every walked root — the reason a list entry is allowed at all.
-    path.join(ROOT, "src", "lib", "faq.ts"),
-    // The AI allowance sentence, which left `tool-facts.ts` on 2026-08-11 for
-    // the lowest layer its six call sites could all import. This census is the
-    // one guard that caught the unowned `500 runs` in the reach measurement,
-    // so losing it here loses the only reader of that figure. Listed rather
-    // than walking `src/lib/jobs`, for the reason recorded at `copyFiles()` in
-    // `copy-surface.ts`; the discovery proof there covers a future move.
-    path.join(ROOT, "src", "lib", "jobs", "ai-allowance.ts"),
-  ];
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
-        out.push(full);
-    }
-  };
-  for (const dir of roots) if (statSync(dir).isDirectory()) walk(dir);
-  return out.filter((file) => {
-    try {
-      return statSync(file).isFile();
-    } catch {
-      return false;
-    }
-  });
+  return sharedCopyFiles();
 }
 
 /** Source with comments removed — a docblock citing a figure is not a claim. */

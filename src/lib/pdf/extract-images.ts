@@ -34,6 +34,7 @@ import {
   PDFRef,
   decodePDFRawStream,
 } from "pdf-lib";
+import { pdfLoadError } from "./engine";
 
 /** Image container we can emit — an original JPEG or a losslessly-wrapped PNG. */
 export type ExtractedImageFormat = "jpg" | "png";
@@ -95,7 +96,12 @@ const MAX_XOBJECT_DEPTH = 24;
 export async function extractPdfImages(
   pdfBytes: Uint8Array,
 ): Promise<ExtractImagesResult> {
-  const doc = await PDFDocument.load(pdfBytes, { throwOnInvalidObject: false });
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(pdfBytes, { throwOnInvalidObject: false });
+  } catch (err) {
+    throw await pdfLoadError(err, pdfBytes);
+  }
   const pages = doc.getPages();
   const pageCount = pages.length;
 

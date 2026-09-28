@@ -213,6 +213,9 @@ export interface WorkerCapabilityPromise {
  *                 copy promises.
  * ```
  *
+ * (That ROW DETAIL is quoted as it shipped then. The row now names the set it
+ * checked and says the rest is not vouched for — see {@link provenScopeSentence}.)
+ *
  * The guard was not weak, it was NARROW, and its output was phrased as though it
  * were total — house rule 1 in the place it is hardest to see, because a typed
  * corpus cannot see a capability it does not name.
@@ -315,8 +318,12 @@ export function buildAdvertisedCapabilities(
 }
 
 /**
- * The capabilities the product's COPY promises and a worker must therefore
- * prove — the corpus this subsystem is asked about.
+ * The capabilities a worker PUBLISHES proof for — the corpus this subsystem is
+ * asked about. It is NOT every capability the product's copy relies on: the
+ * engines behind Word, Excel, PowerPoint, HTML and webpage to PDF (LibreOffice,
+ * Chromium), and qpdf, Ghostscript and pdftotext, publish nothing here, so a
+ * green row vouches for these fields only. {@link provenScopeSentence} says so
+ * to the reader, and `snapshot.test.ts` pins the rendered row to this set.
  *
  * DERIVED FROM THE WIRE, never typed. `emptyCapabilities()` is the single
  * runtime enumeration of what a worker publishes: its return type pins it to
@@ -1119,6 +1126,26 @@ function scanSubsystem(
   );
 }
 
+/**
+ * The all-proven row, scoped to what was ASKED.
+ *
+ * It used to read "The running worker proved every capability the product's
+ * copy promises." The corpus is every capability a worker PUBLISHES, and the
+ * worker publishes no proof for most of its engines: LibreOffice (Word, Excel,
+ * PowerPoint to PDF), Chromium (HTML and webpage to PDF), qpdf, Ghostscript
+ * and pdftotext serve advertised tools and are asked nothing here. An image
+ * missing `soffice` would have read "every capability proven" while those
+ * tools failed. So the sentence names the set it checked and says, in words,
+ * that the rest is not vouched for — true of whatever the corpus becomes.
+ */
+export function provenScopeSentence(): string {
+  const labels = ADVERTISED_WORKER_CAPABILITIES.map((cap) => cap.label);
+  return (
+    `The running worker proved each capability it publishes proof for: ${labels.join(", ")}. ` +
+    "Its other engines publish no proof, so this row does not vouch for the tools they run."
+  );
+}
+
 /** Build the per-subsystem SLO breakdown. Pure; reuses the facets' own prose. */
 function buildSubsystems(
   input: OperationsSnapshotInput,
@@ -1175,7 +1202,7 @@ function buildSubsystems(
   const capabilityDetail = !proven
     ? "No worker heartbeat was observed, so what the running image can do is unknown from here. This is not the same as healthy."
     : missing.length === 0
-      ? `The running worker proved every capability the product's copy promises.${buildNote}`
+      ? `${provenScopeSentence()}${buildNote}`
       : `${buildNote.trim()} The running worker did not prove: ${missing
           .map((cap) => cap.label)
           .join(", ")}. The product's copy promises ${missing

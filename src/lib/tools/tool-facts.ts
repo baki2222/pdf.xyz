@@ -31,6 +31,7 @@ import {
   CHAT_TOOL_SLUG,
 } from "@/lib/jobs/chat-with-pdf";
 import { AI_ALLOWANCE_FACT, aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
+import { CROP_KEEPS_CONTENT } from "@/lib/pdf/crop-disclosure";
 import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
 import { HYBRID_SUMMARY } from "./processing";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
@@ -448,6 +449,10 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       label: "Crop modes",
       value:
         "Uniform margins or per-side control, applied to all pages or only the ones you select.",
+    },
+    {
+      label: "Hidden, not deleted",
+      value: CROP_KEEPS_CONTENT,
     },
   ],
   // Was "Eight element types, including text, boxes, lines, images, and filled

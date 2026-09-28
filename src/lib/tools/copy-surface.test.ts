@@ -10,7 +10,7 @@
  * outside the walk must collapse loudly here, not sit silently unread by the
  * three guards that import this walk.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -46,12 +46,37 @@ describe("the copy surface reaches what the guards must read", () => {
       // before its first article was written. It ships HowTo + FAQPage JSON-LD,
       // the channel the pricing and retention lies once travelled.
       "src/lib/guides/catalog.ts",
+      // Added 2026-09-27: outside the walk until then, and each carries a
+      // claim a visitor reads — the social card's in-browser chip, the
+      // footer's "Privacy-first by architecture", the upload zone's caption.
+      "src/lib/og.tsx",
+      "src/components/layout/site-footer.tsx",
+      "src/components/upload/upload-zone.tsx",
     ]) {
       expect(
         files,
         `the walk no longer reaches ${expected} — the guards are blind to it`,
       ).toContain(expected);
     }
+  });
+
+  it("reaches EVERY component file, so a new component folder cannot fall outside", () => {
+    // Discovered, not listed: the walk used to take two of the component
+    // folders (sections, tools) and miss layout, upload, status, legal and ui.
+    const reached = new Set(copyFiles().map(rel));
+    const components: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
+          components.push(rel(full));
+      }
+    };
+    walk(path.join(process.cwd(), "src", "components"));
+    // Size floor: an empty directory read would make the check vacuous.
+    expect(components.length).toBeGreaterThanOrEqual(60);
+    expect(components.filter((f) => !reached.has(f))).toEqual([]);
   });
 
   it("never walks test files into the copy surface", () => {

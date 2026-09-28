@@ -23,8 +23,13 @@ import {
   type QpdfExecResult,
 } from "./native";
 import { resolveNativePdfSecurityConfig } from "./native-config";
+import { parseUnlockPdfOptions } from "@/lib/jobs/pdf-security";
 import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
 import { unsupportedEncryptionPdf } from "@/tests/unsupported-encryption";
+import {
+  ownerOnlyEncryptedPdf,
+  userPasswordEncryptedPdf,
+} from "@/tests/encrypted-pdf-fixture";
 
 const HAS_QPDF = resolveOnPath("qpdf");
 const suite = HAS_QPDF ? describe : describe.skip;
@@ -143,6 +148,33 @@ suite("qpdf runner (real binary)", () => {
     });
     // Established positively: qpdf's own password check said this password
     // does not open the file — not merely "the decrypt exited 2".
+    expect(attempt).toEqual({ ok: false, reason: "wrong-password" });
+  });
+
+  /*
+   * AMENDED 2026-09-28 at the merge of wave1/l06-copy-other, history kept. That
+   * lane (0cf157b) wrote this as the proof of a blank-password Unlock path:
+   * qpdf, given an empty password, opens an owner-only file with the empty
+   * user password and `--decrypt` removes its locks. That is still what the
+   * binary does — and it is exactly why the product never asks it to: Unlock
+   * removes restrictions only with the owner password that set them (a50c54c),
+   * so parseUnlockPdfOptions refuses "" before any job exists. The fact about
+   * the binary stays here, beside the gate that keeps it unreachable.
+   */
+  it("qpdf WOULD lift an owner-only file's locks with a blank password — so the parser refuses one", async () => {
+    const restricted = ownerOnlyEncryptedPdf();
+    expect(await runner.isEncrypted(restricted)).toBe(true);
+    const unlocked = await runner.unlock(restricted, { password: "" });
+    expect(unlocked.ok).toBe(true);
+    expect(parseUnlockPdfOptions({ password: "" }).ok).toBe(false);
+  });
+
+  it("control: a BLANK password does not open a PDF that needs a password", async () => {
+    const attempt = await runner.unlock(userPasswordEncryptedPdf(), {
+      password: "",
+    });
+    // The runner's outcome shape since a50c54c: the refusal says why. (L06
+    // wrote `{ wrongPassword: true }`, the shape it was branched from.)
     expect(attempt).toEqual({ ok: false, reason: "wrong-password" });
   });
 

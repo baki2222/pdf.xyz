@@ -1,5 +1,4 @@
 import type { Job, JobArtifact } from "@/lib/jobs/types";
-import type { ApiError } from "@/lib/jobs/responses";
 import type { WorkerStatus } from "./status";
 import {
   canRunPdfSecurity,
@@ -9,6 +8,7 @@ import {
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
 import { pollJobToTerminal } from "./job-polling";
+import { readWorkerError } from "./read-error";
 
 const HTML_TO_PDF_TOOL = "html-to-pdf";
 const WEBPAGE_TO_PDF_TOOL = "webpage-to-pdf";
@@ -42,20 +42,11 @@ function jsonBody(value: unknown): ArrayBuffer {
   return copy;
 }
 
-function isApiError(value: unknown): value is ApiError {
-  return typeof value === "object" && value !== null && "error" in value;
-}
-
 async function readError(
   res: Awaited<ReturnType<FetchLike>>,
   fallback: string,
 ): Promise<PdfSecurityWorkerResult> {
-  try {
-    const body = await res.json();
-    if (isApiError(body))
-      return { ok: false, message: body.error.message, code: body.error.code };
-  } catch {}
-  return { ok: false, message: fallback };
+  return readWorkerError(res, fallback);
 }
 
 const defaultFetch: FetchLike = (input, init) =>

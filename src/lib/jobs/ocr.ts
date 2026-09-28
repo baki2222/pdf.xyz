@@ -293,9 +293,9 @@ export function describeOcrRequest(options: OcrOptions): string {
  * The closed set of OCR engine FAMILIES a completed job may name to a client. A
  * client-facing engine is ALWAYS one of these families or {@link UNKNOWN_OCR_ENGINE}
  * — never a path, a version, or a stray token — so the field can identify what ran
- * without becoming a leak vector. It mirrors the worker layer's `OCR_ENGINES`
- * (the engines a worker actually shells out to); extend both together when a new
- * engine family genuinely ships.
+ * without becoming a leak vector. The worker layer's `OCR_ENGINES` (the engines
+ * a worker actually shells out to, in preference order) is this same array, so a
+ * new engine family is added in exactly one place.
  */
 export const OCR_ENGINE_FAMILIES = ["ocrmypdf", "tesseract"] as const;
 export type OcrEngineFamily = (typeof OCR_ENGINE_FAMILIES)[number];

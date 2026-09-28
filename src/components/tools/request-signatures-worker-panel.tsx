@@ -39,6 +39,7 @@ import {
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -256,7 +257,7 @@ export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available ? (
-          <RequestBuilder />
+          <RequestBuilder refuse={(file) => pickRefusal(tool, file)} />
         ) : (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
@@ -348,7 +349,7 @@ type PickedPdf =
   | { status: "read"; bytes: Uint8Array; info: PdfFrames }
   | { status: "unreadable"; bytes: Uint8Array | null };
 
-export function RequestBuilder() {
+export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
   const [picked, setPicked] = useState<PickedPdf | null>(null);
   const [signers, setSigners] = useState<SignerDraft[]>([
@@ -498,6 +499,7 @@ export function RequestBuilder() {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => pickFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}

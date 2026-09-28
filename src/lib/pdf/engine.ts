@@ -1,4 +1,9 @@
 import type { PDFDocument } from "pdf-lib";
+import {
+  encryptedPdfMessage,
+  probePdfEncryption,
+  type EncryptionVerdict,
+} from "./encryption";
 import { loadPdfLib } from "./pdf-lib";
 import type {
   NamedBytes,
@@ -41,7 +46,21 @@ export class PdfEngineError extends Error {
   }
 }
 
-const PRODUCER = "pdf.xyz";
+/**
+ * pdf-lib refused the file because it is encrypted. `verdict` says whether it
+ * needs a password to OPEN (`needs-password`), only carries its author's
+ * editing restrictions (`opens-without-password`), or could not be told
+ * (`null`) — and the message is the one true of that verdict. See
+ * `./encryption` for why the difference is the whole point.
+ */
+export class PdfEncryptedError extends PdfEngineError {
+  readonly verdict: EncryptionVerdict | null;
+  constructor(verdict: EncryptionVerdict | null, message?: string) {
+    super(message ?? encryptedPdfMessage(verdict), { kind: "encrypted" });
+    this.name = "PdfEncryptedError";
+    this.verdict = verdict;
+  }
+}
 
 /**
  * The loader's copy for bytes that are not a readable PDF. Exported so a caller
@@ -50,6 +69,53 @@ const PRODUCER = "pdf.xyz";
  */
 export const UNREADABLE_PDF_MESSAGE =
   "This file couldn't be read as a PDF — it may be corrupted or not a PDF.";
+
+const PRODUCER = "pdf.xyz";
+
+/**
+ * Translate a pdf-lib load failure into the typed, user-facing error. Every
+ * pdf-lib loader in `src/lib/pdf` routes its failure through here, so an
+ * encrypted file is classified ONCE, by the same probe, wherever it is opened.
+ */
+export async function pdfLoadError(
+  err: unknown,
+  bytes: Uint8Array,
+  probe: (bytes: Uint8Array) => Promise<EncryptionVerdict | null> = (b) =>
+    probePdfEncryption(b),
+): Promise<PdfEngineError> {
+  const message = err instanceof Error ? err.message : "";
+  // pdf-lib's EncryptedPDFError is an ES5-compiled subclass of Error: its
+  // `name` is "Error" and `instanceof` does not hold, so its message is the
+  // only thing that identifies it.
+  if (/encrypt/i.test(message)) {
+    return new PdfEncryptedError(await probe(bytes));
+  }
+  return new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
+}
+
+/** pdf.js's names for "this is not a readable PDF". */
+const PDFJS_UNREADABLE = new Set([
+  "InvalidPDFException",
+  "MissingPDFException",
+  "FormatError",
+]);
+
+/**
+ * The same translation for a pdf.js load failure (text extraction, layout).
+ * pdf.js already knows whether a password is needed, so no probe runs. A
+ * failure that is NOT about the file — a worker that failed to start, a chunk
+ * that did not load — is returned unchanged: calling it "not a PDF" would send
+ * the user to fix a file that is fine.
+ */
+export function pdfjsLoadError(err: unknown): unknown {
+  const name = (err as { name?: unknown } | null)?.name;
+  if (name === "PasswordException")
+    return new PdfEncryptedError("needs-password");
+  if (typeof name === "string" && PDFJS_UNREADABLE.has(name)) {
+    return new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
+  }
+  return err;
+}
 
 /**
  * Load PDF bytes into a pdf-lib document, translating pdf-lib's raw failures
@@ -61,17 +127,7 @@ export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   try {
     return await PDFDocument.load(bytes);
   } catch (err) {
-    // pdf-lib's EncryptedPDFError is an ES5-compiled subclass of Error: its
-    // `name` is "Error" and `instanceof` does not hold, so its message is the
-    // only thing that identifies it.
-    const message = err instanceof Error ? err.message : "";
-    if (/encrypt/i.test(message)) {
-      throw new PdfEngineError(
-        "This PDF is password-protected. Unlock it first, then try again.",
-        { kind: "encrypted" },
-      );
-    }
-    throw new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
+    throw await pdfLoadError(err, bytes);
   }
 }
 

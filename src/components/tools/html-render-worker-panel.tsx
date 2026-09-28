@@ -26,6 +26,7 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import { track } from "@/lib/telemetry/track";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
@@ -138,7 +139,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available ? (
-          <HtmlRenderRunArea mode={mode} />
+          <HtmlRenderRunArea mode={mode} tool={tool} />
         ) : (
           <HtmlRenderUnavailable
             phase={phase}
@@ -275,7 +276,7 @@ function useUnbundledAssetsNote(file: File | null): string | null {
   return note && note.file === file ? note.text : null;
 }
 
-function HtmlRenderRunArea({ mode }: { mode: Mode }) {
+function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("https://");
   const [busy, setBusy] = useState(false);
@@ -362,7 +363,13 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          refuse={(file) => pickRefusal(tool, file)}
+          onFiles={(files) => {
+            // An over-ceiling or non-HTML file never gets here: `refuse`
+            // turned it away at the pick, before it was read or uploaded.
+            setOutcome(null);
+            setFile(files[0] ?? null);
+          }}
           accept="text/html,.html,.htm"
           multiple={false}
           compact

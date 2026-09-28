@@ -58,6 +58,38 @@ import { AI_ALLOWANCE_FACT } from "@/lib/tools/tool-facts";
 import { aiDailyAllowanceNote } from "@/lib/workers/ai-tool-availability";
 import { tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
+import { readWorkerError } from "@/lib/workers/read-error";
+import { rateLimitHeaders, rateLimitErrorResult } from "./response";
+import { AI_ALLOWANCE_ACTION } from "@/lib/jobs/ai-allowance";
+import type { RateLimitDecision } from "./types";
+
+/**
+ * What a panel actually shows on an exhausted allowance: the 429 body PLUS
+ * the wait the browser client now reads from `Retry-After` and says in words.
+ * Composed through the real builders and the real reader, so the added
+ * sentence is held to the same no-personal-conduct shapes as the body.
+ */
+const ALLOWANCE_DECISION = {
+  allowed: false,
+  action: AI_ALLOWANCE_ACTION,
+  policyId: "ai-characters",
+  provider: "memory",
+  enforced: true,
+  retryAfterSeconds: 11_400,
+  retryAfterBucket: "15m+",
+} as unknown as RateLimitDecision;
+const PANEL_ALLOWANCE_MESSAGE = (
+  await readWorkerError(
+    new Response(
+      JSON.stringify(rateLimitErrorResult(ALLOWANCE_DECISION).body),
+      {
+        status: 429,
+        headers: rateLimitHeaders(ALLOWANCE_DECISION),
+      },
+    ),
+    "fallback",
+  )
+).message;
 
 /** Two genuinely different callers, as a proxy/CDN would present them. */
 const headersFor = (address: string) =>
@@ -85,6 +117,10 @@ const COPY: { where: string; text: string }[] = [
       text: aiDailyAllowanceNote(t.slug),
     })),
   { where: "the 429 body", text: AI_ALLOWANCE_USED_MESSAGE },
+  {
+    where: "the panel's 429 message (body + the client's wait)",
+    text: PANEL_ALLOWANCE_MESSAGE,
+  },
 ];
 
 /**

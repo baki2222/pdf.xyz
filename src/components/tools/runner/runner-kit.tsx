@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import Link from "next/link";
 import { announceOutcome } from "@/components/a11y/live-region";
 import {
   AlertTriangle,
@@ -23,6 +24,7 @@ import {
 } from "lucide-react";
 import { PageRangeError } from "@/lib/pdf/ranges";
 import { PdfEngineError } from "@/lib/pdf/engine";
+import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { buttonVariants } from "@/components/ui/button";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
@@ -100,6 +102,7 @@ export function Dropzone({
   hint,
   compact = false,
   className,
+  refuse,
 }: {
   onFiles: (files: File[]) => void;
   accept?: string;
@@ -109,27 +112,45 @@ export function Dropzone({
   hint?: string;
   compact?: boolean;
   className?: string;
+  /**
+   * Why a picked file cannot be used, or `null` when it can. Runs on EVERY way
+   * a file arrives (drop, browse, a pick made before hydration) and before
+   * `onFiles`, so a refused file is never read or uploaded. A drop is not
+   * filtered by `accept`, which is why this exists. The worker panels pass
+   * `pickRefusal` from `@/lib/uploads/pick-check`.
+   */
+  refuse?: (file: File) => string | null;
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   const emit = useCallback(
     (list: FileList | null) => {
       if (!list || list.length === 0) return;
+      const kept: File[] = [];
+      let first: string | null = null;
+      for (const file of Array.from(list)) {
+        const why = refuse ? refuse(file) : null;
+        if (why === null) kept.push(file);
+        else first ??= why;
+      }
+      setRefusal(first);
+      if (kept.length === 0) return;
       // The engine downloads the moment files arrive (including a pre-hydration
       // pick adopted by useEarlyFilePick below), so by the time a hand reaches
       // the run button the pdf-lib chunk is usually already here. Fire-and-
       // forget; the operation's own await is the surface that reports failures.
       warmPdfLib();
-      onFiles(Array.from(list));
+      onFiles(kept);
     },
-    [onFiles],
+    [onFiles, refuse],
   );
 
   useEarlyFilePick(inputRef, emit);
 
-  return (
+  const zone = (
     <label
       htmlFor={inputId}
       onDragOver={(e) => {
@@ -188,6 +209,15 @@ export function Dropzone({
         {hint && <span className="text-muted text-xs">{hint}</span>}
       </span>
     </label>
+  );
+  // Without a refusal the zone renders exactly as before: no wrapper, so the
+  // runners' layouts (which never pass `refuse`) are untouched.
+  if (!refusal) return zone;
+  return (
+    <>
+      {zone}
+      <ErrorNote message={refusal} />
+    </>
   );
 }
 
@@ -269,13 +299,29 @@ export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
 }
 
 export function ErrorNote({ message }: { message: string }) {
+  // A message that sends the user to Unlock PDF (every encrypted-file message
+  // does) carries the way there, rather than a tool name to go and find.
+  const offersUnlock = message.includes(UNLOCK_TOOL_NAME);
   return (
     <p
       role="alert"
       className="border-err/40 bg-err/10 text-err flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-      <span>{message}</span>
+      <span>
+        {message}
+        {offersUnlock && (
+          <>
+            {" "}
+            <Link
+              href={UNLOCK_TOOL_HREF}
+              className="font-medium underline underline-offset-2"
+            >
+              Open {UNLOCK_TOOL_NAME}
+            </Link>
+          </>
+        )}
+      </span>
     </p>
   );
 }
@@ -528,12 +574,18 @@ export function ResultPanel({
   onReset,
   resetLabel = "Start over",
   announcement,
+  tone = "ok",
 }: {
   title: string;
   summary?: ReactNode;
   children: ReactNode;
   onReset: () => void;
   resetLabel?: string;
+  /**
+   * `warn` for an outcome that finished but did not give the user what they
+   * came for (a PDF with no selectable text), so it does not read as success.
+   */
+  tone?: "ok" | "warn";
   /**
    * What to say when focus cannot be moved. Defaults to `title`, which is right
    * for most tools; override where the title alone is thin out of context
@@ -550,11 +602,26 @@ export function ResultPanel({
       {...outcome}
       role="group"
       aria-labelledby={summary ? `${id}-t ${id}-s` : `${id}-t`}
-      className="animate-float-up border-ok/30 bg-ok/10 focus-visible:ring-ok/50 flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2"
+      data-tone={tone}
+      className={cn(
+        "animate-float-up flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2",
+        tone === "warn"
+          ? "border-warn/40 bg-warn/10 focus-visible:ring-warn/50"
+          : "border-ok/30 bg-ok/10 focus-visible:ring-ok/50",
+      )}
     >
       <div className="flex items-start gap-3">
-        <span className="bg-ok/15 text-ok grid size-10 shrink-0 place-items-center rounded-[3px]">
-          <CheckCircle2 className="size-5" aria-hidden />
+        <span
+          className={cn(
+            "grid size-10 shrink-0 place-items-center rounded-[3px]",
+            tone === "warn" ? "bg-warn/15 text-warn" : "bg-ok/15 text-ok",
+          )}
+        >
+          {tone === "warn" ? (
+            <AlertTriangle className="size-5" aria-hidden />
+          ) : (
+            <CheckCircle2 className="size-5" aria-hidden />
+          )}
         </span>
         <div className="flex flex-col gap-1">
           <h3 id={`${id}-t`} className="text-fg text-base font-semibold">
