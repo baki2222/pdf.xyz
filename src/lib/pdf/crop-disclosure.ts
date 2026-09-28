@@ -14,7 +14,7 @@
  * before sharing.
  *
  * A leaf, so the runner (client) and the facts (server) share one sentence.
- * The Redact pair is checked against the catalogue in `crop-disclosure.test.ts`.
+ * The Redact pair is checked against the catalogue in `crop-disclosure.test.tsx`.
  */
 export const REDACT_TOOL_NAME = "Redact PDF";
 export const REDACT_TOOL_HREF = "/tools/redact-pdf";

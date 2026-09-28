@@ -69,7 +69,10 @@ const REFERENCE =
 /**
  * Illustrative names, not references: `mock-isolation.test.ts` explains a
  * module-cache hazard with two hypothetical files, `a.test.ts` and
- * `b.test.ts`, and a `panel.test.tsx`. Scoped to that one file, and ratcheted
+ * `b.test.ts`, and a `panel.test.tsx`; its graph fixtures also name a
+ * `guard.test.tsx` observer and parse a made-up `src/tests/sample.test.ts`.
+ * `comment-pointers.test.ts` feeds `no-such-file.test.ts` to its own resolver
+ * as the name that must NOT resolve. Scoped to each file, and ratcheted
  * below — each must still appear there and must still NOT exist, so the
  * exemption cannot quietly cover a real file of the same name.
  */
@@ -78,6 +81,11 @@ const ILLUSTRATIVE: Record<string, readonly string[]> = {
     "a.test.ts",
     "b.test.ts",
     "panel.test.tsx",
+    "guard.test.tsx",
+    "src/tests/sample.test.ts",
+  ],
+  "src/lib/workers/html-render/comment-pointers.test.ts": [
+    "no-such-file.test.ts",
   ],
 };
 
