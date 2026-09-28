@@ -6,23 +6,46 @@
  * "30,774 free characters of AI text a day for your connection" — as a fact line
  * and as the FAQPage answer to "Is X free?". That figure is TRANSLATE's: it is
  * `TRANSLATE_MAX_INPUT_CHARS × runs`, and it is true only for a client that
- * declares how many characters a job holds. Only the translate panel does. Every
- * other AI job arrives undeclared, and `POST /api/jobs` reserves a whole call's
- * worth for it (`deliveryCapFor({}, …)`), so each summary, question or extraction
- * costs a fixed third of the bucket whatever its length. A 2,000-character memo
- * bought 3 summaries, not ~15; a 300-page report read "30,774 characters a day"
- * beside "reads up to 500,000 characters" and looked impossible, yet ran — and
- * was charged exactly what the memo was. The refusal then told a user who had
- * summarised three short memos that their "30,774 free characters" were gone.
+ * declares how many characters a job holds. Only the translate panel did. Every
+ * other AI job arrived undeclared, and `POST /api/jobs` reserved a whole call's
+ * worth for it (`deliveryCapFor({}, …)`), so each summary, question or
+ * extraction cost a fixed third of the bucket whatever its length. A
+ * 2,000-character memo bought 3 summaries, not ~15; a 300-page report read
+ * "30,774 characters a day" beside "reads up to 500,000 characters" and looked
+ * impossible, yet ran — and was charged exactly what the memo was. The refusal
+ * then told a user who had summarised three short memos that their "30,774 free
+ * characters" were gone.
  *
  * Nothing caught it because every allowance guard checked the ONE sentence
  * against the ONE tool it was derived from (translate), and the other three
  * pages imported the same constant — "one copy" was true, and was the defect.
  *
- * So this file does not trust a list of which tools declare. It DISCOVERS it
- * from the browser clients (every `runSecurityJob` call, read with the
- * TypeScript parser), spends the real bucket through the real route for every
- * AI tool, and compares the count to the number each RENDERED page publishes.
+ * ── REWRITTEN AT THE MERGE WITH PER-CALL PRICING (L10), HISTORY KEPT ────────
+ *
+ * This file was written (L04, 885f2e1) when the unit a tool was charged in
+ * followed from whether its CLIENT declared characters, so it discovered the
+ * declaring clients and required the copy to be keyed on that set, and it
+ * required each undeclared tool's page to publish the exact count the route
+ * allowed ("3 summaries a day"). L10 (9a7624a, 2988ccc) then made every AI
+ * client declare and priced Summarize, Chat and Extract PER CALL
+ * (`aiReservationFor`): a run costs what it sends, clamped at one whole run,
+ * and only while the running worker proves its read cap (`aiReadCap`); an
+ * image without the proof charges every run the ceiling. Two of this file's
+ * assertions pinned the pre-L10 world and are INVERTED here:
+ *
+ *  - "matches the set the copy is keyed on, in both directions" required a
+ *    declaring set strictly between empty and all. After L10 it is all four,
+ *    and the copy is keyed on `AI_RUN_PRICING` — the map the route prices by.
+ *    It now requires that map to cover exactly the AI tools, both kinds to
+ *    exist, and every per-call client to declare (the discount needs it).
+ *  - "a per-run page's count equals the jobs the real route allows" required
+ *    the EXACT count. On a proving worker a short document now gets more, so
+ *    the page publishes the per-run CEILING and the FLOOR it guarantees, true
+ *    of every worker image; the real route is spent at the costliest run
+ *    each tool can send, and must allow exactly that floor.
+ *
+ * The discovery of the declaring clients, the render of the real pages and
+ * the spend through the real route are unchanged.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -33,12 +56,16 @@ import { tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import {
   AI_ALLOWANCE_USED_MESSAGE,
+  AI_CHARACTER_ALLOWANCE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
-  AI_TOOLS_DECLARING_CHARACTERS,
-  AI_UNDECLARED_RUNS_PER_DAY,
-  CHAT_QUESTIONS_PER_DAY_AT_LEAST,
+  AI_JOB_DELIVERY_LIMITS,
+  AI_PER_CALL_ALLOWANCE_FACT,
+  AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
+  AI_PER_CALL_RUN_CEILING,
   aiAllowanceFactFor,
+  aiRunUnitFor,
 } from "@/lib/jobs/ai-allowance";
+import { AI_RUN_PRICING, aiReservationFor } from "@/lib/jobs/delivery-cap";
 import { RATE_LIMIT_ENV } from "@/lib/ratelimit";
 import { resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
 import { POST } from "@/app/api/jobs/route";
@@ -58,6 +85,10 @@ const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 
 const aiTools = () =>
   tools.filter((t) => capabilityForMode(t.processing) === "ai");
+const perCallTools = () =>
+  aiTools().filter((t) => AI_RUN_PRICING[t.slug] === "per-call");
+const perCharacterTools = () =>
+  aiTools().filter((t) => AI_RUN_PRICING[t.slug] === "per-character");
 
 /* ------------------------------------------------------------------ *
  *  Which clients declare — read from the call sites, not from a list
@@ -114,21 +145,31 @@ function discoverDeclaringClients(): Map<string, boolean> {
  * ------------------------------------------------------------------ */
 
 const DELIVERED = AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US");
+const CEILING = AI_PER_CALL_RUN_CEILING.toLocaleString("en-US");
 
 /**
- * Problems with an allowance sentence published for a tool whose jobs are
- * charged per run. Empty means it states a per-day count of runs, says the
- * allowance is shared, and does not quote the translate figure as its own.
+ * Problems with an allowance sentence published for a tool priced per call.
+ * Empty means it states the most one run can take, the floor of runs a day
+ * that ceiling guarantees (and that the route allows at the costliest run),
+ * and that the allowance is shared.
+ *
+ * WAS `perRunProblems`, which also refused any mention of the character
+ * figure: under undeclared pricing that figure was not the tool's unit at all.
+ * Per-call pricing charges characters, so the figure is the tool's too — but
+ * never ALONE: without the per-run ceiling it reads as "your document's
+ * length", which is true only on a proving worker.
  */
-function perRunProblems(text: string, runs: number): string[] {
+function perCallProblems(text: string, floor: number): string[] {
   const problems: string[] = [];
-  if (text.includes(DELIVERED))
-    problems.push(`quotes the character figure ${DELIVERED} as this tool's`);
-  const count = /\b(\d[\d,]*) [a-z]+ a day\b/.exec(text);
-  if (!count) problems.push("states no per-day count of runs");
-  else if (Number(count[1]!.replace(/,/g, "")) !== runs)
-    problems.push(`publishes ${count[1]} a day; the route allows ${runs}`);
-  if (!/\bshared\b/i.test(text))
+  if (!text.includes(`never counts more than ${CEILING}`))
+    problems.push(`states no per-run ceiling (${CEILING})`);
+  const count = /\bat least (\d[\d,]*) ([a-z ]+?) fits? in a day\b/.exec(text);
+  if (!count) problems.push("states no floor of runs a day");
+  else if (Number(count[1]!.replace(/,/g, "")) !== floor)
+    problems.push(
+      `publishes at least ${count[1]} a day; the route allows ${floor} at the costliest run`,
+    );
+  if (!/\bshared\b|\bsame allowance\b/i.test(text))
     problems.push(
       "does not say the allowance is shared with the other AI tools",
     );
@@ -138,6 +179,10 @@ function perRunProblems(text: string, runs: number): string[] {
 /** Verbatim from production /tools/summarize-pdf at 67e8d0f. */
 const SHIPPED_SUMMARIZE_FACT =
   "30,774 free characters of AI text a day for your connection — the allowance resets daily.";
+
+/** L04's sentence (885f2e1), true only of a worker that has not proved aiReadCap. */
+const L04_SUMMARIZE_FACT =
+  "Each summary uses a fixed share of the free daily AI allowance for your connection, whatever the document's length — 3 summaries a day if nothing else draws on it. The allowance is shared with the other AI tools and resets daily.";
 
 /* ------------------------------------------------------------------ *
  *  The route, spent for real
@@ -185,7 +230,7 @@ async function jobsTheRouteAllows(
       );
     allowed += 1;
   }
-  throw new Error(`${slug}: 50 undeclared jobs were never refused`);
+  throw new Error(`${slug}: 50 jobs were never refused`);
 }
 
 let pages: Map<string, RenderedToolPage>;
@@ -218,50 +263,86 @@ describe("which AI clients declare their characters", () => {
     ).toEqual([]);
   });
 
-  it("matches the set the copy is keyed on, in both directions", () => {
+  it("the copy is keyed on the pricing the route charges by, and every per-call client declares", () => {
+    // INVERTED at the merge with L10, history in the file header. The copy's
+    // classification is `AI_RUN_PRICING`, the map `aiReservationFor` reads —
+    // one definition for the charge and the sentence.
+    const priced = Object.keys(AI_RUN_PRICING).sort();
+    expect(
+      priced,
+      "AI_RUN_PRICING and the catalogue's AI tools differ",
+    ).toEqual(
+      aiTools()
+        .map((t) => t.slug)
+        .sort(),
+    );
+    // Health, both ways: at least one tool of each kind, or the branches of
+    // aiAllowanceFactFor below are compared against nothing.
+    expect(perCharacterTools().length).toBeGreaterThan(0);
+    expect(perCallTools().length).toBeGreaterThan(0);
+    // A per-call run is priced by its size only when it declares one; a
+    // client that stopped would pay the ceiling on every run while the page
+    // promised a floor it still keeps — true, but a discount quietly gone.
     const discovered = discoverDeclaringClients();
-    const declaring = aiTools()
-      .map((t) => t.slug)
-      .filter((slug) => discovered.get(slug) === true)
-      .sort();
-    // Health, both ways: at least one tool of each kind, or the comparison
-    // below is between two empty (or two full) sets.
-    expect(declaring.length).toBeGreaterThan(0);
-    expect(declaring.length).toBeLessThan(aiTools().length);
-    expect([...AI_TOOLS_DECLARING_CHARACTERS].sort()).toEqual(declaring);
+    expect(
+      perCallTools()
+        .map((t) => t.slug)
+        .filter((slug) => discovered.get(slug) !== true),
+      "these per-call clients send no declaration",
+    ).toEqual([]);
+    // The two branches, as the pages receive them.
+    for (const tool of perCharacterTools())
+      expect(aiAllowanceFactFor(tool.slug)).not.toContain(CEILING);
+    for (const tool of perCallTools())
+      expect(
+        aiAllowanceFactFor(tool.slug).startsWith(AI_PER_CALL_ALLOWANCE_FACT),
+      ).toBe(true);
   });
 });
 
 describe("each AI page publishes what the route lets that tool do", () => {
-  it("the detector flags the sentence that shipped on Summarize (positive control)", () => {
-    expect(
-      perRunProblems(
-        `Yes — ${SHIPPED_SUMMARIZE_FACT}`,
-        AI_UNDECLARED_RUNS_PER_DAY,
-      ),
-    ).toEqual(
+  it("the detector flags the sentences that shipped on Summarize (positive controls)", () => {
+    const floor = AI_PER_CALL_RUNS_PER_DAY_AT_LEAST;
+    expect(perCallProblems(`Yes — ${SHIPPED_SUMMARIZE_FACT}`, floor)).toEqual(
       expect.arrayContaining([
-        `quotes the character figure ${DELIVERED} as this tool's`,
+        `states no per-run ceiling (${CEILING})`,
+        "states no floor of runs a day",
+      ]),
+    );
+    // L04's exact count is not a floor, and names no ceiling.
+    expect(perCallProblems(L04_SUMMARIZE_FACT, floor)).toEqual(
+      expect.arrayContaining([
+        `states no per-run ceiling (${CEILING})`,
+        "states no floor of runs a day",
       ]),
     );
   });
 
-  it("a per-run page's count equals the jobs the real route allows", async () => {
-    const undeclared = aiTools().filter(
-      (t) => !AI_TOOLS_DECLARING_CHARACTERS.has(t.slug),
-    );
-    expect(undeclared.length, "no per-run AI tool — blind").toBeGreaterThan(0);
-    for (const tool of undeclared) {
+  it("a per-call page's floor is what the real route allows its costliest run", async () => {
+    const perCall = perCallTools();
+    expect(perCall.length, "no per-call AI tool — blind").toBeGreaterThan(0);
+    for (const tool of perCall) {
+      // The costliest runs a client can send: undeclared, and declared far
+      // past any real document. Either way no proving heartbeat is served
+      // here, so this is also every run on an image built before the proof.
       resetRateLimitGuardForTests();
-      const allowed = await jobsTheRouteAllows(tool.slug);
+      const undeclared = await jobsTheRouteAllows(tool.slug);
+      resetRateLimitGuardForTests();
+      const huge = await jobsTheRouteAllows(tool.slug, {
+        declaredCharacters: 400_000,
+        declaredTextPages: 120,
+      });
       expect(
-        allowed,
-        `${tool.slug}: the route allows no job at all`,
+        undeclared,
+        `${tool.slug}: the route allows no job`,
       ).toBeGreaterThan(0);
       expect(
-        allowed,
-        "the published run count is not what the route actually allows",
-      ).toBe(AI_UNDECLARED_RUNS_PER_DAY);
+        [undeclared, huge],
+        "the published floor is not what the route allows at the costliest run",
+      ).toEqual([
+        AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
+        AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
+      ]);
 
       const page = pages.get(tool.slug)!;
       const free = page.faq.find((e) => /\bfree\?$/.test(e.question));
@@ -270,11 +351,13 @@ describe("each AI page publishes what the route lets that tool do", () => {
         `${tool.slug}: no "Is it free?" answer is served`,
       ).toBeDefined();
       expect(
-        perRunProblems(free!.answer, allowed),
+        perCallProblems(free!.answer, undeclared),
         `${tool.slug} FAQPage`,
       ).toEqual([]);
       const fact = aiAllowanceFactFor(tool.slug);
-      expect(perRunProblems(fact, allowed), `${tool.slug} fact`).toEqual([]);
+      expect(perCallProblems(fact, undeclared), `${tool.slug} fact`).toEqual(
+        [],
+      );
       expect(
         page.text,
         `${tool.slug}: the fact line is not what the page renders`,
@@ -282,83 +365,88 @@ describe("each AI page publishes what the route lets that tool do", () => {
     }
   });
 
-  it("a declaring page keeps the character figure, and says it is shared", () => {
-    for (const slug of AI_TOOLS_DECLARING_CHARACTERS) {
-      const page = pages.get(slug)!;
+  it("CONTROL: the floor is a floor — a short run on a proving worker costs less", async () => {
+    // Priced through the route's own function and limits, with the proof
+    // present: a one-page document pays what it sends, so more runs fit than
+    // the page promises at least. (per-call-pricing.test.ts spends the real
+    // route over a served heartbeat for the same property.)
+    for (const tool of perCallTools()) {
+      const { charge } = await aiReservationFor(
+        tool.slug,
+        {
+          declaredCharacters: 2_000,
+          options: VALID_OPTIONS[tool.slug],
+        },
+        { ...AI_JOB_DELIVERY_LIMITS, readCapEnforced: async () => true },
+      );
+      expect(
+        Math.floor(AI_CHARACTER_ALLOWANCE / charge),
+        `${tool.slug}: a short proven run is not cheaper than the ceiling`,
+      ).toBeGreaterThan(AI_PER_CALL_RUNS_PER_DAY_AT_LEAST);
+    }
+  });
+
+  it("a per-character page keeps the character figure, and says it is shared", () => {
+    const perCharacter = perCharacterTools();
+    expect(perCharacter.length).toBeGreaterThan(0);
+    for (const tool of perCharacter) {
+      const page = pages.get(tool.slug)!;
       const free = page.faq.find((e) => /\bfree\?$/.test(e.question))!;
       expect(free.answer).toContain(DELIVERED);
       expect(free.answer).toMatch(/\bsame allowance\b/);
     }
   });
 
-  /*
-   * Added 2026-09-27, when chat began declaring its document: its page trades
-   * "3 questions a day" for "at least 3 … however long the document". That is
-   * a new number, so it is spent through the real route like the others — at
-   * the costliest question a client can declare, where the per-question cap
-   * (not the length) sets the price.
-   */
-  it("chat's floor is what the real route allows its costliest question", async () => {
-    resetRateLimitGuardForTests();
-    const costliest = await jobsTheRouteAllows("chat-with-pdf", {
-      declaredCharacters: 400_000,
-      declaredTextPages: 120,
-    });
-    expect(costliest).toBe(CHAT_QUESTIONS_PER_DAY_AT_LEAST);
-    // CONTROL: a one-page document is charged by its length, so the floor
-    // is a floor and not the count.
-    resetRateLimitGuardForTests();
-    const short = await jobsTheRouteAllows("chat-with-pdf", {
-      declaredCharacters: 2_000,
-      declaredTextPages: 1,
-    });
-    expect(short).toBeGreaterThan(CHAT_QUESTIONS_PER_DAY_AT_LEAST);
-
+  it("chat's page says a question is a run, and states the floor in questions", () => {
+    // Was "chat's floor is what the real route allows its costliest question",
+    // under chat's own per-question cap. Per-call pricing clamps every
+    // per-call run at one ceiling, so chat's floor is spent in the loop above;
+    // what stays chat's own is that a QUESTION is the run.
     const page = pages.get("chat-with-pdf")!;
     const free = page.faq.find((e) => /\bfree\?$/.test(e.question))!;
     expect(free.answer).toContain(
-      `at least ${CHAT_QUESTIONS_PER_DAY_AT_LEAST} questions fit in a day`,
+      "Each question counts against the allowance as a run of its own",
+    );
+    expect(free.answer).toContain(
+      `at least ${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST} chat questions fit in a day`,
     );
     expect(page.text).toContain(aiAllowanceFactFor("chat-with-pdf"));
   });
 
-  it("the refusal claims no character count was spent by a per-run user", () => {
+  it("the refusal claims no character count was spent, and names every per-call run", () => {
     // It said "The 30,774 free characters of AI text for this connection are
-    // used up" — false after three one-page summaries. It now names the
-    // allowance, and states both units side by side.
+    // used up" — false after three one-page summaries.
     expect(AI_ALLOWANCE_USED_MESSAGE).not.toMatch(
       /\bThe [\d,]+ free characters\b[^.]*\bare used up\b/,
     );
-    // The per-run clause, matched whole. This used to be
-    // `toContain(\`${AI_UNDECLARED_RUNS_PER_DAY} \`)` — i.e. "3 " — which any
-    // sentence with a 3 and a space satisfies. The nouns are read from what
-    // each per-run tool's own fact line says ("3 summaries a day"), so the
-    // refusal and the pages are held to each other, not to a typed list.
-    const n = AI_UNDECLARED_RUNS_PER_DAY;
-    const perRun = aiTools().filter(
-      (t) => !AI_TOOLS_DECLARING_CHARACTERS.has(t.slug),
+    // It then said "… or 3 summaries or extractions, shared across the AI
+    // tools" — the exact count, false on a proving worker. It now states the
+    // per-run ceiling and names each per-call tool's run, from the SAME table
+    // its page's floor is written in (aiRunUnitFor), never a typed list.
+    const perCall = perCallTools();
+    expect(perCall.length, "positive control: per-call AI tools exist").toBe(
+      aiTools().length - perCharacterTools().length,
     );
-    expect(perRun.length, "positive control: per-run AI tools exist").toBe(
-      aiTools().length - AI_TOOLS_DECLARING_CHARACTERS.size,
-    );
-    expect(perRun.length).toBeGreaterThan(0);
-    const nouns = perRun.map((t) => {
-      const m = new RegExp(`\\b${n} ([a-z]+) a day\\b`).exec(
-        aiAllowanceFactFor(t.slug),
-      );
-      if (!m) throw new Error(`${t.slug}: fact line states no per-run count`);
-      return m[1]!;
-    });
-    // Every per-run tool names its own unit — the generic fallback is a
+    const units = perCall.map((t) => aiRunUnitFor(t.slug));
+    // Every per-call tool names its own run — the generic fallback is a
     // missing entry, not a noun.
-    expect(nouns.filter((w) => w === "runs")).toEqual([]);
-    const clause = new RegExp(
-      `\\b${n} ([a-z]+(?:(?:, | or )[a-z]+)*), shared across the AI tools\\b`,
-    ).exec(AI_ALLOWANCE_USED_MESSAGE);
+    expect(units.filter((u) => u.one === "run")).toEqual([]);
+    for (const [i, tool] of perCall.entries()) {
+      expect(aiAllowanceFactFor(tool.slug)).toContain(
+        `at least ${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST} ${units[i]!.many} fit`,
+      );
+    }
+    const clause =
+      /\b((?:an? [a-z ]+?)(?:, an? [a-z ]+?)*(?: or an? [a-z ]+?)?) never counts more than ([\d,]+) of them\b/.exec(
+        AI_ALLOWANCE_USED_MESSAGE,
+      );
     expect(
       clause,
-      "the refusal names no per-run count for the tools that are charged per run",
+      "the refusal names no per-run ceiling for the tools priced per call",
     ).not.toBeNull();
-    expect(new Set(clause![1]!.split(/, | or /))).toEqual(new Set(nouns));
+    expect(clause![2]).toBe(CEILING);
+    expect(
+      new Set(clause![1]!.split(/, | or /).map((a) => a.replace(/^an? /, ""))),
+    ).toEqual(new Set(units.map((u) => u.one)));
   });
 });

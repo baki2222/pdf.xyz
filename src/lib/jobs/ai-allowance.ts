@@ -250,6 +250,23 @@ const RUN_UNIT: Readonly<Record<string, { one: string; many: string }>> = {
 
 const GENERIC_RUN = { one: "run", many: "runs" } as const;
 
+/**
+ * What one run of `slug` is called — the table the fact lines and the refusal
+ * both read, exported so `tools/ai-allowance-per-tool.test.ts` can hold the two
+ * to it. A per-call tool missing from the table gets the generic "run", which
+ * that test refuses.
+ */
+export function aiRunUnitFor(slug: string): {
+  readonly one: string;
+  readonly many: string;
+} {
+  return RUN_UNIT[slug] ?? GENERIC_RUN;
+}
+
+/** "a summary", "an extraction". */
+const withArticle = (noun: string) =>
+  `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+
 const runsNoun = (unit: { one: string; many: string }, n: number) =>
   n === 1 ? unit.one : unit.many;
 
@@ -361,7 +378,7 @@ export function aiAllowanceFactFor(slug: string): string {
   if (AI_RUN_PRICING[slug] === "per-character") {
     return `${AI_ALLOWANCE_FACT} The other AI tools draw on the same allowance.`;
   }
-  const unit = RUN_UNIT[slug] ?? GENERIC_RUN;
+  const unit = aiRunUnitFor(slug);
   const n = AI_PER_CALL_RUNS_PER_DAY_AT_LEAST;
   const chat = slug === CHAT_TOOL_SLUG ? ` ${CHAT_QUESTION_COST_NOTE}` : "";
   return `${AI_PER_CALL_ALLOWANCE_FACT}${chat} However long the document, at least ${n} ${runsNoun(unit, n)} ${n === 1 ? "fits" : "fit"} in a day if nothing else draws on it. The other AI tools draw on the same allowance.`;
@@ -369,7 +386,7 @@ export function aiAllowanceFactFor(slug: string): string {
 
 /** "a summary, a chat question or an extraction", from the pages' own table. */
 const PER_CALL_UNITS = listed(
-  PER_CALL_TOOLS.map((slug) => `a ${(RUN_UNIT[slug] ?? GENERIC_RUN).one}`),
+  PER_CALL_TOOLS.map((slug) => withArticle(aiRunUnitFor(slug).one)),
   "or",
 );
 
