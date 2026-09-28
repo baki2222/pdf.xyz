@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
+import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 
 export interface DecodedPageImage {
   /** 1-based page the image is painted on. */
@@ -65,7 +66,7 @@ export async function decodePageImages(
   });
   const out: DecodedPageImage[] = [];
   try {
-    const doc = await task.promise;
+    const doc = await awaitPdfjsDocument(task);
     for (let n = 1; n <= doc.numPages; n++) {
       const page = await doc.getPage(n);
       const ops = await page.getOperatorList();

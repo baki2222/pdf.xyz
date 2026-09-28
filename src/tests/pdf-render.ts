@@ -15,6 +15,7 @@
  */
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { nodeAssetOptions } from "./pdf-image-decode";
+import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 
 export interface RenderedPage {
   /** Pixel width of the viewer frame (rotation and crop applied). */
@@ -53,7 +54,7 @@ export async function renderPdfPages(
   });
   const out: RenderedPage[] = [];
   try {
-    const doc = await task.promise;
+    const doc = await awaitPdfjsDocument(task);
     const factory = (
       doc as unknown as {
         canvasFactory?: {

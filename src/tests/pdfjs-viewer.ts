@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
+import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 
 /**
  * Read a PDF the way a reader's viewer does — through pdf.js, in the test
@@ -57,7 +58,7 @@ export async function readAsViewer(bytes: Uint8Array): Promise<SeenPage[]> {
     disableFontFace: true,
   });
   try {
-    const doc = await task.promise;
+    const doc = await awaitPdfjsDocument(task);
     const pages: SeenPage[] = [];
     for (let i = 1; i <= doc.numPages; i += 1) {
       const page = await doc.getPage(i);

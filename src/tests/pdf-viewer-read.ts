@@ -17,6 +17,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
+import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 
 /** [x0, y0, x1, y1] in the viewer's frame. */
 export type Box = [number, number, number, number];
@@ -132,7 +133,7 @@ export async function readAsViewer(bytes: Uint8Array): Promise<ViewerRead> {
     disableFontFace: true,
   });
   try {
-    const doc = await task.promise;
+    const doc = await awaitPdfjsDocument(task);
     const page = await doc.getPage(1);
     const vp = page.getViewport({ scale: 1 });
     const view = vp.transform as Matrix;

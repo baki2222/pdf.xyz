@@ -124,6 +124,7 @@ import {
   type ProofOutcome,
   type UnprovenCause,
 } from "@/lib/probes/proof-outcome";
+import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
 const ONLY = process.argv.slice(2).filter((a) => !a.startsWith("-"));
@@ -519,7 +520,7 @@ async function pdfPlainText(bytes: Buffer): Promise<string> {
     ...PDFJS_DOCUMENT_DEFAULTS,
     data: new Uint8Array(bytes),
   });
-  const doc = await task.promise;
+  const doc = await awaitPdfjsDocument(task);
   let text = "";
   for (let i = 1; i <= doc.numPages; i++) {
     const content = await (await doc.getPage(i)).getTextContent();

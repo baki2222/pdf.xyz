@@ -76,12 +76,18 @@ export function setPdfjsForAccessSource(source: PdfjsSource): PdfjsSource {
   return previous;
 }
 
-function isPasswordException(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { name?: unknown }).name === "PasswordException"
-  );
+/**
+ * Did the open fail for want of a password? Asked of the ENGINE's error:
+ * the document is opened through `awaitPdfjsDocument` (`./pdfjs`), which turns
+ * pdf.js's `PasswordException` into the engine's encrypted error with a
+ * `needs-password` verdict — the same translation every other reader gets, so
+ * no reader classifies a raw pdf.js failure its own way. The raw name is still
+ * recognised, for a pdf.js error that reaches here untranslated.
+ */
+function isPasswordRefusal(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const { name, verdict } = err as { name?: unknown; verdict?: unknown };
+  return name === "PasswordException" || verdict === "needs-password";
 }
 
 /**
@@ -107,7 +113,10 @@ export async function classifyPdfAccess(
     ...PDFJS_DOCUMENT_DEFAULTS,
   });
   try {
-    const doc = await task.promise;
+    // Imported on demand: this module is on the e2e suite's CommonJS load
+    // path (see `./pdfjs-browser`), and `./pdfjs` is not.
+    const { awaitPdfjsDocument } = await import("./pdfjs");
+    const doc = await awaitPdfjsDocument(task);
     // `EncryptFilterName` is `xref.encrypt?.filterName ?? null` in pdf.js's
     // document info: non-null exactly when the trailer carries an /Encrypt
     // dictionary and pdf.js is decrypting — the same fact pdf-lib refuses on.
@@ -119,7 +128,7 @@ export async function classifyPdfAccess(
       ? { kind: "unencrypted", pageCount: doc.numPages }
       : { kind: "restricted", pageCount: doc.numPages };
   } catch (err) {
-    return isPasswordException(err)
+    return isPasswordRefusal(err)
       ? { kind: "password-required" }
       : { kind: "unreadable" };
   } finally {
