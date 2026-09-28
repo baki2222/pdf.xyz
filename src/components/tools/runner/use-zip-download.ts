@@ -72,7 +72,13 @@ type Save = (blob: Blob, filename: string) => void;
  * `zipFiles(` and fail on one. `zip`/`save` are injectable so the failure
  * branch is testable without mocking a shared module.
  */
-export function useZipDownload(zip: Zip = zipFiles, save: Save = downloadBlob) {
+export function useZipDownload(
+  // A CALL of `zipFiles(`, not a bare reference: the archive guards
+  // (`zip-download.test.tsx`, `output-honesty.test.ts`) find the one module
+  // that builds a ZIP by that call.
+  zip: Zip = (files, options) => zipFiles(files, options),
+  save: Save = downloadBlob,
+) {
   const [zipping, setZipping] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
   // A ref, not the state, guards re-entry: two clicks inside one render would

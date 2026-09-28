@@ -20,7 +20,10 @@ import { CompressBatchRunner } from "./compress-batch";
 import { ExtractionResult } from "./extract-images-runner";
 import { ImageResult } from "./pdf-to-image-runner";
 import { SplitEditor } from "./split-runner";
-import { zipFailureMessage } from "./use-zip-download";
+import {
+  ZIP_OUT_OF_MEMORY_MESSAGE,
+  zipFailureMessage,
+} from "./use-zip-download";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 
 /**
@@ -278,15 +281,24 @@ describe("Download ZIP — a failed archive is reported, a good one is delivered
     "%s: says the ZIP failed, frees the button, and the retry downloads the real archive",
     async (file) => {
       const mounted = await SCENARIOS[file]!();
+      const failure = new Error("Array buffer allocation failed");
       const generate = vi
         .spyOn(JSZip.prototype, "generateAsync")
-        .mockRejectedValueOnce(new Error("Array buffer allocation failed"));
+        .mockRejectedValueOnce(failure);
 
       fireEvent.click(mounted.button());
 
       // What the user is told. Before the fix: nothing — no alert at all.
+      // The sentence is the one the hook derives from THIS failure: since the
+      // merge with L06's hook, an allocation failure gets the out-of-memory
+      // sentence (the connection advice is false for it), so the expectation
+      // is computed from the same error rather than from no error at all.
+      const said = zipFailureMessage(failure);
+      expect(said, "an allocation failure read as a lost connection").toBe(
+        ZIP_OUT_OF_MEMORY_MESSAGE,
+      );
       const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent(zipFailureMessage());
+      expect(alert).toHaveTextContent(said);
       expect(generate).toHaveBeenCalledTimes(1);
       expect(downloads).toEqual([]);
       // The button is theirs again: not stuck in "Preparing ZIP…".
@@ -303,9 +315,7 @@ describe("Download ZIP — a failed archive is reported, a good one is delivered
       expect(downloads[0]!.name).toBe(mounted.filename);
       await mounted.check(await openZip(downloads[0]!.blob));
       await waitFor(() =>
-        expect(screen.queryByText(zipFailureMessage(), { exact: false })).toBe(
-          null,
-        ),
+        expect(screen.queryByText(said, { exact: false })).toBe(null),
       );
     },
     20_000,
