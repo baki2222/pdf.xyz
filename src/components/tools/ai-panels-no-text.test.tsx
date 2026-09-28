@@ -143,8 +143,21 @@ describe.each(Object.keys(PANELS) as (keyof typeof PANELS)[])(
       const requests = stubFetch();
       await run(slug, await pdf(null));
 
+      // The worker's own sentence, first — a panel may add what is true of a
+      // refusal before upload (Summarize's preflight adds "Nothing was
+      // uploaded."), never replace it. Exact text until the integration of
+      // wave1/l01-page-leak, where Summarize's own preflight met this check.
       expect(
-        await screen.findByText(NO_SELECTABLE_TEXT_MESSAGE[slug]),
+        await screen.findByText((_, element) => {
+          const opens = (node: Element) =>
+            (node.textContent ?? "").startsWith(
+              NO_SELECTABLE_TEXT_MESSAGE[slug],
+            );
+          // The innermost element that opens with it — not every ancestor.
+          return Boolean(
+            element && opens(element) && ![...element.children].some(opens),
+          );
+        }),
       ).toBeInTheDocument();
       expect(screen.queryByText(/split it into smaller files/i)).toBeNull();
       expect(requests, "a scan was uploaded").toEqual([]);

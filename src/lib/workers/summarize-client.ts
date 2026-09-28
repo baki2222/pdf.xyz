@@ -8,6 +8,7 @@ import { canRunAiTool } from "./ai-tool-availability";
 import type { SummaryFormat, SummaryLength } from "@/lib/jobs/summarize-pdf";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 
 /**
  * Browser-side driver for the secure-worker Summarize PDF flow (`summarize-pdf`).
@@ -133,8 +134,9 @@ export async function preflightSummarize(
     return {
       ok: false,
       code: OFFICE_EXPORT_ERROR_CODES.noText,
-      message:
-        "This PDF has no selectable text to summarize. It may be a scan or image-only PDF — run OCR PDF first, then summarize the result. Nothing was uploaded.",
+      // The worker's own sentence (one owner for both sides of the upload,
+      // `@/lib/jobs/ai-no-text`), plus what this refusal before upload adds.
+      message: `${NO_SELECTABLE_TEXT_MESSAGE["summarize-pdf"]} Nothing was uploaded.`,
     };
   return { ok: true };
 }
