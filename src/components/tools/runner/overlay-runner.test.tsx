@@ -13,6 +13,8 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { OVERLAY_LAYERS } from "@/lib/pdf/overlay";
 import { regionMean, renderPdfPages, type Rgb } from "@/tests/pdf-render";
+import { getToolBySlug } from "@/lib/tools";
+import { pageSteps, stepText } from "@/lib/tools/page-copy";
 import { ToolRunner } from "./tool-runner";
 
 /**
@@ -32,6 +34,13 @@ import { ToolRunner } from "./tool-runner";
  */
 
 const SLUG = "overlay-pdf";
+
+/** The steps the tool page serves (also its HowTo), title and text. */
+function servedSteps(): string[] {
+  const tool = getToolBySlug(SLUG);
+  if (!tool) throw new Error(`${SLUG} is not in the catalogue`);
+  return pageSteps(tool).map(stepText);
+}
 
 const router = {
   back: () => {},
@@ -211,5 +220,27 @@ describe("overlay-pdf: what the downloaded file shows", () => {
       (el) => el.textContent,
     );
     expect(radios).toEqual(OVERLAY_LAYERS.map((l) => l.label));
+
+    // …and the page's steps name each choice the visitor was just shown, in
+    // quotes, read off the RENDERED radios of every Placement control. The
+    // served FAQ said the overlay is "always drawn above the base page's
+    // content, never beneath it" beside a Layer control offering "Behind
+    // content", and its steps listed Scale and Opacity only: nothing compared
+    // the page's words with the controls under them.
+    const steps = servedSteps().join(" ");
+    for (const name of [/overlay layer/i, /overlay scale mode/i]) {
+      const control = screen.getByRole("radiogroup", { name });
+      const labels = Array.from(control.querySelectorAll('[role="radio"]')).map(
+        (el) => el.textContent?.trim() ?? "",
+      );
+      // Health: an empty list, or an empty label, is contained in anything.
+      expect(labels.length).toBeGreaterThanOrEqual(3);
+      for (const label of labels) {
+        expect(label.length).toBeGreaterThan(0);
+        expect(steps, `the steps never name "${label}"`).toContain(
+          `"${label}"`,
+        );
+      }
+    }
   }, 30_000);
 });

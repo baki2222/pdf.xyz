@@ -1,5 +1,9 @@
 import type { ToolContent } from "./types";
-import { OVERLAY_FITS } from "@/lib/pdf/overlay";
+import {
+  OVERLAY_FITS,
+  OVERLAY_LAYERS,
+  type OverlayLayer,
+} from "@/lib/pdf/overlay";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
@@ -55,6 +59,23 @@ const SCALE_LABELS = new Intl.ListFormat("en", {
   type: "disjunction",
 }).format(OVERLAY_FITS.map((option) => `"${option.label}"`));
 
+/** The three Layer buttons, labelled exactly as the segmented control shows them. */
+const layerLabel = (id: OverlayLayer): string => {
+  const option = OVERLAY_LAYERS.find((candidate) => candidate.id === id);
+  if (!option) {
+    throw new Error(
+      `overlay-pdf content names a layer "${id}" the runner does not offer`,
+    );
+  }
+  return option.label;
+};
+const ON_TOP = layerLabel("front");
+const BEHIND = layerLabel("back");
+const MULTIPLY = layerLabel("multiply");
+const LAYER_LABELS = new Intl.ListFormat("en", {
+  type: "disjunction",
+}).format(OVERLAY_LAYERS.map((option) => `"${option.label}"`));
+
 /*
  * The password FAQ sends people to Unlock PDF and describes it as an upload.
  * That is only true while Unlock PDF runs on the worker, so the claim is tied
@@ -66,37 +87,34 @@ if (getToolCapability("unlock-pdf") !== "secure-worker") {
 const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 
 /*
- * What an overlay keeps and drops was checked against the real engine
- * (`overlayPdf` in src/lib/pdf/overlay.ts) on 2026-09-27, output read back
- * with pdfjs-dist, not assumed:
- *  - base: three pages, a title, a filled text field, page 3 carrying
- *    /Rotate 90; overlay: two 300 pt pages of Helvetica text plus a text
- *    field. Output: three pages, base title and base field kept, overlay
- *    field absent, overlay text EXTRACTED from every page (so "selectable"
- *    is measured, not inferred from the "Real vector overlay" tile).
- *  - "First page on all": every page's /XObject entry points at the SAME
- *    indirect object (24 0 R) — the stamp is stored once. "Cycle pages":
- *    page 1 → overlay 1, page 2 → overlay 2, page 3 → overlay 1 again.
- *  - an overlay page with no content stream, and an overlay whose only
- *    content is a filled form field, are both refused with "The overlay PDF
- *    couldn't be applied — …". The same form run through flattenPdf first
- *    and then overlaid carries its typed value onto the base page.
- *  - CORRECTION, re-probed 2026-09-27: the refusal is keyed on a MISSING
- *    /Contents (pdf-lib's MissingPageContentsEmbeddingError), not on "only
- *    fields". A field-only page that does carry an (empty) content stream is
- *    ACCEPTED and its answers silently vanish. The form FAQ was worded as if
- *    every field-only page is refused; it now states both outcomes.
+ * What an overlay keeps and drops, as the engine (`overlayPdf` in
+ * src/lib/pdf/overlay.ts) does it since 1642738d, and where each is held:
+ *  - Layer: "front" paints over the base content, "back" moves the overlay's
+ *    stream to the front of /Contents so it paints under it, "multiply"
+ *    blends on top. overlay-output.test.ts reads the pixels of each;
+ *    overlay-runner.test.tsx drives the control and holds the served steps to
+ *    every Layer and Scale label the runner renders.
+ *  - Annotations: every visible annotation's normal appearance on an overlay
+ *    page (a filled field, a stamp, a comment icon) is painted into that page
+ *    before it is embedded; hidden ones and popups are not. The interactive
+ *    objects themselves are not copied. A used overlay page that still has no
+ *    content stream is skipped as blank and named; if every used page is
+ *    blank the job is refused by name. Held in overlay-output.test.ts,
+ *    "overlay pages whose content is not in a content stream".
+ *  - Geometry: both pages as a viewer shows them, CropBox ∩ MediaBox turned by
+ *    each page's /Rotate (placeOverlay, visibleBox). Held in overlay.test.ts
+ *    ("all 16 rotation pairs") and overlay-output.test.ts (pdf.js renders).
  *  - the output's Title is the base's; Producer and Creator are
  *    STAMP_PRODUCER; ModDate is the time of the run (pdf-lib's load updates
- *    it). A base page carrying /Rotate 90 keeps it, and the overlay is drawn
- *    in that page's unrotated space, so the reader sees it turned with the
- *    page (the "HONEST SCOPE" note in overlay.ts).
+ *    it).
  *  - owner-password-only and open-password PDFs are both refused by
  *    getPageCount / getPageRotations — the calls the two pickers make when a
  *    file is added — with "This PDF is password-protected. Unlock it first".
- *  - pdf-lib's PDFPageEmbedder copies only /Contents and /Resources, bounded
- *    by the MediaBox; it never reads /Annots or /Rotate. The placement box
- *    comes from PDFPage.getSize(), which is the MediaBox, not the CropBox.
+ *
+ * HISTORY: until 2026-10-06 this block recorded a 2026-09-27 probe of the
+ * engine BEFORE 1642738d (overlay always on top, MediaBox placement, /Rotate
+ * ignored, annotations dropped, a field-only page refused), and the intro and
+ * FAQ were written from it. The engine changed under them; the notes did not.
  */
 const content: ToolContent = {
   slug: "overlay-pdf",
@@ -107,9 +125,9 @@ const content: ToolContent = {
     "Stamp a letterhead, approval mark or ruled template PDF over every page of another PDF. Both files stay in your browser. Set scale, opacity and page cycling.",
 
   intro: [
-    `${toolName} lays one PDF on top of another. The base is your document; the overlay is a letterhead, a "Received" stamp, a draft banner or a ruled template. Every base page gets the overlay drawn over its content, and the result keeps the base's page count and page sizes exactly.`,
+    `${toolName} lays one PDF on top of another. The base is your document; the overlay is a letterhead, a "Received" stamp, a draft banner or a ruled template. Each base page gets the overlay drawn on top of its content, behind it, or blended with ${MULTIPLY}, as you choose under Layer, and the result keeps the base's page count and page sizes exactly. A base page mapped to a blank overlay page is left as it was, and the result says which.`,
     `The overlay is embedded as vector content, not a picture: its lines stay sharp at any zoom, its text stays selectable, and a stamp repeated on every page is stored only once. Both PDFs are combined in your browser with pdf-lib, neither is uploaded, and each may be up to ${maxMb} MB.`,
-    `Only what the overlay page itself draws is carried over; links, comments and fillable fields in the overlay PDF, and any answers typed into them, are left behind. The base keeps its own form fields and title, its Producer and Creator properties become ${STAMP_PRODUCER}, and its modification date becomes the moment you ran the overlay.`,
+    `What a viewer shows on the overlay page is carried over as drawing: its own content plus the visible appearance of any filled-in field, stamp or comment on it, so typed answers show but can no longer be edited, and links in the overlay do not work as links. The base keeps its own form fields and title, its Producer and Creator properties become ${STAMP_PRODUCER}, and its modification date becomes the moment you ran the overlay.`,
   ],
 
   useCases: [
@@ -141,8 +159,8 @@ const content: ToolContent = {
       body: 'In the "Overlay PDF" section, drag the stamp, letterhead or template onto "Drop the overlay PDF here, or", or click "browse". The same file checks apply. Its name and page count appear, and the "Remove overlay" cross beside them clears a wrong pick.',
     },
     {
-      title: "Set scale and opacity",
-      body: `Under "Placement", choose ${SCALE_LABELS} for Scale and drag the Opacity slider. If the overlay has more than one page, a "Multi-page overlay" choice appears: "First page on all" or "Cycle pages".`,
+      title: "Set layer, scale and opacity",
+      body: `Under "Placement", choose ${LAYER_LABELS} for Layer, ${SCALE_LABELS} for Scale, and drag the Opacity slider. If the overlay has more than one page, a "Multi-page overlay" choice appears: "First page on all" or "Cycle pages".`,
     },
     {
       title: "Apply and download",
@@ -153,23 +171,23 @@ const content: ToolContent = {
   faqs: [
     {
       q: `What is the difference between "${FIT}", "${STRETCH}" and "${ACTUAL}"?`,
-      a: `"${FIT}" scales the overlay up or down until it fits inside each page without distortion and centres it, which may leave margins. "${STRETCH}" covers the whole page, distorting it if the proportions differ. "${ACTUAL}" keeps its original size, centred, so a larger overlay is cut off at the edges. All three measure the full media box, so on a page trimmed by a smaller crop box part of the overlay can fall outside what a viewer shows.`,
+      a: `"${FIT}" scales the overlay up or down until it fits inside each page without distortion and centres it, which may leave margins. "${STRETCH}" covers the whole page, distorting it if the proportions differ. "${ACTUAL}" keeps its original size, centred, so a larger overlay is cut off at the edges. All three measure the part of the page a viewer shows, so a page trimmed with a crop box is fitted by its visible area, and only the visible part of the overlay page is used.`,
     },
     {
       q: "Why did my overlay hide the text of the base page?",
-      a: "The overlay is always drawn above the base page's content, never beneath it. If its page paints a background, such as a white rectangle behind a letterhead, that background covers whatever lies under it. Lower the Opacity slider, or re-export the template without a background.",
+      a: `It was drawn with Layer set to "${ON_TOP}", the default, which paints the overlay over the page's content: if its page has a background, such as a white rectangle behind a letterhead, that background covers whatever lies under it. Under "Placement", set Layer to "${BEHIND}" to draw the overlay underneath the page's own text, or to "${MULTIPLY}" to keep it on top but let its white areas drop out. "${MULTIPLY}" is the choice for a scanned base page, whose own opaque image would hide an overlay placed behind it. Lowering the Opacity slider also lets the text show through.`,
     },
     {
-      q: "Why is the overlay sideways on some pages?",
-      a: `Some PDFs store a page one way up and carry a rotation setting that viewers apply on display, which is common in scans. The overlay is drawn onto the page as stored, before that rotation, so it turns along with the page, and "${FIT}" sizes it against the unrotated width and height. A rotation setting on the overlay's own page is ignored in the same way: the page is copied as stored.`,
+      q: "Will the overlay be sideways on rotated pages?",
+      a: `No. Some PDFs store a page one way up and carry a rotation setting that viewers apply on display, which is common in scans. The overlay is placed against the page as a viewer shows it, so it lands upright, and "${FIT}" sizes it against the width and height you see. A rotation setting on the overlay's own page is honoured too: the overlay appears the way it does when you open that file on its own.`,
     },
     {
       q: "Can I use a different overlay page for each page of my document?",
       a: 'Yes, when the overlay PDF has more than one page. Choose "Cycle pages" and base page one gets overlay page one, page two gets page two, and so on, starting again from the first overlay page when the overlay runs out. "First page on all" ignores the rest and repeats page one.',
     },
     {
-      q: "My overlay is a filled-in form. Why was it refused, or why are the answers missing?",
-      a: 'Typed answers are kept in form fields, which sit on top of a page rather than in its drawing, and only the drawing is copied. A form page with no content stream at all is refused with "The overlay PDF couldn\'t be applied"; one that has a content stream goes through with its answers missing. Run the form through Flatten PDF first, which also works in your browser, so the answers become page content, then use the flattened copy as the overlay.',
+      q: "My overlay is a filled-in form. Will the answers show?",
+      a: "Usually, yes. The visible appearance of each filled field is painted into the overlay as part of its drawing, so the answers appear on every stamped page but cannot be edited there; the overlay's fields themselves are not copied. Some form fillers save the values without redrawing the fields and leave the viewer to do it, and those answers come out blank or out of date. Run such a form through Flatten PDF first, which also works in your browser and redraws the answers into the page, then use the flattened copy as the overlay. An overlay page with no content stream and no visible field, stamp or comment is skipped as blank: the base pages it maps to are left unchanged and the result names it.",
     },
     {
       q: "What if either PDF is password-protected?",
