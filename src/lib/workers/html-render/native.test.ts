@@ -7,6 +7,7 @@ import {
   createNativeChromiumPdfRunner,
   nativeHtmlRenderDeps,
   probeChromiumFromConfig,
+  PRINT_TO_PDF_OPTIONS,
   type ChromiumLaunch,
 } from "./native";
 import type { NativeHtmlRenderConfig } from "./native-config";
@@ -305,6 +306,9 @@ describe("native Chromium HTML renderer", () => {
       const prints = fake.sent.filter((m) => m.method === "Page.printToPDF");
       expect(prints).toHaveLength(1);
       expect(prints[0]!.params.displayHeaderFooter).toBe(false);
+      // The call IS the exported object the tool pages are held to, not a
+      // second copy of it that could drift.
+      expect(prints[0]!.params).toMatchObject(PRINT_TO_PDF_OPTIONS);
     }
   });
 

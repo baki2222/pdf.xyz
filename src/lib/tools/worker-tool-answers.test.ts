@@ -88,6 +88,11 @@ import { runSignatureRequest } from "@/lib/workers/request-signatures/engine";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
 import { ghostscriptPdfAArgs } from "@/lib/workers/pdf-archive/native";
 import { runRepair } from "@/lib/workers/pdf-structure/engine";
+import { PRINT_TO_PDF_OPTIONS } from "@/lib/workers/html-render/native";
+import {
+  HTML_RENDER_TOOLS,
+  WEBPAGE_TO_PDF_TOOL,
+} from "@/lib/workers/html-render/tools";
 import {
   OFFICE_TO_PDF_TOOLS,
   supportsOfficeInput,
@@ -1243,6 +1248,83 @@ describe("Webpage to PDF refuses the addresses its page says it refuses", () => 
     expect(isSafePublicHttpUrl("https://user:secret@example.com/")).toBe(false);
     expect(served).toMatch(/username or password/);
     expect(isSafePublicHttpUrl("https://example.com/")).toBe(true);
+  });
+});
+
+/*
+ * The Chromium pages described the print of the CLI the renderer replaced.
+ *
+ * WHAT SHIPPED: until 2026-09 the renderer ran `chromium --print-to-pdf`,
+ * which stamps the date, the <title>, the address and "n/N" on every page.
+ * It now drives Chromium over CDP and asks `Page.printToPDF` for
+ * `PRINT_TO_PDF_OPTIONS` (no header or footer, backgrounds on, the
+ * stylesheet's @page size). Both pages kept selling the old stamp — Webpage
+ * to PDF as a dated record ("Each page of the PDF carries the render's date
+ * and source address") and as a token leak, HTML to PDF with a whole
+ * question about the file path on every page — and no test read the served
+ * copy against the print call.
+ *
+ * The subjects are the engine's own tool list, not a typed slug. The ban
+ * has the shipped sentences as its corpus in both directions; the replacement
+ * copy, which NEGATES the stamp in the same words, is the served text the
+ * ban runs over, so a pattern too loose to tell the two apart goes red here.
+ * There is no exit condition: the option is pinned in the same test, so
+ * turning the header back on turns this red and the copy gets rewritten.
+ */
+const PRINTED_STAMP_CLAIMS: readonly RegExp[] = [
+  /\bprints its (?:own |standard )?header and footer\b/i,
+  /\b(?:each|every) page of the PDF carries\b/i,
+  /\bpage-number lines are Chromium's\b/i,
+  /\bis there a date\b[^?]*\bon every page\b/i,
+  /\bprinted in the top and bottom margins comes from Chromium\b/i,
+];
+const SHIPPED_STAMP_CLAIMS: readonly string[] = [
+  "Chromium also prints its own header and footer on every page: the render's date and time on the worker's clock, the page title, the full address including any query string, and page numbers, so a private token in a link ends up printed in the PDF.",
+  "Each page of the PDF carries the render's date and source address, so the version you relied on sits in your own files.",
+  "The PDF shows the result of your print CSS rather than your screen layout, though the date, address and page-number lines are Chromium's, not your stylesheet's.",
+  "Why is there a date, a title and a file path on every page?",
+  "Chromium prints its standard header and footer: the render's date and time and the document's <title> at the top, and at the bottom the location it printed from, which is a temporary path on the worker ending in input.html, next to the page count.",
+  "Anything printed in the top and bottom margins comes from Chromium rather than from your CSS.",
+];
+
+describe("the Chromium pages describe the print the renderer asks for", () => {
+  it("the ban's corpus runs both ways: every shipped sentence caught, every pattern used", () => {
+    for (const s of SHIPPED_STAMP_CLAIMS)
+      expect(
+        PRINTED_STAMP_CLAIMS.some((p) => p.test(s)),
+        s,
+      ).toBe(true);
+    for (const p of PRINTED_STAMP_CLAIMS)
+      expect(
+        SHIPPED_STAMP_CLAIMS.some((s) => p.test(s)),
+        String(p),
+      ).toBe(true);
+  });
+
+  it("no Chromium page claims a stamp the print call turns off", () => {
+    expect(PRINT_TO_PDF_OPTIONS.displayHeaderFooter).toBe(false);
+    expect(HTML_RENDER_TOOLS.length).toBeGreaterThanOrEqual(2);
+    const hits: string[] = [];
+    for (const slug of HTML_RENDER_TOOLS) {
+      const p = page(slug);
+      const served = [
+        p.text,
+        ...p.faq.flatMap((e) => [e.question, e.answer]),
+        ...p.howTo,
+      ].join("\n");
+      expect(served.length, slug).toBeGreaterThan(2_000);
+      for (const pattern of PRINTED_STAMP_CLAIMS)
+        if (pattern.test(served)) hits.push(`${slug}: ${pattern}`);
+    }
+    expect(hits).toEqual([]);
+  });
+
+  it("Webpage to PDF names what the print call turns ON", () => {
+    expect(PRINT_TO_PDF_OPTIONS.printBackground).toBe(true);
+    expect(PRINT_TO_PDF_OPTIONS.preferCSSPageSize).toBe(true);
+    const text = page(WEBPAGE_TO_PDF_TOOL).text;
+    expect(text).toMatch(/\bbackgrounds (?:included|printed)\b/);
+    expect(text).toMatch(/\bpage size the site's print stylesheet sets\b/);
   });
 });
 

@@ -38,6 +38,13 @@ import { formatBytes } from "@/lib/utils";
  *  - where the file goes: processing "server"; retention from
  *    DEFAULT_RETENTION and the wording of src/app/privacy/page.tsx.
  *
+ * Print header and footer: NONE since 2026-09. The renderer now drives
+ * Chromium over CDP and prints with `PRINT_TO_PDF_OPTIONS` (native.ts:
+ * displayHeaderFooter false), and worker-tool-answers.test.ts holds this
+ * page to it. The 2026-09-27 observations below were made on the CLI argv
+ * that call replaced; their header/footer findings are history, kept as
+ * the record of what this page used to say.
+ *
  * Print behaviour (header/footer lines, US Letter default, CSS @page size
  * honoured, `@page { margin: 0 }` leaving no room for the header/footer,
  * @media print applied, a script timer inside the budget firing and one past
@@ -110,7 +117,7 @@ const content: ToolContent = {
     },
     {
       title: "Proof a print stylesheet before it ships",
-      body: "Open the PDF to see which elements your @media print rules hide, reflow or reveal on paper, straight from the file on your disk with no server to deploy to. Anything printed in the top and bottom margins comes from Chromium rather than from your CSS.",
+      body: "Open the PDF to see which elements your @media print rules hide, reflow or reveal on paper, straight from the file on your disk with no server to deploy to. Nothing is added in the top and bottom margins: no print date, title or page count appears unless your page draws it.",
     },
     {
       title: "Rescue the text of a saved web page",
@@ -151,8 +158,8 @@ const content: ToolContent = {
       a: "There are no layout settings on this page, but the HTML itself can set them, because Chromium follows CSS @page rules when it prints. @page { size: A4 landscape } changes the paper and orientation, and @page { margin: 15mm } changes the margins. Without an @page size, the PDF comes out on US Letter.",
     },
     {
-      q: "Why is there a date, a title and a file path on every page?",
-      a: "Chromium prints its standard header and footer: the render's date and time and the document's <title> at the top, and at the bottom the location it printed from, which is a temporary path on the worker ending in input.html, next to the page count. To suppress them, add @page { margin: 0 } to your CSS, which leaves them no room. The trade-off: padding on the body keeps the left and right edges clear on every page, but its top and bottom apply only at the start and end of the document, so text meets the paper's edge at each page break.",
+      q: "Does the PDF get a date, a title or a file path on every page?",
+      a: "No. The worker asks Chromium for the page alone, so no print date, <title>, file location or page count is added at the top or bottom of any page. For page numbers or a running header, add them afterwards with Add Page Numbers or PDF Header & Footer.",
     },
     {
       q: "What happens if the file is too big or will not render?",

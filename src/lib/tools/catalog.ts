@@ -375,7 +375,7 @@ export const tools: Tool[] = [
   {
     slug: "webpage-to-pdf",
     name: "Webpage to PDF",
-    tagline: "Capture any URL as a clean PDF.",
+    tagline: "Capture a public web page URL as a PDF.",
     description:
       "Enter a URL and capture the fully rendered page as a print-quality PDF — Chromium renders it on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",

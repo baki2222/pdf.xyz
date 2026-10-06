@@ -307,6 +307,22 @@ export function mainDocumentVerdict(
   return null;
 }
 
+/**
+ * What every render asks `Page.printToPDF` for — stated, not inherited. The
+ * CLI this replaced printed the date and <title> atop every page and the
+ * document's address (the worker's temp path, for an upload) along the
+ * bottom. The PDF must carry the page and nothing else:
+ * `native.chromium.test.ts` reads that back from a real Chromium,
+ * `native.test.ts` holds the call to this object, and
+ * `src/lib/tools/worker-tool-answers.test.ts` holds both Chromium tool pages
+ * to it (no stamp claimed; backgrounds and the @page size named).
+ */
+export const PRINT_TO_PDF_OPTIONS = {
+  displayHeaderFooter: false,
+  printBackground: true,
+  preferCSSPageSize: true,
+} as const;
+
 const INTERCEPT_ALL = { patterns: [{ urlPattern: "*" }] };
 
 export function createNativeChromiumPdfRunner(
@@ -488,16 +504,7 @@ export function createNativeChromiumPdfRunner(
 
     const { stream } = await cdp.send<{ stream: string }>(
       "Page.printToPDF",
-      {
-        // Stated, not inherited: the CLI this replaced printed the date and
-        // <title> atop every page and the document's address (the worker's
-        // temp path, for an upload) along the bottom. The PDF must carry the
-        // page and nothing else — `native.chromium.test.ts` reads that back.
-        displayHeaderFooter: false,
-        printBackground: true,
-        preferCSSPageSize: true,
-        transferMode: "ReturnAsStream",
-      },
+      { ...PRINT_TO_PDF_OPTIONS, transferMode: "ReturnAsStream" },
       pageSession,
     );
     const chunks: Buffer[] = [];
