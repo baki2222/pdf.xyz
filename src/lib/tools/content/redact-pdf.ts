@@ -17,8 +17,11 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *  - loading: SinglePdfRunner → useSinglePdf → validatePdfFile (default
  *    MAX_PDF_BYTES, which is RUNNER_FILE_CEILINGS.redact) and getPageRotations
  *    → loadPdf, which refuses ANY file with an /Encrypt entry (pdf-lib's
- *    isEncrypted) with "This PDF is password-protected. Unlock it first, then
- *    try again." — that includes owner-password-only files that open freely.
+ *    isEncrypted) — owner-password-only files that open freely included — in
+ *    the words of the pdf.js probe's verdict (src/lib/pdf/encryption.ts):
+ *    "password-protected" only for a file that needs a password to open.
+ *    AMENDED 2026-10-06: the FAQ quoted the retired "Unlock it first" sentence
+ *    for both kinds until then.
  *    Drop zone text: "Drop your PDF here, or" + a "browse" link.
  *  - engine: src/lib/pdf/redact.ts — boxes are validated against each page's
  *    displayed (rotation-aware) size and a box that runs off the page is
@@ -127,7 +130,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens with a password-protected PDF?",
-      a: `Loading stops with "This PDF is password-protected. Unlock it first, then try again." That includes files that open freely but carry an owner password restricting edits. Unlock PDF removes the lock only when you type a password into it, so for a file like that you need its owner password. Unlock PDF, and Protect PDF for re-locking the redacted copy, upload over TLS to pdf.xyz's secure worker rather than running in your browser: the input is deleted when each job finishes, each download link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `Loading stops, with a message saying which lock the file has. A PDF that needs a password to open is called password-protected. One that opens freely but carries an owner password restricting edits is told it has editing restrictions, and Unlock PDF removes those only with the owner (permissions) password that set them; it has no way to strip a lock without the password. Unlock PDF, and Protect PDF for re-locking the redacted copy, upload over TLS to pdf.xyz's secure worker rather than running in your browser: the input is deleted when each job finishes, each download link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
       q: "What if part of a page comes out blank?",

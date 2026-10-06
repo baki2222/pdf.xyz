@@ -58,8 +58,10 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    this report lie. Bookmarks were not tested and are not claimed.
  *  - {date} is `new Date().toLocaleDateString()` in the visitor's browser,
  *    computed once per run: fixed text, the viewer's locale format.
- *  - loadPdf() refuses encrypted input with "Unlock it first" when the file is
- *    opened (useSinglePdf -> getPageRotations); Unlock PDF is processing
+ *  - loadPdf() refuses encrypted input when the file is opened (useSinglePdf
+ *    -> getPageRotations), in the words of the pdf.js probe's verdict
+ *    (src/lib/pdf/encryption.ts; AMENDED 2026-10-06, the FAQ quoted the
+ *    retired "Unlock it first" until then); Unlock PDF is processing
  *    "server" in the catalogue, asserted below.
  *  - fonts come from pdf.xyz's own origin (fontPackUrl: /fonts/...); the
  *    document is not sent anywhere.
@@ -200,7 +202,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my file or my header text refused?",
-      a: `Encryption is checked the moment the file is read, and an encrypted PDF gets "Unlock it first" instead of the editor. Unlock PDF removes it with a password you know, but it runs on pdf.xyz's secure worker: the file travels there over TLS and the unlocked copy's link lasts ${linkMinutes} minutes. Header or footer text is refused when it is ${rtlRefused.join(" or ")} (lines are laid out left to right and would come out reversed), when it needs a script no shipped font draws, such as ${noFaceExamples.join(", ")} or colour emoji, or when the two bands together need two different faces, like a Japanese header over a Bengali footer. {date} counts too: a browser set to Persian writes the date in Persian digits, which are refused like Arabic, so type the date by hand there. The message names the script, or lists the characters when it cannot.`,
+      a: `Encryption is checked the moment the file is read, and an encrypted PDF gets a message naming its lock, with a link to Unlock PDF, instead of the editor: it is called password-protected only when it needs a password to open. Unlock PDF removes the lock with a password you know (for a file that opens freely, its owner password), but it runs on pdf.xyz's secure worker: the file travels there over TLS and the unlocked copy's link lasts ${linkMinutes} minutes. Header or footer text is refused when it is ${rtlRefused.join(" or ")} (lines are laid out left to right and would come out reversed), when it needs a script no shipped font draws, such as ${noFaceExamples.join(", ")} or colour emoji, or when the two bands together need two different faces, like a Japanese header over a Bengali footer. {date} counts too: a browser set to Persian writes the date in Persian digits, which are refused like Arabic, so type the date by hand there. The message names the script, or lists the characters when it cannot.`,
     },
     {
       q: "Does my PDF leave my device when I add a header?",

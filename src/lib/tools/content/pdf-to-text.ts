@@ -27,19 +27,23 @@ const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
  *    ("WHITE TEXTFIELDVALUE");
  *  - a blank page contributes nothing (pageTextChunks drops empty chunks), but
  *    the result line's page count is doc.numPages, blank pages included;
- *  - a trailer /Encrypt entry alone makes pdf-lib PDFDocument.load throw
- *    EncryptedPDFError (probed with a hand-built /Encrypt dict), and loadPdf
- *    maps it to "This PDF is password-protected. Unlock it first…". Presence is
- *    the whole test, so owner-password-only files are refused too.
+ *  - encryption (AMENDED 2026-10-06): the runner reads with reader="pdfjs"
+ *    (single-pdf-reader.test.ts derives that), and pdf.js opens a file that
+ *    only carries an owner password, so it is read like any other
+ *    (runner-flows.test.tsx "PDF to Text reads a restricted (owner-only) PDF
+ *    end to end"). Only a file that needs a password to open is refused, with
+ *    PDF_NEEDS_PASSWORD_MESSAGE (text-load-errors.test.ts). This said every
+ *    encrypted file was refused until then; encryption-claims.test.ts now
+ *    holds the page to the runner's reader.
  *  - OCRmyPDF runs without --force-ocr (ocr-native.ts), so OCR PDF cannot
  *    re-read pages that already carry a (garbled) text layer: the FAQ must not
  *    offer OCR as the fix for fonts with no Unicode map.
- *  - Unlock PDF requires a non-empty password (pdf-security.ts), so the FAQ
- *    says a copy-restricted file needs its owner password there.
+ *  - Unlock PDF requires a non-empty password (pdf-security.ts); the FAQ
+ *    sends it only the file that needs one to open, the one this refuses.
  *  - Re-probed in review (pdf-lib + pdfjs-dist 6.1.200 from this tree): white,
  *    under-box, render-mode-3 and LEFT/RIGHT all came out as above; the
  *    flattened field value ran on ("LINE2FIELDVALUE") even 180pt lower on the
- *    page; a trailer /Encrypt alone made PDFDocument.load throw /encrypt/i.
+ *    page.
  *  - text.ts itself says pdfjs "already provides real space glyphs for most
  *    PDFs", so the intro must not claim a PDF never records word ends.
  *  - Reading order (2026-10-06): text.ts reorders a page's lines — a title
@@ -119,7 +123,7 @@ const content: ToolContent = {
     },
     {
       q: "Can it open a password-protected PDF?",
-      a: "No. Any encrypted PDF is stopped while loading with a password-protected message, even one that opens freely in a viewer and only forbids copying. Unlock PDF removes the encryption given a password the file accepts (for a copy-restricted file, its owner password); it runs on pdf.xyz's secure worker, so the file and the password are uploaded.",
+      a: "Not one that needs a password to open: it stops while loading with a message saying it is password-protected. Unlock PDF removes that password if you enter it, but it runs on pdf.xyz's secure worker, so the file and the password are uploaded. A PDF that opens without a password, even one whose author set it to forbid copying, is read like any other file.",
     },
     {
       q: "Will the text be readable in other languages and scripts?",

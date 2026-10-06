@@ -36,9 +36,12 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *  - pixel cap: RASTER_MAX_DEVICE_PX in render.ts is not exported, so the copy
  *    says a cap exists and gives no number, and no page size is promised the
  *    full DPI.
- *  - encryption: useSinglePdf -> getPageRotations -> loadPdf (pdf-lib, without
- *    ignoreEncryption), so ANY /Encrypt trailer is refused, owner-password-only
- *    files included. Unlock PDF is processing "server" in the catalogue.
+ *  - encryption (AMENDED 2026-10-06): the runner reads with reader="pdfjs"
+ *    (single-pdf-reader.test.ts), and pdf.js opens an owner-password-only file,
+ *    so it converts; only a file that needs a password to open is refused, with
+ *    PDF_NEEDS_PASSWORD_MESSAGE. Until then this said ANY /Encrypt was refused;
+ *    encryption-claims.test.ts now holds the page to the runner's reader.
+ *    Unlock PDF is processing "server" in the catalogue.
  *  - undecoded images: UndecodedImagesNotice receives the SUM over all pages,
  *    so it gives a total, not page numbers.
  */
@@ -94,7 +97,7 @@ const content: ToolContent = {
 
   intro: [
     "PDF to PNG, a page-to-image converter, draws each page of a PDF onto a canvas and saves the result as a PNG: a picture of the whole page, with text, vector graphics and photos flattened into one image. PNG is lossless, so small type and hairline rules keep their edges instead of gaining the ringing JPEG leaves around sharp contrast. As with any page image, the words inside can no longer be selected or searched.",
-    `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. Each run converts a single PDF of at most ${ceilingMb} MB. Encryption of any kind stops the file as it loads, with a message that it is password-protected and must be unlocked first; that includes a PDF that opens without a password and merely restricts printing or copying.`,
+    `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. Each run converts a single PDF of at most ${ceilingMb} MB. A PDF that needs a password to open stops as it loads, with a message that it is password-protected and must be unlocked first. One that opens without a password and merely restricts printing or copying converts like any other.`,
     `Pick ${presetSentence}; pages render at that density and keep the rotation stored in the PDF, though an oversized page such as a poster is scaled down to a fixed pixel ceiling. Pages are painted onto white, so the PNGs are opaque. A one-page PDF saves as a single image (logo.pdf gives ${exampleSingle}). Anything longer is bundled into a ZIP, with leading zeros on the page numbers so they have as many digits as the page count: a ${EXAMPLE_PAGES}-page manual.pdf gives ${exampleZip}, which contains ${exampleFirst} up to ${exampleLast}.`,
   ],
 

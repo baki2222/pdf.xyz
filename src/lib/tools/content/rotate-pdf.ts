@@ -32,7 +32,12 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    pdf-security-worker-panel.tsx), so a restricted file needs its OWNER
  *    password there — the FAQ says so rather than implying it just unlocks;
  *  - loadPdf() refuses any PDF with an /Encrypt dictionary (pdf-lib throws
- *    even when only an owner password is set) with "Unlock it first";
+ *    even when only an owner password is set), in the words of the pdf.js
+ *    probe's verdict (src/lib/pdf/encryption.ts, AMENDED 2026-10-06): a file
+ *    that needs a password is "password-protected", one that opens without
+ *    one is told it has editing restrictions. The FAQ quoted the retired
+ *    "Unlock it first" sentence for both until then;
+ *    encryption-claims.test.ts now catches a quotation no surface says;
  *  - the size cap is the rotate runner's own gate, read via toolFileCeilingMb.
  */
 const rotateTool = getToolBySlug("rotate-pdf");
@@ -117,7 +122,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I rotate a password-protected PDF, and is my file uploaded?",
-      a: `Not while it is encrypted: opening one stops with "This PDF is password-protected. Unlock it first, then try again." That includes a PDF anyone can open but whose author blocked printing or copying. Unlock PDF removes a password you know, which for a restricted file means its owner password. Unlike rotation, Unlock PDF runs on a server: the file is uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes. Rotation itself uploads nothing: your browser turns a PDF of up to ${ceilingMb} MB.`,
+      a: `Not while it is encrypted, and the message says which lock it has. A PDF that needs a password to open is refused as password-protected. One that anyone can open but whose author restricted editing is refused too, with a message naming those restrictions, because your browser cannot rewrite it; Unlock PDF removes them with the owner (permissions) password that set them. Unlock PDF only removes a password you know; it cannot recover one. Unlike rotation, Unlock PDF runs on a server: the file is uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes. Rotation itself uploads nothing: your browser turns a PDF of up to ${ceilingMb} MB.`,
     },
   ],
 

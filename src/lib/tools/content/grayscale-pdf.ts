@@ -30,7 +30,11 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    an owner-password-only PDF (pypdf, user password "", opens with an
  *    empty password) was refused by getPageRotations with "This PDF is
  *    password-protected. Unlock it first, then try again."; an unencrypted
- *    control loaded.
+ *    control loaded. AMENDED 2026-10-06: still refused, but since wave1's
+ *    encryption work in the words of the pdf.js probe's verdict
+ *    (src/lib/pdf/encryption.ts) — that file now gets the editing-
+ *    restrictions sentence, and only a file that needs a password to open is
+ *    called password-protected.
  *  - colour space, RUN 2026-09-27: Chromium 152's canvas.toBlob("image/jpeg")
  *    on an already-gray canvas wrote SOF components = 3; those bytes through
  *    embedRasterImage → pdf-lib saved an image XObject with /ColorSpace
@@ -88,7 +92,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: `Drag a single PDF into the dashed box, or click "browse" and choose it. Anything over ${MAX_MB} MB, empty, not a PDF, or password-protected is refused with a reason.`,
+      body: `Drag a single PDF into the dashed box, or click "browse" and choose it. Anything over ${MAX_MB} MB, empty, not a PDF, or encrypted is refused with a reason.`,
     },
     {
       title: "Pick the output quality",
@@ -123,7 +127,7 @@ const content: ToolContent = {
     },
     {
       q: "Does it work on password-protected PDFs?",
-      a: `No. Any encrypted PDF is turned away as soon as you choose it, with a "password-protected" message, and that includes a file that opens without a password but carries an owner password restricting printing or copying. Unlock PDF strips the encryption if you give it the open password, or the owner password for one of those restricted files; its password box cannot be left blank. Unlock PDF is not in-browser: the file and password go over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the unlocked copy's link lasts ${OUTPUT_TTL} minutes, and a daily storage rule erases it after that. Bring the unlocked copy back here.`,
+      a: `No. Any encrypted PDF is turned away as soon as you choose it, and the message says which lock it has. One that needs a password to open is called password-protected. One that opens without a password but carries an owner password restricting printing or copying is told it has editing restrictions instead. Unlock PDF strips the encryption if you give it the open password, or the owner password for one of those restricted files; its password box cannot be left blank. Unlock PDF is not in-browser: the file and password go over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the unlocked copy's link lasts ${OUTPUT_TTL} minutes, and a daily storage rule erases it after that. Bring the unlocked copy back here.`,
     },
     {
       q: "Why does the result say some images could not be decoded?",

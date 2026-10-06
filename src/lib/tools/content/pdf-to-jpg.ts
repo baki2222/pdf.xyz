@@ -30,12 +30,14 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
  *    clampJpegQuality(DEFAULT_JPEG_QUALITY) on a "#ffffff" background.
  *  - file names: pageImageName / zipOutputName, called here with the same
  *    arguments shape the runner uses, so the examples cannot drift.
- *  - encryption: useSinglePdf -> getPageRotations -> loadPdf, which calls
- *    pdf-lib PDFDocument.load WITHOUT ignoreEncryption. pdf-lib throws
- *    EncryptedPDFError whenever the trailer has /Encrypt — owner-password-only
- *    files included — and loadPdf maps it to "This PDF is password-protected.
- *    Unlock it first, then try again." Unlock PDF is a SERVER tool and its
- *    panel requires a non-empty password, so the FAQ says both.
+ *  - encryption (AMENDED 2026-10-06): the runner reads with reader="pdfjs"
+ *    (single-pdf-reader.test.ts derives it, and that every function it hands
+ *    the bytes opens them with pdf.js only), and pdf.js opens a file that only
+ *    carries an owner password, so it converts. Only a file that needs a
+ *    password to open is refused, with PDF_NEEDS_PASSWORD_MESSAGE. This said
+ *    pdf-lib refused every /Encrypt until then; encryption-claims.test.ts now
+ *    holds the page to the runner's reader. Unlock PDF is a SERVER tool and
+ *    its panel requires a non-empty password, so the FAQ says both.
  *  - decoders: PDFJS_DOCUMENT_DEFAULTS (wasm-assets.ts) passes wasmUrl and
  *    cMapUrl pointing at /pdfjs-wasm/ and /pdfjs-cmaps/ on our own origin; the
  *    pdfjs worker is bundled via new URL(..., import.meta.url).
@@ -106,7 +108,7 @@ const content: ToolContent = {
   intro: [
     `PDF to JPG paints every page of your PDF onto a canvas with pdf.js and saves each one as a JPEG picture, with the page's built-in rotation applied. The renderer and its decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
     `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}, with ${standard.label} selected at the start. There is no quality slider; every JPEG is encoded at quality ${quality} out of 100 on a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). A longer one arrives as a ZIP: a ${EXAMPLE_PAGES}-page report.pdf becomes ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order.`,
-    `It converts a single PDF per run, up to ${maxMb} MB. Encrypted PDFs stop at the loading step with a request to unlock them first. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
+    `It converts a single PDF per run, up to ${maxMb} MB. One that needs a password to open stops at the loading step, with a message saying it is password-protected. A PDF that opens without a password converts even if its author restricted printing or copying. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
   ],
 
   useCases: [
@@ -158,7 +160,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my password-protected PDF rejected?",
-      a: "The library that opens the file stops at any encryption, including PDFs that open freely but restrict printing or copying. Unlock PDF removes the protection when you give it a password that works (for a restricted file, its owner password); it cannot recover one. Be aware that Unlock PDF, unlike this conversion, does not run in your browser: the locked file and the password you type are uploaded to pdf.xyz's secure worker. Convert the unlocked copy here afterwards.",
+      a: "Because it needs a password to open, and the converter cannot read a page without it. A PDF that opens freely but restricts printing or copying converts like any other. Unlock PDF removes the password when you enter it; it cannot recover one. Be aware that Unlock PDF, unlike this conversion, does not run in your browser: the locked file and the password you type are uploaded to pdf.xyz's secure worker. Convert the unlocked copy here afterwards.",
     },
     {
       q: "Will the text in the JPG still be selectable or searchable?",

@@ -122,7 +122,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens with a password-protected or damaged PDF?",
-      a: "A password-protected file, even one that opens freely but restricts printing or editing, is refused with a request to unlock it first, and an unreadable file gets an error instead of a download. On the deep step the worker rejects a result with fewer pages than the original; if it cannot count the original's pages, it returns the smaller file with a warning that it was not checked page-for-page.",
+      a: "A PDF that needs a password to open is refused with a request to unlock it with its password first. One that opens freely but restricts printing or editing cannot be repacked in your browser, so the page offers the secure worker's deep step for it instead; the worker may not be able to process an encrypted file, and says so if it cannot. In a batch of several files, such a file fails with a note to compress it on its own. An unreadable file gets an error instead of a download. On the deep step the worker rejects a result with fewer pages than the original; if it cannot count the original's pages, it returns the smaller file with a warning that it was not checked page-for-page.",
     },
     {
       q: "Does compressing keep a digital signature valid?",

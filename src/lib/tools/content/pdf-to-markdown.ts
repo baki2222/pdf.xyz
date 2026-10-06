@@ -74,12 +74,12 @@ const exampleOutput = markdownOutputName("report.pdf");
  * with a backslash; "<div> & &lt; R&D" → "&lt;div> & &amp;lt; R&D". Reading
  * order: the extracted lines are in the order text.ts gives PDF to Text
  * (text-reading-order.test.ts runs every fixture through this converter).
- * Encrypted files: useSinglePdf loads through pdf-lib's PDFDocument.load, which
- * throws EncryptedPDFError whenever the trailer has /Encrypt (owner-password-
- * only included); engine.ts loadPdf maps that to "This PDF is password-
- * protected. Unlock it first, then try again."
- * Unlock PDF requires a non-empty password (parseUnlockPdfOptions), so a file
- * that opens freely needs its OWNER password there.
+ * Encrypted files (AMENDED 2026-10-06): the runner reads with reader="pdfjs"
+ * (single-pdf-reader.test.ts), and pdf.js opens a file that only carries an
+ * owner password, so it converts like any other. Only a file that needs a
+ * password to open is refused, with PDF_NEEDS_PASSWORD_MESSAGE. Until then
+ * this said pdf-lib refused every /Encrypt; encryption-claims.test.ts now
+ * holds the page to the runner's reader.
  */
 const content: ToolContent = {
   slug: "pdf-to-markdown",
@@ -113,7 +113,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Pick the PDF",
-      body: `Hand over a single PDF through the "Drop your PDF here, or browse" panel, either by dropping the file on it or by clicking it and choosing from your device. A file over ${MAX_MB} MB, an empty file, a file that is not a PDF or cannot be read as one, and a password-protected PDF are each refused with a message; otherwise the file's name, page count and size appear.`,
+      body: `Hand over a single PDF through the "Drop your PDF here, or browse" panel, either by dropping the file on it or by clicking it and choosing from your device. A file over ${MAX_MB} MB, an empty file, a file that is not a PDF or cannot be read as one, and a PDF that needs a password to open are each refused with a message; otherwise the file's name, page count and size appear.`,
     },
     {
       title: "Press Create Markdown",
@@ -152,7 +152,7 @@ const content: ToolContent = {
     },
     {
       q: "Will it open a PDF that has a password or copy restrictions?",
-      a: `No. The file is refused as it opens, including a PDF your viewer opens without a password but that restricts printing or copying, because it is still encrypted. ${unlockName} can remove the encryption if you enter a password the file accepts (for a PDF that opens freely, that means its owner password), but that tool uploads the PDF to pdf.xyz's secure worker.`,
+      a: `Copy or printing restrictions are no obstacle: a PDF that opens without a password is converted like any other file. One that needs a password to open is refused as it opens, with a message saying it is password-protected; ${unlockName} can remove that password if you enter it, but that tool uploads the PDF to pdf.xyz's secure worker.`,
     },
   ],
 
