@@ -33,6 +33,14 @@ import { guides } from "@/lib/guides/catalog";
 import type { Guide } from "@/lib/guides/types";
 import { flattenForPhraseSearch, withoutComments } from "./copy-surface";
 import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
+import {
+  pageDescription,
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "./page-copy";
 import type { Tool } from "./types";
 import {
   renderToolPages,
@@ -137,9 +145,26 @@ describe("no page says the in-browser tools run with WebAssembly", () => {
  *  2. ZIP
  * ------------------------------------------------------------------ */
 
-/** A ZIP sentence must say it is the MANY-output case. */
+/**
+ * A ZIP sentence must say it is the MANY-output case.
+ *
+ * EXTENDED 2026-10-06 with `multi-page`, when the corpus widened to the
+ * served intro and meta description: PDF to PNG's meta description says "a
+ * multi-page PDF downloads as one ZIP", which names the case exactly. The
+ * positive control below holds that sentence passing and an unqualified
+ * twin caught. "Longer" was NOT added — "a longer one" is qualified only by
+ * the sentence before it, so those two sentences were reworded instead.
+ */
 const SAYS_WHEN =
-  /\b(?:more than one|two or more|several|multiple|individually|only when|when there (?:is|are) more)\b/i;
+  /\b(?:more than one|two or more|several|multiple|multi-page|individually|only when|when there (?:is|are) more)\b/i;
+
+/**
+ * Not a claim that the result IS a ZIP: a question offering it as one of two
+ * ("Do I get one JPG or a ZIP?") and the page's output badge listing it
+ * among the formats ("Out: JPG, PNG, ZIP"). Both reach the corpus through
+ * the rendered page text.
+ */
+const OFFERS_A_CHOICE = /\bor (?:a |one )?ZIP\b|\bOut: (?:[A-Z]{3,4}, )+ZIP\b/;
 
 /** Verbatim from src/lib/tools/catalog.ts and the split guide at 67e8d0f. */
 const SHIPPED_ZIP = [
@@ -153,9 +178,21 @@ const sentences = (text: string) =>
   text.split(/(?<=[.!?])\s+/).filter((s) => s.length > 0);
 
 const unqualifiedZip = (text: string) =>
-  sentences(text).filter((s) => /\bZIP\b/.test(s) && !SAYS_WHEN.test(s));
+  sentences(text).filter(
+    (s) => /\bZIP\b/.test(s) && !SAYS_WHEN.test(s) && !OFFERS_A_CHOICE.test(s),
+  );
 
-/** Every string a reader receives about `tool`: its page and its own guides. */
+/**
+ * Every string a reader receives about `tool`: its page and its own guides.
+ *
+ * WIDENED 2026-10-06 (history kept). This read `tool.description`, the
+ * derived steps and FAQ, and the page's HowTo and FAQPage — but not the
+ * authored intro and use cases the page renders in place of the
+ * description, so the ZIP check certified copy the page no longer serves
+ * while Split PDF's intro said "packing the ZIP all happen on your device"
+ * of a split that saves a single piece as a PDF. It now reads the page-copy
+ * accessors the page itself renders (`page-copy.ts`) and the rendered text.
+ */
 function copyAbout(tool: Tool): string[] {
   const guideStrings = (g: Guide) => [
     g.description,
@@ -170,6 +207,12 @@ function copyAbout(tool: Tool): string[] {
     ...howToSteps(tool),
     ...toolFaq(tool).map((e) => e.answer),
     ...toolFacts(tool.slug).map((f) => f.value),
+    pageDescription(tool),
+    ...pageIntro(tool),
+    ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
+    ...pageSteps(tool).map(stepText),
+    ...pageFaq(tool).flatMap((e) => [e.question, e.answer]),
+    page.text,
     ...page.howTo,
     ...page.faq.map((e) => e.answer),
     ...guides.filter((g) => g.tools[0] === tool.slug).flatMap(guideStrings),
@@ -180,6 +223,24 @@ describe("an in-browser page names the ZIP only for more than one output", () =>
   it("the detector catches every shipped sentence", () => {
     const missed = SHIPPED_ZIP.filter((s) => unqualifiedZip(s).length === 0);
     expect(missed).toEqual([]);
+  });
+
+  it("each exemption passes what it was added for, and only that (controls)", () => {
+    // Served at 8b6e6b4: PDF to PNG's meta description, the derived
+    // question, and the rendered output badge.
+    const exempt = [
+      "Rendering happens on your device with no upload, and a multi-page PDF downloads as one ZIP.",
+      "Do I get one JPG or a ZIP?",
+      "Runs in your browser In: PDF Out: JPG, PNG, ZIP Runs in your browser — your file never leaves your device.",
+    ];
+    expect(exempt.flatMap(unqualifiedZip)).toEqual([]);
+    // The same claims with the qualifier taken out are caught.
+    const twins = [
+      "Rendering happens on your device with no upload, and the PDF downloads as one ZIP.",
+      "Do I get a ZIP?",
+      "Runs in your browser In: PDF Out: ZIP Runs in your browser.",
+    ];
+    expect(twins.flatMap(unqualifiedZip)).toEqual(twins);
   });
 
   it("holds for every in-browser tool that can hand over an archive", () => {

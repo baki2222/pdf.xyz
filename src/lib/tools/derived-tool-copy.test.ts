@@ -47,18 +47,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
-import {
-  EMBEDDED_TEXT_ONLY,
-  howToSteps,
-  toolFacts,
-  toolFaq,
-} from "./tool-facts";
+import { EMBEDDED_TEXT_ONLY, howToSteps, toolFacts } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
 import {
   pageDescription,
   pageFaq,
   pageIntro,
   pageSteps,
+  pageUseCases,
   stepText,
 } from "./page-copy";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
@@ -348,14 +344,38 @@ describe("tools that read only embedded text say scans need OCR, and never promi
     );
   });
 
+  /**
+   * What the tool page renders before a file is picked: the strings the page
+   * component reads (`src/app/tools/[slug]/page.tsx` — tagline, the page-copy
+   * accessors and the facts), not the catalogue's.
+   *
+   * CHANGED 2026-10-06 (history kept). The OCR check read `tool.description`,
+   * `toolFacts` and `toolFaq`; since the authored content arrived the page
+   * renders `pageIntro` in place of the description and `pageFaq` in place of
+   * the derived FAQ, so the check could pass on a sentence no reader of the
+   * page receives (house rule 5). A probe at the change found no tool that
+   * was silent on its page, so this certifies the same set, through the copy
+   * the page serves.
+   */
+  const servedBeforePick = (slug: string): string[] => {
+    const tool = getToolBySlug(slug)!;
+    return [
+      tool.tagline,
+      pageDescription(tool),
+      ...pageIntro(tool),
+      ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
+      ...pageSteps(tool).map(stepText),
+      ...toolFacts(slug).map((f) => f.value),
+      ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+    ];
+  };
+
   it("each one names OCR on its page, before a file is picked", () => {
+    // Health: the served corpus is the page's, not an empty list.
+    for (const slug of embeddedTextOnly())
+      expect(servedBeforePick(slug).length, slug).toBeGreaterThan(8);
     const silent = embeddedTextOnly().filter((slug) => {
-      const tool = getToolBySlug(slug)!;
-      const served = [
-        tool.description,
-        ...toolFacts(slug).map((f) => f.value),
-        ...toolFaq(tool).map((f) => f.answer),
-      ].join(" ");
+      const served = servedBeforePick(slug).join(" ");
       return !/\bOCR\b/.test(served);
     });
     expect(
@@ -428,15 +448,37 @@ describe("tools that read only embedded text say scans need OCR, and never promi
   });
 
   it("none promises text from any PDF", () => {
-    const ANY_PDF = /\b(?:any|every|all)\s+PDFs?\b/i;
+    // "PDF" as the OBJECT ("any PDF"), not as an adjective of the noun after
+    // it: the served corpus (2026-10-06) says "highlighting a sentence in any
+    // PDF viewer" and "Every PDF line becomes its own paragraph", neither of
+    // which promises text from a document. The controls below hold both
+    // directions.
+    const ANY_PDF =
+      /\b(?:any|every|all)\s+PDFs?\b(?!\s+(?:viewers?|readers?|apps?|editors?|software|lines?)\b)/i;
+    // The catalogue's tagline and description (served on cards and in the
+    // catalogue), and, since 2026-10-06, everything the tool page renders.
     const offenders = embeddedTextOnly().flatMap((slug) => {
       const tool = getToolBySlug(slug)!;
-      return [tool.tagline, tool.description]
+      return [tool.tagline, tool.description, ...servedBeforePick(slug)]
+        .flatMap((t) => t.split(/(?<=[.!?])\s+/))
         .filter((t) => ANY_PDF.test(t))
         .map((t) => `${slug}: "${t}"`);
     });
     expect(offenders, offenders.join("\n")).toEqual([]);
     // Positive control: the tagline pdf-to-text shipped.
     expect(ANY_PDF.test("Grab plain text from any PDF.")).toBe(true);
+    // ...and the promise in other shapes stays caught, while the adjective
+    // uses the served page carries pass.
+    for (const promise of [
+      "Works on all PDFs.",
+      "Reads every PDF page.",
+      "Any PDF file converts.",
+    ])
+      expect(ANY_PDF.test(promise), promise).toBe(true);
+    for (const adjective of [
+      "Try highlighting a sentence in any PDF viewer.",
+      "Every PDF line becomes its own paragraph, so a wrapped sentence splits where the page wrapped it.",
+    ])
+      expect(ANY_PDF.test(adjective), adjective).toBe(false);
   });
 });

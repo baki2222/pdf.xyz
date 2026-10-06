@@ -81,7 +81,7 @@ const content: ToolContent = {
 
   intro: [
     `Split PDF cuts one document into several smaller PDFs in one of three ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. Before anything runs, a preview lists every file the split will create, with its name and page count.`,
-    `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and there is no upload anywhere: reading the pages, building each piece and packing the ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
+    `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and there is no upload anywhere: reading the pages, building each piece and, when there is more than one, packing them into a ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
     `Every piece is a new PDF built from copies of the original pages, so their text, images, page size and rotation come through unchanged. Each piece also keeps the document's title and author, page labels and language, the bookmarks that open one of its pages, and the form fields on its pages, still fillable. An encrypted file is refused as it loads, even one that opens without a password and only restricts printing or copying.`,
   ],
 
@@ -104,7 +104,7 @@ const content: ToolContent = {
     },
     {
       title: "Get under an attachment size limit",
-      body: "Fewer pages usually means a smaller file, but a font or image shared across pages is copied into every piece that uses it. The finished panel shows only the combined size, so check each file in the ZIP before attaching it.",
+      body: "Fewer pages usually means a smaller file, but a font or image shared across pages is copied into every piece that uses it. The finished panel shows only the combined size, so when the split makes more than one piece, check each file in the ZIP before attaching it.",
     },
   ],
 
