@@ -107,7 +107,7 @@ function collapseWhitespace(line: string): string {
  * check mark) — what a PDF carries when its symbol font has no Unicode map,
  * which pdfjs then passes through as-is.
  */
-const BULLET_GLYPHS =
+export const BULLET_GLYPHS =
   "\u2022\u25CF\u25AA\u25E6\u2023\u2043\u2219\u00B7\u25A0\u25A1\u25CB\u27A2\u25BA\u25B8\uF0B7\uF0A7\uF076\uF0D8\uF0FC";
 const GLYPH_BULLET = new RegExp(`^[${BULLET_GLYPHS}]\\s*(?=\\S)`);
 const ASCII_BULLET = /^[-*+]\s+(?=\S)/;
@@ -258,7 +258,7 @@ export const PARAGRAPH_GAP_RATIO = 1.3;
 export const HEADING_SIZE_RATIO = 1.2;
 
 /** Headings are short. Longer large-font text is a pull quote or a cover blurb. */
-const HEADING_MAX_CHARS = 80;
+export const HEADING_MAX_CHARS = 80;
 
 interface GeoLine {
   text: string;

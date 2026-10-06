@@ -100,6 +100,7 @@ import {
   MARKDOWN_BLOCK_KINDS,
   type MarkdownBlockKind,
 } from "@/lib/pdf/markdown-blocks";
+import { HEADING_SIZE_RATIO } from "@/lib/pdf/pdf-to-markdown";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { tools } from "./catalog";
 import { toolFileCeilingMb } from "./file-ceilings";
@@ -285,6 +286,15 @@ export const MARKDOWN_SYNTAX_FACT = (() => {
   const list = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   return `${list[0]!.toUpperCase()}${list.slice(1)}. Bold and italics print as plain text, and a link keeps its address in parentheses.`;
 })();
+
+/**
+ * PDF to Markdown: how much larger than the body text a short line must be to
+ * become a heading, read off the converter's own ratio ("20").
+ * `pdf-to-markdown-copy.test.ts` runs the converter either side of it.
+ */
+const PDF_TO_MARKDOWN_HEADING_PERCENT = Math.round(
+  (HEADING_SIZE_RATIO - 1) * 100,
+);
 
 /** PDF to JPG / PNG: the presets, and what one page becomes. */
 function rasterFact(slug: string): ToolFact {
@@ -535,13 +545,12 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "pdf-to-markdown": [
     {
       label: "Structure",
-      value:
-        "The file name becomes the # title, and a PDF with more than one page gets a ## Page N heading before each page's text.",
+      value: `The file name becomes the # title, a PDF with more than one page gets a ## Page N heading before each page's text, and short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings.`,
     },
     {
       label: "Paragraphs and lists",
       value:
-        "Lines that wrap are joined into paragraphs; a line that starts with a list marker (-, *, + or a number) stays a list item.",
+        "Lines that wrap are joined into paragraphs, split where the page leaves a wider gap or indents a line; a line that starts with a list marker (-, *, +, •, ▪ or a number) stays a list item.",
     },
     {
       label: "Not rebuilt",
@@ -1267,7 +1276,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `Does ${tool.name} keep headings, bold text and tables?`,
-          answer: `No. A PDF stores text as positioned lines, not as headings or tables, and this converter does not guess at them. The file's name becomes the title, each page gets a "Page N" heading when there is more than one, lines are joined into paragraphs, and lines that begin with a bullet (-, * or +) or a number stay list items. Bold, italics, links and table layout are not carried over — table rows come through as plain text — and images are not exported. For tables, ${toolName("extract-tables")} detects them by their layout and exports CSV and Excel files.`,
+          answer: `Partly. A PDF stores text as positioned lines, not as headings or tables, so the converter infers structure from size and position. The file's name becomes the title, each page gets a "Page N" heading when there is more than one, short lines set at least ${PDF_TO_MARKDOWN_HEADING_PERCENT}% larger than the body text become headings, lines are joined into paragraphs, and lines that begin with a bullet (-, *, + or a character such as •) or a number stay list items. Bold, italics, links and table layout are not carried over — table rows come through as plain text — and images are not exported. For tables, ${toolName("extract-tables")} detects them by their layout and exports CSV and Excel files.`,
         },
         scannedTextEntry(tool),
       ];
