@@ -1,14 +1,23 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import type * as TS from "typescript";
 import { describe, expect, it } from "vitest";
 import { degrees, PDFDocument, StandardFonts } from "pdf-lib";
+import { extractedTextToMarkdown } from "./pdf-to-markdown";
 import { loadPdfjs } from "./pdfjs";
 import {
+  extractPdfLines,
   extractPdfText,
   MAX_ORDERED_BLOCKS,
   normalizeExtractedText,
   pdfHasSelectableText,
   textItemsToPlainText,
+  type ExtractedPdfText,
 } from "./text";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
+
+const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 
 /**
  * PDF to Text returns a page's text in READING order, not in the order its
@@ -26,8 +35,19 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
  * out-of-order pages are put right, and pages whose stream order is already
  * the reading order come out byte-identical to stream order.
  *
- * Every fixture is a real PDF read through `extractPdfText` — the extractor
- * PDF to Text, PDF to Markdown, Compare and the translate panel all call.
+ * Every fixture is a real PDF read through EVERY route a page's text takes to
+ * a user ({@link ROUTES}): `extractPdfText` (PDF to Text, Compare, and the
+ * summarize, translate and chat clients) and `extractPdfLines` into
+ * `extractedTextToMarkdown` (PDF to Markdown), whose lines and Markdown must
+ * read in the same order as the text. Which routes exist is not typed here:
+ * "every consumer reads through a route" walks the importers of `./text`.
+ *
+ * CHANGED 2026-10-06 (history kept): this sentence used to say every fixture
+ * went through "the extractor PDF to Text, PDF to Markdown, Compare and the
+ * translate panel all call" while it called `extractPdfText` alone. PDF to
+ * Markdown had moved to `extractPdfLines`, whose `lines` were still in
+ * content-stream order, and its Markdown put "Second paragraph of body."
+ * before "## Document Title" while every test here was green.
  */
 
 interface Line {
@@ -413,6 +433,95 @@ const linesOf = (text: string) => text.split("\n").filter((l) => l.trim());
 const inventory = (text: string) =>
   [...text.replace(/\n/g, "")].sort().join("");
 
+/** One reading of a page as a route delivers it. */
+interface Reading {
+  via: string;
+  /** The visible lines, in order — `null` where the route merges lines. */
+  lines: string[] | null;
+  /** Every word in order, whitespace collapsed to one space. */
+  words: string;
+}
+
+const wordsOf = (parts: string[]) =>
+  parts.join(" ").replace(/\s+/g, " ").trim();
+
+/** Markdown's words, without the `#` heading markers the converter adds. */
+const markdownWords = (markdown: string) =>
+  wordsOf(
+    markdown
+      .split("\n")
+      // The first line is the document title, made from the file name.
+      .slice(1)
+      .map((line) => line.replace(/^#{1,6} /, "")),
+  );
+
+/**
+ * Every export of `./text` a production module reads a page's text through,
+ * and what each route hands its consumer. Keyed by export name: "every
+ * consumer reads through a route" requires these keys to be exactly the
+ * exports classified `route`.
+ */
+const ROUTES: Record<string, (bytes: Uint8Array) => Promise<Reading[]>> = {
+  extractPdfText: async (bytes) => {
+    const lines = linesOf((await extractPdfText(bytes)).text);
+    return [{ via: "extractPdfText", lines, words: wordsOf(lines) }];
+  },
+  extractPdfLines: async (bytes) => {
+    const extracted = await extractPdfLines(bytes);
+    const visible = extracted.pages.flatMap((page) =>
+      page.lines.filter((line) => line.text.trim()),
+    );
+    // Health: every visible line carries geometry, so the converter below
+    // takes its geometry path — the one that reads `lines` — and not the
+    // text fallback, which would read the (ordered) `text` and pass blind.
+    for (const line of visible) {
+      expect(line.y, `no geometry for "${line.text}"`).not.toBeNull();
+    }
+    const markdown = extractedTextToMarkdown(extracted, {
+      sourceName: "fixture.pdf",
+    }).markdown;
+    const lineTexts = visible.map((line) => line.text.trim());
+    const textLines = linesOf(extracted.text);
+    return [
+      {
+        via: "extractPdfLines text",
+        lines: textLines,
+        words: wordsOf(textLines),
+      },
+      {
+        via: "extractPdfLines lines",
+        lines: lineTexts,
+        words: wordsOf(lineTexts),
+      },
+      { via: "PDF to Markdown", lines: null, words: markdownWords(markdown) },
+    ];
+  },
+};
+
+/**
+ * `extractPdfText(bytes)`, after requiring every route in {@link ROUTES} to
+ * read the page in the same order: the same lines where a route keeps
+ * lines, the same words in the same order where it merges them (Markdown
+ * joins a paragraph's lines). The fixtures' own assertions then pin that one
+ * order, so they pin every consumer's.
+ */
+async function readEveryWay(bytes: Uint8Array): Promise<ExtractedPdfText> {
+  const extracted = await extractPdfText(bytes);
+  const lines = linesOf(extracted.text);
+  for (const route of Object.values(ROUTES)) {
+    for (const reading of await route(bytes)) {
+      if (reading.lines) {
+        expect(
+          reading.lines.map((line) => line.trim()),
+          reading.via,
+        ).toEqual(lines.map((line) => line.trim()));
+      }
+      expect(reading.words, reading.via).toBe(wordsOf(lines));
+    }
+  }
+  return extracted;
+}
+
 describe("fixtures are what they claim (health check)", () => {
   it("every OUT_OF_ORDER page really is out of order in its stream", async () => {
     expect(Object.keys(OUT_OF_ORDER).length).toBeGreaterThanOrEqual(3);
@@ -459,7 +568,7 @@ describe("extractPdfText returns reading order", () => {
   for (const [name, fixture] of Object.entries(OUT_OF_ORDER)) {
     it(`puts right: ${name}`, async () => {
       const bytes = await pdfOf(fixture);
-      const extracted = await extractPdfText(bytes);
+      const extracted = await readEveryWay(bytes);
       expect(linesOf(extracted.text)).toEqual(fixture.read);
       expect(inventory(extracted.text)).toBe(
         inventory(await streamOrderText(bytes)),
@@ -471,7 +580,7 @@ describe("extractPdfText returns reading order", () => {
   for (const [name, fixture] of Object.entries(IN_ORDER)) {
     it(`leaves byte-identical: ${name}`, async () => {
       const bytes = await pdfOf(fixture);
-      expect((await extractPdfText(bytes)).text).toBe(
+      expect((await readEveryWay(bytes)).text).toBe(
         await streamOrderText(bytes),
       );
     });
@@ -488,9 +597,7 @@ describe("extractPdfText returns reading order", () => {
       read: [],
     };
     const bytes = await pdfOf(fixture);
-    expect((await extractPdfText(bytes)).text).toBe(
-      await streamOrderText(bytes),
-    );
+    expect((await readEveryWay(bytes)).text).toBe(await streamOrderText(bytes));
   });
 });
 
@@ -525,7 +632,7 @@ describe("page furniture composes with every body", () => {
           const stream = await streamOrderText(bytes);
           // Health: the composed page draws exactly what it says it draws.
           expect(linesOf(stream), bodyName).toEqual(texts(fixture.draw));
-          const extracted = await extractPdfText(bytes);
+          const extracted = await readEveryWay(bytes);
           expect(linesOf(extracted.text), bodyName).toEqual(fixture.read);
           expect(inventory(extracted.text), bodyName).toBe(inventory(stream));
           if (placement === "natural" && bodyName in IN_ORDER) {
@@ -660,7 +767,7 @@ describe("furniture in two pieces on one baseline composes with every body", () 
         );
         problems.push(
           ...pieceProblems(
-            linesOf((await extractPdfText(bytes)).text),
+            linesOf((await readEveryWay(bytes)).text),
             body.read,
             first,
             last,
@@ -740,7 +847,7 @@ describe("a later column never comes before an earlier one it runs beside", () =
     expect(PAGE_NUMBER.y).toBeLessThan(SHORT_RIGHT.at(-1)!.y);
     expect(PAGE_NUMBER.y).toBeGreaterThan(LONG_LEFT.at(-1)!.y);
 
-    const lines = linesOf((await extractPdfText(bytes)).text);
+    const lines = linesOf((await readEveryWay(bytes)).text);
     const lastLeft = Math.max(...texts(LONG_LEFT).map((t) => lines.indexOf(t)));
     const firstRight = Math.min(
       ...texts(SHORT_RIGHT).map((t) => lines.indexOf(t)),
@@ -807,9 +914,7 @@ describe("a later column never comes before an earlier one it runs beside", () =
       }
       expect(pages.length).toBe(1 + 2 * Object.keys(FURNITURE).length);
       for (const [label, fixture] of pages) {
-        const lines = linesOf(
-          (await extractPdfText(await pdfOf(fixture))).text,
-        );
+        const lines = linesOf((await readEveryWay(await pdfOf(fixture))).text);
         const at = (line: Line) => {
           expect(
             lines.filter((l) => l === line.text),
@@ -842,7 +947,7 @@ describe("a later column never comes before an earlier one it runs beside", () =
       ...texts(left),
       ...texts(right),
     ]);
-    expect(linesOf((await extractPdfText(bytes)).text)).toEqual([
+    expect(linesOf((await readEveryWay(bytes)).text)).toEqual([
       ...texts(right),
       ...texts(left),
     ]);
@@ -878,5 +983,274 @@ describe("a page too dense to order keeps stream order", () => {
     expect(textItemsToPlainText(bottomUp(MAX_ORDERED_BLOCKS + 1))).toBe(
       streamOf(MAX_ORDERED_BLOCKS + 1),
     );
+  });
+});
+
+/**
+ * Every production module that reads a page's text gets it through a route
+ * the fixtures above run — DISCOVERED from the importers of `./text`, not
+ * listed. The claim this replaces was a sentence ("the extractor PDF to Text,
+ * PDF to Markdown, Compare and the translate panel all call") that stayed
+ * true of one export while PDF to Markdown moved to another.
+ *
+ * Each value export of `./text` has one role, and the roles are checked in
+ * both directions against what the module exports and what production
+ * imports:
+ *  - `route`: hands a consumer a page's text — each is a key of ROUTES, so
+ *    every fixture reads through it;
+ *  - `yes-no`: answers whether there is text, pinned to `extractPdfText`'s
+ *    `hasText` in "puts right" above;
+ *  - `after-reading`: takes text a route already read (joins, chunks,
+ *    normalizes, names the file), keeping its order;
+ *  - `seam`: what the routes are built from, exported for tests. Production
+ *    importing one would read a page around the routes, so none may.
+ */
+const EXPORT_ROLES: Record<
+  string,
+  "route" | "yes-no" | "after-reading" | "seam"
+> = {
+  extractPdfText: "route",
+  extractPdfLines: "route",
+  pdfHasSelectableText: "yes-no",
+  normalizeExtractedText: "after-reading",
+  collapseLayoutPadding: "after-reading",
+  PAGE_JOIN: "after-reading",
+  pageTextChunks: "after-reading",
+  pagesWithoutText: "after-reading",
+  joinPageTexts: "after-reading",
+  textOutputName: "after-reading",
+  textItemsToPlainText: "seam",
+  textItemsToLines: "seam",
+  linePageFromItems: "seam",
+  assembleExtraction: "seam",
+  MAX_ORDERED_BLOCKS: "seam",
+};
+
+const ROOT = process.cwd();
+const TEXT_MODULE = path.join(ROOT, "src", "lib", "pdf", "text");
+
+const parse = (file: string, text: string) =>
+  ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+
+/** The value exports `./text` declares (types and interfaces are not read). */
+function textModuleExports(): string[] {
+  const sf = parse("text.ts", readFileSync(`${TEXT_MODULE}.ts`, "utf8"));
+  const names: string[] = [];
+  for (const node of sf.statements) {
+    // An `export { … }` list or `export *` would hide names from this walk.
+    if (ts.isExportDeclaration(node) || ts.isExportAssignment(node)) {
+      names.push("<export statement>");
+      continue;
+    }
+    const exported = (
+      ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined
+    )?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+    if (!exported) continue;
+    if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) {
+      names.push(node.name?.text ?? "<anonymous>");
+    } else if (ts.isVariableStatement(node)) {
+      for (const d of node.declarationList.declarations) {
+        names.push(ts.isIdentifier(d.name) ? d.name.text : "<pattern>");
+      }
+    }
+  }
+  return names;
+}
+
+/** Whether module specifier `spec`, written in `from`, names `./text`. */
+function namesTextModule(from: string, spec: string): boolean {
+  const target = spec.startsWith("@/")
+    ? path.join(ROOT, "src", spec.slice(2))
+    : spec.startsWith(".")
+      ? path.resolve(path.dirname(from), spec)
+      : null;
+  return target !== null && target.replace(/\.tsx?$/, "") === TEXT_MODULE;
+}
+
+/**
+ * The VALUE names `source` takes from `./text`: static imports (not type-only
+ * ones), and dynamic imports destructured or read by property. Any other
+ * shape — a namespace or default import, a re-export, a dynamic import kept
+ * whole — is `"*"`, which no role covers, so it fails the guard rather than
+ * slipping past it.
+ */
+function importedFromText(file: string, source: string): string[] {
+  const names: string[] = [];
+  const visit = (node: TS.Node): void => {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      namesTextModule(file, node.moduleSpecifier.text)
+    ) {
+      const clause = node.importClause;
+      if (clause && !clause.isTypeOnly) {
+        if (clause.name) names.push("*");
+        const bindings = clause.namedBindings;
+        if (bindings && ts.isNamespaceImport(bindings)) names.push("*");
+        if (bindings && ts.isNamedImports(bindings)) {
+          for (const el of bindings.elements) {
+            if (!el.isTypeOnly) names.push((el.propertyName ?? el.name).text);
+          }
+        }
+      }
+      return;
+    }
+    if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      namesTextModule(file, node.moduleSpecifier.text) &&
+      !node.isTypeOnly
+    ) {
+      names.push("*");
+      return;
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[0] &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      namesTextModule(file, node.arguments[0].text)
+    ) {
+      let use: TS.Node = node.parent;
+      while (ts.isAwaitExpression(use) || ts.isParenthesizedExpression(use)) {
+        use = use.parent;
+      }
+      if (
+        ts.isVariableDeclaration(use) &&
+        ts.isObjectBindingPattern(use.name)
+      ) {
+        for (const el of use.name.elements) {
+          const key = el.propertyName ?? el.name;
+          names.push(ts.isIdentifier(key) ? key.text : "*");
+        }
+      } else if (ts.isPropertyAccessExpression(use)) {
+        names.push(use.name.text);
+      } else {
+        names.push("*");
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parse(file, source));
+  return names;
+}
+
+/** Production sources: src and scripts, without tests and test support. */
+function productionSources(): string[] {
+  const out: string[] = [];
+  const testSupport = path.join(ROOT, "src", "tests");
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules" && full !== testSupport) walk(full);
+      } else if (
+        /\.(ts|tsx|mts|cts)$/.test(entry.name) &&
+        !/\.d\.ts$/.test(entry.name) &&
+        !/\.(test|spec)\.tsx?$/.test(entry.name)
+      ) {
+        out.push(full);
+      }
+    }
+  };
+  walk(path.join(ROOT, "src"));
+  walk(path.join(ROOT, "scripts"));
+  return out;
+}
+
+describe("every consumer reads through a route the fixtures run", () => {
+  const consumers = productionSources()
+    .filter((file) => file.replace(/\.tsx?$/, "") !== TEXT_MODULE)
+    .map((file) => ({
+      file: path.relative(ROOT, file).split(path.sep).join("/"),
+      names: importedFromText(file, readFileSync(file, "utf8")),
+    }))
+    .filter((consumer) => consumer.names.length > 0);
+  const importedNames = new Set(consumers.flatMap((c) => c.names));
+
+  it("the detector sees every shape of import (positive and negative controls)", () => {
+    const at = path.join(ROOT, "src", "lib", "x", "y.ts");
+    const of = (source: string) => importedFromText(at, source);
+    const from = 'from "@/lib/pdf/text";';
+    expect(of(`import { extractPdfText as e } ${from}`)).toEqual([
+      "extractPdfText",
+    ]);
+    expect(of('import { a } from "../pdf/text";')).toEqual(["a"]);
+    expect(of('import { a } from "../../lib/pdf/text";')).toEqual(["a"]);
+    expect(
+      of('const { pdfHasSelectableText } = await import("@/lib/pdf/text");'),
+    ).toEqual(["pdfHasSelectableText"]);
+    expect(
+      of('const n = (await import("@/lib/pdf/text")).extractPdfLines;'),
+    ).toEqual(["extractPdfLines"]);
+    expect(of('const m = await import("@/lib/pdf/text");')).toEqual(["*"]);
+    expect(of(`import * as t ${from}`)).toEqual(["*"]);
+    expect(of(`export { extractPdfText } ${from}`)).toEqual(["*"]);
+    // Types are erased at runtime: they read no page.
+    expect(of(`import type { ExtractedPdfText } ${from}`)).toEqual([]);
+    expect(of(`import { type TextLine, joinPageTexts } ${from}`)).toEqual([
+      "joinPageTexts",
+    ]);
+    // Another module, however close its name.
+    expect(of('import { extractPdfText } from "@/lib/pdf/textual";')).toEqual(
+      [],
+    );
+    expect(of('import { extractPdfText } from "./text";')).toEqual([]);
+  });
+
+  it("the consumer set is plausibly sized, and holds the ones known to read text (health)", () => {
+    // A walk that quietly found nothing would pass every check below; one
+    // that found everything would be reading the wrong set.
+    expect(consumers.length).toBeGreaterThanOrEqual(12);
+    expect(consumers.length).toBeLessThanOrEqual(60);
+    const byFile = Object.fromEntries(consumers.map((c) => [c.file, c.names]));
+    // One positive control per shape that carries a route or an answer.
+    expect(
+      byFile["src/components/tools/runner/pdf-to-markdown-runner.tsx"],
+    ).toContain("extractPdfLines");
+    expect(
+      byFile["src/components/tools/runner/compare-pdf-runner.tsx"],
+    ).toContain("extractPdfText");
+    expect(byFile["src/lib/workers/pdf-security-client.ts"]).toContain(
+      "pdfHasSelectableText",
+    );
+  });
+
+  it("every export of ./text has exactly one role, and every role names a real export", () => {
+    const exports = textModuleExports();
+    // Health: the walk found the module's exports, not an empty list.
+    expect(exports).toContain("extractPdfText");
+    expect(exports.sort()).toEqual(Object.keys(EXPORT_ROLES).sort());
+  });
+
+  it("production imports nothing but routes, yes-no answers and text already read", () => {
+    const stray = consumers.flatMap(({ file, names }) =>
+      names
+        .filter((name) => {
+          const role = EXPORT_ROLES[name];
+          return role === undefined || role === "seam";
+        })
+        .map((name) => `${file}: ${name}`),
+    );
+    expect(stray).toEqual([]);
+  });
+
+  it("every route is run by the fixtures, and every role but seam is used", () => {
+    const routes = Object.keys(EXPORT_ROLES).filter(
+      (name) => EXPORT_ROLES[name] === "route",
+    );
+    expect(Object.keys(ROUTES).sort()).toEqual(routes.sort());
+    // A role no production module imports classifies nothing.
+    const unused = Object.entries(EXPORT_ROLES)
+      .filter(([name, role]) => role !== "seam" && !importedNames.has(name))
+      .map(([name]) => name);
+    expect(unused).toEqual([]);
   });
 });

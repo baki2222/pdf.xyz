@@ -10,6 +10,40 @@ import {
   type ExtractedTextPage,
 } from "./text";
 
+/**
+ * A title drawn AFTER the body it heads, as pdfjs hands the items over: the
+ * one shape here whose reading order differs from its stream order.
+ */
+const OUT_OF_ORDER_PAGE = [
+  {
+    str: "Second paragraph of body.",
+    hasEOL: true,
+    transform: [12, 0, 0, 12, 72, 600],
+    width: 140,
+    height: 12,
+  },
+  {
+    str: "Document Title",
+    hasEOL: true,
+    transform: [20, 0, 0, 20, 72, 720],
+    width: 140,
+    height: 20,
+  },
+  {
+    str: "First paragraph of body.",
+    hasEOL: true,
+    transform: [12, 0, 0, 12, 72, 660],
+    width: 140,
+    height: 12,
+  },
+];
+
+/** The items' text in pure stream order, as the extractor once returned it. */
+const streamOrder = (items: { str: string; hasEOL: boolean }[]) =>
+  normalizeExtractedText(
+    items.map((item) => `${item.str}${item.hasEOL ? "\n" : ""}`).join(""),
+  );
+
 describe("PDF text extraction helpers", () => {
   it("preserves pdfjs item text and explicit line endings", () => {
     expect(
@@ -93,7 +127,18 @@ describe("PDF text extraction helpers", () => {
         { str: "y" },
       ],
       [{ str: 42 }, { str: "only text counts" }],
+      OUT_OF_ORDER_PAGE,
     ];
+    // Health: the corpus has a page whose order really changes. Without one,
+    // every entry keeps stream order and the equality below holds whether or
+    // not the lines follow the text's reading order — which is how it stayed
+    // green while PDF to Markdown's lines were in stream order.
+    expect(textItemsToPlainText(OUT_OF_ORDER_PAGE)).toBe(
+      "Document Title\nFirst paragraph of body.\nSecond paragraph of body.",
+    );
+    expect(streamOrder(OUT_OF_ORDER_PAGE)).not.toBe(
+      textItemsToPlainText(OUT_OF_ORDER_PAGE),
+    );
     for (const items of corpus) {
       const joined = textItemsToLines(items)
         .map((line) => line.text)

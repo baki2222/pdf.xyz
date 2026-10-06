@@ -69,25 +69,42 @@ export interface ExtractedPdfLines extends ExtractedPdfText {
  * geometry (as in unit tests) keep the order they were given in.
  */
 export function textItemsToPlainText(items: TextItemLike[]): string {
-  const lines = itemLines(items);
-  const order = lines ? readingOrder(lines) : null;
-  if (!lines || !order) {
-    let text = "";
-    for (const item of items) {
-      if (typeof item.str !== "string") continue;
-      text += item.str;
-      if (item.hasEOL === true) text += "\n";
-    }
-    return normalizeExtractedText(text);
-  }
+  return plainTextOf(readingRuns(items));
+}
+
+/** The text of `runs`, each ending its own line, normalized. */
+function plainTextOf(runs: TextItemLike[][]): string {
   return normalizeExtractedText(
-    order
-      .map((block) => {
-        const text = block.map((i) => lines[i]!.text).join("");
+    runs
+      .map((run) => {
+        let text = "";
+        for (const item of run) {
+          if (typeof item.str !== "string") continue;
+          text += item.str;
+          if (item.hasEOL === true) text += "\n";
+        }
         return text.endsWith("\n") ? text : `${text}\n`;
       })
       .join(""),
   );
+}
+
+/**
+ * A page's items as the runs to emit, in READING order: one run per line, in
+ * the order {@link readingOrder} puts them — or the whole page as ONE run, in
+ * stream order, wherever that is kept (no geometry, rotated text, too many
+ * blocks, or a page already in order).
+ *
+ * The single place a page's order is decided. `textItemsToPlainText` and
+ * `textItemsToLines` both emit from it, so PDF to Text's text and PDF to
+ * Markdown's lines cannot disagree about it — they did, when the reordering
+ * lived inside the text path alone and the lines kept stream order.
+ */
+function readingRuns(items: TextItemLike[]): TextItemLike[][] {
+  const lines = itemLines(items);
+  const order = lines ? readingOrder(lines) : null;
+  if (!lines || !order) return [items];
+  return order.flat().map((i) => items.slice(lines[i]!.start, lines[i]!.end));
 }
 
 /** A line's extent in PDF user space (y grows upward). */
@@ -101,8 +118,9 @@ interface Box {
 }
 
 interface ItemLine {
-  /** The line's text exactly as stream order emits it, EOL included. */
-  text: string;
+  /** The line's items: `items.slice(start, end)`, EOL item included. */
+  start: number;
+  end: number;
   /** `null` for a line with no visible text (blank, or only whitespace). */
   box: Box | null;
 }
@@ -140,15 +158,17 @@ function itemBox(item: TextItemLike): Box | null | undefined {
 }
 
 /**
- * Split items into lines at pdfjs's own EOLs, keeping each line's text as
- * stream order emits it. `null` when any visible item's geometry is untrusted
- * — the whole page then keeps stream order.
+ * Split items into lines at pdfjs's own EOLs, keeping each line's items as
+ * stream order emits them. `null` when any visible item's geometry is
+ * untrusted — the whole page then keeps stream order.
  */
 function itemLines(items: TextItemLike[]): ItemLine[] | null {
   const lines: ItemLine[] = [];
+  let start = 0;
   let text = "";
   let box: Box | null = null;
-  for (const item of items) {
+  for (let at = 0; at < items.length; at++) {
+    const item = items[at]!;
     if (typeof item.str !== "string") continue;
     const own = itemBox(item);
     if (own === undefined) return null;
@@ -165,12 +185,13 @@ function itemLines(items: TextItemLike[]): ItemLine[] | null {
     }
     text += item.str;
     if (item.hasEOL === true) {
-      lines.push({ text: `${text}\n`, box });
+      lines.push({ start, end: at + 1, box });
+      start = at + 1;
       text = "";
       box = null;
     }
   }
-  if (text !== "") lines.push({ text, box });
+  if (text !== "") lines.push({ start, end: items.length, box });
   return lines;
 }
 
@@ -195,14 +216,23 @@ function itemSize(item: TextItemLike): number | null {
 }
 
 /**
- * Split pdfjs text items into visual lines, keeping each line's geometry.
+ * Split pdfjs text items into visual lines, keeping each line's geometry, in
+ * the same READING order as `textItemsToPlainText` — both emit from
+ * {@link readingRuns}.
  *
  * The line boundaries are EXACTLY `textItemsToPlainText`'s — an item's
  * `hasEOL`, or a newline inside its string — so the lines' text, joined with
- * `\n` and normalized, is that function's output byte for byte (text.test.ts
- * pins the equality). Only the geometry is new.
+ * `\n` and normalized, is that function's output byte for byte. text.test.ts
+ * pins the equality, on a page whose order changes as well as on ones that
+ * keep stream order; text-reading-order.test.ts pins it on real PDFs through
+ * `extractPdfLines` and the Markdown converter. Only the geometry is new.
  */
 export function textItemsToLines(items: TextItemLike[]): TextLine[] {
+  return readingRuns(items).flatMap(runLines);
+}
+
+/** {@link textItemsToLines} for one run, in the run's own order. */
+function runLines(items: TextItemLike[]): TextLine[] {
   const lines: TextLine[] = [];
   let current: TextLine = emptyLine();
 
@@ -648,7 +678,15 @@ export function linePageFromItems(
   items: TextItemLike[],
   pageNumber: number,
 ): ExtractedLinePage {
-  return { ...textPage(items, pageNumber), lines: textItemsToLines(items) };
+  // One order for both: the text and the lines come from the same runs.
+  const runs = readingRuns(items);
+  const text = plainTextOf(runs);
+  return {
+    pageNumber,
+    text,
+    characterCount: text.length,
+    lines: runs.flatMap(runLines),
+  };
 }
 
 /** Assemble per-page results into the document result both extractors return. */
