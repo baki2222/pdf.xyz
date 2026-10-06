@@ -224,6 +224,86 @@ describe("every in-browser loader routes an encrypted file through the classifie
     expect(offenders).toEqual([]);
   });
 
+  /*
+   * The exemption above has a hole, and a surface fell through it: a loader
+   * that reads past encryption on purpose and then REPORTS the lock hands its
+   * callers pdf-lib's `isEncrypted`, which is true of ANY /Encrypt entry. The
+   * Request Signatures panel turned that bit into "This PDF is
+   * password-protected" for a file that opens in every viewer — while the
+   * loaders, asked of the same bytes, said "restricted". So every module that
+   * consumes such a report must ask the probe which lock it is.
+   *
+   * DISCOVERED both ways: the exposers are the src/lib/pdf modules that read
+   * past encryption and mention `isEncrypted`; the consumers are every source
+   * file under src that imports one of them and reads `.encrypted`.
+   */
+  const SRC_DIR = path.join(process.cwd(), "src");
+
+  function sourceFiles(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return sourceFiles(full);
+      return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)
+        ? [full]
+        : [];
+    });
+  }
+
+  /** A consumer of `modules`' lock report that never asks which lock it is. */
+  function asksNoProbe(source: string, modules: readonly string[]): boolean {
+    const imports = modules.some((m) =>
+      new RegExp(`from\\s+["'][^"']*/pdf/${m}["']`).test(source),
+    );
+    if (!imports || !/\.encrypted\b/.test(source)) return false;
+    return !/\b(?:probePdfEncryption|classifyPdfAccess)\(/.test(source);
+  }
+
+  it("every consumer of a reported lock asks the probe which lock it is", () => {
+    const exposers = readdirSync(PDF_DIR)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .filter((f) => {
+        const s = readFileSync(path.join(PDF_DIR, f), "utf8");
+        return /ignoreEncryption:\s*true/.test(s) && /\bisEncrypted\b/.test(s);
+      })
+      .map((f) => f.replace(/\.tsx?$/, ""));
+    // page-frame (readPdfFrames) at the time of writing.
+    expect(exposers).toContain("page-frame");
+
+    const consumers: string[] = [];
+    const offenders: string[] = [];
+    for (const file of sourceFiles(SRC_DIR)) {
+      const source = readFileSync(file, "utf8");
+      const rel = path.relative(SRC_DIR, file).replace(/\\/g, "/");
+      if (
+        exposers.some((m) =>
+          new RegExp(`from\\s+["'][^"']*/pdf/${m}["']`).test(source),
+        ) &&
+        /\.encrypted\b/.test(source)
+      ) {
+        consumers.push(rel);
+      }
+      if (asksNoProbe(source, exposers)) offenders.push(rel);
+    }
+    // The Request Signatures panel at the time of writing; an empty list
+    // would make the check below vacuously true.
+    expect(consumers).toContain(
+      "components/tools/request-signatures-worker-panel.tsx",
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("positive control: the notice that called every lock password-protected is flagged", () => {
+    // The shape of the panel before 2026-10-06, reduced.
+    const before = [
+      'import { readPdfFrames } from "@/lib/pdf/page-frame";',
+      "const encrypted = picked.info.encrypted;",
+      "{encrypted && <p>This PDF is password-protected.</p>}",
+    ].join("\n");
+    expect(asksNoProbe(before, ["page-frame"])).toBe(true);
+    const after = `${before}\nconst lock = encryptedPdfMessage(await probePdfEncryption(bytes));`;
+    expect(asksNoProbe(after, ["page-frame"])).toBe(false);
+  });
+
   it("positive control: a hand-mapped loader is flagged", () => {
     const handMapped = [
       "  try {",

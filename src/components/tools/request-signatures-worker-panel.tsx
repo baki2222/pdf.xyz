@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import {
   Download,
-  Lock,
   PenLine,
   Plus,
   ShieldCheck,
@@ -30,6 +28,7 @@ import {
   type ThumbnailRenderer,
 } from "@/lib/pdf/render";
 import { clampPixelRatio } from "@/lib/pdf/render-utils";
+import { encryptedPdfMessage, probePdfEncryption } from "@/lib/pdf/encryption";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunRequestSignatures,
@@ -44,6 +43,7 @@ import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
+  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
@@ -77,9 +77,6 @@ function badgeFor(
 }
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Where a password-protected PDF gets unlocked; pinned to the catalog by the panel test. */
-export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
 
 /** Keep a requested page inside the document (or ≥ 1 while the count is unknown). */
 export function clampSignaturePage(
@@ -325,10 +322,25 @@ function SpecRow({
   );
 }
 
-/** What the browser learned about the picked PDF, or why it could not. */
+/**
+ * What the browser learned about the picked PDF, or why it could not.
+ *
+ * `lock` is what to tell the person when the file is encrypted, `null` when it
+ * is not. pdf-lib's `isEncrypted` (`info.encrypted`) is true of ANY /Encrypt
+ * entry, so it only says THAT there is a lock; which lock — a password needed
+ * to open it, or only its author's editing restrictions — is asked of the same
+ * pdf.js probe every in-browser loader uses, and the sentence is that verdict's.
+ * This notice used to call every encrypted file "password-protected", while
+ * the loader called the same bytes restricted.
+ */
 type PickedPdf =
   | { status: "reading" }
-  | { status: "read"; bytes: Uint8Array; info: PdfFrames }
+  | {
+      status: "read";
+      bytes: Uint8Array;
+      info: PdfFrames;
+      lock: string | null;
+    }
   | { status: "unreadable"; bytes: Uint8Array | null };
 
 export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
@@ -357,7 +369,8 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
   );
   const pageCount =
     picked?.status === "read" ? picked.info.frames.length : null;
-  const encrypted = picked?.status === "read" && picked.info.encrypted;
+  const lock = picked?.status === "read" ? picked.lock : null;
+  const encrypted = lock !== null;
   const reading = picked?.status === "reading";
   // An encrypted PDF is refused by the worker (it cannot add fields to a locked
   // file), so the run is blocked here and the unlock route offered instead.
@@ -393,9 +406,13 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
           bytes = null;
         }
         const info = bytes ? await readPdfFrames(bytes) : null;
+        const lock =
+          bytes && info?.encrypted
+            ? encryptedPdfMessage(await probePdfEncryption(bytes))
+            : null;
         if (token !== pickToken.current) return;
         if (bytes && info) {
-          setPicked({ status: "read", bytes, info });
+          setPicked({ status: "read", bytes, info, lock });
           setPage(info.frames.length);
         } else {
           setPicked({ status: "unreadable", bytes });
@@ -488,24 +505,8 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
         />
       )}
 
-      {encrypted && (
-        <p
-          role="alert"
-          className="border-err/40 bg-err/10 text-err flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
-        >
-          <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
-          <span>
-            This PDF is password-protected, so fields can&apos;t be added to it.{" "}
-            <Link
-              href={UNLOCK_TOOL_HREF}
-              className="font-medium underline underline-offset-2"
-            >
-              Unlock it first
-            </Link>
-            , then add the unlocked file here.
-          </span>
-        </p>
-      )}
+      {/* The verdict's own sentence; ErrorNote adds the link to Unlock PDF. */}
+      {lock !== null && <ErrorNote message={lock} />}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">

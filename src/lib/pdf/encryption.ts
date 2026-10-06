@@ -33,9 +33,15 @@ export type PdfAccess =
   | { readonly kind: "unreadable" };
 
 /**
- * What to tell a person about each kind of lock — one definition for every
- * surface that reports it. Only `password-required` mentions a password,
- * because it is the only kind that has one the person could know.
+ * What Compress tells a person about each kind of lock. Only
+ * `password-required` mentions a password, because it is the only kind that
+ * has one the person could know.
+ *
+ * AMENDED 2026-10-06: this said "one definition for every surface", while the
+ * editors' sentences below (`PDF_*_MESSAGE`) word the same verdicts their own
+ * way — Compress can still offer a restricted file the secure worker, so its
+ * sentence says "in your browser". What IS one for every surface is the probe
+ * that picks the sentence; see {@link EncryptionVerdict}.
  */
 export const LOCKED_PDF_COPY = {
   restricted:
@@ -154,8 +160,13 @@ export async function classifyPdfAccess(
  * guess. It is {@link classifyPdfAccess} read for that question — not a second
  * probe. Two lanes built this independently on 2026-09-27 (L12 for Compress,
  * L06 for every pdf-lib loader); they were merged into one pdf.js open at the
- * integration of wave1/l06-copy-other, so no two surfaces can classify the
- * same file two ways.
+ * integration of wave1/l06-copy-other.
+ *
+ * AMENDED 2026-10-06: that merge also wrote "so no two surfaces can classify
+ * the same file two ways", and one did — the Request Signatures panel read
+ * pdf-lib's `isEncrypted` (true of ANY /Encrypt) and called every lock
+ * "password-protected". `encryption-verdict.test.ts` now discovers every
+ * consumer of a reported lock and requires it to ask this probe.
  */
 export type EncryptionVerdict = "opens-without-password" | "needs-password";
 

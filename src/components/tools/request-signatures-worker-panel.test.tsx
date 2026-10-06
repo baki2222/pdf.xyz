@@ -22,8 +22,18 @@ import { getToolBySlug } from "@/lib/tools";
 import { signatureBlockFields } from "@/lib/jobs/request-signatures";
 import { pickRefusal } from "@/lib/uploads/pick-check";
 import {
-  RequestBuilder,
+  PDF_ENCRYPTED_UNKNOWN_MESSAGE,
+  PDF_NEEDS_PASSWORD_MESSAGE,
+  PDF_RESTRICTED_MESSAGE,
   UNLOCK_TOOL_HREF,
+  UNLOCK_TOOL_NAME,
+} from "@/lib/pdf/encryption";
+import {
+  ownerOnlyEncryptedPdf,
+  userPasswordEncryptedPdf,
+} from "@/tests/encrypted-pdf-fixture";
+import {
+  RequestBuilder,
   clampSignaturePage,
 } from "./request-signatures-worker-panel";
 
@@ -132,24 +142,54 @@ describe("RequestBuilder signature page", () => {
     expect(screen.getByText(/Page 2 —/)).toBeInTheDocument();
   });
 
-  it("blocks a password-protected PDF and routes to a real Unlock tool", async () => {
+  /**
+   * INVERTED 2026-10-06, history kept. This was "blocks a password-protected
+   * PDF", fed a bare trailer /Encrypt, and required the alert to say
+   * "password-protected" — for EVERY encrypted file, because the notice was
+   * driven by pdf-lib's `isEncrypted`, which is true of any /Encrypt entry.
+   * So a bank statement that opens in every viewer with no prompt was called
+   * password-protected here, while the loader (`@/lib/pdf/encryption`) called
+   * the same bytes "restricted". The notice now asks the loader's probe, and
+   * each lock is checked with a file that HAS that lock.
+   */
+  async function lockAlert(bytes: Uint8Array): Promise<HTMLElement> {
     const { container } = render(<RequestBuilder refuse={refuse} />);
     addSigner();
-    pick(container, await pdfFile(2, { encrypted: true }));
-
+    pick(
+      container,
+      new File([bytes.slice()], "contract.pdf", { type: "application/pdf" }),
+    );
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/password-protected/);
-    const link = screen.getByRole("link", { name: "Unlock it first" });
-    expect(link.getAttribute("href")).toBe(UNLOCK_TOOL_HREF);
-    // The link resolves to a tool the catalog actually ships.
-    const slug = UNLOCK_TOOL_HREF.replace(/^\/tools\//, "");
-    expect(getToolBySlug(slug)?.name).toMatch(/unlock/i);
-
-    const run = screen.getByRole("button", {
-      name: /Prepare signature request/,
-    });
-    expect(run).toHaveAttribute("aria-disabled", "true");
+    // Every lock blocks the run (the worker cannot add fields to it) and
+    // offers the way out, to a tool the catalog actually ships.
+    expect(
+      screen.getByRole("button", { name: /Prepare signature request/ }),
+    ).toHaveAttribute("aria-disabled", "true");
     expect(screen.queryByTestId("signature-page-preview")).toBeNull();
+    const link = screen.getByRole("link", { name: /Unlock PDF/ });
+    expect(link.getAttribute("href")).toBe(UNLOCK_TOOL_HREF);
+    const slug = UNLOCK_TOOL_HREF.replace(/^\/tools\//, "");
+    expect(getToolBySlug(slug)?.name).toBe(UNLOCK_TOOL_NAME);
+    return alert;
+  }
+
+  it("a PDF that opens without a password is not called password-protected", async () => {
+    const alert = await lockAlert(ownerOnlyEncryptedPdf());
+    expect(alert).toHaveTextContent(PDF_RESTRICTED_MESSAGE);
+    expect(alert).not.toHaveTextContent(/password-protected/i);
+    expect(alert).toHaveTextContent(/owner \(permissions\) password/);
+  });
+
+  it("positive control: a PDF that needs a password to open is called password-protected", async () => {
+    const alert = await lockAlert(userPasswordEncryptedPdf());
+    expect(alert).toHaveTextContent(PDF_NEEDS_PASSWORD_MESSAGE);
+  });
+
+  it("a lock no reader can classify gets the sentence true of both kinds", async () => {
+    const file = await pdfFile(2, { encrypted: true });
+    const alert = await lockAlert(new Uint8Array(await file.arrayBuffer()));
+    expect(alert).toHaveTextContent(PDF_ENCRYPTED_UNKNOWN_MESSAGE);
+    expect(alert).not.toHaveTextContent(/password-protected/i);
   });
 
   it("control: an unlocked PDF with a signer is runnable and shows no lock alert", async () => {

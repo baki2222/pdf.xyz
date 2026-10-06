@@ -37,9 +37,13 @@ import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
  *    is a plain AcroForm TEXT field named Signer<N>-Signature-<k> /
  *    Signer<N>-Date-<k>; existing pages and fields are kept. A field on a page
  *    the PDF does not have fails as invalid_request naming both numbers; an
- *    unreadable or encrypted PDF fails as "The PDF could not be prepared for a
- *    signature request." (loadPdf's "Unlock it first" is swallowed by the
- *    engine's catch). A file with no %PDF- envelope never reaches the engine:
+ *    unreadable or encrypted PDF fails as invalid_request in the loader's own
+ *    words (AMENDED 2026-10-06: this said the engine's catch swallowed them
+ *    into "could not be prepared"; engine.ts keeps the loader's message since
+ *    the wave1 merge, and native.integration.test.ts runs it). In the browser
+ *    an encrypted PDF never gets that far: the panel stops it when it is
+ *    picked, in the words of the pdf.js probe's verdict
+ *    (request-signatures-worker-panel.test.tsx). A file with no %PDF- envelope never reaches the engine:
  *    the executor's soundness gate (src/lib/workers/soundness, wired by
  *    daemon/runtime.ts) fails it with UNSOUND_INPUT_ERROR. Output is a ZIP: prepared.pdf, manifest.json (status
  *    always "prepared", SHA-256 of the uploaded file, signers with a 32-hex
@@ -58,7 +62,7 @@ import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
  * applyFormValues filled Signer1-Signature-1 / Signer1-Date-1 and, with
  * flatten, left ZERO fields — signer 2's empty boxes were baked away too. Page
  * 5 of 2 returned the invalid_request message; an encrypted stub returned the
- * generic "could not be prepared" message.
+ * generic "could not be prepared" message (since superseded, see above).
  */
 const requestTool = getToolBySlug("request-signatures");
 const ceilingMb = requestTool ? toolFileCeilingMb(requestTool) : null;
@@ -145,7 +149,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my request refused?",
-      a: `A Signature page past the last page stops the job, and the error names both your page and the PDF's page count. A password-protected or damaged PDF ends with the general "could not be prepared for a signature request" error, which does not say which of the two it was. Bytes without a PDF header never reach this step; a basic soundness check rejects them first. For a locked file, strip the password with Unlock PDF (a separate upload to the same worker) and prepare the unlocked copy.`,
+      a: `A Signature page past the last page stops the job, and the error names both your page and the PDF's page count. An encrypted PDF is stopped as soon as you add it, before anything is uploaded, with a message that says which lock it has: one that needs a password to open is called password-protected, and one that opens without a password but carries its author's editing restrictions is told so, since fields cannot be added to either. A damaged PDF is refused by the worker as a file that couldn't be read as a PDF. Bytes without a PDF header never reach this step; a basic soundness check rejects them first. For a locked file, remove the lock with Unlock PDF (a separate upload to the same worker), using the password that opens it or, for a restricted file, its owner (permissions) password, and prepare the unlocked copy.`,
     },
   ],
 
