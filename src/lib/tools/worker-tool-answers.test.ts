@@ -63,10 +63,22 @@ import {
   type PdfOfficeExportTool,
 } from "@/lib/workers/pdf-office-export/engine";
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
-import { readXlsxSheet } from "@/lib/workers/ooxml/sheet-read";
+import { cellsByRef, readXlsxSheet } from "@/lib/workers/ooxml/sheet-read";
+import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
 import { flowText, type PdfFlowText } from "@/lib/workers/pdf-text/flow";
-import { parseBboxFlow } from "@/lib/workers/pdf-text/parse";
-import { TABLE_BBOX, TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
+import { parseBboxFlow, parseBboxLayout } from "@/lib/workers/pdf-text/parse";
+import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
+import {
+  buildTablesZip,
+  detectTablesOnPage,
+  runTableExtract,
+} from "@/lib/workers/table-extract/engine";
+import {
+  REPORT_TABLES_BBOX,
+  TABLE_BBOX,
+  TWO_COLUMN_BBOX,
+} from "@/tests/poppler-samples";
+import { REPORT_TABLES } from "@/tests/table-extract-fixtures";
 import {
   LEFT_COLUMN,
   RIGHT_COLUMN,
@@ -367,6 +379,40 @@ describe("PDF to Excel: the sheet is the page's sentence", () => {
     expect(served).toContain(XLSX_TEXT_EXAMPLE);
   });
 
+  it("what the page says stays text stays text, and the digit limit is the writer's", async () => {
+    // The authored "Will SUM work on my numbers?" answer names the shapes
+    // that stay text; each is run, and the digit limit has a control on
+    // both sides of it.
+    const served = answer("pdf-to-excel", /SUM/);
+    const STAYS_TEXT = [
+      XLSX_TEXT_EXAMPLE,
+      "1.250,00",
+      "(1,250.00)",
+      "00123",
+      "1".repeat(MAX_SIGNIFICANT_DIGITS + 1),
+    ];
+    for (const value of STAYS_TEXT) {
+      const sheet = await sheetOf([`Ref    ${value}`]);
+      expect(sheet.rows[0]!.cells[1], value).toMatchObject({
+        type: "text",
+        value,
+      });
+    }
+    const longest = "1".repeat(MAX_SIGNIFICANT_DIGITS);
+    expect((await sheetOf([`Ref    ${longest}`])).rows[0]!.cells[1]?.type).toBe(
+      "number",
+    );
+    for (const said of [
+      XLSX_TEXT_EXAMPLE,
+      "1.250,00",
+      "negatives in brackets",
+      "leading zeros",
+      `${MAX_SIGNIFICANT_DIGITS} significant digits`,
+      ...XLSX_NUMBER_EXAMPLES,
+    ])
+      expect(served, said).toContain(said);
+  });
+
   it("an empty cell stays in its column, as the page says", async () => {
     const sheet = await sheetOf([
       "Item      Qty      Price",
@@ -395,6 +441,45 @@ describe("PDF to Excel: the sheet is the page's sentence", () => {
     // INVERTED: this also required every cell to be text ("inlineStr"),
     // pinning a sheet whose SUM over an invoice returned 0. What is text and
     // what is a number is now asserted, value by value, above.
+  });
+});
+
+describe("Extract Tables: tables.xlsx is the page's numbers answer", () => {
+  it("each value the page calls a number is one in the workbook, and each it calls text stays text", async () => {
+    const served = answer("extract-tables", /numbers/i);
+    const NUMBERS = [...XLSX_NUMBER_EXAMPLES, "-4"];
+    const TEXT = [
+      "00123",
+      "1.250,00",
+      XLSX_TEXT_EXAMPLE,
+      "(1,250.00)",
+      "1".repeat(MAX_SIGNIFICANT_DIGITS + 1),
+    ];
+    const values = [...NUMBERS, ...TEXT];
+    const zip = await JSZip.loadAsync(
+      await buildTablesZip([
+        { pageNumber: 1, rows: [["Value"], ...values.map((v) => [v])] },
+      ]),
+    );
+    const sheet = await readXlsxSheet(
+      await zip.file("tables.xlsx")!.async("uint8array"),
+    );
+    const typeOf = new Map(
+      sheet.rows.slice(1).map((r, i) => [values[i]!, r.cells[0]?.type]),
+    );
+    expect(typeOf.size).toBe(values.length);
+    for (const v of NUMBERS) {
+      expect(typeOf.get(v), v).toBe("number");
+      expect(served, v).toContain(v);
+    }
+    for (const v of TEXT) expect(typeOf.get(v), v).toBe("text");
+    for (const said of [
+      "00123",
+      "1.250,00",
+      `${MAX_SIGNIFICANT_DIGITS} significant digits`,
+      "bracketed negative",
+    ])
+      expect(served, said).toContain(said);
   });
 });
 
@@ -698,6 +783,310 @@ describe("no copy promises the Office exports keep a PDF's layout or tables", ()
       PROMISES.filter((p) => p.test(text)).map((p) => `${where}: ${p}`),
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  The table pages describing engines that were replaced under them
+ * ------------------------------------------------------------------ */
+
+/**
+ * PDF to Excel and Extract Tables were both REWRITTEN under their pages.
+ * PDF to Excel stopped splitting at commas and started placing values by
+ * column and storing amounts as numbers (wave-1 L03, 2026-09-28); Extract
+ * Tables stopped treating a page as one grid built from word left edges
+ * (2026-09-27). Each page's derived FAQ was updated and held to the engine
+ * above — and the AUTHORED copy around it (meta description, intro, use
+ * cases, steps, FAQ) kept describing the old engines, contradicting the
+ * answer printed under it. Every check above asked the derived answer
+ * (`answer(slug, …)`), so none of them read the sentences a reader meets
+ * first (house rule 5). Audited at 028d3a10.
+ *
+ * The SHIPPED sentences are the corpus, both ways. Each claim is also RUN:
+ * the engine is asked to do what the sentence says and must not, so the ban
+ * stands on the engine's behaviour, not on this list. The exit condition is
+ * that property — if an engine starts doing one of these again, its
+ * `refute` goes red here, and the sentence may be true again; nothing else
+ * lifts a ban.
+ */
+describe("no table page describes the replaced comma split, text-only cells or whole-page grid", () => {
+  const SHIPPED = [
+    "Export the text layer of a PDF to an XLSX sheet: one row per line, new cells at tabs, commas and wide gaps.",
+    "Each non-empty line becomes one spreadsheet row, cut into cells wherever it has a tab, a comma, or a run of two or more spaces; a single space never starts a new cell.",
+    "Ruling lines and cell borders are ignored, merged cells are not rebuilt, and every value is stored as text.",
+    'The comma rule cuts both ways: comma-separated values split neatly, but an amount printed as 1,250.00 becomes two cells, and so does "Doe, Jane".',
+    "Lines of comma-separated values come back as columns you can sort and filter.",
+    "A value that itself contains a comma, such as a quoted address, is split too.",
+    "Money columns with thousands separators suit Extract Tables better.",
+    "Convert number columns from text before summing, delete rows that came from page headers and footers, and check any row that had a blank field.",
+    "Only when every row has a value in every column.",
+    "A blank cell is not written as an empty cell, so the values after it move one column left and land under the wrong heading.",
+    "Why does SUM return zero on my numbers?",
+    "Every cell is written as text, figures and dates included, so the spreadsheet treats them as labels until you convert the column to numbers.",
+    "PDF to Excel converts every line and splits it at gaps and commas, with no idea where a table starts.",
+    "Extract Tables lays each page's words into a grid by their position, skips any page whose grid is mostly empty, and hands back a ZIP holding a CSV per table and one workbook with a sheet for each.",
+    "It finds at most one table per page, so a page that mixes a table with paragraphs may be skipped or have the paragraphs in the grid.",
+    "If only some pages are scans, the export succeeds and those pages add no rows, with nothing marking the gap.",
+    "An open-password PDF fails with a general export error that does not mention the password, since this page has no password field; take it through Unlock PDF, which asks for that password, and convert the copy it returns.",
+    "Columns stop at Z: when one line splits into more cells than there are letters from A to Z, the extra cells are all written to column Z of that row, and desktop Microsoft Excel then refuses to open the whole workbook, not just that row.",
+    "Lines of prose with many commas can trip this as easily as a wide table.",
+    "Turns each grid-like page of a text-based PDF into its own CSV file and Excel sheet, placing words by position on the page.",
+    "Extract Tables reads the position of every word on a page, puts words that sit on the same line into one row and words whose left edges line up into one column, and keeps the page only if the result looks like a grid: at least two rows and two columns with two or more filled cells each, and at least half of all cells filled.",
+    "The whole page is treated as a single grid, so a heading or footnote becomes an extra row, its words can open extra columns, and two tables on one page come out as one.",
+    "A multi-page appendix yields one numbered CSV and one sheet per qualifying page, and each sheet name carries the page number, so every result can be traced back to where it came from.",
+    "A scan with no text, or a file where no page forms a grid, shows an error beneath the button in place of a result.",
+    "Compare each sheet with the page named in its tab, delete rows that came from headings or notes, and rejoin words split across columns.",
+    "Extract Tables places each word by position, so 1,250.00 stays whole and an empty cell stays empty, but a description spreads over several columns; it also skips pages that do not form a grid and gives each qualifying page its own sheet and CSV.",
+    "Why are words from one cell spread over several columns?",
+    "Columns are built from the left edge of each individual word.",
+    "Every word on the page goes into the grid, not just the table.",
+    "Paragraphs, address blocks and long captions add many sparsely filled rows and columns, and once fewer than half of all cells hold text the page is rejected.",
+    "Each page is analysed on its own, so a table spanning three pages comes out as up to three CSV files and three sheets, one for each page that passes the grid test, and a header row the PDF repeats on each page is repeated in each sheet too.",
+    "Every cell in tables.xlsx is stored as a text string, so currency symbols, thousands separators and leading zeros survive, but nothing can be summed until you convert it, for example with Excel's Convert to Number.",
+    "By where the text sits: it groups the PDF's selectable text into rows and columns by position, and keeps a grid only where columns and rows line up and most of its cells hold text.",
+  ];
+
+  /** A sentence's clauses: what one claim can be made in. */
+  const clauses = (text: string) => text.split(/(?<=[.;:!?])\s+/);
+
+  /** One run of PDF to Excel on `lines`, decoded. */
+  async function excel(lines: readonly string[]) {
+    return readXlsxSheet(await exportRun("pdf-to-excel", [lines.join("\n")]));
+  }
+  const excelCells = async (line: string) =>
+    (await excel([line])).rows.flatMap((r) => r.cells);
+
+  /** Extract Tables on poppler's real words for the report page. */
+  const reportLayout = () => parseBboxLayout(REPORT_TABLES_BBOX);
+
+  interface Claim {
+    readonly says: string;
+    readonly pattern: RegExp;
+    /** Run the engine; it must NOT do what `says` says. */
+    readonly refute: () => Promise<void>;
+  }
+
+  const commaSplits = async () => {
+    for (const line of ["a,b", "Doe, Jane", "1,250.00"])
+      expect(await excelCells(line), line).toHaveLength(1);
+    // Control: the same probe sees a split where the engine makes one.
+    expect(await excelCells("a  b")).toHaveLength(2);
+  };
+  const textOnly = async () => {
+    const [, amount] = (await excel(["Total    1,250.00"])).rows[0]!.cells;
+    expect(amount).toMatchObject({ type: "number", value: "1250.00" });
+    const run = await runTableExtract(new Uint8Array([1]), {
+      extractLayout: async () => reportLayout(),
+    });
+    if (!run.ok) throw new Error(run.message);
+    const zip = await JSZip.loadAsync(run.output);
+    const sheet = cellsByRef(
+      await readXlsxSheet(await zip.file("tables.xlsx")!.async("uint8array")),
+    );
+    expect(sheet.get("D2")).toMatchObject({ type: "number", value: "5400.00" });
+    // Control: the reader sees text where the writer writes text.
+    expect(sheet.get("A2")).toMatchObject({
+      type: "text",
+      value: "North America",
+    });
+  };
+  const blankShifts = async () => {
+    const sheet = await excel([
+      "Item      Qty      Price",
+      "Pear               4.00",
+    ]);
+    expect(sheet.rows[1]!.cells.map((c) => c.ref)).toEqual(["A2", "C2"]);
+  };
+  const clampsAtZ = async () => {
+    const line = (p: string) =>
+      Array.from({ length: 30 }, (_, i) => `${p}${i + 1}`).join("   ");
+    const refs = (await excel([line("h"), line("v")])).rows[1]!.cells.map(
+      (c) => c.ref,
+    );
+    expect(new Set(refs).size).toBe(refs.length);
+    expect(refs.filter((r) => /^[A-Z]{2}\d/.test(r)).length).toBeGreaterThan(0);
+  };
+  const wholePageGrid = async () => {
+    // A title, a paragraph, two tables with a caption between, a note and a
+    // footer, as poppler gives its words: exactly the two tables come back,
+    // multi-word cells whole, right-aligned amounts in their header's column.
+    const [page] = reportLayout().pages;
+    const found = detectTablesOnPage(page!).map((t) => t.rows);
+    expect(found).toEqual(REPORT_TABLES.map((t) => t.map((r) => [...r])));
+    expect(found.length).toBeGreaterThan(1);
+  };
+  const silentGaps = async () => {
+    const run = await runPdfOfficeExport("pdf-to-excel", new Uint8Array([1]), {
+      extract: async () => extracted(["Item  Qty", ""]),
+    });
+    if (!run.ok) throw new Error(run.message);
+    expect(run.coverage.pagesWithoutText).toEqual([2]);
+  };
+  const generalPasswordError = async () => {
+    const run = await runPdfOfficeExport("pdf-to-excel", new Uint8Array([1]), {
+      extract: async () => {
+        throw new PdfTextExecError({
+          exitCode: 1,
+          killed: false,
+          outputTooLarge: false,
+        });
+      },
+      isEncrypted: async () => true,
+    });
+    expect(run).toMatchObject({ ok: false, kind: "password_protected" });
+    if (!run.ok) expect(run.message).toMatch(/password/i);
+  };
+
+  const CLAIMS: Claim[] = [
+    {
+      says: "a comma starts a new cell",
+      pattern: /^(?!.*\bnever\b).*\bcomma/i,
+      refute: commaSplits,
+    },
+    {
+      says: "an amount's thousands separator is a reason to go elsewhere",
+      pattern: /\bthousands separators?\b.*\b(?:suit|better|splits?)\b/i,
+      refute: commaSplits,
+    },
+    {
+      says: "every cell is text",
+      pattern: /\b(?:every|all)\s+(?:value|cell)s?\b.*\bas (?:a )?text\b/i,
+      refute: textOnly,
+    },
+    {
+      says: "numbers need converting from text",
+      pattern: /\bnumber columns from text\b/i,
+      refute: textOnly,
+    },
+    {
+      says: "SUM returns zero",
+      pattern: /\bSUM returns? (?:zero|0)\b/i,
+      refute: textOnly,
+    },
+    {
+      says: "a blank cell moves the values after it",
+      pattern: /\b(?:moves?|shifts?)\b.*\bleft\b/i,
+      refute: blankShifts,
+    },
+    {
+      says: "rows line up only when no cell is blank",
+      pattern: /\bevery row has a value in every column\b/i,
+      refute: blankShifts,
+    },
+    {
+      says: "columns clamp at Z",
+      pattern: /\bcolumn Z\b|\bstops? at Z\b/i,
+      refute: clampsAtZ,
+    },
+    {
+      says: "a partly scanned PDF's missing pages go unmarked",
+      pattern: /\bnothing mark(?:s|ing)\b/i,
+      refute: silentGaps,
+    },
+    {
+      says: "a locked PDF gets a general error",
+      pattern: /\b(?:general|generic)\s+(?:export\s+)?error\b/i,
+      refute: generalPasswordError,
+    },
+    {
+      says: "a page is the unit of a table",
+      pattern: /\b(?:grid-like|qualifying)\s+pages?\b/i,
+      refute: wholePageGrid,
+    },
+    {
+      says: "at most one table per page",
+      pattern: /\bat most one table per page\b/i,
+      refute: wholePageGrid,
+    },
+    {
+      says: "the page is one grid",
+      pattern: /\bsingle grid\b|\bevery word on the page goes into the grid\b/i,
+      refute: wholePageGrid,
+    },
+    {
+      says: "a page passes or forms the grid",
+      pattern:
+        /\bpages?\b(?:\s+that)?\s+(?:passes|pass|forms?)\s+(?:a|the)\s+grid\b/i,
+      refute: wholePageGrid,
+    },
+    {
+      says: "a fill ratio decides",
+      pattern:
+        /\bhalf of (?:all )?(?:the )?cells\b|\bmost of its cells\b|\bmostly empty\b/i,
+      refute: wholePageGrid,
+    },
+    {
+      says: "columns come from left edges",
+      pattern: /\bleft edges?\b/i,
+      refute: wholePageGrid,
+    },
+    {
+      says: "a cell's words spread over columns",
+      pattern:
+        /\b(?:split|spread)s?\s+(?:over|across)\s+(?:several\s+)?columns\b/i,
+      refute: wholePageGrid,
+    },
+  ];
+
+  const caught = (pattern: RegExp, text: string) =>
+    clauses(text).some((c) => pattern.test(c));
+
+  function surfaces(): { where: string; text: string }[] {
+    const out: { where: string; text: string }[] = [];
+    for (const slug of ["pdf-to-excel", "extract-tables"]) {
+      out.push({
+        where: `${slug} meta`,
+        text: pageDescription(getToolBySlug(slug)!),
+      });
+      out.push({ where: `${slug} (served)`, text: page(slug).text });
+      for (const e of page(slug).faq)
+        out.push({ where: `${slug} FAQ`, text: `${e.question} ${e.answer}` });
+      for (const s of page(slug).howTo)
+        out.push({ where: `${slug} step`, text: s });
+      for (const guide of guides) {
+        if (!guide.tools.includes(slug)) continue;
+        for (const text of guideStrings(guide))
+          out.push({ where: `guide ${guide.slug}`, text });
+      }
+    }
+    return out;
+  }
+
+  it("the corpus and the patterns cover each other", () => {
+    for (const s of SHIPPED)
+      expect(
+        CLAIMS.some((c) => caught(c.pattern, s)),
+        `uncaught: ${s}`,
+      ).toBe(true);
+    for (const { says, pattern } of CLAIMS)
+      expect(
+        SHIPPED.some((s) => caught(pattern, s)),
+        `${says}: ${pattern} catches nothing shipped`,
+      ).toBe(true);
+    // The comma claim lets a NEGATED comma through, and only that: the
+    // sentences the pages now serve pass, and their un-negated twins do not.
+    const comma = CLAIMS[0]!.pattern;
+    expect(caught(comma, "A comma never splits a cell.")).toBe(false);
+    expect(caught(comma, "A comma splits a cell.")).toBe(true);
+  });
+
+  for (const { says, refute } of CLAIMS)
+    it(`the engine does not do it: ${says}`, refute);
+
+  it("no surface either page serves makes one of the claims", () => {
+    const all = surfaces();
+    // Health: both pages, as served, with their FAQs and steps.
+    expect(all.length).toBeGreaterThan(20);
+    for (const slug of ["pdf-to-excel", "extract-tables"])
+      expect(page(slug).text.length, slug).toBeGreaterThan(3000);
+    const offenders = all.flatMap(({ where, text }) =>
+      clauses(text).flatMap((clause) =>
+        CLAIMS.filter((c) => c.pattern.test(clause)).map(
+          (c) => `${where}: [${c.says}] ${clause}`,
+        ),
+      ),
+    );
+    expect(offenders, offenders.join("\n")).toEqual([]);
   });
 });
 

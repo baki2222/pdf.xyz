@@ -1508,7 +1508,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `How does ${tool.name} find a table?`,
           answer:
-            "By where the text sits: it groups the PDF's selectable text into rows and columns by position, and keeps a grid only where columns and rows line up and most of its cells hold text. Ruled lines and cell borders are not read, so a table is found by its alignment alone.",
+            "By where the text sits: words set a normal space apart are joined into one cell, columns come from the white-space gutters that run down the rows, and a block is kept only where at least two columns hold values in two or more rows and one column holds short values rather than sentences. Ruled lines and cell borders are not read, so a table is found by its alignment alone.",
         },
         {
           question: `Can ${tool.name} read a scanned PDF?`,

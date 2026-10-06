@@ -57,7 +57,7 @@ const NUMBER = new RegExp(
   "u",
 );
 /** Excel keeps 15 significant digits; a longer number is an ID, not a value. */
-const MAX_SIGNIFICANT_DIGITS = 15;
+export const MAX_SIGNIFICANT_DIGITS = 15;
 
 /** Move the decimal point two places left, exactly (no floating point). */
 function percentValue(int: string, frac: string): string {

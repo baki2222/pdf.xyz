@@ -1,50 +1,56 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import { XLSX_NUMBER_EXAMPLES } from "@/lib/jobs/pdf-office-export";
+import { getToolBySlug } from "@/lib/tools";
+import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
+import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
+import { LONG_CELL_WORDS } from "@/lib/workers/pdf-text/flow";
 import { tableExtractOutputName } from "@/lib/workers/processor/table-extract";
 
 /*
- * Behaviour claims below were read from the implementation on 2026-09-27:
+ * Behaviour claims below were read from the implementation on 2026-09-27,
+ * and RE-READ on 2026-10-06 after the engine was rewritten under this page:
  *  - src/components/tools/table-extract-worker-panel.tsx — one PDF per run,
  *    the "Add your PDF, or browse" drop zone with the "Selectable PDF" hint,
- *    the "Extract tables" button ("Extracting tables…" while busy), the
- *    "Download <file>" button; the badge reads "Checking…", "Status unknown",
- *    "Not enabled" or "Secure worker", and only "Secure worker" shows a runner;
- *  - src/lib/workers/pdf-text/parse.ts parseBboxLayout — every item is ONE
- *    word box from pdftotext -bbox-layout;
- *  - src/lib/workers/table-extract/engine.ts detectTablesOnPage — the WHOLE
- *    page is one grid: every word on it is clustered into rows by vertical
- *    position and columns by its LEFT edge, so titles and footnotes become
- *    rows, each word of a multi-word cell usually becomes its own column, two
- *    tables on one page merge into one grid, and a page with prose fails the
- *    fill test (>= half the cells filled, two rows and two columns with >= 2
- *    filled cells). These were checked by feeding synthetic word layouts
- *    through detectTablesOnPage itself, not by a production job. No merged
- *    cells, no cross-page stitching. Output: ZIP of table-N.csv (RFC-4180, no
- *    BOM) plus tables.xlsx with sheets "Table N (pP)", every cell inlineStr;
- *    failures: no selectable text (points at OCR PDF), no table found, too
- *    large;
- *  - src/lib/workers/processor/table-extract.ts — the "-tables.zip" name;
- *  - src/lib/workers/pdf-office-export/engine.ts rows()/xlsx() — PDF to Excel
- *    for the comparison FAQ: every text line into one sheet, split at tabs,
- *    runs of 2+ spaces or commas, XLSX only; empty pieces are dropped.
+ *    the "Extract tables" button, the "Download <file>" button; the badge
+ *    reads "Checking…", "Status unknown", "Not enabled" or "Secure worker",
+ *    and only "Secure worker" shows a runner. The Dropzone's `refuse` runs
+ *    `pickRefusal`, so a file over the tool's ceiling is refused WHEN PICKED
+ *    and the button never enables; the busy label is `jobBusyLabel(phase,
+ *    "Extracting tables…")` — "Uploading your file…", "Waiting for the
+ *    worker…", "Extracting tables…", "Downloading the result…";
+ *  - src/lib/workers/table-extract/engine.ts detectTablesOnPage (rewritten
+ *    2026-09-27) — words joined into phrases (one cell each), columns from
+ *    white-space gutters, a page cut into regions at large gaps and at
+ *    one-phrase rows that are not cells (titles, captions, paragraph lines),
+ *    each region its own table if `isTableGrid` passes it: two columns
+ *    filled in 2+ rows, a column of values under LONG_CELL_WORDS words that
+ *    is not mostly list items, no sentence wrapping between rows. Its known
+ *    limits: side-by-side tables merge, a wrapped first-column cell ends its
+ *    table, a centred note under a table can become its last row. Output:
+ *    ZIP of table-N.csv (RFC-4180, no BOM) plus tables.xlsx with a sheet
+ *    "Table N (pP)" per TABLE, cells through the shared writer
+ *    (`../ooxml/sheet-cells`: numbers as numbers);
+ *  - src/lib/workers/processor/table-extract.ts — the "-tables.zip" name.
  *
- * Re-checked 2026-09-27 (adversarial pass): detectTablesOnPage was run on
- * synthetic word layouts — "1,250.00" stays one cell (pdftotext splits words
- * at spaces, not commas); "Quarterly results" as a heading became a row AND
- * opened an extra column; "12 March 2024" filled three columns; right-aligned
- * numbers of different widths landed in different columns; empty grid cells
- * are written as "". The size refusal is at POST /api/uploads, which
- * runSecurityJob calls with the declared byte count before any upload, i.e.
- * when Extract tables is pressed. runSecurityJob downloads the artifact
- * before reporting success, so the Download button saves bytes the page
- * already holds; only the server-side link expires. NOT verified: a real
- * production job, or that the running worker image carries this engine
- * (rule 5 — merging is not shipping for the worker).
+ * The claims are RUN by `worker-tool-answers.test.ts` ("no table page
+ * describes the replaced comma split, text-only cells or whole-page grid")
+ * against poppler's real words for a report page. HISTORY, kept: until
+ * 2026-10-06 this page described the engine of before 2026-09-27 — the whole
+ * page one grid built from word LEFT EDGES, kept when half its cells were
+ * filled, at most one table per page, every cell text — and placed the size
+ * refusal at the button press, before `pickRefusal` was wired. NOT verified
+ * here: a real production job.
  */
 
-/** The per-file cap a worker-tier upload is refused above, in whole MB. */
-const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
+const tool = getToolBySlug("extract-tables");
+if (!tool) throw new Error("extract-tables content has no catalogue tool");
+/** The figure the pick refusal quotes: `toolFileCeilingMb`, in whole MB. */
+const CEILING_MB = toolFileCeilingMb(tool);
+if (CEILING_MB === null)
+  throw new Error(
+    "extract-tables content states a file ceiling it cannot find",
+  );
 const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 /** The download name the worker gives a file called report.pdf. */
 const EXAMPLE_ZIP = tableExtractOutputName("report.pdf", "zip");
@@ -55,11 +61,11 @@ const content: ToolContent = {
   seoTitle: "Extract Tables from PDF to Excel and CSV",
 
   metaDescription:
-    "Turns each grid-like page of a text-based PDF into its own CSV file and Excel sheet, placing words by position on the page. Scanned PDFs need OCR PDF first.",
+    "Extract tables from a text-based PDF to CSV and Excel: each table found, even several on one page, gets its own CSV and sheet. Scanned PDFs need OCR PDF first.",
 
   intro: [
-    "Copying a table out of a PDF usually pastes as one long column, or as rows glued together with spaces. Extract Tables reads the position of every word on a page, puts words that sit on the same line into one row and words whose left edges line up into one column, and keeps the page only if the result looks like a grid: at least two rows and two columns with two or more filled cells each, and at least half of all cells filled.",
-    "The whole page is treated as a single grid, so a heading or footnote becomes an extra row, its words can open extra columns, and two tables on one page come out as one. It works best on pages that hold little besides the table.",
+    `Copying a table out of a PDF usually pastes as one long column, or as rows glued together with spaces. Extract Tables reads the position of every word on a page, puts words on the same line into one row, joins words set a normal space apart into one cell, and finds columns from the white-space gutters that run down the rows. It keeps a block as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next.`,
+    "Titles, captions, paragraph lines and footnotes end a table rather than joining it, so a page can yield several tables, each saved as its own CSV and sheet. A one-line subheading set in a table's first column also ends it, so a sectioned table can come back as several. Three layouts still trip it up: two tables side by side on the same rows come out as one wide table, a cell that wraps in the first column ends its table, and a centred one-line note directly under a table can be taken as its last row.",
     `Word positions come from the native pdftotext engine, so your PDF is uploaded over TLS to pdf.xyz's secure worker rather than read in the browser. The input is deleted when the job finishes, the link the ZIP is served from expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy once that link has lapsed. A PDF above ${CEILING_MB} MB is refused before any of it is uploaded, and each run takes one PDF.`,
   ],
 
@@ -74,7 +80,7 @@ const content: ToolContent = {
     },
     {
       title: "Long reports with one table per page",
-      body: "A multi-page appendix yields one numbered CSV and one sheet per qualifying page, and each sheet name carries the page number, so every result can be traced back to where it came from.",
+      body: "A multi-page appendix yields one numbered CSV and one sheet per table found, and each sheet name carries the page number, so every result can be traced back to where it came from.",
     },
   ],
 
@@ -85,7 +91,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Extract tables",
-      body: `Table detection takes no options, so this button is the only control. Pressing it first asks for an upload slot, and a file over ${CEILING_MB} MB is refused then, with nothing sent. Anything smaller goes over TLS to the secure worker while the label reads Extracting tables…, which stays until the ZIP has come back to your browser. A scan with no text, or a file where no page forms a grid, shows an error beneath the button in place of a result.`,
+      body: `Table detection takes no options, so this button is the only control. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for the worker…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result.`,
     },
     {
       title: "Download the ZIP",
@@ -93,34 +99,34 @@ const content: ToolContent = {
     },
     {
       title: "Check each sheet against its page",
-      body: "Compare each sheet with the page named in its tab, delete rows that came from headings or notes, and rejoin words split across columns.",
+      body: "Compare each sheet with the page named in its tab. Check that a note printed directly under a table was not taken as its last row, that a cell wrapping in the first column did not end its table early, and that two tables side by side were not read as one wide table.",
     },
   ],
 
   faqs: [
     {
       q: "How is this different from PDF to Excel?",
-      a: "PDF to Excel returns a single XLSX with every line of text in one sheet, cut into cells at tabs, commas and gaps of two or more spaces, so a multi-word description stays in one cell but 1,250.00 splits in two and a blank field shifts later values left. Extract Tables places each word by position, so 1,250.00 stays whole and an empty cell stays empty, but a description spreads over several columns; it also skips pages that do not form a grid and gives each qualifying page its own sheet and CSV.",
+      a: "PDF to Excel returns a single XLSX with every line of the PDF's text in one sheet, each value placed in the column its position puts it in, so it suits getting all of the text into a grid. Extract Tables looks only for table-shaped blocks, leaves out the titles, captions and prose around them, and gives each table it finds its own sheet and CSV file. Both keep 1,250.00 whole and leave an empty cell empty.",
     },
     {
       q: "What if only some pages of my PDF are scans?",
       a: "The pages with text are read as usual, and the scanned pages simply produce nothing. A file with no text on any page stops with a message telling you to run OCR PDF first; add a text layer there, then bring the searchable PDF back.",
     },
     {
-      q: "Why are words from one cell spread over several columns?",
-      a: "Columns are built from the left edge of each individual word. The month in a date written as day, month and year, or the second word of a product name, starts at its own position, so it usually opens a column of its own. Right-aligned numbers of different lengths can split the same way, and merged header cells are not reconstructed.",
+      q: "Why did two columns come out as one?",
+      a: "Columns are found from the white space that runs down the rows. When a long cell in some row fills the gap between two columns, there is no gap left and those two columns are read as one for that table. A heading spanning two columns over the rows beneath it is allowed for. Two tables side by side on the same rows also read as one wide table. Multi-word cells such as North America or 12 March 2024 stay in one cell, right-aligned amounts stay in one column, and merged header cells are not reconstructed.",
     },
     {
       q: "Why did a page with an obvious table return nothing?",
-      a: "Every word on the page goes into the grid, not just the table. Paragraphs, address blocks and long captions add many sparsely filled rows and columns, and once fewer than half of all cells hold text the page is rejected. If no page in the file passes, the job ends with the message that no table-like structure was detected.",
+      a: `A block counts as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next. Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table in which every column holds longer text can fail them too, as can one cut into single rows by one-line subheadings. If nothing in the file passes, the job ends with the message that no table-like structure was detected.`,
     },
     {
       q: "What happens to a table that runs over several pages?",
-      a: "Each page is analysed on its own, so a table spanning three pages comes out as up to three CSV files and three sheets, one for each page that passes the grid test, and a header row the PDF repeats on each page is repeated in each sheet too. Stack the sheets and delete the repeats to rebuild it.",
+      a: "Each page is analysed on its own, so a table spanning three pages comes out as separate CSV files and sheets, at least one for each page whose part of it is detected as a table, and a header row the PDF repeats on each page is repeated in each sheet too. Stack the sheets and delete the repeats to rebuild it.",
     },
     {
-      q: "Why does Excel treat my numbers as text?",
-      a: "Every cell in tables.xlsx is stored as a text string, so currency symbols, thousands separators and leading zeros survive, but nothing can be summed until you convert it, for example with Excel's Convert to Number. The CSV files have no byte-order mark, so if accented characters look wrong after a double-click, open them through Excel's text import.",
+      q: "Does Excel see my numbers as numbers?",
+      a: `Yes, when a cell holds exactly one number. Values such as ${XLSX_NUMBER_EXAMPLES.join(", ")} or -4 are stored in tables.xlsx as numbers with a matching format, so they can be summed straight away. A code with a leading zero such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date or a bracketed negative stays text exactly as printed. The CSV files have no byte-order mark, so if accented characters look wrong after a double-click, open them through Excel's text import.`,
     },
   ],
 
