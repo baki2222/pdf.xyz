@@ -10,14 +10,9 @@ import {
 } from "@/lib/jobs/ai-extract";
 import {
   AI_ALLOWANCE_CLAUSE,
-  AI_CHARACTER_ALLOWANCE,
-  AI_CHARACTER_ALLOWANCE_DELIVERED,
+  AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
+  AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
-import { deliveryCapFor } from "@/lib/jobs/delivery-cap";
-import {
-  TRANSLATE_EXTRACTOR_HEADROOM,
-  TRANSLATE_MAX_INPUT_CHARS,
-} from "@/lib/jobs/translate-limits";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 
 /*
@@ -63,9 +58,12 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    pdfjs extractor; the worker counts pdftotext -layout characters, which run
  *    higher on columned or widely spaced pages (see summarize-pdf.ts).
  *  - src/app/api/jobs/route.ts — every "ai" tool is charged the daily character
- *    allowance at job creation; runWorkerAiExtract sends no declaredCharacters,
- *    so each extraction reserves deliveryCapFor's fallback, computed below with
- *    the route's own arguments. The spend-ceiling check runs first.
+ *    allowance at job creation; the panel declares its document's characters
+ *    (countDeclaredCharacters) and the route prices the run with
+ *    aiReservationFor, never above one whole run. A PDF with no text has no
+ *    count to declare, goes undeclared, and is charged a whole run before the
+ *    worker refuses it — which the FAQ says. The spend-ceiling check runs
+ *    first.
  *  - src/app/privacy/page.tsx §3 — text, not the PDF file, goes to a
  *    third-party AI provider; "We use providers under agreements that prohibit
  *    training on data sent through the API. We cannot control what a provider
@@ -90,42 +88,23 @@ const FIELD_TYPES = new Intl.ListFormat("en", { type: "disjunction" }).format(
 const SAMPLE_ZIP = extractionOutputName("invoice.pdf");
 
 /**
- * What ONE extraction reserves from the daily allowance. The panel sends no
- * `declaredCharacters`, so the route reserves its fallback — computed by the
- * function the route calls, with the route's two arguments.
+ * What one extraction can cost, stated only as far as it is true on EVERY worker
+ * image (the ruling `aiAllowanceFactFor` records): never more than one whole
+ * run, `AI_PER_CALL_RUN_CEILING` in the published unit, so at least
+ * `AI_PER_CALL_RUNS_PER_DAY_AT_LEAST` fit in a day. A shorter document costs
+ * less only on a worker that has proved its read cap (`aiReservationFor`), so
+ * the page does not promise that.
+ *
+ * WAS a flat charge computed here with `deliveryCapFor({}, …)` ("each run is charged a flat 10,258 characters … 3 extractions a day"),
+ * written before per-call pricing: the panel declares its document's
+ * characters, and the route prices through `aiReservationFor`. True of an
+ * unproven worker only. `tools/ai-allowance-per-tool.test.ts` now reads every
+ * sentence the page SERVES for that claim, not only the fact line.
  */
-const EXTRACTION_RESERVATION = deliveryCapFor(
-  {},
-  {
-    fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
-    headroom: TRANSLATE_EXTRACTOR_HEADROOM,
-  },
-).characters;
-const EXTRACTIONS_PER_DAY = Math.floor(
-  AI_CHARACTER_ALLOWANCE / EXTRACTION_RESERVATION,
-);
-if (!Number.isInteger(EXTRACTIONS_PER_DAY) || EXTRACTIONS_PER_DAY < 1) {
-  throw new Error(
-    `ai-extract content: implausible extractions-per-day figure ${EXTRACTIONS_PER_DAY}`,
-  );
-}
-/** The same reservation in the unit AI_ALLOWANCE_CLAUSE publishes. */
-const EXTRACTION_SHARE_PUBLISHED = Math.round(
-  (EXTRACTION_RESERVATION * AI_CHARACTER_ALLOWANCE_DELIVERED) /
-    AI_CHARACTER_ALLOWANCE,
-);
-// Second, independent bound: the published unit must divide the same way the
-// bucket does, or one of the two derivations is wrong.
-if (
-  Math.floor(AI_CHARACTER_ALLOWANCE_DELIVERED / EXTRACTION_SHARE_PUBLISHED) !==
-  EXTRACTIONS_PER_DAY
-) {
-  throw new Error(
-    "ai-extract content: published and bucket units disagree on extractions per day",
-  );
-}
-const EXTRACTION_SHARE = EXTRACTION_SHARE_PUBLISHED.toLocaleString("en-US");
-const EXTRACTIONS_PHRASE = `${EXTRACTIONS_PER_DAY} ${EXTRACTIONS_PER_DAY === 1 ? "extraction" : "extractions"}`;
+const RUN_CEILING = AI_PER_CALL_RUN_CEILING.toLocaleString("en-US");
+const EXTRACTIONS_PHRASE = `${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST} ${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST === 1 ? "extraction" : "extractions"}`;
+const EXTRACTIONS_PHRASE_FIT =
+  AI_PER_CALL_RUNS_PER_DAY_AT_LEAST === 1 ? "fits" : "fit";
 
 const content: ToolContent = {
   slug: "ai-extract",
@@ -193,7 +172,7 @@ const content: ToolContent = {
     },
     {
       q: "How many extractions can I run a day?",
-      a: `Every AI tool on pdf.xyz spends from one pool per connection, ${AI_ALLOWANCE_CLAUSE}. The extraction panel sends no count of your document's text, so each run is charged a flat ${EXTRACTION_SHARE} characters of it, whether the PDF is one page or hundreds: ${EXTRACTIONS_PHRASE} a day if no other AI job has used the pool. It is deducted at submission, once the upload is done and before the worker opens the file, so a scan that is turned away still costs a run. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
+      a: `Every AI tool on pdf.xyz spends from one pool per connection, ${AI_ALLOWANCE_CLAUSE}. One extraction never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or hundreds, so at least ${EXTRACTIONS_PHRASE} ${EXTRACTIONS_PHRASE_FIT} in a day if no other AI job has used the pool. It is deducted at submission, once the upload is done and before the worker opens the file, so a scan that is turned away still costs a run. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
     },
     {
       q: "What happens with a very long PDF?",

@@ -620,8 +620,11 @@ const NOT_A_CEILING: readonly {
   {
     what: "a charge against the daily allowance",
     near: /\b(?:allowance|pool|charged|costs?)\b/i,
+    // Until 2026-10-06 this was chat's "each question, follow-ups included,
+    // costs a flat 10,258 characters of that pool" — a flat charge true of an
+    // unproven worker only, rewritten that day; the corpus follows the page.
     shipped:
-      "each question, follow-ups included, costs a flat 10,258 characters of that pool",
+      "one question never costs more than 10,258 characters of that pool",
   },
   {
     what: "the length of a box the reader types into",
@@ -1312,6 +1315,15 @@ describe("controls", () => {
     for (const kind of NOT_A_CEILING) {
       expect(rawCharacterClaims(kind.shipped).length, kind.what).toBe(1);
       expect(characterClaims(kind.shipped), kind.what).toEqual([]);
+    }
+    // ...and that sentence is one an AI page SERVES today. An exemption whose
+    // example the product no longer ships is a pattern nothing exercises.
+    const served = aiTools.flatMap(renderedStrings).join(" ");
+    for (const kind of NOT_A_CEILING) {
+      expect(
+        served.includes(kind.shipped),
+        `${kind.what}: "${kind.shipped}" is not on any AI page`,
+      ).toBe(true);
     }
     // ...and none exempts a ceiling, including one whose VALUE is the charge.
     for (const ceiling of [

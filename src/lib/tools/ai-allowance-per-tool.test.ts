@@ -466,3 +466,224 @@ describe("each AI page publishes what the route lets that tool do", () => {
     ).toEqual(new Set(units.map((u) => u.one)));
   });
 });
+
+/* ------------------------------------------------------------------ *
+ *  Everything else a per-call page SERVES about the charge
+ * ------------------------------------------------------------------ */
+
+/**
+ * Charge claims true of ONE worker image only, with the sentences that
+ * shipped them.
+ *
+ * Added 2026-10-06. The checks above read the "Is it free?" answer and the
+ * fact line — the two sentences `aiAllowanceFactFor` writes. The same pages
+ * also SERVE their own authored FAQ (`page-copy`), and on all three per-call
+ * pages it answered "How many … a day?" in the pre-L10 world: "This tool does
+ * not count your document's text before uploading it, so every summary is
+ * charged a fixed 10,258 characters … that comes to 3 summaries a day". Every
+ * panel has counted since L10, and on a proving worker a short document costs
+ * what it sends, so the page contradicted its own fact line two answers
+ * further down. Its figures were computed with `deliveryCapFor({}, …)`, a
+ * function the route no longer prices per-call runs with. The guard read the
+ * author's sentence, not the page.
+ *
+ * Both directions, as the house rule asks: every pattern must catch each
+ * sentence listed for it (the corpus test below), and the served pages must
+ * carry none of them.
+ */
+const ONE_IMAGE_CHARGE_CLAIMS: readonly {
+  what: string;
+  pattern: RegExp;
+  shipped: readonly string[];
+}[] = [
+  {
+    what: "a fixed or flat per-run charge",
+    pattern: /\b(?:fixed|flat)\s+[\d,]+\s+characters\b/i,
+    shipped: [
+      "every summary is charged a fixed 10,258 characters of that pool",
+      "each run is charged a flat 10,258 characters of it",
+      "each question, follow-ups included, costs a flat 10,258 characters of that pool",
+    ],
+  },
+  {
+    what: "an exact count of runs a day, not a floor",
+    pattern:
+      /(?<!\bat least )\b\d+ (?:summar(?:y|ies)|extractions?|(?:chat )?questions?|runs?) a day\b/i,
+    shipped: [
+      "that comes to 3 summaries a day when nothing else has drawn on it",
+      "3 extractions a day if no other AI job has used the pool",
+      "That is 3 questions a day if nothing else has used the pool",
+    ],
+  },
+  {
+    what: "the page does not count the document (every per-call client declares)",
+    pattern:
+      /\b(?:does not|doesn't) (?:count|measure) your document|\bsends no count of your document/i,
+    shipped: [
+      "This tool does not count your document's text before uploading it",
+      "The extraction panel sends no count of your document's text",
+      "The page does not measure your document before sending it",
+    ],
+  },
+];
+
+/** A PDF whose pages carry no selectable text, as the browser extractor reports one. */
+const NO_TEXT_PDF = async () => ({
+  pageCount: 2,
+  pages: [
+    { pageNumber: 1, text: "", characterCount: 0 },
+    { pageNumber: 2, text: "", characterCount: 0 },
+  ],
+  text: "",
+  characterCount: 0,
+  hasText: false,
+});
+
+/**
+ * Does the tool's browser client stop a PDF with no text BEFORE anything is
+ * uploaded or charged? Answered by RUNNING the check each panel runs, never by
+ * reading copy. Keyed by slug; a per-call tool missing here is fatal below.
+ */
+const REFUSES_NO_TEXT_BEFORE_UPLOAD: Record<string, () => Promise<boolean>> = {
+  "summarize-pdf": async () => {
+    const { preflightSummarize } =
+      await import("@/lib/workers/summarize-client");
+    return !(await preflightSummarize(new Uint8Array([1]), NO_TEXT_PDF)).ok;
+  },
+  "chat-with-pdf": async () => {
+    const { measureChatDocument } =
+      await import("@/lib/workers/chat-with-pdf-client");
+    return (
+      (await measureChatDocument(new Uint8Array([1]), NO_TEXT_PDF)).kind ===
+      "no-text"
+    );
+  },
+  // The extract panel counts and sends: a document with no text has no count
+  // to declare (`countDeclaredCharacters` answers null), so it goes undeclared
+  // and the worker's refusal comes after the charge.
+  "ai-extract": async () => {
+    const { countDeclaredCharacters } =
+      await import("@/lib/workers/ai-declared-characters");
+    const declared = await countDeclaredCharacters(
+      new Uint8Array([1]),
+      NO_TEXT_PDF,
+    );
+    if (declared !== null) throw new Error("a no-text PDF declared characters");
+    return false;
+  },
+};
+
+/**
+ * An FAQ entry about a PDF with no text that says it is charged anyway. Read
+ * per ENTRY, question and answer together, not per sentence: Summarize's
+ * shipped answer named the scan in its question and first sentence and the
+ * charge three sentences later, and a sentence-level match was blind to it.
+ */
+const ABOUT_NO_TEXT = /\b(?:scan|scanned|no text|image-only)\b/i;
+const STILL_CHARGED = /\bstill (?:costs?|uses?)\b/i;
+const saysNoTextIsCharged = (entry: { question: string; answer: string }) =>
+  ABOUT_NO_TEXT.test(`${entry.question} ${entry.answer}`) &&
+  STILL_CHARGED.test(entry.answer);
+
+/** Every sentence a page serves, visible text and FAQPage answers alike. */
+const servedSentences = (page: RenderedToolPage) =>
+  [page.text, ...page.faq.map((e) => e.answer)]
+    .join(" ")
+    .split(/(?<=[.!?])\s+/);
+
+describe("everything a per-call page serves about the charge is true of every worker image", () => {
+  it("each pattern catches every sentence that shipped it (the corpus, both directions)", () => {
+    for (const claim of ONE_IMAGE_CHARGE_CLAIMS) {
+      expect(claim.shipped.length, claim.what).toBeGreaterThan(0);
+      for (const sentence of claim.shipped) {
+        expect(
+          claim.pattern.test(sentence),
+          `${claim.what}: "${sentence}"`,
+        ).toBe(true);
+      }
+    }
+    // And the floor the pages DO state is not caught as an exact count.
+    expect(
+      ONE_IMAGE_CHARGE_CLAIMS[1]!.pattern.test(
+        `at least ${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST} summaries fit in a day`,
+      ),
+    ).toBe(false);
+    // The three scan answers that shipped, each saying a PDF with no text is
+    // charged: Summarize's and Chat's (false — their browsers refuse first)
+    // and Extract's (true — it does not). Abridged to the words that matter.
+    for (const entry of [
+      {
+        question: "Can it summarize a scanned PDF?",
+        answer:
+          "Not directly. This tool reads only text stored in the PDF as text. The refusal comes from the worker after the job has been submitted, so it still uses one summary's share of the daily allowance.",
+      },
+      {
+        question: "Why does it say my PDF has no text to answer from?",
+        answer:
+          "The allowance is reserved on submit, before the worker opens the file, so a refused scan still costs a question's 10,258 characters of the day's allowance.",
+      },
+      {
+        question: "How many extractions can I run a day?",
+        answer:
+          "It is deducted at submission, once the upload is done and before the worker opens the file, so a scan that is turned away still costs a run.",
+      },
+    ]) {
+      expect(saysNoTextIsCharged(entry), entry.question).toBe(true);
+    }
+    // And an entry about a scan that says nothing is charged is not caught.
+    expect(
+      saysNoTextIsCharged({
+        question: "Can it summarize a scanned PDF?",
+        answer:
+          "It is stopped in your browser; nothing is uploaded or charged.",
+      }),
+    ).toBe(false);
+  });
+
+  it.each(["summarize-pdf", "chat-with-pdf", "ai-extract"] as const)(
+    "%s serves no charge claim that holds on one worker image only",
+    (slug) => {
+      expect(perCallTools().map((t) => t.slug)).toContain(slug);
+      const page = pages.get(slug)!;
+      const offenders = servedSentences(page).filter((sentence) =>
+        ONE_IMAGE_CHARGE_CLAIMS.some((claim) => claim.pattern.test(sentence)),
+      );
+      expect(offenders, `${slug} serves these`).toEqual([]);
+    },
+  );
+
+  it("every per-call page says whether a PDF with no text is charged, as its browser client behaves", async () => {
+    const perCall = perCallTools();
+    expect(perCall.length).toBeGreaterThanOrEqual(3);
+    const answers: Record<string, boolean> = {};
+    const wrong: string[] = [];
+    for (const tool of perCall) {
+      const check = REFUSES_NO_TEXT_BEFORE_UPLOAD[tool.slug];
+      expect(
+        check,
+        `${tool.slug}: no browser no-text check is known`,
+      ).toBeDefined();
+      const refusedFirst = await check!();
+      answers[tool.slug] = refusedFirst;
+      const charged = pages
+        .get(tool.slug)!
+        .faq.filter(saysNoTextIsCharged)
+        .map((e) => e.question);
+      if (refusedFirst && charged.length > 0) {
+        wrong.push(
+          `${tool.slug}: its browser stops a PDF with no text before uploading ` +
+            `it, yet "${charged.join('", "')}" says such a PDF is still charged`,
+        );
+      }
+      if (!refusedFirst && charged.length === 0) {
+        wrong.push(
+          `${tool.slug}: a PDF with no text is charged before the worker ` +
+            "refuses it, and no answer on the page says so",
+        );
+      }
+    }
+    expect(wrong).toEqual([]);
+    // Positive control: both kinds exist today, so neither branch is vacuous.
+    expect(new Set(Object.values(answers))).toEqual(new Set([true, false]));
+  });
+});

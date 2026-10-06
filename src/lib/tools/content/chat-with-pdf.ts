@@ -7,14 +7,9 @@ import {
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   AI_ALLOWANCE_CLAUSE,
-  AI_CHARACTER_ALLOWANCE,
-  AI_CHARACTER_ALLOWANCE_DELIVERED,
+  AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
+  AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
-import { deliveryCapFor } from "@/lib/jobs/delivery-cap";
-import {
-  TRANSLATE_EXTRACTOR_HEADROOM,
-  TRANSLATE_MAX_INPUT_CHARS,
-} from "@/lib/jobs/translate-limits";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug } from "@/lib/tools";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
@@ -38,9 +33,12 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *  - src/lib/workers/chat-with-pdf-conversation.ts — follow-up context is the
  *    most recent exchanges, capped by MAX_CONTEXT_TURNS and a byte budget;
  *  - src/app/api/jobs/route.ts + src/lib/jobs/delivery-cap.ts — the chat panel
- *    declares no character count, so each question reserves deliveryCapFor's
- *    fallback at submit time (computed below with the route's own arguments);
- *    since wave1/L08 the chat engine reads at most that same figure,
+ *    measures its document in the browser (measureChatDocument) and declares
+ *    it; the route prices each question with aiReservationFor, never above
+ *    one whole run, and a PDF the browser finds no text in is stopped before
+ *    anything is uploaded or charged (re-read 2026-10-06: this said the panel
+ *    declared nothing and that a refused scan still cost a question);
+ *    since wave1/L08 the chat engine reads at most one whole run,
  *    CHAT_MAX_CHARACTERS_PER_QUESTION, with the question and the carried
  *    conversation paid out of it first (this file was written before L08 and
  *    said it read up to AI_INPUT_LIMITS.maxInputCharacters; corrected at the
@@ -110,41 +108,21 @@ const QUESTION_CHARS = MAX_QUESTION_CHARS.toLocaleString("en-US");
 const EXAMPLE_ZIP = chatAnswerOutputName("lease.pdf");
 
 /**
- * What ONE chat question reserves from the daily allowance. The panel sends no
- * `declaredCharacters`, so the route reserves its fallback — computed here by
- * the very function the route calls, with the same two arguments.
+ * What one question can cost, stated only as far as it is true on EVERY worker
+ * image (the ruling `aiAllowanceFactFor` records): never more than one whole
+ * run, `AI_PER_CALL_RUN_CEILING` in the published unit, so at least
+ * `AI_PER_CALL_RUNS_PER_DAY_AT_LEAST` fit in a day. A shorter document costs
+ * less only on a worker that has proved its read cap (`aiReservationFor`), so
+ * the page does not promise that.
+ *
+ * WAS a flat charge computed here with `deliveryCapFor({}, …)` ("each question, follow-ups included, costs a flat 10,258 characters … 3 questions a day"),
+ * written before per-call pricing: the panel declares its document's
+ * characters, and the route prices through `aiReservationFor`. True of an
+ * unproven worker only. `tools/ai-allowance-per-tool.test.ts` now reads every
+ * sentence the page SERVES for that claim, not only the fact line.
  */
-const PER_QUESTION = deliveryCapFor(
-  {},
-  {
-    fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
-    headroom: TRANSLATE_EXTRACTOR_HEADROOM,
-  },
-).characters;
-const QUESTIONS_PER_DAY = Math.floor(AI_CHARACTER_ALLOWANCE / PER_QUESTION);
-if (!Number.isInteger(QUESTIONS_PER_DAY) || QUESTIONS_PER_DAY < 1) {
-  throw new Error(
-    `chat-with-pdf content: implausible questions-per-day figure ${QUESTIONS_PER_DAY}`,
-  );
-}
-/**
- * The same charge in the PUBLISHED unit (the one AI_ALLOWANCE_CLAUSE states),
- * so the FAQ never mixes the bucket's unit with the visitor's. Second,
- * independent bound: the published figures must divide the way the bucket does.
- */
-const PER_QUESTION_PUBLISHED = Math.round(
-  (PER_QUESTION * AI_CHARACTER_ALLOWANCE_DELIVERED) / AI_CHARACTER_ALLOWANCE,
-);
-if (
-  Math.floor(AI_CHARACTER_ALLOWANCE_DELIVERED / PER_QUESTION_PUBLISHED) !==
-  QUESTIONS_PER_DAY
-) {
-  throw new Error(
-    "chat-with-pdf content: published and bucket units disagree on questions per day",
-  );
-}
-const PER_QUESTION_CHARS = PER_QUESTION_PUBLISHED.toLocaleString("en-US");
-const QUESTIONS_PHRASE = `${QUESTIONS_PER_DAY} ${QUESTIONS_PER_DAY === 1 ? "question" : "questions"}`;
+const RUN_CEILING = AI_PER_CALL_RUN_CEILING.toLocaleString("en-US");
+const QUESTIONS_PHRASE = `${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST} ${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST === 1 ? "question" : "questions"}`;
 
 const content: ToolContent = {
   slug: "chat-with-pdf",
@@ -205,7 +183,7 @@ const content: ToolContent = {
     },
     {
       q: "Why does it say my PDF has no text to answer from?",
-      a: `The file is most likely a scan or image-only PDF, so there is no selectable text to answer from. The allowance is reserved on submit, before the worker opens the file, so a refused scan still costs a question's ${PER_QUESTION_CHARS} characters of the day's allowance. Run it through ${OCR_TOOL}, pressing the document's language under Languages, then ask the OCR'd copy; answers are only as good as the recognised text.`,
+      a: `The file is most likely a scan or image-only PDF, so there is no selectable text to answer from. The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the day's allowance. A file the page cannot open is sent on to the worker, and if the worker finds no text in it either, that refusal comes after the question has been charged. Run it through ${OCR_TOOL}, pressing the document's language under Languages, then ask the OCR'd copy; answers are only as good as the recognised text.`,
     },
     {
       q: "What if the answer is in a part of the document it did not read?",
@@ -217,7 +195,7 @@ const content: ToolContent = {
     },
     {
       q: "How many questions can I ask in a day?",
-      a: `Each question is paid for out of ${AI_ALLOWANCE_CLAUSE}, allotted to your connection rather than to this tool alone. The page does not measure your document before sending it, so each question, follow-ups included, costs a flat ${PER_QUESTION_CHARS} characters of that pool, whether the PDF is one page or a thousand. That is ${QUESTIONS_PHRASE} a day if nothing else has used the pool; on a shared network, other people's AI jobs count against it too. Apart from that, a service-wide daily limit on AI processing can pause every AI tool until the next day.`,
+      a: `Each question is paid for out of ${AI_ALLOWANCE_CLAUSE}, allotted to your connection rather than to this tool alone. Every question, follow-ups included, is a run of its own, and one question never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or a thousand. That makes at least ${QUESTIONS_PHRASE} a day if nothing else has used the pool; on a shared network, other people's AI jobs count against it too. Apart from that, a service-wide daily limit on AI processing can pause every AI tool until the next day.`,
     },
     {
       q: "Does the AI provider train on my PDF or keep a copy?",

@@ -11,15 +11,10 @@ import {
   type SummaryLength,
 } from "@/lib/jobs/summarize-pdf";
 import {
-  AI_CHARACTER_ALLOWANCE,
-  AI_CHARACTER_ALLOWANCE_DELIVERED,
   AI_ALLOWANCE_CLAUSE,
+  AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
+  AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
-import { deliveryCapFor } from "@/lib/jobs/delivery-cap";
-import {
-  TRANSLATE_EXTRACTOR_HEADROOM,
-  TRANSLATE_MAX_INPUT_CHARS,
-} from "@/lib/jobs/translate-limits";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { getToolBySlug, tools } from "@/lib/tools";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
@@ -48,14 +43,18 @@ import { DEFAULT_OCR_OUTPUT_MODE, OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
  *    third-party provider under agreements that prohibit training on API data;
  *    input deleted at the job's end, link expiry, daily storage rule;
  *  - src/app/api/jobs/route.ts — every tool whose capabilityForMode is "ai" is
- *    charged the same allowance at job creation, with no refund path; a
- *    summarize job declares no character count, so it is reserved at
- *    deliveryCapFor's fallback, computed below with the same two arguments the
- *    route passes. The route also peeks a service-wide AI spend ceiling first.
- *    Only processor/translate.ts reads the delivery cap back, so the summarize
- *    engine still reads up to AI_INPUT_LIMITS.maxInputCharacters whatever was
- *    reserved — the FAQ says the reservation is fixed, not that it bounds the
- *    reading;
+ *    charged the same allowance at job creation, with no refund path once the
+ *    job exists; the panel declares the document's characters and the route
+ *    prices the run with aiReservationFor, never above one whole run (the
+ *    FAQ states that ceiling and the floor it guarantees, true on every worker
+ *    image). The route also peeks a service-wide AI spend ceiling first. What
+ *    one run reads is aiReadLimitFor("summarize-pdf"), derived from that same
+ *    pricing and the processor's read bound;
+ *  - src/lib/workers/summarize-client.ts — preflightSummarize reads the file in
+ *    the browser first and refuses a PDF with no text (or one it cannot open)
+ *    before anything is uploaded, so such a PDF is never charged (re-read
+ *    2026-10-06; the scan answer used to say the refusal came from the worker
+ *    after the charge);
  *  - src/lib/workers/pdf-security-client.ts — runSecurityJob fetches the
  *    artifact as soon as the job completes, so the panel's Download button
  *    saves bytes already in the page; the 60-minute figure is the worker's
@@ -160,45 +159,23 @@ const shortLength = (length: SummaryLength) =>
   LENGTH_LABEL[length].split(" — ")[0];
 
 /**
- * What one summary reserves. The panel sends no character count, so the route
- * reserves deliveryCapFor's fallback for every summary regardless of length —
- * computed here by the function the route calls, with the route's arguments.
+ * What one summary can cost, stated only as far as it is true on EVERY worker
+ * image (the ruling `aiAllowanceFactFor` records): never more than one whole
+ * run, `AI_PER_CALL_RUN_CEILING` in the published unit, so at least
+ * `AI_PER_CALL_RUNS_PER_DAY_AT_LEAST` fit in a day. A shorter document costs
+ * less only on a worker that has proved its read cap (`aiReservationFor`), so
+ * the page does not promise that.
+ *
+ * WAS a flat charge computed here with `deliveryCapFor({}, …)` ("every summary is charged a fixed 10,258 characters … 3 summaries a day"),
+ * written before per-call pricing: the panel declares its document's
+ * characters, and the route prices through `aiReservationFor`. True of an
+ * unproven worker only. `tools/ai-allowance-per-tool.test.ts` now reads every
+ * sentence the page SERVES for that claim, not only the fact line.
  */
-const SUMMARY_RESERVATION = deliveryCapFor(
-  {},
-  {
-    fallbackCharacters: TRANSLATE_MAX_INPUT_CHARS,
-    headroom: TRANSLATE_EXTRACTOR_HEADROOM,
-  },
-).characters;
-const SUMMARIES_PER_DAY = Math.floor(
-  AI_CHARACTER_ALLOWANCE / SUMMARY_RESERVATION,
-);
-if (!Number.isInteger(SUMMARIES_PER_DAY) || SUMMARIES_PER_DAY < 1) {
-  throw new Error(
-    `summarize-pdf content: implausible summaries-per-day figure ${SUMMARIES_PER_DAY}`,
-  );
-}
-/**
- * The same reservation in the PUBLISHED unit (the one AI_ALLOWANCE_CLAUSE
- * states), so the FAQ never mixes the bucket's unit with the visitor's.
- * Second, independent bound: the published figures must divide the same way
- * the bucket does, or one of the two derivations is wrong.
- */
-const SUMMARY_SHARE_PUBLISHED = Math.round(
-  (SUMMARY_RESERVATION * AI_CHARACTER_ALLOWANCE_DELIVERED) /
-    AI_CHARACTER_ALLOWANCE,
-);
-if (
-  Math.floor(AI_CHARACTER_ALLOWANCE_DELIVERED / SUMMARY_SHARE_PUBLISHED) !==
-  SUMMARIES_PER_DAY
-) {
-  throw new Error(
-    "summarize-pdf content: published and bucket units disagree on summaries per day",
-  );
-}
-const SUMMARY_SHARE = SUMMARY_SHARE_PUBLISHED.toLocaleString("en-US");
-const SUMMARIES_PHRASE = `${SUMMARIES_PER_DAY} ${SUMMARIES_PER_DAY === 1 ? "summary" : "summaries"}`;
+const RUN_CEILING = AI_PER_CALL_RUN_CEILING.toLocaleString("en-US");
+const SUMMARIES_PHRASE = `${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST} ${AI_PER_CALL_RUNS_PER_DAY_AT_LEAST === 1 ? "summary" : "summaries"}`;
+const SUMMARIES_PHRASE_FIT =
+  AI_PER_CALL_RUNS_PER_DAY_AT_LEAST === 1 ? "fits" : "fit";
 
 const content: ToolContent = {
   slug: "summarize-pdf",
@@ -254,7 +231,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can it summarize a scanned PDF?",
-      a: `Not directly. This tool reads only text stored in the PDF as text, so a PDF whose pages are all images with no text layer is refused with a message pointing you to ${OCR_TOOL}. In ${OCR_TOOL}, select the document's language under Languages and leave Output on ${OCR_PDF_MODE}, then bring the resulting file back here. The refusal comes from the worker after the job has been submitted, so it still uses one summary's share of the daily allowance.`,
+      a: `Not directly. This tool reads only text stored in the PDF as text, so a PDF whose pages are all images with no text layer is turned away with a message pointing you to ${OCR_TOOL}. In ${OCR_TOOL}, select the document's language under Languages and leave Output on ${OCR_PDF_MODE}, then bring the resulting file back here. Your browser checks the file for text before the upload starts, so that refusal comes first and takes nothing from the daily allowance.`,
     },
     {
       q: "How long a PDF can it summarize?",
@@ -266,7 +243,7 @@ const content: ToolContent = {
     },
     {
       q: "How many PDFs can I summarize per day?",
-      a: `Summaries draw on ${AI_ALLOWANCE_CLAUSE} per connection, the same pool used by ${OTHER_AI_TOOLS}. This tool does not count your document's text before uploading it, so every summary is charged a fixed ${SUMMARY_SHARE} characters of that pool, whether the PDF holds a paragraph or the full ${MAX_CHARS} the model can be sent; that comes to ${SUMMARIES_PHRASE} a day when nothing else has drawn on it. The charge is taken when the job is submitted, so a job the worker refuses or that fails still uses it, and on a shared office or campus network other people's AI jobs count too. Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone until the next day.`,
+      a: `Summaries draw on ${AI_ALLOWANCE_CLAUSE} per connection, the same pool used by ${OTHER_AI_TOOLS}. One summary never costs more than ${RUN_CEILING} characters of that pool, however long the PDF is, so at least ${SUMMARIES_PHRASE} ${SUMMARIES_PHRASE_FIT} in a day when nothing else has drawn on it. The charge is taken when the job is submitted, so a job the worker refuses or that fails still uses it, and on a shared office or campus network other people's AI jobs count too. Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone until the next day.`,
     },
     {
       q: "Can I rely on the summary being accurate?",
