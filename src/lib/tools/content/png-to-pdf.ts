@@ -32,8 +32,14 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
  *    palette PNGs (not only greyscale) as the case that grows.
  *  - Workspace handoff (use-tool-handoff → src/lib/handoff) passes files via
  *    IndexedDB, or an in-memory map when that is unavailable; never a server.
- *  - gate: MIME type or `.png` extension only (isLikelyPng), so a renamed
- *    file passes the pick and fails at decode.
+ *  - gate, re-read 2026-10-06: `isImageAllowedForKind` takes PNG OR JPEG on
+ *    both image tools (type or name), then the runner reads the bytes as the
+ *    file is ADDED (`sniffRasterFormat`): a JPEG named .png goes in as a
+ *    JPEG, and a WebP/GIF/BMP/TIFF/HEIC/AVIF named .png is refused at once
+ *    with `unsupportedImageMessage`. What still reaches Create PDF and fails
+ *    is a file with a valid signature pdf-lib cannot parse (a 2-frame APNG,
+ *    a damaged image). tool-page-substance.test.ts holds the steps to every
+ *    refusal the runner gives, in its words.
  *  - The page-size words ("US Letter", "narrow margin") are NOT derived: the
  *    engine's PAGE_WIDTH/PAGE_HEIGHT/MARGIN are module-private. If they
  *    change, this copy goes stale with nothing to catch it.
@@ -72,7 +78,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PNG files",
-      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker. Files added later join the end of the list. A file that is not a PNG, is empty, or is over ${MAX_IMAGE_MB} MB is left out, with a note naming it and the reason.`,
+      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG or JPG images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is a WebP image., when its contents are not a PNG or JPG.`,
     },
     {
       title: "Arrange the image order",
@@ -98,11 +104,11 @@ const content: ToolContent = {
     },
     {
       q: "Can I put PNG and JPG images in the same PDF?",
-      a: 'Not in one pass: this page takes PNG only and turns a JPG away with "Choose PNG images only." Make one PDF from the photos with JPG to PDF and one here, then join them with Merge PDF.',
+      a: "Yes. This page also takes JPG and JPEG photos, so screenshots and photos can go into one PDF in a single pass, each on its own page in the order you set. PNGs are stored losslessly, and a JPG keeps its original JPEG data without being compressed again.",
     },
     {
       q: "Why did Create PDF fail on a file it accepted?",
-      a: 'Adding a file checks its type or name and its size, never its contents. So an animated PNG with more than one frame, or another format renamed to .png, gets into the list and then fails with "could not be decoded as a PNG image", which stops the whole PDF. Remove the file the message names and run it again.',
+      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a WebP, GIF or other format renamed to .png is turned away as you add it, and a JPEG saved with a .png name is accepted and placed as a JPEG. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image", which stops the whole PDF. Remove the file the message names and run it again.',
     },
     {
       q: "Are my images uploaded anywhere?",

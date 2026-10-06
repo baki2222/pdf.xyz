@@ -55,7 +55,8 @@ import {
   setPageRotations,
   splitPdf,
 } from "@/lib/pdf/engine";
-import { imagesToPdf } from "@/lib/pdf/image-to-pdf";
+import { imagesToPdf, unsupportedImageMessage } from "@/lib/pdf/image-to-pdf";
+import { MAX_IMAGE_MB } from "@/lib/tools/limits";
 import { parseMarkdownBlocks } from "@/lib/pdf/markdown-to-pdf";
 import { MARKDOWN_BLOCK_KINDS } from "@/lib/pdf/markdown-blocks";
 import {
@@ -830,6 +831,72 @@ describe("the converters' pages describe the page they produce", () => {
       page("png-to-pdf").faq.find((e) => /transparent/.test(e.question))!
         .answer,
     ).toMatch(/white/);
+  });
+
+  /*
+   * WHAT SHIPPED: JPG to PDF's first step quoted “Choose JPG images only.” and
+   * PNG to PDF's answers quoted “Choose PNG images only.”, months after the
+   * runner started saying “Choose PNG or JPG images.” and reading each file's
+   * bytes on add. The quoted-label guard above could not see it: it reads
+   * curly quotes, and both pages quote with straight ones.
+   *
+   * So the refusals are DISCOVERED from the runner (every `reason:` it pushes)
+   * and each served image page must name every one, in the runner's words:
+   * a page that names a stale message necessarily omits the live one.
+   */
+  it("the image pages name every refusal the runner gives, in its words", () => {
+    const subjects = tools.filter(
+      (t) => getRunnerKind(t.slug) === "image-to-pdf",
+    );
+    expect(subjects.length).toBeGreaterThanOrEqual(2);
+    const source = withoutComments(runnerSource(subjects[0]!.slug));
+    const all = [
+      ...source.matchAll(
+        /\breason:\s*("[^"\n]*"|`[^`\n]*`|[A-Za-z_][\w.]*\([^)\n]*\))/g,
+      ),
+    ].map((m) => m[1]!);
+    // Every value a `reason:` is given was read — none skipped for its shape
+    // (the one `reason: string` is the Rejection type's annotation).
+    expect(all.length).toBe(
+      [...source.matchAll(/\breason:(?!\s*string\b)/g)].length,
+    );
+    const literal = all.flatMap((r) => {
+      const m = /^(["`])(.+)\1$/.exec(r);
+      if (!m) return [];
+      const text = m[2]!.replace("${MAX_IMAGE_MB}", String(MAX_IMAGE_MB));
+      // A placeholder this reader does not fill is a broken link, not a pass.
+      if (text.includes("${")) throw new Error(`unfilled reason: ${r}`);
+      return [text];
+    });
+    const computed = all.filter((r) => !/^["`]/.test(r));
+    // Health: four worded refusals plus the one that names a real format.
+    expect(literal.length, all.join("\n")).toBeGreaterThanOrEqual(4);
+    expect(computed).toEqual(["unsupportedImageMessage(file.name, bytes)"]);
+    const webp = new Uint8Array(12);
+    webp.set([...Buffer.from("RIFF")], 0);
+    webp.set([...Buffer.from("WEBP")], 8);
+    const named = unsupportedImageMessage("NAME", webp).split(". ")[0]! + ".";
+    expect(named).toBe('"NAME" is a WebP image.');
+    const namedShape = new RegExp(
+      named.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("NAME", '[^"]+'),
+    );
+    // Positive control: the step JPG to PDF shipped names a stale refusal.
+    const shipped = `Anything turned away is listed by name in an alert below the box: "Choose JPG images only." for another type, "File is empty." for a zero-byte file, and "Max ${MAX_IMAGE_MB} MB per image." for one that is too big.`;
+    expect(literal.filter((r) => !shipped.includes(r)).length).toBeGreaterThan(
+      0,
+    );
+    expect(namedShape.test(shipped)).toBe(false);
+    for (const tool of subjects) {
+      const served = [
+        ...page(tool.slug).howTo,
+        ...page(tool.slug).faq.map((e) => e.answer),
+      ].join("\n");
+      expect(
+        literal.filter((r) => !served.includes(r)),
+        tool.slug,
+      ).toEqual([]);
+      expect(served, tool.slug).toMatch(namedShape);
+    }
   });
 
   it("PDF to PNG claims no transparency while its renderer paints white", () => {
