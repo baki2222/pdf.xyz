@@ -1,6 +1,7 @@
 import type { ToolContent } from "./types";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
-import { AI_INPUT_LIMITS, DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   DEFAULT_SUMMARY_FORMAT,
   DEFAULT_SUMMARY_LENGTH,
@@ -76,7 +77,8 @@ import { DEFAULT_OCR_OUTPUT_MODE, OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
 
 const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
-const MAX_CHARS = AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US");
+/** What one run reads: the figure the FAQ and the panel's Limit row state too. */
+const MAX_CHARS = aiReadLimitFor("summarize-pdf").toLocaleString("en-US");
 const FOCUS_CHARS = MAX_SUMMARY_FOCUS_CHARS.toLocaleString("en-US");
 /** The download name the panel shows, from the same function the worker uses. */
 const EXAMPLE_ZIP = summaryOutputName("report.pdf");

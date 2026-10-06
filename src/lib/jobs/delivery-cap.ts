@@ -320,12 +320,7 @@ export interface AiReservation {
  */
 export async function aiReservationFor(
   tool: string,
-  request: {
-    readonly declaredCharacters?: number;
-    readonly declaredTextPages?: number;
-    /** The body's options, measured here rather than taken from the caller. */
-    readonly options?: Readonly<Record<string, unknown>>;
-  },
+  request: AiPricedRequest,
   limits: {
     readonly fallbackCharacters: number;
     readonly headroom: number;
@@ -333,6 +328,43 @@ export async function aiReservationFor(
     readonly readCapEnforced: () => Promise<boolean>;
   },
 ): Promise<AiReservation> {
+  // The witness is asked only when its answer could change the price: a
+  // per-call run with a declaration. Every other job is priced the same
+  // whatever the running worker proves.
+  const witnessMatters =
+    AI_RUN_PRICING[tool] === "per-call" &&
+    request.declaredCharacters !== undefined;
+  return aiReservationGiven(
+    tool,
+    request,
+    limits,
+    witnessMatters ? await limits.readCapEnforced() : false,
+  );
+}
+
+/** What {@link aiReservationFor} prices: the declaration and the options. */
+export interface AiPricedRequest {
+  readonly declaredCharacters?: number;
+  readonly declaredTextPages?: number;
+  /** The body's options, measured here rather than taken from the caller. */
+  readonly options?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * {@link aiReservationFor} with the running worker's answer already in hand.
+ *
+ * THE ONE PRICING FUNCTION, split out so a figure that must be TRUE OF the
+ * pricing can be derived from it synchronously: the published per-run read
+ * limit (`./ai-read-limit`) is computed by calling this under both answers of
+ * the witness, not by restating what it returns. `aiReservationFor` is this
+ * plus the (asynchronous) question to the running worker, and nothing else.
+ */
+export function aiReservationGiven(
+  tool: string,
+  request: AiPricedRequest,
+  limits: { readonly fallbackCharacters: number; readonly headroom: number },
+  readCapEnforced: boolean,
+): AiReservation {
   if (AI_RUN_PRICING[tool] === "per-character") {
     const cap = deliveryCapFor(request, limits);
     return { charge: cap.characters, delivery: cap };
@@ -342,7 +374,7 @@ export async function aiReservationFor(
   if (
     declared === undefined ||
     AI_RUN_PRICING[tool] !== "per-call" ||
-    !(await limits.readCapEnforced())
+    !readCapEnforced
   ) {
     return { charge: fallback, delivery: undefined };
   }

@@ -19,17 +19,14 @@
  *    the mode-true default flow. A client tool's steps NEVER claim an
  *    upload; the structured-data guard pins that relationship.
  */
-import {
-  AI_INPUT_LIMITS,
-  DEFAULT_RETENTION,
-  aiPagesAtDensest,
-  aiPagesAtSparsest,
-} from "@/lib/jobs/types";
+import { AI_INPUT_LIMITS, DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
+import { CHAT_TOOL_SLUG } from "@/lib/jobs/chat-with-pdf";
 import {
-  CHAT_MAX_CHARACTERS_PER_QUESTION,
-  CHAT_TOOL_SLUG,
-} from "@/lib/jobs/chat-with-pdf";
+  aiReadLimitFor,
+  aiReadPagesAtDensest,
+  aiReadPagesAtSparsest,
+} from "@/lib/jobs/ai-read-limit";
 import { AI_ALLOWANCE_FACT, aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import { CROP_KEEPS_CONTENT } from "@/lib/pdf/crop-disclosure";
 import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
@@ -133,8 +130,8 @@ export { MAX_IMAGE_BYTES, MAX_IMAGE_MB, MAX_SOURCE_BYTES, MAX_SOURCE_MB };
 
 /**
  * Translate's page floors, derived from ITS ceiling at the same measured
- * densities the shared floors use. `aiPagesAtDensest`/`aiPagesAtSparsest`
- * divide the READING cap; translate is bounded by the model's OUTPUT budget
+ * densities the read-bound floors use. `aiReadPagesAtDensest`/`Sparsest`
+ * divide what one per-call run READS; translate is bounded by the model's OUTPUT budget
  * (its output is as long as its input), so its floors divide
  * `TRANSLATE_MAX_INPUT_CHARS` instead — a right ceiling with the shared cap's
  * page range beside it would be the same 49x defect one notch over.
@@ -144,18 +141,6 @@ const translatePagesAtDensest = Math.floor(
 );
 const translatePagesAtSparsest = Math.floor(
   TRANSLATE_MAX_INPUT_CHARS / AI_INPUT_LIMITS.sparsestCharactersPerPage,
-);
-
-/**
- * Chat's page floors, from ITS per-question ceiling at the same measured
- * densities — the constant its engine reads to and its route charges up to
- * (`CHAT_MAX_CHARACTERS_PER_QUESTION`), not the shared reading cap.
- */
-const chatPagesAtDensest = Math.floor(
-  CHAT_MAX_CHARACTERS_PER_QUESTION / AI_INPUT_LIMITS.densestCharactersPerPage,
-);
-const chatPagesAtSparsest = Math.floor(
-  CHAT_MAX_CHARACTERS_PER_QUESTION / AI_INPUT_LIMITS.sparsestCharactersPerPage,
 );
 
 /** "1 page" / "5 pages" — the dense floor IS 1 today, so this is exercised. */
@@ -1697,15 +1682,27 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
       // CHAT_MAX_CHARACTERS_PER_QUESTION, with the question and the carried
       // conversation paid out of it first. Until 2026-09-27 this answer fell
       // to the branch below and told readers (and FAQPage JSON-LD) the shared
-      // 500,000 — twelve times what a question reads.
+      // 500,000 — twelve times what a question reads. Stated through
+      // `aiReadLimitFor`, the figure derived from the route's pricing, as the
+      // panel's Limit row and the page's own content state it.
+      const read = aiReadLimitFor(tool.slug);
+      const dense = aiReadPagesAtDensest(tool.slug);
+      const sparse = aiReadPagesAtSparsest(tool.slug);
       entries.push({
         question: `How much of my PDF does ${tool.name} read?`,
-        answer: `Up to ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters for each question, the question and the conversation sent with it included — roughly ${chatPagesAtDensest} ${pluralPages(chatPagesAtDensest)} of dense text, or about ${chatPagesAtSparsest} of sparsely-set pages. The document gets what the conversation leaves; a longer one is read up to that point only, and the answer tells you which page it reached rather than treating the rest as absent.`,
+        answer: `Up to ${read.toLocaleString("en-US")} characters for each question, the question and the conversation sent with it included — roughly ${dense} ${pluralPages(dense)} of dense text, or about ${sparse} of sparsely-set pages. The document gets what the conversation leaves; a longer one is read up to that point only, and the answer tells you which page it reached rather than treating the rest as absent.`,
       });
     } else {
+      // One run's read, derived from the route's pricing and the processor's
+      // bound (`@/lib/jobs/ai-read-limit`), not the engine window on its own.
+      // A tool that is not priced per call has no such figure, and lands here
+      // only by mistake: `aiReadLimitFor` throws for it, loudly, at build.
+      const read = aiReadLimitFor(tool.slug);
+      const dense = aiReadPagesAtDensest(tool.slug);
+      const sparse = aiReadPagesAtSparsest(tool.slug);
       entries.push({
         question: `How much of my PDF does ${tool.name} read?`,
-        answer: `Up to ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters of selectable text — roughly ${aiPagesAtDensest} pages of dense text, or about ${aiPagesAtSparsest} of sparsely-set pages. Longer documents are read up to that point only, and the tool tells you which page it reached rather than treating the rest as absent.`,
+        answer: `Up to ${read.toLocaleString("en-US")} characters of selectable text — roughly ${dense} ${pluralPages(dense)} of dense text, or about ${sparse} of sparsely-set pages. Longer documents are read up to that point only, and the tool tells you which page it reached rather than treating the rest as absent.`,
       });
     }
   }

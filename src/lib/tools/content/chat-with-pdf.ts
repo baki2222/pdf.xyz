@@ -1,10 +1,10 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import {
-  CHAT_MAX_CHARACTERS_PER_QUESTION,
   MAX_QUESTION_CHARS,
   chatAnswerOutputName,
 } from "@/lib/jobs/chat-with-pdf";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   AI_ALLOWANCE_CLAUSE,
   AI_CHARACTER_ALLOWANCE,
@@ -100,8 +100,11 @@ if (capabilityForMode(linkedTool("chat-with-pdf").processing) !== "ai") {
 
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
 const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
-/** What ONE question reads, question and conversation included (L08). */
-const READ_CHARS = CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US");
+/**
+ * What ONE question reads, question and conversation included (L08): the
+ * figure the FAQ and the panel's Limit row state too.
+ */
+const READ_CHARS = aiReadLimitFor("chat-with-pdf").toLocaleString("en-US");
 const QUESTION_CHARS = MAX_QUESTION_CHARS.toLocaleString("en-US");
 /** The download name the panel shows, from the function the worker names it with. */
 const EXAMPLE_ZIP = chatAnswerOutputName("lease.pdf");

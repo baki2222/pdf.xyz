@@ -3,11 +3,8 @@
 import { useCallback, useState } from "react";
 import { Download, FileText, ShieldCheck, Sparkles, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
-import {
-  AI_INPUT_LIMITS,
-  DEFAULT_RETENTION,
-  JOB_LIMITS,
-} from "@/lib/jobs/types";
+import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   DEFAULT_SUMMARY_FORMAT,
   DEFAULT_SUMMARY_LENGTH,
@@ -184,7 +181,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters read`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${aiReadLimitFor(tool.slug).toLocaleString("en-US")} characters read`}
           />
         </div>
       </div>

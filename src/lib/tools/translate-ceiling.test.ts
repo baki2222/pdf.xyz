@@ -19,6 +19,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
+import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
 import {
   TRANSLATE_CALIBRATION,
   TRANSLATE_CHARS_PER_OUTPUT_TOKEN,
@@ -40,9 +42,9 @@ const PANEL = "src/components/tools/translate-worker-panel.tsx";
  * the relationship for every AI panel.
  */
 const SHARED_CAP_PANELS = [
-  "src/components/tools/summarize-worker-panel.tsx",
-  "src/components/tools/ai-extract-worker-panel.tsx",
-];
+  ["src/components/tools/summarize-worker-panel.tsx", "summarize-pdf"],
+  ["src/components/tools/ai-extract-worker-panel.tsx", "ai-extract"],
+] as const;
 const CHAT_PANEL = "src/components/tools/chat-with-pdf-worker-panel.tsx";
 
 describe("translate's ceiling is derived, not typed", () => {
@@ -175,15 +177,29 @@ describe("the two numbers cannot drift back together", () => {
   // clamp was not kept. So the engine window IS what one run can read again,
   // and the panel must state it; `ai-ceiling-surfaces.test.ts` holds the
   // rendered panel to the same figure.
+  //
+  // MOVED 2026-10-06 from the constant's NAME to the derived figure, history
+  // kept: the panels now interpolate `aiReadLimitFor(tool.slug)`, the read one
+  // run gets as the route's pricing and the processor decide it
+  // (`@/lib/jobs/ai-read-limit`), rather than the engine window on its own.
+  // The assertion this replaces required `AI_INPUT_LIMITS.maxInputCharacters`
+  // in the source; this one requires the derived call AND that its value is
+  // still the shared reading cap, so the 500,000 the panel shows is held both
+  // ways — by where it comes from and by what it is.
   it.each(SHARED_CAP_PANELS)(
     "%s still states the shared reading cap, which is correct for it",
-    (panel) => {
+    (panel, slug) => {
       const source = read(panel);
       expect(
         source,
-        `${panel} is bounded by READING, so AI_INPUT_LIMITS.maxInputCharacters ` +
-          "is its true limit and must stay.",
-      ).toContain("AI_INPUT_LIMITS.maxInputCharacters");
+        `${panel} is bounded by READING, and must state the read one run gets ` +
+          "through aiReadLimitFor.",
+      ).toContain("aiReadLimitFor(");
+      expect(
+        aiReadLimitFor(slug),
+        `one ${slug} run no longer reads the shared reading cap — every page ` +
+          "stating it must change with it",
+      ).toBe(AI_INPUT_LIMITS.maxInputCharacters);
       expect(
         source,
         `${panel} must not borrow translate's OUTPUT-derived ceiling.`,
@@ -193,7 +209,12 @@ describe("the two numbers cannot drift back together", () => {
 
   it("the chat panel states CHAT's per-question number and neither of the others", () => {
     const source = read(CHAT_PANEL);
-    expect(source).toContain("CHAT_MAX_CHARACTERS_PER_QUESTION");
+    // Since 2026-10-06 through the derived figure (see above), whose value
+    // must still be the per-question ceiling.
+    expect(source).toContain("aiReadLimitFor(");
+    expect(aiReadLimitFor("chat-with-pdf")).toBe(
+      CHAT_MAX_CHARACTERS_PER_QUESTION,
+    );
     expect(
       source,
       `${CHAT_PANEL} states the shared reading cap again — chat reads no more ` +

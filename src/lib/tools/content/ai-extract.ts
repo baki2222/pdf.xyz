@@ -1,5 +1,6 @@
 import type { ToolContent } from "./types";
-import { AI_INPUT_LIMITS, DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   EXTRACTION_FIELD_TYPES,
   MAX_EXTRACTION_FIELDS,
@@ -78,7 +79,8 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 /** The per-file cap a worker-tier upload is refused above, in whole MB. */
 const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
-const MAX_CHARS = AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US");
+/** What one run reads: the figure the FAQ and the panel's Limit row state too. */
+const MAX_CHARS = aiReadLimitFor("ai-extract").toLocaleString("en-US");
 const PROMPT_CHARS = MAX_EXTRACTION_PROMPT_CHARS.toLocaleString("en-US");
 /** The field types exactly as the select lists them. */
 const FIELD_TYPES = new Intl.ListFormat("en", { type: "disjunction" }).format(

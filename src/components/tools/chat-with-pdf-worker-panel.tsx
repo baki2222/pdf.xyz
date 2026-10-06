@@ -10,10 +10,8 @@ import {
 } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
-import {
-  CHAT_MAX_CHARACTERS_PER_QUESTION,
-  MAX_QUESTION_CHARS,
-} from "@/lib/jobs/chat-with-pdf";
+import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   aiDailyAllowanceNote,
@@ -210,7 +208,7 @@ export function ChatWithPdfWorkerPanel({
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · up to ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters per question, conversation included`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · up to ${aiReadLimitFor(tool.slug).toLocaleString("en-US")} characters per question, conversation included`}
           />
         </div>
       </div>
