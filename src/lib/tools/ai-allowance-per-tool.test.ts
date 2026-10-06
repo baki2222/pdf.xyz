@@ -539,37 +539,92 @@ const NO_TEXT_PDF = async () => ({
   hasText: false,
 });
 
+/** The same shape, for a PDF that HAS text: the control a refusal needs. */
+const SOME_TEXT_PDF = async () => ({
+  pageCount: 1,
+  pages: [{ pageNumber: 1, text: "Invoice total 42", characterCount: 16 }],
+  text: "Invoice total 42",
+  characterCount: 16,
+  hasText: true,
+});
+
+/** A real one-page PDF, with or without a line of selectable text. */
+async function realPdf(withText: boolean): Promise<Uint8Array> {
+  const { PDFDocument, StandardFonts } = await import("pdf-lib");
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([300, 300]);
+  if (withText) {
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText("Invoice total 42", { x: 20, y: 200, size: 14, font });
+  }
+  return doc.save();
+}
+
 /**
  * Does the tool's browser client stop a PDF with no text BEFORE anything is
  * uploaded or charged? Answered by RUNNING the check each panel runs, never by
  * reading copy. Keyed by slug; a per-call tool missing here is fatal below.
+ * `noText` false asks the same check about a PDF WITH text, which must not be
+ * refused — the control that shows each check can answer "no".
+ *
+ * INVERTED 2026-10-06, history kept. The extract entry used to ask
+ * `countDeclaredCharacters` (null for a scan) and return a hard-coded
+ * `false`: "the extract panel counts and sends … the worker's refusal comes
+ * after the charge". That was not the check the panel runs. The panel calls
+ * `runWorkerAiExtract` → `runSecurityJob`, whose step 0 refuses a PDF with
+ * no selectable text in the browser, before any request (`readsOnlySelectableText`
+ * lists ai-extract). So this entry certified the page's "a scan that is
+ * turned away still costs a run" as true, and required the page to say it.
+ * It now drives that real client on a real PDF and counts the requests.
  */
-const REFUSES_NO_TEXT_BEFORE_UPLOAD: Record<string, () => Promise<boolean>> = {
-  "summarize-pdf": async () => {
+const REFUSES_NO_TEXT_BEFORE_UPLOAD: Record<
+  string,
+  (noText: boolean) => Promise<boolean>
+> = {
+  "summarize-pdf": async (noText) => {
     const { preflightSummarize } =
       await import("@/lib/workers/summarize-client");
-    return !(await preflightSummarize(new Uint8Array([1]), NO_TEXT_PDF)).ok;
+    return !(
+      await preflightSummarize(
+        new Uint8Array([1]),
+        noText ? NO_TEXT_PDF : SOME_TEXT_PDF,
+      )
+    ).ok;
   },
-  "chat-with-pdf": async () => {
+  "chat-with-pdf": async (noText) => {
     const { measureChatDocument } =
       await import("@/lib/workers/chat-with-pdf-client");
     return (
-      (await measureChatDocument(new Uint8Array([1]), NO_TEXT_PDF)).kind ===
-      "no-text"
+      (
+        await measureChatDocument(
+          new Uint8Array([1]),
+          noText ? NO_TEXT_PDF : SOME_TEXT_PDF,
+        )
+      ).kind === "no-text"
     );
   },
-  // The extract panel counts and sends: a document with no text has no count
-  // to declare (`countDeclaredCharacters` answers null), so it goes undeclared
-  // and the worker's refusal comes after the charge.
-  "ai-extract": async () => {
-    const { countDeclaredCharacters } =
-      await import("@/lib/workers/ai-declared-characters");
-    const declared = await countDeclaredCharacters(
-      new Uint8Array([1]),
-      NO_TEXT_PDF,
+  "ai-extract": async (noText) => {
+    const { runWorkerAiExtract } =
+      await import("@/lib/workers/ai-extract-client");
+    const requests: string[] = [];
+    await runWorkerAiExtract(
+      {
+        filename: "scan.pdf",
+        bytes: await realPdf(!noText),
+        declaredCharacters: null,
+        mode: "prompt",
+        prompt: "List every date.",
+      },
+      {
+        fetchImpl: async (input) => {
+          requests.push(String(input));
+          return new Response("{}", { status: 503 });
+        },
+        sleep: async () => {},
+        maxPollAttempts: 1,
+      },
     );
-    if (declared !== null) throw new Error("a no-text PDF declared characters");
-    return false;
+    return requests.length === 0;
   },
 };
 
@@ -609,8 +664,9 @@ describe("everything a per-call page serves about the charge is true of every wo
       ),
     ).toBe(false);
     // The three scan answers that shipped, each saying a PDF with no text is
-    // charged: Summarize's and Chat's (false — their browsers refuse first)
-    // and Extract's (true — it does not). Abridged to the words that matter.
+    // charged, and each false: all three browsers refuse first. (Extract's
+    // was certified true here until 2026-10-06 — see the INVERTED note on
+    // REFUSES_NO_TEXT_BEFORE_UPLOAD.) Abridged to the words that matter.
     for (const entry of [
       {
         question: "Can it summarize a scanned PDF?",
@@ -663,7 +719,11 @@ describe("everything a per-call page serves about the charge is true of every wo
         check,
         `${tool.slug}: no browser no-text check is known`,
       ).toBeDefined();
-      const refusedFirst = await check!();
+      const refusedFirst = await check!(true);
+      // Control: the same check, on a PDF WITH text, refuses nothing.
+      expect(await check!(false), `${tool.slug} refuses a PDF with text`).toBe(
+        false,
+      );
       answers[tool.slug] = refusedFirst;
       const charged = pages
         .get(tool.slug)!
@@ -683,7 +743,11 @@ describe("everything a per-call page serves about the charge is true of every wo
       }
     }
     expect(wrong).toEqual([]);
-    // Positive control: both kinds exist today, so neither branch is vacuous.
-    expect(new Set(Object.values(answers))).toEqual(new Set([true, false]));
+    // INVERTED 2026-10-06: this said "both kinds exist today, so neither
+    // branch is vacuous" and required {true, false}; the false was the extract
+    // entry asking the wrong function. Every per-call client now refuses
+    // first, so the second branch is vacuous TODAY by fact, not by blindness:
+    // each check was just shown to answer false on a PDF with text.
+    expect(Object.values(answers)).toEqual(perCall.map(() => true));
   });
 });

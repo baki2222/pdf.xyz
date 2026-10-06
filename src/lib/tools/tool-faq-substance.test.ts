@@ -1659,6 +1659,15 @@ describe("the AI tools answer what they offer, and that they can be wrong", () =
     const zip = await JSZip.loadAsync(run.output);
     for (const name of ["extraction.json", "extraction.md", "manifest.json"])
       expect(zip.file(name), name).not.toBeNull();
+    // The page's own "What is inside the ZIP" answer names every file the
+    // engine WROTE — read off the ZIP, not typed. It named four of five
+    // (model-output.json was added under it) until 2026-10-06.
+    const written = Object.values(zip.files)
+      .filter((f) => !f.dir)
+      .map((f) => f.name);
+    expect(written.length, "implausibly few files").toBeGreaterThanOrEqual(4);
+    const inside = answer("ai-extract", /inside the ZIP/i);
+    expect(written.filter((name) => !inside.includes(name))).toEqual([]);
     const served = answer("ai-extract", /pull out/);
     expect(served).toContain(`up to ${MAX_EXTRACTION_FIELDS}`);
     for (const type of EXTRACTION_FIELD_TYPES) expect(served).toContain(type);

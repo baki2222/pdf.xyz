@@ -22,28 +22,36 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    + "browse" drop zone, "Remove"); the "Field schema" (default) / "Prompt"
  *    toggle; "Fields to extract" rows = name input + type select + a bin icon
  *    (aria-label "Remove field", a no-op on the last row) + "Add field"; the
- *    "What to extract" textarea; the "Extract data" button ("Extracting…" while
- *    busy), aria-disabled until a file AND, for the selected mode, a named field
- *    or prompt text exist; rows with a blank name are dropped.
+ *    "What to extract" textarea; the "Extract data" button, aria-disabled until
+ *    a file AND, for the selected mode, a named field (no two alike) or prompt
+ *    text exist; rows with a blank name are dropped. Its busy label is
+ *    `jobBusyLabel(job.phase, "Extracting…")` (worker-job.tsx): "Uploading your
+ *    file…", "Waiting for the worker…", "Extracting…" only while processing,
+ *    "Downloading the result…".
  *    The result is fetched into the page BEFORE the "Download <file>" button
  *    appears (runSecurityJob downloads artifact.url, the button calls
  *    downloadBytes on those bytes) — so it is the worker's link that lapses,
  *    not the button. The UI has NO field-description input, even though the job
  *    contract accepts one, so none is described here.
- *  - src/lib/jobs/ai-extract.ts — field names must be unique ignoring case; this
- *    is checked by the worker's processor (parseExtractOptions), i.e. after the
- *    upload, not by the panel.
+ *  - src/lib/jobs/ai-extract.ts — field names must be unique ignoring case and
+ *    surrounding spaces (`fieldNameKey`). Since 2026-09-28 the panel runs the
+ *    same `duplicateFieldNames` rule, shows `duplicateFieldMessage` under the
+ *    repeated row and keeps Extract data inactive; the route parses the options
+ *    before charging, and the worker's processor checks again.
  *  - src/lib/workers/ai-extract/engine.ts — selectable text only (a text-less
  *    PDF is refused as `no_text`, pointing at OCR PDF); the system prompt TELLS
  *    the model to use the names verbatim as keys and to answer null when a value
  *    is absent (instructions, not guarantees, so the copy says "told"); prompt
- *    mode asks for "a flat JSON object with clear, descriptive keys"; the
- *    shipped extraction.json is the model's JSON parsed and re-serialised; input
- *    over the character cap is cut from the end; ZIP = extraction.json +
- *    extraction.md + manifest.json + README.txt. No CSV is written. extraction.md
- *    is a Field | Value table built from the keys the reply HAS (a key the model
- *    omitted is simply absent), null shown as "_(not found)_", or a numbered
- *    list for an array.
+ *    mode asks for "a flat JSON object with clear, descriptive keys"; input over
+ *    the character cap is cut from the end. ZIP (`buildPackage`) = five files:
+ *    model-output.json (the reply, parsed and re-serialised), extraction.json
+ *    (prompt mode: the same; schema mode: `reconcileWithSchema().values` —
+ *    every requested field in order, respelled keys mapped back, a dropped
+ *    field null), extraction.md, manifest.json (missing/renamed/extra keys) and
+ *    README.txt. No CSV is written. extraction.md is a Field | Value table (a
+ *    numbered list for a list reply), null shown as "_(not found)_", a dropped
+ *    field as "_(not returned by the model)_", and unrequested keys in a
+ *    separate table.
  *  - src/lib/workers/processor/ai-extract.ts + executor/executor.ts — a
  *    non-JSON reply is `internal_error`, retryable, and the executor REQUEUES a
  *    retryable failure while attempts remain; only the last attempt's failure
@@ -60,10 +68,12 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *  - src/app/api/jobs/route.ts — every "ai" tool is charged the daily character
  *    allowance at job creation; the panel declares its document's characters
  *    (countDeclaredCharacters) and the route prices the run with
- *    aiReservationFor, never above one whole run. A PDF with no text has no
- *    count to declare, goes undeclared, and is charged a whole run before the
- *    worker refuses it — which the FAQ says. The spend-ceiling check runs
- *    first.
+ *    aiReservationFor, never above one whole run. A PDF with no text never
+ *    gets there when the browser can open it: `runSecurityJob` step 0
+ *    (`readsOnlySelectableText` lists ai-extract) refuses it before any
+ *    request, so it costs nothing. A file pdfjs cannot read goes up, and a
+ *    worker refusal after submission gives nothing back — which the FAQ says.
+ *    The spend-ceiling check runs first.
  *  - src/app/privacy/page.tsx §3 — text, not the PDF file, goes to a
  *    third-party AI provider; "We use providers under agreements that prohibit
  *    training on data sent through the API. We cannot control what a provider
@@ -116,7 +126,7 @@ const content: ToolContent = {
   intro: [
     `AI Data Extraction asks an AI model for just the values you name in a PDF, such as an invoice number, a due date or a list of product codes, and hands them back as JSON. In a field schema you list up to ${MAX_EXTRACTION_FIELDS} named fields, each typed as ${FIELD_TYPES}, and the model is told to use each name, unchanged, as a key in its answer. Alternatively, write an instruction of up to ${PROMPT_CHARS} characters in your own words; the model is then asked for a flat JSON object and chooses descriptive key names itself.`,
     `Your browser sends the file over TLS to pdf.xyz's secure worker. The worker reads out its text layer and passes that text, with your field list or instruction, to a third-party AI provider. The provider gets text only, never the PDF. When the job ends the worker deletes the uploaded file; the extraction package stays downloadable for ${OUTPUT_TTL} minutes, and once that window closes a daily storage rule sweeps the stored copy away.`,
-    `Per run the builder accepts one PDF, capped at ${CEILING_MB} MB. Of its text, the model sees no more than ${MAX_CHARS} characters, and that count includes the spaces and line breaks the worker's text reader keeps to mirror the page layout, so how many pages fit depends on how the pages are set; a long file's result states how far reading got. The model's instructions are to use only that text and to answer null for whatever it cannot find; pdf.xyz parses the reply and re-indents it without adding a value of its own. Instructions are not guarantees, so check any figure you will act on.`,
+    `Per run the builder accepts one PDF, capped at ${CEILING_MB} MB. Of its text, the model sees no more than ${MAX_CHARS} characters, and that count includes the spaces and line breaks the worker's text reader keeps to mirror the page layout, so how many pages fit depends on how the pages are set; a long file's result states how far reading got. The model's instructions are to use only that text and to answer null for whatever it cannot find. pdf.xyz invents no values: with a field schema it lines the reply up with your field names and marks any field the model left out as null, and the model's own reply is kept beside it, as returned. Instructions are not guarantees, so check any figure you will act on.`,
   ],
 
   useCases: [
@@ -145,11 +155,11 @@ const content: ToolContent = {
     },
     {
       title: "Pick Field schema or Prompt",
-      body: `Field schema is selected at first. Under Fields to extract, type a name of up to ${MAX_FIELD_NAME_CHARS} characters, set its type in the drop-down, and use Add field for more rows, up to ${MAX_EXTRACTION_FIELDS}; the bin icon deletes a row, except the last one left. Rows left blank are skipped. The page does not check for repeats, but the worker rejects the job when two names match, even if only their capital letters differ. Choose Prompt to type into the What to extract box instead.`,
+      body: `Field schema is selected at first. Under Fields to extract, type a name of up to ${MAX_FIELD_NAME_CHARS} characters, set its type in the drop-down, and use Add field for more rows, up to ${MAX_EXTRACTION_FIELDS}. The bin icon deletes a row, except the last one left. Rows left blank are skipped. Two fields cannot share a name, even if only their capital letters differ: the page flags the repeat under the row and keeps Extract data inactive until you rename it. Choose Prompt to type into the What to extract box instead.`,
     },
     {
       title: "Press Extract data",
-      body: "The button stays inactive until a file is added and the selected mode has something to ask: at least one named field under Field schema, or some text under Prompt. Once pressed, it shows Extracting… while the PDF uploads, its text goes to the AI provider and the reply is packaged.",
+      body: "The button stays inactive until a file is added and the selected mode has something to ask: at least one named field under Field schema, with no two names the same, or some text under Prompt. Once pressed, its label follows the job: Uploading your file… while the PDF uploads, Waiting for the worker… while it is queued, Extracting… while the text goes to the AI provider and the reply is packaged, and Downloading the result… at the end.",
     },
     {
       title: "Download the extraction package",
@@ -164,7 +174,7 @@ const content: ToolContent = {
     },
     {
       q: "What is inside the ZIP I download, and can I get CSV or Excel?",
-      a: "extraction.json is the model's JSON reply. extraction.md lays it out as a Field and Value table (or a numbered list, if the reply is a list), shows null values as not found, and leaves out any field the model dropped from its reply altogether. manifest.json records the provider, the model, your prompt or schema, the page and character counts and any cut; README.txt describes the package. There is no CSV or spreadsheet in it. For data laid out in rows and columns, Extract Tables writes one CSV per table plus an Excel workbook.",
+      a: "The ZIP holds five files. model-output.json is the model's JSON reply as it was returned. extraction.json holds the same data. With a field schema, it lists every field you asked for, in your order and under your names: a key the model respelled is mapped back to your name, and a field it left out is null. With a prompt, it is the reply as given. extraction.md lays the data out as a Field and Value table, or as a numbered list if the reply is a list. It shows null values as not found, marks a requested field the model never returned as not returned by the model, and lists any keys you did not ask for in a separate table. manifest.json records the provider, the model, your prompt or schema, the page and character counts, any cut, and which fields were missing, respelled or extra. README.txt describes the package. There is no CSV or spreadsheet in it. For data laid out in rows and columns, Extract Tables writes one CSV per table plus an Excel workbook.",
     },
     {
       q: "Is my document sent to an AI company, and is it used for training?",
@@ -172,7 +182,7 @@ const content: ToolContent = {
     },
     {
       q: "How many extractions can I run a day?",
-      a: `Every AI tool on pdf.xyz spends from one pool per connection, ${AI_ALLOWANCE_CLAUSE}. One extraction never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or hundreds, so at least ${EXTRACTIONS_PHRASE} ${EXTRACTIONS_PHRASE_FIT} in a day if no other AI job has used the pool. It is deducted at submission, once the upload is done and before the worker opens the file, so a scan that is turned away still costs a run. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
+      a: `Every AI tool on pdf.xyz spends from one pool per connection, ${AI_ALLOWANCE_CLAUSE}. One extraction never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or hundreds, so at least ${EXTRACTIONS_PHRASE} ${EXTRACTIONS_PHRASE_FIT} in a day if no other AI job has used the pool. The charge is taken when the job is submitted, after the upload, and a job the worker then refuses or that fails still uses it. A PDF this page can already tell has no selectable text is stopped before upload and costs nothing. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
     },
     {
       q: "What happens with a very long PDF?",
