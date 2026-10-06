@@ -19,7 +19,11 @@ import {
   signatureBlockFields,
   type SignatureRequestOptions,
 } from "@/lib/jobs/request-signatures";
-import { ENCRYPTED_PDF_MESSAGES } from "@/lib/pdf/encryption";
+import {
+  PDF_ENCRYPTED_UNKNOWN_MESSAGE,
+  PDF_NEEDS_PASSWORD_MESSAGE,
+} from "@/lib/pdf/encryption";
+import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { PdfEngineError, normalizeAngle } from "@/lib/pdf/engine";
 import { DEFAULT_RETENTION } from "@/lib/jobs";
 import { DevWorkerStore } from "../store";
@@ -154,12 +158,23 @@ async function encryptedPdf(): Promise<Uint8Array> {
  * says in production, where the browser pdf.js build does not load under Node.
  * What this test protects is unchanged: the loader's own reason reaches the
  * user, once, as a non-retryable bad request.
+ *
+ * NARROWED 2026-10-06, history kept. The amendment above matched ANY of the
+ * three encryption sentences. This fixture has exactly one true answer — no
+ * reader can open it, so "could not tell" — and the test environment yields
+ * it deterministically; the alternation would have stayed green had the
+ * probe told this unopenable file "It opens without a password" or that it
+ * needs one, both false of it. So it is that one sentence, anchored, as
+ * tool-faq-substance.test.ts pins it for the same shape. A file that DOES
+ * need a password is a second case, so the chain is also checked on a file
+ * the probe can classify — under the test environment's pdf.js (the legacy
+ * build `src/tests/setup.ts` installs); in production the worker cannot load
+ * the browser build, and says the "could not tell" sentence for it too.
  */
-const ENCRYPTED_REASON = new RegExp(
-  `^(?:${ENCRYPTED_PDF_MESSAGES.map((m) =>
-    m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-  ).join("|")})$`,
-);
+const exactly = (message: string) =>
+  new RegExp(`^${message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+const ENCRYPTED_REASON = exactly(PDF_ENCRYPTED_UNKNOWN_MESSAGE);
+const NEEDS_PASSWORD_REASON = exactly(PDF_NEEDS_PASSWORD_MESSAGE);
 
 async function unreadable(): Promise<
   { label: string; bytes: Uint8Array; reason: RegExp }[]
@@ -167,9 +182,14 @@ async function unreadable(): Promise<
   const good = await onePagePdf();
   return [
     {
-      label: "password-protected",
+      label: "encrypted, unclassifiable",
       bytes: await encryptedPdf(),
       reason: ENCRYPTED_REASON,
+    },
+    {
+      label: "needs a password to open",
+      bytes: userPasswordEncryptedPdf(),
+      reason: NEEDS_PASSWORD_REASON,
     },
     {
       label: "truncated",
@@ -207,7 +227,7 @@ describe("request-signatures on a PDF the worker cannot open", () => {
 
   it("refuses each unreadable shape as a bad request that names the reason", async () => {
     const corpus = await unreadable();
-    expect(corpus.length).toBe(4);
+    expect(corpus.length).toBe(5);
     for (const { label, bytes, reason } of corpus) {
       const run = await runSignatureRequest(
         bytes,
