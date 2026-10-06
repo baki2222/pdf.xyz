@@ -50,8 +50,10 @@ const exampleOutput = markdownOutputName("report.pdf");
  * single-pdf-runner.tsx / use-single-pdf.ts and runner-kit.tsx (Dropzone
  * "Drop your PDF here, or" + "browse", ResultPanel "Start over").
  *
- * Probes of the shipped chain (pdfjs 6.1.200 getTextContent →
- * textItemsToPlainText → joinPageTexts → extractedTextToMarkdown):
+ * Probes of the shipped chain as it was on 2026-09-27 (pdfjs 6.1.200
+ * getTextContent → textItemsToPlainText → joinPageTexts →
+ * extractedTextToMarkdown; since then the runner calls extractPdfLines, and
+ * the converter builds each page from its lines' geometry):
  *  - 2026-09-27, a two-page PDF drawn with pdf-lib: pdfjs emits ONE line break
  *    for a vertical move, however large, so the gap between paragraphs never
  *    becomes an empty line; title and both paragraphs came out as one Markdown
@@ -64,6 +66,14 @@ const exampleOutput = markdownOutputName("report.pdf");
  *    at all); "1. Numbered one" and "2. Numbered two" were split out; the text
  *    after the list started a new paragraph only because a list line flushed
  *    it; "exam- ple" again. Do not claim paragraphs are "kept" or "detected".
+ * Re-checked 2026-10-06 for the "Is the wording changed" answer, through
+ * extractPdfLines → extractedTextToMarkdown on a pdf-lib page: "exam-" +
+ * "ple" → "example" and "Jean-" + "Paul" → "Jean-Paul" (joinWrappedLines
+ * now repairs line-end hyphens, so the "exam- ple" probes above are
+ * history); "# not a heading", "---", "> quoted" and "| pipe" each opened
+ * with a backslash; "<div> & &lt; R&D" → "&lt;div> & &amp;lt; R&D". Reading
+ * order: the extracted lines are in the order text.ts gives PDF to Text
+ * (text-reading-order.test.ts runs every fixture through this converter).
  * Encrypted files: useSinglePdf loads through pdf-lib's PDFDocument.load, which
  * throws EncryptedPDFError whenever the trailer has /Encrypt (owner-password-
  * only included); engine.ts loadPdf maps that to "This PDF is password-
@@ -134,7 +144,7 @@ const content: ToolContent = {
     },
     {
       q: "Is the wording changed during conversion?",
-      a: 'Words are not rewritten; they follow the order stored in the PDF, which on two-column pages is not always reading order. Runs of spaces shrink to one, and a word hyphenated at a line end comes out as "exam- ple". A line opening with one to six # signs and a space, or made of a lone -, * or _, gets a backslash so a Markdown viewer shows it as typed, but other asterisks, underscores and backticks pass through and may be formatted by a Markdown viewer.',
+      a: 'Words are not rewritten, and they come out in reading order where the order the PDF stores them in is out of step with the page: a title or heading stored after the text under it, a running header stored last, and a footer or page number stored first are each moved to where they read, while a page stored a column at a time comes out a column at a time. Runs of spaces shrink to one. A word hyphenated at a line end is rejoined, so "exam-" and "ple" become "example"; a compound broken at its own hyphen, like "well-" and "known", loses the hyphen too, while one followed by a capital or a digit keeps it, as in "Jean-Paul". A paragraph that would otherwise read as Markdown syntax (one to six # signs and a space, a rule such as --- or ***, a code fence, a > quote or a | table row) gets a backslash so a Markdown viewer shows it as typed, and a < or & that would open an HTML tag or entity is escaped; other asterisks, underscores and backticks pass through and may be formatted by a Markdown viewer.',
     },
     {
       q: `How is this different from ${textName}?`,

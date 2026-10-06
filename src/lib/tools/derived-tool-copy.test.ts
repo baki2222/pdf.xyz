@@ -54,6 +54,13 @@ import {
   toolFaq,
 } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
+import {
+  pageDescription,
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  stepText,
+} from "./page-copy";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { GRAYSCALE_DPI_PRESETS } from "@/lib/pdf/grayscale";
 import { extractedTextToMarkdown } from "@/lib/pdf/pdf-to-markdown";
@@ -355,6 +362,69 @@ describe("tools that read only embedded text say scans need OCR, and never promi
       silent,
       `these read embedded text only and never say scans need OCR: ${silent.join(", ")}`,
     ).toEqual([]);
+  });
+
+  /**
+   * The browser extractor puts a page's text in READING order: a title drawn
+   * after its body, a header drawn last and a footer drawn first are moved
+   * to where they read, and `text-reading-order.test.ts` runs every route a
+   * consumer reads through — PDF to Text's text, PDF to Markdown's lines and
+   * Markdown — over those pages. So a page of a tool that reads through it
+   * may not say the text comes out in the order the file stores it.
+   *
+   * Three served sentences said so after it stopped being true (L01 made it
+   * false for PDF to Text; the lines fix of 2026-10-06 for PDF to Markdown),
+   * and nothing went red. They are the corpus: every one must be caught by a
+   * pattern, and every pattern must catch one of them.
+   */
+  const STORED_ORDER = [
+    /\border\b[^.]*\b(?:program|application|software)\b[^.]*\b(?:wrote|writes|made|stored)\b/i,
+    /\b(?:follows?|in)\s+the\s+order\s+(?:stored|saved|written|kept)\s+in\s+the\s+(?:PDF|file)\b/i,
+    /\bin\s+the\s+order\s+the\s+(?:PDF|file)\s+(?:stores|stored|keeps|writes|wrote)\b/i,
+    /\bnot\s+(?:always\s+)?(?:be\s+)?(?:in\s+)?reading\s+order\b/i,
+  ];
+  const SHIPPED_STORED_ORDER = [
+    "Text comes out in the order the program that made the PDF wrote it, which on multi-column pages and tables may not be reading order.",
+    "Words are not rewritten; they follow the order stored in the PDF, which on two-column pages is not always reading order.",
+    "Columns and table cells come out as plain text, split by spaces and line breaks, in the order the PDF stores them.",
+  ];
+
+  it("the stored-order patterns and the sentences that shipped catch each other (both directions)", () => {
+    const uncaught = SHIPPED_STORED_ORDER.filter(
+      (sentence) => !STORED_ORDER.some((pattern) => pattern.test(sentence)),
+    );
+    expect(uncaught).toEqual([]);
+    const idle = STORED_ORDER.filter(
+      (pattern) => !SHIPPED_STORED_ORDER.some((s) => pattern.test(s)),
+    ).map(String);
+    expect(idle).toEqual([]);
+  });
+
+  it("no page of a tool that reads through the browser extractor says the text comes out in stored order", () => {
+    const browserReaders = supportedToolSlugs.filter((slug) => {
+      const file = runnerFileForSlug(slug);
+      return file ? readsEmbeddedText(withoutComments(read(file))) : false;
+    });
+    // Health: the discovery found the runners, and the two pages whose copy
+    // this was written for are among them.
+    expect(browserReaders).toEqual(
+      expect.arrayContaining(["pdf-to-text", "pdf-to-markdown", "compare-pdf"]),
+    );
+    const offenders = browserReaders.flatMap((slug) => {
+      const tool = getToolBySlug(slug)!;
+      // What the page SERVES, through the accessors the page renders.
+      const served = [
+        pageDescription(tool),
+        ...pageIntro(tool),
+        ...pageSteps(tool).map(stepText),
+        ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+      ];
+      return served
+        .flatMap((text) => text.split(/(?<=[.!?])\s+/))
+        .filter((sentence) => STORED_ORDER.some((p) => p.test(sentence)))
+        .map((sentence) => `${slug}: "${sentence}"`);
+    });
+    expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
   it("none promises text from any PDF", () => {

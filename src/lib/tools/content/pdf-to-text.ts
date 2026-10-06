@@ -42,6 +42,15 @@ const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
  *    page; a trailer /Encrypt alone made PDFDocument.load throw /encrypt/i.
  *  - text.ts itself says pdfjs "already provides real space glyphs for most
  *    PDFs", so the intro must not claim a PDF never records word ends.
+ *  - Reading order (2026-10-06): text.ts reorders a page's lines — a title
+ *    or heading drawn after its body, a header drawn last, a footer or page
+ *    number drawn first, alone or in two pieces on one baseline — and keeps
+ *    stored order for a page drawn a column at a time, for rotated or
+ *    vertical text, and above MAX_ORDERED_BLOCKS blocks. Every one of those
+ *    is a fixture in src/lib/pdf/text-reading-order.test.ts. The copy said
+ *    "in the order the program that made the PDF wrote it" until then, and
+ *    derived-tool-copy.test.ts now bans that shape on every page whose
+ *    runner reads through the extractor.
  */
 const content: ToolContent = {
   slug: "pdf-to-text",
@@ -54,7 +63,7 @@ const content: ToolContent = {
   intro: [
     `PDF to Text reads the text stored in one PDF and saves it as a plain UTF-8 .txt file. A PDF records where each run of text sits rather than where its lines end, and some files leave out the spaces between words, so the extractor, pdf.js, works both out from positions: a new line where the text drops down the page, a space where the gap between letters is wide enough to be one. Pages are separated by one blank line, a page with no text adds nothing, and no page numbers or markers are inserted. Typefaces, bold, colour, pictures and ruled lines are left behind.`,
     `Extraction runs inside your browser tab, so the PDF is not uploaded to pdf.xyz. It takes one file at a time, up to ${MAX_MB} MB. Before you save, the result gives the character count and the document's page count, blank pages included, and shows the full text in a scrollable box you can copy from.`,
-    `Text comes out in the order the program that made the PDF wrote it, which on multi-column pages and tables may not be reading order. A scanned page stores a picture, not characters, so an image-only PDF is reported as having no selectable text rather than producing an empty file. Hidden text is the opposite case: white lettering, words under a black box drawn on top, and the invisible layer an OCR pass adds are all extracted.`,
+    `Text comes out in reading order where the order the PDF stores it in is out of step with the page: a title or heading stored after the text under it, a running header stored last, and a footer or page number stored first are each moved to where they read. A page stored a column at a time comes out a column at a time, while a page carrying rotated or vertical text, or more separate pieces of text than the extractor will sort (a detailed map can have that many), keeps the order stored in the file. A scanned page stores a picture, not characters, so an image-only PDF is reported as having no selectable text rather than producing an empty file. Hidden text is the opposite case: white lettering, words under a black box drawn on top, and the invisible layer an OCR pass adds are all extracted.`,
   ],
 
   useCases: [
@@ -102,7 +111,7 @@ const content: ToolContent = {
     },
     {
       q: "Are columns, tables and spacing kept?",
-      a: "A new line on the page becomes a new line in the file; horizontal alignment is lost. Columns and table cells come out as plain text, split by spaces and line breaks, in the order the PDF stores them. For a grid you can sort and sum, Extract Tables returns a ZIP of per-table CSV files plus one Excel workbook; it runs on the secure worker, so that document is uploaded.",
+      a: "A new line on the page becomes a new line in the file; horizontal alignment is lost. Columns and table cells come out as plain text, split by spaces and line breaks, and a page stored a column at a time comes out a column at a time. For a grid you can sort and sum, Extract Tables returns a ZIP of per-table CSV files plus one Excel workbook; it runs on the secure worker, so that document is uploaded.",
     },
     {
       q: "Why are my form entries missing from the text?",
