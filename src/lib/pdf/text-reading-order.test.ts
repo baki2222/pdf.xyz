@@ -537,6 +537,182 @@ describe("page furniture composes with every body", () => {
   }
 });
 
+/**
+ * Furniture comes in PIECES on one baseline: a document's own footer drawn
+ * first with a page number or Bates stamp appended last, or a running head
+ * split into a name on the left and an issue on the right. The matrix above
+ * composes ONE piece at a time, and d399bd1 passed all of it while
+ * `Company Confidential` (drawn first) + `Page 3` (drawn last) put the
+ * confidential line BETWEEN the two columns — {L, R} was an unbroken run in
+ * the MIDDLE of the stream, so the band cut was refused and the footer fell
+ * to columnOrder. A header split left-first, right-last read
+ * `H_L | L | H_R | R` in every version before it.
+ *
+ * So every body takes every PAIR of pieces on one baseline, one drawn first
+ * and the other last, both ways round. (Two pieces drawn back to back on one
+ * baseline are one line to pdfjs, not two pieces; the health check below
+ * would see it.) Required: every body line exactly once, contiguous, in the
+ * body's reading order; every header piece before the body; every footer
+ * piece after it — or, when drawn first, before it, where stream order
+ * already put it. Never inside it.
+ */
+interface Piece {
+  kind: "header" | "footer";
+  side: "left" | "gutter" | "right";
+  line: Line;
+}
+
+const PIECES: Piece[] = [
+  {
+    kind: "footer",
+    side: "left",
+    line: { text: "Company Confidential", x: 72, y: 24, size: 10 },
+  },
+  {
+    kind: "footer",
+    side: "gutter",
+    line: { text: "7", x: 306, y: 24, size: 10 },
+  },
+  {
+    kind: "footer",
+    side: "right",
+    line: { text: "Page 7", x: 509, y: 24, size: 10 },
+  },
+  {
+    kind: "header",
+    side: "left",
+    line: { text: "Journal of Page Furniture", x: 72, y: 775, size: 10 },
+  },
+  {
+    kind: "header",
+    side: "gutter",
+    line: { text: "12", x: 303, y: 775, size: 10 },
+  },
+  {
+    kind: "header",
+    side: "right",
+    line: { text: "Vol. 12, No. 4", x: 480, y: 775, size: 10 },
+  },
+];
+
+/** Every two pieces of one kind, as [drawn first, drawn last], both ways round. */
+const PIECE_PAIRS: [Piece, Piece][] = PIECES.flatMap((a, i) =>
+  PIECES.flatMap((b, j) => (i !== j && a.kind === b.kind ? [[a, b]] : [])),
+) as [Piece, Piece][];
+
+describe("furniture in two pieces on one baseline composes with every body", () => {
+  const BODIES = { ...IN_ORDER, ...OUT_OF_ORDER };
+
+  it("the pieces and pairs are what they claim (health check)", async () => {
+    // Two kinds × three sides, every ordered pair within a kind: 2 × 3 × 2.
+    expect(PIECES).toHaveLength(6);
+    expect(PIECE_PAIRS).toHaveLength(12);
+    expect(Object.keys(BODIES).length).toBeGreaterThanOrEqual(18);
+    for (const kind of ["header", "footer"] as const) {
+      expect(
+        PIECES.filter((p) => p.kind === kind)
+          .map((p) => p.side)
+          .sort(),
+      ).toEqual(["gutter", "left", "right"]);
+      // One baseline per kind.
+      expect(
+        new Set(PIECES.filter((p) => p.kind === kind).map((p) => p.line.y))
+          .size,
+      ).toBe(1);
+    }
+    // No piece's text is a line of any body, or the "exactly once" below
+    // would be measuring the body.
+    const bodyLines = new Set(Object.values(BODIES).flatMap((b) => b.read));
+    for (const piece of PIECES)
+      expect(bodyLines.has(piece.line.text)).toBe(false);
+    // The side each piece claims, measured against the full columns.
+    for (const piece of PIECES) {
+      const bytes = await pdfOf({ draw: [...WIDE, piece.line], read: [] });
+      const own = await extentOf(bytes, (s) => s === piece.line.text);
+      const left = await extentOf(bytes, (s) => s.startsWith("Left column"));
+      const right = await extentOf(bytes, (s) => s.startsWith("Right column"));
+      const side = overlap(own, left)
+        ? overlap(own, right)
+          ? "both"
+          : "left"
+        : overlap(own, right)
+          ? "right"
+          : "gutter";
+      expect(side, piece.line.text).toBe(piece.side);
+    }
+  });
+
+  for (const [first, last] of PIECE_PAIRS) {
+    it(`${first.kind}: ${first.side} piece drawn first, ${last.side} piece drawn last`, async () => {
+      // Every body is checked before anything is asserted, so a red run
+      // names every page this pair breaks, not only the first.
+      const problems: string[] = [];
+      for (const [bodyName, body] of Object.entries(BODIES)) {
+        const fixture: Fixture = {
+          draw: [first.line, ...body.draw, last.line],
+          read: [],
+        };
+        const bytes = await pdfOf(fixture);
+        // Health: the page draws exactly what it says, the pieces as lines
+        // of their own.
+        expect(linesOf(await streamOrderText(bytes)), bodyName).toEqual(
+          texts(fixture.draw),
+        );
+        problems.push(
+          ...pieceProblems(
+            linesOf((await extractPdfText(bytes)).text),
+            body.read,
+            first,
+            last,
+          ).map((problem) => `${bodyName}: ${problem}`),
+        );
+      }
+      expect(problems).toEqual([]);
+    }, 60_000);
+  }
+});
+
+/**
+ * What is wrong with `lines` as the reading of a body (`read`) carrying
+ * `first` (drawn first) and `last` (drawn last); `[]` when nothing is.
+ */
+function pieceProblems(
+  lines: string[],
+  read: string[],
+  first: Piece,
+  last: Piece,
+): string[] {
+  const expected = [...read, first.line.text, last.line.text];
+  if (
+    JSON.stringify([...lines].sort()) !== JSON.stringify([...expected].sort())
+  ) {
+    return [`lines gained or lost: ${JSON.stringify(lines)}`];
+  }
+  const start = lines.indexOf(read[0]!);
+  const end = start + read.length;
+  const problems: string[] = [];
+  if (JSON.stringify(lines.slice(start, end)) !== JSON.stringify(read)) {
+    problems.push(`the body is broken apart: ${JSON.stringify(lines)}`);
+  }
+  for (const piece of [first, last]) {
+    const at = lines.indexOf(piece.line.text);
+    const before = at < start;
+    const after = at >= end;
+    const ok =
+      piece.kind === "header"
+        ? before
+        : piece === first
+          ? before || after
+          : after;
+    if (!ok) {
+      problems.push(
+        `${piece.kind} "${piece.line.text}" at ${at}, body at ${start}..${end - 1}`,
+      );
+    }
+  }
+  return problems;
+}
+
 // Scope: "beside" means some of the later column runs beside the earlier one.
 // A right column that ENDS above where the left starts is not beside it, and
 // is the one shape `readingOrder`'s docblock names as ambiguous — pinned last.
