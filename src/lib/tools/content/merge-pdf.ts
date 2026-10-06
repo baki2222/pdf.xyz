@@ -23,6 +23,13 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  * rotated landscape page, merged with a second file. Output: page sizes and
  * the 90° rotation kept; the Link annotation and the field's Widget kept on
  * the page; no /Outlines, no /AcroForm (0 form fields), no title or author.
+ * SUPERSEDED 2026-10-06 (kept as history): the page assembler (page-copy.ts, merge
+ *    state) now publishes EVERY source's form in one /AcroForm, renaming a
+ *    root field an earlier file already uses (`name_2`), and writes every
+ *    source's bookmarks one file after another; title, author, page labels
+ *    and /Lang are still not carried. Probed through mergePdfs on
+ *    makeStructuredPdf(3) twice: 2 outline items, fields customer.name and
+ *    customer_2.name, no title. tool-page-substance.test.ts holds the page;
  * A file whose trailer carries /Encrypt is refused by `getPageCount` with
  * "This PDF is password-protected. Unlock it first, then try again."
  *
@@ -58,7 +65,7 @@ const content: ToolContent = {
 
   intro: [
     "Merge PDF joins whole documents end to end: every page of the first file in your list, then every page of the next, down to the bottom. Each row gives the file's page count and size next to a thumbnail of its first page (a plain file icon stands in if that page can't be drawn), and a running total of files and pages heads the list, so you know how long the result will be before you merge. It all happens online in your browser: the PDFs you add are read on your device, not uploaded to pdf.xyz.",
-    "Pages are copied with their content, dimensions and rotation intact, so a landscape spreadsheet printout stays landscape next to portrait letters, and links to web addresses on a page still point where they did. What belongs to a document rather than to its pages does not come along: the bookmarks panel, the title and author fields, and the form definition. Form fields may still show what was typed in them, but they stop behaving as a fillable form.",
+    "Pages are copied with their content, dimensions and rotation intact, so a landscape spreadsheet printout stays landscape next to portrait letters, and links to web addresses on a page still point where they did. Each file's bookmarks follow one another in the merged bookmarks panel, and form fields stay fillable with what was typed in them; when two files use the same field name, the later one is renamed so their answers stay separate. The title and author, page labels and language each describe one file, so none of them is copied into the merged PDF.",
     `Each file can be up to ${maxMb} MB, and the merge button stays disabled until at least two files are in the list. The tool sets no count limit of its own, but every file you add is held in your browser's memory until you remove its row, press “Start over” or leave the page, so the practical ceiling is your device's memory. If one file in a batch is password-protected, only that file is refused, by name, and the others remain in the list.`,
   ],
 

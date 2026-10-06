@@ -40,6 +40,11 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  *  - output catalog keys are only /Type and /Pages: no outlines, AcroForm,
  *    page labels or name tree; Title/Author absent; Producer and Creator
  *    "pdf.xyz"; CreationDate is the time of the run; /Rotate 90 kept.
+ * SUPERSEDED 2026-10-06 (kept as history): deletePages now goes through the page
+ *    assembler (page-copy.ts, subset state), which carries title/author,
+ *    page labels, /Lang, the bookmarks that open a kept page and the kept
+ *    pages' fields as a fillable /AcroForm (probed through deletePages on
+ *    makeStructuredPdf(3)); tool-page-substance.test.ts holds the page.
  *  - 4-page source, pages 3-4 deleted: no link -> 2 page objects in the
  *    output; page 1 linking to page 3 -> 3; plus page 3 linking to page 4
  *    -> 4. A deleted page reached through a chain of links comes along too.
@@ -60,7 +65,7 @@ const content: ToolContent = {
   intro: [
     "Delete Pages takes one PDF, drops the pages you pick, and hands back a new file with every remaining page in its original order. You can choose pages by clicking their thumbnails, Shift-clicking to grab a whole run, or entering 1-3, 7, 12- in the range box. When you only want to keep a handful of pages, select those and press Invert: everything else becomes the selection.",
     `All of the deleting happens in your browser, where the chosen PDF is loaded into the tab's memory, the shortened copy is assembled there, and the file is not uploaded. The in-browser loader stops at ${ceilingMb} MB, so a bigger file is refused by its size alone, before any of it is read. On long documents the first thumbnails render up front and the rest fill in as you scroll down the page board.`,
-    "Kept pages are copied as they are, so their text stays selectable and their rotation, images and annotations come through. Document-wide extras such as bookmarks do not, and any encrypted PDF is refused until it has been unlocked, including a file your viewer shows with no password prompt.",
+    "Kept pages are copied as they are, so their text stays selectable and their rotation, images and annotations come through. So do the bookmarks that open a kept page, the kept pages' form fields, still fillable, and the document's title and author, page labels and language. Any encrypted PDF is refused until it has been unlocked, including a file your viewer shows with no password prompt.",
   ],
 
   useCases: [

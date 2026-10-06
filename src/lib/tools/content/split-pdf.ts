@@ -54,6 +54,11 @@ const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  *     /AcroForm, but the text field's WIDGET annotation was still on the
  *     copied page (Annots size 1). Whether a reader treats that orphaned
  *     widget as fillable is viewer-dependent, so the copy does not say.
+ * SUPERSEDED 2026-10-06 (kept as history): the page assembler (page-copy.ts, subset
+ *     state) now carries title/author, page labels, /Lang, the bookmarks
+ *     that open a kept page and the kept pages' fields as a fillable
+ *     /AcroForm into every piece (probed through splitPdf on
+ *     makeStructuredPdf(3)); tool-page-substance.test.ts holds the page;
  *   - names: `report-1-pages-1-3.pdf`, `report-3-page-12.pdf`, and
  *     `report-01-page-1.pdf` once there were 12 parts (pad = digits of count);
  *   - "1-3, 2-4, 12-" produced overlapping pieces without complaint;
@@ -77,7 +82,7 @@ const content: ToolContent = {
   intro: [
     `Split PDF cuts one document into several smaller PDFs in one of three ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. Before anything runs, a preview lists every file the split will create, with its name and page count.`,
     `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and there is no upload anywhere: reading the pages, building each piece and packing the ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
-    `Every piece is a new PDF built from copies of the original pages, so their text, images, page size and rotation come through unchanged. What belongs to the document rather than to a page stays behind: the pieces carry no bookmarks, no title or author entry and no AcroForm. An encrypted file is refused as it loads, even one that opens without a password and only restricts printing or copying.`,
+    `Every piece is a new PDF built from copies of the original pages, so their text, images, page size and rotation come through unchanged. Each piece also keeps the document's title and author, page labels and language, the bookmarks that open one of its pages, and the form fields on its pages, still fillable. An encrypted file is refused as it loads, even one that opens without a password and only restricts printing or copying.`,
   ],
 
   useCases: [

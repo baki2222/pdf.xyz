@@ -44,6 +44,11 @@ const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  *    The leak is TRANSITIVE: page 5 arrives through page 3's own link.
  *  - selection [1,3] and [3,1]: page tree = 2,4 in both; page 4 keeps /Rotate 90.
  *  - Title and Author undefined; catalog has no /Outlines.
+ * SUPERSEDED 2026-10-06 (kept as history): the page assembler (page-copy.ts,
+ *    subset state) carries title/author, page labels, /Lang, the bookmarks
+ *    that open a kept page and the kept pages' fields as a fillable
+ *    /AcroForm (probed through extractPages on makeStructuredPdf(3));
+ *    tool-page-substance.test.ts holds the page.
  * The leak follows explicit destinations (a /Dest or GoTo /D array holding a
  * page reference, which pdf-lib's PDFObjectCopier walks). A NAMED destination
  * resolves through the catalog's name tree, which copyPages does not copy, so
@@ -68,7 +73,7 @@ const content: ToolContent = {
   intro: [
     "Extract Pages builds a new PDF out of only the pages you pick. Load one document, click the page thumbnails you want or type a list such as 1-3, 5, 12-, and the tool copies exactly those pages into a fresh file. The download is named after your original with -extracted added, and the source PDF itself is left untouched.",
     `The document stays on your device, with no upload: your browser opens the PDF locally, assembles the new file on the spot, and pdf.xyz never receives a copy. Pages are copied object by object rather than re-rendered, so text stays selectable, images are not recompressed or downscaled, and each page keeps its rotation. Files up to ${MAX_MB} MB are accepted.`,
-    "Three behaviours are worth knowing. The new PDF always follows the original page order, so picking page 9 before page 2 still gives you 2 then 9. Document-level parts such as bookmarks, the form definition behind fillable fields, and the original title and author properties do not come across with the pages. And links between pages are handled with care: a link from one kept page to another still opens it in the new file, while a link to a page you left out is switched off, so the pages you skipped do not travel inside the new file.",
+    "Three behaviours are worth knowing. The new PDF always follows the original page order, so picking page 9 before page 2 still gives you 2 then 9. The document's title and author, page labels and language come across, and so do the bookmarks and form fields that belong to the pages you keep, with the fields still fillable. And links between pages are handled with care: a link from one kept page to another still opens it in the new file, while a link to a page you left out is switched off, so the pages you skipped do not travel inside the new file.",
   ],
 
   useCases: [

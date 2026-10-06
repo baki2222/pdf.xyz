@@ -30,12 +30,19 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   PDFArray,
+  PDFDict,
   PDFDocument,
   PDFName,
   PDFRawStream,
+  PDFTextField,
   StandardFonts,
   decodePDFRawStream,
 } from "pdf-lib";
+import {
+  STRUCTURED_FIELD_NAME,
+  STRUCTURED_FIELD_VALUE,
+  addDocumentStructure,
+} from "@/tests/fixtures-structured-pdf";
 import { tools } from "@/lib/tools";
 import type { Tool } from "./types";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
@@ -66,10 +73,14 @@ import { parsePageList } from "@/lib/pdf/ranges";
 import { guides } from "@/lib/guides/catalog";
 import { withoutComments } from "./copy-surface";
 import {
+  DOCUMENT_PARTS,
   EVERY_OTHER_PAGE_EXAMPLE,
+  PAGE_TOOL_CARRIES,
   howToSteps,
+  pageToolKeepsAnswer,
   toolFacts,
   toolFaq,
+  type DocumentPart,
 } from "./tool-facts";
 import {
   renderToolPages,
@@ -244,7 +255,19 @@ describe("How it works says what the runner does", () => {
  *  2. The page tools: what an export keeps, run through the engine
  * ------------------------------------------------------------------ */
 
-/** A three-page PDF with an outline, a fillable field and drawn text. */
+/**
+ * A three-page PDF with drawn text and the document-level parts a real file
+ * has: a bookmark that opens page 1, a filled form field on page 1, a title
+ * and author, page labels, a language, accessibility tags and an attached file.
+ *
+ * CHANGED 2026-10-06 (history kept). This fixture's outline used to be an
+ * empty `{Type: Outlines, Count: 0}` with no items and no title. The page
+ * assembler (`document-structure.ts`) does not write an outline with nothing
+ * in it, so every engine read as `outline: false` and the bookmarks answer
+ * "No" passed for every engine — while every one of them, run on a file with
+ * a REAL bookmark, carried it. A fixture with nothing to lose cannot see what
+ * is kept, either.
+ */
 async function richPdf(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -252,24 +275,51 @@ async function richPdf(): Promise<Uint8Array> {
     const p = doc.addPage([300, 400]);
     p.drawText(`Page ${i}`, { x: 20, y: 350, size: 18, font });
   }
-  doc.getForm().createTextField("name").addToPage(doc.getPage(0), {
-    x: 20,
-    y: 200,
-    width: 200,
-    height: 24,
+  await addDocumentStructure(doc);
+  await doc.attach(new TextEncoder().encode("notes"), "notes.txt", {
+    mimeType: "text/plain",
   });
-  const outlines = doc.context.register(
-    doc.context.obj({ Type: "Outlines", Count: 0 }),
-  );
-  doc.catalog.set(PDFName.of("Outlines"), outlines);
   return doc.save();
 }
 
-async function keepsDocumentParts(bytes: Uint8Array) {
+/**
+ * Which of the source's document-level parts `bytes` still carries, read off
+ * the output (the source's own values, not merely the keys, for the ones a
+ * reader sees).
+ */
+async function keepsDocumentParts(
+  bytes: Uint8Array,
+  sourceBytes: Uint8Array,
+): Promise<Record<DocumentPart, boolean>> {
+  const src = await PDFDocument.load(sourceBytes);
   const doc = await PDFDocument.load(bytes);
+  const catalog = doc.catalog;
+  const outlines = catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict);
+  const names = catalog.lookupMaybe(PDFName.of("Names"), PDFDict);
+  // Read BEFORE getForm(): pdf-lib creates an /AcroForm on a file without one.
+  const hasForm = catalog.has(PDFName.of("AcroForm"));
+  const field = hasForm
+    ? doc
+        .getForm()
+        .getFields()
+        .find((f) => f.getName() === STRUCTURED_FIELD_NAME)
+    : undefined;
+  const text = (d: PDFDocument, key: string) =>
+    String(d.catalog.lookup(PDFName.of(key)) ?? "");
   return {
-    outline: doc.catalog.get(PDFName.of("Outlines")) !== undefined,
-    form: doc.catalog.get(PDFName.of("AcroForm")) !== undefined,
+    bookmarks: outlines?.has(PDFName.of("First")) === true,
+    form:
+      field instanceof PDFTextField &&
+      field.getText() === STRUCTURED_FIELD_VALUE,
+    titleAuthor:
+      src.getTitle() !== undefined &&
+      doc.getTitle() === src.getTitle() &&
+      doc.getAuthor() === src.getAuthor(),
+    pageLabels: catalog.has(PDFName.of("PageLabels")),
+    language:
+      text(src, "Lang") !== "" && text(doc, "Lang") === text(src, "Lang"),
+    attachments: names?.has(PDFName.of("EmbeddedFiles")) === true,
+    tags: catalog.has(PDFName.of("StructTreeRoot")),
   };
 }
 
@@ -291,7 +341,13 @@ function contentBytes(doc: PDFDocument, index: number): string {
 /** The engine each page runner calls to build its download. */
 const ENGINE_FOR_RUNNER: Record<
   string,
-  { call: string; run: (bytes: Uint8Array) => Promise<Uint8Array> }
+  {
+    call: string;
+    run: (bytes: Uint8Array) => Promise<Uint8Array>;
+    /** The same engine on a plan that only turns pages, for a runner whose
+     * page says such a plan is saved in place. */
+    inPlace?: (bytes: Uint8Array) => Promise<Uint8Array>;
+  }
 > = {
   organize: {
     call: "organizePages(",
@@ -299,6 +355,12 @@ const ENGINE_FOR_RUNNER: Record<
       organizePages(b, [
         { sourceIndex: 2, rotation: 0 },
         { sourceIndex: 0, rotation: 90 },
+      ]),
+    inPlace: (b) =>
+      organizePages(b, [
+        { sourceIndex: 0, rotation: 90 },
+        { sourceIndex: 1, rotation: 0 },
+        { sourceIndex: 2, rotation: 180 },
       ]),
   },
   "delete-pages": { call: "deletePages(", run: (b) => deletePages(b, [1]) },
@@ -325,17 +387,160 @@ const ENGINE_FOR_RUNNER: Record<
   },
 };
 
+/** Every answer the derived bookmarks question can give, by what it claims. */
+const PAGE_TOOL_ANSWER_CHOICES = (
+  Object.keys(PAGE_TOOL_CARRIES) as (keyof typeof PAGE_TOOL_CARRIES)[]
+).flatMap((state) =>
+  [false, true].map((inPlaceWhenOnlyTurned) => ({
+    state,
+    inPlaceWhenOnlyTurned,
+    answer: pageToolKeepsAnswer(state, { inPlaceWhenOnlyTurned }),
+  })),
+);
+
+/** Every part, kept — what a file saved in place must still have. */
+const ALL_KEPT = Object.fromEntries(
+  DOCUMENT_PARTS.map((part) => [part, true]),
+) as Record<DocumentPart, boolean>;
+
+/**
+ * Served sentences that said a page tool drops a part its engine keeps,
+ * verbatim at e89479e — the authored intros and FAQ of all six page tools,
+ * and the derived answer (`PAGE_REBUILD_KEEPS`) on five pages and the
+ * Delete Pages guide. Wave 1's L01/L08 engines made every one false: the
+ * subset tools carry bookmarks, the kept pages' form, title and author, page
+ * labels and language; Merge carries every file's bookmarks and form; Rotate
+ * saves in place. Nothing went red, because this file's only check of them
+ * read a fixture with no bookmark in it.
+ */
+const SHIPPED_LOSS: readonly { slug: string; sentence: string }[] = [
+  {
+    slug: "rotate-pdf",
+    sentence:
+      "One trade-off: the rotated copy is rebuilt from the pages alone.",
+  },
+  {
+    slug: "rotate-pdf",
+    sentence:
+      "Web links and comments stay on their pages, but bookmarks, the document's title and author properties, and the form definition that makes fields fillable are left behind.",
+  },
+  {
+    slug: "rotate-pdf",
+    sentence:
+      "Document-level items are not: bookmarks, the title and author, page labels such as i, ii, iii, attached files, the accessibility tags of a tagged PDF, and the form structure; the copy lists pdf.xyz as its producer.",
+  },
+  {
+    slug: "merge-pdf",
+    sentence:
+      "What belongs to a document rather than to its pages does not come along: the bookmarks panel, the title and author fields, and the form definition.",
+  },
+  {
+    slug: "split-pdf",
+    sentence:
+      "What belongs to the document rather than to a page stays behind: the pieces carry no bookmarks, no title or author entry and no AcroForm.",
+  },
+  {
+    slug: "extract-pages",
+    sentence:
+      "Document-level parts such as bookmarks, the form definition behind fillable fields, and the original title and author properties do not come across with the pages.",
+  },
+  {
+    slug: "remove-pages",
+    sentence:
+      "Document-wide extras such as bookmarks do not, and any encrypted PDF is refused until it has been unlocked, including a file your viewer shows with no password prompt.",
+  },
+  {
+    slug: "organize-pages",
+    sentence:
+      "What belongs to the file as a whole stays behind, including the bookmark tree and the form dictionary that fillable fields depend on.",
+  },
+  {
+    slug: "remove-pages",
+    sentence:
+      "The pages themselves — text, images and drawings — are copied as they are, but the export is rebuilt from the pages alone, so the document's bookmarks and its fillable form are not carried over.",
+  },
+];
+
+/** A sentence that says something does not reach the export. */
+const LOSS = [
+  /\bleft behind\b/i,
+  /\b(?:items|parts|extras)\b[^.;:]*?\b(?:are|do|does) not\b/i,
+  /\bdo(?:es)? not come (?:along|across)\b/i,
+  /\bstays? behind\b/i,
+  /\bcarr(?:y|ies) no\b/i,
+  /\bnot carried\b/i,
+];
+
+/** "Rebuilt from the pages alone" denies EVERY document-level part at once. */
+const LOSS_OF_EVERYTHING = /\b(?:re)?built from the pages alone\b/i;
+
+/**
+ * The one loss a subset export makes of a part it otherwise keeps: a bookmark
+ * that opens only a page the reader left out. A sentence that says so is
+ * true, and is not read as a claim about the part as a whole.
+ */
+const ONLY_PAGES_LEFT_OUT =
+  /\bpages? you (?:left out|leave out|removed|remove|dropped|did not keep)\b/i;
+
+/** How the served copy names each part. Every term catches a shipped sentence. */
+const PART_TERMS: Partial<Record<DocumentPart, RegExp>> = {
+  bookmarks: /\bbookmark/i,
+  form: /\b(?:fillable|AcroForm|form (?:definition|structure|dictionary|fields?))\b/i,
+  titleAuthor: /\b(?:title|author)\b/i,
+  pageLabels: /\bpage labels?\b/i,
+  attachments: /\b(?:attached files?|attachments?)\b/i,
+  tags: /\b(?:accessibility )?tags\b/i,
+};
+
+/** The parts `sentence` says are lost that the engine, measured, keeps. */
+function falselyLost(
+  sentence: string,
+  kept: Record<DocumentPart, boolean>,
+): DocumentPart[] {
+  if (LOSS_OF_EVERYTHING.test(sentence))
+    return DOCUMENT_PARTS.filter((part) => kept[part]);
+  if (!LOSS.some((p) => p.test(sentence)) || ONLY_PAGES_LEFT_OUT.test(sentence))
+    return [];
+  return DOCUMENT_PARTS.filter(
+    (part) => kept[part] && PART_TERMS[part]?.test(sentence) === true,
+  );
+}
+
+const sentencesOf = (text: string) =>
+  text.split(/(?<=[.!?])\s+/).filter((s) => s.length > 0);
+
+/** The tools whose runner calls one of the page engines above — discovered. */
+const pageTools = () =>
+  tools.filter((t) => ENGINE_FOR_RUNNER[getRunnerKind(t.slug) ?? ""]);
+
+/** What the engine `slug`'s runner calls keeps of {@link richPdf}. */
+async function measuredFor(slug: string) {
+  const engine = ENGINE_FOR_RUNNER[getRunnerKind(slug)!]!;
+  const rich = await richPdf();
+  return keepsDocumentParts(await engine.run(rich), rich);
+}
+
 describe("the page tools' answers are what their engines produce", () => {
-  it("the fixture really has both parts (positive control)", async () => {
-    expect(await keepsDocumentParts(await richPdf())).toEqual({
-      outline: true,
-      form: true,
-    });
+  it("the fixture really has every part, and the reader sees each one go (controls)", async () => {
+    const rich = await richPdf();
+    expect(await keepsDocumentParts(rich, rich)).toEqual(ALL_KEPT);
+    const bare = await PDFDocument.create();
+    bare.addPage([300, 400]);
+    expect(await keepsDocumentParts(await bare.save(), rich)).toEqual(
+      Object.fromEntries(DOCUMENT_PARTS.map((part) => [part, false])),
+    );
   });
 
   it("a bookmarks answer says exactly what the runner's engine keeps", async () => {
-    const answered = tools.filter((t) =>
-      toolFaq(t).some((e) => /bookmarks/.test(e.question)),
+    // Health: the candidate answers are distinct, so an answer names ONE claim.
+    expect(new Set(PAGE_TOOL_ANSWER_CHOICES.map((c) => c.answer)).size).toBe(
+      PAGE_TOOL_ANSWER_CHOICES.length,
+    );
+    // Discovered from what the page SERVES as well as the derived FAQ.
+    const answered = tools.filter(
+      (t) =>
+        toolFaq(t).some((e) => /bookmarks/.test(e.question)) ||
+        page(t.slug).faq.some((e) => /bookmarks/.test(e.question)),
     );
     expect(
       answered.map((t) => t.slug).sort(),
@@ -349,6 +554,7 @@ describe("the page tools' answers are what their engines produce", () => {
         "extract-pages",
       ]),
     );
+    const rich = await richPdf();
     for (const tool of answered) {
       const kind = getRunnerKind(tool.slug)!;
       const engine = ENGINE_FOR_RUNNER[kind];
@@ -360,15 +566,119 @@ describe("the page tools' answers are what their engines produce", () => {
         withoutComments(runnerSource(tool.slug)),
         `${tool.slug}'s runner no longer calls ${engine!.call}`,
       ).toContain(engine!.call);
-      const kept = await keepsDocumentParts(await engine!.run(await richPdf()));
+      const kept = await keepsDocumentParts(await engine!.run(rich), rich);
       const answer = page(tool.slug).faq.find((e) =>
         /bookmarks/.test(e.question),
       )!.answer;
+      // INVERTED 2026-10-06 (history kept). Over the empty-outline fixture this
+      // expected "No" of all five engines and passed; over a real bookmark
+      // every engine keeps both, so the same predicate now requires "Yes".
       expect(
-        answer.startsWith(kept.outline && kept.form ? "Yes" : "No"),
+        answer.startsWith(kept.bookmarks && kept.form ? "Yes" : "No"),
         `${tool.slug}: the engine keeps ${JSON.stringify(kept)}; the page says "${answer.slice(0, 60)}…"`,
       ).toBe(true);
+      // The rest of the answer, part by part: it is one of the composed
+      // answers, and the table that composed it is what the engine does.
+      const claimed = PAGE_TOOL_ANSWER_CHOICES.filter(
+        (c) => c.answer === answer,
+      );
+      expect(
+        claimed.length,
+        `${tool.slug}: the served answer is not composed from PAGE_TOOL_CARRIES: "${answer}"`,
+      ).toBe(1);
+      expect(kept, `${tool.slug}: ${claimed[0]!.state}`).toEqual(
+        PAGE_TOOL_CARRIES[claimed[0]!.state],
+      );
+      if (claimed[0]!.state === "merge") {
+        // "two copies of one form keep separate answers": the engine ran on
+        // two copies of the fixture, so two distinct fields must come out.
+        const merged = await PDFDocument.load(await engine!.run(rich));
+        const names = merged
+          .getForm()
+          .getFields()
+          .map((f) => f.getName());
+        expect(new Set(names).size, names.join(", ")).toBe(2);
+      }
+      if (claimed[0]!.inPlaceWhenOnlyTurned) {
+        expect(
+          engine!.inPlace,
+          `${tool.slug} says turning alone saves in place; nothing runs it`,
+        ).toBeDefined();
+        expect(
+          await keepsDocumentParts(await engine!.inPlace!(rich), rich),
+        ).toEqual(ALL_KEPT);
+      }
     }
+  });
+
+  it("the loss patterns and the sentences that shipped catch each other (both directions)", async () => {
+    for (const { slug, sentence } of SHIPPED_LOSS) {
+      expect(
+        falselyLost(sentence, await measuredFor(slug)),
+        `${slug}: not caught — "${sentence}"`,
+      ).not.toEqual([]);
+    }
+    const shipped = SHIPPED_LOSS.map((s) => s.sentence);
+    const idle = [...LOSS, LOSS_OF_EVERYTHING, ...Object.values(PART_TERMS)]
+      .filter((p) => !shipped.some((s) => p.test(s)))
+      .map(String);
+    expect(idle, "a pattern no shipped sentence exercises").toEqual([]);
+    // The exemption, through the same predicate: qualified it passes, and the
+    // same sentence without the qualifier is caught.
+    const kept = await measuredFor("remove-pages");
+    expect(
+      falselyLost(
+        "A bookmark that opens only a page you left out is not carried.",
+        kept,
+      ),
+    ).toEqual([]);
+    expect(falselyLost("A bookmark is not carried.", kept)).toEqual([
+      "bookmarks",
+    ]);
+  });
+
+  it("no served sentence about a page tool says it drops what its engine keeps", async () => {
+    const subjects = pageTools();
+    expect(subjects.map((t) => t.slug)).toEqual(
+      expect.arrayContaining([
+        "rotate-pdf",
+        "organize-pages",
+        "remove-pages",
+        "merge-pdf",
+        "split-pdf",
+        "extract-pages",
+      ]),
+    );
+    expect(
+      subjects.length,
+      "the page-tool set is implausibly large",
+    ).toBeLessThanOrEqual(10);
+    const offenders: string[] = [];
+    let exempted = 0;
+    for (const tool of subjects) {
+      const kept = await measuredFor(tool.slug);
+      const served = copyAbout(tool).flatMap(sentencesOf);
+      // Health: each page talks about bookmarks somewhere, so a blind reader
+      // (an empty page, a wrong slug) cannot report a clean pass.
+      expect(
+        served.some((s) => PART_TERMS.bookmarks!.test(s)),
+        `${tool.slug}: no served sentence mentions bookmarks`,
+      ).toBe(true);
+      for (const sentence of served) {
+        if (
+          LOSS.some((p) => p.test(sentence)) &&
+          ONLY_PAGES_LEFT_OUT.test(sentence)
+        )
+          exempted += 1;
+        const lost = falselyLost(sentence, kept);
+        if (lost.length > 0)
+          offenders.push(`${tool.slug} [${lost.join(", ")}]: "${sentence}"`);
+      }
+    }
+    const unique = [...new Set(offenders)];
+    expect(unique, unique.join("\n")).toEqual([]);
+    // The exemption is not decoration: some served sentence relies on it.
+    expect(exempted).toBeGreaterThan(0);
   });
 
   it("rotation sets /Rotate and leaves the page's drawing untouched", async () => {

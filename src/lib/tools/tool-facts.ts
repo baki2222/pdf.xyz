@@ -735,22 +735,152 @@ export function offlineAnswer(slug: string): string {
 /** The list a reader types to pick every other page (parsed by `parsePageList`). */
 export const EVERY_OTHER_PAGE_EXAMPLE = "2, 4, 6, 8";
 
-/**
- * What the page tools' exports keep. Organize, Delete, Merge, Split and
- * Extract all rebuild the PDF with `PDFDocument.create()` + `copyPages`
- * (`src/lib/pdf/engine.ts`), which copies each page as it is and nothing from
- * the document around it — so the outline and the interactive form do not
- * survive. `tool-page-substance.test.ts` runs the engine each of those runners
- * calls on a PDF that has both and holds this sentence to what comes out.
- */
-export const PAGE_REBUILD_KEEPS =
-  "The pages themselves — text, images and drawings — are copied as they are, but the export is rebuilt from the pages alone, so the document's bookmarks and its fillable form are not carried over.";
+/** A document-level part of a PDF: what a page tool's export may or may not keep. */
+export type DocumentPart =
+  | "bookmarks"
+  | "form"
+  | "titleAuthor"
+  | "pageLabels"
+  | "language"
+  | "attachments"
+  | "tags";
 
-/** The bookmarks question, asked of every runner whose engine rebuilds the PDF. */
-function rebuildEntry(tool: Tool): ToolFaqEntry {
+export const DOCUMENT_PARTS: readonly DocumentPart[] = [
+  "bookmarks",
+  "form",
+  "titleAuthor",
+  "pageLabels",
+  "language",
+  "attachments",
+  "tags",
+];
+
+/** Each part as the answers name it, in a list. */
+const DOCUMENT_PART_NAME: Record<DocumentPart, string> = {
+  bookmarks: "bookmarks",
+  form: "fillable form fields",
+  titleAuthor: "the title and author",
+  pageLabels: "page labels",
+  language: "the document language",
+  attachments: "attached files",
+  tags: "a tagged PDF's accessibility tags",
+};
+
+/** The two document states the page assembler builds (`AssembleOptions`). */
+export type PageToolState = "subset" | "merge";
+
+/**
+ * What each state of the page assembler (`src/lib/pdf/page-copy.ts`
+ * `AssembleOptions`, with `document-structure.ts`) carries besides the pages.
+ * `tool-page-substance.test.ts` runs the engine each page runner calls on a
+ * PDF that has every part and holds the served answer's state to this table.
+ */
+export const PAGE_TOOL_CARRIES: Readonly<
+  Record<PageToolState, Readonly<Record<DocumentPart, boolean>>>
+> = {
+  subset: {
+    bookmarks: true,
+    form: true,
+    titleAuthor: true,
+    pageLabels: true,
+    language: true,
+    attachments: false,
+    tags: false,
+  },
+  merge: {
+    bookmarks: true,
+    form: true,
+    titleAuthor: false,
+    pageLabels: false,
+    language: false,
+    attachments: false,
+    tags: false,
+  },
+};
+
+/** How bookmarks and fields come across, in each state that keeps both. */
+const BOOKMARKS_AND_FORM: Record<PageToolState, string> = {
+  subset:
+    "Bookmarks and form fields travel with the pages you keep: a bookmark to a kept page still opens it, and the kept pages' fields stay fillable with their values. A bookmark that opens only a page you left out is not carried.",
+  merge:
+    "Every file's bookmarks come across, one file's after another, and every file's form fields stay fillable with their values; a field whose name an earlier file already uses is renamed, so two copies of one form keep separate answers.",
+};
+
+const capitalized = (text: string) =>
+  text.charAt(0).toUpperCase() + text.slice(1);
+
+/**
+ * What a page tool's export keeps, composed from {@link PAGE_TOOL_CARRIES}:
+ * so the sentence and the table cannot disagree, and the test holds the
+ * table to the engine. `inPlaceWhenOnlyTurned` is Organize's: a plan that
+ * keeps every page once, in order, is saved in place (`organizePages`).
+ */
+export function pageToolKeeps(
+  state: PageToolState,
+  { inPlaceWhenOnlyTurned = false }: { inPlaceWhenOnlyTurned?: boolean } = {},
+): string {
+  const carries = PAGE_TOOL_CARRIES[state];
+  if (!carries.bookmarks || !carries.form) {
+    throw new Error(
+      `pageToolKeeps: no sentence for a ${state} export that drops bookmarks or the form`,
+    );
+  }
+  const others = DOCUMENT_PARTS.filter(
+    (p) => p !== "bookmarks" && p !== "form",
+  );
+  const kept = others
+    .filter((p) => carries[p])
+    .map((p) => DOCUMENT_PART_NAME[p]);
+  const dropped = others
+    .filter((p) => !carries[p])
+    .map((p) => DOCUMENT_PART_NAME[p]);
+  return [
+    BOOKMARKS_AND_FORM[state],
+    kept.length > 0 ? `The file also keeps ${listed(kept)}.` : "",
+    dropped.length > 0
+      ? `${capitalized(listed(dropped))} ${dropped.length > 1 ? "are" : "is"} not carried.`
+      : "",
+    inPlaceWhenOnlyTurned
+      ? "If you only turn pages, the export is not rebuilt at all: the file is saved in place and keeps everything, attached files and tags included."
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The bookmarks question's answer for a page tool in `state`. */
+export function pageToolKeepsAnswer(
+  state: PageToolState,
+  options: { inPlaceWhenOnlyTurned?: boolean } = {},
+): string {
+  return `Yes. ${pageToolKeeps(state, options)}`;
+}
+
+/**
+ * The bookmarks question, asked of every runner whose engine builds its
+ * export through the page assembler.
+ *
+ * CHANGED 2026-10-06 (history kept). This answered "No. " + PAGE_REBUILD_KEEPS
+ * — "the export is rebuilt from the pages alone, so the document's bookmarks
+ * and its fillable form are not carried over" — on Organize, Delete, Merge,
+ * Split and Extract, and in the Delete Pages guide. That was true when the
+ * engines called `copyPages` into `PDFDocument.create()`, and wave 1's page
+ * assembler made it false: a subset carries the bookmarks, the kept pages'
+ * form, the title, author, page labels and language, and a merge every file's
+ * bookmarks and form. The test meant to hold the sentence to the engine read
+ * a fixture whose outline had no items, so "No" passed for every engine. The
+ * answer is now composed from PAGE_TOOL_CARRIES, and
+ * `tool-page-substance.test.ts` runs each runner's engine on a file with a
+ * real bookmark, form, title and attachment and holds the table to it.
+ */
+function rebuildEntry(
+  tool: Tool,
+  state: PageToolState,
+  options: { inPlaceWhenOnlyTurned?: boolean } = {},
+): ToolFaqEntry {
   return {
     question: `Does ${tool.name} keep bookmarks and form fields?`,
-    answer: `No. ${PAGE_REBUILD_KEEPS}`,
+    answer: pageToolKeepsAnswer(state, options),
   };
 }
 
@@ -803,11 +933,11 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           answer:
             "Yes. “Undo” and “Redo” (Ctrl/⌘+Z and Ctrl/⌘+Shift+Z) step back and forward through your moves, rotations, duplicates and deletions before you export, and “Reset” returns the board to the file as you opened it. Your original file is never changed — the export is a new PDF.",
         },
-        rebuildEntry(tool),
+        rebuildEntry(tool, "subset", { inPlaceWhenOnlyTurned: true }),
       ];
     case "delete-pages":
       return [
-        rebuildEntry(tool),
+        rebuildEntry(tool, "subset"),
         {
           question: "How do I delete every other page?",
           answer: `Type the pages as a list — for example ${EVERY_OTHER_PAGE_EXAMPLE} — and press “Select”; those pages are selected, and “Delete” removes them.`,
@@ -901,7 +1031,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           question: "Can I merge password-protected PDFs?",
           answer: `Not while they are locked. A password-protected PDF is turned away when you add it, with a note saying so; remove the password with ${toolName("unlock-pdf")}, then add the unlocked copy.`,
         },
-        rebuildEntry(tool),
+        rebuildEntry(tool, "merge"),
       ];
     case "split":
       return [
@@ -909,7 +1039,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           question: `How are the files from ${tool.name} named?`,
           answer: `After your file, then each piece's number and the pages it holds — for example ${listed(SPLIT_NAME_EXAMPLES)}. More than one piece downloads as a ZIP; a single piece saves as a PDF.`,
         },
-        rebuildEntry(tool),
+        rebuildEntry(tool, "subset"),
       ];
     case "extract-pages":
       return [
@@ -917,7 +1047,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
           question: `Can ${tool.name} change the order of the pages?`,
           answer: `No. The new PDF keeps the pages you pick in their original order, whatever order you pick them in. To put pages in a new order, use ${toolName("organize-pages")}.`,
         },
-        rebuildEntry(tool),
+        rebuildEntry(tool, "subset"),
       ];
     case "compress":
       // A hybrid tool: the privacy answers above already split the two paths,

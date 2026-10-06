@@ -31,8 +31,9 @@ import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import {
   EVERY_OTHER_PAGE_EXAMPLE,
   MARKDOWN_SYNTAX_FACT,
-  PAGE_REBUILD_KEEPS,
   PDF_TO_WORD_KEEPS,
+  pageToolKeeps,
+  pageToolKeepsAnswer,
   REDACT_MECHANISM,
   REDACT_OUTPUT_FACT,
   REDACT_PRESET_CHOICES,
@@ -1413,7 +1414,7 @@ export const guides: Guide[] = [
         id: "what-the-file-keeps",
         heading: "What the trimmed file keeps",
         body: [
-          `${PAGE_REBUILD_KEEPS} If you rely on either, keep the original alongside the trimmed copy.`,
+          `${pageToolKeeps("subset")} If you rely on either, keep the original alongside the trimmed copy.`,
           "Your original is never modified. Deleting pages produces a new PDF, and the file you started from stays exactly as it was on your device — so a page removed by mistake is still there to go back to.",
         ],
       },
@@ -1439,7 +1440,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does the trimmed PDF keep bookmarks and form fields?",
-        answer: `No. ${PAGE_REBUILD_KEEPS}`,
+        answer: pageToolKeepsAnswer("subset"),
       },
       {
         question: "How do I delete every other page?",

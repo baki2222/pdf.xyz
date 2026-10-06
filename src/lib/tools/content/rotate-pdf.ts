@@ -27,7 +27,14 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    that is NOT in the page tree (10 0 R, 11 0 R) — hence "may stop working".
     SUPERSEDED the same day: `copyChosenPages` in src/lib/pdf/engine.ts
     re-aims such links at the kept pages' new copies (engine.test.ts);
- *  - pdf-lib's create() plus stamp() leave producer/creator reading pdf.xyz;
+ * SUPERSEDED 2026-10-06 (kept as history): since L08 the runner calls setPageRotations(),
+ *    which turns the loaded document IN PLACE. engine.test.ts and
+ *    rotate-runner.test.tsx find nothing lost (lostStructure == []) on a file
+ *    with bookmarks, a filled form, title/author, page labels, /Lang, tags and
+ *    viewer preferences. The intro and FAQ kept saying the copy was "rebuilt
+ *    from the pages alone" until then; tool-page-substance.test.ts now runs
+ *    the engine and reads the served page for that claim;
+ *  - stamp() leaves producer/creator reading pdf.xyz;
  *  - Unlock PDF needs a typed password (canSubmit in
  *    pdf-security-worker-panel.tsx), so a restricted file needs its OWNER
  *    password there — the FAQ says so rather than implying it just unlocks;
@@ -58,7 +65,7 @@ const content: ToolContent = {
   intro: [
     "Rotate PDF fixes pages that open sideways or upside down: a scan fed through the wrong way, a wide spreadsheet inside a portrait report, a receipt photographed at a quarter turn. Open one PDF and each page appears as a tile previewing its current angle, with the angle printed on any tile not at 0°. Every page starts selected, so Left, Right or 180° turn the whole document at once, while a tile's own arrows fix just that page.",
     `The new angle is saved permanently in each page's /Rotate entry rather than into its drawing, so text stays selectable, images are not recompressed, and any standards-following viewer opens the page the right way up. Page count and order stay exactly as they were. Your browser does the work locally and the document is not uploaded; it takes one file of up to ${ceilingMb} MB.`,
-    "One trade-off: the rotated copy is rebuilt from the pages alone. Web links and comments stay on their pages, but bookmarks, the document's title and author properties, and the form definition that makes fields fillable are left behind. Links that jump to another page of the same PDF are re-aimed at the rotated pages, so they keep working. For an interactive form or a tagged, accessible PDF, read the FAQ below first.",
+    "Nothing else in the file changes. Rotation updates one entry on each page and saves the same document, so bookmarks, the title and author, page labels, the fillable form and anything typed into it, attached files and a tagged PDF's accessibility tags all stay as they were, and links keep pointing where they did.",
   ],
 
   useCases: [
@@ -118,7 +125,7 @@ const content: ToolContent = {
     },
     {
       q: "Does anything get lost when I rotate a PDF here?",
-      a: "Page content, dimensions and order are kept, and so are web links and comments on each page. Document-level items are not: bookmarks, the title and author, page labels such as i, ii, iii, attached files, the accessibility tags of a tagged PDF, and the form structure; the copy lists pdf.xyz as its producer. A link that jumps to another page of the same PDF is reconnected to that page in the rotated copy. Without the form structure the copy is no longer a dependable fillable form: each field's drawn box stays on its page, but whether it can still be filled, or still shows a typed value, depends on the viewer. To keep typed values, run Flatten PDF first and rotate the flattened copy.",
+      a: "No. Rotation saves the same document with a new angle on its pages. Page content, dimensions and order stay as they were, and so do web links, links between pages, comments, bookmarks, the title and author, page labels such as i, ii, iii, attached files, the accessibility tags of a tagged PDF, and the fillable form with any values already typed into it. The one other change is the producer entry, which now names pdf.xyz.",
     },
     {
       q: "Can I rotate a password-protected PDF, and is my file uploaded?",
