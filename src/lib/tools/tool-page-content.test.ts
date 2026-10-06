@@ -43,10 +43,12 @@ import JSZip from "jszip";
 import {
   PDFArray,
   PDFBool,
+  PDFButton,
   PDFCheckBox,
   PDFDict,
   PDFDocument,
   PDFDropdown,
+  PDFHexString,
   PDFName,
   PDFOptionList,
   PDFRadioGroup,
@@ -812,10 +814,11 @@ describe("flatten-pdf: the FAQ is what flattening does", () => {
     "radio buttons": PDFRadioGroup,
     dropdowns: PDFDropdown,
     "list boxes": PDFOptionList,
+    "push buttons": PDFButton,
   } as const;
 
   it("names exactly the kinds it is tested on", () => {
-    // The answer that lists them: "Every fillable form field — <kinds> — is …".
+    // The answer that lists them: "Every form field — <kinds> — is …".
     const listed = /form field — ([^—]+) —/.exec(answers)?.[1];
     expect(listed, "no field-kind list in the FAQ").toBeTruthy();
     const named = listed!
@@ -852,6 +855,8 @@ describe("flatten-pdf: the FAQ is what flattening does", () => {
     list.addOptions(["X", "Y"]);
     list.select("Y");
     list.addToPage(page, { x: 20, y: 500, width: 100, height: 60 });
+    const button = form.createButton("b");
+    button.addToPage("Go", page, { x: 20, y: 440, width: 80, height: 24 });
     const fields = form.getFields();
     for (const Kind of Object.values(KINDS))
       expect(fields.some((f) => f instanceof Kind)).toBe(true);
@@ -883,10 +888,11 @@ describe("flatten-pdf: the FAQ is what flattening does", () => {
     // form's WinAnsi font. So the refusal is asked of the shape that redraws:
     // a filler's `/NeedAppearances true` (pdftk, most server fillers).
     //
-    // NOT PINNED, and said so: the FAQ's "is refused ... rather than flattened
-    // with those characters missing" no longer covers a field whose own
-    // appearance is drawn as-is. That copy lives in tool-facts.ts, owned by a
-    // separate change; see `flatten.test.ts` for the drawn-as-is behaviour.
+    // NOT PINNED, and said so (2026-09-27): the FAQ's "is refused ... rather
+    // than flattened with those characters missing" no longer covered a field
+    // whose own appearance is drawn as-is. PINNED since 2026-10-06: the answer
+    // now refuses only an answer that "has to be redrawn", and the CONTROL at
+    // the end of this test flattens the same scripts drawn as-is.
     const SAMPLES: Record<string, string> = {
       Bengali: "বাংলা",
       Chinese: "中文",
@@ -916,6 +922,34 @@ describe("flatten-pdf: the FAQ is what flattening does", () => {
     // above is the script's doing and not the fixture's.
     const latin = await flattenPdf(await filled("Ada"));
     expect(latin.flattenedFields).toBe(1);
+
+    // The answer conditions the refusal on a REDRAW, and that condition is
+    // real: the same scripts in a field whose saved appearance is drawn as it
+    // is (no flag, nothing dirty) are flattened, not refused.
+    const refusal = pageCopy
+      .pageFaq(tool("flatten-pdf"))
+      .map((e) => e.answer)
+      .filter((a) => /, for example —/.test(a));
+    expect(refusal).toHaveLength(1);
+    expect(refusal[0]).toMatch(/\bhas to be redrawn\b/);
+    const drawnAsIs = async (value: string) => {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([600, 800]);
+      const form = doc.getForm();
+      const field = form.createTextField("name");
+      field.addToPage(page, { x: 20, y: 700, width: 200, height: 20 });
+      field.setText("Ada");
+      const saved = await PDFDocument.load(await doc.save());
+      const stored = saved.getForm().getTextField("name");
+      // The value changes; the stored appearance and the dirty set do not.
+      stored.acroField.dict.set(PDFName.of("V"), PDFHexString.fromText(value));
+      expect(stored.needsAppearancesUpdate()).toBe(false);
+      return saved.save({ updateFieldAppearances: false });
+    };
+    for (const [script, sample] of Object.entries(SAMPLES)) {
+      const asIs = await flattenPdf(await drawnAsIs(sample));
+      expect(asIs.flattenedFields, script).toBe(1);
+    }
   });
 });
 

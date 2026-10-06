@@ -1160,27 +1160,27 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `What does ${tool.name} flatten?`,
           answer:
-            "Every fillable form field — text boxes, checkboxes, radio buttons, dropdowns and list boxes — is drawn into the page with its current value and removed as a field.",
+            "Each fillable form field — text boxes, checkboxes, radio buttons, dropdowns, list boxes and push buttons — is drawn into the page as it appears and removed as a field, unless it cannot be drawn: then it is left interactive and listed in the result with the reason. Signature fields are always left as signature fields.",
         },
         {
           question: "What if my PDF has no form fields?",
           answer:
-            "Nothing is flattened: the file is re-saved as it is, and the result says no fillable form fields were found.",
+            "Nothing is flattened: the file is re-saved as it is, and the result says no fillable form fields were found. A dynamic XFA form, whose fields exist only in Adobe's XFA layer, is refused instead, before anything is saved.",
         },
         {
           question: "Can every filled form be flattened?",
           answer:
-            "Not yet. A text field holding characters outside the basic PDF alphabet — Bengali, Chinese or Greek, for example — is refused with a message saying so, rather than flattened with those characters missing.",
+            "Not yet. An answer that has to be redrawn with the form's built-in font and holds characters outside the basic PDF alphabet — Bengali, Chinese or Greek, for example — is refused with a message saying so, rather than flattened with those characters missing. A dynamic XFA form is refused before anything is saved.",
         },
         {
           question: "Can a flattened form be edited again?",
           answer:
-            "No. Each field's current value is drawn into the page and the field itself is removed, so no PDF reader offers it for editing. Keep your original if you might need to change an answer.",
+            "Not the fields that were flattened: each one is drawn into the page and removed as a field, so no PDF reader offers it for editing. Signature fields stay signature fields, and any field the result lists as left as-is is still editable. Keep your original if you might need to change an answer.",
         },
         {
           question: `Does ${tool.name} flatten comments and annotations too?`,
           answer:
-            "No — only fillable form fields: text boxes, checkboxes, radio buttons, dropdowns and list boxes. Comments, ink drawings and layers are saved as they were.",
+            "No — only fillable form fields: text boxes, checkboxes, radio buttons, dropdowns, list boxes and push buttons. Comments, ink drawings and layers are saved as they were.",
         },
       ];
     case "overlay":

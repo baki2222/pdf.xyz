@@ -41,6 +41,7 @@ import {
   PDFNumber,
   PDFRawStream,
   PDFRef,
+  PDFString,
   StandardFonts,
   decodePDFRawStream,
   type PDFContext,
@@ -907,8 +908,43 @@ describe("the form tools answer what happens to the fields", () => {
     const doc = await PDFDocument.load(flat);
     expect(doc.getForm().getFields()).toHaveLength(0);
     expect(subtypes(doc, 0)).toEqual(["/Text"]);
+
+    // INVERTED 2026-10-06, history kept. This asserted /^No\./ of "Can a
+    // flattened form be edited again?" — "No. Each field's current value is
+    // drawn into the page and the field itself is removed" — on the fixture
+    // above: one text field and a comment, which nothing can fail to flatten.
+    // The engine always keeps a signature field and leaves an undrawable field
+    // live (`flattenFormFields`), so the flat "No" was false of any form with
+    // either, and this fixture licensed it. Measured here: the same form plus
+    // an empty signature box keeps that box as a field.
+    const withSignature = await PDFDocument.load(bytes);
+    const signaturePage = withSignature.getPage(0);
+    const signatureRef = withSignature.context.register(
+      withSignature.context.obj({
+        FT: "Sig",
+        T: PDFString.of("Signature1"),
+        Type: "Annot",
+        Subtype: "Widget",
+        Rect: [10, 10, 110, 40],
+        F: 4,
+        P: signaturePage.ref,
+      }),
+    );
+    signaturePage.node.addAnnot(signatureRef);
+    withSignature.getForm().acroForm.addField(signatureRef);
+    const keptSignature = await PDFDocument.load(
+      (await flattenPdf(await withSignature.save())).bytes,
+    );
+    expect(
+      keptSignature
+        .getForm()
+        .getFields()
+        .map((f) => f.getName()),
+    ).toEqual(["Signature1"]);
     for (const tool of mounting("flatten")) {
-      expect(answer(tool.slug, /edited again/)).toMatch(/^No\./);
+      const editedAgain = answer(tool.slug, /edited again/);
+      expect(editedAgain).toMatch(/^Not the fields that were flattened\b/);
+      expect(editedAgain).toMatch(/\bSignature fields stay signature fields\b/);
       expect(answer(tool.slug, /comments and annotations/)).toMatch(
         /saved as they were/,
       );

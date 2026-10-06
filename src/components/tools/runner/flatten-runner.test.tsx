@@ -12,6 +12,8 @@ import { resetAnnouncer } from "@/components/a11y/live-region";
 import { DYNAMIC_XFA_MESSAGE } from "@/lib/pdf/flatten";
 import { FlattenEditor, SIGNED_PDF_WARNING } from "./flatten-runner";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
+import { getToolBySlug } from "@/lib/tools";
+import { pageFaq, pageIntro, pageSteps, stepText } from "@/lib/tools/page-copy";
 
 /**
  * What a person using Flatten PDF is told and handed — the rendered runner and
@@ -124,6 +126,54 @@ function mount(bytes: Uint8Array, name: string) {
   );
 }
 
+/**
+ * Everything the Flatten PDF page says about itself, as served: the intro,
+ * the steps (also the HowTo) and the FAQ (also FAQPage JSON-LD).
+ */
+function servedCopy(): string {
+  const tool = getToolBySlug("flatten-pdf");
+  if (!tool) throw new Error("flatten-pdf is not in the catalogue");
+  return [
+    ...pageIntro(tool),
+    ...pageSteps(tool).map(stepText),
+    ...pageFaq(tool).flatMap((entry) => [entry.question, entry.answer]),
+  ].join(" ");
+}
+
+/** The title of the result panel, as rendered (the first labelling id). */
+function panelTitle(panel: HTMLElement): string {
+  const id = panel.getAttribute("aria-labelledby")?.split(" ")[0] ?? "";
+  return document.getElementById(id)?.textContent?.trim() ?? "";
+}
+
+/** What a download name adds to the source's base name: "-resaved". */
+function addedSuffix(download: string, source: string): string {
+  const base = source.replace(/\.pdf$/i, "");
+  expect(download.startsWith(base), `${download} does not extend ${base}`).toBe(
+    true,
+  );
+  return download.slice(base.length).replace(/\.pdf$/i, "");
+}
+
+/**
+ * The page names, in quotes, every label the visitor was just shown. Read off
+ * the RENDERED runner, not the runner's source: the step that said "the button
+ * and the -flattened file name stay the same" was beside a panel that showed
+ * "Download PDF" and saved "-resaved", and nothing compared the two.
+ */
+function expectServedNames(labels: readonly string[]) {
+  const served = servedCopy();
+  // Health: an empty label is contained in every string.
+  expect(labels.length).toBeGreaterThan(0);
+  for (const label of labels) {
+    expect(
+      label.trim().length,
+      "an empty label proves nothing",
+    ).toBeGreaterThan(0);
+    expect(served, `the page never names "${label}"`).toContain(`"${label}"`);
+  }
+}
+
 /** Wait for the inspection to finish, then press the one primary action. */
 async function runTool(action: RegExp) {
   const button = await screen.findByRole("button", { name: action });
@@ -141,8 +191,14 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
     expect(
       screen.queryByRole("button", { name: /download flattened pdf/i }),
     ).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /^download pdf$/i }));
+    const button = screen.getByRole("button", { name: /^download pdf$/i });
+    fireEvent.click(button);
     expect(downloads).toEqual(["contract-resaved.pdf"]);
+    expectServedNames([
+      panelTitle(panel),
+      button.textContent ?? "",
+      addedSuffix(downloads[0]!, "contract.pdf"),
+    ]);
   });
 
   it("control: a real form is flattened under a success panel and downloads as '-flattened'", async () => {
@@ -154,10 +210,16 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
       name: /form fields flattened/i,
     });
     expect(panel).toHaveAttribute("data-tone", "ok");
-    fireEvent.click(
-      screen.getByRole("button", { name: /download flattened pdf/i }),
-    );
+    const button = screen.getByRole("button", {
+      name: /download flattened pdf/i,
+    });
+    fireEvent.click(button);
     expect(downloads).toEqual(["form-flattened.pdf"]);
+    expectServedNames([
+      panelTitle(panel),
+      button.textContent ?? "",
+      addedSuffix(downloads[0]!, "form.pdf"),
+    ]);
   });
 
   it("a signed PDF is warned about before the run, and its signature field is reported as left as-is", async () => {
@@ -170,10 +232,22 @@ describe("Flatten PDF runner — what the user is told and handed", () => {
     await runTool(/flatten form fields/i);
 
     await screen.findByRole("group", { name: /form fields flattened/i });
-    expect(screen.getByText(/flattened 1 of 2 form fields/i)).toBeVisible();
-    expect(screen.getByText(/left as-is, still interactive/i)).toBeVisible();
+    const partial = screen.getByText(/flattened 1 of 2 form fields/i);
+    expect(partial).toBeVisible();
+    const leftAsIs = screen.getByText(/left as-is, still interactive/i);
+    expect(leftAsIs).toBeVisible();
     expect(screen.getByText(/^Signature1 \(/)).toBeVisible();
     expect(screen.getByText(SIGNED_PDF_WARNING)).toBeVisible();
+
+    // The page describes this outcome in the words the panel used. The
+    // heading as rendered, without its colon; the partial summary as a SHAPE
+    // (its counts are this fixture's), cut at the " · <size>" it ends with.
+    expectServedNames([(leftAsIs.textContent ?? "").replace(/:\s*$/, "")]);
+    const summary = (partial.textContent ?? "").split(" · ")[0]!.trim();
+    expect(summary).toMatch(/\d/);
+    const escaped = summary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const shape = new RegExp(`"${escaped.replace(/\d+/g, "\\d+")}"`);
+    expect(servedCopy(), `the page never shows "${summary}"`).toMatch(shape);
   });
 
   it("two skipped fields sharing a name are BOTH listed, without a React key collision", async () => {
