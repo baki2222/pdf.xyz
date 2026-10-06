@@ -2,6 +2,8 @@ import type { ToolContent } from "./types";
 import { MAX_SOURCE_MB } from "@/lib/tools/limits";
 import {
   FONT_PACKS,
+  fontPack,
+  MONOSPACE_CLAIMS,
   SUPPORTED_SCRIPTS,
   UNSUPPORTED_SCRIPTS,
 } from "@/lib/pdf/font-packs";
@@ -12,8 +14,10 @@ import { formatBytes } from "@/lib/utils";
 /**
  * Every claim below was read off the implementation, not the marketing:
  *  - parser and renderer: src/lib/pdf/markdown-to-pdf.ts (block kinds are
- *    heading, paragraph, list-item, quote, code — no table, image or rule;
- *    heading sizes are one for H1, one for H2, one shared by H3–H6);
+ *    heading, paragraph, list-item, quote, code, rule and table — no image;
+ *    HEADING_SIZES gives each of H1–H6 its own size. Until 2026-10-06 this
+ *    line said "no table, image or rule" and "one shared by H3–H6", true
+ *    before L09 (20ba6ce) and copied onto the page long after);
  *  - controls and labels: src/components/tools/runner/markdown-to-pdf-runner.tsx
  *    and runner-kit.tsx (Dropzone "Drop a Markdown file here, or" + "browse",
  *    "Markdown content", "Create PDF" / "Creating PDF…", "PDF created",
@@ -36,6 +40,24 @@ import { formatBytes } from "@/lib/utils";
  *  - parseMarkdownBlocks turns `snake_case_name` into "snakecasename",
  *    "2 * 3 * 4" into "2  3  4", a ~~~ fence into "~js … ~", and a setext
  *    "Title\n=====" into the paragraph "Title =====".
+ *
+ * SUPERSEDED, history kept: L09 (20ba6ce) and the monospace pack made most
+ * of the 2026-09-27 findings above and below false. Re-run 2026-10-06
+ * through parseMarkdownBlocks / markdownToPdf with the shipped font files:
+ *  - every block goes through wrapTextLine, whose splitLongWord breaks a word
+ *    wider than the column between characters: a long URL and an unspaced
+ *    Chinese paragraph both wrap inside the margins;
+ *  - `snake_case_name` and `my_var_x` keep their underscores; "2 * 3 * 4"
+ *    keeps its asterisks; a ~~~ fence and four-space indented code are code
+ *    blocks (a "# " line inside stays code); "Title" over "=====" is a
+ *    level-1 heading; YAML front matter is a code block; `---`, `***` and
+ *    `___` are rules drawn as a line; a GFM table is drawn as a grid; nested
+ *    items get depth 1, 2, ... and indent further; the quote bar is drawn
+ *    once per wrapped line;
+ *  - "ż", "→" and Cyrillic still move body, bold and italic to ONE Noto
+ *    face, but code stays in Geist Mono (two faces in the file); Greek, ✓,
+ *    Bengali and Chinese, which Geist Mono cannot draw, leave one Noto face.
+ * markdown-to-pdf-copy.test.ts now holds what the page serves to these.
  *
  * Re-checked by an adversarial pass (2026-09-27, same harness):
  *  - "→" and "✓" route to Noto Sans JP, "ż" and Cyrillic to Noto Sans; each
@@ -69,11 +91,33 @@ function listOf(items: readonly string[], conjunction = "and"): string {
 
 const SCRIPTS = listOf(SUPPORTED_SCRIPTS);
 
-/** What a first Unicode document costs to fetch, smallest face to largest. */
-const PACKS_BY_SIZE = [...FONT_PACKS].sort((a, b) => a.bytes - b.bytes);
+/**
+ * What a first Unicode document's text face costs to fetch, smallest to
+ * largest: the script packs only, since the monospace pack is a typeface for
+ * code and is named on its own below.
+ */
+const PACKS_BY_SIZE = FONT_PACKS.filter((pack) => pack.role === "script").sort(
+  (a, b) => a.bytes - b.bytes,
+);
 const SMALLEST_PACK = PACKS_BY_SIZE[0]!;
 const LARGEST_PACK = PACKS_BY_SIZE[PACKS_BY_SIZE.length - 1]!;
 const FONT_SIZE_RANGE = `${formatBytes(SMALLEST_PACK.bytes)} for ${SMALLEST_PACK.label} to ${formatBytes(LARGEST_PACK.bytes)} for ${LARGEST_PACK.label}`;
+
+/** The download that keeps code monospaced beside Unicode text. */
+const MONO_PACK_SIZE = formatBytes(fontPack("mono").bytes);
+
+/**
+ * What the monospace face draws whole, from MONOSPACE_CLAIMS (each member
+ * checked by font-packs.test.ts), in the order `monospaceClaimSentence`
+ * reads it: "Western European, ... text, box drawing and ← → ↑ ↓ ↔ ↕".
+ */
+const MONO_DRAWS = (() => {
+  const languages = MONOSPACE_CLAIMS.filter((c) => "codePages" in c.members);
+  const others = MONOSPACE_CLAIMS.filter((c) => !("codePages" in c.members));
+  return `${languages.map((c) => c.label).join(", ")} text, ${others
+    .map((c) => c.label)
+    .join(" and ")}`;
+})();
 
 /**
  * Translate PDF target languages whose script this tool refuses outright —
@@ -102,9 +146,9 @@ const content: ToolContent = {
     "Turn a .md file or pasted Markdown into a clean PDF with headings, lists, quotes and code blocks — typeset in your browser, never uploaded.",
 
   intro: [
-    "Paste Markdown into the editor or drop in a .md, .markdown or .mdown file, and pdf.xyz typesets it as a US Letter PDF with real, selectable text. For Western European text, # headings are bold, with level 1 largest, level 2 next and levels 3 to 6 sharing one size; list items are indented; each > quote line is italic with an accent bar beside its first line; and fenced code is set in a monospaced face under its language tag. The foot of each page shows its number and the total page count, and the file name without its extension appears small at the top of page one and becomes the PDF's document title.",
+    "Paste Markdown into the editor or drop in a .md, .markdown or .mdown file, and pdf.xyz typesets it as a US Letter PDF with real, selectable text. For Western European text, # headings are bold and step down in size from level 1 to level 6; list items are indented, nested ones further; > quotes are italic with an accent bar running down their left side; and fenced code is set in a monospaced face, under its language tag when it has one. The foot of each page shows its number and the total page count, and the file name without its extension appears small at the top of page one and becomes the PDF's document title.",
     `The whole conversion runs in your browser tab, so there is no upload: the Markdown never leaves your device. Sources can be up to ${MAX_SOURCE_MB} MB, counted in UTF-8 bytes, which means Chinese, Japanese or Korean text reaches the cap in fewer characters than English.`,
-    "This is a clean document renderer, not a GitHub-style web page engine. Inline bold, italics and backtick code are flattened into plain body text. A link prints as its label followed by the address in parentheses and is not clickable. Images are not embedded; the alt text and URL, or the URL alone when there is no alt text, stand in their place. Tables and YAML front matter are not recognised, so their lines are parsed like any other Markdown and mostly print as plain paragraphs, and a --- rule prints as three hyphens rather than a line.",
+    "This is a clean document renderer, not a GitHub-style web page engine. Inline bold, italics and backtick code are flattened into plain body text. A link prints as its label followed by the address in parentheses and is not clickable. Images are not embedded; the alt text and URL, or the URL alone when there is no alt text, stand in their place. Tables are drawn as ruled grids, a --- rule becomes a thin line, and YAML front matter at the top is kept visible as a code block.",
   ],
 
   useCases: [
@@ -114,15 +158,15 @@ const content: ToolContent = {
     },
     {
       title: "Typeset an AI chat answer",
-      body: "Many chat assistants format replies in Markdown. Paste one into the editor and the pound signs, list markers and triple backticks become headings, bullets and code blocks instead of stray symbols. Delete colour emoji such as ✅ or 🚀 first, since one stops the conversion, and expect a table in the reply to collapse into a single paragraph.",
+      body: "Many chat assistants format replies in Markdown. Paste one into the editor and the pound signs, list markers, triple backticks and pipe tables become headings, bullets, code blocks and ruled tables instead of stray symbols. Delete colour emoji such as ✅ or 🚀 first, since one stops the conversion.",
     },
     {
       title: "Print notes in Bengali or Korean",
-      body: "Both write with spaces between words, so lines wrap normally, and the characters are drawn with an embedded Noto font chosen for the script rather than turned into question marks or empty boxes. Chinese and Japanese draw correctly too, but read the question on long lines before converting paragraphs that have no spaces.",
+      body: "Both write with spaces between words, so lines wrap normally, and the characters are drawn with an embedded Noto font chosen for the script rather than turned into question marks or empty boxes. Chinese and Japanese draw correctly too, and a paragraph written without spaces wraps between characters.",
     },
     {
       title: "Give a translation a finished layout",
-      body: `Translate PDF delivers a ZIP containing translation.md. Unzip it and drop that file here: its “Translation —” heading naming the language, quoted provenance note and whatever headings and lists the model kept come back as a PDF.${REFUSED_TRANSLATIONS_SENTENCE} A Chinese or Japanese translation converts, but its paragraphs do not wrap.`,
+      body: `Translate PDF delivers a ZIP containing translation.md. Unzip it and drop that file here: its “Translation —” heading naming the language, quoted provenance note and whatever headings and lists the model kept come back as a PDF.${REFUSED_TRANSLATIONS_SENTENCE} A Chinese or Japanese translation converts too, and its paragraphs wrap between characters.`,
     },
   ],
 
@@ -137,7 +181,7 @@ const content: ToolContent = {
     },
     {
       title: "Click Create PDF",
-      body: "While the button reads “Creating PDF…” the pages are laid out in your browser, after fetching a Noto font first if the text needs one. An empty box, text over the limit, characters no bundled font can draw, or two scripts no single bundled font draws together stop it with a message saying which.",
+      body: "While the button reads “Creating PDF…” the pages are laid out in your browser, after fetching the fonts the text needs first when it goes beyond the Western European set. An empty box, text over the limit, characters no bundled font can draw, or two scripts no single bundled font draws together stop it with a message saying which.",
     },
     {
       title: "Download PDF",
@@ -148,11 +192,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Is my Markdown uploaded to a server?",
-      a: `No. Parsing, layout and PDF writing all happen in your browser. Besides the tool's own code, the only other thing it may fetch is Noto font data from pdf.xyz's own server, when your text or file name goes beyond the Western European set: usually one file, from ${FONT_SIZE_RANGE}, and a second only if the first cannot shape every character. Those requests name a font and carry none of your document.`,
+      a: `No. Parsing, layout and PDF writing all happen in your browser. Besides the tool's own code, the only other thing it may fetch is font data from pdf.xyz's own server, when your text or file name goes beyond the Western European set: a Noto face for the text, from ${FONT_SIZE_RANGE}, plus the ${MONO_PACK_SIZE} monospace face for code when that face can draw every character, and another face only if the first cannot shape every character. Those requests name a font and carry none of your document.`,
     },
     {
       q: "Does it support tables, images and GitHub-flavored Markdown?",
-      a: "Partly. # headings, - * + and numbered lists, > quotes, ``` fences and paragraphs are laid out properly. A table's rows run together into one paragraph with the pipes left in, strikethrough markers are removed without drawing a line, raw HTML prints literally, and task-list boxes print as [ ] or [x]. Underlined === headings, four-space indented code and ~~~ fences are not recognised: their lines are read as ordinary Markdown, so they mostly merge into body text, and a line inside them that starts with # or - turns into a heading or a bullet. Paired underscores or asterisks outside ``` fences are read as emphasis and deleted, inside backticks too, so snake_case_name prints as snakecasename. Nested items sit at their parent's indent, and numbered lists keep the numbers you typed.",
+      a: "Mostly. The converter lays out # headings and underlined (=== or ---) headings; - * + and numbered lists, with nested items indented under their parent; > quotes; ``` and ~~~ fences and four-space indented code; ---, *** or ___ rules, drawn as a thin line; and GitHub-flavored pipe tables, drawn as a ruled grid with a shaded header row and the column alignment you set. YAML front matter at the top prints as a code block, and images print as their alt text and address instead of being embedded. Strikethrough markers are removed without drawing a line, raw HTML prints literally, and task-list boxes print as [ ] or [x]. Underscores inside words are left alone, so snake_case_name prints as typed, and backtick code keeps every character. Numbered lists keep the numbers you typed.",
     },
     {
       q: "Why was my Markdown refused with an emoji or script error?",
@@ -160,11 +204,11 @@ const content: ToolContent = {
     },
     {
       q: "Which alphabets can it draw?",
-      a: `The bundled fonts cover ${SCRIPTS}. Western European text uses the PDF's built-in fonts, with bold, oblique and monospaced faces. One character outside that set anywhere in the text or the file name, even a Polish ż or an arrow such as →, moves the whole document to a single regular-weight Noto face: headings then differ by size only, quotes are upright and code is no longer monospaced.`,
+      a: `The bundled fonts cover ${SCRIPTS}. Western European text uses the PDF's built-in fonts, with bold, oblique and monospaced faces. One character outside that set anywhere in the text or the file name, even a Polish ż or an arrow such as →, moves the body text to a single regular-weight Noto face: headings then differ by size only and quotes are upright. Code stays in a monospaced face as long as that face can draw every character in the document, which it does for ${MONO_DRAWS}; one character it cannot draw, such as Greek, ✓, Bengali, Chinese, Japanese or Korean, sets the code in the Noto face too.`,
     },
     {
       q: "Is the text searchable, and can a long line overflow?",
-      a: "The output is real PDF text, so you can select, copy and search it. Lines break only at spaces. A long unbroken string, such as a URL or a minified line of code, is not split and can run off the right edge of the page. Chinese and Japanese are usually written without spaces, so a paragraph in either stays on one line and most of it falls off the page; put line breaks or spaces into long passages before converting.",
+      a: "The output is real PDF text, so you can select, copy and search it. Lines break at spaces where they can. A string too long for the line, such as a URL, a minified line of code or a Chinese or Japanese paragraph written without spaces, is broken between characters and continues on the next line instead of running past the margin.",
     },
     {
       q: "Can I change the page size, fonts or margins?",
