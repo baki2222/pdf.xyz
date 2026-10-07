@@ -150,8 +150,7 @@ function offenders(): Map<string, string[]> {
 const KNOWN_STALE: ReadonlySet<string> = new Set([
   // Verifier findings at 028d3a10, each queued for its own fix. html-to-pdf
   // left on 2026-10-07 when its step named all four labels; optimize-web,
-  // pdf-to-pdfa and pdf-to-powerpoint the same day.
-  "powerpoint-to-pdf",
+  // pdf-to-pdfa, pdf-to-powerpoint and powerpoint-to-pdf the same day.
   "summarize-pdf",
   "translate-pdf",
   "unlock-pdf",
@@ -261,10 +260,10 @@ function stillRunningOffenders(): Map<string, string[]> {
 
 /** Same ratchet rule as KNOWN_STALE: delete an entry with its page's fix. */
 const STILL_RUNNING_STALE: ReadonlySet<string> = new Set([
-  // Found by this guard on landing (2026-10-07). powerpoint-to-pdf: "the
-  // panel then shows the job's id"; repair-pdf: the button reads one label
-  // until "the page stops waiting and says the job may still finish".
-  "powerpoint-to-pdf",
+  // Found by this guard on landing (2026-10-07). repair-pdf: the button
+  // reads one label until "the page stops waiting and says the job may still
+  // finish". powerpoint-to-pdf ("the panel then shows the job's id") left
+  // the same day when its FAQ named Keep waiting.
   "repair-pdf",
 ]);
 

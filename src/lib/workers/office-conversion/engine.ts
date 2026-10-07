@@ -48,8 +48,11 @@ export type OfficeConversionRun =
   /** A run that did not finish for reasons outside the document. Retryable. */
   | { ok: false; kind: "failed"; message: string };
 
-/** What each tool's users call the file and the program that saves it. */
-const DOCUMENT_WORDS: Record<
+/**
+ * What each tool's users call the file and the program that saves it. Exported
+ * so a page that quotes a refusal names the same command the refusal does.
+ */
+export const DOCUMENT_WORDS: Record<
   OfficeToPdfTool,
   { noun: string; app: string; ext: string; protect: string }
 > = {

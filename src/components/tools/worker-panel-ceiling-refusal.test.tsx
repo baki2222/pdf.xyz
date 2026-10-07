@@ -33,6 +33,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug, tools } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import {
+  pageDescription,
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "@/lib/tools/page-copy";
+import {
   fileOverCeilingMessage,
   toolFileCeilingBytes,
   toolFileCeilingMb,
@@ -354,5 +362,54 @@ describe.each(
     // staged file name above is the evidence — and the set is held to that:
     // a tool that stops needing more must leave it.
     expect(blocked(run)).toBe(NEEDS_MORE_THAN_A_FILE.has(tool.slug));
+  });
+});
+
+/*
+ * The refusal above is the property; the page's own description of it is the
+ * claim. Two Office to PDF pages said a file over the ceiling "still uploads"
+ * and is refused by the converter afterwards — true before `refuse` moved the
+ * check to the pick, false after, and nothing read the copy. Every page a
+ * panel above serves is held to the refusal this file proves, with the
+ * shipped sentences as the corpus in both directions.
+ */
+describe("no page these panels serve says an over-ceiling file still uploads", () => {
+  const SHIPPED = [
+    "Up to N MB. A bigger deck still uploads, but the LibreOffice step then refuses it and the job ends with a size error, without a retry.",
+    "The LibreOffice converter takes a file of up to N MB unless the worker is configured otherwise; a bigger one is still uploaded, then turned away with a size error before any conversion starts, so nothing half-rendered comes back.",
+  ];
+  const STILL_UPLOADS = /\bstill (?:be )?upload(?:s|ed)\b/i;
+
+  /** Every string a tool's page serves. */
+  const served = (tool: Tool) => [
+    pageDescription(tool),
+    ...pageIntro(tool),
+    ...pageUseCases(tool).flatMap((u) => [u.title, u.body]),
+    ...pageSteps(tool).map(stepText),
+    ...pageFaq(tool).flatMap((f) => [f.question, f.answer]),
+  ];
+
+  it("the pattern catches every shipped sentence, and not the fixed one", () => {
+    for (const s of SHIPPED) expect(STILL_UPLOADS.test(s), s).toBe(true);
+    expect(
+      STILL_UPLOADS.test(
+        "A bigger deck is turned away as soon as you pick it, before anything is uploaded.",
+      ),
+    ).toBe(false);
+  });
+
+  it("no served field on a refusing panel's page says it", () => {
+    const subjects = SUBJECTS.flatMap((s) => s.tools);
+    // Health: the same discovered corpus the refusal tests run on.
+    expect(subjects.length).toBeGreaterThanOrEqual(19);
+    const fields = subjects.flatMap((tool) =>
+      served(tool).map((text) => ({ slug: tool.slug, text })),
+    );
+    expect(fields.length).toBeGreaterThan(subjects.length * 10);
+    expect(
+      fields
+        .filter(({ text }) => STILL_UPLOADS.test(text))
+        .map(({ slug, text }) => `${slug}: ${text}`),
+    ).toEqual([]);
   });
 });

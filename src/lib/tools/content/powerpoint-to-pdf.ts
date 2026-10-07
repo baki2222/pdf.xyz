@@ -1,18 +1,21 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { getToolBySlug } from "@/lib/tools";
-import { toolFileCeiling } from "@/lib/tools/file-ceilings";
+import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
+import {
+  DOCUMENT_WORDS,
+  POWERPOINT_TO_PDF_TOOL,
+} from "@/lib/workers/office-conversion/engine";
 import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conversion/native-config";
 import { officePdfOutputName } from "@/lib/workers/processor/office-conversion";
-
-const MB = 1024 * 1024;
 
 /**
  * The deck ceiling: the smaller of what `/api/uploads` accepts and what the
  * LibreOffice step refuses above (`runOfficeToPdf` → `too_large`, and again
  * inside the native runner). The converter's cap is the smaller, so it is the
- * ceiling — and ONE figure, the one the panel's Limit row and the derived FAQ
- * state too. Until 2026-09-27 this page quoted the upload gate beside the cap
+ * ceiling — and ONE figure, the one the panel's Limit row, the derived FAQ
+ * and the pick refusal (`fileOverCeilingMessage`, through `pickRefusal` on
+ * the panel's Dropzone) state too: `toolFileCeilingMb` is that figure. Until 2026-09-27 this page quoted the upload gate beside the cap
  * as "the upload limit", while the derived answer said "Up to 100 MB".
  *
  * The other limits are the config resolver's defaults (empty environment). A
@@ -23,12 +26,15 @@ const MB = 1024 * 1024;
  * not given a figure: it equals the upload gate today, and a second size on
  * this page would read as a second, false ceiling.
  */
-const CEILING = toolFileCeiling(getToolBySlug("powerpoint-to-pdf")!);
-const CEILING_MB = Math.round((CEILING.bytes ?? 0) / MB);
+const CEILING_MB = toolFileCeilingMb(getToolBySlug("powerpoint-to-pdf")!);
+if (CEILING_MB === null)
+  throw new Error("powerpoint-to-pdf content states a ceiling it cannot find");
 const OFFICE_DEFAULTS = resolveNativeOfficeConversionConfig({});
 const TIMEOUT_SECONDS = Math.round(OFFICE_DEFAULTS.timeoutMs / 1000);
 
 const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
+/** Where PowerPoint removes a password: the words the engine's refusal uses. */
+const PROTECT = DOCUMENT_WORDS[POWERPOINT_TO_PDF_TOOL];
 
 const EXAMPLE_IN = "Quarterly review.pptx";
 const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
@@ -46,18 +52,24 @@ const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
  *   - output name = `officePdfOutputName`, interpolated below;
  *   - the engine is `soffice --headless --convert-to pdf` with no export
  *     filter options, so LibreOffice's default PDF export settings apply;
- *   - a LibreOffice failure, timeout, oversize output or non-PDF output is
- *     kind `failed`, which `jobError` in processor/office-conversion.ts maps
- *     to `internal_error` with `retryable: true`. Re-verified 2026-09-27 in
- *     executor.ts: `dispatchFailure` requeues when `error.retryable && attempt
- *     < maxAttempts` (executor default 3, broker dead-letter cap 5), keeps the
- *     input for the retry, and calls `wipeInputs` only at the terminal state.
- *     A `too_large` input is `payload_too_large`, `retryable: false`, so an
- *     oversize deck is NOT retried;
- *   - a password-protected deck: headless soffice has no prompt, so it either
- *     exits nonzero, exits 0 with no PDF written (readFile throws), or hangs
- *     to the timeout. All three land on kind `failed` in `runOfficeToPdf`;
- *     which one this worker's LibreOffice does was not observed;
+ *   - failures, RE-READ 2026-10-07 (office-conversion/engine.ts and
+ *     processor/office-conversion.ts `jobError`): a LibreOffice run that
+ *     cannot load the deck or writes no usable PDF is `unreadable`, a timeout
+ *     is `timeout`, an oversize input or output is `too_large`, and each maps
+ *     to a NON-retryable job error. Only a fault that is not a
+ *     `LibreOfficeRunError` (kind `failed`) is retried. Until then this page
+ *     said every failure was retried, true of the engine before the change
+ *     that made document failures final;
+ *   - a password-protected .pptx is caught by `isEncryptedOoxml` before
+ *     soffice runs, with a message naming PowerPoint's Protect Presentation
+ *     command (`DOCUMENT_WORDS`, interpolated). A locked legacy .ppt cannot be
+ *     recognised that way; what this worker's LibreOffice does with one was
+ *     not observed, so the copy promises the named message for .pptx only;
+ *   - an over-ceiling deck is refused WHEN PICKED (`pickRefusal`), before it
+ *     is read or uploaded; the engine's `too_large` is a backstop this page
+ *     cannot reach;
+ *   - the button's busy label is `jobBusyLabel(phase, "Converting PDF…")`, so
+ *     it follows the job (busy-label-claims.test.ts);
  *   - "is a PDF" is `looksLikePdf`: a `%PDF` header in the first 1 KiB and
  *     `%%EOF` in the last 2 KiB, nothing deeper, so the copy says exactly that;
  *   - relatedGuides is empty on purpose: no guide in src/lib/guides/catalog.ts
@@ -66,8 +78,9 @@ const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
  *     is ready.", and the Download button saves those in-memory bytes
  *     (`downloadBytes(outcome.output, …)`), so it does not depend on the
  *     stored link staying alive;
- *   - the client polls for a bounded time and then shows "Stopped waiting for
- *     the worker — the job may still finish." with the job id.
+ *   - the client polls for one conversion timeout plus a margin
+ *     (OFFICE_TO_PDF_JOB_POLL) and then shows `WorkerJobStatus`'s "still on
+ *     this job" note with Keep waiting and Cancel the job; no job id.
  * Claims that depend on LibreOffice's DEFAULT export behaviour (notes pages
  * and hidden slides not exported, page size = slide size, text kept as text)
  * are NOT proven by a real job on this worker yet.
@@ -115,7 +128,7 @@ const content: ToolContent = {
     },
     {
       title: "Click Convert to PDF",
-      body: 'The button reads "Converting PDF…" for the whole round trip: the upload to the secure worker, the LibreOffice export there, and the download of the finished PDF into this tab.',
+      body: 'The button follows the round trip: "Uploading your file…" while the deck goes to the secure worker, "Waiting for the worker…" while the job is queued, "Converting PDF…" during the LibreOffice export, and "Downloading the result…" while the finished PDF comes back into this tab.',
     },
     {
       title: "Download the PDF",
@@ -142,11 +155,11 @@ const content: ToolContent = {
     },
     {
       q: "How large a presentation can I convert?",
-      a: `Up to ${CEILING_MB} MB. A bigger deck still uploads, but the LibreOffice step then refuses it and the job ends with a size error, without a retry. Decks that big are usually carrying photos or embedded video; PowerPoint's Compress Pictures command can shrink the images before you try again.`,
+      a: `Up to ${CEILING_MB} MB. A bigger deck is turned away as soon as you pick it, before anything is uploaded, with a message that states the ${CEILING_MB} MB limit. Decks that big are usually carrying photos or embedded video; PowerPoint's Compress Pictures command can shrink the images before you try again.`,
     },
     {
       q: "Why did my conversion fail?",
-      a: `A password-protected deck cannot be opened, because there is no field on this page to type the password into; clear the password in PowerPoint, save a copy and convert that. A file too damaged for LibreOffice to open also fails, as does one it cannot finish within ${TIMEOUT_SECONDS} seconds or whose PDF comes out larger than the worker's output limit. Each of those failures is retried automatically before the job is marked failed, so a slow deck can outlast the page's wait, and the panel then shows the job's id instead of a download. The worker also rejects any output missing the %PDF header or the closing %%EOF marker, so a broken export never comes back as a download.`,
+      a: `A password-protected deck cannot be converted, because there is no field on this page to type the password into. A locked .pptx is recognised before LibreOffice runs, and the job stops with a message telling you to remove the password in ${PROTECT.app} (${PROTECT.protect}); save an unprotected copy and convert that. A file too damaged for LibreOffice to open also fails, as does one it cannot finish within ${TIMEOUT_SECONDS} seconds or whose PDF comes out larger than the worker's output limit. None of those is retried, because the same file would fail the same way again. If the page stops waiting before the worker finishes, it shows Keep waiting, which goes back to the same job instead of starting a new one. The worker also rejects any output missing the %PDF header or the closing %%EOF marker, so a broken export never comes back as a download.`,
     },
   ],
 
