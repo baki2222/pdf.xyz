@@ -158,11 +158,11 @@ const KNOWN_STALE: ReadonlySet<string> = new Set([
   "word-to-pdf",
   // Found by this guard on landing; in no verifier's list. "reads Preparing
   // request… while it works", "reads Repairing on the worker… until the
-  // repaired copy has been fetched", "shows Exporting DOCX… while the job
-  // runs" beside "Your file goes up".
+  // repaired copy has been fetched". pdf-to-word ("shows Exporting DOCX…
+  // while the job runs" beside "Your file goes up") left on 2026-10-07 when
+  // its step named all four labels.
   "request-signatures",
   "repair-pdf",
-  "pdf-to-word",
 ]);
 
 describe("a page that names a busy label names the stages around it", () => {

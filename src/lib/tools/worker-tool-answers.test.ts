@@ -63,6 +63,8 @@ import {
   type PdfOfficeExportTool,
 } from "@/lib/workers/pdf-office-export/engine";
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import { createPdfOfficeExportProcessor } from "@/lib/workers/processor/pdf-office-export";
+import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { cellsByRef, readXlsxSheet } from "@/lib/workers/ooxml/sheet-read";
 import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
 import { flowText, type PdfFlowText } from "@/lib/workers/pdf-text/flow";
@@ -1098,6 +1100,238 @@ describe("no table page describes the replaced comma split, text-only cells or w
 /* ------------------------------------------------------------------ *
  *  Repair, PDF/A, Office → PDF, Translate, Webpage
  * ------------------------------------------------------------------ */
+
+describe("no PDF to Word surface describes the replaced line-per-paragraph engine", () => {
+  /*
+   * WHAT SHIPPED until 2026-10-07: the PDF to Word page's authored copy
+   * described the engine as it was before the wave-1 L03 merge (2026-09-28),
+   * which made Word read poppler's reading order, and before a02c6a98, which
+   * made a locked PDF a final, named failure. The derived answer on the SAME
+   * page (PDF_TO_WORD_KEEPS) was held to the engine by the block above and
+   * said the opposite; nothing read the authored half. Every sentence below
+   * shipped, and each claim is RUN against the engine — through the processor
+   * where the claim is about the job, not the file.
+   */
+  const SHIPPED = [
+    "Convert a PDF to an editable Word DOCX: every line of selectable text becomes a paragraph you can rewrite.",
+    "It is a text conversion, not a page replica: each line on the page becomes its own paragraph in Word's default Normal style, page after page.",
+    "Fonts, bold and italics, colours, images and page breaks are not carried across, and a sentence wrapped over three lines arrives as three short paragraphs.",
+    "The extractor keeps the horizontal spacing between words, so text that sat side by side on the page shares one paragraph.",
+    "A table row that fits on one line stays on one line, and a two-column article comes out with a slice of each column on every line.",
+    "Single-column prose arrives line by line in page order, ready to restyle in your own template.",
+    "Indentation is trimmed from the start of each line, the blank gap between paragraphs is dropped, and running headers and page numbers come through as ordinary lines wherever they fall.",
+    "If the DOCX seems short, look for pages you cannot highlight and run the whole file through OCR PDF before converting again.",
+    "Line by line.",
+    "Text sharing a line on the page shares a paragraph in Word, so table rows stay together without becoming Word table cells, and two columns end up interleaved.",
+    "The worker cannot read text it cannot decrypt; it treats the failure as possibly temporary and retries, then the job fails with a general could-not-export message that does not mention the password.",
+  ];
+
+  /** A sentence's clauses: what one claim can be made in. */
+  const clauses = (text: string) => text.split(/(?<=[.;:!?])\s+/);
+
+  interface Claim {
+    readonly says: string;
+    readonly pattern: RegExp;
+    /** Run the engine; it must NOT do what `says` says. */
+    readonly refute: () => Promise<void>;
+  }
+
+  const twoColumnParagraphs = async () =>
+    readDocxParagraphs(
+      await exportRun("pdf-to-word", [""], flowOf(TWO_COLUMN_BBOX)),
+    );
+  const joinsWrappedLines = async () => {
+    // Precondition: the column really is several printed lines.
+    expect(LEFT_COLUMN.length).toBeGreaterThan(1);
+    const paragraphs = await twoColumnParagraphs();
+    expect(paragraphs).toContain(LEFT_COLUMN.join(" "));
+    for (const line of LEFT_COLUMN)
+      expect(paragraphs, line).not.toContain(line);
+  };
+  const columnsInOrder = async () => {
+    const paragraphs = await twoColumnParagraphs();
+    const hasLeft = (p: string) => LEFT_COLUMN.some((l) => p.includes(l));
+    const hasRight = (p: string) => RIGHT_COLUMN.some((l) => p.includes(l));
+    // Control: both columns are in the file, so "no mixed paragraph" is not
+    // an empty file passing.
+    expect(paragraphs.some(hasLeft) && paragraphs.some(hasRight)).toBe(true);
+    expect(paragraphs.filter((p) => hasLeft(p) && hasRight(p))).toEqual([]);
+    const lastLeft = Math.max(
+      ...paragraphs.map((p, i) => (hasLeft(p) ? i : -1)),
+    );
+    expect(lastLeft).toBeLessThan(paragraphs.findIndex(hasRight));
+  };
+  const PAGE_BREAK = '<w:br w:type="page"/>';
+  const pageBreaks = async () => {
+    const breaks = async (pagesText: readonly string[]) =>
+      (
+        await part(
+          await exportFile("pdf-to-word", pagesText),
+          "word/document.xml",
+        )
+      ).split(PAGE_BREAK).length - 1;
+    expect(await breaks(["One", "Two"])).toBe(1);
+    // Control: one page, no break — the count is of breaks, not of markup.
+    expect(await breaks(["One"])).toBe(0);
+  };
+  const lockedIsFinalAndNamed = async () => {
+    const processor = createPdfOfficeExportProcessor({
+      extract: async () => extracted(["unused"]),
+      extractFlow: async () => {
+        throw new PdfTextExecError({
+          exitCode: 1,
+          killed: false,
+          outputTooLarge: false,
+        });
+      },
+      isEncrypted: async () => true,
+    });
+    const result = await processor.process({
+      tool: "pdf-to-word",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "locked.pdf",
+          contentType: "application/pdf",
+          bytes: new Uint8Array([1]),
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      code: OFFICE_EXPORT_ERROR_CODES.passwordProtected,
+      retryable: false,
+    });
+    expect(result.error.message).toMatch(/password-protected/);
+    expect(result.error.message).toContain("Unlock PDF");
+  };
+  const reportsTextlessPages = async () => {
+    const processor = createPdfOfficeExportProcessor({
+      extract: async () => extracted(["Text", "", "More"]),
+      extractFlow: async () => linesAsFlow(["Text", "", "More"]),
+    });
+    const result = await processor.process({
+      tool: "pdf-to-word",
+      options: {},
+      inputs: [
+        {
+          fileId: "f",
+          filename: "partly-scanned.pdf",
+          contentType: "application/pdf",
+          bytes: new Uint8Array([1]),
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // What the panel's coverage notice reads: the job's results, not the file.
+    expect(result.results?.officeExport).toMatchObject({
+      pageCount: 3,
+      textPageCount: 2,
+      pagesWithoutText: [2],
+    });
+  };
+
+  const CLAIMS: Claim[] = [
+    {
+      says: "each printed line becomes its own paragraph",
+      pattern: /\b(?:each|every) line\b|\bline by line\b|\bordinary lines\b/i,
+      refute: joinsWrappedLines,
+    },
+    {
+      says: "a wrapped sentence arrives as several paragraphs",
+      pattern: /\bwrapped over\b|\bshort paragraphs\b/i,
+      refute: joinsWrappedLines,
+    },
+    {
+      says: "text side by side shares a paragraph, so columns interleave",
+      pattern:
+        /\binterleav|\bslice of each column\b|\bside by side\b.*\bparagraph\b|\bsharing a line\b|\bhorizontal spacing\b/i,
+      refute: columnsInOrder,
+    },
+    {
+      says: "page breaks are not carried",
+      pattern: /\bpage breaks?\b.*\bnot\b/i,
+      refute: pageBreaks,
+    },
+    {
+      says: "a locked PDF is retried, then reported without the password",
+      pattern:
+        /\bretries\b|\b(?:general|generic)\b.*\bmessage\b|\bnot mention the password\b/i,
+      refute: lockedIsFinalAndNamed,
+    },
+    {
+      says: "the reader must hunt for the pages that had no text",
+      pattern: /\bseems short\b|\blook for pages\b/i,
+      refute: reportsTextlessPages,
+    },
+  ];
+
+  const caught = (pattern: RegExp, text: string) =>
+    clauses(text).some((c) => pattern.test(c));
+
+  function surfaces(): { where: string; text: string }[] {
+    const slug = "pdf-to-word";
+    const out: { where: string; text: string }[] = [
+      { where: `${slug} meta`, text: pageDescription(getToolBySlug(slug)!) },
+      { where: `${slug} (served)`, text: page(slug).text },
+    ];
+    for (const e of page(slug).faq)
+      out.push({ where: `${slug} FAQ`, text: `${e.question} ${e.answer}` });
+    for (const s of page(slug).howTo)
+      out.push({ where: `${slug} step`, text: s });
+    for (const guide of guides) {
+      if (!guide.tools.includes(slug)) continue;
+      for (const text of guideStrings(guide))
+        out.push({ where: `guide ${guide.slug}`, text });
+    }
+    return out;
+  }
+
+  it("the corpus and the patterns cover each other", () => {
+    for (const s of SHIPPED)
+      expect(
+        CLAIMS.some((c) => caught(c.pattern, s)),
+        `uncaught: ${s}`,
+      ).toBe(true);
+    for (const { says, pattern } of CLAIMS)
+      expect(
+        SHIPPED.some((s) => caught(pattern, s)),
+        `${says}: ${pattern} catches nothing shipped`,
+      ).toBe(true);
+    // What the page says now passes: a table row is one paragraph, and a
+    // locked PDF is NOT retried.
+    expect(
+      CLAIMS.some((c) =>
+        caught(
+          c.pattern,
+          "A table whose cells each fit on one line comes through one row per paragraph; the job stops at once, without retrying.",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  for (const { says, refute } of CLAIMS)
+    it(`the engine does not do it: ${says}`, refute);
+
+  it("no surface the page serves makes one of the claims", () => {
+    const all = surfaces();
+    // Health: the page as served, with its FAQs and steps, and its guide.
+    expect(all.length).toBeGreaterThan(15);
+    expect(all.some((s) => s.where.startsWith("guide "))).toBe(true);
+    expect(page("pdf-to-word").text.length).toBeGreaterThan(3000);
+    const offenders = all.flatMap(({ where, text }) =>
+      clauses(text).flatMap((clause) =>
+        CLAIMS.filter((c) => c.pattern.test(clause)).map(
+          (c) => `${where}: [${c.says}] ${clause}`,
+        ),
+      ),
+    );
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+});
 
 describe("Repair PDF takes what its page says, and returns no rubble", () => {
   const PDF_HEAD = new TextEncoder().encode(
