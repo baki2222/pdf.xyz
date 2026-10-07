@@ -1,6 +1,7 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { FONT_PACKS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
+import { WATERMARK_FIT } from "@/lib/pdf/watermark";
 
 /**
  * The watermark runner's input gate: `SinglePdfRunner` → `useSinglePdf` →
@@ -10,6 +11,9 @@ import { FONT_PACKS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
  */
 const CEILING_MB = Math.round(RUNNER_FILE_CEILINGS.watermark / (1024 * 1024));
 
+/** How much of the visible page a shrunk mark may span, from the engine. */
+const WATERMARK_FIT_PERCENT = Math.round(WATERMARK_FIT * 100);
+
 const listFormat = new Intl.ListFormat("en", { type: "conjunction" });
 
 /**
@@ -18,12 +22,18 @@ const listFormat = new Intl.ListFormat("en", { type: "conjunction" });
  * Devanagari" are split into single names, and Latin is dropped because plain
  * Western text is drawn with the built-in standard face (accented Latin beyond
  * that set is named separately in the copy).
+ *
+ * SCRIPT packs only, the same role filter SUPPORTED_SCRIPTS uses. Until
+ * 2026-10-07 this split every pack's label, so the Geist Mono pack (role
+ * "monospace", label "monospace") was listed as a script the watermark is
+ * drawn in from "the matching Noto typeface". The watermark asks for the
+ * "bold" face, and packsForFace offers the monospace pack only to "mono".
  */
 const EXTRA_SCRIPTS = listFormat.format([
   ...new Set(
-    FONT_PACKS.flatMap((pack) => pack.label.split(/, | and /)).filter(
-      (name) => name !== "Latin",
-    ),
+    FONT_PACKS.filter((pack) => pack.role === "script")
+      .flatMap((pack) => pack.label.split(/, | and /))
+      .filter((name) => name !== "Latin"),
   ),
 ]);
 
@@ -57,10 +67,14 @@ const NO_FACE_EXAMPLE =
  * stamped through the Noto path, and "CONFIDENTIAL — Ünïcödé" through the
  * built-in face.
  * Read from the code, not measured: the mark is `page.drawText` on every page
- * (no page picker, no position control, no image input, no tiling, no fit-to-
- * width), centred by `placeCenteredStamp` on `page.getSize()`, which pdf-lib
- * reads from the MEDIA box, so a CropBox set by Crop PDF (crop.ts only calls
- * `setCropBox`) is ignored. The tilt adds the page's /Rotate. `stampProducer`
+ * (no page picker, no position control, no image input, no tiling). SUPERSEDED,
+ * history kept: "no fit-to-width, centred … on `page.getSize()`, … so a
+ * CropBox set by Crop PDF is ignored". `watermarkPdf` now treats the size as
+ * a ceiling (`fitWatermarkScale`: the tilted text spans at most WATERMARK_FIT
+ * of the visible box on each axis, with no lower floor), centres on
+ * `visibleBox(page)` (CropBox ∩ MediaBox), and the runner reports "Shrunk to
+ * fit on K of N pages"; its slider is labelled "Max font size". The tilt adds
+ * the page's /Rotate. `stampProducer`
  * rewrites Producer and Creator, and `doc.save()` writes the whole file anew
  * after new page content is appended, so an existing signature's byte range no
  * longer matches. The runner has no preview, and "Start over"
@@ -83,7 +97,7 @@ const content: ToolContent = {
     "Stamp CONFIDENTIAL, DRAFT or your own words diagonally across every PDF page, with opacity, angle, size and color controls. Your PDF stays in your browser.",
 
   intro: [
-    `Add Watermark writes one line of text diagonally across the middle of every page of a PDF: CONFIDENTIAL, DRAFT, SAMPLE or a recipient's name. The Text field starts with CONFIDENTIAL typed in, and four controls shape the mark: Opacity, Rotation and Font size sliders, plus a Gray, Red or Blue color. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands in the middle of its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
+    `Add Watermark writes one line of text diagonally across the middle of every page of a PDF: CONFIDENTIAL, DRAFT, SAMPLE or a recipient's name. The Text field starts with CONFIDENTIAL typed in, and four controls shape the mark: Opacity, Rotation and Max font size sliders, plus a Gray, Red or Blue color. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands in the middle of its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
     `Your browser does the stamping, using pdf-lib, and the PDF never leaves the tab. Western European text, accents like é and ü included, is set in a font built into the PDF format. Letters outside that set, such as a Polish Ł, and ${EXTRA_SCRIPTS} text first make the page download the matching Noto typeface, served by pdf.xyz: the font travels to you, the document stays put. ${RTL_REFUSED} stop the run with an error that lists the characters, rather than being stamped with the letters in reverse order. The page takes a single PDF of up to ${CEILING_MB} MB at a time, and a password-protected one has to go through Unlock PDF before it will open here.`,
     `The mark is real text drawn over each page's content. Page order and rotation, the title and author, and fillable form fields with their typed values all come through, and the fields stay editable; a field's own box is drawn above the page, so a filled one can cover part of the mark. The saved copy names pdf.xyz as its producer and creator, and because the saved file is rebuilt around new page content, a digital signature on the original stops validating in the watermarked copy.`,
   ],
@@ -118,7 +132,7 @@ const content: ToolContent = {
     },
     {
       title: "Set the appearance",
-      body: "Under Appearance, drag Opacity for how faint the mark is, Rotation for its angle (positive runs uphill from lower left, negative runs downhill, zero lies flat) and Font size in points, then pick Gray, Red or Blue.",
+      body: "Under Appearance, drag Opacity for how faint the mark is, Rotation for its angle (positive runs uphill from lower left, negative runs downhill, zero lies flat) and Max font size in points, the largest size used (a page too small for it gets the largest size that fits), then pick Gray, Red or Blue.",
     },
     {
       title: "Stamp and download",
@@ -140,8 +154,8 @@ const content: ToolContent = {
       a: `Plain Western European text, extended Latin, plus ${EXTRA_SCRIPTS}. Anything beyond plain Western text is drawn from a downloaded Noto font in its regular weight, so it is not bold like a Western mark. ${RTL_REFUSED} are refused because lines are set left to right. ${NO_FACE_EXAMPLE} and other scripts with no shipped font are refused too, and one line cannot mix two downloaded faces, such as Bengali with Chinese.`,
     },
     {
-      q: "Why is my watermark cut off or off-center?",
-      a: "The text is not shrunk to fit, so a long line at a large Font size runs off the page and is clipped. Centering uses the full sheet: on a page trimmed with Crop PDF, which hides margins rather than removing them, the mark can sit off-center. There is no preview, so press Start over, choose the file again and lower the size or shorten the text.",
+      q: "Why is my watermark smaller than I set, or cut off?",
+      a: `It should not be cut off or off-center. Max font size is an upper limit: on a page too small for the text at that size, the mark is drawn at the largest size whose tilted text spans no more than ${WATERMARK_FIT_PERCENT}% of the visible page, and it is centered on the part of the page a reader sees, including a page trimmed with Crop PDF. The result panel says on how many pages it was shrunk. For a larger mark, shorten the text. There is no preview, so to change the settings press Start over and choose the file again.`,
     },
   ],
 

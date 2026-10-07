@@ -89,9 +89,17 @@ function listOf(items: readonly string[], conjunction = "and"): string {
 }
 
 const scripts = listOf(SUPPORTED_SCRIPTS);
-/** The non-Latin faces shipped, by the label a refusal would use. */
+/**
+ * The non-Latin faces shipped, by the label a refusal would use. SCRIPT packs
+ * only: until 2026-10-07 this listed every pack but Latin, so the use case
+ * read "A Bengali, monospace, Japanese, … caption is drawn with a matching Noto
+ * font". The monospace pack is Geist Mono, offered only to a caller asking for
+ * "mono", and Edit PDF's `embedStampFont` never does.
+ */
 const otherAlphabets = listOf(
-  FONT_PACKS.filter((pack) => pack.id !== "latin").map((pack) => pack.label),
+  FONT_PACKS.filter(
+    (pack) => pack.role === "script" && pack.id !== "latin",
+  ).map((pack) => pack.label),
   "or",
 );
 const rtlScripts = listOf(
