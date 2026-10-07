@@ -15,12 +15,15 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
  *  - src/components/tools/ocr-worker-panel.tsx — control labels ("Languages",
- *    "Output", "Skip pages that already have text", the "Add a scan to OCR"
- *    drop zone, "Run OCR on the worker"), English preselected, the per-job
- *    language cap, the "Recognition summary", one file per run;
+ *    "Output", "Redo existing OCR", the "Add a scan to OCR" drop zone, "Run
+ *    OCR on the worker"), English preselected, the per-job language cap, the
+ *    "Recognition summary", one file per run. Until 2026-09-27 the checkbox
+ *    was "Skip pages that already have text"; this page told readers to tick
+ *    it after it was gone (fixed 2026-10-07);
  *  - src/lib/workers/ocr-native.ts — PDFs go to OCRmyPDF (text layer added to
- *    the existing pages, `--skip-text` only when ticked, no `--deskew` or
- *    `--rotate-pages`), JPG/PNG go to Tesseract (no OSD either); outputs are
+ *    the existing pages, `--skip-text` by default and `--redo-ocr` only when
+ *    Redo existing OCR is ticked, no `--deskew` or `--rotate-pages`), JPG/PNG
+ *    go to Tesseract (no OSD either); outputs are
  *    named `<name>-ocr.pdf` and `<name>.txt`; a confidence figure exists for
  *    image inputs only (tsvOut is null for OCRmyPDF). The inline comment near
  *    the meta build in that file still says meanConfidence is always null —
@@ -31,7 +34,7 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    pack is refused by name before the runner is called (nativeOcrDeps always
  *    supplies installedLanguages when OCR is enabled, so the check runs);
  *  - the language chips are toggle buttons (aria-pressed), not checkboxes, so
- *    the copy says "select" for them and "tick" only for the skip-text box;
+ *    the copy says "select" for them and "tick" only for the redo box;
  *    the run area renders only once /api/worker/status reports OCR available;
  *  - src/lib/workers/ocr-native-config.ts — the engine subprocess has a hard
  *    timeout (env-tunable, so no figure is stated here);
@@ -45,8 +48,9 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  * if they ever diverge, the job still refuses the missing language by name.
  * The panel does NOT narrow its picker to the installed list, so no sentence
  * here claims the page reflects it.
- * Not claimed, because it is OCRmyPDF's behaviour rather than this repo's: what
- * an unticked skip-text run does with a PDF that already has text.
+ * Not claimed, because it is OCRmyPDF's behaviour rather than this repo's: how
+ * well a redo run separates an old OCR layer from text typed into the page,
+ * beyond the panel's own "Text typed into the document is kept either way".
  * Every number is interpolated from the constant that owns it.
  */
 
@@ -108,7 +112,7 @@ const content: ToolContent = {
     },
     {
       title: "Finish a PDF that is only partly scanned",
-      body: "When typed pages and scanned pages sit in the same file, tick Skip pages that already have text so the typed pages are left untouched and only the image pages are recognised. A scanned page that already carries any text, such as a digitally added stamp or header, counts as typed and is skipped too.",
+      body: "When typed pages and scanned pages sit in the same file, just run it: pages that already have text are skipped and kept as they are, and only the image pages are recognised. A scanned page that already carries any text, such as a digitally added stamp or header, counts as having text and is skipped too. Tick Redo existing OCR only when an earlier OCR text layer is poor and should be recognised again; text typed into the document is kept either way.",
     },
   ],
 
@@ -119,7 +123,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose what you want back",
-      body: `Under Output, pick ${PDF_MODE}, ${TEXT_MODE} (a .txt file), or ${BOTH_MODE}. Tick Skip pages that already have text if part of the PDF was typed rather than scanned.`,
+      body: `Under Output, pick ${PDF_MODE}, ${TEXT_MODE} (a .txt file), or ${BOTH_MODE}. Pages of a PDF that already have text are skipped and kept as they are; tick Redo existing OCR only if the PDF's existing OCR text is poor and should be recognised again.`,
     },
     {
       title: "Add the scan and run it",
