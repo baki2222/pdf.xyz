@@ -8,7 +8,6 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 import { awaitPdfjsDocument, loadPdfjs } from "./pdfjs";
 import {
   DEFAULT_JPEG_QUALITY,
-  RASTER_MAX_DEVICE_PX,
   RASTER_MIME,
   clampJpegQuality,
   type RasterFormat,
