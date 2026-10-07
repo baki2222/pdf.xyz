@@ -7,6 +7,11 @@ import {
   MAX_DIAGNOSTIC_LINES,
 } from "@/lib/workers/native-diagnostics";
 import { PDF_A_STANDARD } from "@/lib/workers/pdf-archive/engine";
+import {
+  PDFA_EXPECTED_CONFORMANCE,
+  PDFA_EXPECTED_PART,
+  PDFA_OUTPUT_INTENT_SUBTYPE,
+} from "@/lib/workers/pdf-archive/pdfa-markers";
 import { pdfaOutputName } from "@/lib/workers/processor/pdf-archive";
 
 /**
@@ -49,8 +54,11 @@ const EXAMPLE_OUT = pdfaOutputName(EXAMPLE_IN);
  *  - panel: src/components/tools/pdf-archive-worker-panel.tsx — status badge
  *    ("Secure worker" when ready), no uploader at all when the worker is not
  *    ready, one PDF via a drop zone titled "Add a PDF, or" + browse, a
- *    "Remove" link, the "Convert to PDF/A" button ("Converting to PDF/A…"
- *    while busy), "Your PDF/A file is ready." and "Download <name>". No
+ *    "Remove" link, the "Convert to PDF/A" button (labelled through
+ *    jobBusyLabel: "Uploading your file…", "Waiting for the worker…",
+ *    "Converting to PDF/A…", "Downloading the result…"; until 2026-10-07 the
+ *    step said "Converting to PDF/A…" covered the upload), "Your PDF/A file
+ *    is ready." and "Download <name>". No
  *    options: no level picker, no password field. The panel itself says the
  *    result is not validated against the PDF/A specification.
  *  - notes: src/components/tools/pdfa-notes.tsx ("What PDF/A could not keep:"
@@ -64,13 +72,18 @@ const EXAMPLE_OUT = pdfaOutputName(EXAMPLE_IN);
  *    is the one persistence withholds, so the user can read "1 further
  *    message(s)" for a larger number.
  *  - "no validator": nothing checks PDF/A conformance. The output does pass
- *    two checks, so the page says so rather than "no check at all": the native
+ *    checks, so the page names them rather than "no check at all": the native
  *    runner refuses an empty or over-size file and one failing `looksLikePdf`
- *    (header in the first 1 KiB, `%%EOF` in the last 2 KiB), and the engine
- *    runs `deps.validate ?? looksLikePdf` on it again. `PdfArchiveDeps.validate`
- *    is a PDF-ness hook for input AND output, not a PDF/A validator, and
- *    `nativePdfArchiveDeps` does not set it. If a real PDF/A validator is ever
- *    wired there, the meta description and the first FAQ go stale.
+ *    (header in the first 1 KiB, `%%EOF` in the last 2 KiB), the engine runs
+ *    `deps.validate ?? looksLikePdf` on it again, and then
+ *    `deps.inspectOutput ?? inspectPdfAMarkers` (pdfa-markers.ts): a
+ *    /GTS_PDFA1 output intent with an embedded profile and XMP part 2 /
+ *    conformance B, or the job fails `not_pdfa` with no file.
+ *    `nativePdfArchiveDeps` sets neither hook, so the defaults run. Until
+ *    2026-10-07 the FAQ said "the only checks" were not-empty and PDF-shaped.
+ *    The marker check is a DECLARATION check, not a validator; if a real
+ *    PDF/A validator is ever wired, the meta description and the first FAQ
+ *    go stale.
  *  - input check: the SAME `looksLikePdf` runs on the input before gs, so a
  *    file whose `%%EOF` is missing (a truncated download) is refused as "could
  *    not be read as a PDF" even though it is a PDF.
@@ -117,7 +130,7 @@ const content: ToolContent = {
   useCases: [
     {
       title: "Depositing a thesis in a university repository",
-      body: "Some repositories ask for PDF/A at deposit. Convert the final version here, then run the repository's own checker, or an independent validator such as veraPDF, before you submit: this tool confirms only that its output is a PDF, not that it conforms.",
+      body: `Some repositories ask for PDF/A at deposit. Convert the final version here, then run the repository's own checker, or an independent validator such as veraPDF, before you submit: this tool checks only that its output is a PDF that declares ${PDF_A_STANDARD} and carries a colour profile, not that it conforms.`,
     },
     {
       title: "Records you must keep for years",
@@ -144,7 +157,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Convert to PDF/A",
-      body: "The button reads Converting to PDF/A… while the file uploads and Ghostscript rewrites it. The worker first looks for a PDF header at the start and a %%EOF marker near the end; a file missing either, such as a download that stopped partway, is refused and nothing is produced.",
+      body: "The button reads Uploading your file… while the PDF travels to the secure worker, Waiting for the worker… while the job is queued, Converting to PDF/A… while Ghostscript rewrites it, and Downloading the result… as the copy comes back. The worker first looks for a PDF header at the start and a %%EOF marker near the end; a file missing either, such as a download that stopped partway, is refused and nothing is produced.",
     },
     {
       title: "Read the notes, then download",
@@ -155,7 +168,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the converted file pass a PDF/A validator?",
-      a: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator; the only checks on the output are that it is not empty and is shaped like a PDF. It therefore carries no compliance guarantee, so check it with the validator your archive uses. One oddity: Ghostscript's metadata notices say "PDF/A1" even though it runs with its PDF/A-2 setting. The notes show that wording unchanged, and we have not established why Ghostscript uses it.`,
+      a: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Before your file is returned, the worker checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART}, conformance ${PDFA_EXPECTED_CONFORMANCE} in its XMP metadata, plus an embedded colour profile (a ${PDFA_OUTPUT_INTENT_SUBTYPE} output intent). If either declaration is missing, no file is returned. A declaration is not proof of conformance, so the file carries no compliance guarantee; check it with the validator your archive uses. One oddity: Ghostscript's metadata notices say "PDF/A1" even though it runs with its PDF/A-2 setting. The notes show that wording unchanged, and we have not established why Ghostscript uses it.`,
     },
     {
       q: "Can I choose PDF/A-1b, PDF/A-2u or PDF/A-3?",
