@@ -121,7 +121,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: `The form shows only when the status check finds the worker's storage, queue and daemon ready; if not, you see the reason plus a button labelled "Notify me when this ships", which records only the tool's name and asks for no contact details. Then drag a single PDF, no larger than ${ceilingMb} MB, onto the dashed area headed "Add your PDF, or" and ending in a browse link, or click that link; Remove drops the chosen file.`,
+      body: `The form shows only when the status check finds the worker's storage, queue and daemon ready. If it finds them not ready, you see the reason plus a button labelled "Notify me when this ships", which records only the tool's name and asks for no contact details; if the check does not answer at all, a Check again button retries it. Then drag a single PDF, no larger than ${ceilingMb} MB, onto the dashed area headed "Add your PDF, or" and ending in a browse link, or click that link; Remove drops the chosen file.`,
     },
     {
       title: "List the signers",

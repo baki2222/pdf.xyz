@@ -31,7 +31,13 @@ import { DEFAULT_OCR_OUTPUT_MODE, OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
  *    the browser's text check), "Downloading the result…" — until 2026-10-07
  *    the step said "Summarizing…" throughout), the TruncationNotice, the "Download <file>" button, and
  *    the builder being replaced by the unavailability detail plus NotifyMe
- *    when no worker or AI model is available. NotifyMe ("Notify me when this
+ *    when the status check answers that no worker or AI model is available
+ *    (phase "ready"). When the check itself fails, WorkerStatusPending
+ *    (worker-status.tsx) shows "We couldn't reach the worker status service
+ *    just now…" and a "Check again" button, with NO NotifyMe; the step paired
+ *    a failed check with the notify button until 2026-10-08
+ *    (worker-tool-answers.test.ts bans that pairing on every served page,
+ *    worker-panel-pending.test.tsx renders the failed check). NotifyMe ("Notify me when this
  *    ships") only COUNTS the ask — notify-me.tsx says there is no waitlist
  *    backend and no way to notify anyone — so the copy never promises a
  *    notification;
@@ -215,7 +221,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: `Click the box marked "Add your PDF, or browse" to pick a file, or drop one onto it. It takes one PDF per summary, and files over ${CEILING_MB} MB are refused. When the status check fails, or the worker or its AI model is not ready, a short reason takes the place of that box, alongside a button labelled "Notify me when this ships". Pressing it sends only the tool's name, to be counted as a request; nobody is notified later.`,
+      body: `Click the box marked "Add your PDF, or browse" to pick a file, or drop one onto it. It takes one PDF per summary, and files over ${CEILING_MB} MB are refused. If the worker's status cannot be checked, a short note and a Check again button take the place of that box. If the worker or its AI model is not ready, the reason takes its place instead, alongside a button labelled "Notify me when this ships". Pressing that sends only the tool's name, to be counted as a request; nobody is notified later.`,
     },
     {
       title: "Choose a length and a format",

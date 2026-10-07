@@ -1880,6 +1880,65 @@ function workerPanelSources(): Map<string, string> {
   return out;
 }
 
+/**
+ * WHAT SHIPPED until 2026-10-08: two worker pages paired a status check that
+ * did not answer with the "Notify me when this ships" button. Every worker
+ * panel renders WorkerStatusPending for that phase — "We couldn't reach the
+ * worker status service just now…" and a "Check again" button, no NotifyMe
+ * (worker-panel-pending.test.tsx renders each panel with the endpoint down
+ * and holds that). NotifyMe appears only once the check ANSWERS that the
+ * worker cannot run the tool. The subjects are every rendered tool page.
+ */
+const SHIPPED_FAILED_CHECK_NOTIFY = [
+  'When the status check fails, or the worker or its AI model is not ready, a short reason takes the place of that box, alongside a button labelled "Notify me when this ships".',
+  'If the badge reads "Not enabled" or "Status unknown", it shows a "Notify me when this ships" button instead of taking a file it cannot convert.',
+];
+/** Ways the copy names a status check that did not answer. */
+const FAILED_CHECK: readonly RegExp[] = [
+  /\bStatus unknown\b/,
+  /\bstatus check fails\b/i,
+];
+const NOTIFY_BUTTON = /Notify me when this ships/;
+const pairsFailedCheckWithNotify = (sentence: string) =>
+  NOTIFY_BUTTON.test(sentence) && FAILED_CHECK.some((p) => p.test(sentence));
+
+describe("no page pairs a status check that did not answer with the notify button", () => {
+  it("the patterns and the sentences that shipped catch each other (both directions)", () => {
+    for (const s of SHIPPED_FAILED_CHECK_NOTIFY)
+      expect(pairsFailedCheckWithNotify(s), s).toBe(true);
+    for (const p of FAILED_CHECK)
+      expect(
+        SHIPPED_FAILED_CHECK_NOTIFY.some(
+          (s) => p.test(s) && NOTIFY_BUTTON.test(s),
+        ),
+        `${p} catches no shipped sentence`,
+      ).toBe(true);
+  });
+
+  it("no served sentence on any tool page says it", () => {
+    const sentences = [...pages.entries()].flatMap(([slug, p]) =>
+      [p.text, ...p.howTo, ...p.faq.flatMap((e) => [e.question, e.answer])]
+        .flatMap((t) => t.split(/(?<=[.!?])\s+/))
+        .map((sentence) => ({ slug, sentence })),
+    );
+    // Health: the reader sees every page, and the notify button is described
+    // on many of them, so an absence below is not blindness.
+    expect(pages.size).toBeGreaterThanOrEqual(50);
+    expect(
+      new Set(
+        sentences
+          .filter(({ sentence }) => NOTIFY_BUTTON.test(sentence))
+          .map(({ slug }) => slug),
+      ).size,
+    ).toBeGreaterThanOrEqual(5);
+    expect(
+      sentences
+        .filter(({ sentence }) => pairsFailedCheckWithNotify(sentence))
+        .map(({ slug, sentence }) => `${slug}: ${sentence}`),
+    ).toEqual([]);
+  });
+});
+
 describe("every label a worker page quotes exists in the panel it mounts", () => {
   it("resolves plausibly many panels (the walk cannot quietly empty)", () => {
     const panels = workerPanelSources();

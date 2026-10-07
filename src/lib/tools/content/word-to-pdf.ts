@@ -31,7 +31,12 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *    PDF…")` (Uploading your file…, Waiting for the worker…, Converting PDF…,
  *    Downloading the result…), "Your PDF is ready.", the "Secure
  *    worker" / "Not enabled" / "Status unknown" badge, the "Limit" spec row,
- *    and NotifyMe's "Notify me when this ships".
+ *    and NotifyMe's "Notify me when this ships" — shown ONLY with "Not
+ *    enabled" (phase "ready", worker unable to convert). "Status unknown" is
+ *    the failed check (phase "error"), which renders WorkerStatusPending's
+ *    "Check again" and no NotifyMe; the FAQ paired "Status unknown" with the
+ *    notify button until 2026-10-08 (worker-tool-answers.test.ts bans that
+ *    pairing on every served page).
  *
  * SIZE. ONE figure, the tool's ceiling (`toolFileCeiling`): the smaller of the
  * upload gate and the converter's own `maxInputBytes`. The converter's is
@@ -155,7 +160,7 @@ const content: ToolContent = {
     },
     {
       q: "Why is there no upload area, only a notice?",
-      a: 'The panel first checks whether the secure worker can run LibreOffice. If the badge reads "Not enabled" or "Status unknown", it shows a "Notify me when this ships" button instead of taking a file it cannot convert.',
+      a: 'The panel first checks whether the secure worker can run LibreOffice. If the badge reads "Not enabled", it shows a "Notify me when this ships" button instead of taking a file it cannot convert. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it. No file can be added until a check confirms the worker.',
     },
   ],
 
