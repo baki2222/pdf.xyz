@@ -320,7 +320,9 @@ export const tools: Tool[] = [
     icon: "jpg",
     processing: "client",
     badge: "popular",
-    accept: ["JPG", "JPEG"],
+    // Both image runners take PNG and JPEG alike, and the page's "In:" row
+    // reads this list (image-to-pdf-accept.test.ts holds it to the gate).
+    accept: ["JPG", "JPEG", "PNG"],
     outputs: ["PDF"],
     keywords: ["jpg to pdf", "jpeg to pdf", "image to pdf", "photos to pdf"],
     related: ["png-to-pdf", "pdf-to-jpg", "merge-pdf"],
@@ -342,7 +344,7 @@ export const tools: Tool[] = [
     category: "convert-to",
     icon: "png",
     processing: "client",
-    accept: ["PNG"],
+    accept: ["PNG", "JPG", "JPEG"],
     outputs: ["PDF"],
     keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],

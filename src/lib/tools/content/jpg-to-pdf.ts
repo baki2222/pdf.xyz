@@ -14,7 +14,10 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
  * here too: `isImageAllowedForKind` ignores the tool, `imagePickerAccept`
  * lists both, and the runner sniffs each file's bytes when it is ADDED
  * (`sniffRasterFormat`), so a PNG named .jpg goes in as a PNG and a WebP named
- * .jpg is refused at once with `unsupportedImageMessage`. Only an image whose
+ * .jpg is refused at once with `unsupportedImageMessage`. The catalogue's
+ * `accept` lists PNG too since 2026-10-08, so the page's "In:" row reads
+ * "JPG, JPEG, PNG"; until then it said "JPG, JPEG" beside steps and an FAQ
+ * saying PNG works (image-to-pdf-accept.test.ts). Only an image whose
  * signature is valid but whose data pdf-lib cannot parse fails at Create PDF
  * ('"x" could not be decoded as a JPG image.'). There are NO page-size,
  * orientation or margin controls; if the runner gains them, this file must

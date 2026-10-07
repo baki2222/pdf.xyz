@@ -45,16 +45,22 @@ function formatList(formats: readonly string[]): string {
 /**
  * The catalogue tool that turns a file of this extension into a PDF, if any:
  * one that outputs PDF, does not itself take PDF, and lists the extension.
+ *
+ * Several can list it: JPG to PDF and PNG to PDF each take both image
+ * formats, so a .png matches JPG to PDF first in catalogue order. The tool
+ * whose OWN format it is (first in its `accept`) wins, so a .png is sent to
+ * PNG to PDF; catalogue order decides only among the rest.
  */
 export function converterToPdfFor(filename: string): Tool | undefined {
   const format = extensionOf(filename)?.toUpperCase();
   if (!format) return undefined;
-  return tools.find(
+  const converters = tools.filter(
     (t) =>
       t.outputs.includes("PDF") &&
       !t.accept.includes("PDF") &&
       t.accept.includes(format),
   );
+  return converters.find((t) => t.accept[0] === format) ?? converters[0];
 }
 
 /** Is this the kind of file `tool` takes, by the rule the server applies? */
