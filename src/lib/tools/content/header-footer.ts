@@ -9,6 +9,7 @@ import {
   unsupportedScriptFor,
 } from "@/lib/pdf/font-packs";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { stampDateCandidates } from "@/lib/pdf/header-footer";
 
 /*
  * Every behavioral claim below was read from, or probed against, the code:
@@ -47,17 +48,24 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    "Page {n} of {total}" footer draws fine (one face covers both).
  *    Blank text ("Add header or footer text to stamp.") is engine only; the
  *    runner disables the button first, so the page does not describe it.
- *  - {date} by locale (Node ICU): fa-IR "۱۴۰۵/۷/۵" and ar-EG "٢٧/٩/٢٠٢٦" are
+ *  - {date} by locale (Node ICU): fa-IR "۱۴۰۵/۷/۵" and ar-EG "٢٧/٩/٢٠٢٦" were
  *    REFUSED as Arabic even under an English header; bn-BD fetches the
  *    Bengali face; en-US, de-DE, hi-IN, ja-JP, ko-KR, zh-CN, th-TH stay in
- *    Helvetica. The fa-IR half is re-derived below at module load.
+ *    Helvetica. SUPERSEDED (history kept): since L13 (0a1f815) the runner's
+ *    preview and Run both stamp resolveStampDate(...), the first of
+ *    stampDateCandidates that canDrawInOneFace accepts beside the user's
+ *    text: the locale form, then the same order in Latin digits on the
+ *    Gregorian calendar (fa-IR "2026/9/27"), then local YYYY-MM-DD. The FAQ
+ *    said a Persian {date} was refused for weeks after that, and the
+ *    module-load check below asserted the MECHANISM (Persian digits are
+ *    Arabic script), which stayed true, so it licensed the stale sentence.
  *  - Form field value, title, author, a 90-degree /Rotate survived, and
  *    Producer/Creator read back as pdf.xyz — read with
  *    `updateMetadata: false`, because a plain PDFDocument.load() rewrites
  *    Producer to "pdf-lib" on the READER's side and made the first probe of
  *    this report lie. Bookmarks were not tested and are not claimed.
- *  - {date} is `new Date().toLocaleDateString()` in the visitor's browser,
- *    computed once per run: fixed text, the viewer's locale format.
+ *  - {date} is resolved in the visitor's browser once per run (see above):
+ *    fixed text, the viewer's locale format when a shipped face can draw it.
  *  - loadPdf() refuses encrypted input when the file is opened (useSinglePdf
  *    -> getPageRotations), in the words of the pdf.js probe's verdict
  *    (src/lib/pdf/encryption.ts; AMENDED 2026-10-06, the FAQ quoted the
@@ -108,18 +116,25 @@ if (
     "header-footer content names Bengali, Greek, Japanese and Korean as drawable; font-packs disagrees",
   );
 }
-// The FAQ says a browser writing dates in Persian digits gets {date} refused as
-// Arabic. Derived, not typed: if ICU or the refusal table changes, this throws.
-const persianDate = new Date(Date.UTC(2026, 8, 27, 12)).toLocaleDateString(
-  "fa-IR",
-);
+// INVERTED (history kept). This used to throw unless a Persian-locale date
+// held Arabic-script digits, and the FAQ said such a {date} was refused. The
+// digits stayed Arabic script; the refusal went away when the runner began
+// switching to the next of stampDateCandidates. The FAQ now says the date is
+// switched, and quotes the switched form, so both halves are derived here: the
+// locale's own form still needs switching (Arabic script), and the next
+// candidate is Latin digits. tool-faq-substance runs resolveStampDate on it.
+const persianDay = new Date(2026, 8, 27, 12);
+const [persianOwn, persianLatin] = stampDateCandidates(persianDay, "fa-IR");
 if (
-  ![...persianDate].some(
+  !persianOwn ||
+  ![...persianOwn].some(
     (ch) => unsupportedScriptFor(ch.codePointAt(0) ?? 0)?.name === "Arabic",
-  )
+  ) ||
+  !persianLatin ||
+  !/^[0-9][0-9/.-]*[0-9]$/.test(persianLatin)
 ) {
   throw new Error(
-    "header-footer content says a Persian-locale {date} is refused as Arabic; it no longer is",
+    "header-footer content says a Persian-locale {date} is switched to Latin digits; stampDateCandidates disagrees",
   );
 }
 const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
@@ -202,7 +217,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my file or my header text refused?",
-      a: `Encryption is checked the moment the file is read, and an encrypted PDF gets a message naming its lock, with a link to Unlock PDF, instead of the editor: it is called password-protected only when it needs a password to open. Unlock PDF removes the lock with a password you know (for a file that opens freely, its owner password), but it runs on pdf.xyz's secure worker: the file travels there over TLS and the unlocked copy's link lasts ${linkMinutes} minutes. Header or footer text is refused when it is ${rtlRefused.join(" or ")} (lines are laid out left to right and would come out reversed), when it needs a script no shipped font draws, such as ${noFaceExamples.join(", ")} or colour emoji, or when the two bands together need two different faces, like a Japanese header over a Bengali footer. {date} counts too: a browser set to Persian writes the date in Persian digits, which are refused like Arabic, so type the date by hand there. The message names the script, or lists the characters when it cannot.`,
+      a: `Encryption is checked the moment the file is read, and an encrypted PDF gets a message naming its lock, with a link to Unlock PDF, instead of the editor: it is called password-protected only when it needs a password to open. Unlock PDF removes the lock with a password you know (for a file that opens freely, its owner password), but it runs on pdf.xyz's secure worker: the file travels there over TLS and the unlocked copy's link lasts ${linkMinutes} minutes. Header or footer text is refused when it is ${rtlRefused.join(" or ")} (lines are laid out left to right and would come out reversed), when it needs a script no shipped font draws, such as ${noFaceExamples.join(", ")} or colour emoji, or when the two bands together need two different faces, like a Japanese header over a Bengali footer. {date} is switched, not refused: when your browser writes dates in digits no shipped font can draw beside your text, such as the Persian or Arabic-Indic digits of a Persian or Egyptian Arabic browser, the same day is stamped in Latin digits on the Gregorian calendar in your locale's order (a Persian browser writes 27 September 2026 as ${persianLatin}), or as YYYY-MM-DD if that still will not fit, and the preview by each heading shows exactly what will be printed. The message names the script, or lists the characters when it cannot.`,
     },
     {
       q: "Does my PDF leave my device when I add a header?",

@@ -65,7 +65,11 @@ import { editPdf } from "@/lib/pdf/edit";
 import { annotatePdf } from "@/lib/pdf/annotate";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
-import { addHeaderFooter, stampDateCandidates } from "@/lib/pdf/header-footer";
+import {
+  addHeaderFooter,
+  resolveStampDate,
+  stampDateCandidates,
+} from "@/lib/pdf/header-footer";
 import { applyTokens } from "@/lib/pdf/stamp";
 import { cropPdf } from "@/lib/pdf/crop";
 import { flattenPdf } from "@/lib/pdf/flatten";
@@ -835,6 +839,48 @@ describe("the stamping tools answer where and what they stamp", () => {
       expect(answer(tool.slug, /first page without/)).toMatch(
         /go on every page/,
       );
+
+      // The refusal answer said "a browser set to Persian writes the date in
+      // Persian digits, which are refused like Arabic, so type the date by
+      // hand there" for weeks after the runner stopped refusing it. Run the
+      // runner's own resolver for the browsers it named, on a header that uses
+      // {date} over the default footer: the locale form is NOT stamped, the
+      // next candidate (Latin digits) is, and the answer quotes that value.
+      // Then no served sentence may say a {date} is refused or must be typed
+      // by hand; the shipped sentences are the caught corpus.
+      for (const locale of ["fa-IR", "ar-EG"]) {
+        const [own, latin] = stampDateCandidates(now, locale);
+        // A template WITHOUT {date} resolves to the first candidate trivially
+        // (nothing is substituted), so the header must use the field.
+        const stamped = await resolveStampDate(
+          ["Printed {date}", "Page {n} of {total}"],
+          now,
+          locale,
+        );
+        expect(stamped, locale).not.toBe(own);
+        expect(stamped, locale).toBe(latin);
+      }
+      const refusal = answer(tool.slug, /refused/);
+      expect(refusal).toContain(
+        `writes 27 September 2026 as ${stampDateCandidates(new Date(2026, 8, 27, 12), "fa-IR")[1]}`,
+      );
+      const saysDateRefused = (x: string) =>
+        /type the date by hand/.test(x) ||
+        (/\{date\}[^.]*\brefused\b/.test(x) &&
+          !/\{date\} is switched, not refused/.test(x));
+      for (const shipped of [
+        "{date} counts too: a browser set to Persian writes the date in Persian digits, which are refused like Arabic, so type the date by hand there.",
+        "{date} counts too: a browser set to Persian writes the date in Persian digits, which are refused like Arabic.",
+      ])
+        expect(saysDateRefused(shipped), shipped).toBe(true);
+      const sentences = [
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+      ];
+      expect(
+        sentences.filter((x) => x.includes("{date}")).length,
+      ).toBeGreaterThan(2);
+      expect(sentences.filter(saysDateRefused)).toEqual([]);
     }
   });
 
