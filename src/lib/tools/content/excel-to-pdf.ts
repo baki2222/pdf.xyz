@@ -10,7 +10,7 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *  - panel: src/components/tools/office-conversion-worker-panel.tsx — ONE file
  *    (`multiple={false}`) through a drop zone titled "Add your document, or"
  *    + "browse", a "Remove" button to clear it, a "Convert to PDF" button
- *    ("Converting PDF…" while busy), then "Your PDF is ready." and a
+ *    (busy label below), then "Your PDF is ready." and a
  *    "Download <name>" button. No layout options, no sheet picker, no password
  *    field. The uploader is mounted only when the badge reads "Secure worker".
  *  - download: runSecurityJob (pdf-security-client.ts) fetches the artifact
@@ -18,10 +18,11 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *    bytes (`downloadBytes`). So the outputTtlMinutes expiry is the worker copy's
  *    link, not the button's; step 3 says exactly that.
  *  - type refusal: the picker's `accept` (acceptFor in the panel) offers only
- *    .xls/.xlsx/.csv; a dragged file bypasses that, and declaredContentTypeFor
- *    (mime-by-format.ts) returns null for .xlsm/.ods/.numbers, so runSecurityJob
- *    refuses those on Convert to PDF, before /api/uploads is called. Other
- *    catalogue formats are refused by /api/uploads before any bytes move.
+ *    .xls/.xlsx/.csv; a dragged file bypasses that, but the Dropzone's
+ *    `refuse` runs `pickRefusal` → `toolTakesFile`, which refuses .xlsm/.ods
+ *    at the drop ("isn't a file Excel to PDF takes"), before it is read —
+ *    probed 2026-10-07 with an empty and with the real macro-enabled MIME
+ *    type. The FAQ said "refused when you press Convert to PDF" until then.
  *  - formulas: the page says only that the PDF is a static printout of what
  *    cells display. Whether LibreOffice uses cached values or recalculates on
  *    load has NOT been checked by a real job, so no sentence depends on it.
@@ -30,18 +31,33 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *    options. Output must pass `looksLikePdf`, which checks a `%PDF-` header
  *    and a `%%EOF` marker ONLY — it cannot tell a blank or partial rendering
  *    from a good one, so the page claims the check, not "a complete PDF".
- *  - failures: a LibreOffice error or timeout is `internal_error`,
- *    retryable, and the executor REQUEUES it (dispatchFailure) until
- *    maxAttempts — it does not fail on the first attempt. The browser stops
- *    polling after DEFAULT_MAX_POLL_ATTEMPTS and says so. too_large is
- *    non-retryable and checked before conversion.
+ *  - failures: WAS (until a02c6a98 in code, 2026-10-07 on this page) "a
+ *    LibreOffice error or timeout is `internal_error`, retryable, and the
+ *    executor REQUEUES it". Now engine.ts maps a timeout to `timeout`, a bad
+ *    exit / no output / output failing `looksLikePdf` to `unreadable`, and an
+ *    encrypted OOXML package to `password_protected`, and
+ *    processor/office-conversion.ts `jobError` makes all three
+ *    `unprocessable_entity`, retryable:false — they fail once. Only `failed`
+ *    (not a LibreOfficeRunError: spawn/IO error, an unrequested kill) stays a
+ *    retryable `internal_error`. When the browser stops polling,
+ *    `WorkerJobStatus` shows a still-running note with Keep waiting, which
+ *    resumes the SAME job (it used to say Convert to PDF "starts a fresh
+ *    job", which uploads again). too_large is non-retryable.
+ *  - busy label: `jobBusyLabel(job.phase, "Converting PDF…")` — Uploading
+ *    your file…, Waiting for the worker…, Converting PDF…, Downloading the
+ *    result…, with a Cancel button below while busy. Step 2 said "Converting
+ *    PDF…" for the whole round trip until 2026-10-07.
  *  - size: ONE figure, `toolFileCeiling` — the smaller of the upload gate and
- *    the converter's input cap (native-config.ts default, overridable on the
- *    worker by PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES; the production env
- *    was not read, so it is stated as a default). The cap is enforced by
- *    engine.ts AFTER upload (too_large, non-retryable). Until 2026-09-27 this
- *    FAQ stated the gate as "the upload itself is turned away above" beside
- *    the cap, and the derived FAQ answered "Up to 100 MB", which was false.
+ *    the converter's input cap (OFFICE_CONVERSION_DEFAULT_MAX_INPUT_BYTES;
+ *    PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES can only RAISE the engine's cap,
+ *    `Math.max(env, default)`, and nothing in front of the engine lets a
+ *    bigger file through). It is enforced at the pick (`pickRefusal`, before
+ *    the file is read), by runSecurityJob before any request, and by
+ *    /api/uploads (`workerFileCeilingBytes`); engine.ts's too_large is the
+ *    last of four. This bullet said "enforced by engine.ts AFTER upload"
+ *    until 2026-10-07, and the FAQ "a bigger one is still uploaded". Until
+ *    2026-09-27 this FAQ stated the gate as "the upload itself is turned
+ *    away above" beside the cap, and the derived FAQ answered "Up to 100 MB", which was false.
  *  - timeout: native-config.ts default (_TIMEOUT_MS), stated as a default.
  *  - output name: processor/office-conversion.ts `officePdfOutputName`.
  *  - retention: src/app/privacy/page.tsx ("typically survive a few hours").
@@ -74,12 +90,18 @@ const EXAMPLE_IN = "Q3 budget.xlsx";
 const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
 
 /**
- * Who refuses above the ceiling. When the converter's cap is the lower one, a
- * bigger file is uploaded first and refused after, which is worth saying.
+ * Who refuses above the ceiling. The panel's Dropzone runs `pickRefusal` →
+ * `fileOverCeilingMessage` on every drop and browse pick, at the figure
+ * `toolFileCeiling` states, and `/api/uploads` refuses at the same
+ * `workerFileCeilingBytes`. WAS, until 2026-10-07: "unless the worker is
+ * configured otherwise; a bigger one is still uploaded, then turned away" —
+ * both false since 8b5a8c59/f537ab23 (refused at the pick) and since the
+ * env override became `Math.max(env, default)` (it can only raise the
+ * engine's cap, which no gate in front of it lets a file reach).
  */
 const sizeRefusal =
   CEILING?.tier === "worker" && CEILING.engine
-    ? `The LibreOffice converter takes a file of up to ${CEILING_MB} MB unless the worker is configured otherwise; a bigger one is still uploaded, then turned away with a size error before any conversion starts, so nothing half-rendered comes back.`
+    ? `The LibreOffice converter takes a spreadsheet of up to ${CEILING_MB} MB. A bigger file is refused as soon as you add it, before it is read or uploaded, with a message naming that limit, and the upload service refuses it at the same figure, so nothing half-rendered ever comes back.`
     : `Files of up to ${CEILING_MB} MB are accepted.`;
 
 const content: ToolContent = {
@@ -125,7 +147,7 @@ const content: ToolContent = {
     },
     {
       title: "Start the conversion",
-      body: `With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button reads "Converting PDF…" while the spreadsheet uploads, LibreOffice renders it and the finished PDF comes back.`,
+      body: `With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button shows where the job is: "Uploading your file…", then "Waiting for the worker…" while it is queued, "Converting PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
     },
     {
       title: "Save the converted PDF",
@@ -144,7 +166,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to formulas and macros?",
-      a: `Formulas are not carried into the PDF as formulas; each cell is printed as the result it shows. This tool takes only ${formatsAnd}, so a macro-enabled .xlsm is not accepted: the file picker is set to offer only those types, and an .xlsm dragged onto the panel is refused when you press Convert to PDF, before anything uploads. Save a copy as .xlsx and convert that.`,
+      a: `Formulas are not carried into the PDF as formulas; each cell is printed as the result it shows. This tool takes only ${formatsAnd}, so a macro-enabled .xlsm is not accepted: the file picker is set to offer only those types, and an .xlsm dragged onto the panel is refused as soon as you drop it, before it is read or uploaded. Save a copy as .xlsx and convert that.`,
     },
     {
       q: "Can it convert a password-protected workbook?",
@@ -152,7 +174,7 @@ const content: ToolContent = {
     },
     {
       q: "How large can the file be, and what if it fails?",
-      a: `${sizeRefusal} If LibreOffice errors, or runs past its time limit (${TIMEOUT_DEFAULT_SECONDS} seconds by default), the worker retries a limited number of times and returns no file if all attempts fail. If the page stops waiting, it says so, and Convert to PDF starts a fresh job.`,
+      a: `${sizeRefusal} If LibreOffice cannot open the workbook, or the conversion runs past its time limit (${TIMEOUT_DEFAULT_SECONDS} seconds by default), the job fails once with a message saying why and returns no file. The same file would fail the same way, so it is not retried; only a temporary fault on the worker itself is retried automatically. If the page stops waiting before the job ends, it says the job may still be running and offers Keep waiting, which goes back to that same job rather than starting a new one.`,
     },
     {
       q: "Is my spreadsheet stored?",
