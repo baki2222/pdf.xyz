@@ -159,9 +159,8 @@ const KNOWN_STALE: ReadonlySet<string> = new Set([
   // request… while it works", "reads Repairing on the worker… until the
   // repaired copy has been fetched". pdf-to-word ("shows Exporting DOCX…
   // while the job runs" beside "Your file goes up") left on 2026-10-07 when
-  // its step named all four labels.
+  // its step named all four labels; repair-pdf the same day.
   "request-signatures",
-  "repair-pdf",
 ]);
 
 describe("a page that names a busy label names the stages around it", () => {

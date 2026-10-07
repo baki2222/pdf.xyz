@@ -13,8 +13,11 @@ import { DEFAULT_SOUNDNESS_POLICY } from "@/lib/workers/soundness/policy";
  *  - panel: src/components/tools/pdf-structure-worker-panel.tsx — one PDF via a
  *    compact drop zone that reads "Add a PDF, or browse" (runner-kit Dropzone
  *    appends "browse"; only files[0] is kept), a "Repair on the worker" button
- *    ("Repairing on the worker…" while busy), then "Your repaired PDF is
- *    ready." and a "Download <name>" button. No options, no password field.
+ *    whose busy label is jobBusyLabel(job.phase, "Repairing on the worker…")
+ *    — "Uploading your file…", "Waiting for the worker…", the working label,
+ *    "Downloading the result…" — then "Your repaired PDF is ready." and a
+ *    "Download <name>" button. No options, no password field. (Until
+ *    2026-10-07 the step said the button read the working label throughout.)
  *    When no worker is ready, no uploader is shown at all.
  *  - busy state: the button stays busy until runSecurityJob RETURNS, which is
  *    after the output bytes are fetched, on a failed job, or when the poller
@@ -24,14 +27,21 @@ import { DEFAULT_SOUNDNESS_POLICY } from "@/lib/workers/soundness/policy";
  *  - download: pdf-security-client.ts runSecurityJob fetches the output bytes
  *    into the page BEFORE the result card appears; the Download button saves
  *    those bytes (downloadBytes), it does not follow the stored link.
- *  - failures and retries: every qpdf failure in native.ts (exit code other
- *    than 0 or 3, timeout, empty/oversized output, output failing
- *    `looksLikePdf`) throws, engine.ts turns it into `failed`, and
- *    processor/pdf-structure.ts maps that to a RETRYABLE internal_error. The
- *    executor requeues retryable errors until maxAttempts (no number stated:
- *    the executor default and the daemon's configured value differ), so a
- *    failing repair is retried before the job fails. A headerless input is
- *    non-retryable (`invalid_pdf`, or the soundness gate's `malformed_pdf`).
+ *  - failures and retries: qpdf's exit 2 — qpdf refusing the DOCUMENT — is
+ *    probed once with `--requires-password` while the file is on disk and
+ *    thrown as a QpdfRefusedError ("password_protected" | "unrecoverable");
+ *    engine.ts turns it into `password_protected` / `unreadable` with
+ *    REFUSAL_MESSAGES.repair, and processor/pdf-structure.ts makes both
+ *    NON-retryable, so the job ends at once with that sentence (the panel
+ *    links Unlock PDF for the first). Every other qpdf failure (timeout, an
+ *    exit other than 0/2/3, a spawn or IO error, empty/oversized output,
+ *    output failing `looksLikePdf`) is `failed`, a RETRYABLE internal_error.
+ *    The executor requeues retryable errors until maxAttempts (no number
+ *    stated: the executor default and the daemon's configured value differ).
+ *    A headerless input is non-retryable (`invalid_pdf`, or the soundness
+ *    gate's `malformed_pdf`). Until 2026-10-07 this bullet and the page said
+ *    every qpdf error exit was retried, which was true before exit 2 was
+ *    typed (pdf-structure.refusal.test.ts tells that history).
  *  - warnings: src/components/tools/repair-warnings.tsx renders from
  *    job.results.repair. native.ts treats qpdf exit 3 as success and keeps
  *    its stderr through sanitizeNativeDiagnostics (repeats collapsed, at most
@@ -98,7 +108,7 @@ const content: ToolContent = {
 
   intro: [
     `Repair PDF passes a file that refuses to open, or opens with an error, through qpdf's parser and writer and hands back the rewritten copy. A "corrupted" PDF can still hold its pages while having lost the map to them: the cross-reference table that records where each object sits is damaged, or the file is cut off before its trailer. qpdf's documented behaviour when that table is broken is to rebuild it by scanning the file for the objects that remain.`,
-    `The only structural check before qpdf runs is for a PDF header near the start of the file, so qpdf will still try a download that stopped partway and lost its end-of-file marker. qpdf has to finish without an error inside the worker's time limit, and what it writes has to carry both a header and an end-of-file marker. A run that misses any of those is retried, and if it keeps failing the job fails with no file. When qpdf recovers the document with warnings, they are shown next to the result.`,
+    `The only structural check before qpdf runs is for a PDF header near the start of the file, so qpdf will still try a download that stopped partway and lost its end-of-file marker. If qpdf refuses the file outright, the job ends at once without a retry and says why: the PDF is password-protected and needs Unlock PDF first, or it could not be rebuilt into a PDF. If qpdf does not finish inside the worker's time limit, or what it writes lacks a PDF header or an end-of-file marker, the run is retried, and if it keeps failing the job fails with no file. When qpdf recovers the document with warnings, they are shown next to the result.`,
     `This runs on a server. Your PDF, up to ${CEILING_MB} MB, is uploaded over TLS to pdf.xyz's secure worker, and the uploaded copy is deleted once the job is over. The repaired file's download link expires after ${LINK_MINUTES} minutes; the stored bytes linger until the next pass of a once-a-day storage rule wipes them.`,
   ],
 
@@ -128,7 +138,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Repair on the worker",
-      body: "The file uploads and qpdf rewrites it. The button reads Repairing on the worker… until the repaired copy has been fetched into the page, the job fails, or the page stops waiting and says the job may still finish.",
+      body: "The file uploads and qpdf rewrites it. The button shows where the job is: Uploading your file…, then Waiting for the worker… while it is queued, Repairing on the worker… while qpdf runs, and Downloading the result… as the repaired copy is fetched into the page. It stays busy until that copy is in the page, the job fails, or the page stops waiting and says the job may still finish.",
     },
     {
       title: "Read the warnings, if any",
@@ -143,7 +153,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can every corrupted PDF be repaired?",
-      a: "No. qpdf can reconstruct a damaged or missing cross-reference table when the objects are still in the file, but it cannot bring back bytes that are not there. If qpdf exits with an error, runs past the worker's time limit, or writes something without a PDF header and end-of-file marker, the worker tries again and then fails the job with no file produced.",
+      a: "No. qpdf can reconstruct a damaged or missing cross-reference table when the objects are still in the file, but it cannot bring back bytes that are not there. If qpdf refuses the file, the job stops straight away without a retry, saying either that the file could not be rebuilt into a PDF or that it is password-protected and needs Unlock PDF first. A run that goes past the worker's time limit, or writes something without a PDF header and end-of-file marker, is tried again and then fails the job with no file produced.",
     },
     {
       q: "Why was my file refused before the repair started?",

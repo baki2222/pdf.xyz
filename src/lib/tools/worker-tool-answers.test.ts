@@ -90,6 +90,13 @@ import { runSignatureRequest } from "@/lib/workers/request-signatures/engine";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
 import { ghostscriptPdfAArgs } from "@/lib/workers/pdf-archive/native";
 import { runRepair } from "@/lib/workers/pdf-structure/engine";
+import {
+  nativePdfStructureDeps,
+  type QpdfStructureExec,
+  type QpdfStructureExecResult,
+  type QpdfStructureFs,
+} from "@/lib/workers/pdf-structure/native";
+import { createPdfStructureProcessor } from "@/lib/workers/processor/pdf-structure";
 import { PRINT_TO_PDF_OPTIONS } from "@/lib/workers/html-render/native";
 import {
   HTML_RENDER_TOOLS,
@@ -1384,6 +1391,114 @@ describe("Repair PDF takes what its page says, and returns no rubble", () => {
     });
     expect(rubble.ok).toBe(false);
     expect(answer("repair-pdf", /damaged files/i)).toBe(REPAIR_TAKES);
+  });
+});
+
+/**
+ * WHAT SHIPPED until 2026-10-07: Repair PDF's intro and first FAQ said a qpdf
+ * error exit is retried before the job fails. Since exit 2 became a typed
+ * QpdfRefusedError (pdf-structure.refusal.test.ts), qpdf refusing the
+ * DOCUMENT is final at once and named; only a timeout, another exit, or
+ * unusable output is retried. The pages read are every tool the
+ * pdf-structure processor owns — discovered from the processor, not typed —
+ * plus every guide that teaches one of them; the claim is refuted by running
+ * the real native runner (exec and fs stubbed as execFile answers), engine and
+ * processor.
+ */
+describe("no qpdf page says a refused document is retried", () => {
+  const SHIPPED = [
+    "qpdf has to finish without an error inside the worker's time limit, and what it writes has to carry both a header and an end-of-file marker. A run that misses any of those is retried, and if it keeps failing the job fails with no file.",
+    "If qpdf exits with an error, runs past the worker's time limit, or writes something without a PDF header and end-of-file marker, the worker tries again and then fails the job with no file produced.",
+  ];
+  const clauses = (text: string) => text.split(/(?<=[.;:!?])\s+/);
+  /** qpdf's error exit named as something a run can miss and be retried for. */
+  const CLAIM =
+    /\bexits? with an error\b|\b(?:finish|finishes|run|runs) without an error\b/i;
+  const caught = (text: string) => clauses(text).some((c) => CLAIM.test(c));
+
+  const pdfBytes = () =>
+    new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(40)}\n%%EOF\n`);
+  /** qpdf as execFile reports it: `main` for the rewrite, `probe` for the probe. */
+  const qpdf = (
+    main: QpdfStructureExecResult,
+    probe?: QpdfStructureExecResult,
+  ) => {
+    const exec: QpdfStructureExec = async (_command, args) =>
+      args[0] === "--requires-password" ? probe! : main;
+    const fs: QpdfStructureFs = {
+      mkdtemp: async (prefix) => `${prefix}dir`,
+      writeFile: async () => {},
+      readFile: async () => pdfBytes(),
+      rm: async () => {},
+    };
+    return nativePdfStructureDeps({}, { resolveOnPath: () => true, exec, fs });
+  };
+  const TOOLS = [
+    ...createPdfStructureProcessor(qpdf({ code: 0, timedOut: false })).tools,
+  ];
+  const run = (tool: string, deps: ReturnType<typeof qpdf>) =>
+    createPdfStructureProcessor(deps).process({
+      tool,
+      options: {},
+      inputs: [
+        {
+          fileId: "f_1234567890",
+          filename: "statement.pdf",
+          contentType: "application/pdf",
+          bytes: pdfBytes(),
+        },
+      ],
+    });
+
+  it("the corpus and the pattern cover each other", () => {
+    for (const s of SHIPPED) expect(caught(s), s).toBe(true);
+    // What the page says now does not trip it.
+    expect(
+      caught(
+        "If qpdf refuses the file outright, the job ends at once without a retry and says why. If qpdf does not finish inside the worker's time limit, the run is retried.",
+      ),
+    ).toBe(false);
+  });
+
+  it("the processor does not do it: a refusal is final, a timeout is retried", async () => {
+    expect(TOOLS).toContain("repair-pdf");
+    for (const tool of TOOLS) {
+      for (const probe of [0, 2]) {
+        const refused = await run(
+          tool,
+          qpdf({ code: 2, timedOut: false }, { code: probe, timedOut: false }),
+        );
+        expect(refused.ok, `${tool} probe ${probe}`).toBe(false);
+        if (refused.ok) return;
+        expect(refused.error.retryable, `${tool} probe ${probe}`).toBe(false);
+      }
+      // POSITIVE CONTROL: what the page still says is retried, is.
+      const slow = await run(tool, qpdf({ code: -1, timedOut: true }));
+      expect(slow.ok === false && slow.error.retryable, tool).toBe(true);
+    }
+  });
+
+  it("no page or guide for those tools says it", () => {
+    const all: { where: string; text: string }[] = [];
+    for (const slug of TOOLS) {
+      all.push({ where: `${slug} (served)`, text: page(slug).text });
+      for (const e of page(slug).faq)
+        all.push({ where: `${slug} FAQ`, text: `${e.question} ${e.answer}` });
+      for (const step of page(slug).howTo)
+        all.push({ where: `${slug} step`, text: step });
+    }
+    for (const guide of guides) {
+      if (!guide.tools.some((t) => TOOLS.includes(t))) continue;
+      for (const text of guideStrings(guide))
+        all.push({ where: `guide ${guide.slug}`, text });
+    }
+    expect(all.length).toBeGreaterThan(15);
+    expect(page("repair-pdf").text).toContain("without a retry");
+    const offenders = all.filter(({ text }) => caught(text));
+    expect(
+      offenders.map((o) => o.where),
+      offenders.map((o) => o.text).join("\n"),
+    ).toEqual([]);
   });
 });
 
