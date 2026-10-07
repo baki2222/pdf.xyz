@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { MAX_SOURCE_MB } from "@/lib/tools/limits";
 import {
   FONT_PACKS,
+  monospaceClaimSentence,
   SUPPORTED_SCRIPTS,
   UNSUPPORTED_SCRIPTS,
 } from "@/lib/pdf/font-packs";
@@ -16,8 +17,14 @@ import {
  *    length when Create PDF is pressed. The copy names both checks rather than
  *    claiming "UTF-8 bytes" for a gate that reads raw file bytes.
  *  - The scripts named are SUPPORTED_SCRIPTS, the list `embedDrawingFont`
- *    quotes in its own refusal, and the face count and labels are FONT_PACKS,
- *    so adding or dropping a font pack updates this page.
+ *    quotes in its own refusal, and the Noto face count and labels are the
+ *    FONT_PACKS whose role is "script", so adding or dropping a font pack
+ *    updates this page. The "monospace" pack is Geist Mono, not Noto, and its
+ *    label is a typeface style, not a script: counting it among the "Noto
+ *    faces" printed "6 bundled Noto faces (Bengali; monospace; …)" until
+ *    2026-10-07.
+ *  - What the body's monospace face draws is `monospaceClaimSentence()`,
+ *    built from MONOSPACE_CLAIMS, the same sentence the runner's tile shows.
  *  - The right-to-left scripts are the UNSUPPORTED_SCRIPTS rows whose stated
  *    reason is right-to-left layout, and the emoji sentence exists only while
  *    an "emoji" row does, so the day either capability lands and its rows go,
@@ -43,11 +50,15 @@ import {
  *    English + Bengali and Polish + Bengali both convert (Bengali face);
  *  - Arabic, Hebrew, Thai and an emoji are each refused with the characters
  *    shown and the UNSUPPORTED_SCRIPTS reason;
- *  - bytes of a Windows-1252 file decoded by `Blob.text()` become U+FFFD,
- *    which the Latin Noto pack covers, so the PDF is produced with replacement
- *    marks and no warning; a UTF-16LE file with BOM likewise converts, garbled.
- *    The "mono" face collapses to proportional Noto Sans on that path, which
- *    is why column alignment is only promised for Courier.
+ *  - SUPERSEDED, history kept: "bytes of a Windows-1252 file decoded by
+ *    `Blob.text()` become U+FFFD … no warning; a UTF-16LE file with BOM
+ *    likewise converts, garbled", and "the mono face collapses to proportional
+ *    Noto Sans". The runner now reads a file through `decodeTextFile` (a
+ *    byte-order mark, then a UTF-16 NUL sniff, then strict UTF-8, then
+ *    Windows-1252, with a note under the box when the encoding was assumed),
+ *    and the body asks for "mono", which puts the Geist Mono pack first
+ *    whenever it can draw the text (Polish, Cyrillic, box drawing). Only text
+ *    it cannot draw (Greek, CJK, Bengali, ⇒) reaches a proportional Noto face.
  *
  * Deliberately NOT mentioned: the result panel's "Start over" link. Its
  * `onReset` clears the source text but never calls `useAsyncRun().reset()`, so
@@ -66,7 +77,9 @@ function listOf(items: readonly string[]): string {
 
 const scripts = listOf(SUPPORTED_SCRIPTS);
 
-const faceLabels = FONT_PACKS.map((pack) => pack.label).join("; ");
+const scriptPacks = FONT_PACKS.filter((pack) => pack.role === "script");
+
+const faceLabels = scriptPacks.map((pack) => pack.label).join("; ");
 
 const rtlScripts = UNSUPPORTED_SCRIPTS.filter((entry) =>
   /right to left/i.test(entry.reason),
@@ -92,8 +105,8 @@ const content: ToolContent = {
 
   intro: [
     `Paste text into the box or drop in a .txt file, press Create PDF, and you get a US Letter document with a page-of-total counter in the footer and a small heading on every page: the loaded file's name minus the extension, or "text" for pasted text. Long lines wrap at spaces, a word too long for one line is broken, tabs become spaces, Windows and old Mac line endings are normalised, and blank lines and leading indentation are kept.`,
-    `Everything happens inside this browser tab, and your text is not uploaded anywhere. The cap is ${MAX_SOURCE_MB} MB: a file is checked by its size when you load it, and the text is checked again, in UTF-8 bytes, when you convert. Files are always decoded as UTF-8.`,
-    `Western European text is set in Courier, one of the standard fonts PDF readers supply themselves, so no font is downloaded or embedded, and columns aligned with spaces stay aligned as long as each line fits the page width. A character beyond that set, from Polish letters to Cyrillic, and even one in the file name, switches the body text to a Noto typeface fetched from pdf.xyz's own server and embedded with only the characters you used. That face is not fixed-width, so space-aligned columns stop lining up.`,
+    `Everything happens inside this browser tab, and your text is not uploaded anywhere. The cap is ${MAX_SOURCE_MB} MB: a file is checked by its size when you load it, and the text is checked again, in UTF-8 bytes, when you convert. A file that starts with a byte-order mark is read in the UTF-8 or UTF-16 encoding it declares; otherwise its bytes are inspected and it is read as UTF-16, UTF-8 or Windows-1252 (ANSI), and a note under the box names the encoding whenever it had to be assumed.`,
+    `Western European text is set in Courier, one of the standard fonts PDF readers supply themselves, so no font is downloaded or embedded. ${monospaceClaimSentence()} Where Courier cannot draw a character but that face can, as with Polish or Russian letters (even one in the file name), the monospace face (Geist Mono) is fetched from pdf.xyz's own server and embedded with only the characters you used, so columns aligned with spaces stay aligned as long as each line fits the page width. Any other character, such as Greek, Chinese or Bengali, in the text or its file name, switches the whole body to a proportional Noto face, and space-aligned columns then stop lining up.`,
   ],
 
   useCases: [
@@ -111,7 +124,7 @@ const content: ToolContent = {
     },
     {
       title: "Typeset text beyond the Western European alphabet",
-      body: `The characters are drawn from one of ${FONT_PACKS.length} bundled Noto faces (${faceLabels}), picked to match the script, and the conversion halts with an explanation naming any character none of them can draw.`,
+      body: `Characters Courier cannot draw are set in the bundled monospace face (Geist Mono) when it can draw every one of them, and otherwise in one of ${scriptPacks.length} bundled Noto faces (${faceLabels}), picked to match the script; the conversion halts with an explanation naming any character none of them can draw.`,
     },
   ],
 
@@ -126,7 +139,7 @@ const content: ToolContent = {
     },
     {
       title: "Convert the text",
-      body: 'Click Create PDF. Its label switches to "Creating PDF…" until the document is ready; when the text or file name needs a Noto face, that font file is fetched first, and it is reused for later conversions until you reload or close the tab.',
+      body: 'Click Create PDF. Its label switches to "Creating PDF…" until the document is ready; when the text or file name needs a bundled font (the Geist Mono monospace face, a Noto face, or both), those font files are fetched first, and they are reused for later conversions until you reload or close the tab.',
     },
     {
       title: "Download the paginated file",
@@ -137,7 +150,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Is my text uploaded to a server?",
-      a: "It is not: this tab assembles the PDF and the text stays on your device. Apart from the page's own code, the only thing it may request from pdf.xyz is a Noto font file, when your text needs a script beyond Western European. That request asks for a face by its file name, so it reveals which kind of face was needed, but none of your words.",
+      a: "It is not: this tab assembles the PDF and the text stays on your device. Apart from the page's own code, the only thing it may request from pdf.xyz is font files, the Geist Mono monospace face, a Noto face, or both, when your text or file name needs characters beyond Western European. Each request asks for a face by its file name, so it reveals which kind of face was needed, but none of your words.",
     },
     {
       q: "How large a text file can I convert?",
@@ -145,7 +158,7 @@ const content: ToolContent = {
     },
     {
       q: "Which languages and scripts come out correctly?",
-      a: `Beyond Western European characters, text in ${scripts} gets a Noto face embedded in the file.${rtlSentence}${emojiSentence} Any other script without a bundled font is refused with the offending characters shown; the converter never swaps a character it cannot draw for a placeholder. One document cannot mix scripts that need different fonts, and the file name counts as part of the document here, so put, say, Chinese and Bengali passages in separate files.`,
+      a: `Beyond Western European characters, text in ${scripts} gets a bundled face embedded in the file: the Geist Mono monospace face where it can draw every character, as for Polish or Russian, and otherwise a Noto face.${rtlSentence}${emojiSentence} Any other script without a bundled font is refused with the offending characters shown; the converter never swaps a character it cannot draw for a placeholder. One document cannot mix scripts that need different fonts, and the file name counts as part of the document here, so put, say, Chinese and Bengali passages in separate files.`,
     },
     {
       q: "Is there a setting for A4, another font or wider margins?",
@@ -153,7 +166,7 @@ const content: ToolContent = {
     },
     {
       q: "My file is .log, .csv or saved in another encoding. What do I do?",
-      a: "A dropped file is accepted when its name ends in .txt or .text or your system labels it plain text, and the browse dialog is filtered to .txt and plain-text files; for anything else, paste the contents into the box or rename the file to .txt. Files are read as UTF-8 with no encoding detection, so an older ANSI (Windows-1252) or Latin-1 text converts without any warning but shows replacement marks (�) where its accented letters were, and UTF-16 text comes out garbled the same way. Re-save it as UTF-8 first.",
+      a: "A dropped file is accepted when its name ends in .txt or .text or your system labels it plain text, and the browse dialog is filtered to .txt and plain-text files; for anything else, paste the contents into the box or rename the file to .txt. Text in UTF-8 or UTF-16, with or without a byte-order mark, and older ANSI (Windows-1252) or Latin-1 text files are read with their accented letters intact, and a note under the box names the encoding when it was assumed rather than declared. Other legacy encodings, such as Cyrillic Windows-1251 or Shift-JIS, are not detected: they are read as Windows-1252 and come out with the wrong letters, so re-save those as UTF-8 first. Any character that still could not be read is counted in a warning under the box, because the PDF would print a replacement mark (�) in its place.",
     },
     {
       q: "Can I turn several text files into one PDF?",
