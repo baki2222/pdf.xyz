@@ -148,8 +148,8 @@ function offenders(): Map<string, string[]> {
  * its page, and a page not listed here may never start.
  */
 const KNOWN_STALE: ReadonlySet<string> = new Set([
-  // Verifier findings at 028d3a10, each queued for its own fix.
-  "html-to-pdf",
+  // Verifier findings at 028d3a10, each queued for its own fix. html-to-pdf
+  // left on 2026-10-07 when its step named all four labels.
   "optimize-web",
   "pdf-to-pdfa",
   "pdf-to-powerpoint",
@@ -218,5 +218,108 @@ describe("a page that names a busy label names the stages around it", () => {
   it("every page in the ratchet still offends (delete its entry when it is fixed)", () => {
     const found = offenders();
     expect([...KNOWN_STALE].filter((slug) => !found.has(slug))).toEqual([]);
+  });
+});
+
+/*
+ * The same panels share one more surface: what a page says happens when the
+ * browser stops polling a job that is still running. Before useWorkerJob the
+ * client ended the run with "Stopped waiting for the worker — the job may
+ * still finish." and the job id; html-to-pdf's FAQ said exactly that at
+ * 028d3a10 ("ends instead with a note that the job may still finish, and the
+ * job's id"). WorkerJobStatus now shows a still-running note with a Keep
+ * waiting button that polls the SAME job, keeps the id as data and never
+ * prints it. So a served field that talks about the page stopping waiting,
+ * the job still finishing or the job's id must name the Keep waiting control
+ * (its label read from WorkerJobStatus) and must not promise the id.
+ */
+const WORKER_JOB_SOURCE = readFileSync(
+  path.join(ROOT, "src/components/tools/worker-job.tsx"),
+  "utf8",
+);
+const KEEP_WAITING =
+  /onClick=\{job\.resume\}[\s\S]*?\/>\s*([^<{]+?)\s*<\/button>/.exec(
+    WORKER_JOB_SOURCE,
+  )?.[1];
+const STOPS_WAITING =
+  /\b(?:stops|stopped) waiting\b|\bmay still (?:finish|be running)\b|\bjob'?s? id\b/i;
+const PRINTS_ID = /\bjob'?s? id\b/i;
+
+function staleStillRunning(field: string): boolean {
+  return (
+    STOPS_WAITING.test(field) &&
+    (!field.includes(KEEP_WAITING ?? "\u0000") || PRINTS_ID.test(field))
+  );
+}
+
+function stillRunningOffenders(): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const tool of tools) {
+    const hit = servedFields(tool).filter(staleStillRunning);
+    if (hit.length > 0) out.set(tool.slug, hit);
+  }
+  return out;
+}
+
+/** Same ratchet rule as KNOWN_STALE: delete an entry with its page's fix. */
+const STILL_RUNNING_STALE: ReadonlySet<string> = new Set([
+  // Found by this guard on landing (2026-10-07). powerpoint-to-pdf: "the
+  // panel then shows the job's id"; repair-pdf: the button reads one label
+  // until "the page stops waiting and says the job may still finish".
+  "powerpoint-to-pdf",
+  "repair-pdf",
+]);
+
+describe("a page that says the browser stops waiting names Keep waiting", () => {
+  it("health check: every worker panel's still-running UI is WorkerJobStatus, which offers Keep waiting and prints no id", () => {
+    expect(KEEP_WAITING).toBe("Keep waiting");
+    const status = WORKER_JOB_SOURCE.slice(
+      WORKER_JOB_SOURCE.indexOf("export function WorkerJobStatus"),
+    );
+    expect(status).toContain("failure.stillRunning");
+    expect(status).not.toMatch(/\{\s*(?:failure|outcome)\.jobId\s*\}/);
+    const usesJob = sourceFiles("src/components").filter(
+      (f) =>
+        !f.endsWith("/worker-job.tsx") &&
+        /\buseWorkerJob\b\s*(?:<[^>]*>)?\s*\(/.test(
+          withoutComments(readFileSync(path.join(ROOT, f), "utf8")),
+        ),
+    );
+    expect(usesJob.length).toBeGreaterThan(10);
+    expect(
+      usesJob.filter(
+        (f) =>
+          !/<WorkerJobStatus\b/.test(
+            withoutComments(readFileSync(path.join(ROOT, f), "utf8")),
+          ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("the predicate catches the shipped still-running sentences, and not the fixed ones", () => {
+    for (const shipped of [
+      "A render still running when the page stops waiting ends instead with a note that the job may still finish, and the job's id.",
+      "Each of those failures is retried automatically before the job is marked failed, so a slow deck can outlast the page's wait, and the panel then shows the job's id instead of a result.",
+    ])
+      expect(staleStillRunning(shipped), shipped).toBe(true);
+    expect(
+      staleStillRunning(
+        "If the page stops waiting while the render is still going, a note says the worker is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job.",
+      ),
+    ).toBe(false);
+  });
+
+  it("no page outside the ratchet serves a stale still-running sentence", () => {
+    const unexpected = [...stillRunningOffenders()]
+      .filter(([slug]) => !STILL_RUNNING_STALE.has(slug))
+      .map(([slug, fields]) => `${slug}: ${fields.join(" | ")}`);
+    expect(unexpected).toEqual([]);
+  });
+
+  it("every page in the still-running ratchet still offends", () => {
+    const found = stillRunningOffenders();
+    expect([...STILL_RUNNING_STALE].filter((slug) => !found.has(slug))).toEqual(
+      [],
+    );
   });
 });

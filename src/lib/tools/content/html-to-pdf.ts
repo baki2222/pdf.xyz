@@ -8,8 +8,13 @@ import { formatBytes } from "@/lib/utils";
  * Every claim below was read off the implementation, not the marketing:
  *  - controls and labels: src/components/tools/html-render-worker-panel.tsx
  *    (Dropzone title "Add an HTML file, or" + its "browse" link, accept
- *    .html/.htm, one file, "Remove", "Render PDF" / "Rendering PDF…" and
- *    disabled until a file is chosen, "Your PDF is ready.", "Download <name>",
+ *    .html/.htm, one file, "Remove", "Render PDF", disabled until a file is
+ *    chosen, whose busy label is jobBusyLabel(job.phase, "Rendering PDF…")
+ *    (worker-job.tsx): "Uploading your file…", "Waiting for the worker…",
+ *    "Rendering PDF…" while the job runs, "Downloading the result…"; a
+ *    Cancel button under it while busy (WorkerJobStatus). Until 2026-10-07
+ *    the step said the button read "Rendering PDF…" for the whole round
+ *    trip, which was the panel before useWorkerJob; "Your PDF is ready.", "Download <name>",
  *    ErrorNote showing the run's message, a "Limit" spec row reading
  *    formatBytes(ceiling)/file); no page size, margin or orientation option
  *    exists on the panel;
@@ -28,8 +33,13 @@ import { formatBytes } from "@/lib/utils";
  *    while attempts remain before the job fails;
  *  - what the VISITOR sees of a slow render: runSecurityJob polls for
  *    DEFAULT_MAX_POLL_ATTEMPTS x DEFAULT_POLL_INTERVAL_MS (~2 min, neither
- *    exported) and then shows "Stopped waiting for the worker — the job may
- *    still finish." with the job id. Chromium's own kill timeout defaults to
+ *    exported) and then returns {stillRunning, jobId}. This bullet said the
+ *    page then showed "Stopped waiting for the worker — the job may still
+ *    finish." with the job id, and the FAQ repeated it; since the panel moved
+ *    onto useWorkerJob, WorkerJobStatus shows "The worker is still on this
+ *    job" with Keep waiting (polls the SAME job, no new upload) and Cancel
+ *    the job, keeps the id as data (sessionStorage, so a reload offers Keep
+ *    waiting) and never prints it. Chromium's own kill timeout defaults to
  *    the same ~2 min (native-config timeoutMs), so a TIMED-OUT render never
  *    reaches the visitor as the Chromium message; the copy says so instead
  *    of promising that message for timeouts (it did, until this review);
@@ -132,7 +142,7 @@ const content: ToolContent = {
     },
     {
       title: "Click Render PDF",
-      body: "It stays disabled until a file is added, then reads “Rendering PDF…” while the file uploads and Chromium prints it.",
+      body: "It stays disabled until a file is added. Once clicked, its label follows the job: “Uploading your file…”, then “Waiting for the worker…” if the queue is busy, “Rendering PDF…” while Chromium prints, and “Downloading the result…”. A Cancel button below it stops the job at any point.",
     },
     {
       title: "Download the PDF",
@@ -163,7 +173,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens if the file is too big or will not render?",
-      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, the worker tries again, and when every attempt fails the note says Chromium could not render the file. A render still running when the page stops waiting ends instead with a note that the job may still finish, and the job's id.`,
+      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, the worker tries again, and when every attempt fails the note says Chromium could not render the file. If the page stops waiting while the render is still going, a note says the worker is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job; a finished PDF stays available for ${LINK_MINUTES} minutes.`,
     },
   ],
 
