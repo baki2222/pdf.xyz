@@ -185,6 +185,36 @@ const MISPLACED_FURNITURE: Record<string, Fixture> = Object.fromEntries(
   }),
 );
 
+/** `n` lines of `size` pt set `lead` apart, numbered from `from`. */
+const bodyCol = (
+  side: "Left" | "Right",
+  x: number,
+  top: number,
+  n: number,
+  { size, lead, from = 1 }: { size: number; lead: number; from?: number },
+): Line[] =>
+  Array.from({ length: n }, (_, i) => ({
+    text: `${side} body line ${from + i}`,
+    x,
+    y: top - i * lead,
+    size,
+  }));
+
+/**
+ * Two columns, each under a 14 pt heading set a line above 10 pt body text,
+ * the right heading drawn after its body. ADDED 2026-10-08, from the second
+ * review of 9681f501, which read it `Left Heading | Right Heading | LB | RB`:
+ * the size rule makes each heading its own block, and the two headings, one
+ * drawn first and one last, are one row of single lines — so the band rule
+ * for a running head in pieces lifted the right heading over the left
+ * column's body. 028d3a10 read it right. With 10 pt headings each heading
+ * joins its body and every version reads it right.
+ */
+const HEADED_LEFT: Line = { text: "Left Heading", x: 72, y: 714, size: 14 };
+const HEADED_LEFT_BODY = bodyCol("Left", 72, 690, 8, { size: 10, lead: 12 });
+const HEADED_RIGHT_BODY = bodyCol("Right", 330, 690, 8, { size: 10, lead: 12 });
+const HEADED_RIGHT: Line = { text: "Right Heading", x: 330, y: 714, size: 14 };
+
 /** Pages whose stream order is WRONG — the defect. */
 const OUT_OF_ORDER: Record<string, Fixture> = {
   ...MISPLACED_FURNITURE,
@@ -221,6 +251,20 @@ const OUT_OF_ORDER: Record<string, Fixture> = {
       { text: "Right Heading", x: 330, y: 700, size: 14 },
     ],
     read: [...texts(LEFT), "Right Heading", ...texts(RIGHT_LOW)],
+  },
+  "two columns under 14 pt headings, the right heading drawn after its body": {
+    draw: [
+      HEADED_LEFT,
+      ...HEADED_LEFT_BODY,
+      ...HEADED_RIGHT_BODY,
+      HEADED_RIGHT,
+    ],
+    read: [
+      HEADED_LEFT.text,
+      ...texts(HEADED_LEFT_BODY),
+      HEADED_RIGHT.text,
+      ...texts(HEADED_RIGHT_BODY),
+    ],
   },
 };
 
@@ -315,6 +359,10 @@ const STAGGERED: Record<string, ColumnPage> = {
  *    the right one starting a line higher. HEAD read `R1 | L1 | R2 | L2 …`.
  *  - A résumé: label (13 pt) over value (9 pt) in two columns, the right one
  *    starting a line higher. HEAD lifted `Right Heading 1` over the left.
+ *  - ADDED 2026-10-08, second review: a left column of one caption beside a
+ *    right column ending on its baseline (LONE_CAPTION, below). 9681f501,
+ *    which narrowed both rules to "one row of single lines", still lifted the
+ *    right column over it: a caption and a footnote are one row too.
  */
 const LAST_PAGE_LEFT_A = wideCol("Left", 72, 700, 20, { lead: 12 });
 const LAST_PAGE_RIGHT = wideCol("Right", 320, 700, 12, { lead: 12 });
@@ -347,6 +395,38 @@ const resumeColumn = (side: "Left" | "Right", x: number, top: number) =>
   ]).flat();
 const RESUME_LEFT = resumeColumn("Left", 72, 700);
 const RESUME_RIGHT = resumeColumn("Right", 320, 713);
+
+/**
+ * A left column holding only a figure's one-line 9 pt caption at its foot,
+ * beside a full right column whose last line sits on the caption's baseline:
+ * an 8 pt footnote set a line under the column, or the column's own last line
+ * after a paragraph gap. ADDED 2026-10-08, from the second review of
+ * 9681f501, which read them `R | caption | footnote` and `R1 | caption | R2`:
+ * the right column is a run in the MIDDLE of the stream, and the caption with
+ * the footnote (or the last line) is one row of single lines — so the band
+ * rule for a footer in pieces lifted the right column over the left. 028d3a10
+ * read both in stream order.
+ */
+const LONE_CAPTION: Line = {
+  text: "Fig. 3. A figure over the left column",
+  x: 72,
+  y: 100,
+  size: 9,
+};
+const CAPTIONED_RIGHT = bodyCol("Right", 330, 700, 40, { size: 12, lead: 15 });
+const CAPTIONED_FOOTNOTE: Line = {
+  text: "1. A footnote at the foot of the right column.",
+  x: 330,
+  y: 100,
+  size: 8,
+};
+const GAPPED_RIGHT = bodyCol("Right", 330, 700, 38, { size: 12, lead: 15 });
+const GAPPED_RIGHT_LAST: Line = {
+  text: "Right body line 39",
+  x: 330,
+  y: 100,
+  size: 12,
+};
 
 const NO_CUT_THERE: Record<string, Fixture> = {
   "last page of a two-column paper: the left column's lower part, under a 13 pt heading, starts below the right column's end":
@@ -382,6 +462,20 @@ const NO_CUT_THERE: Record<string, Fixture> = {
     {
       draw: [...RESUME_LEFT, ...RESUME_RIGHT],
       read: [...texts(RESUME_LEFT), ...texts(RESUME_RIGHT)],
+    },
+  "a left column of one 9 pt caption, beside a right column whose 8 pt footnote sits on the caption's baseline":
+    {
+      draw: [LONE_CAPTION, ...CAPTIONED_RIGHT, CAPTIONED_FOOTNOTE],
+      read: [
+        LONE_CAPTION.text,
+        ...texts(CAPTIONED_RIGHT),
+        CAPTIONED_FOOTNOTE.text,
+      ],
+    },
+  "a left column of one 9 pt caption, beside a right column whose last line, after a paragraph gap, sits on the caption's baseline":
+    {
+      draw: [LONE_CAPTION, ...GAPPED_RIGHT, GAPPED_RIGHT_LAST],
+      read: [LONE_CAPTION.text, ...texts(GAPPED_RIGHT), GAPPED_RIGHT_LAST.text],
     },
 };
 
@@ -629,6 +723,76 @@ describe("fixtures are what they claim (health check)", () => {
     for (const [name, fixture] of Object.entries(IN_ORDER)) {
       const stream = linesOf(await streamOrderText(await pdfOf(fixture)));
       expect(stream, name).toEqual(fixture.read);
+    }
+  });
+
+  it("the column headings and the lone caption have the shapes the band rules mistook for furniture", async () => {
+    // Measured from the PDF: baseline, size, horizontal extent of one line.
+    const measure = async (draw: Line[]) => {
+      const items = await pageItems(await pdfOf({ draw, read: [] }));
+      return (line: Line) => {
+        const hits = items.filter((item) => item.str === line.text);
+        expect(hits, line.text).toHaveLength(1);
+        const [, , , size, x, y] = hits[0]!.transform as number[];
+        return { y: y!, size: size!, left: x!, right: x! + hits[0]!.width };
+      };
+    };
+    const sideBySide = (
+      a: { left: number; right: number },
+      b: { left: number; right: number },
+    ) => !overlap(a, b);
+
+    // Two headings on ONE baseline, each a line or so over its own column,
+    // too large to join it (over a quarter larger), the columns side by side.
+    const headed = await measure(
+      OUT_OF_ORDER[
+        "two columns under 14 pt headings, the right heading drawn after its body"
+      ]!.draw,
+    );
+    const lh = headed(HEADED_LEFT);
+    const rh = headed(HEADED_RIGHT);
+    expect(lh.y).toBe(rh.y);
+    for (const [heading, body] of [
+      [lh, headed(HEADED_LEFT_BODY[0]!)],
+      [rh, headed(HEADED_RIGHT_BODY[0]!)],
+    ] as const) {
+      expect(overlap(heading, body)).toBe(true);
+      // Within the two line heights a paragraph's next line may follow at.
+      expect(heading.y - (body.y + body.size)).toBeLessThanOrEqual(
+        2 * heading.size,
+      );
+      expect(heading.size).toBeGreaterThan(body.size * 1.25);
+    }
+    expect(
+      sideBySide(headed(HEADED_LEFT_BODY[0]!), headed(HEADED_RIGHT_BODY[0]!)),
+    ).toBe(true);
+
+    // The caption on the baseline of what ends the right column, and outside
+    // the right column's width: beside it, not under it.
+    for (const [name, column, last] of [
+      ["footnote", CAPTIONED_RIGHT, CAPTIONED_FOOTNOTE],
+      ["gap", GAPPED_RIGHT, GAPPED_RIGHT_LAST],
+    ] as const) {
+      const at = await measure([LONE_CAPTION, ...column, last]);
+      const caption = at(LONE_CAPTION);
+      const end = at(last);
+      const above = at(column.at(-1)!);
+      expect(caption.y, name).toBe(end.y);
+      for (const line of column) {
+        expect(sideBySide(caption, at(line)), `${name}: ${line.text}`).toBe(
+          true,
+        );
+      }
+      const gap = above.y - (end.y + end.size);
+      if (name === "footnote") {
+        // A line under the column, but too small to join it.
+        expect(gap).toBeLessThanOrEqual(2 * above.size);
+        expect(above.size).toBeGreaterThan(end.size * 1.25);
+      } else {
+        // The column's own size, after more than a paragraph gap.
+        expect(end.size).toBe(above.size);
+        expect(gap).toBeGreaterThan(2 * above.size);
+      }
     }
   });
 

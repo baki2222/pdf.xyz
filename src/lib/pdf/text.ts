@@ -334,6 +334,18 @@ interface Block {
  *     résumé of one-line blocks in two columns, the right a line higher,
  *     read `R1 | L1 | R2 …`. The base it replaced read all of them in stream
  *     order; `text-reading-order.test.ts` (NO_CUT_THERE) pins each.
+ *     CHANGED 2026-10-08 again, second review (history kept): one row of
+ *     single lines is a column heading row and a caption beside a column's
+ *     last line too, and 9681f501 still lifted both: two 14 pt column
+ *     headings, the right drawn after its body, read `Left Heading |
+ *     Right Heading | LB | RB`; a left column of one caption on the baseline
+ *     of the right column's footnote (or its last line, after a gap) read
+ *     `R | caption | footnote`. So the split is refused when a piece drawn
+ *     last heads a COLUMN (`headsAColumn`: it sits within a paragraph gap
+ *     over a block another block runs beside), and the middle run is lifted
+ *     only over pieces drawn before it that lie within its width — the ones
+ *     step 3 would otherwise jump. The base read both right; OUT_OF_ORDER and
+ *     NO_CUT_THERE pin them.
  *  3. Within a band ({@link columnOrder}), blocks keep stream order, except
  *     that a block moves in front of the first earlier block it overlaps
  *     horizontally AND lies wholly above — a title or heading drawn after
@@ -371,7 +383,7 @@ function readingOrder(lines: ItemLine[]): number[][] | null {
       current !== null &&
       last !== null &&
       box.bottom <= last.bottom + unit * 0.5 &&
-      last.bottom - box.top <= unit * 2 &&
+      withinParagraphGap(last, box) &&
       Math.max(box.size, last.size) <= Math.min(box.size, last.size) * 1.25 &&
       overlapsX(box, current.box);
     if (continues && current) {
@@ -392,6 +404,13 @@ function readingOrder(lines: ItemLine[]): number[][] | null {
   const moved = ordered.some((block, i) => block !== blocks[i]);
   return moved ? ordered.map((block) => block.lines) : null;
 }
+
+/**
+ * Whether `lower` starts no more than two line heights under `upper` — the
+ * gap a block's next line may follow at. Over it is a new paragraph.
+ */
+const withinParagraphGap = (upper: Box, lower: Box) =>
+  upper.bottom - lower.top <= Math.max(upper.size, lower.size) * 2;
 
 /** Whether `upper` lies wholly above `lower`, within a quarter line. */
 const liesAbove = (upper: Box, lower: Box) =>
@@ -440,13 +459,36 @@ const isOneRow = (boxes: Box[]) =>
     Math.min(...boxes.map((box) => box.top));
 
 /**
+ * Whether `piece` heads a COLUMN among `blocks`: it sits over one of them,
+ * which starts no further under it than a paragraph's next line may, and some
+ * other block runs beside that one (overlapping it vertically, not
+ * horizontally). Added 2026-10-08 for a column heading drawn after its body,
+ * which is one row with its neighbour's heading — as a running head in pieces
+ * is — but belongs to its own column.
+ */
+const headsAColumn = (piece: Block, blocks: Block[]) =>
+  blocks.some(
+    (headed) =>
+      overlapsX(piece.box, headed.box) &&
+      withinParagraphGap(piece.box, headed.box) &&
+      blocks.some(
+        (beside) =>
+          beside !== headed &&
+          overlapsY(beside.box, headed.box) &&
+          !overlapsX(beside.box, headed.box),
+      ),
+  );
+
+/**
  * Split `blocks` (in stream order) at the highest horizontal cut that no block
  * crosses and that the stream vouches for — the upper side drawn as one
  * unbroken run at the start or the end of the stream; or, for page furniture
  * in pieces on one baseline, a split upper side that IS one row of single
- * lines (a running head) or a middle run over a lower side that is (a
- * footer) — then order each side the same way; with no such cut, fall back to
- * {@link columnOrder}. See {@link readingOrder}, step 2.
+ * lines none of whose last-drawn pieces heads a column (a running head), or a
+ * middle run over a lower side that is one row, every piece drawn before the
+ * run lying within its width (a footer) — then order each side the same way;
+ * with no such cut, fall back to {@link columnOrder}. See
+ * {@link readingOrder}, step 2.
  */
 function bandOrder(blocks: Block[]): Block[] {
   if (blocks.length < 2) return blocks;
@@ -475,16 +517,49 @@ function bandOrder(blocks: Block[]): Block[] {
     // two-column paper puts the left column's upper part first and the right
     // column last, over the left column's lower part (a section heading, a
     // paragraph gap), and lifting them spliced the right column into the left.
+    //
+    // CHANGED 2026-10-08, second review (history kept): one row was not
+    // enough. Two column headings, the right one drawn after its body, are
+    // one row too, and the lift put the right heading over the LEFT column's
+    // body. So no piece the lift MOVES — one drawn last — may head a column:
+    // sit within a paragraph gap over a block that another block runs beside.
+    // That piece is the column's heading, and columnOrder lifts it over its
+    // own column alone. A running head sits in the margin, clear of the
+    // columns; one just over a block with nothing beside it (a title, or a
+    // header drawn last under it) still moves.
+    const lower = blocks.filter((b) => !above.has(b));
+    const firstBelow = blocks.findIndex((b) => !above.has(b));
     const headInPieces =
-      where === "split" && isOneRow(upper.map((entry) => entry.block.box));
+      where === "split" &&
+      isOneRow(upper.map((entry) => entry.block.box)) &&
+      !upper.some(
+        (entry) => entry.at > firstBelow && headsAColumn(entry.block, lower),
+      );
     // A run in the MIDDLE is a later column's top section when an earlier
     // column beside it starts lower, and lifting it puts the later column in
     // front of the earlier one — so it is trusted only over a lower side that
     // is ONE row of single lines: a footer in pieces, drawn first and last.
     // Two columns of single lines (a form, a résumé) are many rows.
+    //
+    // CHANGED 2026-10-08, second review (history kept): and only when every
+    // piece the lift moves the run in front of — each one drawn BEFORE it —
+    // lies under the run's width. That is the piece columnOrder would
+    // otherwise jump one column at a time, putting `Company Confidential`
+    // between the columns. A piece OUTSIDE the run's width is an earlier
+    // column's (a figure's caption alone in the left column, on the right
+    // column's last baseline) and reads before it, where stream order put it;
+    // lifting the run read `R | caption | footnote`.
+    const runStart = Math.min(...upper.map((entry) => entry.at));
+    const runWidth = upper.reduce<Box>(
+      (box, entry) => union(box, entry.block.box),
+      emptyBox(),
+    );
     const footInPieces =
       where === "middle" &&
-      isOneRow(blocks.filter((b) => !above.has(b)).map((b) => b.box));
+      isOneRow(lower.map((b) => b.box)) &&
+      blocks
+        .slice(0, runStart)
+        .every((piece) => overlapsX(piece.box, runWidth));
     if (atAnEnd || headInPieces || footInPieces) {
       return [
         ...bandOrder(blocks.filter((b) => above.has(b))),
