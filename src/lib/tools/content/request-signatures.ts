@@ -15,12 +15,20 @@ import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
  *    or browse" with a "Remove" link; the "Signers" list with "Full name" /
  *    email inputs, "Add signer" (capped at MAX_REQUEST_SIGNERS) and a trash
  *    button per row; "Signing order" select ("Sequential — one at a time" /
- *    "Parallel — everyone at once"); a "Signature page" number input starting
- *    at 1 with no upper bound; "Request title (optional)"; the checkbox "Add a
- *    date field next to each signature" (ticked by default); the "Prepare
- *    signature request" button ("Preparing request…" while busy, disabled
- *    until a file and at least one usable signer row exist); then
- *    "Download <filename>".
+ *    "Parallel — everyone at once"); a "Signature page" number input — once
+ *    the picked PDF has been read in the browser (readPdfFrames, nothing
+ *    uploaded; "Reading…" beside the file name meanwhile) it is labelled
+ *    "Signature page (of N)", clamped to 1..N by clampSignaturePage and set
+ *    to the LAST page; "Request title (optional)"; the checkbox "Add a date
+ *    field next to each signature" (ticked by default); with a complete
+ *    signer row and an unlocked read PDF, SignaturePagePreview draws the
+ *    page in its displayed orientation with each planned field on it; the
+ *    "Prepare signature request" button, disabled unless canRun (a file, a
+ *    usable signer row, not reading, not encrypted), whose busy label is
+ *    jobBusyLabel(job.phase, "Preparing request…") — the upload, queued and
+ *    download stages have their own labels; then "Download <filename>".
+ *    (Until 2026-10-07 this said the page input had no upper bound and the
+ *    button read "Preparing request…" throughout.)
  *  - download: runSecurityJob (src/lib/workers/pdf-security-client.ts) fetches
  *    the artifact bytes BEFORE the result card renders; the Download button
  *    calls downloadBytes on bytes already in the page. No link is shown, so the
@@ -32,7 +40,10 @@ import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
  *    (signer 1 lowest), row height min(11%, 60% / signers) — constant for a
  *    short list, shrinking once the list is long; the optional date box sits at
  *    x 56%. There is no drag or manual placement. native.ts resolves fractions
- *    against page.getSize() and ignores /Rotate and the CropBox.
+ *    against the page's VISIBLE frame (visiblePageFrame: the CropBox turned by
+ *    /Rotate) and maps each box back through placeVisibleRect, turned to read
+ *    upright (native.integration.test.ts reads it through pdfjs). Until
+ *    2026-10-07 this bullet said it ignored /Rotate and the CropBox.
  *  - engine: src/lib/workers/request-signatures/{engine,native}.ts — every box
  *    is a plain AcroForm TEXT field named Signer<N>-Signature-<k> /
  *    Signer<N>-Date-<k>; existing pages and fields are kept. A field on a page
@@ -122,7 +133,7 @@ const content: ToolContent = {
     },
     {
       title: "Prepare and download",
-      body: 'Press Prepare signature request, which stays disabled until a PDF and one complete signer row exist and reads "Preparing request…" while it works. The Download button for the file ending in -signature-request.zip then saves a copy the page already holds; there is no link to come back to, so keep the tab open until the ZIP is saved.',
+      body: 'Press Prepare signature request. It stays disabled until a PDF and one complete signer row exist, while the PDF is still being read ("Reading…" beside its name), and for an encrypted PDF. Once pressed, its label follows the job: "Uploading your file…", then "Waiting for the worker…" while it is queued, "Preparing request…" while the worker adds the fields, and "Downloading the result…" as the package comes back. The Download button for the file ending in -signature-request.zip then saves a copy the page already holds; there is no link to come back to, so keep the tab open until the ZIP is saved.',
     },
   ],
 
@@ -141,7 +152,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I drag the boxes somewhere else?",
-      a: "No. They are placed automatically near the left edge, just above the bottom of the chosen page, signer 1 lowest. The block climbs higher with each extra signer, positions ignore any rotation or crop the page carries, and the boxes sit on top of whatever is printed there, so pick an upright page with blank space at the foot.",
+      a: "No. They are placed automatically near the left edge, just above the bottom of the chosen page as it is displayed, so any rotation or crop the page carries is taken into account. Signer 1 is lowest, and the block climbs higher with each extra signer. Once a signer row is complete, the panel previews that page with each signer's boxes drawn where they will land. The boxes are outlines laid over whatever is printed there, so pick a page with blank space at the foot.",
     },
     {
       q: "What does Sequential change?",
@@ -149,7 +160,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my request refused?",
-      a: `A Signature page past the last page stops the job, and the error names both your page and the PDF's page count. An encrypted PDF is stopped as soon as you add it, before anything is uploaded, with a message that says which lock it has: one that needs a password to open is called password-protected, and one that opens without a password but carries its author's editing restrictions is told so, since fields cannot be added to either. A damaged PDF is refused by the worker as a file that couldn't be read as a PDF. Bytes without a PDF header never reach this step; a basic soundness check rejects them first. For a locked file, remove the lock with Unlock PDF (a separate upload to the same worker), using the password that opens it or, for a restricted file, its owner (permissions) password, and prepare the unlocked copy.`,
+      a: `Once your PDF has been read, the Signature page box shows its page count, accepts only pages the PDF has and starts on the last one; if a page past the end still reaches the worker, the error names both your page and the PDF's page count. An encrypted PDF is stopped as soon as you add it, before anything is uploaded, with a message that says which lock it has, or, when the check cannot tell, asks for whichever password applies: one that needs a password to open is called password-protected, and one that opens without a password but carries its author's editing restrictions is told so, since fields cannot be added to either, and Prepare signature request stays disabled. A damaged PDF is refused by the worker as a file that couldn't be read as a PDF. Bytes without a PDF header never reach this step; a basic soundness check rejects them first. For a locked file, remove the lock with Unlock PDF (a separate upload to the same worker), using the password that opens it or, for a restricted file, its owner (permissions) password, and prepare the unlocked copy.`,
     },
   ],
 

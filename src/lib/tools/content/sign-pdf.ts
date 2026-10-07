@@ -37,11 +37,23 @@ import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
  *    getPageRotations (use-single-pdf) with "Unlock it first".
  *  - Unlock PDF requires a password (unlock-pdf content: "The field cannot be
  *    left empty"), so a permissions-only file needs its owner password.
- *  - drawn signatures: signature-pad exports the WHOLE canvas uncropped, so Size
- *    measures the pad, blank space included.
- *  - placement ignores /Rotate: placeSignatureBox works in the unrotated
- *    media box (unlike stamp.ts placeStamp), so a rotated page moves the
- *    corner and turns the text.
+ *  - drawn signatures: signature-pad.tsx crops each drawing to its ink after
+ *    every stroke (signatureFromPixels, removeBackground false), so Size
+ *    measures the signature, not the pad.
+ *  - uploads: decodeImageFile -> signatureFromPixels -> prepareSignatureBitmap
+ *    (signature-image.ts) crops to the ink and, for an opaque source (every
+ *    JPEG, an opaque PNG), keys out the paper unless "Remove paper
+ *    background" is unticked — the checkbox shows only for such a file and
+ *    starts ticked (removeBackground = true in both the runner and the
+ *    function). A keyed result is embedded as a PNG with alpha. No ink found
+ *    gives "We couldn't find a signature in that image…" instead.
+ *  - placement: signPdf anchors the box in viewerFrame (the visible CropBox
+ *    turned by /Rotate), maps it through viewToContent and draws it
+ *    counter-rotated, so it lands in the chosen corner and reads upright
+ *    (signature-placement.test.ts reads it through pdfjs).
+ *    Until 2026-10-07 these bullets said the pad exported the whole canvas
+ *    and placement ignored /Rotate, both true before those fixes; the FAQ
+ *    and the upload use case repeated them.
  *  - typed size: fontSizeForWidth clamps the letter size, so a short name
  *    can come out narrower than the Size value.
  *  - fonts: embedDrawingFont uses Times-Italic / Helvetica for WinAnsi text
@@ -94,7 +106,7 @@ const content: ToolContent = {
     },
     {
       title: "Reusing the signature you keep on file",
-      body: "Under Upload, choose a PNG of your scanned signature with a transparent background, and the page shows through around the ink instead of a rectangle of paper.",
+      body: "Under Upload, choose the PNG or JPEG scan or photo of the signature you already use. It is cropped to the ink and, with Remove paper background left ticked, the paper around it is made transparent, so the page shows through around your signature instead of a rectangle of paper; a PNG that already has a transparent background goes on as it is.",
     },
     {
       title: "A form that also needs your signature",
@@ -132,15 +144,15 @@ const content: ToolContent = {
     },
     {
       q: "Can I drag the signature to an exact spot?",
-      a: `No. It snaps to one of ${anchorCount} anchor points, Margin pushes it in from the edges, and Size sets its width with the height in proportion; a short typed name stops growing at the largest letter size the tool draws, and a drawn signature is sized as the whole pad, blank space included, so the ink itself comes out narrower. Lines near an edge or corner are easy to reach, one mid-page may not be. Placement also ignores a page's rotation flag, so on a page displayed turned the signature can land in another corner and run sideways or upside down.`,
+      a: `No. It snaps to one of ${anchorCount} anchor points, Margin pushes it in from the edges, and Size sets its width with the height in proportion. A drawn or uploaded signature is cropped to its ink first, so Size measures the signature rather than the blank space around it, and a short typed name stops growing at the largest letter size the tool draws. Lines near an edge or corner are easy to reach, one mid-page may not be. Positions are measured on the page as a viewer displays it, so on a rotated or cropped page the signature still lands in the corner you picked and reads upright.`,
     },
     {
       q: "Can I sign several pages, or add initials and a date?",
       a: "Each run signs one page. To add another, download the signed PDF, press Start over, open that copy and sign the next page. Type mode is not limited to a name, so initials or a date go on the same way, one pass each.",
     },
     {
-      q: "Why is there a box around my signature image?",
-      a: "A JPEG cannot be transparent, so the paper around your ink, white or the grey of a scan, lands on the page with it. A PNG avoids that only if its background really is transparent; a signature drawn on the pad always is, because the pad exports ink with nothing behind it.",
+      q: "Will there be a box around my signature image?",
+      a: "Not by default. A photo or scan of your signature, JPEG or PNG, is cropped to the ink, and Remove paper background, ticked by default for any image with no transparency, makes the white or grey paper around it transparent, so only the ink lands on the page. Untick it to keep the paper as photographed, and it lands as a box around the ink. A PNG that already has a transparent background, and a signature drawn on the pad, need no cleanup: both are only ink, cropped the same way. Keying works best with dark ink on light paper; if it cannot find any ink, the tool says so instead of placing a blank image.",
     },
     {
       q: "Can I sign a password-protected or already certified PDF?",
