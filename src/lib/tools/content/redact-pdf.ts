@@ -130,7 +130,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens with a password-protected PDF?",
-      a: `Loading stops, with a message saying which lock the file has. A PDF that needs a password to open is called password-protected. One that opens freely but carries an owner password restricting edits is told it has editing restrictions, and Unlock PDF removes those only with the owner (permissions) password that set them; it has no way to strip a lock without the password. Unlock PDF, and Protect PDF for re-locking the redacted copy, upload over TLS to pdf.xyz's secure worker rather than running in your browser: the input is deleted when each job finishes, each download link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `Loading stops, with a message saying which lock the file has, or, when the check cannot tell, asking for whichever password applies. A PDF that needs a password to open is called password-protected. One that opens freely but carries an owner password restricting edits is told it has editing restrictions, and Unlock PDF removes those only with the owner (permissions) password that set them; it has no way to strip a lock without the password. Unlock PDF, and Protect PDF for re-locking the redacted copy, upload over TLS to pdf.xyz's secure worker rather than running in your browser: the input is deleted when each job finishes, each download link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
       q: "What if part of a page comes out blank?",

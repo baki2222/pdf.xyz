@@ -1414,7 +1414,7 @@ export const guides: Guide[] = [
         id: "what-the-file-keeps",
         heading: "What the trimmed file keeps",
         body: [
-          `${pageToolKeeps("subset")} If you rely on either, keep the original alongside the trimmed copy.`,
+          pageToolKeeps("subset"),
           "Your original is never modified. Deleting pages produces a new PDF, and the file you started from stays exactly as it was on your device — so a page removed by mistake is still there to go back to.",
         ],
       },
