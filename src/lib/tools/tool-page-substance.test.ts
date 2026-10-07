@@ -759,6 +759,186 @@ function copyAbout(tool: Tool): string[] {
 }
 
 /**
+ * Three pages that share ONE /Resources dictionary (some writers emit that),
+ * page i drawing only /Im{i}, whose pixels spell `IMGMARK{i}`. With
+ * `shared: false` each page carries its own resources — the control that says
+ * the measure below sees a leak only where the sharing makes one.
+ */
+async function sharedResourcesPdf(shared: boolean): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const { context } = doc;
+  const images = [0, 1, 2].map((i) =>
+    context.register(
+      context.stream(`IMGMARK${i}`, {
+        Type: "XObject",
+        Subtype: "Image",
+        Width: 8,
+        Height: 1,
+        ColorSpace: "DeviceGray",
+        BitsPerComponent: 8,
+      }),
+    ),
+  );
+  const resources = (keys: number[]) =>
+    context.register(
+      context.obj({
+        XObject: Object.fromEntries(keys.map((i) => [`Im${i}`, images[i]!])),
+      }),
+    );
+  const sharedRef = resources([0, 1, 2]);
+  for (const i of [0, 1, 2]) {
+    const page = doc.addPage([200, 200]);
+    page.node.set(PDFName.of("Resources"), shared ? sharedRef : resources([i]));
+    page.node.set(
+      PDFName.of("Contents"),
+      context.register(context.stream(`q 90 0 0 10 10 10 cm /Im${i} Do Q`)),
+    );
+  }
+  return doc.save();
+}
+
+/** The image marks a file carries, and the ones its pages actually draw. */
+async function imageMarks(bytes: Uint8Array) {
+  const doc = await PDFDocument.load(bytes);
+  const markOf = (obj: unknown) =>
+    obj instanceof PDFRawStream &&
+    obj.dict.get(PDFName.of("Subtype")) === PDFName.of("Image")
+      ? (/IMGMARK\d/.exec(Buffer.from(obj.contents).toString("latin1"))?.[0] ??
+        null)
+      : null;
+  const present = new Set(
+    doc.context
+      .enumerateIndirectObjects()
+      .map(([, obj]) => markOf(obj))
+      .filter((m): m is string => m !== null),
+  );
+  const drawn = new Set<string>();
+  doc.getPages().forEach((page, i) => {
+    const xobjects = page.node
+      .Resources()
+      ?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+    for (const [, name] of contentBytes(doc, i).matchAll(/\/(\w+)\s+Do\b/g)) {
+      const mark = markOf(xobjects?.lookup(PDFName.of(name!)));
+      if (mark) drawn.add(mark);
+    }
+  });
+  return { present, drawn, leaked: [...present].filter((m) => !drawn.has(m)) };
+}
+
+/**
+ * WHAT SHIPPED until 2026-10-08, on the two page tools that answer "are the
+ * pages I dropped gone?". Both were false of a file whose pages share one
+ * resource dictionary: the assembler copies that dictionary whole
+ * (page-copy.ts), so an image drawn only on a dropped page ships, invisible —
+ * a privacy claim a reader acts on before sharing the file.
+ */
+const SHIPPED_GONE: readonly { slug: string; q: string; a: string }[] = [
+  {
+    slug: "remove-pages",
+    q: "Are the deleted pages completely gone from the file?",
+    a: "Yes. The new file is built from the pages you keep, and a link on a kept page that pointed at a deleted page is switched off rather than followed, so the deleted page's text and images are not copied in behind the scenes. Links between pages you kept still work. What is printed on a kept page stays, so a contents page will still list a chapter you removed.",
+  },
+  {
+    slug: "extract-pages",
+    q: "Can pages I did not select end up inside the new file?",
+    a: "No. A clickable link on a kept page that points at a page you left out, such as a contents entry, is switched off during extraction rather than followed, so the page it pointed at is not copied. Links between two pages you kept are re-aimed at the new copies and still work. Text you can see on a kept page is copied as it is, though, so a contents page still lists the titles of sections you did not extract.",
+  },
+];
+
+/** A sentence that says a dropped page's images are not in the file. */
+const IMAGES_NOT_COPIED = /\bimages?\b[^.;]*\b(?:are|is) not copied\b/i;
+/** A question asking whether dropped pages leave anything behind… */
+const GONE_QUESTION = /\b(?:completely gone|end up inside)\b/i;
+/** …answered with an unqualified yes or no. */
+const FLAT_ANSWER = /^(?:Yes|No)\./;
+
+type GoneEntry = { q: string; a: string };
+
+/** The shipped-answer shapes, each a predicate the corpus must exercise. */
+const GONE_SHAPES: readonly [string, (e: GoneEntry) => boolean][] = [
+  [
+    "images are not copied",
+    (e) => sentencesOf(e.a).some((s) => IMAGES_NOT_COPIED.test(s)),
+  ],
+  [
+    "a flat yes/no to the gone question",
+    (e) => GONE_QUESTION.test(e.q) && FLAT_ANSWER.test(e.a),
+  ],
+];
+
+/** Every way `entry` claims a dropped page's images are not in the file. */
+const goneClaims = (entry: GoneEntry) =>
+  GONE_SHAPES.filter(([, fires]) => fires(entry)).map(([name]) => name);
+
+describe("no page tool says a dropped page's images are gone while its engine ships them", () => {
+  it("the measure sees a leak only where the resources are shared (controls)", async () => {
+    for (const shared of [true, false]) {
+      const source = await imageMarks(await sharedResourcesPdf(shared));
+      expect(source.present.size, `shared=${shared}`).toBe(3);
+      expect(source.leaked, `shared=${shared}`).toEqual([]);
+    }
+    const own = await imageMarks(
+      await deletePages(await sharedResourcesPdf(false), [1]),
+    );
+    expect([...own.drawn].sort()).toEqual(["IMGMARK0", "IMGMARK2"]);
+    expect(own.leaked).toEqual([]);
+    const shared = await imageMarks(
+      await deletePages(await sharedResourcesPdf(true), [1]),
+    );
+    expect([...shared.drawn].sort()).toEqual(["IMGMARK0", "IMGMARK2"]);
+    expect(shared.leaked).toEqual(["IMGMARK1"]);
+  });
+
+  it("the shapes and the answers that shipped catch each other (both directions)", () => {
+    for (const entry of SHIPPED_GONE)
+      expect(goneClaims(entry), entry.slug).not.toEqual([]);
+    for (const [name, fires] of GONE_SHAPES)
+      expect(
+        SHIPPED_GONE.some(fires),
+        `${name} catches no shipped answer`,
+      ).toBe(true);
+  });
+
+  it("every page tool whose engine ships a dropped page's image says so, and never the opposite", async () => {
+    const source = await sharedResourcesPdf(true);
+    const leaking: string[] = [];
+    const offenders: string[] = [];
+    let answered = 0;
+    for (const tool of pageTools()) {
+      const engine = ENGINE_FOR_RUNNER[getRunnerKind(tool.slug)!]!;
+      const { leaked } = await imageMarks(await engine.run(source));
+      if (leaked.length === 0) continue;
+      leaking.push(tool.slug);
+      const entries: GoneEntry[] = [
+        ...page(tool.slug).faq.map((e) => ({ q: e.question, a: e.answer })),
+        ...copyAbout(tool).map((text) => ({ q: "", a: text })),
+      ];
+      for (const entry of entries) {
+        for (const claim of goneClaims(entry))
+          offenders.push(`${tool.slug} [${claim}]: "${entry.a.slice(0, 90)}…"`);
+        if (GONE_QUESTION.test(entry.q)) {
+          answered += 1;
+          expect(
+            entry.a,
+            `${tool.slug} answers "${entry.q}" without the shared-image exception`,
+          ).toMatch(/\bshare\b[^.]*\bresource/i);
+          expect(entry.a).toMatch(/\bimage drawn only on a (?:deleted )?page/i);
+        }
+      }
+    }
+    // Health: the fixture leaks through the subset engines, not through none.
+    expect(leaking).toEqual(
+      expect.arrayContaining(["remove-pages", "extract-pages"]),
+    );
+    expect(
+      answered,
+      "no leaking tool answers the gone question — blind",
+    ).toBeGreaterThanOrEqual(2);
+    expect([...new Set(offenders)]).toEqual([]);
+  });
+});
+
+/**
  * WHAT SHIPPED until 2026-10-07: Rotate PDF's intro opened "Nothing else in the
  * file changes", and its FAQ said "The one other change is the producer entry".
  * Its engine also rewrites the Creator and the modification date, and saving

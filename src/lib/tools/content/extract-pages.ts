@@ -58,6 +58,11 @@ const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * detaches every page reference during the copy and re-aims links at the
  * kept pages' new copies, so neither the leak nor the orphan copy survives.
  * `engine.test.ts` counts the page objects in each output to hold that.
+ * An image drawn only on a page left out still ships when the pages SHARE
+ * one /Resources dictionary (page-copy.ts does not prune it; probed
+ * 2026-10-08), so "Can pages I did not select end up inside?" no longer opens
+ * with a bare "No." — tool-page-substance.test.ts runs the engine on a
+ * shared-resources file and holds the served answer to what ships.
  * The page's range box is an <input type="text">: it cannot hold a newline,
  * so the FAQ does not offer newline-separated lists even though parsePageList
  * accepts them.
@@ -129,7 +134,7 @@ const content: ToolContent = {
     },
     {
       q: "Can pages I did not select end up inside the new file?",
-      a: "No. A clickable link on a kept page that points at a page you left out, such as a contents entry, is switched off during extraction rather than followed, so the page it pointed at is not copied. Links between two pages you kept are re-aimed at the new copies and still work. Text you can see on a kept page is copied as it is, though, so a contents page still lists the titles of sections you did not extract.",
+      a: "Not as pages. A clickable link on a kept page that points at a page you left out, such as a contents entry, is switched off during extraction rather than followed, so the page it pointed at is not copied. Links between two pages you kept are re-aimed at the new copies and still work. Two things can still come along. When a file's pages share one resource list, as some programs write them, that list is copied whole, so an image drawn only on a page you left out can still be inside the new file although no page shows it. And text you can see on a kept page is copied as it is, so a contents page still lists the titles of sections you did not extract. If an image must not travel, black it out with Redact PDF first.",
     },
     {
       q: "Why won't my PDF open in Extract Pages?",

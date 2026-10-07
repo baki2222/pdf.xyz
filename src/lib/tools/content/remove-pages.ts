@@ -53,6 +53,14 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  * detaches every page reference during the copy and re-aims links at the
  * kept pages' new copies, so neither the leak nor the orphan copy survives.
  * `engine.test.ts` counts the page objects in each output to hold that.
+ *
+ * What still survives (probed 2026-10-08): the assembler does not prune a
+ * /Resources dictionary kept and deleted pages SHARE (page-copy.ts says so),
+ * so an image drawn only on a deleted page ships when its resources are
+ * shared. The "completely gone?" answer said "Yes … the deleted page's text
+ * and images are not copied in behind the scenes" until then;
+ * tool-page-substance.test.ts runs each page engine on a shared-resources
+ * file and holds every page tool's served copy to what ships.
  */
 
 const content: ToolContent = {
@@ -117,7 +125,7 @@ const content: ToolContent = {
     },
     {
       q: "Are the deleted pages completely gone from the file?",
-      a: "Yes. The new file is built from the pages you keep, and a link on a kept page that pointed at a deleted page is switched off rather than followed, so the deleted page's text and images are not copied in behind the scenes. Links between pages you kept still work. What is printed on a kept page stays, so a contents page will still list a chapter you removed.",
+      a: "Almost always. The new file is built from the pages you keep: a deleted page's own text and drawing are not copied, and a link on a kept page that pointed at a deleted page is switched off rather than followed. Links between pages you kept still work. The exception is a file whose pages share one resource list, as some programs write them: that list comes across whole, so an image drawn only on a deleted page can still be inside the new file although no page shows it. What is printed on a kept page stays, so a contents page will still list a chapter you removed. If an image must not be recoverable, black it out with Redact PDF, which rebuilds every page as a picture and copies nothing else from the file, before you delete its page.",
     },
     {
       q: "Why is my password-protected PDF refused?",
