@@ -523,6 +523,44 @@ describe("PDF to PowerPoint: the deck is the page's sentence", () => {
     expect(served).toMatch(/One slide per PDF page/);
     expect(served).toMatch(/empty slide/);
   });
+
+  /**
+   * Served at f4829880, written when pptx() packed slides and nothing else.
+   * pptx-package.ts (8920ee1b) writes the master, layout and theme chain, so
+   * both said the file lacks parts the engine puts in it. The "PowerPoint
+   * rejects it" sentences beside them are NOT this ban's business: they wait
+   * on a real job's file opening in PowerPoint (the content file's exit).
+   */
+  const SHIPPED_MISSING_MASTER = [
+    "The package holds the slides and their text but none of the slide master, slide layout and theme parts that a presentation normally contains.",
+    "Opened in PowerPoint's Windows desktop app, it is refused as corrupted and unreadable; the file lacks the slide master, layouts and theme a presentation normally carries.",
+  ];
+  /** A sentence saying the deck has no slide master / layout / theme. */
+  const MISSING_MASTER =
+    /\b(?:lacks?|none of|without|no|missing)\b[^.]{0,24}\bslide (?:masters?|layouts?)\b/i;
+
+  it("no served sentence says the deck lacks the master chain the engine writes", async () => {
+    for (const s of SHIPPED_MISSING_MASTER)
+      expect(MISSING_MASTER.test(s), s).toBe(true);
+    const zip = await exportFile("pdf-to-powerpoint", ["A\nB", "", "C"]);
+    expect(
+      [
+        "ppt/slideMasters/slideMaster1.xml",
+        "ppt/slideLayouts/slideLayout1.xml",
+        "ppt/theme/theme1.xml",
+      ].filter((name) => !zip.file(name)),
+      "the engine no longer writes the chain; this ban's premise is gone",
+    ).toEqual([]);
+    expect(await part(zip, "ppt/presentation.xml")).toContain("<p:sldSz");
+    const p = page("pdf-to-powerpoint");
+    const served = [p.text, ...p.faq.flatMap((e) => [e.question, e.answer])]
+      .flatMap((t) => t.split(/(?<=[.!?])\s+/))
+      .filter((t) => t.length > 0);
+    // Health: the reader's page is long and talks about PowerPoint.
+    expect(served.length).toBeGreaterThan(20);
+    expect(served.some((t) => /\bPowerPoint\b/.test(t))).toBe(true);
+    expect(served.filter((t) => MISSING_MASTER.test(t))).toEqual([]);
+  });
 });
 
 describe("the three exports refuse a PDF with no text, as each page says", () => {

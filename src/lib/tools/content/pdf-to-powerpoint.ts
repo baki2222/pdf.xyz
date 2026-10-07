@@ -52,14 +52,20 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  * through PowerPoint's COM `Presentations.Open` (PowerPoint 16.0, Windows
  * desktop) and refused with "The file or directory is corrupted and
  * unreadable" (0x80070570). Positive control in the same run: a deck created
- * and saved by PowerPoint itself reopened with its slide count. pptx() writes
- * no slideMaster, slideLayout or theme parts (scripts/worker-prove-tools.ts
- * itself notes "PresentationML needs the whole master/layout/theme chain to
- * open"), no <p:sldSz>/<p:notesSz>, and empty nvSpPr/nvGrpSpPr. WHICH of
- * those PowerPoint objects to was not isolated, so the copy lists the missing
- * parts without claiming any one of them is THE cause. pptx() is unchanged
- * since 2026-07-15 apart from renames, so no worker image built since then
- * differs; a production job's download was not opened.
+ * and saved by PowerPoint itself reopened with its slide count. AT THAT
+ * MEASUREMENT (history, kept) pptx() wrote no slideMaster, slideLayout or
+ * theme parts (scripts/worker-prove-tools.ts itself notes "PresentationML
+ * needs the whole master/layout/theme chain to open"), no
+ * <p:sldSz>/<p:notesSz>, and empty nvSpPr/nvGrpSpPr; WHICH of those PowerPoint
+ * objected to was not isolated, and a production job's download was not
+ * opened.
+ *
+ * SINCE 8920ee1b (on this branch, not yet in a worker image): pptx() packs
+ * through pptx-package.ts, which DOES write ppt/slideMasters/slideMaster1.xml,
+ * ppt/slideLayouts/slideLayout1.xml, ppt/theme/theme1.xml and <p:sldSz>. The
+ * sentences that said the file lacks those parts were deleted 2026-10-08 —
+ * that is true of the code whether or not the worker has been rebuilt. The
+ * "PowerPoint rejects it" sentences stay until the open check below passes.
  *
  * EXIT CONDITION for the "PowerPoint rejects it" sentences — the PROPERTY, not
  * the mechanism: remove them when a file PRODUCED BY THE ENGINE opens in
@@ -90,7 +96,7 @@ const content: ToolContent = {
 
   intro: [
     "PDF to PowerPoint reads the words you can select in a PDF and packs them into a .pptx file, page by page: the first page's text goes on slide one, the second page's on slide two, and so on. Each slide holds a single text box, with one paragraph for every line of text found on that page. Pictures, charts, logos, colours, fonts, sizes and the position of each block stay behind, and a sentence the PDF wrapped over two lines arrives as two paragraphs.",
-    "Read this before relying on it: the Windows desktop version of Microsoft PowerPoint refuses to open the file this tool currently writes, reporting it as corrupted and unreadable. The package holds the slides and their text but none of the slide master, slide layout and theme parts that a presentation normally contains. PowerPoint for Mac and the web, Google Slides, Keynote and LibreOffice Impress have not been tested, so pdf.xyz cannot tell you whether they accept it. Until that is fixed, PDF to Text is the working route to a PDF's words; it runs in your browser, and nothing is uploaded.",
+    "Read this before relying on it: the Windows desktop version of Microsoft PowerPoint refuses to open the file this tool currently writes, reporting it as corrupted and unreadable. PowerPoint for Mac and the web, Google Slides, Keynote and LibreOffice Impress have not been tested, so pdf.xyz cannot tell you whether they accept it. Until that is fixed, PDF to Text is the working route to a PDF's words; it runs in your browser, and nothing is uploaded.",
     `A PDF made only of scanned images holds pictures of lettering rather than characters, so the export stops and points you to OCR as the first step. The reading is done by poppler's pdftotext on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure worker, where your input is deleted as each job finishes. The worker keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
   ],
 
@@ -131,7 +137,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the .pptx open in PowerPoint?",
-      a: "Not at the moment. Opened in PowerPoint's Windows desktop app, it is refused as corrupted and unreadable; the file lacks the slide master, layouts and theme a presentation normally carries. No other presentation app has been checked. Meanwhile, copy the words out with PDF to Text and paste them onto your slides.",
+      a: "Not at the moment. Opened in PowerPoint's Windows desktop app, it is refused as corrupted and unreadable. No other presentation app has been checked. Meanwhile, copy the words out with PDF to Text and paste them onto your slides.",
     },
     {
       q: "Will the design, images and fonts of my PDF be kept?",
