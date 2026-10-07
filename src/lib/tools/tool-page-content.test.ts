@@ -978,6 +978,49 @@ describe("compare-pdf: order, and what counts as a change", () => {
       /const \[left, right\] = items;/,
     );
   });
+
+  /*
+   * The scan FAQ said "every line of the other file is listed as added or
+   * removed" until 2026-10-07. That is what `diffLines` — the unit — does with
+   * one empty side, and the docblock's probe ran the unit. The page runs the
+   * COMPOSED `compareExtractedPdfText`, which diffs only when both sides have
+   * text. So this runs the composed function on a one-sided pair and holds the
+   * served scan answer to what the runner shows for it.
+   */
+  it("one file with no text is not compared, and the scan answer says what the runner shows", () => {
+    const result = compareExtractedPdfText(
+      { name: "scan.pdf", size: 1, extracted: ex("") },
+      { name: "b.pdf", size: 1, extracted: ex("Alpha\nBeta") },
+    );
+    expect(result.verdict).toBe("left-no-text");
+    expect(result.diff).toEqual([]);
+    expect(result.report).not.toMatch(/^[+-] /m);
+    expect(result.report).toContain("Changed lines: not compared");
+    // Control: the same text on both sides of a real pair IS diffed.
+    const both = compareExtractedPdfText(
+      { name: "a.pdf", size: 1, extracted: ex("Gamma") },
+      { name: "b.pdf", size: 1, extracted: ex("Alpha\nBeta") },
+    );
+    expect(both.report).toMatch(/^\+ Alpha$/m);
+
+    // What the runner renders for that verdict, read from its source…
+    const runner = withoutComments(
+      read(runnerFileForKind(getRunnerKind("compare-pdf")!)),
+    );
+    expect(runner).toContain("has no selectable text`");
+    expect(runner).toContain('"Not compared"');
+    // …is what the page's scan answer tells the reader, and it says nothing
+    // about the other file's lines being listed.
+    const scan = pageCopy
+      .pageFaq(tool("compare-pdf"))
+      .find((e) => /\bscan\b/i.test(e.question));
+    expect(scan, "compare-pdf serves no scan question").toBeDefined();
+    expect(scan!.answer).toContain("has no selectable text");
+    expect(scan!.answer).toContain("Not compared");
+    expect(scan!.answer).not.toMatch(
+      /\bevery line\b[^.]*\b(?:added|removed)\b/i,
+    );
+  });
 });
 
 describe("edit-pdf: the text already on the page is kept exactly", () => {
