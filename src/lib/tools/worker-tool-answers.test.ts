@@ -97,6 +97,16 @@ import {
   type QpdfStructureFs,
 } from "@/lib/workers/pdf-structure/native";
 import { createPdfStructureProcessor } from "@/lib/workers/processor/pdf-structure";
+import {
+  nativePdfSecurityDeps,
+  type QpdfExec,
+  type QpdfFs,
+} from "@/lib/workers/pdf-security/native";
+import {
+  UNREADABLE_MESSAGE,
+  WRONG_PASSWORD_MESSAGE,
+} from "@/lib/workers/pdf-security/engine";
+import { createPdfSecurityProcessor } from "@/lib/workers/processor/pdf-security";
 import { PRINT_TO_PDF_OPTIONS } from "@/lib/workers/html-render/native";
 import {
   HTML_RENDER_TOOLS,
@@ -1494,6 +1504,121 @@ describe("no qpdf page says a refused document is retried", () => {
     }
     expect(all.length).toBeGreaterThan(15);
     expect(page("repair-pdf").text).toContain("without a retry");
+    const offenders = all.filter(({ text }) => caught(text));
+    expect(
+      offenders.map((o) => o.where),
+      offenders.map((o) => o.text).join("\n"),
+    ).toEqual([]);
+  });
+});
+
+/**
+ * WHAT SHIPPED until 2026-10-07: Unlock PDF's FAQ on "The password is
+ * incorrect, or this PDF cannot be unlocked with it" said qpdf's error exit
+ * is what "the worker reads as a rejected password", hedged "because qpdf
+ * uses that same status for other errors, so a damaged file can also end
+ * here". The native runner stopped reading exit 2 alone: it asks a second,
+ * narrower question with the same password (`--requires-password`), and only
+ * 0 there is a wrong password; 2 is a file qpdf cannot open, which gets
+ * UNREADABLE_MESSAGE. The pages read are every tool the pdf-security
+ * processor owns (discovered from the processor) plus their guides; the claim
+ * is refuted through the real native runner, engine and processor, with exec
+ * and fs stubbed as execFile answers.
+ */
+describe("no qpdf security page says a damaged file gets the wrong-password message", () => {
+  const SHIPPED = [
+    "qpdf exited with the error status the worker reads as a rejected password.",
+    "The wording is hedged because qpdf uses that same status for other errors, so a damaged file can also end here.",
+  ];
+  const clauses = (text: string) => text.split(/(?<=[.;:!?])\s+/);
+  const CLAIM =
+    /\breads? as a rejected password\b|\ba damaged file can also end here\b|\bthat same status for other errors\b/i;
+  const caught = (text: string) => clauses(text).some((c) => CLAIM.test(c));
+
+  const pdfBytes = () =>
+    new TextEncoder().encode(`%PDF-1.7\n${"0".repeat(40)}\n%%EOF\n`);
+  /**
+   * qpdf as execFile reports it. A password-bearing argv arrives as an
+   * at-file, so the last at-file written says which question was asked.
+   */
+  const qpdf = (decrypt: number, check: number) => {
+    let atFile = "";
+    const exec: QpdfExec = async (_command, args) => {
+      const argv = args[0]?.startsWith("@") ? atFile.split("\n") : args;
+      if (argv.includes("--decrypt")) return { code: decrypt, timedOut: false };
+      if (argv.includes("--requires-password"))
+        return argv.some((a) => a.startsWith("--password="))
+          ? { code: check, timedOut: false }
+          : // No password: the file needs one to open.
+            { code: 0, timedOut: false };
+      return { code: 0, timedOut: false };
+    };
+    const fs: QpdfFs = {
+      mkdtemp: async (prefix) => `${prefix}dir`,
+      writeFile: async (file, data) => {
+        if (file.endsWith("qpdf.args")) atFile = new TextDecoder().decode(data);
+      },
+      readFile: async () => pdfBytes(),
+      rm: async () => {},
+    };
+    return nativePdfSecurityDeps({}, { resolveOnPath: () => true, exec, fs });
+  };
+  const TOOLS = [...createPdfSecurityProcessor(qpdf(0, 0)).tools];
+  const unlock = (decrypt: number, check: number) =>
+    createPdfSecurityProcessor(qpdf(decrypt, check)).process({
+      tool: "unlock-pdf",
+      options: { password: "guess" },
+      inputs: [
+        {
+          fileId: "f_1234567890",
+          filename: "statement.pdf",
+          contentType: "application/pdf",
+          bytes: pdfBytes(),
+        },
+      ],
+    });
+
+  it("the corpus and the pattern cover each other", () => {
+    for (const s of SHIPPED) expect(caught(s), s).toBe(true);
+    expect(
+      caught(
+        "qpdf could not decrypt the file with that password, and a second check with the same password confirmed the file needs a different one.",
+      ),
+    ).toBe(false);
+  });
+
+  it("the processor does not do it: a file qpdf cannot open is unreadable, a refused password is wrong", async () => {
+    expect(TOOLS).toContain("unlock-pdf");
+    const damaged = await unlock(2, 2);
+    expect(damaged.ok).toBe(false);
+    if (damaged.ok) return;
+    expect(damaged.error.message).toBe(UNREADABLE_MESSAGE);
+    expect(UNREADABLE_MESSAGE).not.toBe(WRONG_PASSWORD_MESSAGE);
+    // POSITIVE CONTROL: the message the FAQ is about is still reachable.
+    const wrong = await unlock(2, 0);
+    expect(wrong.ok === false && wrong.error.message).toBe(
+      WRONG_PASSWORD_MESSAGE,
+    );
+  });
+
+  it("no page or guide for those tools says it", () => {
+    const all: { where: string; text: string }[] = [];
+    for (const slug of TOOLS) {
+      all.push({ where: `${slug} (served)`, text: page(slug).text });
+      for (const e of page(slug).faq)
+        all.push({ where: `${slug} FAQ`, text: `${e.question} ${e.answer}` });
+      for (const step of page(slug).howTo)
+        all.push({ where: `${slug} step`, text: step });
+    }
+    for (const guide of guides) {
+      if (!guide.tools.some((t) => TOOLS.includes(t))) continue;
+      for (const text of guideStrings(guide))
+        all.push({ where: `guide ${guide.slug}`, text });
+    }
+    expect(all.length).toBeGreaterThan(15);
+    expect(answer("unlock-pdf", /password is incorrect/)).toContain(
+      "second check",
+    );
     const offenders = all.filter(({ text }) => caught(text));
     expect(
       offenders.map((o) => o.where),

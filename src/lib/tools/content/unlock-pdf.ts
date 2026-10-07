@@ -12,17 +12,22 @@ import {
 /*
  * Every behavioural claim below was read from the code on 2026-09-27:
  *  - panel: src/components/tools/pdf-security-worker-panel.tsx (mode "unlock")
- *    — one PDF through a drop zone titled "Add a password-protected PDF, or",
+ *    — one PDF through a drop zone titled "Add a locked PDF, or" (followed by
+ *    the browse control; the step quoted "Add a password-protected PDF, or
+ *    browse", which the panel never rendered, until 2026-10-07),
  *    a masked "Current password" field with a Show/Hide password toggle and
  *    the hint "Enter the password that currently opens this PDF.", a
  *    "Too long: n/127 bytes." warning past MAX_PDF_PASSWORD_BYTES, the
- *    "Unlock on the worker" button ("Unlocking on the worker…" while busy,
+ *    "Unlock on the worker" button (busy label `jobBusyLabel(job.phase,
+ *    COPY[mode].running)`: Uploading your file…, Waiting for the worker…,
+ *    Unlocking on the worker… while qpdf runs, Downloading the result…;
  *    disabled until a file AND a non-empty password are present), then
  *    "Your PDF is unlocked and ready." and "Download <name>". When no worker
  *    is available the panel shows no uploader and no password field at all.
  *    The Remove control is a <button>, not a link; the run button blocks via
- *    aria-disabled (WorkerRunButton) and shows busyLabel for the entire
- *    runSecurityJob call (upload, poll, download). The badge reads "Secure
+ *    aria-disabled (WorkerRunButton) and shows a spinner for the entire
+ *    runSecurityJob call (upload, poll, download), its label following the
+ *    phase. The badge reads "Secure
  *    worker" in production ("Local-dev worker" locally).
  *  - options: src/lib/jobs/pdf-security.ts parseUnlockPdfOptions — password
  *    required, non-empty, no control characters, at most
@@ -38,9 +43,14 @@ import {
  *    removed on every exit path, never on the command line. That qpdf accepts
  *    the OWNER password as well as the user password for --decrypt is qpdf's
  *    documented behaviour; no pdf.xyz test runs an owner-only file through
- *    runUnlock. No guessing, no recovery. qpdf's exit 2 is read as "wrong
- *    password", so the same message also covers a file qpdf cannot decrypt
- *    with that password for another reason.
+ *    runUnlock. No guessing, no recovery. SUPERSEDED, history kept: "qpdf's
+ *    exit 2 is read as 'wrong password', so the same message also covers a
+ *    file qpdf cannot decrypt with that password for another reason". Exit 2
+ *    now triggers a second check with the same password
+ *    (`--requires-password`): 0 means wrong-password (OWNER_PASSWORD_REQUIRED
+ *    for a file that opens freely), 2 means unreadable (UNREADABLE_MESSAGE),
+ *    anything else throws (FAILED_MESSAGE). A file qpdf cannot open at all is
+ *    already caught by `requiresPassword` before the decrypt.
  *  - the password also travels in the job request's options, which the Redis
  *    queue keeps in a TTL'd spec record (src/lib/workers/queue/redis.ts) that
  *    the FINALIZE script deletes when the job reaches a terminal state
@@ -54,8 +64,10 @@ import {
  *    the password "sits in that job record for the same ~24 hours"; the code
  *    deletes it at the terminal state, so this page states the shorter,
  *    code-true lifetime and the privacy page is the more cautious surface.
- *  - qpdf exits 2 for ANY error, not only a wrong password; exit 3 (warnings)
- *    and every other non-zero code throw → FAILED_MESSAGE (retryable).
+ *  - qpdf exits 2 for ANY error, not only a wrong password, which is why the
+ *    decrypt's exit 2 is followed by the second check above. On the decrypt,
+ *    exit 3 (warnings, output written) is accepted and the output re-checked;
+ *    every other non-zero code throws → FAILED_MESSAGE (retryable).
  *  - the Download button saves bytes the browser already fetched from the
  *    worker (pdf-security-client.ts runSecurityJob → downloadBytes); the
  *    output TTL is the worker-side link, not the button.
@@ -127,7 +139,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the locked PDF",
-      body: `Once the badge reads Secure worker, drop one PDF onto the area that reads "Add a password-protected PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. If no worker is available, the panel explains why and shows neither the drop area nor the password field.`,
+      body: `Once the badge reads Secure worker, drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. If no worker is available, the panel explains why and shows neither the drop area nor the password field.`,
     },
     {
       title: "Type the current password",
@@ -135,7 +147,7 @@ const content: ToolContent = {
     },
     {
       title: "Select Unlock on the worker",
-      body: "Nothing happens when you press it without a file, without a password, or with a password over the limit. Otherwise it reads Unlocking on the worker… with a spinner for the whole run: the upload, qpdf's decryption and the fetch of the result back to your browser.",
+      body: "Nothing happens when you press it without a file, without a password, or with a password over the limit. Otherwise it shows a spinner for the whole run, and its label follows the job: Uploading your file…, Waiting for the worker…, Unlocking on the worker… while qpdf decrypts, then Downloading the result… as the unlocked copy comes back to your browser.",
     },
     {
       title: "Download the unlocked copy",
@@ -154,7 +166,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did I get 'The password is incorrect, or this PDF cannot be unlocked with it'?",
-      a: "qpdf exited with the error status the worker reads as a rejected password. Usually that is a typo, so reveal the field and check capitals, spaces and keyboard layout. The wording is hedged because qpdf uses that same status for other errors, so a damaged file can also end here. A different message, that the PDF isn't password-protected, means there is no encryption to remove. Input that fails the worker's basic PDF check is reported as unreadable, and any other qpdf failure says the file could not be processed and that no output was produced.",
+      a: "qpdf could not decrypt the file with that password, and a second check with the same password confirmed the file needs a different one. Usually that is a typo, so reveal the field and check capitals, spaces and keyboard layout. Other problems get their own messages: a damaged file, or encryption qpdf cannot open, is reported as such; a PDF that opens without a password but locks printing or editing says it needs its owner password; one with no encryption says there is nothing to unlock; input that is not a PDF could not be read as one; and any other engine failure says the file could not be processed and that no output was produced.",
     },
     {
       q: "Is my file and password uploaded?",
