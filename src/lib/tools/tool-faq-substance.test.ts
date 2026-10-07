@@ -74,6 +74,10 @@ import {
   overlayPdf,
 } from "@/lib/pdf/overlay";
 import { GRAYSCALE_DPI_PRESETS as ENGINE_GRAYSCALE_PRESETS } from "@/lib/pdf/grayscale";
+import {
+  createGrayscaleBuilder,
+  grayscaleTitle,
+} from "@/lib/pdf/grayscale-builder";
 import { applyFormValues, inspectFormFields } from "@/lib/pdf/forms";
 import { createFormFields } from "@/lib/pdf/create-forms";
 import { extractPdfImages } from "@/lib/pdf/extract-images";
@@ -1057,7 +1061,7 @@ describe("the remaining in-browser tools answer what their engines do", () => {
     }
   });
 
-  it("grayscale rebuilds every page from an image, at the offered presets", () => {
+  it("grayscale rebuilds every page from an image, at the offered presets", async () => {
     expect(ENGINE_GRAYSCALE_PRESETS).toBe(GRAYSCALE_DPI_PRESETS);
     // The engine rasterizes (it cannot run without a canvas here), so its
     // SHAPE is the precondition: pages come only from rendered page images.
@@ -1091,6 +1095,97 @@ describe("the remaining in-browser tools answer what their engines do", () => {
       const res = answer(tool.slug, /resolution/);
       for (const p of GRAYSCALE_DPI_PRESETS)
         expect(res).toContain(`${p.label} (${p.dpi} DPI)`);
+    }
+
+    // What the builder WRITES, read back from its saved bytes, and every
+    // served sentence held to it. Until this block the guard read only the
+    // select-and-search answer, so the intro ("every page becomes a JPEG
+    // picture ... titled \"Grayscale PDF\""), the preflight answer ("Probably
+    // not ... RGB (DeviceRGB)") and the portal use case pointing at it all
+    // described the canvas JPEG the builder replaced, beside a runner tile
+    // saying DeviceGray.
+    const builder = await createGrayscaleBuilder();
+    const info = (index: number, width: number, height: number) => ({
+      index,
+      width,
+      height,
+      pageWidth: width,
+      pageHeight: height,
+    });
+    // A flat page (text-like: lossless wins) and a noisy one (photo-like:
+    // JPEG wins), so both encodings are exercised; a set of one would
+    // certify the other unseen.
+    // The photo plane is a wave plus noise, as in grayscale-output.test.ts.
+    let seed = 12345;
+    const photo = new Uint8Array(200 * 150);
+    for (let p = 0; p < photo.length; p++) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const wave =
+        90 * Math.sin((p % 200) / 9) * Math.cos(Math.floor(p / 200) / 13);
+      photo[p] = Math.max(0, Math.min(255, 128 + wave + (seed % 48)));
+    }
+    await builder.addPage(new Uint8Array(64 * 64).fill(255), info(0, 64, 64));
+    await builder.addPage(photo, info(1, 200, 150));
+    expect(new Set(builder.pages.map((p) => p.encoding))).toEqual(
+      new Set(["flate", "jpeg"]),
+    );
+    const title = grayscaleTitle("Quarterly Report", "q3.pdf");
+    const saved = await PDFDocument.load(await builder.save(title));
+    const spaces = [...saved.context.enumerateIndirectObjects()]
+      .map(([, o]) => o)
+      .filter(
+        (o): o is PDFRawStream =>
+          o instanceof PDFRawStream &&
+          o.dict.get(PDFName.of("Subtype"))?.toString() === "/Image",
+      )
+      .map((o) => o.dict.get(PDFName.of("ColorSpace"))?.toString());
+    expect(spaces).toEqual(["/DeviceGray", "/DeviceGray"]);
+    expect(saved.getTitle()).toBe("Quarterly Report (grayscale)");
+
+    // Predicates over served sentences, each caught on the shipped sentence
+    // it exists for (the corpus), each clean on every served page.
+    // JPEG as what the output is made of; "JPEG 2000" is an INPUT codec the
+    // renderer's decoder note names, so it is not a claim about the output.
+    const outputJpeg = /\bJPEG\b(?! 2000)/;
+    const saysAllJpeg = (x: string) =>
+      outputJpeg.test(x) && !/lossless|whichever is smaller/i.test(x);
+    const saysDeclaresRgb = (x: string) =>
+      /DeviceRGB|report RGB|does not meet that requirement/.test(x);
+    const saysFixedTitle = (x: string) =>
+      /\btitled\b/.test(x) && !x.includes('"(grayscale)"');
+    const shipped: [(x: string) => boolean, string][] = [
+      [
+        saysAllJpeg,
+        "Because every page becomes a JPEG picture, the result is a copy for printing or submitting, not for editing.",
+      ],
+      [
+        saysFixedTitle,
+        'Selectable text, sharp vector lines, links, bookmarks and the original document title do not carry over (the new file is titled "Grayscale PDF"), and form fields or comments are painted in from their saved appearance, so they can no longer be filled in or clicked.',
+      ],
+      [
+        saysDeclaresRgb,
+        "Every pixel is a neutral gray, but the page images are written by the browser's own JPEG encoder, which in Chrome and Edge stores three color channels even when all of them are equal, and the PDF labels each image by the channels it carries: RGB (DeviceRGB).",
+      ],
+    ];
+    for (const [caught, sentence] of shipped)
+      expect(caught(sentence), sentence).toBe(true);
+    for (const tool of mounting("grayscale")) {
+      const served = [
+        ...page(tool.slug).text.split(/(?<=[.!?])\s+/),
+        ...page(tool.slug).faq.flatMap((e) => e.answer.split(/(?<=[.!?])\s+/)),
+      ];
+      expect(served.filter((x) => outputJpeg.test(x)).length).toBeGreaterThan(
+        0,
+      );
+      expect(served.filter((x) => /\btitled\b/.test(x)).length).toBeGreaterThan(
+        0,
+      );
+      expect(served.filter(saysAllJpeg)).toEqual([]);
+      expect(served.filter(saysDeclaresRgb)).toEqual([]);
+      expect(served.filter(saysFixedTitle)).toEqual([]);
+      const preflight = answer(tool.slug, /preflight/);
+      expect(preflight).toMatch(/^Yes\b/);
+      expect(preflight).toContain("(DeviceGray)");
     }
   });
 

@@ -13,9 +13,15 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    preselected), "Convert to grayscale", the "Converting pages… n/total"
  *    progress, the result summary, "Download grayscale PDF", and
  *    UndecodedImagesNotice;
- *  - src/lib/pdf/grayscale.ts — pages rendered to JPEG, then a NEW PDFDocument
- *    built from those images only, titled "Grayscale PDF", output named
- *    `<name>-grayscale.pdf`;
+ *  - src/lib/pdf/grayscale.ts — pages rendered, then a NEW PDFDocument built
+ *    from those images only, output named `<name>-grayscale.pdf`. CHANGED
+ *    since (history kept): this said the pages were JPEGs and the file was
+ *    titled "Grayscale PDF". Since L08 (85ee451) each page's luminance plane
+ *    goes to createGrayscaleBuilder (grayscale-builder.ts), which stores it
+ *    as whichever is smaller, a lossless FlateDecode image or a one-component
+ *    JPEG (encodeGrayJpeg), both /DeviceGray; the title is
+ *    grayscaleTitle(source title, file name) = "<title or stem> (grayscale)",
+ *    "Grayscale PDF" only when both are empty;
  *  - src/lib/pdf/render.ts — rasterizePdf reports progress per page rendered
  *    (the new PDF is assembled only after every page is done), calls
  *    page.render() with no annotationMode, so pdfjs-dist 6.1.200 uses
@@ -38,8 +44,12 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *  - colour space, RUN 2026-09-27: Chromium 152's canvas.toBlob("image/jpeg")
  *    on an already-gray canvas wrote SOF components = 3; those bytes through
  *    embedRasterImage → pdf-lib saved an image XObject with /ColorSpace
- *    /DeviceRGB. Only Chromium was checked, so the FAQ names Chrome and Edge.
- *    This was the canvas → encoder → embedder chain, not a full browser job.
+ *    /DeviceRGB, and the preflight answer said the output was RGB.
+ *    SUPERSEDED (history kept): canvas.toBlob is no longer called. Every page
+ *    image is /DeviceGray (grayscale-output.test.ts walks every image XObject
+ *    and every content stream), so the answer now says a colour-space
+ *    preflight reports grayscale; tool-faq-substance builds pages through the
+ *    builder and holds the served answer to what the saved file declares.
  *  - Unlock PDF's password field cannot be empty (unlock-pdf.ts header), and
  *    its owner-password acceptance is qpdf's documented behaviour, untested
  *    by pdf.xyz; the FAQ only repeats what that tool's own page says.
@@ -67,7 +77,7 @@ const content: ToolContent = {
   intro: [
     "Grayscale PDF returns a copy of your document in which every page is shades of gray. Each page is drawn to an image and every pixel becomes a weighted brightness value that counts green most and blue least, so pure red and pure green end up as two distinct grays rather than one. The gray images go into a new PDF, each page at the size the original displays at.",
     `The conversion runs in your browser using a bundled copy of pdf.js, and your PDF is not uploaded to pdf.xyz: the file you choose is read into memory on your device, and the result is saved as a download named after the original with "-grayscale" added. The picker takes one PDF of up to ${MAX_MB} MB.`,
-    'Because every page becomes a JPEG picture, the result is a copy for printing or submitting, not for editing. Selectable text, sharp vector lines, links, bookmarks and the original document title do not carry over (the new file is titled "Grayscale PDF"), and form fields or comments are painted in from their saved appearance, so they can no longer be filled in or clicked. The new file\'s size follows the page count, the resolution you pick and how busy each page is, so a short text-only file can grow while a photo-heavy one can shrink. Keep the original alongside it.',
+    "Because every page becomes a picture (a lossless image for text-heavy pages, a JPEG for photographic ones, whichever is smaller), the result is a copy for printing or submitting, not for editing. Selectable text, sharp vector lines, links and bookmarks do not carry over, and the new file is titled after the original's own title, or its file name if it has none, with \"(grayscale)\" added. Form fields or comments are painted in from their saved appearance, so they can no longer be filled in or clicked. The new file's size follows the page count, the resolution you pick and how busy each page is, so a short text-only file can grow while a photo-heavy one can shrink. Keep the original alongside it.",
   ],
 
   useCases: [
@@ -77,7 +87,7 @@ const content: ToolContent = {
     },
     {
       title: "Portals that ask for grayscale uploads",
-      body: "Some application forms and document portals ask for grayscale files. This gives you a gray copy of a PDF you already have without re-scanning the paper; if the portal inspects the declared color space, read the preflight answer below first.",
+      body: "Some application forms and document portals ask for grayscale files. This gives you a gray copy of a PDF you already have without re-scanning the paper. Its page images are stored in the single-channel grayscale (DeviceGray) color space, which is what a portal that inspects the file's declared color space looks for.",
     },
     {
       title: "Checking a chart before black-and-white handouts",
@@ -123,7 +133,7 @@ const content: ToolContent = {
     },
     {
       q: "Will a print shop's preflight check see the file as grayscale?",
-      a: "Probably not. Every pixel is a neutral gray, but the page images are written by the browser's own JPEG encoder, which in Chrome and Edge stores three color channels even when all of them are equal, and the PDF labels each image by the channels it carries: RGB (DeviceRGB). A preflight that reads the declared color space rather than the pixels will report RGB, so if your printer requires a true grayscale (DeviceGray) file, this output does not meet that requirement.",
+      a: "Yes, by color space. Every page image is stored as a single-channel grayscale (DeviceGray) image: either losslessly compressed or a one-channel JPEG, whichever is smaller for that page. Nothing on the page is drawn in color, so a preflight check that reads the declared color space reports grayscale, not RGB. The pages are images, though, so a check that also expects live text or vector artwork will not find any. Keep the original for that.",
     },
     {
       q: "Does it work on password-protected PDFs?",
