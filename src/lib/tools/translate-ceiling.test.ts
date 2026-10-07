@@ -326,12 +326,14 @@ describe("the published ceiling describes a pass, not a document", () => {
   it("the FAQ says a document over today's allowance is refused whole, not half translated", () => {
     const SHIPPED =
       "And a document longer than the free daily allowance leaves for it is translated as far as the allowance reaches, with the rest marked in place and the reason named, so nothing stops silently.";
-    const PARTIAL =
-      /translated as far as the allowance reaches|allowance[^.]*(?:rest|remainder) (?:is )?marked/i;
-    expect(
-      PARTIAL.test(SHIPPED),
-      "the ban no longer catches what shipped",
-    ).toBe(true);
+    // Each alternative must catch what shipped on its own (house rule 1).
+    const PARTIALS = [
+      /\btranslated as far as the allowance reaches\b/i,
+      /\ballowance\b[^.]*\b(?:rest|remainder) (?:is )?marked\b/i,
+    ];
+    const partial = (text: string) => PARTIALS.some((p) => p.test(text));
+    for (const p of PARTIALS)
+      expect(p.test(SHIPPED), `${p} no longer catches what shipped`).toBe(true);
     const answer =
       pageFaq(getToolBySlug("translate-pdf")!).find((f) =>
         /How much of my PDF/i.test(f.question),
@@ -339,7 +341,7 @@ describe("the published ceiling describes a pass, not a document", () => {
     expect(answer, "the served FAQ lost its ceiling answer").toMatch(
       /characters of selectable text per pass/,
     );
-    expect(PARTIAL.test(answer), answer).toBe(false);
+    expect(partial(answer), answer).toBe(false);
     expect(answer).toMatch(/daily allowance/i);
     expect(answer).toMatch(/refused before it runs, with nothing charged/);
     // The bound the delivery cap DID create, and its marker.
