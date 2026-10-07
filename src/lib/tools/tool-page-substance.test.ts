@@ -73,6 +73,7 @@ import {
 import { parsePageList } from "@/lib/pdf/ranges";
 import { guides } from "@/lib/guides/catalog";
 import { withoutComments } from "./copy-surface";
+import { pageIntro } from "./page-copy";
 import {
   DOCUMENT_PARTS,
   EVERY_OTHER_PAGE_EXAMPLE,
@@ -756,6 +757,95 @@ function copyAbout(tool: Tool): string[] {
       ]),
   ];
 }
+
+/**
+ * WHAT SHIPPED until 2026-10-07: Rotate PDF's intro opened "Nothing else in the
+ * file changes", and its FAQ said "The one other change is the producer entry".
+ * Its engine also rewrites the Creator and the modification date, and saving
+ * the whole file breaks a certificate signature (the runner warns before
+ * Apply). The rewritten entries are MEASURED here by running the engine the
+ * runner calls, and the served page must name each one; a rewritten entry
+ * this file has no term for is fatal, not skipped.
+ */
+describe("Rotate PDF names every document entry its engine rewrites", () => {
+  const SHIPPED = [
+    "Nothing else in the file changes. Rotation updates one entry on each page and saves the same document, so bookmarks, the title and author, page labels, the fillable form and anything typed into it, attached files and a tagged PDF's accessibility tags all stay as they were, and links keep pointing where they did.",
+    "No. Rotation saves the same document with a new angle on its pages. Page content, dimensions and order stay as they were, and so do web links, links between pages, comments, bookmarks, the title and author, page labels such as i, ii, iii, attached files, the accessibility tags of a tagged PDF, and the fillable form with any values already typed into it. The one other change is the producer entry, which now names pdf.xyz.",
+  ];
+  /** How the copy names each /Info entry. */
+  const TERMS: Record<string, RegExp> = {
+    Producer: /\bproducer\b/i,
+    Creator: /\bcreator\b/i,
+    ModDate: /\bmodification date\b/i,
+  };
+  /** The page's copy names the signature that saving breaks. */
+  const SIGNATURE =
+    /\b(?:digital|certificate) (?:\(certificate\) )?signature\b[^.]*\b(?:no longer verify|stops? verifying)\b/i;
+
+  async function rewrittenEntries(): Promise<string[]> {
+    const engine = ENGINE_FOR_RUNNER[getRunnerKind("rotate-pdf")!]!;
+    const doc = await PDFDocument.create({ updateMetadata: false });
+    doc.addPage([300, 400]);
+    doc.addPage([300, 400]);
+    doc.addPage([300, 400]);
+    doc.setTitle("Title");
+    doc.setAuthor("Author");
+    doc.setProducer("Producer");
+    doc.setCreator("Creator");
+    doc.setCreationDate(new Date("2000-01-01T00:00:00Z"));
+    doc.setModificationDate(new Date("2001-01-01T00:00:00Z"));
+    const before = await doc.save();
+    const info = async (bytes: Uint8Array) => {
+      const d = await PDFDocument.load(bytes, { updateMetadata: false });
+      const dict = d.context.lookup(d.context.trailerInfo.Info) as PDFDict;
+      return new Map(
+        dict.entries().map(([k, v]) => [k.decodeText(), v.toString()]),
+      );
+    };
+    const [was, now] = [
+      await info(before),
+      await info(await engine.run(before)),
+    ];
+    // Health: the fixture set six entries, and the engine kept them all present.
+    expect(was.size).toBe(6);
+    return [...now.keys()].filter((k) => now.get(k) !== was.get(k));
+  }
+
+  const names = (text: string, keys: readonly string[]) =>
+    keys.filter((k) => {
+      const term = TERMS[k];
+      if (!term) throw new Error(`the engine rewrites /${k}; name it in TERMS`);
+      return term.test(text);
+    });
+
+  it("the engine rewrites entries beyond the angle, and the shipped copy missed some", async () => {
+    const changed = await rewrittenEntries();
+    expect(changed).toEqual(expect.arrayContaining(["Producer", "Creator"]));
+    expect(changed).not.toContain("Title");
+    expect(changed).not.toContain("Author");
+    for (const s of SHIPPED)
+      expect(names(s, changed).length, s).toBeLessThan(changed.length);
+  });
+
+  it("the served page names every rewritten entry and the broken signature", async () => {
+    const changed = await rewrittenEntries();
+    const served = page("rotate-pdf");
+    const intro = pageIntro(tools.find((t) => t.slug === "rotate-pdf")!).join(
+      " ",
+    );
+    const lost = served.faq.find((e) => /anything get lost/i.test(e.question));
+    expect(lost, "the what-is-lost answer is not served").toBeDefined();
+    for (const [where, text] of [
+      ["intro", intro],
+      ["FAQ", lost!.answer],
+    ] as const) {
+      expect(names(text, changed), where).toEqual(changed);
+      expect(text, where).toMatch(SIGNATURE);
+    }
+    // The served HTML carries the intro as written.
+    expect(served.text).toContain(intro.slice(0, 80));
+  });
+});
 
 describe("a guide targets only searches its tool can answer", () => {
   // The delete-pages guide targeted "remove blank pages from pdf" over a

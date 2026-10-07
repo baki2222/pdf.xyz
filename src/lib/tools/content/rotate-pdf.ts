@@ -34,7 +34,16 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    viewer preferences. The intro and FAQ kept saying the copy was "rebuilt
  *    from the pages alone" until then; tool-page-substance.test.ts now runs
  *    the engine and reads the served page for that claim;
- *  - stamp() leaves producer/creator reading pdf.xyz;
+ *  - stamp() leaves producer/creator reading pdf.xyz, and pdf-lib's save
+ *    (updateMetadata, on by default in load) sets ModDate to the save time —
+ *    probed 2026-10-07: Title, Author and CreationDate unchanged. Until then
+ *    the intro said "Nothing else in the file changes" and the FAQ named the
+ *    producer as "the one other change"; tool-page-substance.test.ts now
+ *    runs the engine and holds the page to every entry it rewrites;
+ *  - SinglePdfRunner shows SignedInputNotice before Apply when the file
+ *    carries a certificate signature (rotate writes a PDF), because the
+ *    whole file is saved again and that signature stops verifying
+ *    (signed-input-notice.test.tsx);
  *  - Unlock PDF needs a typed password (canSubmit in
  *    pdf-security-worker-panel.tsx), so a restricted file needs its OWNER
  *    password there — the FAQ says so rather than implying it just unlocks;
@@ -65,7 +74,7 @@ const content: ToolContent = {
   intro: [
     "Rotate PDF fixes pages that open sideways or upside down: a scan fed through the wrong way, a wide spreadsheet inside a portrait report, a receipt photographed at a quarter turn. Open one PDF and each page appears as a tile previewing its current angle, with the angle printed on any tile not at 0°. Every page starts selected, so Left, Right or 180° turn the whole document at once, while a tile's own arrows fix just that page.",
     `The new angle is saved permanently in each page's /Rotate entry rather than into its drawing, so text stays selectable, images are not recompressed, and any standards-following viewer opens the page the right way up. Page count and order stay exactly as they were. Your browser does the work locally and the document is not uploaded; it takes one file of up to ${ceilingMb} MB.`,
-    "Nothing else in the file changes. Rotation updates one entry on each page and saves the same document, so bookmarks, the title and author, page labels, the fillable form and anything typed into it, attached files and a tagged PDF's accessibility tags all stay as they were, and links keep pointing where they did.",
+    "Only the angle changes on the pages. Rotate PDF writes the new angle into each page of your original file instead of rebuilding it, so bookmarks, the title and author, page labels, the fillable form and anything typed into it, attached files and a tagged PDF's accessibility tags all stay as they were, and links keep pointing where they did. The file's Producer and Creator entries are rewritten to read pdf.xyz and its modification date is updated. Because the whole PDF is saved again, a digital (certificate) signature it already carries will no longer verify, and the tool warns you about this before you apply the rotation.",
   ],
 
   useCases: [
@@ -125,11 +134,11 @@ const content: ToolContent = {
     },
     {
       q: "Does anything get lost when I rotate a PDF here?",
-      a: "No. Rotation saves the same document with a new angle on its pages. Page content, dimensions and order stay as they were, and so do web links, links between pages, comments, bookmarks, the title and author, page labels such as i, ii, iii, attached files, the accessibility tags of a tagged PDF, and the fillable form with any values already typed into it. The one other change is the producer entry, which now names pdf.xyz.",
+      a: "No. Rotation saves the same document with a new angle on its pages. Page content, dimensions and order stay as they were, and so do web links, links between pages, comments, bookmarks, the title and author, page labels such as i, ii, iii, attached files, the accessibility tags of a tagged PDF, and the fillable form with any values already typed into it. The copy lists pdf.xyz as its producer and creator, with a new modification date. The file is saved again as a whole, so a digital (certificate) signature it already carries stops verifying; the tool warns you before you apply the rotation, so keep the signed original if you need it.",
     },
     {
       q: "Can I rotate a password-protected PDF, and is my file uploaded?",
-      a: `Not while it is encrypted, and the message says which lock it has. A PDF that needs a password to open is refused as password-protected. One that anyone can open but whose author restricted editing is refused too, with a message naming those restrictions, because your browser cannot rewrite it; Unlock PDF removes them with the owner (permissions) password that set them. Unlock PDF only removes a password you know; it cannot recover one. Unlike rotation, Unlock PDF runs on a server: the file is uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes. Rotation itself uploads nothing: your browser turns a PDF of up to ${ceilingMb} MB.`,
+      a: `Not while it is encrypted: opening one stops with a message that says which lock it has, or, when the check cannot tell, asks for whichever password applies, and sends you to Unlock PDF. A PDF that needs a password to open is refused as password-protected. One that anyone can open but whose author restricted editing is refused too, with a message naming those restrictions, because your browser cannot rewrite it; Unlock PDF removes them with the owner (permissions) password that set them. Unlock PDF only removes a password you know; it cannot recover one. Unlike rotation, Unlock PDF runs on a server: the file is uploaded over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, and the download link expires after ${unlockLinkMinutes} minutes. Rotation itself uploads nothing: your browser turns a PDF of up to ${ceilingMb} MB.`,
     },
   ],
 
