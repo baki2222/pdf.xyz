@@ -26,7 +26,10 @@ import { DEFAULT_OCR_OUTPUT_MODE, OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
  *    drop zone (one file), the "Summary length" / "Format" selects and their
  *    option labels, the "Focus (optional)" field capped at
  *    MAX_SUMMARY_FOCUS_CHARS, the "Summarize PDF" button (busy label
- *    "Summarizing…"), the TruncationNotice, the "Download <file>" button, and
+ *    jobBusyLabel(job.phase, "Summarizing…"): "Uploading your file…",
+ *    "Waiting for the worker…", "Summarizing…" while the job runs (and during
+ *    the browser's text check), "Downloading the result…" — until 2026-10-07
+ *    the step said "Summarizing…" throughout), the TruncationNotice, the "Download <file>" button, and
  *    the builder being replaced by the unavailability detail plus NotifyMe
  *    when no worker or AI model is available. NotifyMe ("Notify me when this
  *    ships") only COUNTS the ask — notify-me.tsx says there is no waitlist
@@ -224,7 +227,7 @@ const content: ToolContent = {
     },
     {
       title: "Summarize and download",
-      body: `Press Summarize PDF; the button reads Summarizing… while the file uploads and the job runs. When it finishes, the panel fetches the result at once and shows a button naming the ZIP (report.pdf becomes ${EXAMPLE_ZIP}). The ZIP holds summary.md, summary.txt, manifest.json with the provider, model and options, and README.txt.`,
+      body: `Press Summarize PDF. The button then shows where the job is: Uploading your file…, Waiting for the worker… if it is queued, Summarizing… while the worker reads the text and the model writes, and Downloading the result…. When it finishes, the panel has already fetched the result and shows a button naming the ZIP (report.pdf becomes ${EXAMPLE_ZIP}). The ZIP holds summary.md, summary.txt, manifest.json with the provider, model and options, and README.txt.`,
     },
   ],
 

@@ -150,8 +150,8 @@ function offenders(): Map<string, string[]> {
 const KNOWN_STALE: ReadonlySet<string> = new Set([
   // Verifier findings at 028d3a10, each queued for its own fix. html-to-pdf
   // left on 2026-10-07 when its step named all four labels; optimize-web,
-  // pdf-to-pdfa, pdf-to-powerpoint and powerpoint-to-pdf the same day.
-  "summarize-pdf",
+  // pdf-to-pdfa, pdf-to-powerpoint, powerpoint-to-pdf and summarize-pdf the
+  // same day.
   "translate-pdf",
   "unlock-pdf",
   "word-to-pdf",
