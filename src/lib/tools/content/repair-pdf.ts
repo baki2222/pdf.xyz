@@ -21,9 +21,14 @@ import { DEFAULT_SOUNDNESS_POLICY } from "@/lib/workers/soundness/policy";
  *    When no worker is ready, no uploader is shown at all.
  *  - busy state: the button stays busy until runSecurityJob RETURNS, which is
  *    after the output bytes are fetched, on a failed job, or when the poller
- *    gives up (job-polling.ts: "Stopped waiting for the worker — the job may
- *    still finish."). So the step does not say "until the job succeeds or
- *    fails": the page can stop waiting first.
+ *    gives up. So the step does not say "until the job succeeds or fails":
+ *    the page can stop waiting first. When it does, useWorkerJob keeps the
+ *    job as stillRunning and WorkerJobStatus (worker-job.tsx) shows "The
+ *    worker is still on this job" with Keep waiting (polls the SAME job, no
+ *    new upload) and Cancel the job; while busy, a Cancel button sits under
+ *    the run button. Until 2026-10-08 the step said the page "says the job
+ *    may still finish", the poller's own sentence from before useWorkerJob
+ *    (busy-label-claims.test.ts held it on a ratchet until then).
  *  - download: pdf-security-client.ts runSecurityJob fetches the output bytes
  *    into the page BEFORE the result card appears; the Download button saves
  *    those bytes (downloadBytes), it does not follow the stored link.
@@ -138,7 +143,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Repair on the worker",
-      body: "The file uploads and qpdf rewrites it. The button shows where the job is: Uploading your file…, then Waiting for the worker… while it is queued, Repairing on the worker… while qpdf runs, and Downloading the result… as the repaired copy is fetched into the page. It stays busy until that copy is in the page, the job fails, or the page stops waiting and says the job may still finish.",
+      body: "The file uploads and qpdf rewrites it. The button shows where the job is: Uploading your file…, then Waiting for the worker… while it is queued, Repairing on the worker… while qpdf runs, and Downloading the result… as the repaired copy is fetched into the page. A Cancel button under it stops the job while it runs. It stays busy until that copy is in the page, the job fails, or the browser stops waiting; then a note says the worker is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job.",
     },
     {
       title: "Read the warnings, if any",

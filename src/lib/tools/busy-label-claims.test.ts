@@ -260,8 +260,8 @@ const STILL_RUNNING_STALE: ReadonlySet<string> = new Set([
   // Found by this guard on landing (2026-10-07). repair-pdf: the button
   // reads one label until "the page stops waiting and says the job may still
   // finish". powerpoint-to-pdf ("the panel then shows the job's id") left
-  // the same day when its FAQ named Keep waiting.
-  "repair-pdf",
+  // the same day when its FAQ named Keep waiting; repair-pdf left on
+  // 2026-10-08 when its step did, which emptied this ratchet too.
 ]);
 
 describe("a page that says the browser stops waiting names Keep waiting", () => {
