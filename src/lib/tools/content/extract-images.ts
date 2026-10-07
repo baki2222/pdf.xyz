@@ -8,20 +8,31 @@ import { outputName } from "@/lib/pdf/files";
 /*
  * Every behavioural claim below was read from the code on 2026-09-27:
  *  - extractor: src/lib/pdf/extract-images.ts. walk() reads each page's
- *    /Resources /XObject and recurses into Form XObjects; nothing else (no
- *    inline BI/ID/EI images, no /Pattern resources, no annotation appearance
- *    streams), and no content stream is parsed, so no clipping, rotation or
+ *    /Resources /XObject and recurses into Form XObjects; /Pattern resources
+ *    and annotation appearance streams are not walked. Content streams are
+ *    scanned only for inline BI/ID/EI images (scanContent), each reported as
+ *    skipped; no drawing operator is applied, so no clipping, rotation or
  *    flip the page applies reaches the saved file. Dedupe is by indirect-object
  *    tag, so a reused image is emitted once, on the first page it is met.
  *    handleImage: DCTDecode is copied verbatim whatever its colour space
  *    (jpegColorLabel labels CMYK JPEGs, it does not skip them) and the /Decode
  *    check sits BELOW the DCT branch, so a JPEG's /Decode is neither skipped
- *    nor applied; pixel images are extracted only as 8-bit RGB/gray or 1-bit
- *    gray, and written by encodePng with IHDR/IDAT/IEND only — stored
- *    (uncompressed) DEFLATE, no iCCP, no alpha, /SMask never read. Skipped:
- *    JPXDecode, CCITTFaxDecode, JBIG2Decode, other filters, /ImageMask
- *    stencils, custom /Decode arrays on pixel images, CMYK, Indexed and other
- *    colour spaces, other bit depths, oversized or undecodable streams.
+ *    nor applied; pixel images are extracted as 8-bit RGB/gray, 1-bit gray,
+ *    or an Indexed palette over RGB/gray at 1/2/4/8 bits (expandPalette), and
+ *    written by encodePng with IHDR/IDAT/IEND only — stored (uncompressed)
+ *    DEFLATE, no iCCP. Transparency: readTransparency turns an /SMask, a
+ *    colour-key /Mask array or a stencil /Mask stream into the PNG's alpha
+ *    (rgba8/ga8); a masked JPEG, and a mask it cannot apply (/Matte, a size
+ *    mismatch, an unread filter, a custom /Decode, an unread depth), comes
+ *    out opaque with a noTransparency note the runner lists under "saved with
+ *    a caveat". Skipped: JPXDecode, CCITTFaxDecode, JBIG2Decode, other
+ *    filters, /ImageMask stencils, custom /Decode arrays on pixel images,
+ *    CMYK, Lab, Separation, DeviceN and palettes over them, other bit depths,
+ *    inline images, oversized or undecodable streams.
+ *    History: on 2026-09-27 this bullet said "no alpha, /SMask never read"
+ *    and listed Indexed and inline images as unscanned or skipped. That was
+ *    true of the extractor it was read from and false from 8e398575 on, and
+ *    the page kept saying it; tool-faq-substance now builds each case.
  *    Names are page-<p>-image-<n>.<ext>, both zero-padded to one width across
  *    the whole run, so they sort in page order. No literal example is quoted
  *    here: the pad width is a literal inside the extractor, not an exported
@@ -81,8 +92,8 @@ const content: ToolContent = {
 
   intro: [
     "A picture inside a PDF is usually stored as its own image object, at whatever resolution it had when the document was made. This tool reads those objects directly instead of photographing the page, so a product shot, a scanned photo or a chart that was placed as a picture comes back at its real pixel dimensions, with no surrounding text, margins or page background. It runs in your browser: the PDF is read on your device and is not uploaded.",
-    "What you get depends on how each image was stored. JPEG images, CMYK JPEGs included, are written out byte-for-byte as .jpg files. Raw RGB or grayscale pixels at 8 bits per channel, or 1-bit black and white, are rebuilt as lossless PNGs at native size. Nested form objects are searched too, and a picture reused on several pages is saved once, under the first page it appears on.",
-    `Several kinds of image are not recovered yet: JPEG 2000, CCITT and JBIG2 fax-style bitmaps, palette (indexed) colour, CMYK pixel images, spot-colour and Lab images, other bit depths, stencil masks, and pixel images with a custom decode array. Each one is counted as skipped under its reason rather than guessed at. Files up to ${maxMb} MB are accepted, and encrypted PDFs are refused until they are unlocked.`,
+    "What you get depends on how each image was stored. JPEG images, CMYK JPEGs included, are written out byte-for-byte as .jpg files. Raw RGB or grayscale pixels at 8 bits per channel, or 1-bit black and white, are rebuilt as lossless PNGs at native size, and so are palette (indexed) images over RGB or gray, expanded from their palette. Nested form objects are searched too, and a picture reused on several pages is saved once, under the first page it appears on.",
+    `Several kinds of image are not recovered yet: JPEG 2000, CCITT and JBIG2 fax-style bitmaps, CMYK pixel images, spot-colour and Lab images (including palette, or indexed, images built on them), other bit depths, stencil masks painted on their own, pixel images with a custom decode array, and images written inline in a page's drawing instructions. Each one is counted as skipped under its reason rather than guessed at. Files up to ${maxMb} MB are accepted, and encrypted PDFs are refused until they are unlocked.`,
   ],
 
   useCases: [
@@ -134,11 +145,11 @@ const content: ToolContent = {
     },
     {
       q: "Why were no images found at all?",
-      a: "The pages may hold only text and vector drawings. Images written inline in the page's drawing instructions, used as fill patterns, or inside annotations such as stamps are not scanned, and are not listed as skipped either.",
+      a: "The pages may hold only text and vector drawings. Images used as fill patterns or inside annotations such as stamps are not scanned and are not listed. Images written inline in a page's drawing instructions are found but not extracted yet: they appear in the skipped list with that reason.",
     },
     {
       q: "Is transparency kept on logos and cut-out images?",
-      a: "No. A PDF often stores transparency as a separate mask beside the colour image. This tool saves the colour pixels without applying that mask, so an image that looks cut out on the page can come out with a solid background.",
+      a: "For PNGs, yes. When a PDF stores transparency as a separate mask beside a pixel image (a soft mask, a colour-key mask or a stencil mask), that mask becomes the PNG's alpha channel, so a cut-out logo comes out cut out. A JPEG is saved byte-for-byte and cannot carry a mask, so a masked JPEG comes out on a solid background. A few masks also cannot be applied, such as a pre-blended one or one of a different size. The results list every image saved without its transparency and say why.",
     },
     {
       q: "Does my PDF get uploaded?",

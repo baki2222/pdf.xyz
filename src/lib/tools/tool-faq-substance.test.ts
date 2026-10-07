@@ -37,6 +37,7 @@ import {
   PDFArray,
   PDFDict,
   PDFDocument,
+  PDFHexString,
   PDFName,
   PDFNumber,
   PDFRawStream,
@@ -1111,62 +1112,81 @@ describe("the remaining in-browser tools answer what their engines do", () => {
       true,
     );
 
-    // Each kind the answer names, built and run: it must be skipped with a reason.
-    const kinds: { named: string; build: (ctx: PDFContext) => PDFRawStream }[] =
-      [
-        {
-          named: "JPEG 2000",
-          build: (ctx) =>
-            imageStream(ctx, {
-              ColorSpace: "DeviceRGB",
-              BitsPerComponent: 8,
-              Filter: "JPXDecode",
-            }),
+    // Each kind the answer names, built and run: it must be skipped, and for
+    // THAT kind's reason. History: until this was inverted the list named
+    // "palette (indexed)" and built an Indexed image whose palette was the
+    // name /xx. It was skipped, so the guard was green, but for "palette
+    // can't be read", not for being a palette: the extractor has recovered
+    // well-formed palettes over RGB or gray since 8e398575, and the page went
+    // on telling readers they were skipped. The reason pattern is what makes
+    // a malformed fixture fail instead of passing for the wrong reason, and a
+    // well-formed palette is now a POSITIVE control that must be extracted.
+    const palette = (ctx: PDFContext, base: string, entries: number[]) => {
+      const cs = PDFArray.withContext(ctx);
+      cs.push(PDFName.of("Indexed"));
+      cs.push(PDFName.of(base));
+      cs.push(PDFNumber.of(0));
+      cs.push(PDFHexString.of(Buffer.from(entries).toString("hex")));
+      return cs;
+    };
+    const kinds: {
+      named: string;
+      reason: RegExp;
+      build: (ctx: PDFContext) => PDFRawStream;
+    }[] = [
+      {
+        named: "JPEG 2000",
+        reason: /^JPEG 2000/,
+        build: (ctx) =>
+          imageStream(ctx, {
+            ColorSpace: "DeviceRGB",
+            BitsPerComponent: 8,
+            Filter: "JPXDecode",
+          }),
+      },
+      {
+        named: "CCITT",
+        reason: /^CCITT/,
+        build: (ctx) =>
+          imageStream(ctx, {
+            ColorSpace: "DeviceGray",
+            BitsPerComponent: 1,
+            Filter: "CCITTFaxDecode",
+          }),
+      },
+      {
+        named: "JBIG2",
+        reason: /^JBIG2/,
+        build: (ctx) =>
+          imageStream(ctx, {
+            ColorSpace: "DeviceGray",
+            BitsPerComponent: 1,
+            Filter: "JBIG2Decode",
+          }),
+      },
+      {
+        named: "CMYK",
+        reason: /^CMYK/,
+        build: (ctx) =>
+          imageStream(ctx, {
+            ColorSpace: "DeviceCMYK",
+            BitsPerComponent: 8,
+            Filter: "FlateDecode",
+          }),
+      },
+      {
+        named: "palette images built on them",
+        reason: /^Indexed \(palette\) image over DeviceCMYK/,
+        build: (ctx) => {
+          const s = imageStream(ctx, { BitsPerComponent: 8 });
+          s.dict.set(
+            PDFName.of("ColorSpace"),
+            palette(ctx, "DeviceCMYK", [0, 0, 0, 0]),
+          );
+          return s;
         },
-        {
-          named: "CCITT",
-          build: (ctx) =>
-            imageStream(ctx, {
-              ColorSpace: "DeviceGray",
-              BitsPerComponent: 1,
-              Filter: "CCITTFaxDecode",
-            }),
-        },
-        {
-          named: "JBIG2",
-          build: (ctx) =>
-            imageStream(ctx, {
-              ColorSpace: "DeviceGray",
-              BitsPerComponent: 1,
-              Filter: "JBIG2Decode",
-            }),
-        },
-        {
-          named: "CMYK",
-          build: (ctx) =>
-            imageStream(ctx, {
-              ColorSpace: "DeviceCMYK",
-              BitsPerComponent: 8,
-              Filter: "FlateDecode",
-            }),
-        },
-        {
-          named: "palette (indexed)",
-          build: (ctx) => {
-            const cs = PDFArray.withContext(ctx);
-            cs.push(PDFName.of("Indexed"));
-            cs.push(PDFName.of("DeviceRGB"));
-            cs.push(PDFNumber.of(1));
-            cs.push(PDFName.of("xx"));
-            const s = imageStream(ctx, {
-              BitsPerComponent: 8,
-              Filter: "FlateDecode",
-            });
-            s.dict.set(PDFName.of("ColorSpace"), cs);
-            return s;
-          },
-        },
-      ];
+      },
+    ];
     const tool = mounting("extract-images")[0]!;
     const skippedAnswer = answer(tool.slug, /skipped/);
     for (const kind of kinds) {
@@ -1180,8 +1200,116 @@ describe("the remaining in-browser tools answer what their engines do", () => {
       const r = await extractPdfImages(await d.save());
       expect(r.images, kind.named).toHaveLength(0);
       expect(r.skipped, kind.named).toHaveLength(1);
-      expect(r.skipped[0]!.reason.length).toBeGreaterThan(0);
+      expect(r.skipped[0]!.reason, kind.named).toMatch(kind.reason);
     }
+
+    // Inline images: found in the drawing instructions and listed as skipped,
+    // which the "skipped" answer and the "no images found" answer both say.
+    const inline = await PDFDocument.create();
+    inline
+      .addPage([100, 100])
+      .node.set(
+        PDFName.of("Contents"),
+        inline.context.register(
+          inline.context.stream(
+            "q 10 0 0 10 0 0 cm BI /W 1 /H 1 /CS /G /BPC 8 ID A EI Q",
+          ),
+        ),
+      );
+    const inlineRun = await extractPdfImages(await inline.save());
+    expect(inlineRun.images).toHaveLength(0);
+    expect(inlineRun.skipped.map((k) => k.reason)).toEqual([
+      "Inline image (not yet supported)",
+    ]);
+    expect(skippedAnswer).toContain("images written inline");
+    const noneFound = answer(tool.slug, /no images found/);
+    expect(noneFound).toMatch(
+      /written inline[^.]*: they appear in the skipped list/,
+    );
+    expect(noneFound).not.toMatch(/inline[^.]*not listed as skipped/);
+
+    // A palette over RGB is recovered as a PNG. So no served sentence may put
+    // "palette" in a not-recovered or skipped list without "built on them".
+    // The corpus is the two shipped sentences that did, held to be caught,
+    // and the served page, held to mention palettes at all and to be clean.
+    const rgbPalette = await PDFDocument.create();
+    const pctx = rgbPalette.context;
+    const pal = imageStream(pctx, { BitsPerComponent: 8 });
+    pal.dict.set(
+      PDFName.of("ColorSpace"),
+      palette(pctx, "DeviceRGB", [255, 0, 0]),
+    );
+    rgbPalette
+      .addPage([100, 100])
+      .node.setXObject(PDFName.of("Im0"), pctx.register(pal));
+    const palRun = await extractPdfImages(await rgbPalette.save());
+    expect(palRun.skipped).toEqual([]);
+    expect(palRun.images.map((i) => i.format)).toEqual(["png"]);
+    const saysPaletteSkipped = (sentence: string) =>
+      /palette/i.test(sentence) &&
+      /not recovered|skipped|cannot be turned back/i.test(sentence) &&
+      !/palette[^.]*built on them/i.test(sentence);
+    const shipped = [
+      "Several kinds of image are not recovered yet: JPEG 2000, CCITT and JBIG2 fax-style bitmaps, palette (indexed) colour, CMYK pixel images, spot-colour and Lab images, other bit depths, stencil masks, and pixel images with a custom decode array.",
+      "Some ways of storing an image cannot be turned back into an ordinary picture file faithfully — JPEG 2000, black-and-white fax images (CCITT and JBIG2), palette (indexed) images and CMYK images among them.",
+    ];
+    for (const sentence of shipped)
+      expect(saysPaletteSkipped(sentence), sentence).toBe(true);
+    const sentences = (t: string) => t.split(/(?<=[.!?])\s+/);
+    const served = [
+      ...sentences(page(tool.slug).text),
+      ...page(tool.slug).faq.flatMap((e) => sentences(e.answer)),
+    ];
+    expect(served.filter((x) => /palette/i.test(x)).length).toBeGreaterThan(1);
+    expect(served.filter(saysPaletteSkipped)).toEqual([]);
+
+    // Transparency: a soft mask beside a pixel image becomes the PNG's alpha
+    // (IHDR colour type 6, RGB + alpha); a masked JPEG is kept byte for byte,
+    // opaque, and carries a note the runner lists. The answer says both.
+    const masked = await PDFDocument.create();
+    const mctx = masked.context;
+    const smask = mctx.register(
+      mctx.stream(new Uint8Array([128]), {
+        Type: "XObject",
+        Subtype: "Image",
+        Width: 1,
+        Height: 1,
+        ColorSpace: "DeviceGray",
+        BitsPerComponent: 8,
+      } as never),
+    );
+    const rgb = mctx.stream(new Uint8Array([255, 0, 0]), {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: 1,
+      Height: 1,
+      ColorSpace: "DeviceRGB",
+      BitsPerComponent: 8,
+    } as never);
+    rgb.dict.set(PDFName.of("SMask"), smask);
+    const maskedJpg = await embedRasterImage(masked, JPG_1X1, "jpg");
+    const mpage = masked.addPage([100, 100]);
+    mpage.node.setXObject(PDFName.of("Im0"), mctx.register(rgb));
+    mpage.drawImage(maskedJpg, { x: 0, y: 0, width: 10, height: 10 });
+    await masked.flush();
+    const jpgStream = mctx.lookup(maskedJpg.ref);
+    if (!(jpgStream instanceof PDFRawStream)) {
+      throw new Error("the embedded JPEG is not a raw stream");
+    }
+    jpgStream.dict.set(PDFName.of("SMask"), smask);
+    const maskedRun = await extractPdfImages(await masked.save());
+    const png = maskedRun.images.find((i) => i.format === "png")!;
+    const jpeg = maskedRun.images.find((i) => i.format === "jpg")!;
+    expect(png.bytes[25], "PNG colour type 6 = RGB + alpha").toBe(6);
+    expect(png.note).toBeUndefined();
+    expect(jpeg.note).toMatch(/^Saved without its transparency/);
+    expect(runnerSource(tool.slug)).toContain("saved with a caveat");
+    const transparency = answer(tool.slug, /transparency/);
+    expect(transparency).toMatch(/^For PNGs, yes\./);
+    expect(transparency).toContain(
+      "masked JPEG comes out on a solid background",
+    );
+    expect(transparency).toContain("saved without its transparency");
     expect(answer(tool.slug, /full quality/)).toContain("byte for byte");
   });
 

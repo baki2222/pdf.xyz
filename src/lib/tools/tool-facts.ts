@@ -1243,7 +1243,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "Why are some images skipped?",
           answer:
-            "Some ways of storing an image cannot be turned back into an ordinary picture file faithfully — JPEG 2000, black-and-white fax images (CCITT and JBIG2), palette (indexed) images and CMYK images among them. Those are listed as skipped, with the reason, instead of being guessed at.",
+            "Some ways of storing an image cannot be turned back into an ordinary picture file faithfully — JPEG 2000, black-and-white fax images (CCITT and JBIG2), CMYK and other print-colour images (palette images built on them included), and images written inline in a page's drawing instructions among them. Those are listed as skipped, with the reason, instead of being guessed at.",
         },
       ];
     case "compare":
