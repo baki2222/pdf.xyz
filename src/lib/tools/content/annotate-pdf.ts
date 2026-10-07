@@ -91,17 +91,24 @@ const largestPack = packsBySize[packsBySize.length - 1]!;
  *   - an Arabic note was refused naming the characters and "reversed"; a Thai
  *     note was refused naming "no Thai face is shipped";
  *   - Bengali and Japanese notes in one job were refused as mixed scripts.
- * Not run as a real job: the /Rotate drawing claim is from the code —
- * drawAnnotation passes no rotation and pdf-lib draws in unrotated content
- * space — and the signature claim is from pdf-lib's `save()`, which writes a
- * whole new file (no incremental update), so a prior /ByteRange no longer
- * covers the bytes.
- * Only the anchor of a note is bounds-checked (`pointOnPage(x, y)`), so its text
- * can run past the right edge (Wrap 0, or X + Wrap wider than the page: the
- * Wrap field's max is the page width, not width - X) and wrapped lines can run
- * below the bottom; shapes and both line ends are checked in full. Page sizes
- * come from `page.getSize()`, which is the MEDIA box, and validation uses it,
- * so a mark can sit in a margin a smaller crop box hides.
+ * The signature claim is from pdf-lib's `save()`, which writes a whole new
+ * file (no incremental update), so a prior /ByteRange no longer covers the
+ * bytes.
+ *
+ * RE-READ 2026-10-07 at d3263ff7, history kept. This block used to say the
+ * /Rotate drawing claim came from drawAnnotation passing no rotation, that only
+ * a note's anchor was bounds-checked, and that page sizes were the MEDIA box
+ * from `page.getSize()` — and the "X and Y" FAQ told readers exactly that. All
+ * three went stale under it: `getAnnotatePageSizes` now returns
+ * `displayedSize(pageFrame(page))` (the crop box clipped to the media box,
+ * width and height swapped on /Rotate 90 or 270), the readout, input bounds,
+ * validation and preview all read it, `toContentSpace` adds the crop box's
+ * origin after turning, note glyphs are drawn with `rotate: frame.rotation`
+ * so they read upright, and `noteFitIssues` measures every wrapped line with
+ * the font Apply will use. Add markup runs that check (`findNoteOverflows`)
+ * and Apply repeats it (`annotatePdf` → `refuseIssues`), so a note past the
+ * right edge, above the top or below the bottom is refused with its overflow
+ * in points (EDGE_EPSILON = 0.5 pt), never drawn clipped.
  * The result panel's "across N pages" is `result.pageCount`, the document's
  * page count, not the number of pages that received a markup.
  */
@@ -153,7 +160,7 @@ const content: ToolContent = {
     },
     {
       title: "Add it and check the preview",
-      body: "Press Add markup. A shape that would spill off the page, an empty note or a line whose ends coincide is rejected at once with the reason. Accepted markups are listed with a remove button each, and those on the page in the Page field appear on that page's preview outline.",
+      body: "Press Add markup. A shape that would spill off the page, a note whose text would run past an edge, an empty note or a line whose ends coincide is rejected at once with the reason. Accepted markups are listed with a remove button each, and those on the page in the Page field appear on that page's preview outline.",
     },
     {
       title: "Apply and download",
@@ -172,7 +179,7 @@ const content: ToolContent = {
     },
     {
       q: "How do I work out the X and Y numbers?",
-      a: "Measure in points from the lower-left corner: larger X moves right, larger Y moves up, and the top edge is at the page height shown in the readout by the swatches. Typing rounds a field to a whole point and stops it at the page's size, and Add markup refuses a shape that still spills over. A note is checked only at its anchor, the first line's baseline, so its text can run off the right edge when Wrap is 0 or X plus Wrap is wider than the page, and extra lines can run below the bottom. The numbers describe the page's media box before any /Rotate flag: on a turned page a note can read sideways and the readout and preview show the page unturned, and where a smaller crop box trims the page, a mark placed in the trimmed margin will not show.",
+      a: "Measure in points from the lower-left corner of the page as a viewer shows it: larger X moves right, larger Y moves up, and the top edge is at the page height shown in the readout by the swatches. A rotated or cropped page is measured as displayed. The readout and preview show it turned, its origin is the visible corner of the crop box, and notes on a turned page still read upright. Typing rounds a field to a whole point and stops it at the page's size, and Add markup refuses a shape that still spills over. A note is measured in the font Apply will use. If its text would run past the right edge, rise above the top or run below the bottom, it is refused with the number of points it overflows by. You can then move it, shorten it or narrow its Wrap width.",
     },
     {
       q: "Does annotating change anything else in my PDF?",

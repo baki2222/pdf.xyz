@@ -18,7 +18,16 @@ import { MIN_CROP_DIMENSION } from "@/lib/pdf/crop";
  *
  * Real jobs run through `cropPdf` / `getPageRotations` the same day:
  *  - a /Rotate 90 page with Top = 40 rendered (poppler, -cropbox) 40 pt
- *    narrower, with the band that sat on the DISPLAYED RIGHT edge gone;
+ *    narrower, with the band that sat on the DISPLAYED RIGHT edge gone. TRUE
+ *    THEN, FALSE SINCE 4844aad3: cropPdf now insets `visiblePageFrame(page)`
+ *    by `toContentMargins(margins, rotation)`, so the same run removes the
+ *    band on the DISPLAYED TOP edge, and `getPageSizes` (the preview's
+ *    source) reports the page as displayed. The rotated-page FAQ kept the old
+ *    answer ("Top trims what you see as the right-hand edge … move the slider
+ *    for the matching stored edge") until 2026-10-07, and a use case pointed
+ *    readers at it; displayed-frame-claims.test.ts now holds every page whose
+ *    engine reads the displayed frame to copy that does not describe the
+ *    stored one;
  *  - owner-password-only files (pypdf, RC4-40 and RC4-128, empty user
  *    password) were refused at open with "This PDF is password-protected.
  *    Unlock it first, then try again." AES was not exercised;
@@ -59,7 +68,7 @@ const content: ToolContent = {
     },
     {
       title: "Crop just the landscape inserts",
-      body: "Choose Selected pages and list only the wide chart pages, so the portrait pages around them keep their original size. If those inserts are stored upright and only turned by a rotation setting, read the FAQ on rotated pages before choosing which edge to trim.",
+      body: "Choose Selected pages and list only the wide chart pages, so the portrait pages around them keep their original size. Margins follow each page as your viewer displays it, so on a landscape insert Top trims the edge you see at the top, even when the insert is stored upright and only turned by a rotation setting.",
     },
   ],
 
@@ -92,8 +101,8 @@ const content: ToolContent = {
       a: `The button stays disabled while every slider sits at 0, because there is nothing to crop. If the margins you set would leave a page narrower or shorter than ${minPt} points, the run stops and names the first page that failed so you can reduce them. A Pages entry that is empty, backwards or past the last page is also rejected with a message. Each slider stops at a fixed maximum; for a deeper cut, crop the downloaded copy again, since margins are measured from the visible area that is left.`,
     },
     {
-      q: "My page is rotated and the wrong edge was trimmed. Why?",
-      a: "Margins are applied to the page as it is stored in the file, before any rotation setting a viewer applies. On a page stored upright and displayed turned a quarter-turn clockwise, Top trims what you see as the right-hand edge. In Per side mode, move the slider for the matching stored edge. Crop preview draws page 1 unrotated, as stored, so on a rotated page 1 the outline looks turned compared with your viewer, but its dashed edges line up with the sliders that move them.",
+      q: "Does Crop PDF work on rotated pages?",
+      a: "Yes. Margins are measured on the page as your viewer shows it, after any rotation setting in the file, so Top always trims the edge you see at the top, whether a page is stored upright and turned for display or stored turned. In Per side mode, move the slider named for the edge you can see. Crop preview draws page 1 in the same displayed proportions, so a portrait page turned a quarter-turn shows as a landscape outline, and its dashed box marks what the sliders keep.",
     },
     {
       q: "Will the cropped file be smaller?",

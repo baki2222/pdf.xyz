@@ -26,11 +26,16 @@ import {
  *  - A password-protected PDF is refused when it OPENS: `useSinglePdf` calls
  *    `getPageRotations` → `engine.load` → `loadPdf`, which maps /encrypt/ to
  *    "This PDF is password-protected. Unlock it first, then try again."
- *  - `validateEditOps` checks a text item's ANCHOR point only, never the
- *    extent of the drawn string; boxes, images and both line ends are checked
- *    whole. So "anything that spills off the page is refused" would be false.
- *    `wrapText` flows wrapped lines DOWN from Y with nothing bounding them, and
- *    the Wrap field's max is the page width, not the space right of X.
+ *  - Text fit. `validateEditOps` still checks only a text item's anchor, but
+ *    since c25f9c80 the runner's Add to page also awaits `checkEditTextFit`
+ *    over the whole queue, which measures every wrapped line in the font the
+ *    export will embed (`textOverflow`: right edge, last baseline below 0,
+ *    first ascent above the top, EDGE_EPSILON 0.5), and `editPdf` repeats it
+ *    before drawing. The right-edge message names `floor(width - X)` as the
+ *    Wrap width, and the Wrap field's max is `maxW - X`. WAS, until
+ *    2026-10-07 on this page: "Text is checked only at its starting point, so
+ *    a long line can run past the right edge" — true when this bullet was
+ *    written, and the bullet is what kept it on the page.
  *  - `PagePreview` is a white box at the page's aspect ratio with markers for
  *    queued items; it renders none of the document, so the copy calls it an
  *    outline, not a preview of the page.
@@ -38,20 +43,31 @@ import {
  *    to fit, so "start at the picture's own proportions" is the runner's.
  *  - Non-WinAnsi text loads the coverage chunk and fontkit as code, then the
  *    face from `fontPackUrl`; none of those requests carries document data.
- *  - Sizes come from pdf-lib `getSize()` (the MediaBox), so Y = H is the top
- *    of the full page box, which a CropBox can hide.
+ *  - Sizes come from `getEditPageSizes` → `editPageFrame` → `visiblePageFrame`:
+ *    the visible CropBox clipped to the MediaBox, turned by /Rotate. Every op
+ *    is mapped with `viewToContent` and drawn with `rotate: frame.rotation`, so
+ *    it reads upright. WAS (until c25f9c80 in code, 2026-10-07 on this page):
+ *    sizes from pdf-lib `getSize()`, the MediaBox, positions on the unrotated
+ *    page, "so new content turns with it".
  *
  * Probed 2026-09-27 against the real engine (`editPdf` in Node, the shipped
  * Noto TTFs as the font source):
  *  - a Bengali box on page 1 plus a Chinese box on page 2 in one run is
- *    refused ("This text mixes Bengali and Chinese…"); Hebrew is refused by
+ *    refused ("This text mixes Bengali and Chinese…") — by editPdf, which is
+ *    where this probe ran. Through the page the refusal now comes earlier: Add
+ *    to page runs `checkEditTextFit` over the queue plus the new item, which
+ *    embeds the batch font, so the second script is never queued and Apply
+ *    is never reached (the FAQ said "stop Apply" until 2026-10-07); Hebrew
+ *    is refused by
  *    name; Bengali, Chinese, Japanese and Korean EACH succeed alongside an
  *    English text item in the same run;
  *  - a text field's value and the document title survive an edit;
  *  - a white filled box drawn over "SECRET 12345" leaves that string in the
  *    output's text content as pdf.js extracts it (the hide-not-remove claim);
  *  - a 30 pt line anchored at x=600 on a 612 pt page was accepted, i.e. text
- *    can run past the edge without a refusal.
+ *    could run past the edge without a refusal. INVERTED by c25f9c80: the
+ *    same line is now refused by `textOverflow` ("runs past the right edge
+ *    … Set a Wrap width of 12 pt or less").
  *
  * Control labels ("Text", "Box", "Line", "Image", "Page", "X (pt)", "Y (pt)",
  * "Wrap (pt)", "Font size", "Width (pt)", "Height (pt)", "Filled"/"Outline",
@@ -131,7 +147,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Add to page",
-      body: "The item joins a list, with a bin button to remove it, and shows on that page's outline. A box, picture or line end that falls off the page is refused with a message. Text is checked only at its starting point, so a long line can run past the right edge and wrapped lines past the bottom; a Wrap (pt) no wider than the space right of X keeps it in.",
+      body: "The item joins a list, with a bin button to remove it, and shows on that page's outline. When you press Add to page, anything that would not fit is refused with a message: a box, picture or line end off the page, or text that would run past the right edge, below the bottom or above the top, measured in the font it will be drawn with. For a line that runs past the right edge, the message names the Wrap (pt) width to set, which is the space between X and the right edge.",
     },
     {
       title: "Apply the edits and download",
@@ -150,7 +166,7 @@ const content: ToolContent = {
     },
     {
       q: "Which languages can I type onto a page?",
-      a: `Text can be written in the ${scripts} scripts.${rtlSentence} The font is chosen once for every text item in the queue, so Bengali on page 1 and Chinese on page 2 stop Apply with a message naming both, even though each works alone. Put one of them on in a first pass, then open the downloaded file here again for the second.`,
+      a: `Text can be written in the ${scripts} scripts.${rtlSentence} One font is chosen for every text item in the queue. So once a Bengali item is queued, pressing Add to page on a Chinese one, even on another page, is refused with a message naming both scripts, although each works on its own. Put one of them on in a first pass, then open the downloaded file here again for the second.`,
     },
     {
       q: "Does a white box remove what is underneath?",
@@ -158,7 +174,7 @@ const content: ToolContent = {
     },
     {
       q: "How do I find the right X and Y values?",
-      a: "Larger Y values sit higher. A line above the fields gives the chosen page's width and height in points (W × H), and Y = H is the top of that full page box; a file cropped to a smaller visible area can show its top edge lower. For text, Y is the baseline of the first line. On a page stored with a rotation setting, positions are measured on the unrotated page, so new content turns with it.",
+      a: "Larger Y values sit higher. A line above the fields gives the chosen page's width and height in points (W × H) as a viewer shows it, meaning the visible area after any crop, turned by any rotation setting. So X = 0, Y = 0 is the visible bottom-left corner and Y = H is the visible top edge. For text, Y is the baseline of the first line. On a rotated page, new text, boxes and pictures are turned so they read upright on screen.",
     },
   ],
 
