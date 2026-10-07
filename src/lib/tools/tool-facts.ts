@@ -826,7 +826,10 @@ const capitalized = (text: string) =>
  * What a page tool's export keeps, composed from {@link PAGE_TOOL_CARRIES}:
  * so the sentence and the table cannot disagree, and the test holds the
  * table to the engine. `inPlaceWhenOnlyTurned` is Organize's: a plan that
- * keeps every page once, in order, is saved in place (`organizePages`).
+ * keeps every page once, in order, is saved in place (`organizePages`), and
+ * stamp() still rewrites its Producer, Creator and ModDate — the sentence said
+ * it "keeps everything" until 2026-10-08 (tool-page-substance.test.ts runs
+ * that plan and requires each rewritten entry to be named).
  */
 export function pageToolKeeps(
   state: PageToolState,
@@ -854,7 +857,7 @@ export function pageToolKeeps(
       ? `${capitalized(listed(dropped))} ${dropped.length > 1 ? "are" : "is"} not carried.`
       : "",
     inPlaceWhenOnlyTurned
-      ? "If you only turn pages, the export is not rebuilt at all: the file is saved in place and keeps everything, attached files and tags included."
+      ? "If you only turn pages, the export is not rebuilt at all: the file is saved in place and keeps everything, attached files and tags included, except its Producer and Creator entries, which now name pdf.xyz, and its modification date, which becomes the time you exported."
       : "",
   ]
     .filter(Boolean)

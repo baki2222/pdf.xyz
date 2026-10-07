@@ -782,8 +782,11 @@ describe("Rotate PDF names every document entry its engine rewrites", () => {
   const SIGNATURE =
     /\b(?:digital|certificate) (?:\(certificate\) )?signature\b[^.]*\b(?:no longer verify|stops? verifying)\b/i;
 
-  async function rewrittenEntries(): Promise<string[]> {
-    const engine = ENGINE_FOR_RUNNER[getRunnerKind("rotate-pdf")!]!;
+  async function rewrittenEntries(
+    run: (bytes: Uint8Array) => Promise<Uint8Array> = ENGINE_FOR_RUNNER[
+      getRunnerKind("rotate-pdf")!
+    ]!.run,
+  ): Promise<string[]> {
     const doc = await PDFDocument.create({ updateMetadata: false });
     doc.addPage([300, 400]);
     doc.addPage([300, 400]);
@@ -802,10 +805,7 @@ describe("Rotate PDF names every document entry its engine rewrites", () => {
         dict.entries().map(([k, v]) => [k.decodeText(), v.toString()]),
       );
     };
-    const [was, now] = [
-      await info(before),
-      await info(await engine.run(before)),
-    ];
+    const [was, now] = [await info(before), await info(await run(before))];
     // Health: the fixture set six entries, and the engine kept them all present.
     expect(was.size).toBe(6);
     return [...now.keys()].filter((k) => now.get(k) !== was.get(k));
@@ -844,6 +844,47 @@ describe("Rotate PDF names every document entry its engine rewrites", () => {
     }
     // The served HTML carries the intro as written.
     expect(served.text).toContain(intro.slice(0, 80));
+  });
+
+  /**
+   * Organize saves a plan that only turns pages in place, through the same
+   * stamp() — and its derived answer said the file "keeps everything", and
+   * its intro "with everything in it", until 2026-10-08. The in-place plan is RUN here and the served sentence must
+   * name each entry it rewrote.
+   */
+  const SHIPPED_IN_PLACE = [
+    "If you only turn pages, the export is not rebuilt at all: the file is saved in place and keeps everything, attached files and tags included.",
+    "Attached files and a tagged PDF's accessibility tags are left out of a rebuilt export; if you only turned pages, the file is saved in place with everything in it.",
+  ];
+
+  it("Organize's in-place sentence names every entry its in-place plan rewrites", async () => {
+    const inPlace = ENGINE_FOR_RUNNER.organize!.inPlace!;
+    const changed = await rewrittenEntries(inPlace);
+    expect(changed).toEqual(expect.arrayContaining(["Producer", "Creator"]));
+    expect(changed).not.toContain("Title");
+    for (const shipped of SHIPPED_IN_PLACE)
+      expect(names(shipped, changed).length, shipped).toBeLessThan(
+        changed.length,
+      );
+    const subjects = tools.filter((t) => getRunnerKind(t.slug) === "organize");
+    expect(subjects.length, "no tool mounts the organize runner").toBe(1);
+    for (const tool of subjects) {
+      // Every served sentence about the in-place save: the derived FAQ
+      // answer AND the authored intro, which said "with everything in it".
+      const served = [
+        ...new Set(
+          copyAbout(tool)
+            .flatMap(sentencesOf)
+            .filter((s) => /\bsaved in place\b/.test(s)),
+        ),
+      ];
+      expect(
+        served.length,
+        `${tool.slug}: the intro and the FAQ should each say it`,
+      ).toBeGreaterThanOrEqual(2);
+      for (const sentence of served)
+        expect(names(sentence, changed), sentence).toEqual(changed);
+    }
   });
 });
 

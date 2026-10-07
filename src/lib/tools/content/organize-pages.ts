@@ -15,6 +15,10 @@ import { MAX_HISTORY } from "@/components/tools/runner/organize-history";
  * fields, but not attachments or the tag tree. The intro said the bookmark
  * tree and the form dictionary stayed behind until then;
  * tool-page-substance.test.ts runs both plans and reads the served page.
+ * The in-place save still goes through stamp(), so Producer and Creator
+ * become pdf.xyz and ModDate the save time (probed 2026-10-08); the intro
+ * said "with everything in it" until then, and the same test now runs the
+ * in-place plan and holds every in-place sentence to the entries it rewrote.
  */
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS.organize / (1024 * 1024));
 
@@ -28,7 +32,7 @@ const content: ToolContent = {
   intro: [
     "Organize Pages opens one PDF and lays every page out as a thumbnail tile on a board. Drag a tile to a new slot or nudge it one place with its arrow buttons; other buttons on the tile turn the page a quarter turn clockwise, drop a copy right after it, or remove it. Above the board, Reverse flips the whole order and Reset restores the order and rotation the file arrived with.",
     `The work happens in your browser tab: the file is read and rebuilt there with pdf-lib and is not uploaded, which suits contracts and statements you would rather keep on your own machine. It opens one PDF at a time, up to ${MAX_MB} MB. Each tile carries two numbers, a corner badge for its new position and a label for its original page, so you can see at a glance what moved. Undo walks back up to ${MAX_HISTORY} edits.`,
-    "Export writes a new PDF from the pages in board order. Each page is copied across rather than re-rendered, so its content is untouched and selectable text stays selectable. Bookmarks that open a kept page, the kept pages' form fields and the document's title, author, page labels and language come along. Attached files and a tagged PDF's accessibility tags are left out of a rebuilt export; if you only turned pages, the file is saved in place with everything in it.",
+    "Export writes a new PDF from the pages in board order. Each page is copied across rather than re-rendered, so its content is untouched and selectable text stays selectable. Bookmarks that open a kept page, the kept pages' form fields and the document's title, author, page labels and language come along. Attached files and a tagged PDF's accessibility tags are left out of a rebuilt export; if you only turned pages, the file is saved in place with everything in it, except that its Producer and Creator entries now name pdf.xyz and its modification date is updated.",
   ],
 
   useCases: [
