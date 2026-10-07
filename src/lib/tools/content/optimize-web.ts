@@ -7,9 +7,11 @@ import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
 /*
  * Every behavioral claim below was read from the code on 2026-09-27:
  *  - panel: src/components/tools/pdf-structure-worker-panel.tsx — the live
- *    worker check ("Secure worker" / "Not enabled" badge, no uploader and a
- *    count-only "Notify me when this ships" button while unavailable), the compact dropzone "Add a PDF, or
- *    browse", one file only, the "Optimize on the worker" button, and
+ *    worker check ("Secure worker" / "Not enabled" badge; no uploader until
+ *    the check says yes: "Checking the secure worker…" while it runs, "Check
+ *    again" when it fails (WorkerStatusPending), and a count-only "Notify me
+ *    when this ships" button only once the worker is known to be off), the
+ *    compact dropzone "Add a PDF, or browse", one file only, the "Optimize on the worker" button, and
  *    "Download <name>" on success. There is no options control and no
  *    password field.
  *  - engine: src/lib/workers/pdf-structure/native.ts runs `qpdf --linearize`
@@ -17,9 +19,15 @@ import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
  *    `%PDF-` header in the first 1 KiB or no `%%EOF` in the last 2 KiB), and
  *    holds the output to the same check. qpdf exit 3 ("warnings, output
  *    written") is ACCEPTED for linearize too, so damage inside a file that
- *    passes looksLikePdf is silently worked around, and the processor attaches
- *    qpdf warnings only for repair-pdf. Any other exit, a timeout, or output
- *    failing the check → the job fails with no output.
+ *    passes looksLikePdf is worked around, and (since 2026-09-27) the
+ *    processor attaches qpdf's warnings for BOTH tools; OptimizeOutcome shows
+ *    them above the download (RepairWarnings variant "optimize"). Until
+ *    2026-10-07 this said repair-only and the FAQ told readers this page
+ *    shows no warnings. Any other exit, a timeout, output failing the check,
+ *    or output that is not linearized (isLinearized) → the job fails with no
+ *    output.
+ *  - button: jobBusyLabel(phase, "Optimizing on the worker…"), so the step
+ *    names all four stages; busy-label-claims.test.ts holds it to that.
  *  - download: runSecurityJob fetches the output into the page as soon as the
  *    job completes; "Download <name>" saves those in-memory bytes. The outputTtlMinutes
  *    figure is the worker link, not the button.
@@ -87,7 +95,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Wait for the worker check",
-      body: "On load the panel asks the worker status endpoint whether a worker is ready to accept jobs, and shows the answer in a badge, which reads “Secure worker” on the live site. Until that answer is yes, no drop box is shown; the panel offers “Notify me when this ships” instead, and pressing that only adds one to a count of requests for this tool.",
+      body: "On load the panel asks the worker status endpoint whether a worker is ready to accept jobs, and shows the answer in a badge, which reads “Secure worker” on the live site. Until that answer is yes, no drop box is shown: while the check runs the panel says “Checking the secure worker…”, a failed check offers “Check again”, and if the worker is not enabled it offers “Notify me when this ships”, which only adds one to a count of requests for this tool.",
     },
     {
       title: "Add one PDF",
@@ -95,7 +103,7 @@ const content: ToolContent = {
     },
     {
       title: "Click “Optimize on the worker”",
-      body: "There are no options to set. The button reads “Optimizing on the worker…” while the file uploads and qpdf linearizes it; before the result is accepted, the worker checks it is not empty and has a PDF header near its start and an end-of-file marker near its end.",
+      body: "There are no options to set. The button shows each stage in turn: “Uploading your file…”, “Waiting for the worker…” while the job is queued, “Optimizing on the worker…” while qpdf linearizes it, then “Downloading the result…”. Before the result is accepted, the worker checks that it is not empty, has a PDF header near its start and an end-of-file marker near its end, and is actually linearized.",
     },
     {
       title: "Download the result",
@@ -118,7 +126,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my PDF refused or why did the job fail?",
-      a: "Before qpdf runs, the file must have a PDF header (%PDF-) near its start and an end-of-file marker (%%EOF) near its end; otherwise it is refused as not readable as a PDF. A missing end marker is what a cut-off download loses, and Repair PDF accepts such files, so try it there first. A missing header usually means the file is not a PDF at all, and Repair PDF refuses that too. Deeper damage in a file that has both markers is not refused: if qpdf can work around it the job succeeds, but this page does not show qpdf's warnings, while Repair PDF does. Encrypted files that ask for a password before opening fail, because this tool hands qpdf no password and has no field for one; take the password off with Unlock PDF first. A qpdf error, a timeout, or output missing either marker ends in a failed job with no download, never a half-written file.",
+      a: "Before qpdf runs, the file must have a PDF header (%PDF-) near its start and an end-of-file marker (%%EOF) near its end. A file with no header is refused as not readable as a PDF; it is usually not a PDF at all, and Repair PDF refuses it too. A file with a header but no end marker is refused as damaged or cut off, which is what an interrupted download loses; Repair PDF accepts such files and the message sends you there, so repair it first and optimize the repaired copy. Deeper damage in a file that has both markers is not refused: if qpdf can work around it the job succeeds, and qpdf's warnings are listed above the download so you can check the rebuilt parts against your original. Encrypted files that ask for a password before opening fail, because this tool hands qpdf no password and has no field for one; take the password off with Unlock PDF first. A qpdf error, a timeout, or output that is missing either marker or is not actually linearized ends in a failed job with no download, never a half-written file.",
     },
     {
       q: "Is it safe to linearize a digitally signed PDF?",
