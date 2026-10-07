@@ -12,7 +12,7 @@
  * Negative control: a path that names no tool renders no "did you mean" at
  * all, rather than a guess.
  */
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getAllToolSlugs, getToolBySlug, tools } from "@/lib/tools";
 import { toolsForMissingPath } from "@/lib/tools/path-suggest";
@@ -25,6 +25,19 @@ const { default: NotFound } = await import("./not-found");
 afterEach(() => {
   pathname = "/";
 });
+
+/**
+ * The suggestion loads its matcher on mount (a static import put the whole
+ * catalogue in every route's first load; see missing-path-suggestion.tsx), so
+ * it renders AFTER the import settles. Every test waits the same way, so the
+ * positive tests prove this wait is long enough for the negative control.
+ */
+async function renderAndSettle() {
+  render(<NotFound />);
+  await act(async () => {
+    await import("@/lib/tools/path-suggest");
+  });
+}
 
 describe("toolsForMissingPath", () => {
   it("finds every tool from its own slug at the site root", () => {
@@ -52,9 +65,9 @@ describe("toolsForMissingPath", () => {
 });
 
 describe("the 404 page", () => {
-  it("offers the tool the missing path names", () => {
+  it("offers the tool the missing path names", async () => {
     pathname = "/merge-pdf";
-    render(<NotFound />);
+    await renderAndSettle();
     const merge = getToolBySlug("merge-pdf")!;
     // Scoped to the suggestion: the popular-tools row may list Merge PDF too.
     const box = screen.getByText(/did you mean/i).parentElement!;
@@ -62,9 +75,9 @@ describe("the 404 page", () => {
     expect(link).toHaveAttribute("href", `/tools/${merge.slug}`);
   });
 
-  it("offers PDF to Word for /tools/pdf-to-docx", () => {
+  it("offers PDF to Word for /tools/pdf-to-docx", async () => {
     pathname = "/tools/pdf-to-docx";
-    render(<NotFound />);
+    await renderAndSettle();
     const [expected] = toolsForMissingPath(pathname);
     expect(expected).toBeDefined();
     const box = screen.getByText(/did you mean/i).parentElement!;
@@ -73,9 +86,9 @@ describe("the 404 page", () => {
     ).toHaveAttribute("href", `/tools/${expected!.slug}`);
   });
 
-  it("negative control: an unrelated path shows no suggestion, only the page", () => {
+  it("negative control: an unrelated path shows no suggestion, only the page", async () => {
     pathname = "/zzqx-vvbn";
-    render(<NotFound />);
+    await renderAndSettle();
     expect(screen.queryByText(/did you mean/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
   });

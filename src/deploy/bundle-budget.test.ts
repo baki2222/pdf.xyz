@@ -64,9 +64,10 @@
  * running server, which reported the same 18 and 12 chunks.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { tools } from "@/lib/tools";
 import { chunkUrls, weighPage } from "../../scripts/page-weight";
 
 const NEXT_DIR = path.join(process.cwd(), ".next");
@@ -212,6 +213,48 @@ describe("client bundle budget", () => {
       extras,
       `the homepage references shared chunks no tool page carries — landing-page-only machinery appeared:\n  ${extras.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  // A size budget cannot see WHAT rides along, only how much. On 2026-10-08
+  // the 404's "Did you mean …?" (MissingPathSuggestion, a client component in
+  // the ROOT not-found boundary) imported the catalogue search, and the root
+  // not-found ships with every route: the whole catalogue (~32 KB raw) landed
+  // in the homepage's and every guide's first load. Both stayed under their
+  // 700 KB budgets, so nothing failed. This reads the CONTENT of the first-load
+  // chunks instead: no tool's tagline may be in them on a page that renders no
+  // tool UI. Markers are derived from the catalogue — every tagline a tool
+  // page's own first load carries verbatim (a template-literal tagline such as
+  // PDF/A's is stored in pieces, so it cannot be a marker) — and that tool
+  // page, which needs the catalogue, is the positive control.
+  it("ships the tool catalogue only on pages that need it", () => {
+    if (!built) return;
+    const firstLoad = (html: string) =>
+      chunkList(html)
+        .map((url) =>
+          readFileSync(
+            path.join(NEXT_DIR, decodeURIComponent(url.replace("/_next/", ""))),
+            "utf8",
+          ),
+        )
+        .join("\n");
+    const control = firstLoad("tools/rotate-pdf.html");
+    const markers = tools
+      .map((t) => t.tagline)
+      .filter((tagline) => control.includes(tagline));
+    // Positive control and health check in one: the tool page carries nearly
+    // every tagline. Fewer means the reader went blind (wrong chunk set, a
+    // catalogue that moved behind a boundary) and an empty list would pass.
+    expect(
+      markers.length,
+      `positive control: rotate-pdf's first load carries only ${markers.length} of ${tools.length} taglines`,
+    ).toBeGreaterThanOrEqual(tools.length - 5);
+    for (const html of ["index.html", "guides/how-to-merge-pdf-files.html"]) {
+      const found = markers.filter((m) => firstLoad(html).includes(m));
+      expect(
+        found,
+        `${html} loads tool catalogue copy up front (${found.length} of ${markers.length} taglines) — a client component it renders imports @/lib/tools`,
+      ).toEqual([]);
+    }
   });
 
   it("pnpm weigh:pages prints the weights this budget measures", () => {

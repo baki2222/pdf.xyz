@@ -1,17 +1,46 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight } from "lucide-react";
-import { toolsForMissingPath } from "@/lib/tools/path-suggest";
+
+/** What the 404 needs from a matched tool — nothing else crosses the boundary. */
+interface Suggestion {
+  slug: string;
+  name: string;
+}
 
 /**
  * "Did you mean …?" on the 404 page, from the address that was asked for.
  * Renders nothing when the path names no tool, rather than a guess.
+ *
+ * The matcher (`@/lib/tools/path-suggest`) searches the whole catalogue, so it
+ * is imported HERE, on mount, and never statically. This component sits in the
+ * ROOT not-found boundary, which Next ships with every route: a static import
+ * put the entire tool catalogue in the first load of the homepage and every
+ * guide (measured 2026-10-08: all 49 plain taglines in index.html's chunks),
+ * under budgets that only bound size. `bundle-budget.test.ts` ("ships the tool
+ * catalogue only on pages that need it") reads the chunk CONTENT and fails if
+ * it comes back.
  */
 export function MissingPathSuggestion() {
   const pathname = usePathname() ?? "";
-  const suggestions = toolsForMissingPath(pathname);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    void import("@/lib/tools/path-suggest").then(({ toolsForMissingPath }) => {
+      if (!live) return;
+      setSuggestions(
+        toolsForMissingPath(pathname).map(({ slug, name }) => ({ slug, name })),
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [pathname]);
+
   if (suggestions.length === 0) return null;
   return (
     <div className="border-line bg-wash flex flex-col items-center gap-3 rounded-[4px] border px-5 py-4">
