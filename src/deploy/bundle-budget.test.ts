@@ -63,60 +63,29 @@
  * i.e. exactly what a browser would fetch; verified against `curl` on the
  * running server, which reported the same 18 and 12 chunks.
  */
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { chunkUrls, weighPage } from "../../scripts/page-weight";
 
 const NEXT_DIR = path.join(process.cwd(), ".next");
 const APP_DIR = path.join(NEXT_DIR, "server", "app");
 
 /** The unique chunk URLs a prerendered page references. */
 function chunkList(htmlRelPath: string): string[] {
-  const html = path.join(APP_DIR, htmlRelPath);
-  if (!existsSync(html)) return [];
-  return [
-    ...new Set(
-      readFileSync(html, "utf8").match(
-        /\/_next\/static\/chunks\/[^"']+?\.js/g,
-      ) ?? [],
-    ),
-  ];
+  return chunkUrls(NEXT_DIR, htmlRelPath);
 }
 
-/** Unique chunks a prerendered page references, and their total size on disk. */
+/**
+ * Unique chunks a prerendered page references, and their total size on disk.
+ * The weigher lives in scripts/page-weight.ts, shared with `pnpm weigh:pages`
+ * (the table a budget change is argued from); see the last test below. Its
+ * history: the percent-encoded `[slug]` chunk that once weighed zero, and the
+ * miss that is now fatal, are documented there.
+ */
 function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
-  const html = path.join(APP_DIR, htmlRelPath);
-  if (!existsSync(html)) return null;
-  const urls = [
-    ...new Set(
-      readFileSync(html, "utf8").match(
-        /\/_next\/static\/chunks\/[^"']+?\.js/g,
-      ) ?? [],
-    ),
-  ];
-  let bytes = 0;
-  const unweighed: string[] = [];
-  for (const url of urls) {
-    // decodeURIComponent, because a dynamic route is percent-encoded in the
-    // HREF and NOT on disk: `/tools/%5Bslug%5D/page-*.js` is `[slug]` in
-    // `.next`. Without it `existsSync` was false for the LARGEST chunk on every
-    // tool page, which was then counted in `chunks` and added ZERO bytes.
-    const file = path.join(
-      NEXT_DIR,
-      decodeURIComponent(url.replace("/_next/", "")),
-    );
-    if (existsSync(file)) bytes += statSync(file).size;
-    // A counted chunk that is not weighed is the defect above, and decoding
-    // only fixes today's spelling of it. The PROPERTY is that `chunks` and
-    // `kb` describe the same set, so a miss is fatal rather than silent.
-    else unweighed.push(url);
-  }
-  if (unweighed.length > 0) {
-    throw new Error(
-      `bundle-budget: ${unweighed.length} referenced chunk(s) were counted but not found on disk, so their bytes went uncounted: ${unweighed.join(", ")}`,
-    );
-  }
-  return { chunks: urls.length, kb: Math.round(bytes / 1024) };
+  return weighPage(NEXT_DIR, htmlRelPath);
 }
 
 /**
@@ -148,9 +117,40 @@ const BUDGETS = [
   // over both artifacts: 1176 → 1060 KB. The tighter figure is the guard:
   // under the old 1200, a static jszip import could have quietly returned
   // (1060 + 129 = 1189 fits); under 1100 it cannot.
-  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 1100 },
-  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 1100 },
-  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 1100 },
+  //
+  // RAISED 1100 → 1280 on 2026-10-08, and something DID get heavier: the
+  // wave-1 integration branch (322 commits over main 40242277). Both builds
+  // weighed with the one shared weigher (scripts/page-weight.ts):
+  //
+  //     every tool page   1061 KB -> 1241 KB   (+180 KB)
+  //     homepage           607 KB ->  675 KB   (+68 KB; budget 700, passes)
+  //
+  // Matched module by module across the two builds, the growth is:
+  //   +57 KB  ToolRunner — the 28 client runners webpack concatenates into
+  //           one module; the lane fixes (column order in PDF to Text and
+  //           Markdown, refusals that name their cause, telemetry on every
+  //           run path, ...).
+  //   +25 KB  a new module that carries bookmarks, form fields and links
+  //           across page copies (merge keeps forms and bookmarks; dropped
+  //           pages no longer ride inside page-tool outputs, L01).
+  //   ~+20 KB new client helpers: the selectable-text probe that refuses a
+  //           scanned PDF before upload (pdfHasSelectableText), the encryption
+  //           verdict sentences, the lost-connection / Keep waiting job
+  //           helper, the refusal-to-next-tool links, the options size bound.
+  //   ~+12 KB worker panels (HTML render, Request Signatures, PDF structure).
+  //   +7 KB   the tool catalogue (per-tool copy and facts).
+  //   rest    Next 16.2.9 -> 16.3.6 (29bf276b, published critical/high
+  //           advisories) and React with it: shared vendor 218 -> 236 KB.
+  // None of it is a library that came back: pdf-lib (411 KB) and jszip
+  // (129 KB) are still behind their dynamic boundaries, and either returning
+  // statically would overshoot 1280 by far. WHY UP FRONT: per-tool code rides
+  // the static ToolRunner dispatch, and splitting that dispatch was measured
+  // WORSE (see the top of this file). Re-measuring that trade at today's
+  // weight is the open lever; this raise does not claim the weight is good.
+  // The margin (+39 KB) is the same as the old 1060 -> 1100 one.
+  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 1280 },
+  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 1280 },
+  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 1280 },
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
   // runner into a route whose job is prose.
@@ -212,5 +212,31 @@ describe("client bundle budget", () => {
       extras,
       `the homepage references shared chunks no tool page carries — landing-page-only machinery appeared:\n  ${extras.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("pnpm weigh:pages prints the weights this budget measures", () => {
+    if (!built) return;
+    // The table a budget change is argued from. It once kept its own copy of
+    // the weigher and never learned the [slug] decode, so on the same build
+    // it printed 715 KB for a tool page this suite measured at 1,241 KB. Run
+    // the real script (node + the tsx CLI, as the repo's other spawned
+    // scripts are) and hold every page it prints to weighPage.
+    const out = execFileSync(
+      process.execPath,
+      [
+        path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+        path.join(process.cwd(), "scripts", "weigh-pages.ts"),
+        "--json",
+      ],
+      { encoding: "utf8" },
+    );
+    const rows = JSON.parse(out) as { html: string; kb: number }[];
+    // Health check: a script that printed nothing would agree vacuously.
+    expect(rows.length).toBeGreaterThanOrEqual(BUDGETS.length);
+    const tool = rows.find((r) => r.html === "tools/rotate-pdf.html");
+    expect(tool, "weigh:pages no longer prints a tool page").toBeDefined();
+    for (const row of rows) {
+      expect(row.kb, row.html).toBe(weigh(row.html)!.kb);
+    }
   });
 });

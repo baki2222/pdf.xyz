@@ -4,8 +4,8 @@
  * artifact of two different methods (the "502 → 448 KB" mistake this repo has
  * already published once came from curling a running server across rebuilds).
  *
- * Same method as `src/deploy/bundle-budget.test.ts` (which documents it): the
- * chunk list is read from the HTML `next build` prerendered — exactly what a
+ * Same weigher as `src/deploy/bundle-budget.test.ts` (both import
+ * ./page-weight, and that test runs this script against it): the chunk list is read from the HTML `next build` prerendered — exactly what a
  * browser would fetch — and sizes are UNCOMPRESSED bytes on disk (~3× transfer;
  * fine for comparing builds, wrong as a user-facing figure).
  *
@@ -13,8 +13,9 @@
  *   pnpm weigh:pages --json                # machine-readable, for diffing runs
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { weighPage } from "./page-weight";
 
 const NEXT_DIR = path.join(process.cwd(), ".next");
 const APP_DIR = path.join(NEXT_DIR, "server", "app");
@@ -30,7 +31,7 @@ const PAGES = [
   { name: "workspace", html: "workspace.html" },
 ] as const;
 
-interface PageWeight {
+interface PageRow {
   name: string;
   html: string;
   chunks: number;
@@ -38,32 +39,20 @@ interface PageWeight {
   largest: { file: string; kb: number }[];
 }
 
-function weigh(htmlRelPath: string, name: string): PageWeight | null {
-  const html = path.join(APP_DIR, htmlRelPath);
-  if (!existsSync(html)) return null;
-  const urls = [
-    ...new Set(
-      readFileSync(html, "utf8").match(
-        /\/_next\/static\/chunks\/[^"']+?\.js/g,
-      ) ?? [],
-    ),
-  ];
-  let bytes = 0;
-  const sized: { file: string; kb: number }[] = [];
-  for (const url of urls) {
-    const file = path.join(NEXT_DIR, url.replace("/_next/", ""));
-    if (!existsSync(file)) continue;
-    const size = statSync(file).size;
-    bytes += size;
-    sized.push({ file: path.basename(file), kb: Math.round(size / 1024) });
-  }
-  sized.sort((a, b) => b.kb - a.kb);
+function weigh(htmlRelPath: string, name: string): PageRow | null {
+  // The shared weigher (./page-weight): the same function the budget test
+  // calls, so this table and the budget cannot describe different sets.
+  const w = weighPage(NEXT_DIR, htmlRelPath);
+  if (!w) return null;
   return {
     name,
     html: htmlRelPath,
-    chunks: urls.length,
-    kb: Math.round(bytes / 1024),
-    largest: sized.slice(0, 5),
+    chunks: w.chunks,
+    kb: w.kb,
+    largest: w.sized.slice(0, 5).map((c) => ({
+      file: path.basename(decodeURIComponent(c.url)),
+      kb: Math.round(c.bytes / 1024),
+    })),
   };
 }
 
@@ -75,7 +64,7 @@ function main(): number {
     return 1;
   }
   const rows = PAGES.map((p) => weigh(p.html, p.name)).filter(
-    (r): r is PageWeight => r !== null,
+    (r): r is PageRow => r !== null,
   );
   if (process.argv.includes("--json")) {
     process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
