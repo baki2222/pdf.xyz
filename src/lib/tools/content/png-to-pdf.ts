@@ -86,7 +86,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Create PDF",
-      body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. A PNG that cannot be decoded halts the whole run, and the error names that file; remove it and press Create PDF again.",
+      body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. An image that cannot be decoded halts the whole run, and the error names that file; remove it and press Create PDF again.",
     },
     {
       title: "Save the PDF",
@@ -104,11 +104,11 @@ const content: ToolContent = {
     },
     {
       q: "Can I put PNG and JPG images in the same PDF?",
-      a: "Yes. This page also takes JPG and JPEG photos, so screenshots and photos can go into one PDF in a single pass, each on its own page in the order you set. PNGs are stored losslessly, and a JPG keeps its original JPEG data without being compressed again.",
+      a: "Yes. This page also takes JPG and JPEG photos, so screenshots and photos can go into one PDF in a single pass, each on its own page in the order you set. PNGs are stored losslessly. A JPG keeps its original JPEG data and is not compressed again; only a rotation recorded in its EXIF data is applied, so a phone photo stands upright.",
     },
     {
       q: "Why did Create PDF fail on a file it accepted?",
-      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a WebP, GIF or other format renamed to .png is turned away as you add it, and a JPEG saved with a .png name is accepted and placed as a JPEG. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image", which stops the whole PDF. Remove the file the message names and run it again.',
+      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a WebP, GIF or other format renamed to .png is turned away as you add it, and a JPEG saved with a .png name is accepted and placed as a JPEG. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image" (or "as a JPG image"), which stops the whole PDF. Remove the file the message names and run it again.',
     },
     {
       q: "Are my images uploaded anywhere?",
