@@ -8,6 +8,7 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 import { awaitPdfjsDocument, loadPdfjs } from "./pdfjs";
 import {
   DEFAULT_JPEG_QUALITY,
+  RASTER_MAX_DEVICE_PX,
   RASTER_MIME,
   clampJpegQuality,
   type RasterFormat,
@@ -459,7 +460,14 @@ export async function capturePdfPages<T>(
         const base = page.getViewport({ scale: 1 });
         // The scale AND the verdict on it: a page too large for `dpi` is
         // rendered lower, and the page record below carries that fact out.
-        const fit = rasterPageScale(base.width, base.height, dpi);
+        // The cap is passed, not left to the default, so the call names the
+        // figure the PDF to JPG/PNG pages quote.
+        const fit = rasterPageScale(
+          base.width,
+          base.height,
+          dpi,
+          RASTER_MAX_DEVICE_PX,
+        );
         const viewport = page.getViewport({ scale: fit.scale });
 
         const canvas = document.createElement("canvas");

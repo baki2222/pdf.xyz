@@ -1275,7 +1275,16 @@ describe("the converters' pages describe the page they produce", () => {
     expect(render, "render.ts keeps its own copy of the cap").not.toMatch(
       /const RASTER_MAX_DEVICE_PX/,
     );
-    expect(render).toContain("RASTER_MAX_DEVICE_PX");
+    // The cap must reach the scale call. This was `toContain(
+    // "RASTER_MAX_DEVICE_PX")`, and at the integration merge it stayed green
+    // on an import nothing read: one lane delegated the scale to
+    // rasterPageScale (cap left to its default), another kept the import for
+    // the old inline call. `pnpm lint` failed on the dead import while this
+    // passed. A name appearing in the file is not the renderer using it; the
+    // argument in the call is.
+    expect(render).toMatch(
+      /rasterPageScale\s*\(\s*[^()]*,\s*RASTER_MAX_DEVICE_PX\s*,?\s*\)/,
+    );
     for (const tool of tools.filter(
       (t) => getRunnerKind(t.slug) === "pdf-to-image",
     )) {
