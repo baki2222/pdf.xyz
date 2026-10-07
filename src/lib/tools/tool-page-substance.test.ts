@@ -475,6 +475,18 @@ const SHIPPED_LOSS: readonly { slug: string; sentence: string }[] = [
     sentence:
       "Text, vectors, forms, and annotations are flattened into page images; selectable text, bookmarks, and links are not kept.",
   },
+  // ADDED 2026-10-08, second review. "are left out" shipped on a page tool and
+  // LOSS did not know it: the reviewer put "Bookmarks and form fields are left
+  // out of each file." into Split PDF's served intro and the guard stayed
+  // GREEN, 24/24. Organize Pages' intro (content/organize-pages.ts), verbatim.
+  // It is TRUE on Organize, whose rebuilt export drops attachments and tags,
+  // so it is set on Rotate, whose in-place save keeps both: the pattern must
+  // catch the sentence where it would be false.
+  {
+    slug: "rotate-pdf",
+    sentence:
+      "Attached files and a tagged PDF's accessibility tags are left out of a rebuilt export; if you only turned pages, the file is saved in place with everything in it, except that its Producer and Creator entries now name pdf.xyz and its modification date is updated.",
+  },
 ];
 
 /**
@@ -501,6 +513,9 @@ const LOSS = [
   /\bdo(?:es)? not carry over\b/i,
   /\b(?:are|is) lost\b/i,
   /\b(?:are|is) not kept\b/i,
+  // The passive "are left out", not the exemption's "pages you left out": a
+  // pronoun stands between "pages" and "left out" there, so the two never meet.
+  /\b(?:are|is) left out\b/i,
 ];
 
 /** "Rebuilt from the pages alone" denies EVERY document-level part at once. */
