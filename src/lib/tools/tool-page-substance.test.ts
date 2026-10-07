@@ -461,6 +461,33 @@ const SHIPPED_LOSS: readonly { slug: string; sentence: string }[] = [
     sentence:
       "The pages themselves — text, images and drawings — are copied as they are, but the export is rebuilt from the pages alone, so the document's bookmarks and its fillable form are not carried over.",
   },
+  // ADDED 2026-10-08. The product's other loss verbs, verbatim from where they
+  // shipped, set on a page tool: a reviewer put each into Split PDF's served
+  // intro and the guard stayed GREEN, because LOSS knew none of them.
+  // Grayscale PDF's intro (content/grayscale-pdf.ts):
+  {
+    slug: "split-pdf",
+    sentence: `Selectable text, sharp vector lines, links and bookmarks do not carry over, and the new file is titled after the original's own title, or its file name if it has none, with "(grayscale)" added.`,
+  },
+  // Grayscale's runner, its "Raster output" tile (runner/grayscale-runner.tsx):
+  {
+    slug: "split-pdf",
+    sentence:
+      "Text, vectors, forms, and annotations are flattened into page images; selectable text, bookmarks, and links are not kept.",
+  },
+];
+
+/**
+ * The reviewer's probes of 2026-10-08 that stayed GREEN: each was written into
+ * Split PDF's served intro and the guard passed. "are lost" has no shipped
+ * sentence naming a document part (PDF to Markdown's "… link targets and
+ * images are lost" names none), and no served sentence has yet said the
+ * language is dropped by a tool that keeps it, so these probes are the
+ * pattern's corpus until one ships — held to the same both-directions check.
+ */
+const PROBED_LOSS: readonly { slug: string; sentence: string }[] = [
+  { slug: "split-pdf", sentence: "Bookmarks and the form are lost." },
+  { slug: "split-pdf", sentence: "The document language is not carried." },
 ];
 
 /** A sentence that says something does not reach the export. */
@@ -471,6 +498,9 @@ const LOSS = [
   /\bstays? behind\b/i,
   /\bcarr(?:y|ies) no\b/i,
   /\bnot carried\b/i,
+  /\bdo(?:es)? not carry over\b/i,
+  /\b(?:are|is) lost\b/i,
+  /\b(?:are|is) not kept\b/i,
 ];
 
 /** "Rebuilt from the pages alone" denies EVERY document-level part at once. */
@@ -492,6 +522,7 @@ const PART_TERMS: Partial<Record<DocumentPart, RegExp>> = {
   pageLabels: /\bpage labels?\b/i,
   attachments: /\b(?:attached files?|attachments?)\b/i,
   tags: /\b(?:accessibility )?tags\b/i,
+  language: /\b(?:document )?language\b/i,
 };
 
 /** The parts `sentence` says are lost that the engine, measured, keeps. */
@@ -614,13 +645,13 @@ describe("the page tools' answers are what their engines produce", () => {
   });
 
   it("the loss patterns and the sentences that shipped catch each other (both directions)", async () => {
-    for (const { slug, sentence } of SHIPPED_LOSS) {
+    for (const { slug, sentence } of [...SHIPPED_LOSS, ...PROBED_LOSS]) {
       expect(
         falselyLost(sentence, await measuredFor(slug)),
         `${slug}: not caught — "${sentence}"`,
       ).not.toEqual([]);
     }
-    const shipped = SHIPPED_LOSS.map((s) => s.sentence);
+    const shipped = [...SHIPPED_LOSS, ...PROBED_LOSS].map((s) => s.sentence);
     const idle = [...LOSS, LOSS_OF_EVERYTHING, ...Object.values(PART_TERMS)]
       .filter((p) => !shipped.some((s) => p.test(s)))
       .map(String);
