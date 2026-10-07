@@ -18,14 +18,22 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  * Behaviour claims below were read from the implementation on 2026-09-27:
  *  - src/components/tools/chat-with-pdf-worker-panel.tsx — the "Add your PDF, or"
  *    drop zone (+ Dropzone's "browse"), the "Your question" / "Ask a follow-up"
- *    box, the "Ask the PDF" / "Send follow-up" button ("Answering…" while busy),
+ *    box, the "Ask the PDF" / "Send follow-up" button, whose busy label is
+ *    `jobBusyLabel(job.phase, "Answering…")` (worker-job.tsx): Uploading your
+ *    file…, Waiting for the worker…, Answering…, Downloading the result… (this
+ *    said 'Answering… while busy', and step 2 that the button read Answering…
+ *    until the answer was back, until 2026-10-07),
  *    "Remove" beside the file name, the conversation list rendered ABOVE the
  *    question box, the per-answer download button labelled with the ZIP name,
  *    the ContextNote rendered between the box and the button, and that the whole
  *    builder (drop zone included) only mounts when the badge reads
  *    "Secure worker";
  *  - src/lib/workers/chat-with-pdf/engine.ts — selectable text only (no OCR,
- *    `no_text` points at OCR PDF), `[Page N]` markers on pages that carry text,
+ *    `no_text` points at OCR PDF; that refusal is reached only by a file the
+ *    browser could not parse, since the panel's measureChatDocument and
+ *    runSecurityJob's step 0 stop a PDF with no text before upload — intro[1]
+ *    said "the worker refuses it" until 2026-10-07), `[Page N]` markers on
+ *    pages that carry text,
  *    `[p.N]` citations, cited pages filtered to the file's page range, the
  *    answer ZIP (answer.md, answer.txt, manifest.json, README.txt), and the
  *    truncation instruction that forbids "the document does not state this"
@@ -65,8 +73,11 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    too wide: each answer ZIP (question and answer inside) is stored until
  *    OUTPUT_TTL plus the daily sweep. What is true is narrower — nothing links
  *    one question to the next on the worker — and that is what the copy says;
- *  - "one of your N questions" assumed an untouched pool; a refused scan costs
- *    a question's worth of characters, which is what the FAQ now states;
+ *  - "one of your N questions" assumed an untouched pool. The same pass wrote
+ *    that "a refused scan costs a question's worth of characters", which was
+ *    false by 2026-10-06 (the browser refuses a scan before upload and nothing
+ *    is charged) and was corrected then; only a file the browser cannot open
+ *    is charged before the worker's refusal;
  *  - [p.N] = physical page order, VERIFIED on 2026-09-27 by running a 4-page
  *    PDF (page 2 blank) through the real `pdftotext -layout` extractor and
  *    runChatWithPdf with a fake provider: the prompt held [Page 1], [Page 3],
@@ -75,7 +86,10 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    image's.)
  *
  * NOT GUARDED: the panel labels quoted below are copies of JSX text; a relabel
- * in chat-with-pdf-worker-panel.tsx will not fail anything here.
+ * in chat-with-pdf-worker-panel.tsx will not fail anything here. The busy
+ * labels are the exception: tools/busy-label-claims.test.ts derives them from
+ * every `jobBusyLabel(` call and holds a step that names one to the stages
+ * around it.
  */
 
 /** A tool this page sends readers to, by its catalogue name. */
@@ -134,7 +148,7 @@ const content: ToolContent = {
 
   intro: [
     `Chat with PDF answers questions about one document at a time. Ask "What is the notice period?" and the model receives your PDF's text with every page that has text marked by its number, plus an instruction to answer from that text alone and to cite what it used as [p.4]. If the answer is not there, the instruction is to say so plainly instead of reaching for outside knowledge.`,
-    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the worker refuses it and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, a notice above the answer says how far into the document the reading got, by page when the text allows.`,
+    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (the worker refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, a notice above the answer says how far into the document the reading got, by page when the text allows.`,
     `There is no in-browser mode. Every question is its own job: the PDF goes over TLS to pdf.xyz's secure worker, which pulls out the text and forwards it, with your question and the recent exchanges, to a third-party AI provider, while the PDF file itself is not passed on. That job's upload is removed as soon as it ends, the worker's link to its answer ZIP lapses ${OUTPUT_TTL} minutes after the answer is ready, and a storage rule that runs once a day clears the leftover copy. The worker does not link one question to the next; this page holds the conversation and re-sends it each time.`,
   ],
 
@@ -164,7 +178,7 @@ const content: ToolContent = {
     },
     {
       title: "Type your question",
-      body: `Write it in the Your question box in plain language, up to ${QUESTION_CHARS} characters, and press Ask the PDF. The button reads Answering… until the answer package is back in the page.`,
+      body: `Write it in the Your question box in plain language, up to ${QUESTION_CHARS} characters, and press Ask the PDF. While it runs, the button says where the job is (Uploading your file…, Waiting for the worker…, Answering…, Downloading the result…) until the answer package is back in the page.`,
     },
     {
       title: "Read the answer and its citations",

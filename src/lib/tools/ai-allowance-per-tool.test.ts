@@ -640,6 +640,24 @@ const saysNoTextIsCharged = (entry: { question: string; answer: string }) =>
   ABOUT_NO_TEXT.test(`${entry.question} ${entry.answer}`) &&
   STILL_CHARGED.test(entry.answer);
 
+/**
+ * A sentence telling the reader the WORKER turns their scan away. Where the
+ * browser refuses first, that is false for every file the browser can read —
+ * the user is told "Nothing was uploaded" — so it may only be said of a file
+ * the browser cannot open or check ({@link ONLY_UNCHECKABLE}). Chat's intro
+ * said "A scan or photographed document has no such text, so the worker
+ * refuses it" until 2026-10-07, after the charge answers beside it had been
+ * corrected: the guard above reads charge words, not who refuses.
+ */
+const WORKER_REFUSES =
+  /\bworker (?:then )?(?:refuses|rejects|turns (?:it |them )?away)\b|\brefusal comes from the worker\b/i;
+const ONLY_UNCHECKABLE =
+  /\b(?:cannot|can['’]t|could not|couldn['’]t) (?:open|check|read|parse)\b/i;
+const saysWorkerRefusesScan = (context: string, sentence: string) =>
+  ABOUT_NO_TEXT.test(context) &&
+  WORKER_REFUSES.test(sentence) &&
+  !ONLY_UNCHECKABLE.test(sentence);
+
 /** Every sentence a page serves, visible text and FAQPage answers alike. */
 const servedSentences = (page: RenderedToolPage) =>
   [page.text, ...page.faq.map((e) => e.answer)]
@@ -694,6 +712,28 @@ describe("everything a per-call page serves about the charge is true of every wo
           "It is stopped in your browser; nothing is uploaded or charged.",
       }),
     ).toBe(false);
+    // The two sentences that shipped saying the worker refuses a scan: Chat's
+    // intro (context: the sentence itself) and Summarize's scan answer
+    // (context: its question).
+    expect(
+      saysWorkerRefusesScan(
+        "A scan or photographed document has no such text, so the worker refuses it and points you to OCR PDF; run that first and ask the searchable copy.",
+        "A scan or photographed document has no such text, so the worker refuses it and points you to OCR PDF; run that first and ask the searchable copy.",
+      ),
+    ).toBe(true);
+    expect(
+      saysWorkerRefusesScan(
+        "Can it summarize a scanned PDF?",
+        "The refusal comes from the worker after the job has been submitted, so it still uses one summary's share of the daily allowance.",
+      ),
+    ).toBe(true);
+    // Neither the corrected intro nor a worker refusal confined to a file the
+    // browser cannot open is caught.
+    for (const sentence of [
+      "A scan or photographed document has no such text, so the page stops it before upload (the worker refuses any the browser cannot check) and points you to OCR PDF; run that first and ask the searchable copy.",
+      "A file the page cannot open is sent on to the worker, and if the worker finds no text in it either, that refusal comes after the question has been charged.",
+    ])
+      expect(saysWorkerRefusesScan(sentence, sentence), sentence).toBe(false);
   });
 
   it.each(["summarize-pdf", "chat-with-pdf", "ai-extract"] as const)(
@@ -729,6 +769,24 @@ describe("everything a per-call page serves about the charge is true of every wo
         .get(tool.slug)!
         .faq.filter(saysNoTextIsCharged)
         .map((e) => e.question);
+      if (refusedFirst) {
+        const page = pages.get(tool.slug)!;
+        const blamed = [
+          ...page.faq.flatMap((e) =>
+            e.answer
+              .split(/(?<=[.!?])\s+/)
+              .filter((s) =>
+                saysWorkerRefusesScan(`${e.question} ${e.answer}`, s),
+              ),
+          ),
+          ...servedSentences(page).filter((s) => saysWorkerRefusesScan(s, s)),
+        ];
+        if (blamed.length > 0)
+          wrong.push(
+            `${tool.slug}: its browser stops a PDF with no text before uploading ` +
+              `it, yet the page says the worker refuses it: "${[...new Set(blamed)].join('", "')}"`,
+          );
+      }
       if (refusedFirst && charged.length > 0) {
         wrong.push(
           `${tool.slug}: its browser stops a PDF with no text before uploading ` +
