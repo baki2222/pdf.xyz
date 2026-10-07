@@ -1,8 +1,7 @@
 import JSZip from "jszip";
 import { expect, type Page } from "@playwright/test";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, degrees } from "pdf-lib";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
-import { organizePages } from "../../src/lib/pdf/engine";
 import { jpegComponentCount } from "../../src/lib/pdf/gray-jpeg";
 import {
   createGrayscaleBuilder,
@@ -218,7 +217,7 @@ async function uploadTextPdf(
   await uploadPayloads(ctx.page, [
     { name, mimeType: "application/pdf", buffer: bytes },
   ]);
-  await expect(ctx.page.getByText(name)).toBeVisible();
+  await expect(ctx.page.getByText(name, { exact: true })).toBeVisible();
   return bytes;
 }
 
@@ -375,7 +374,9 @@ export const CASES: Record<string, ToolCase> = {
         { name: "alpha.pdf", mimeType: "application/pdf", buffer: alpha },
         { name: "beta.pdf", mimeType: "application/pdf", buffer: beta },
       ]);
-      await expect(ctx.page.getByText("beta.pdf")).toBeVisible();
+      await expect(
+        ctx.page.getByText("beta.pdf", { exact: true }),
+      ).toBeVisible();
       return runAndDownload(
         ctx,
         /merge 2 pdfs/i,
@@ -447,7 +448,9 @@ export const CASES: Record<string, ToolCase> = {
       await uploadPayloads(ctx.page, [
         { name: "spin.pdf", mimeType: "application/pdf", buffer: bytes },
       ]);
-      await expect(ctx.page.getByText("spin.pdf")).toBeVisible();
+      await expect(
+        ctx.page.getByText("spin.pdf", { exact: true }),
+      ).toBeVisible();
       // All pages are selected by default; one "Right" rotates them all 90°.
       await ctx.page.getByRole("button", { name: /^right$/i }).click();
       return runAndDownload(
@@ -473,13 +476,23 @@ export const CASES: Record<string, ToolCase> = {
     // no rotation. The rebuild the tool used to ship has the right rotation
     // and lost the structure — it differs from a correct artifact ONLY in
     // what it dropped, so it is what keeps the structure half falsifiable.
+    //
+    // That rebuild was made with the app's own organizePages(). The L01 merge
+    // taught organizePages to carry bookmarks, forms, labels, /Lang, tags and
+    // Info across the copy, so the "lossy" control lost nothing and the
+    // assertion ACCEPTED it (2026-10-08, integration e2e). A control built by
+    // the engine under test moves when the engine is fixed. This one is plain
+    // pdf-lib: copyPages into a fresh document, which is what the old tool did
+    // and still drops every catalog, Info and form member the upload carries.
     control: async (ctx) => {
       const original = input(ctx, "spin.pdf");
-      const rebuilt = await organizePages(
-        original,
-        [0, 1, 2].map((sourceIndex) => ({ sourceIndex, rotation: 90 })),
-      );
-      return [original, Buffer.from(rebuilt)];
+      const source = await PDFDocument.load(original);
+      const fresh = await PDFDocument.create();
+      for (const page of await fresh.copyPages(source, [0, 1, 2])) {
+        page.setRotation(degrees(90));
+        fresh.addPage(page);
+      }
+      return [original, Buffer.from(await fresh.save())];
     },
   },
 
@@ -618,7 +631,9 @@ export const CASES: Record<string, ToolCase> = {
       await uploadPayloads(ctx.page, [
         { name: "notes.pdf", mimeType: "application/pdf", buffer: bytes },
       ]);
-      await expect(ctx.page.getByText("notes.pdf")).toBeVisible();
+      await expect(
+        ctx.page.getByText("notes.pdf", { exact: true }),
+      ).toBeVisible();
       return runAndDownload(
         ctx,
         /create markdown/i,
@@ -732,7 +747,9 @@ export const CASES: Record<string, ToolCase> = {
       await uploadPayloads(ctx.page, [
         { name: "photo.jpg", mimeType: "image/jpeg", buffer: jpeg.bytes },
       ]);
-      await expect(ctx.page.getByText("photo.jpg")).toBeVisible();
+      await expect(
+        ctx.page.getByText("photo.jpg", { exact: true }),
+      ).toBeVisible();
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -771,7 +788,9 @@ export const CASES: Record<string, ToolCase> = {
       await uploadPayloads(ctx.page, [
         { name: "art.png", mimeType: "image/png", buffer: png.bytes },
       ]);
-      await expect(ctx.page.getByText("art.png")).toBeVisible();
+      await expect(
+        ctx.page.getByText("art.png", { exact: true }),
+      ).toBeVisible();
       return runAndDownload(
         ctx,
         /create pdf/i,
@@ -1024,7 +1043,9 @@ export const CASES: Record<string, ToolCase> = {
       await uploadPayloads(ctx.page, [
         { name: "letterhead.pdf", mimeType: "application/pdf", buffer: stamp },
       ]);
-      await expect(ctx.page.getByText("letterhead.pdf")).toBeVisible();
+      await expect(
+        ctx.page.getByText("letterhead.pdf", { exact: true }),
+      ).toBeVisible();
       return runAndDownload(
         ctx,
         /overlay onto 2 pages/i,
@@ -1398,7 +1419,9 @@ export const CASES: Record<string, ToolCase> = {
       await uploadPayloads(ctx.page, [
         { name: "gallery.pdf", mimeType: "application/pdf", buffer: bytes },
       ]);
-      await expect(ctx.page.getByText("gallery.pdf")).toBeVisible();
+      await expect(
+        ctx.page.getByText("gallery.pdf", { exact: true }),
+      ).toBeVisible();
       return runAndDownload(
         ctx,
         /^extract images$/i,
