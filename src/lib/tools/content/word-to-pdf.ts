@@ -78,7 +78,7 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 /** Who refuses above the ceiling: the converter when its cap is the lower. */
 const sizeAnswer =
   ceiling.tier === "worker" && ceiling.engine
-    ? `One document per conversion, of up to ${ceilingMb} MB, the most LibreOffice on the worker accepts: a larger Word file is refused in your browser when you add it, before anything uploads. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
+    ? `One document per conversion, of up to ${ceilingMb} MB, the most LibreOffice on the worker accepts: a larger Word file is turned away as soon as you pick it, before anything uploads. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
     : `One document per conversion, up to ${ceilingMb} MB. For a batch, convert one file, press Remove, and add the next.`;
 
 const content: ToolContent = {
