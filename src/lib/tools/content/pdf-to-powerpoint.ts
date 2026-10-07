@@ -10,7 +10,10 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    drop zone titled "Add your PDF, or" + runner-kit's "browse" (the whole
  *    box is a <label>, so clicking anywhere opens the picker), single-file
  *    only with a "Remove" button once a file is chosen, the "Export PPTX"
- *    button ("Exporting PPTX…" while busy), "Your PPTX file is ready." and a
+ *    button (busy label jobBusyLabel(phase, "Exporting PPTX…"): "Uploading
+ *    your file…", "Waiting for the worker…", "Exporting PPTX…", "Downloading
+ *    the result…"; until 2026-10-07 the step said "Exporting PPTX…" covered
+ *    the upload and the fetch-back), "Your PPTX file is ready." and a
  *    button labelled "Download <output filename>". pdf-security-client.ts
  *    step 5 has ALREADY fetched the .pptx bytes before that button appears,
  *    and the button saves them from tab memory, so it keeps working past the
@@ -27,8 +30,13 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    padding "keep" (side-by-side columns stay on one line, separated by
  *    spaces), pages split on form feeds with only the trailing empty chunk
  *    dropped, so a page with no text still yields an (empty) slide; run with
- *    no `-upw`, so a PDF that needs a password to open fails as the generic
- *    `failed` kind ("could not be exported"), which never mentions a password;
+ *    no `-upw`. A PDF that needs a password to open is refused by poppler,
+ *    the runner throws PdfTextOpenError("needs-password"), and engine.ts
+ *    classifyFailure returns `password_protected` ("This PDF is
+ *    password-protected. Unlock it with Unlock PDF…", non-retryable); the
+ *    panel links Unlock PDF by error code. Until 2026-10-07 this docblock and
+ *    the FAQ said it failed as the generic `failed` kind and never mentioned
+ *    a password;
  *  - src/lib/workers/processor/pdf-office-export.ts — exactly one input,
  *    output named after the upload's (sanitised, possibly truncated) stem
  *    with a .pptx extension;
@@ -112,7 +120,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Export PPTX",
-      body: "While the button reads Exporting PPTX…, the page sends your PDF over TLS to pdf.xyz's worker, waits while the slides are assembled, and fetches the finished file back. Once that job is over, the worker erases the PDF you sent it.",
+      body: "The button follows the job: it reads Uploading your file… while your PDF goes over TLS to pdf.xyz's worker, Waiting for the worker… while the job is queued, Exporting PPTX… while the slides are assembled, and Downloading the result… while the finished file comes back to this tab. Once that job is over, the worker erases the PDF you sent it.",
     },
     {
       title: "Save the .pptx",
@@ -139,7 +147,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I convert a password-protected PDF?",
-      a: "Not if the PDF asks for a password when you open it: the worker is given no password, so no text can be read and the run fails with a generic could-not-export message; nothing in it points to the password as the reason. If you know it, strip it with Unlock PDF, which cannot recover a password you lack, and convert the unlocked copy here.",
+      a: "Not if the PDF asks for a password when you open it. The worker is given no password, so the job stops with a message saying the PDF is password-protected, and the page links you to Unlock PDF. If you know the password, remove it there (Unlock PDF cannot recover a password you lack), then convert the unlocked copy here.",
     },
     {
       q: "Is my PDF kept after the conversion?",
