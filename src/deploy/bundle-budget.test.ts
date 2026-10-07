@@ -64,7 +64,7 @@
  * running server, which reported the same 18 and 12 chunks.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
@@ -110,7 +110,10 @@ function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
  * what grew -- this one names an instrument that was wrong.
  */
 const BUDGETS = [
-  { name: "homepage", html: "index.html", kb: 700 },
+  // TIGHTENED 700 -> 675 on 2026-10-08: the homepage weighs 635 KB once the
+  // catalogue left it (b9ccf092). Same +40 KB margin as the tool pages; under
+  // 700 the 40 KB catalogue leak fitted unnoticed, under 675 it cannot.
+  { name: "homepage", html: "index.html", kb: 675 },
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
   // every page via the static import in src/lib/pdf/browser.ts, now fetched
@@ -125,6 +128,14 @@ const BUDGETS = [
   //
   //     every tool page   1061 KB -> 1241 KB   (+180 KB)
   //     homepage           607 KB ->  675 KB   (+68 KB; budget 700, passes)
+  //
+  // CORRECTED the same day after an adversarial review rebuilt main and the
+  // branch: (1) +40 KB of the homepage's +68 was the WHOLE CATALOGUE riding the
+  // root 404's "Did you mean" (b9ccf092 made it lazy: homepage 635 KB, tool
+  // pages 1239 KB, guide 625 KB); (2) the catalogue chunk grew 26.1 -> 37.7 KB,
+  // about +12 KB, not the +7 below; (3) the items below explain ~139 of the
+  // ~178 KB; the other ~40 KB is NOT itemised — the Next 16.3.6 upgrade is a
+  // likely share (shared vendor 218 -> 236 KB) but was not measured apart.
   //
   // Matched module by module across the two builds, the growth is:
   //   +57 KB  ToolRunner — the 28 client runners webpack concatenates into
@@ -155,7 +166,8 @@ const BUDGETS = [
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
   // runner into a route whose job is prose.
-  { name: "a guide page", html: "guides/how-to-merge-pdf-files.html", kb: 700 },
+  // TIGHTENED 700 -> 665 on 2026-10-08 (625 KB measured), for the same reason.
+  { name: "a guide page", html: "guides/how-to-merge-pdf-files.html", kb: 665 },
 ] as const;
 
 describe("client bundle budget", () => {
@@ -248,13 +260,51 @@ describe("client bundle budget", () => {
       markers.length,
       `positive control: rotate-pdf's first load carries only ${markers.length} of ${tools.length} taglines`,
     ).toBeGreaterThanOrEqual(tools.length - 5);
-    for (const html of ["index.html", "guides/how-to-merge-pdf-files.html"]) {
-      const found = markers.filter((m) => firstLoad(html).includes(m));
-      expect(
-        found,
-        `${html} loads tool catalogue copy up front (${found.length} of ${markers.length} taglines) — a client component it renders imports @/lib/tools`,
-      ).toEqual([]);
-    }
+    // The pages checked are DERIVED: every page the build prerendered. A typed
+    // list (it was index.html and one guide) cannot see the next route that
+    // starts carrying the catalogue. The pages that legitimately need it at
+    // load are named, each with its reason, and an entry that stops carrying it
+    // fails, so the list can only shrink toward the truth.
+    const NEEDS_CATALOGUE: Record<string, string> = {
+      "tools.html": "the /tools explorer filters the catalogue in the client",
+      "workspace.html": "the workspace offers every tool for its files",
+      "status.html": "the status page lists every tool's live state",
+    };
+    const isToolPage = (html: string) =>
+      tools.some((t) => html === `tools/${t.slug}.html`);
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory()
+          ? walk(path.join(dir, entry.name))
+          : entry.name.endsWith(".html")
+            ? [
+                path
+                  .relative(APP_DIR, path.join(dir, entry.name))
+                  .split(path.sep)
+                  .join("/"),
+              ]
+            : [],
+      );
+    const pages = walk(APP_DIR);
+    // Health check: the walk sees the whole site (89 pages on 2026-10-08).
+    expect(pages.length).toBeGreaterThanOrEqual(60);
+    const carrying = (html: string) =>
+      markers.filter((m) => firstLoad(html).includes(m)).length;
+    const leaks = pages
+      .filter((html) => !isToolPage(html) && !(html in NEEDS_CATALOGUE))
+      .map((html) => ({ html, taglines: carrying(html) }))
+      .filter((row) => row.taglines > 0);
+    expect(
+      leaks,
+      `pages that render no tool UI load the tool catalogue up front — a client component they render imports @/lib/tools`,
+    ).toEqual([]);
+    const stale = Object.keys(NEEDS_CATALOGUE).filter(
+      (html) => !pages.includes(html) || carrying(html) === 0,
+    );
+    expect(
+      stale,
+      "NEEDS_CATALOGUE names a page that no longer carries the catalogue — remove it",
+    ).toEqual([]);
   });
 
   it("pnpm weigh:pages prints the weights this budget measures", () => {

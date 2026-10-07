@@ -477,13 +477,15 @@ export const CASES: Record<string, ToolCase> = {
     // and lost the structure — it differs from a correct artifact ONLY in
     // what it dropped, so it is what keeps the structure half falsifiable.
     //
-    // That rebuild was made with the app's own organizePages(). The L01 merge
-    // taught organizePages to carry bookmarks, forms, labels, /Lang, tags and
-    // Info across the copy, so the "lossy" control lost nothing and the
-    // assertion ACCEPTED it (2026-10-08, integration e2e). A control built by
-    // the engine under test moves when the engine is fixed. This one is plain
-    // pdf-lib: copyPages into a fresh document, which is what the old tool did
-    // and still drops every catalog, Info and form member the upload carries.
+    // That rebuild was made with the app's own organizePages(). Its plan here
+    // keeps every page once, in order, and since L01 (9a4c5c26, `removesNothing`)
+    // such a plan takes organizePages' IN-PLACE path: no copy at all, so the
+    // "lossy" control lost nothing and the assertion ACCEPTED it (2026-10-08,
+    // integration e2e). Organize's rebuild path still drops the tag tree, as its
+    // page says. A control built by the engine under test moves when the engine
+    // is fixed. This one is plain pdf-lib: copyPages into a fresh document,
+    // which is what the old tool did and still drops every catalog, Info and
+    // form member the upload carries.
     control: async (ctx) => {
       const original = input(ctx, "spin.pdf");
       const source = await PDFDocument.load(original);

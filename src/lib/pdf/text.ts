@@ -470,6 +470,11 @@ const headsAColumn = (piece: Block, blocks: Block[]) =>
   blocks.some(
     (headed) =>
       overlapsX(piece.box, headed.box) &&
+      // "sits over": checked here, not left to the caller. withinParagraphGap
+      // alone is vacuously true when `headed` is the HIGHER box; today's one
+      // caller only passes the lower side of a cut, so this changes nothing
+      // there, but the predicate now means what its docblock says.
+      liesAbove(piece.box, headed.box) &&
       withinParagraphGap(piece.box, headed.box) &&
       blocks.some(
         (beside) =>
