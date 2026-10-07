@@ -151,8 +151,8 @@ const KNOWN_STALE: ReadonlySet<string> = new Set([
   // Verifier findings at 028d3a10, each queued for its own fix. html-to-pdf
   // left on 2026-10-07 when its step named all four labels; optimize-web,
   // pdf-to-pdfa, pdf-to-powerpoint, powerpoint-to-pdf, summarize-pdf,
-  // translate-pdf and unlock-pdf the same day.
-  "word-to-pdf",
+  // translate-pdf, unlock-pdf and word-to-pdf the same day, which emptied
+  // the ratchet: from here no page may start.
   // Found by this guard on landing, in no verifier's list: "reads Preparing
   // request… while it works" (request-signatures), "reads Repairing on the
   // worker… until the repaired copy has been fetched" (repair-pdf), "shows

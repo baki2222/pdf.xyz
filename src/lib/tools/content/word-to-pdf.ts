@@ -27,7 +27,9 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *    lifetime governs the stored copy, not the button.
  *  - UI labels quoted in the steps are from office-conversion-worker-panel.tsx
  *    and runner/runner-kit.tsx: "Add your document, or browse", "Remove" (a button),
- *    "Convert to PDF", "Converting PDF…", "Your PDF is ready.", the "Secure
+ *    "Convert to PDF", its busy label `jobBusyLabel(job.phase, "Converting
+ *    PDF…")` (Uploading your file…, Waiting for the worker…, Converting PDF…,
+ *    Downloading the result…), "Your PDF is ready.", the "Secure
  *    worker" / "Not enabled" / "Status unknown" badge, the "Limit" spec row,
  *    and NotifyMe's "Notify me when this ships".
  *
@@ -37,9 +39,13 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  * large can my file be?" answer and this copy all state it. Until 2026-09-27
  * this page stated both — "uploads are accepted up to" the gate and "the
  * converter refuses a Word file over" its cap — beside a derived answer of
- * "Up to 100 MB per file", which was false; a larger file is still UPLOADED
- * (the intake compares against the gate), then refused before LibreOffice
- * starts, and the copy says that without naming the gate's figure. The
+ * "Up to 100 MB per file", which was false. SUPERSEDED, history kept: "a
+ * larger file is still UPLOADED (the intake compares against the gate), then
+ * refused before LibreOffice starts". Since 2026-09-27 the same figure is
+ * enforced before anything moves: the panel's Dropzone `refuse` runs
+ * `pickRefusal` (the file is never read), `runSecurityJob` refuses it again
+ * before any request ("Nothing was uploaded."), and the upload route refuses
+ * a session over `workerFileCeilingBytes`. The
  * converter figure and the time limit are the config's DEFAULTS; no deploy
  * artifact in this repo overrides either (`file-ceilings.test.ts` fails if one
  * does), but the production worker's env was not read.
@@ -72,7 +78,7 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 /** Who refuses above the ceiling: the converter when its cap is the lower. */
 const sizeAnswer =
   ceiling.tier === "worker" && ceiling.engine
-    ? `One document per conversion, of up to ${ceilingMb} MB: the converter refuses a larger Word file before LibreOffice ever opens it, so it is uploaded and then comes back with a size error. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
+    ? `One document per conversion, of up to ${ceilingMb} MB, the most LibreOffice on the worker accepts: a larger Word file is refused in your browser when you add it, before anything uploads. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
     : `One document per conversion, up to ${ceilingMb} MB. For a batch, convert one file, press Remove, and add the next.`;
 
 const content: ToolContent = {
@@ -114,7 +120,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Convert to PDF",
-      body: 'The document is sent to pdf.xyz\'s secure worker over an encrypted connection, and the button reads "Converting PDF…" from the upload, through the LibreOffice conversion, until the finished PDF has been fetched back into the tab.',
+      body: 'The document is sent to pdf.xyz\'s secure worker over an encrypted connection. The button reads "Uploading your file…", then "Waiting for the worker…" while the job is queued, "Converting PDF…" while LibreOffice converts it, and "Downloading the result…" as the finished PDF is fetched back into the tab.',
     },
     {
       title: "Save the PDF",
