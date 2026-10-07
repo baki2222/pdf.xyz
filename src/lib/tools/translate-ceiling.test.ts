@@ -17,8 +17,22 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
+import {
+  AI_CHARACTER_ALLOWANCE,
+  AI_JOB_DELIVERY_LIMITS,
+} from "@/lib/jobs/ai-allowance";
+import { aiReservationGiven } from "@/lib/jobs/delivery-cap";
+import { RATE_LIMIT_ENV } from "@/lib/ratelimit/config";
+import {
+  reserveAiCharacterAllowance,
+  resetRateLimitGuardForTests,
+  resetSelfBuiltProviderForTests,
+} from "@/lib/ratelimit/guard";
+import { clearRateLimitProviderForTests } from "@/lib/ratelimit/provider";
+import { getToolBySlug } from "@/lib/tools";
+import { pageFaq } from "./page-copy";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
 import {
@@ -286,30 +300,92 @@ describe("the published ceiling describes a pass, not a document", () => {
     expect(facts).toMatch(/skipped/i);
   });
 
-  it("the FAQ names the SECOND bound, which the delivery cap created", () => {
-    /**
-     * "A LONGER DOCUMENT IS NOT REFUSED: it is split at page boundaries" was
-     * true the day it was written and the delivery cap made it conditional.
-     * A job now stops where its reservation stops, and a job whose reservation
-     * covers no page is refused outright — so a reader told only about the
-     * single-oversize-page case has been told the old truth.
-     *
-     * This is the same shape as the claim the test above exists to have
-     * removed, one release later: not a wrong sentence, a sentence the system
-     * grew past. Two independent patterns rather than one phrase, so a rewrite
-     * has to keep the MEANING rather than the wording.
-     */
-    const facts = read("src/lib/tools/tool-facts.ts");
+  /**
+   * INVERTED 2026-10-07, history kept. This test read:
+   *
+   *   it("the FAQ names the SECOND bound, which the delivery cap created")
+   *     expect(facts).toMatch(/daily allowance/i);
+   *     expect(facts).toMatch(/marked in place|says so in place|the reason named/i);
+   *
+   * and its message said the FAQ must tell the reader what happens "to the
+   * part the allowance does not cover". It pinned the defect: the FAQ duly
+   * said a document longer than the allowance "is translated as far as the
+   * allowance reaches, with the rest marked in place", and no part of a
+   * document is ever translated against a short allowance. The route charges
+   * the WHOLE declaration (`aiReservationFor`, per-character, no clamp) and
+   * `reserveAiCharacterAllowance` refuses a charge that does not fit, with a
+   * 429 before any job exists — so the page's own intro ("refused whole with
+   * nothing charged rather than half translated") and its FAQPage JSON-LD
+   * contradicted each other for as long as this test was green (verifier,
+   * 028d3a10). The second bound the delivery cap did create is narrower: the
+   * worker finding more text or pages than the job reserved.
+   *
+   * So it now reads the SERVED answer, bans the shipped sentence, demands the
+   * refusal, and licenses the ban by running the pricing and the allowance.
+   */
+  it("the FAQ says a document over today's allowance is refused whole, not half translated", () => {
+    const SHIPPED =
+      "And a document longer than the free daily allowance leaves for it is translated as far as the allowance reaches, with the rest marked in place and the reason named, so nothing stops silently.";
+    const PARTIAL =
+      /translated as far as the allowance reaches|allowance[^.]*(?:rest|remainder) (?:is )?marked/i;
     expect(
-      facts,
-      "the translate FAQ does not mention the daily allowance, so it still " +
-        "reads as though length is the only bound on how far a translation gets",
-    ).toMatch(/daily allowance/i);
-    expect(
-      facts,
-      "the FAQ does not say what happens to the part the allowance does not " +
-        "cover — a bound with no stated consequence is not actionable",
-    ).toMatch(/marked in place|says so in place|the reason named/i);
+      PARTIAL.test(SHIPPED),
+      "the ban no longer catches what shipped",
+    ).toBe(true);
+    const answer =
+      pageFaq(getToolBySlug("translate-pdf")!).find((f) =>
+        /How much of my PDF/i.test(f.question),
+      )?.answer ?? "";
+    expect(answer, "the served FAQ lost its ceiling answer").toMatch(
+      /characters of selectable text per pass/,
+    );
+    expect(PARTIAL.test(answer), answer).toBe(false);
+    expect(answer).toMatch(/daily allowance/i);
+    expect(answer).toMatch(/refused before it runs, with nothing charged/);
+    // The bound the delivery cap DID create, and its marker.
+    expect(answer).toMatch(/more text or more pages than the job reserved/);
+    expect(answer).toMatch(/says so in place/);
+  });
+
+  describe("licence: the allowance refuses a translation whole", () => {
+    const reset = () => {
+      resetRateLimitGuardForTests();
+      resetSelfBuiltProviderForTests();
+      clearRateLimitProviderForTests();
+    };
+    beforeEach(reset);
+    afterEach(reset);
+
+    it("charges the whole declaration and refuses it, spending nothing, when it does not fit", async () => {
+      const env = { [RATE_LIMIT_ENV.provider]: "local-memory" };
+      const req = () =>
+        new Request("http://localhost/api/jobs", { method: "POST" });
+      const declared = 20_000;
+      const { charge } = aiReservationGiven(
+        "translate-pdf",
+        { declaredCharacters: declared },
+        AI_JOB_DELIVERY_LIMITS,
+        false,
+      );
+      // The whole document, scaled by the headroom, with no clamp to what is left.
+      expect(charge).toBe(
+        Math.ceil(declared * AI_JOB_DELIVERY_LIMITS.headroom),
+      );
+      const T0 = 1_700_000_000_000;
+      const left = Math.floor(charge / 2);
+      const first = await reserveAiCharacterAllowance(
+        AI_CHARACTER_ALLOWANCE - left,
+        req(),
+        env,
+        T0,
+      );
+      expect(first.decision.allowed).toBe(true);
+      const refused = await reserveAiCharacterAllowance(charge, req(), env, T0);
+      expect(refused.decision.allowed, "a part of it was admitted").toBe(false);
+      // Nothing was spent: exactly what was left still fits.
+      const rest = await reserveAiCharacterAllowance(left, req(), env, T0);
+      expect(rest.decision.allowed).toBe(true);
+    });
   });
 
   it("the panel refuses on the SAME plan the worker refuses on", () => {

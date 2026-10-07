@@ -30,7 +30,11 @@ import {
  *    browse" drop zone (one file, with a Remove button), shown only once
  *    canRunTranslate (secure worker + AI provider) passes; the "Translate
  *    into" and "Source language" selects ("Auto-detect" first), "Instructions
- *    (optional)", the "Translate PDF" button ("Translating…" while busy), the
+ *    (optional)", the "Translate PDF" button (its busy label is
+ *    `jobBusyLabel(job.phase, "Translating…")`: Uploading your file…,
+ *    Waiting for the worker…, Translating… while counting and while the job
+ *    runs, Downloading the result…; until 2026-10-07 the step said it read
+ *    Translating… throughout), the
  *    in-browser text count that refuses a document before anything uploads
  *    when no page fits in one pass (a scan has no page with text, so it is
  *    refused there too), and the "Download <name>" button, which saves bytes
@@ -240,7 +244,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Translate PDF",
-      body: "Your browser counts the text first; if it fits, the PDF uploads over TLS and the button reads Translating… until the job completes and the ZIP has been fetched.",
+      body: "Your browser counts the text first, while the button reads Translating…; if it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for the worker…), is translated (Translating…), and the ZIP is fetched (Downloading the result…) before the download button appears.",
     },
     {
       title: "Download the ZIP",
