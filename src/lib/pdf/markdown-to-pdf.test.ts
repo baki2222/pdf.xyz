@@ -461,7 +461,15 @@ describe("the inline tokenizer stays linear up to the source cap", () => {
  * ------------------------------------------------------------------ */
 
 const TABLE_CHILD = String.raw`
-const { markdownToPdf, parseMarkdownBlocks } = await import(process.env.MD_MODULE);
+const md = await import(process.env.MD_MODULE);
+// Node 22 (CI) loads the .ts through tsx as CommonJS and leaves its named
+// exports only on default; Node 24 detects them. Found 2026-10-08: every
+// local run was Node 24, so "parseMarkdownBlocks is not a function" was
+// CI-only. Either shape is accepted; neither is a loud failure.
+const { markdownToPdf, parseMarkdownBlocks } =
+  typeof md.parseMarkdownBlocks === "function" ? md : md.default;
+if (typeof markdownToPdf !== "function" || typeof parseMarkdownBlocks !== "function")
+  throw new Error("MD_MODULE exports neither named nor default: " + Object.keys(md).join(","));
 let lo = 1, hi = 1 << 24;
 while (lo < hi) {
   const mid = (lo + hi + 1) >> 1;
@@ -617,7 +625,15 @@ describe("a table stays renderable up to the source cap", () => {
  * ------------------------------------------------------------------ */
 
 const NESTED_CHILD = String.raw`
-const { markdownToPdf, parseMarkdownBlocks } = await import(process.env.MD_MODULE);
+const md = await import(process.env.MD_MODULE);
+// Node 22 (CI) loads the .ts through tsx as CommonJS and leaves its named
+// exports only on default; Node 24 detects them. Found 2026-10-08: every
+// local run was Node 24, so "parseMarkdownBlocks is not a function" was
+// CI-only. Either shape is accepted; neither is a loud failure.
+const { markdownToPdf, parseMarkdownBlocks } =
+  typeof md.parseMarkdownBlocks === "function" ? md : md.default;
+if (typeof markdownToPdf !== "function" || typeof parseMarkdownBlocks !== "function")
+  throw new Error("MD_MODULE exports neither named nor default: " + Object.keys(md).join(","));
 const cap = Number(process.env.MD_CAP);
 const openers = JSON.parse(process.env.MD_OPENERS);
 const down = (n) => (n === 0 ? 0 : 1 + down(n - 1));

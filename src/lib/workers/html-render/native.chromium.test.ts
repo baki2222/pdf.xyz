@@ -204,7 +204,12 @@ describe.skipIf(!BIN)(
       const { text, url } = await renderWithPreFixArgv(TITLED_PAGE, "chrome");
       expect(text).toContain(CHROME_VISIBLE);
       const leaks = printChromeLeaks(text, { title: TITLE, sourceUrl: url });
-      expect(leaks).toContain("the page URL");
+      // The extracted text rides on the failure: on CI's Linux Chromium the
+      // footer URL printed elided, which only the text could show.
+      expect(
+        leaks,
+        `url: ${url}\nextracted text:\n${text.slice(0, 1500)}`,
+      ).toContain("the page URL");
       expect(leaks).toContain("the page <title>");
       expect(leaks).toContain("a file:// URL (the worker's copy)");
       expect(leaks).toContain("the worker's temp directory");

@@ -51,6 +51,37 @@ export function printChromeLeaks(
   const title = context.title?.trim();
   if (title && text.includes(title)) found.push("the page <title>");
   const url = context.sourceUrl?.replace(/\/+$/, "");
-  if (url && text.includes(url)) found.push("the page URL");
+  if (url && (text.includes(url) || containsElidedUrl(text, url)))
+    found.push("the page URL");
   return found;
+}
+
+/**
+ * Chromium draws the footer URL in an HTML template that truncates overflow
+ * with an ellipsis, so a URL longer than the footer prints as its PREFIX and
+ * "…" — and the whole-URL check above misses it. Found 2026-10-08: on CI's
+ * Linux Chromium the pre-fix control's `file:///tmp/…` footer was not found
+ * as "the page URL", while Windows (a shorter temp path) printed it whole. A
+ * long webpage URL in production elides the same way, so this is the guard's
+ * blind spot, not the test's.
+ *
+ * The prefix must be long enough to name THIS url rather than any URL:
+ * {@link ELIDED_PREFIX_MIN} characters (`file:///tmp/pdfxyz-html-` alone is
+ * 24, a web origin plus path is longer).
+ */
+export const ELIDED_PREFIX_MIN = 24;
+
+export function containsElidedUrl(text: string, url: string): boolean {
+  const min = Math.min(ELIDED_PREFIX_MIN, url.length - 1);
+  if (min < 1) return false;
+  for (const match of text.matchAll(/…|\.\.\./g)) {
+    const before = text.slice(
+      Math.max(0, match.index - url.length),
+      match.index,
+    );
+    for (let k = before.length; k >= min; k--) {
+      if (url.startsWith(before.slice(before.length - k))) return true;
+    }
+  }
+  return false;
 }

@@ -43,6 +43,9 @@ playwright/.cache
 **/*.test.tsx
 **/*.spec.ts
 vitest.config.ts
+# A test-only vitest config imports ../../vitest.config, which is excluded
+# above; left in, it fails the image's `pnpm build` type check (TS2307).
+**/*.vitest.config.ts
 
 # Local Docker/compose files don't belong inside the context they describe.
 Dockerfile

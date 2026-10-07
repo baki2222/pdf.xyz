@@ -464,9 +464,13 @@ describe("overlay pages whose content is not in a content stream", () => {
     });
     expect(result.skippedBlankOverlayPages).toEqual([]);
     const out = await firstPage(result.bytes);
-    // Top-left quarter: the field's blue background. Bottom: nothing.
+    // Top-left quarter: the field's blue background (rgb 0.1, 0.2, 0.9).
+    // Bottom: nothing. The region also holds the field's "OK", drawn at a size
+    // each renderer picks — Linux CI measured blue at 177.8 where Windows
+    // passed an absolute "> 180" — so the property is asserted as BLUE
+    // DOMINATING RED, which a white (unapplied) or grey region cannot meet.
     const tl = regionMean(out, 0.05, 0.05, 0.45, 0.45);
-    expect(tl[2]).toBeGreaterThan(180);
+    expect(tl[2] - tl[0]).toBeGreaterThan(100);
     expect(tl[0]).toBeLessThan(90);
     expect(isWhite(regionMean(out, 0.05, 0.6, 0.95, 0.95))).toBe(true);
   });

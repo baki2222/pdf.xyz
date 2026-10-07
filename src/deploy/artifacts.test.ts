@@ -238,6 +238,85 @@ describe(".dockerignore keeps secrets, prompts, and build output out of the cont
       expect(patterns).toContain(needed);
     }
   });
+
+  /*
+   * The image build runs `pnpm build`, and Next type-checks every .ts/.tsx in
+   * the context — so a file that stays IN the context must not import one the
+   * context drops. On 2026-10-08 src/tests/pdfjs-load-order.vitest.config.ts
+   * (a test-only config, its test already excluded by `**\/*.test.ts`) imported
+   * ../../vitest.config, which `vitest.config.ts` excludes: every local build
+   * passed (the file exists on disk) and the web image failed with TS2307.
+   * The property, derived from the tree rather than from names: no import edge
+   * from an included file reaches an excluded one. `import type` counts — the
+   * type checker resolves it too.
+   */
+  it("leaves no file in the context importing a file the context drops", () => {
+    const toRegex = (pattern: string) =>
+      new RegExp(
+        "^" +
+          pattern
+            .replace(/^\//, "")
+            .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+            .replace(/\*\*\//g, "\u0000")
+            .replace(/\*\*/g, ".*")
+            .replace(/\*/g, "[^/]*")
+            .replace(/\?/g, "[^/]")
+            .replace(/\u0000/g, "(?:.*/)?") +
+          "(?:/.*)?$",
+      );
+    const excludedBy = (rules: string[]) => {
+      const res = rules.filter((p) => !p.startsWith("!")).map(toRegex);
+      return (rel: string) => res.some((re) => re.test(rel));
+    };
+    const tracked = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
+      cwd: ROOT,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean);
+    const resolveImport = (from: string, spec: string): string | null => {
+      const base = spec.startsWith("@/")
+        ? path.posix.join("src", spec.slice(2))
+        : spec.startsWith(".")
+          ? path.posix.join(path.posix.dirname(from), spec)
+          : null;
+      if (!base) return null;
+      for (const cand of [
+        base,
+        `${base}.ts`,
+        `${base}.tsx`,
+        `${base}/index.ts`,
+        `${base}/index.tsx`,
+      ]) {
+        if (tracked.includes(cand)) return cand;
+      }
+      return null;
+    };
+    const SPEC = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)["']([^"']+)["']/g;
+    const violations = (rules: string[]) => {
+      const excluded = excludedBy(rules);
+      const out: string[] = [];
+      for (const file of tracked) {
+        if (excluded(file)) continue;
+        for (const m of read(file).matchAll(SPEC)) {
+          const target = resolveImport(file, m[1]!);
+          if (target && excluded(target)) out.push(`${file} -> ${target}`);
+        }
+      }
+      return out;
+    };
+    // Health check: the walk sees the repository, not an empty list.
+    expect(tracked.length).toBeGreaterThan(500);
+    expect(violations(patterns)).toEqual([]);
+    // Positive control: the context as it stood on 2026-10-08 (without the
+    // `**/*.vitest.config.ts` line) must show exactly the edge that broke the
+    // image — otherwise this check cannot see the defect it exists for.
+    expect(
+      violations(patterns.filter((p) => p !== "**/*.vitest.config.ts")),
+    ).toContain(
+      "src/tests/pdfjs-load-order.vitest.config.ts -> vitest.config.ts",
+    );
+  });
 });
 
 describe("docker-compose.worker.yml — example wiring, names only", () => {
