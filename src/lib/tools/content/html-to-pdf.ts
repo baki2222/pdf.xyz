@@ -18,12 +18,20 @@ import { formatBytes } from "@/lib/utils";
  *    ErrorNote showing the run's message, a "Limit" spec row reading
  *    formatBytes(ceiling)/file); no page size, margin or orientation option
  *    exists on the panel;
- *  - the render: src/lib/workers/html-render/native.ts writes the upload ALONE
- *    as input.html into an empty temp directory, loads it by file:// URL and
- *    prints it with headless Chromium `--print-to-pdf` under a
- *    `--virtual-time-budget` (chromiumPdfArgs), with no header/footer flag, so
- *    relative and root-relative references (style.css, /img/logo.png) have
- *    nothing to resolve to, and scripts run inside a bounded window;
+ *  - the render (re-read 2026-10-08): src/lib/workers/html-render/native.ts
+ *    drives headless Chromium over a CDP pipe. The upload is never read from
+ *    disk by Chromium: it is served as the document at HTML_DOCUMENT_URL
+ *    (src/lib/workers/html-render/document-url.ts, an https address on the
+ *    reserved .invalid domain) and nothing else is ever served from there, so
+ *    relative and root-relative references (style.css, /img/logo.png)
+ *    resolve to an address nothing answers, and file: URLs cannot load at
+ *    all. Every other request goes through network.ts, which fetches public
+ *    http(s) addresses only. Scripts run inside VIRTUAL_TIME_BUDGET_MS of
+ *    virtual time, then Page.printToPDF prints with PRINT_TO_PDF_OPTIONS (no
+ *    header or footer, backgrounds printed, the CSS @page size preferred).
+ *    Until 2026-10-08 this bullet described the file:// CLI render
+ *    (--print-to-pdf under --virtual-time-budget, chromiumPdfArgs) that the
+ *    CDP renderer replaced in 2026-09;
  *  - refusals: engine.ts / processor/html-render.ts — exactly one input; an
  *    input-size check before Chromium starts (non-retryable), separate from
  *    the upload ceiling — and since wave1 the panel refuses a file over the
@@ -71,9 +79,12 @@ import { formatBytes } from "@/lib/utils";
  * x=56.7/y=68.8 and page 2's at x=56.7/y=-0.2 (side padding repeats, top
  * padding does not) — the basis of the margin-0 trade-off sentence.
  *
- * Deliberately NOT claimed: whether remote (absolute-URL) assets load from
- * the worker, background-graphics printing defaults, or which scripts/fonts
- * render.
+ * Deliberately NOT claimed: which scripts and fonts render. Remote
+ * (absolute-URL) assets DO load since the CDP renderer (network.ts fetches
+ * public addresses, and the panel's pre-upload scan in unbundled-assets.ts
+ * treats them as fine), and backgrounds print (printBackground: true); the
+ * page claims neither, and says only that a reference resolving beside the
+ * upload has nothing to load, which is true of both renderers.
  */
 
 const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
