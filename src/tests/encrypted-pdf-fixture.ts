@@ -146,3 +146,137 @@ export const ownerOnlyEncryptedPdf = () =>
 /** Will not open without its password. */
 export const userPasswordEncryptedPdf = () =>
   encryptedPdf({ userPassword: "open-sesame", ownerPassword: "owner-secret" });
+
+/** Algorithm 1: the RC4 key for object `num` generation `gen`. */
+function objectKey(key: Uint8Array, num: number, gen: number): Uint8Array {
+  const salt = Uint8Array.from([
+    num & 0xff,
+    (num >> 8) & 0xff,
+    (num >> 16) & 0xff,
+    gen & 0xff,
+    (gen >> 8) & 0xff,
+  ]);
+  return md5(key, salt).subarray(0, Math.min(KEY_BYTES + 5, 16));
+}
+
+const latin1 = (text: string) => Uint8Array.from(Buffer.from(text, "latin1"));
+
+/**
+ * The same lock, written the way PDF 1.5+ writers (Acrobat, Word, most modern
+ * producers) save an encrypted file: the Catalog, Pages and Page objects live
+ * INSIDE an object stream (object 1, RC4-encrypted with its own object key),
+ * and the cross-reference is an uncompressed /XRef stream (/W [1 4 2]) that
+ * carries /Encrypt and /ID. Neither the /XRef stream nor the /Encrypt
+ * dictionary is encrypted (ISO 32000-1 §7.5.8.2, §7.6.1).
+ *
+ * This is the shape `src/lib/pdf/encryption.ts` warns about: pdf-lib with
+ * `ignoreEncryption` cannot read the page tree, so `readPdfFrames` returns
+ * null for it, while pdf.js decrypts the object stream and opens it.
+ */
+export function encryptedObjectStreamPdf({
+  userPassword,
+  ownerPassword,
+  handler = "Standard",
+}: EncryptedPdfOptions & {
+  /** The security handler /Filter names; pdf.js decrypts only Standard. */
+  handler?: string;
+}): Uint8Array {
+  const id = md5(new TextEncoder().encode(`pdfxyz-objstm-${ownerPassword}`));
+  const o = ownerEntry(ownerPassword, userPassword);
+  const key = fileKey(userPassword, o, id);
+  const u = userEntry(key, id);
+
+  // Objects 2, 3 and 4, packed into object stream 1.
+  const packed = [
+    "<< /Type /Catalog /Pages 3 0 R >>",
+    "<< /Type /Pages /Kids [4 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 3 0 R /MediaBox [0 0 200 200] >>",
+  ];
+  let data = "";
+  const within: number[] = [];
+  for (const obj of packed) {
+    within.push(data.length);
+    data += `${obj}\n`;
+  }
+  const header = `${packed.map((_, i) => `${i + 2} ${within[i]}`).join(" ")}\n`;
+  const plain = latin1(header + data);
+  const sealed = rc4(objectKey(key, 1, 0), plain);
+
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  const write = (bytes: Uint8Array) => {
+    chunks.push(bytes);
+    length += bytes.length;
+  };
+  write(latin1("%PDF-1.5\n%\xe2\xe3\xcf\xd3\n"));
+  const offsets: Record<number, number> = {};
+  offsets[1] = length;
+  write(
+    latin1(
+      `1 0 obj\n<< /Type /ObjStm /N ${packed.length} /First ${header.length} /Length ${sealed.length} >>\nstream\n`,
+    ),
+  );
+  write(sealed);
+  write(latin1("\nendstream\nendobj\n"));
+  offsets[5] = length;
+  write(
+    latin1(
+      `5 0 obj\n<< /Filter /${handler} /V 2 /R 3 /Length 128 /P ${PERMISSIONS} /O <${hex(o)}> /U <${hex(u)}> >>\nendobj\n`,
+    ),
+  );
+  offsets[6] = length;
+  const size = 7;
+  const row = (type: number, field2: number, field3: number) => {
+    const r = new Uint8Array(7);
+    const view = new DataView(r.buffer);
+    r[0] = type;
+    view.setUint32(1, field2);
+    view.setUint16(5, field3);
+    return r;
+  };
+  const rows = [
+    row(0, 0, 0xffff),
+    row(1, offsets[1]!, 0),
+    row(2, 1, 0),
+    row(2, 1, 1),
+    row(2, 1, 2),
+    row(1, offsets[5]!, 0),
+    row(1, offsets[6]!, 0),
+  ];
+  const table = new Uint8Array(rows.length * 7);
+  rows.forEach((r, i) => table.set(r, i * 7));
+  write(
+    latin1(
+      `6 0 obj\n<< /Type /XRef /Size ${size} /W [1 4 2] /Root 2 0 R /Encrypt 5 0 R /ID [<${hex(id)}> <${hex(id)}>] /Length ${table.length} >>\nstream\n`,
+    ),
+  );
+  write(table);
+  write(latin1(`\nendstream\nendobj\nstartxref\n${offsets[6]}\n%%EOF\n`));
+
+  const out = new Uint8Array(length);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+/** Object-stream file that opens with no password; editing is restricted. */
+export const ownerOnlyObjectStreamPdf = () =>
+  encryptedObjectStreamPdf({ userPassword: "", ownerPassword: "owner-secret" });
+
+/** Object-stream file that will not open without its password. */
+export const userPasswordObjectStreamPdf = () =>
+  encryptedObjectStreamPdf({
+    userPassword: "open-sesame",
+    ownerPassword: "owner-secret",
+  });
+
+/** Object-stream file under a handler no browser reader decrypts (public key). */
+export const unknownHandlerObjectStreamPdf = () =>
+  encryptedObjectStreamPdf({
+    userPassword: "",
+    ownerPassword: "owner-secret",
+    handler: "Adobe.PubSec",
+  });

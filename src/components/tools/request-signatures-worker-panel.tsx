@@ -28,7 +28,11 @@ import {
   type ThumbnailRenderer,
 } from "@/lib/pdf/render";
 import { clampPixelRatio } from "@/lib/pdf/render-utils";
-import { encryptedPdfMessage, probePdfEncryption } from "@/lib/pdf/encryption";
+import {
+  classifyPdfAccess,
+  encryptedPdfMessage,
+  probePdfEncryption,
+} from "@/lib/pdf/encryption";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunRequestSignatures,
@@ -332,6 +336,15 @@ function SpecRow({
  * pdf.js probe every in-browser loader uses, and the sentence is that verdict's.
  * This notice used to call every encrypted file "password-protected", while
  * the loader called the same bytes restricted.
+ *
+ * An UNREADABLE pick carries `lock` too. `readPdfFrames` reads past
+ * encryption with pdf-lib, which cannot decrypt, so when the page tree sits in
+ * an encrypted object stream — how Acrobat, Word and most PDF 1.5+ writers
+ * save an encrypted file — it returns null and never reports the lock. Until
+ * 2026-10-08 that pick showed nothing and stayed runnable, so the file was
+ * uploaded and refused by the worker, while the page promised the stop came
+ * "before anything is uploaded". Such a pick is now asked of pdf.js
+ * ({@link lockOfUnreadable}), which does decrypt.
  */
 type PickedPdf =
   | { status: "reading" }
@@ -341,7 +354,42 @@ type PickedPdf =
       info: PdfFrames;
       lock: string | null;
     }
-  | { status: "unreadable"; bytes: Uint8Array | null };
+  | { status: "unreadable"; bytes: Uint8Array | null; lock: string | null };
+
+/** The `/Encrypt` key, as a trailer or an /XRef stream dictionary spells it. */
+const ENCRYPT_KEY = new TextEncoder().encode("/Encrypt");
+
+/** Whether `bytes` contain `/Encrypt` ending as a name (not /EncryptMetadata). */
+function mentionsEncrypt(bytes: Uint8Array): boolean {
+  const last = bytes.length - ENCRYPT_KEY.length;
+  outer: for (let i = 0; i <= last; i += 1) {
+    for (let k = 0; k < ENCRYPT_KEY.length; k += 1)
+      if (bytes[i + k] !== ENCRYPT_KEY[k]) continue outer;
+    const next = bytes[i + ENCRYPT_KEY.length];
+    if (next === undefined || !/[A-Za-z0-9]/.test(String.fromCharCode(next)))
+      return true;
+  }
+  return false;
+}
+
+/**
+ * The lock on a PDF pdf-lib could not read, asked of pdf.js: its sentence for
+ * a file that needs a password or opens only with restrictions. A file pdf.js
+ * cannot open either but whose trailer names /Encrypt (a handler no browser
+ * reader decrypts, such as a certificate lock) gets the sentence true of both
+ * kinds. `null` for an unencrypted or damaged file, left to the worker, which
+ * says what is wrong.
+ */
+async function lockOfUnreadable(bytes: Uint8Array): Promise<string | null> {
+  const access = await classifyPdfAccess(bytes);
+  if (access.kind === "password-required")
+    return encryptedPdfMessage("needs-password");
+  if (access.kind === "restricted")
+    return encryptedPdfMessage("opens-without-password");
+  if (access.kind === "unreadable" && mentionsEncrypt(bytes))
+    return encryptedPdfMessage(null);
+  return null;
+}
 
 export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
@@ -369,7 +417,10 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
   );
   const pageCount =
     picked?.status === "read" ? picked.info.frames.length : null;
-  const lock = picked?.status === "read" ? picked.lock : null;
+  const lock =
+    picked?.status === "read" || picked?.status === "unreadable"
+      ? picked.lock
+      : null;
   const encrypted = lock !== null;
   const reading = picked?.status === "reading";
   // An encrypted PDF is refused by the worker (it cannot add fields to a locked
@@ -406,16 +457,19 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
           bytes = null;
         }
         const info = bytes ? await readPdfFrames(bytes) : null;
-        const lock =
-          bytes && info?.encrypted
-            ? encryptedPdfMessage(await probePdfEncryption(bytes))
-            : null;
+        const lock = !bytes
+          ? null
+          : info
+            ? info.encrypted
+              ? encryptedPdfMessage(await probePdfEncryption(bytes))
+              : null
+            : await lockOfUnreadable(bytes);
         if (token !== pickToken.current) return;
         if (bytes && info) {
           setPicked({ status: "read", bytes, info, lock });
           setPage(info.frames.length);
         } else {
-          setPicked({ status: "unreadable", bytes });
+          setPicked({ status: "unreadable", bytes, lock });
         }
       })();
     },

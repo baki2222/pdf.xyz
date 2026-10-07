@@ -30,8 +30,12 @@ import {
 } from "@/lib/pdf/encryption";
 import {
   ownerOnlyEncryptedPdf,
+  ownerOnlyObjectStreamPdf,
+  unknownHandlerObjectStreamPdf,
   userPasswordEncryptedPdf,
+  userPasswordObjectStreamPdf,
 } from "@/tests/encrypted-pdf-fixture";
+import { readPdfFrames } from "@/lib/pdf/page-frame";
 import {
   RequestBuilder,
   clampSignaturePage,
@@ -183,6 +187,57 @@ describe("RequestBuilder signature page", () => {
   it("positive control: a PDF that needs a password to open is called password-protected", async () => {
     const alert = await lockAlert(userPasswordEncryptedPdf());
     expect(alert).toHaveTextContent(PDF_NEEDS_PASSWORD_MESSAGE);
+  });
+
+  /**
+   * ADDED 2026-10-08. Every fixture above uses a classic xref table, which
+   * pdf-lib reads past encryption. A PDF 1.5+ writer puts the page tree in an
+   * encrypted object stream, which pdf-lib cannot decrypt: `readPdfFrames`
+   * returned null, the pick became "unreadable", nothing was shown, and the
+   * run stayed enabled — so the file was uploaded and refused by the worker,
+   * while the page promised the stop came before anything is uploaded.
+   */
+  it("health: pdf-lib cannot read the object-stream fixtures, and pdf.js can", async () => {
+    for (const bytes of [
+      ownerOnlyObjectStreamPdf(),
+      userPasswordObjectStreamPdf(),
+    ])
+      expect(await readPdfFrames(bytes)).toBeNull();
+  });
+
+  it("an object-stream PDF that opens without a password is stopped before upload, as restricted", async () => {
+    const alert = await lockAlert(ownerOnlyObjectStreamPdf());
+    expect(alert).toHaveTextContent(PDF_RESTRICTED_MESSAGE);
+    expect(alert).not.toHaveTextContent(/password-protected/i);
+  });
+
+  it("an object-stream PDF that needs a password is stopped before upload, as password-protected", async () => {
+    const alert = await lockAlert(userPasswordObjectStreamPdf());
+    expect(alert).toHaveTextContent(PDF_NEEDS_PASSWORD_MESSAGE);
+  });
+
+  it("an object-stream PDF under a handler pdf.js cannot decrypt is stopped with the sentence true of both kinds", async () => {
+    expect(await readPdfFrames(unknownHandlerObjectStreamPdf())).toBeNull();
+    const alert = await lockAlert(unknownHandlerObjectStreamPdf());
+    expect(alert).toHaveTextContent(PDF_ENCRYPTED_UNKNOWN_MESSAGE);
+  });
+
+  it("control: a PDF no reader can open is left to the worker, not called locked", async () => {
+    const { container } = render(<RequestBuilder refuse={refuse} />);
+    addSigner();
+    pick(
+      container,
+      new File([new TextEncoder().encode("%PDF-1.7 not really")], "x.pdf", {
+        type: "application/pdf",
+      }),
+    );
+    const button = screen.getByRole("button", {
+      name: /Prepare signature request/,
+    });
+    await waitFor(() =>
+      expect(button).not.toHaveAttribute("aria-disabled", "true"),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("a lock no reader can classify gets the sentence true of both kinds", async () => {

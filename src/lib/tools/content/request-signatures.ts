@@ -54,7 +54,14 @@ import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
  *    the wave1 merge, and native.integration.test.ts runs it). In the browser
  *    an encrypted PDF never gets that far: the panel stops it when it is
  *    picked, in the words of the pdf.js probe's verdict
- *    (request-signatures-worker-panel.test.tsx). A file with no %PDF- envelope never reaches the engine:
+ *    (request-signatures-worker-panel.test.tsx). AMENDED 2026-10-08: that held
+ *    only for classic-xref files. When the page tree sits in an encrypted
+ *    object stream (PDF 1.5+, how Acrobat and Word save), readPdfFrames
+ *    returns null, the pick showed nothing and stayed runnable, and the file
+ *    was uploaded and refused by the worker. The panel now asks pdf.js
+ *    (classifyPdfAccess) about any pick pdf-lib cannot read, and blocks one
+ *    whose trailer names /Encrypt even when pdf.js cannot decrypt it; the
+ *    panel test runs object-stream fixtures of each lock. A file with no %PDF- envelope never reaches the engine:
  *    the executor's soundness gate (src/lib/workers/soundness, wired by
  *    daemon/runtime.ts) fails it with UNSOUND_INPUT_ERROR. Output is a ZIP: prepared.pdf, manifest.json (status
  *    always "prepared", SHA-256 of the uploaded file, signers with a 32-hex
