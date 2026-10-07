@@ -305,25 +305,35 @@ interface Block {
  *     paragraph, a column run. The size rule keeps a running header off the
  *     title set just under it: joined, the header's other half on that
  *     baseline had no line of its own to sit beside, and read after the
- *     title.
+ *     title. It also makes a section heading its own block, and so offers
+ *     step 2 a cut inside a column; step 2 must refuse that cut (below).
  *  2. BANDS ({@link bandOrder}): where a horizontal cut crosses no block,
  *     everything above it reads before everything below — when the stream
- *     says the cut is real. It does when the blocks above are drawn at the
- *     ENDS of the stream: first, last, or some first and the rest last (a
- *     running head in two pieces, one drawn before the body and one after).
- *     That is how a footer drawn first sinks under BOTH columns, and a header
- *     drawn last rises over both, as one move — rather than the columns being
- *     lifted past it one at a time, which is how the first version of this
- *     put the right column above the left. It also does when the blocks
- *     above are one unbroken run in the MIDDLE of the stream and everything
- *     below is single lines — a footer in pieces, one drawn first and one
- *     last (`Company Confidential` ... `Page 3`), which otherwise fell to
- *     step 3 and read between the columns. A cut the stream crosses back and
- *     forth (two columns, each in two sections) is not trusted, and neither
- *     is a middle run with a column below it: that is the right column's top
- *     section when the left column starts lower (a figure over it) and the
- *     right one has a gap below that section, and lifting it read
- *     `R1 | L | R2`. Both pages read a column at a time.
+ *     says the cut is real. It does when the blocks above are one unbroken
+ *     run at an END of the stream, first or last. That is how a footer drawn
+ *     first sinks under BOTH columns, and a header drawn last rises over
+ *     both, as one move — rather than the columns being lifted past it one at
+ *     a time, which is how the first version of this put the right column
+ *     above the left. Two more shapes are trusted, both page FURNITURE in
+ *     pieces on one baseline, and only when the pieces ARE one row of single
+ *     lines (`isOneRow`): a running head with one piece drawn before the body
+ *     and one after (the upper side SPLIT between the stream's two ends), and
+ *     a footer the same way (the body a run in the MIDDLE, the pieces below
+ *     it), which otherwise read `H_L | L | H_R | R` and put
+ *     `Company Confidential` between the columns.
+ *     Not trusted: a cut the stream crosses back and forth (two columns, each
+ *     in two sections); a middle run over anything but one row — that is the
+ *     right column's top section when the left column starts lower (a figure
+ *     over it) and the right one has a gap below that section, and lifting it
+ *     read `R1 | L | R2`; and a split over anything but one row.
+ *     CHANGED 2026-10-08 (history kept): f4f53fd6 trusted ANY split and any
+ *     middle run over single lines, and scrambled pages already in order —
+ *     the last page of a two-column paper (left column's top first, right
+ *     column last, the left column's lower part under a heading or a
+ *     paragraph gap in the middle) read `Left A | Right | Left B`; a form or
+ *     résumé of one-line blocks in two columns, the right a line higher,
+ *     read `R1 | L1 | R2 …`. The base it replaced read all of them in stream
+ *     order; `text-reading-order.test.ts` (NO_CUT_THERE) pins each.
  *  3. Within a band ({@link columnOrder}), blocks keep stream order, except
  *     that a block moves in front of the first earlier block it overlaps
  *     horizontally AND lies wholly above — a title or heading drawn after
@@ -388,27 +398,54 @@ const liesAbove = (upper: Box, lower: Box) =>
   upper.bottom >= lower.top - lower.size * 0.25;
 
 /**
- * Whether stream positions `at` (distinct, of `count` blocks) are all drawn at
- * the ENDS of the stream: some first, the rest last, none in between. One
- * unbroken run at the start or at the end is the simplest case.
+ * Where stream positions `at` (distinct, of `count` blocks) were drawn:
+ * `"start"` or `"end"` for one unbroken run at that end of the stream,
+ * `"split"` for some first and the rest last (none in between), `"middle"`
+ * for one unbroken run touching neither end, `null` for anything else.
  */
-function drawnAtTheEnds(at: number[], count: number): boolean {
+function drawnWhere(
+  at: number[],
+  count: number,
+): "start" | "end" | "split" | "middle" | null {
   const sorted = [...at].sort((a, b) => a - b);
+  const first = sorted[0]!;
+  const final = sorted.at(-1)!;
+  if (final - first + 1 === sorted.length) {
+    if (first === 0) return "start";
+    if (final === count - 1) return "end";
+    return "middle";
+  }
   let head = 0;
   while (head < sorted.length && sorted[head] === head) head++;
-  return sorted
-    .slice(head)
-    .every((position, i) => position === count - (sorted.length - head) + i);
+  const split =
+    head > 0 &&
+    sorted
+      .slice(head)
+      .every((position, i) => position === count - (sorted.length - head) + i);
+  return split ? "split" : null;
 }
 
 /** A block no taller than one line of its largest text. */
 const isOneLine = (box: Box) => box.top - box.bottom <= box.size * 1.5;
 
 /**
+ * Whether `boxes` are one-line blocks on ONE row — some horizontal line
+ * crosses every one of them — as the pieces of a running head or a footer
+ * are. Two columns of single lines are many rows, not one.
+ */
+const isOneRow = (boxes: Box[]) =>
+  boxes.length > 0 &&
+  boxes.every(isOneLine) &&
+  Math.max(...boxes.map((box) => box.bottom)) <
+    Math.min(...boxes.map((box) => box.top));
+
+/**
  * Split `blocks` (in stream order) at the highest horizontal cut that no block
- * crosses and that the stream vouches for — the upper side drawn at the ENDS
- * of the stream, or as one unbroken run in the middle with only single lines
- * below — then order each side the same way; with no such cut, fall back to
+ * crosses and that the stream vouches for — the upper side drawn as one
+ * unbroken run at the start or the end of the stream; or, for page furniture
+ * in pieces on one baseline, a split upper side that IS one row of single
+ * lines (a running head) or a middle run over a lower side that is (a
+ * footer) — then order each side the same way; with no such cut, fall back to
  * {@link columnOrder}. See {@link readingOrder}, step 2.
  */
 function bandOrder(blocks: Block[]): Block[] {
@@ -417,30 +454,38 @@ function bandOrder(blocks: Block[]): Block[] {
     .map((block, at) => ({ block, at }))
     .sort((a, b) => b.block.box.top - a.block.box.top || a.at - b.at);
   let floor: Box | null = null;
-  let first = Infinity;
-  let final = -Infinity;
   for (let k = 1; k < byTop.length; k++) {
-    const { block, at } = byTop[k - 1]!;
+    const { block } = byTop[k - 1]!;
     if (!floor || block.box.bottom < floor.bottom) floor = block.box;
-    first = Math.min(first, at);
-    final = Math.max(final, at);
     // Blocks after k have tops no higher than this one's, so clearing it
     // clears them all.
     if (!liesAbove(floor, byTop[k]!.block.box)) continue;
     const upper = byTop.slice(0, k);
     const above = new Set(upper.map((entry) => entry.block));
-    // A run in the MIDDLE is a later column's top section when an earlier
-    // column beside it starts lower, and lifting it would put the later
-    // column in front of the earlier one — unless nothing below is taller
-    // than a line, so no column is there to be jumped.
-    const atTheEnds = drawnAtTheEnds(
+    const where = drawnWhere(
       upper.map((entry) => entry.at),
       blocks.length,
     );
-    const middleOverLines =
-      final - first + 1 === k &&
-      blocks.every((b) => above.has(b) || isOneLine(b.box));
-    if (atTheEnds || middleOverLines) {
+    // One unbroken run at an END: the order already reads right (start), or
+    // a header drawn last / a body drawn after its footer (end).
+    const atAnEnd = where === "start" || where === "end";
+    // A SPLIT upper side is trusted only when it is one row of single lines —
+    // a running head in pieces, one drawn first and one last. Anything else
+    // drawn at both ends over a middle run is a body: the last page of a
+    // two-column paper puts the left column's upper part first and the right
+    // column last, over the left column's lower part (a section heading, a
+    // paragraph gap), and lifting them spliced the right column into the left.
+    const headInPieces =
+      where === "split" && isOneRow(upper.map((entry) => entry.block.box));
+    // A run in the MIDDLE is a later column's top section when an earlier
+    // column beside it starts lower, and lifting it puts the later column in
+    // front of the earlier one — so it is trusted only over a lower side that
+    // is ONE row of single lines: a footer in pieces, drawn first and last.
+    // Two columns of single lines (a form, a résumé) are many rows.
+    const footInPieces =
+      where === "middle" &&
+      isOneRow(blocks.filter((b) => !above.has(b)).map((b) => b.box));
+    if (atAnEnd || headInPieces || footInPieces) {
       return [
         ...bandOrder(blocks.filter((b) => above.has(b))),
         ...bandOrder(blocks.filter((b) => !above.has(b))),

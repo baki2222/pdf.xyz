@@ -294,8 +294,100 @@ const STAGGERED: Record<string, ColumnPage> = {
   },
 };
 
+/**
+ * Pages already in order whose blocks invite a band cut that is not there.
+ * ADDED 2026-10-08, from a review that ran these through `extractPdfText` at
+ * f4f53fd6 and at 028d3a10: the base read each in stream order, and f4f53fd6
+ * scrambled every one. Its two new band rules — an upper side drawn "at the
+ * ends" in a SPLIT (some first, the rest last), and a middle run "over single
+ * lines" — had been measured over 2,400 compositions none of which had a left
+ * column with more than one block below where the right column ends, or
+ * columns made of one-line blocks. Both rules exist for page FURNITURE: a
+ * running head or footer in pieces on one baseline.
+ *
+ *  - The last page of a two-column paper: a long left column whose lower part
+ *    starts below where a short right column ends, split by a 13 pt section
+ *    heading at normal spacing (the size rule makes the heading its own
+ *    block) or by a paragraph gap over two line heights. HEAD read
+ *    `Left A | Right | heading | Left B`, splicing the right column into the
+ *    middle of the left.
+ *  - A form: two columns of single lines spaced over two line heights apart,
+ *    the right one starting a line higher. HEAD read `R1 | L1 | R2 | L2 …`.
+ *  - A résumé: label (13 pt) over value (9 pt) in two columns, the right one
+ *    starting a line higher. HEAD lifted `Right Heading 1` over the left.
+ */
+const LAST_PAGE_LEFT_A = wideCol("Left", 72, 700, 20, { lead: 12 });
+const LAST_PAGE_RIGHT = wideCol("Right", 320, 700, 12, { lead: 12 });
+const LAST_PAGE_HEADING: Line = {
+  text: "4. Conclusion",
+  x: 72,
+  y: 454,
+  size: 13,
+};
+const LAST_PAGE_LEFT_B = wideCol("Left", 72, 436, 8, { from: 21, lead: 12 });
+const LAST_PAGE_LEFT_B_GAP = wideCol("Left", 72, 430, 8, {
+  from: 21,
+  lead: 12,
+});
+
+const formColumn = (side: "Left" | "Right", x: number, top: number) =>
+  Array.from({ length: 6 }, (_, i) => ({
+    text: `${side} field ${i + 1}: ________`,
+    x,
+    y: top - i * 40,
+    size: 10,
+  }));
+const FORM_LEFT = formColumn("Left", 72, 700);
+const FORM_RIGHT = formColumn("Right", 320, 712);
+
+const resumeColumn = (side: "Left" | "Right", x: number, top: number) =>
+  Array.from({ length: 5 }, (_, i) => [
+    { text: `${side} Heading ${i + 1}`, x, y: top - i * 40, size: 13 },
+    { text: `${side} value ${i + 1}`, x, y: top - i * 40 - 15, size: 9 },
+  ]).flat();
+const RESUME_LEFT = resumeColumn("Left", 72, 700);
+const RESUME_RIGHT = resumeColumn("Right", 320, 713);
+
+const NO_CUT_THERE: Record<string, Fixture> = {
+  "last page of a two-column paper: the left column's lower part, under a 13 pt heading, starts below the right column's end":
+    {
+      draw: [
+        ...LAST_PAGE_LEFT_A,
+        LAST_PAGE_HEADING,
+        ...LAST_PAGE_LEFT_B,
+        ...LAST_PAGE_RIGHT,
+      ],
+      read: [
+        ...texts(LAST_PAGE_LEFT_A),
+        LAST_PAGE_HEADING.text,
+        ...texts(LAST_PAGE_LEFT_B),
+        ...texts(LAST_PAGE_RIGHT),
+      ],
+    },
+  "last page of a two-column paper: the left column's lower paragraph, after a gap over two lines, starts below the right column's end":
+    {
+      draw: [...LAST_PAGE_LEFT_A, ...LAST_PAGE_LEFT_B_GAP, ...LAST_PAGE_RIGHT],
+      read: [
+        ...texts(LAST_PAGE_LEFT_A),
+        ...texts(LAST_PAGE_LEFT_B_GAP),
+        ...texts(LAST_PAGE_RIGHT),
+      ],
+    },
+  "a form: two columns of spaced single lines, the right starting a line higher":
+    {
+      draw: [...FORM_LEFT, ...FORM_RIGHT],
+      read: [...texts(FORM_LEFT), ...texts(FORM_RIGHT)],
+    },
+  "a résumé: 13 pt labels over 9 pt values in two columns, the right starting a line higher":
+    {
+      draw: [...RESUME_LEFT, ...RESUME_RIGHT],
+      read: [...texts(RESUME_LEFT), ...texts(RESUME_RIGHT)],
+    },
+};
+
 /** Pages whose stream order is ALREADY the reading order — the controls. */
 const IN_ORDER: Record<string, Fixture> = {
+  ...NO_CUT_THERE,
   ...Object.fromEntries(
     Object.entries(STAGGERED).map(([name, page]) => [
       name,
