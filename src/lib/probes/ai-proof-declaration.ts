@@ -136,5 +136,9 @@ export async function browserAiDeclaration(
     throw new Error(
       `no browser declaration is known for "${tool}" — add its panel's counter to ai-proof-declaration.ts`,
     );
-  return counter(bytes, extract);
+  // A panel holds a File's bytes as a plain Uint8Array. The harness holds a
+  // Node Buffer, which pdfjs refuses outright, and the refusal surfaced as
+  // "could not count" (ai-proof-declaration-as-run.test.ts). So count a
+  // copy of the kind the browser has.
+  return counter(Uint8Array.from(bytes), extract);
 }
