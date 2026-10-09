@@ -14,9 +14,10 @@ import { waitForHydration } from "./helpers";
  *    `[data-slot]` or `[data-run-dock]`. None of those exist on 2026-10-09,
  *    so this part binds from the package that adds the first one; the CLS
  *    bound binds today.
- *  - LCP on `/`: the largest paint is the H1 (or inside it), and nothing in
- *    its lineage animates — the H1 is the promise, and an entrance animation
- *    on it would delay the paint the page is judged by. Motion is RECORDED
+ *  - LCP on `/`, at a desktop and two phone widths ({@link LCP_DEVICES}):
+ *    the largest paint is the H1 (or inside it), and nothing in its lineage
+ *    animates — the H1 is the promise, and an entrance animation on it would
+ *    delay the paint the page is judged by. Motion is RECORDED
  *    as it starts (CSS animations, CSS transitions, `Element.animate()`),
  *    not sampled at the end: a finished `fill: none` animation is gone from
  *    `getAnimations()` long before the measurement reads it.
@@ -229,6 +230,8 @@ interface Measurement {
   animated: string[];
   /** Every motion the recorder saw start, anywhere on the page. */
   motionSeen: number;
+  /** `window.innerWidth` when the record was read, in CSS px. */
+  innerWidth: number;
 }
 
 type FontTiming = "warm" | "late";
@@ -269,34 +272,37 @@ async function measure(
     if (atBottom) break;
   }
   await page.waitForTimeout(500);
-  const { shifts, lcp, animated, motionSeen } = await page.evaluate(() => {
-    const h1 = document.querySelector("main h1");
-    const inLineage = (t: Element) =>
-      h1 != null && (t.contains(h1) || h1.contains(t));
-    const motion = window.__h1Motion ?? [];
-    const targets = window.__motionTargets ?? [];
-    // What the recorder saw start, in the lineage — judged when it started,
-    // or now if the H1 was not parsed yet then.
-    const recorded = motion
-      .filter((m, i) => m.lineage ?? inLineage(targets[i]!))
-      .map((m) => `${m.kind} ${m.name} on ${m.selector} at ${m.at}ms`);
-    // And what is still running now (an infinite or long animation that the
-    // recorder would also have seen start; kept as a second reading).
-    const running = document
-      .getAnimations()
-      .map((a) => (a.effect as KeyframeEffect | null)?.target ?? null)
-      .filter((t): t is Element => t instanceof Element && inLineage(t))
-      .map(
-        (t) =>
-          `still running on ${t.tagName.toLowerCase()}${t.id ? `#${t.id}` : ""}`,
-      );
-    return {
-      shifts: window.__shifts ?? [],
-      lcp: window.__lcp ?? [],
-      animated: h1 ? [...recorded, ...running] : ["(no h1)"],
-      motionSeen: motion.length,
-    };
-  });
+  const { shifts, lcp, animated, motionSeen, innerWidth } = await page.evaluate(
+    () => {
+      const h1 = document.querySelector("main h1");
+      const inLineage = (t: Element) =>
+        h1 != null && (t.contains(h1) || h1.contains(t));
+      const motion = window.__h1Motion ?? [];
+      const targets = window.__motionTargets ?? [];
+      // What the recorder saw start, in the lineage — judged when it started,
+      // or now if the H1 was not parsed yet then.
+      const recorded = motion
+        .filter((m, i) => m.lineage ?? inLineage(targets[i]!))
+        .map((m) => `${m.kind} ${m.name} on ${m.selector} at ${m.at}ms`);
+      // And what is still running now (an infinite or long animation that the
+      // recorder would also have seen start; kept as a second reading).
+      const running = document
+        .getAnimations()
+        .map((a) => (a.effect as KeyframeEffect | null)?.target ?? null)
+        .filter((t): t is Element => t instanceof Element && inLineage(t))
+        .map(
+          (t) =>
+            `still running on ${t.tagName.toLowerCase()}${t.id ? `#${t.id}` : ""}`,
+        );
+      return {
+        shifts: window.__shifts ?? [],
+        lcp: window.__lcp ?? [],
+        animated: h1 ? [...recorded, ...running] : ["(no h1)"],
+        motionSeen: motion.length,
+        innerWidth: window.innerWidth,
+      };
+    },
+  );
   const counted = shifts.filter((s) => !s.hadRecentInput);
   return {
     status: res?.status() ?? null,
@@ -306,6 +312,7 @@ async function measure(
     lcp,
     animated,
     motionSeen,
+    innerWidth,
   };
 }
 
@@ -357,6 +364,49 @@ const ROUTES: {
   { name: "404", url: async () => "/this-page-does-not-exist", status: 404 },
 ];
 
+/**
+ * Where the home LCP is held: the project's desktop, the phone every layout
+ * is drawn at (390, as the `mobile` project emulates it), and the narrowest
+ * common phone (360).
+ *
+ * WHAT SLIPPED THROUGH: this test ran only in the `chromium` project, at
+ * 1280x720. On 2026-10-09 the display type step (`--text-display-1`) took
+ * the hero H1 from 48px to 40px on a phone, so it wrapped to two lines
+ * instead of three, and the lede paragraph out-painted it: measured, the LCP
+ * was the `p` at 360, 390, 480 and 640px and the H1 only from 768px up —
+ * with this test green. An animation added to the lede would then have
+ * delayed every phone's LCP with nothing red. Run against that build, the
+ * two phone cases below fail on the `p` and the desktop case passes.
+ *
+ * The H1's lead at 390 is still thin — about 44,000 px² against the lede's
+ * 42,400 with the fonts loaded — so the phone widths are the cases that keep
+ * it honest.
+ */
+const LCP_DEVICES = [
+  {
+    name: "desktop",
+    use: { viewport: { width: 1280, height: 720 } },
+  },
+  {
+    name: "phone",
+    use: {
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 3,
+    },
+  },
+  {
+    name: "narrow phone",
+    use: {
+      viewport: { width: 360, height: 780 },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 3,
+    },
+  },
+] as const;
+
 test.describe("layout stability through load, hydration and scroll", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(observe, RESERVED);
@@ -386,27 +436,45 @@ test.describe("layout stability through load, hydration and scroll", () => {
     });
   }
 
-  test("home: the LCP is the H1, and nothing in its lineage animates", async ({
-    page,
-  }) => {
-    const m = await measure(page, "/", "warm");
-    // Health check: a browser that reported no LCP would pass any assertion
-    // about which element it was.
-    expect(m.lcp.length, "no largest-contentful-paint entry").toBeGreaterThan(
-      0,
-    );
-    const last = m.lcp[m.lcp.length - 1]!;
-    expect(
-      last.inH1,
-      `the largest paint on / is ${last.selector}, not the H1 (entries: ${m.lcp
-        .map((e) => `${e.selector} ${e.size}`)
-        .join("; ")})`,
-    ).toBe(true);
-    expect(
-      m.animated,
-      `motion started on the H1, an ancestor or its words (${m.motionSeen} motion(s) recorded on the page)`,
-    ).toEqual([]);
-  });
+  for (const device of LCP_DEVICES) {
+    test.describe(device.name, () => {
+      test.use(device.use);
+
+      test(`home at ${device.use.viewport.width}px: the LCP is the H1, and nothing in its lineage animates`, async ({
+        page,
+      }, testInfo) => {
+        const m = await measure(page, "/", "warm");
+        testInfo.annotations.push({
+          type: "lcp",
+          description: m.lcp.map((e) => `${e.selector} ${e.size}`).join("; "),
+        });
+        // Health check: the width asked for is the width that painted. A
+        // `use` that did not apply would measure the desktop page again and
+        // pass for the wrong reason, which is how this test was blind until
+        // 2026-10-09.
+        expect(m.innerWidth, "the viewport did not apply").toBe(
+          device.use.viewport.width,
+        );
+        // Health check: a browser that reported no LCP would pass any
+        // assertion about which element it was.
+        expect(
+          m.lcp.length,
+          "no largest-contentful-paint entry",
+        ).toBeGreaterThan(0);
+        const last = m.lcp[m.lcp.length - 1]!;
+        expect(
+          last.inH1,
+          `the largest paint on / at ${m.innerWidth}px is ${last.selector}, not the H1 (entries: ${m.lcp
+            .map((e) => `${e.selector} ${e.size}`)
+            .join("; ")})`,
+        ).toBe(true);
+        expect(
+          m.animated,
+          `motion started on the H1, an ancestor or its words (${m.motionSeen} motion(s) recorded on the page)`,
+        ).toEqual([]);
+      });
+    });
+  }
 
   test.describe("positive controls: each defect, injected, is measured", () => {
     test("a late block above the content, and a reserved slot whose child moves", async ({
