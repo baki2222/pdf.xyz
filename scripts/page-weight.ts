@@ -3,7 +3,8 @@
  * by both `src/deploy/bundle-budget.test.ts` (the budget) and
  * `scripts/weigh-pages.ts` (the before/after table a budget change is argued
  * from), and by the guards that read a page's first-load chunks for what
- * they CARRY (the catalogue test in bundle-budget).
+ * they CARRY (`src/deploy/lazy-chunks.test.ts`, and the catalogue test in
+ * bundle-budget).
  *
  * They were two copies, and a docblock said they used the "same method". On
  * 2026-08-21 the test's copy learned to decode `/tools/%5Bslug%5D/page-*.js`

@@ -22,6 +22,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -294,5 +295,66 @@ describe("pnpm weigh:pages refuses to print a smaller table than it was asked fo
       readFileSync(path.join(ROOT, "package.json"), "utf8"),
     ) as { scripts: Record<string, string> };
     expect(pkg.scripts["weigh:pages"]).toBe("tsx scripts/weigh-pages.ts");
+  });
+});
+
+/**
+ * A suite that reads `.next` must run AFTER the build and never before it. CI's
+ * unit step (`pnpm test`) runs before `pnpm build`; its bundle step
+ * (`pnpm test:bundle`) runs after. Such a suite in the unit step is red for
+ * want of a build; left out of the bundle step it never runs at all, which is
+ * worse because nothing says so.
+ *
+ * The set is DERIVED by the assertion every build-reading suite opens with,
+ * `has a build to measure` (it refuses to skip silently when `.next` is
+ * absent), never typed: a typed list here would be the third copy of the two
+ * script strings it is checking.
+ */
+describe("every suite that needs the build runs after it, and only there", () => {
+  const SRC = path.join(ROOT, "src");
+  const needsBuild = (): string[] => {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (
+          /\.test\.tsx?$/.test(entry.name) &&
+          full !== path.join(SRC, "deploy", "page-weight.test.ts") &&
+          /it\(\s*["']has a build to measure["']/.test(
+            readFileSync(full, "utf8"),
+          )
+        )
+          out.push(path.relative(ROOT, full).split(path.sep).join("/"));
+      }
+    };
+    walk(SRC);
+    return out.sort();
+  };
+  const scripts = (
+    JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    }
+  ).scripts;
+
+  it("health check: the derivation finds the build suites", () => {
+    expect(needsBuild()).toEqual(
+      expect.arrayContaining([
+        "src/deploy/bundle-budget.test.ts",
+        "src/deploy/lazy-chunks.test.ts",
+      ]),
+    );
+  });
+
+  it("`pnpm test` excludes exactly them", () => {
+    const excluded = [
+      ...scripts.test!.matchAll(/--exclude\s+['"]?([^\s'"]+)['"]?/g),
+    ].map((m) => m[1]!);
+    expect(excluded.sort()).toEqual(needsBuild());
+  });
+
+  it("`pnpm test:bundle` runs exactly them", () => {
+    const run = scripts["test:bundle"]!.replace(/^vitest run\s+/, "");
+    expect(run.split(/\s+/).sort()).toEqual(needsBuild());
   });
 });
