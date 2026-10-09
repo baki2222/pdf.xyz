@@ -143,7 +143,7 @@ describe("the copy surface reaches what the guards must read", () => {
     );
     expect(
       present,
-      "these pending roots exist now and are walked — delete their PENDING_COPY_ROOTS entries",
+      "these pending roots exist now — move each into copyFiles()'s root list and delete its PENDING_COPY_ROOTS entry",
     ).toEqual([]);
   });
 });
