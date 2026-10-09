@@ -133,7 +133,9 @@ function badgeFor(
 /**
  * Premium, OCR-specific secure-worker panel for `/tools/ocr-pdf`.
  *
- * It is the honest OCR counterpart to the generic {@link WorkerPreview}: it reads
+ * The tool page mounts it from the panel registry (`./worker-panels`), which
+ * since WP-06 has no generic preview to fall back to: every worker tool has a
+ * real panel, and `tool-page-registry.test.ts` holds that. It reads
  * the live, presence-only `/api/worker/status` endpoint, lets the user configure
  * a real OCR request (languages, output, redo-OCR) that is validated with the
  * shared `parseOcrOptions` contract, and shows exactly what a secure worker would

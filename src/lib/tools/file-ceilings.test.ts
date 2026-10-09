@@ -1119,10 +1119,13 @@ describe("every size a tool page states is that tool's own ceiling", () => {
   it.each(tools.map((tool) => [tool.slug, tool] as const))(
     "%s's staging drop zone states the same ceiling, rendered",
     (slug, tool) => {
-      // The page branch that mounts this zone renders for no tool today (29
-      // client tools, 20 runner-less tools, 0 in both), so the sentence is
-      // rendered here through the real component instead of waiting for a page
-      // that never shows it. A check that waited would be checking nothing.
+      // The tool page's branch that mounted this zone rendered for no tool
+      // (29 client tools, 20 runner-less tools, 0 in both) and was removed in
+      // WP-06; the zone itself still stages files on the home page, and
+      // `stagingHint` is the sentence the next drop zones are built on. So
+      // the sentence is rendered here through the real component instead of
+      // waiting for a page that shows it. A check that waited would be
+      // checking nothing.
       const ceiling = toolFileCeilingMb(tool);
       const claims = sizeClaimsMb(renderStagingZone(tool));
       if (ceiling === null) {
@@ -1146,7 +1149,18 @@ describe("every size a tool page states is that tool's own ceiling", () => {
       `${rel(TOOL_PAGE)} references JOB_LIMITS again — the size a tool page ` +
         "states must come from that tool's gate, not the worker's global cap",
     ).toBe(false);
-    expect(source).toContain("stagingHint(tool)");
+    // Health: the read is the tool page, so the absence above is not
+    // vacuous.
+    expect(source).toContain("generateStaticParams");
+    // INVERTED 2026-10-10 (WP-06), history kept. This also required the
+    // page to contain `stagingHint(tool)`: the size its UploadZone branch
+    // stated came from the tool's own gate. That branch rendered for no tool
+    // and is gone — the page resolves every slug to a runner or a worker
+    // panel (`tool-page-registry.test.ts`), each of which states its own
+    // ceiling and is checked rendered above, and the staging sentence is
+    // checked through its component in the case before this one. So the
+    // page now states no size of its own at all.
+    expect(source).not.toMatch(/\bstagingHint\(|\bUploadZone\b/);
   });
 });
 

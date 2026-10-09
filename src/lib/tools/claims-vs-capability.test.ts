@@ -149,6 +149,7 @@ import { runWorkerHtmlToPdf } from "@/lib/workers/html-render-client";
 import type { FetchLike } from "@/lib/workers/pdf-security-client";
 import { resetUploadedThisSessionForTests } from "@/lib/uploads/session-uploads";
 import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability";
+import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -179,31 +180,23 @@ function slugsOfKind(kind: string): string[] {
 }
 
 /**
- * Panel component → the slugs the tool page mounts it for, parsed from the
- * page's own ternary chain (`tool.slug === "a" || tool.slug === "b" ? (
- * <ErrorBoundary …><Panel`). Comments are stripped first: the chain carries a
- * JSX comment before every boundary.
+ * Panel component → the slugs the tool page mounts it for, read from the
+ * registry the page indexes (`@/components/tools/worker-panels`) through the
+ * one parse every source-reading guard shares.
+ *
+ * WAS a private parse of the page's own ternary chain (`tool.slug === "a" ||
+ * tool.slug === "b" ? (<ErrorBoundary …><Panel`). The chain became a registry
+ * (WP-06, 2026-10-10); a private copy of the old parse would have found no
+ * arms at all and handed every rule below an empty subject list.
  */
 function panelMounts(): Map<string, string[]> {
-  const source = withoutComments(read(TOOL_PAGE));
-  const mounts = new Map<string, string[]>();
-  const re =
-    /((?:tool\.slug\s*===\s*"[a-z0-9-]+"\s*(?:\|\|\s*)?)+)\?\s*\(\s*<ErrorBoundary[^>]*>\s*<([A-Z]\w+)/g;
-  for (const m of source.matchAll(re)) {
-    const slugs = [...(m[1] ?? "").matchAll(/"([a-z0-9-]+)"/g)].map(
-      (s) => s[1]!,
-    );
-    mounts.set(m[2]!, slugs);
-  }
-  return mounts;
+  return new Map(panelDispatchArms().map((arm) => [arm.component, arm.slugs]));
 }
 
-/** A panel component's module file, from the tool page's own import of it. */
+/** A panel component's module file, as the registry imports it. */
 function panelModule(component: string): string | undefined {
-  const from = new RegExp(
-    `import\\s+\\{[^}]*\\b${component}\\b[^}]*\\}\\s+from\\s+"@/([^"]+)"`,
-  ).exec(read(TOOL_PAGE))?.[1];
-  return from ? `src/${from}.tsx` : undefined;
+  const arm = panelDispatchArms().find((a) => a.component === component);
+  return arm ? panelFile(arm) : undefined;
 }
 
 /* ------------------------------------------------------------------ *

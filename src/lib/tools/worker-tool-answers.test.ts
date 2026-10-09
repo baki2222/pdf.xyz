@@ -127,6 +127,7 @@ import {
 } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
 import { pageDescription, pageIntro } from "./page-copy";
+import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
 import {
   renderToolPages,
   type RenderedToolPage,
@@ -1851,24 +1852,16 @@ describe("the Chromium pages describe the print the renderer asks for", () => {
 /**
  * slug → the source of the worker panel `/tools/[slug]` mounts, plus the
  * components that panel imports from its own directory. Resolved from the
- * page's own dispatch (`tool.slug === "…" ? <XWorkerPanel`) and its imports —
- * never a typed list.
+ * registry the page indexes (`@/components/tools/worker-panels`) through the
+ * one parse every source-reading guard shares — never a typed list.
+ *
+ * WAS a private walk of the page's `tool.slug === "…" ? <XWorkerPanel` chain
+ * and its imports. The chain became the registry (WP-06, 2026-10-10).
  */
 function workerPanelSources(): Map<string, string> {
-  const pageSrc = read("src/app/tools/[slug]/page.tsx");
-  const imports = new Map<string, string>();
-  for (const m of pageSrc.matchAll(
-    /import\s+\{\s*(\w+)\s*\}\s+from\s+"@\/components\/tools\/([\w-]+)"/g,
-  )) {
-    imports.set(m[1]!, `src/components/tools/${m[2]}.tsx`);
-  }
   const out = new Map<string, string>();
-  for (const arm of pageSrc.matchAll(
-    /((?:tool\.slug === "[a-z0-9-]+"\s*(?:\|\|\s*)?)+)\?\s*\([\s\S]*?<(\w+WorkerPanel)\b/g,
-  )) {
-    const file = imports.get(arm[2]!);
-    if (!file) throw new Error(`no import resolves ${arm[2]}`);
-    const main = read(file);
+  for (const arm of panelDispatchArms()) {
+    const main = read(panelFile(arm));
     const nested = [...main.matchAll(/from\s+"\.\/([\w-]+)"/g)]
       .map((m) => path.join("src/components/tools", `${m[1]}.tsx`))
       .flatMap((rel) => {
@@ -1879,7 +1872,7 @@ function workerPanelSources(): Map<string, string> {
         }
       });
     const source = [main, ...nested].join("\n");
-    for (const s of arm[1]!.matchAll(/"([a-z0-9-]+)"/g)) out.set(s[1]!, source);
+    for (const slug of arm.slugs) out.set(slug, source);
   }
   return out;
 }

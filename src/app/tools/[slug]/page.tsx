@@ -12,7 +12,6 @@ import {
 import { getAllToolSlugs, getRelatedTools, getToolBySlug } from "@/lib/tools";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
-import { stagingHint } from "@/lib/tools/file-ceilings";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { Container } from "@/components/ui/container";
@@ -20,22 +19,8 @@ import { ToolIcon } from "@/components/ui/tool-icon";
 import { ToolBadgePill } from "@/components/ui/badge";
 import { ToolCard } from "@/components/tools/tool-card";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
-import { UploadZone } from "@/components/upload/upload-zone";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
-import { WorkerPreview } from "@/components/tools/worker-preview";
-import { OcrWorkerPanel } from "@/components/tools/ocr-worker-panel";
-import { PdfSecurityWorkerPanel } from "@/components/tools/pdf-security-worker-panel";
-import { PdfStructureWorkerPanel } from "@/components/tools/pdf-structure-worker-panel";
-import { PdfArchiveWorkerPanel } from "@/components/tools/pdf-archive-worker-panel";
-import { HtmlRenderWorkerPanel } from "@/components/tools/html-render-worker-panel";
-import { OfficeConversionWorkerPanel } from "@/components/tools/office-conversion-worker-panel";
-import { PdfOfficeExportWorkerPanel } from "@/components/tools/pdf-office-export-worker-panel";
-import { TableExtractWorkerPanel } from "@/components/tools/table-extract-worker-panel";
-import { RequestSignaturesWorkerPanel } from "@/components/tools/request-signatures-worker-panel";
-import { SummarizeWorkerPanel } from "@/components/tools/summarize-worker-panel";
-import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel";
-import { AiExtractWorkerPanel } from "@/components/tools/ai-extract-worker-panel";
-import { ChatWithPdfWorkerPanel } from "@/components/tools/chat-with-pdf-worker-panel";
+import { WORKER_PANELS } from "@/components/tools/worker-panels";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
@@ -133,19 +118,20 @@ export default async function ToolPage({
   const toolGuides = pageGuides(tool);
   const runnerKind = getRunnerKind(tool.slug);
   /*
-   * THIS TOOL's ceiling, not the worker's. The staging hint below interpolated
-   * `JOB_LIMITS.maxFileBytes` — 100 MB — for whatever tool rendered it, while
-   * `image-to-pdf` refuses at 25 MB and `text-to-pdf` at 2 MB.
-   *
-   * Measured on 2026-08-22 before the change: that branch renders for a tool
-   * that is `processing: "client"` AND has no runner, and the intersection of
-   * those two sets is EMPTY — 29 client tools, 20 runner-less tools, 0 in both
-   * — so the wrong number reached no reader. It was a loaded gun rather than a
-   * live defect: removing any one runner would have shipped 100 MB on a page
-   * whose gate refuses at 2 MB. `file-ceilings.test.ts` renders all fifty pages
-   * and would fail on that the moment it happened.
+   * What runs this tool: its in-browser runner, or the worker panel the
+   * registry routes it to (`@/components/tools/worker-panels`). There is no
+   * third answer. The page used to end its panel chain in a `WorkerPreview`
+   * fallback, and to give an in-browser tool without a runner an
+   * `UploadZone` that staged files for the workspace; both rendered for zero
+   * tools, so a slug that lost its route would have shipped a preview page
+   * for a live tool. Now it fails the build here, and
+   * `tool-page-registry.test.ts` names the slug before a build is needed.
    */
-  const hint = stagingHint(tool);
+  const panel = runnerKind ? undefined : WORKER_PANELS[tool.slug];
+  if (!runnerKind && !panel)
+    throw new Error(
+      `/tools/${tool.slug} has neither an in-browser runner nor a worker panel route`,
+    );
 
   const breadcrumbs = [
     { name: "All tools", path: "/tools" },
@@ -352,113 +338,10 @@ export default async function ToolPage({
             </div>
 
             <div className="lg:sticky lg:top-24">
-              {!modeUploadsFiles(tool.processing) ? (
-                /* Never-upload tool without a runner yet: stage files locally. */
-                <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
-                  <div className="flex flex-col gap-1">
-                    <h2 className="text-fg text-lg font-semibold">
-                      {tool.name}
-                    </h2>
-                    <p className="text-muted text-sm">
-                      Add your files to get started —{" "}
-                      {processing.short.toLowerCase()}.
-                    </p>
-                  </div>
-                  <UploadZone
-                    ctaLabel={`Run ${tool.name}`}
-                    ctaHref={`/workspace?tool=${tool.slug}`}
-                    hint={hint}
-                  />
-                </div>
-              ) : tool.slug === "ocr-pdf" ? (
-                /* OCR: a premium, OCR-specific secure-worker flow (honest, live
-                   capability check, real job path when a worker is available). */
-                <ErrorBoundary boundary="ocr-worker-panel">
-                  <OcrWorkerPanel tool={tool} />
+              {panel && (
+                <ErrorBoundary boundary={panel.boundary}>
+                  <panel.Panel tool={tool} />
                 </ErrorBoundary>
-              ) : tool.slug === "protect-pdf" || tool.slug === "unlock-pdf" ? (
-                /* Protect / Unlock: a qpdf-backed secure-worker flow (honest, live
-                   capability check, real job path with a masked password field). */
-                <ErrorBoundary boundary="pdf-security-worker-panel">
-                  <PdfSecurityWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "repair-pdf" || tool.slug === "optimize-web" ? (
-                /* Repair / Optimize for Web: qpdf-backed structure operations with
-                   the same honest secure-worker lifecycle and real output download. */
-                <ErrorBoundary boundary="pdf-structure-worker-panel">
-                  <PdfStructureWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "pdf-to-pdfa" ? (
-                /* PDF/A: Ghostscript-backed secure-worker conversion with real output download. */
-                <ErrorBoundary boundary="pdf-archive-worker-panel">
-                  <PdfArchiveWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "html-to-pdf" ||
-                tool.slug === "webpage-to-pdf" ? (
-                /* HTML/Webpage to PDF: Chromium-backed secure-worker conversion with real output download. */
-                <ErrorBoundary boundary="html-render-worker-panel">
-                  <HtmlRenderWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "word-to-pdf" ||
-                tool.slug === "excel-to-pdf" ||
-                tool.slug === "powerpoint-to-pdf" ? (
-                /* Office to PDF: LibreOffice-backed secure-worker conversion with real output download. */
-                <ErrorBoundary boundary="office-conversion-worker-panel">
-                  <OfficeConversionWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "pdf-to-word" ||
-                tool.slug === "pdf-to-excel" ||
-                tool.slug === "pdf-to-powerpoint" ? (
-                /* PDF to Office: selectable-text worker export with real Office Open XML output download. */
-                <ErrorBoundary boundary="pdf-office-export-worker-panel">
-                  <PdfOfficeExportWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "extract-tables" ? (
-                /* Extract Tables: pdfjs positioned-text layout detection with real
-                   CSV + XLSX output packaged in a ZIP on the secure worker. */
-                <ErrorBoundary boundary="table-extract-worker-panel">
-                  <TableExtractWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "request-signatures" ? (
-                /* Request Signatures: pdf-lib field preparation packaged as a real
-                   signature-request ZIP (prepared PDF + manifest + audit) on the worker. */
-                <ErrorBoundary boundary="request-signatures-worker-panel">
-                  <RequestSignaturesWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "summarize-pdf" ? (
-                /* Summarize PDF: selectable-text extraction summarized by a configured
-                   AI provider, packaged as a real summary ZIP (md + txt + manifest) on
-                   the worker. Fails honestly when no provider is configured — never faked. */
-                <ErrorBoundary boundary="summarize-worker-panel">
-                  <SummarizeWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "translate-pdf" ? (
-                /* Translate PDF: selectable-text extraction translated by a configured
-                   AI provider, packaged as a real translation ZIP (md + txt + manifest)
-                   on the worker. Fails honestly when no provider is configured — never faked. */
-                <ErrorBoundary boundary="translate-worker-panel">
-                  <TranslateWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "ai-extract" ? (
-                /* AI Data Extraction: selectable-text extraction turned into structured
-                   JSON by a configured AI provider, packaged as a real extraction ZIP
-                   (extraction.json + model-output.json + extraction.md + manifest) on the worker. Fails
-                   honestly when no provider is configured or the reply isn't JSON — never faked. */
-                <ErrorBoundary boundary="ai-extract-worker-panel">
-                  <AiExtractWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "chat-with-pdf" ? (
-                /* Chat with PDF: selectable-text extraction answered by a configured
-                   AI provider from ONLY the document text, with page-level [p.N]
-                   citations when page metadata is present, packaged as a real answer ZIP
-                   (answer.md + answer.txt + manifest) on the worker. Fails honestly when
-                   no provider is configured or the PDF has no selectable text — never faked. */
-                <ErrorBoundary boundary="chat-with-pdf-worker-panel">
-                  <ChatWithPdfWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : (
-                /* Secure-worker / hybrid / AI tool: honest future-flow preview. */
-                <WorkerPreview tool={tool} />
               )}
             </div>
           </div>

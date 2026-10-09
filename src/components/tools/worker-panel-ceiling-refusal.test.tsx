@@ -18,15 +18,13 @@
  * `refuse={(file) => pickRefusal(tool, file)}` to its Dropzone, which applies
  * the server's type rule and the page's ceiling before `onFiles` runs.
  *
- * THE SUBJECTS ARE DISCOVERED, not typed. Which panels exist is read from the
- * tool page (`<XWorkerPanel tool={tool} />`), and the slugs each one serves
- * from the branch that mounts it. A panel the page mounts without a row in
+ * THE SUBJECTS ARE DISCOVERED, not typed. Which panels exist, and the slugs
+ * each one serves, are read from the registry the tool page indexes
+ * (`src/components/tools/worker-panels.tsx`). A panel the page mounts without a row in
  * PANELS below fails the coverage check. Every routed tool that takes a file
  * must show a picker, refuse the wrong kind of file, refuse above its ceiling,
  * and stage a file at exactly the ceiling.
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import type { ComponentType } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -60,6 +58,7 @@ import { canRunTableExtract } from "@/lib/workers/table-extract-client";
 import { canRunTranslate } from "@/lib/workers/translate-client";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { READY_WORKER_STATUS as READY } from "@/tests/ready-worker-status";
+import { panelDispatchArms } from "@/tests/worker-panel-dispatch";
 import { AiExtractWorkerPanel } from "./ai-extract-worker-panel";
 import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
@@ -74,34 +73,27 @@ import { SummarizeWorkerPanel } from "./summarize-worker-panel";
 import { TableExtractWorkerPanel } from "./table-extract-worker-panel";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
 
-const PAGE = readFileSync(
-  resolve(process.cwd(), "src/app/tools/[slug]/page.tsx"),
-  "utf8",
-);
+/**
+ * Every worker panel the tool page mounts, and the slugs each serves — read
+ * from the registry the page indexes, through the one parse every
+ * source-reading guard shares (`@/tests/worker-panel-dispatch`).
+ *
+ * WAS a private parse of the page's ternary chain (`<XWorkerPanel tool={tool}
+ * />` and the `tool.slug === "..."` conditions before it). The chain became
+ * the registry (WP-06, 2026-10-10).
+ */
+const ARMS = panelDispatchArms();
 
 /** Every worker panel the tool page mounts. */
 function mountedPanels(): string[] {
-  return [...PAGE.matchAll(/<(\w+WorkerPanel) tool=\{tool\} \/>/g)]
-    .map((m) => m[1]!)
-    .sort();
+  return ARMS.map((arm) => arm.component).sort();
 }
 
-/**
- * The slugs the page's ternary routes to `<name tool={tool} />`: the
- * `tool.slug === "..."` conditions between the previous `) :` and the `? (`
- * that opens this branch.
- */
+/** The slugs the registry routes to the panel named `name`. */
 function routedSlugs(name: string): string[] {
-  const tag = `<${name} tool={tool} />`;
-  const at = PAGE.indexOf(tag);
-  expect(at, `${tag} is not mounted by the tool page`).toBeGreaterThan(0);
-  expect(PAGE.indexOf(tag, at + 1), `${tag} is mounted twice`).toBe(-1);
-  const before = PAGE.slice(0, at);
-  const condition = before.slice(
-    before.lastIndexOf(") :"),
-    before.lastIndexOf("? ("),
-  );
-  return [...condition.matchAll(/tool\.slug === "([^"]+)"/g)].map((m) => m[1]!);
+  const routes = ARMS.filter((arm) => arm.component === name);
+  expect(routes, `${name} is not mounted by the tool page`).toHaveLength(1);
+  return routes[0]!.slugs;
 }
 
 const PANELS: Record<

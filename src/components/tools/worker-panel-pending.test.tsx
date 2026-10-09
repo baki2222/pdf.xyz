@@ -11,12 +11,15 @@
  * phase fell into the same branch as a worker that really was off, and the
  * pipeline read `status?.scan.active ?? false` — "unknown" spelled as "no".
  *
- * THE SUBJECTS ARE DISCOVERED, not named: every arm of the tool page's own
- * dispatch (`tool.slug === "…" ? <XWorkerPanel tool={tool} />`), the same
- * source the production page renders from. A slug routed to a new panel is
- * checked without this file being edited. Tools that fall through to
- * `WorkerPreview` are not in the set — that page is a preview of a tool that
- * has not shipped, and "Notify me" is true there.
+ * THE SUBJECTS ARE DISCOVERED, not named: every route of the panel registry
+ * the tool page indexes (`WORKER_PANELS`, `src/components/tools/worker-panels.tsx`),
+ * the same source the production page renders from. A slug routed to a new
+ * panel is checked without this file being edited. Until WP-06 (2026-10-10)
+ * the set was the arms of a ternary chain in the page, and a tool the chain
+ * did not name fell through to a `WorkerPreview` of "a tool that has not
+ * shipped". Nothing falls through now: `tool-page-registry.test.ts` requires
+ * every slug to resolve to an in-browser runner or a route, so every worker
+ * tool is in this set.
  *
  * THE CLAIMS ARE DERIVED where they can be: the notify text from rendering
  * `NotifyMe` itself, the scan claims from `workerPipelineStages` — PER TOOL,

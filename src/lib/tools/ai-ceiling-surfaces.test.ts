@@ -31,9 +31,9 @@
  *    come from the route's pricing table (`AI_RUN_PRICING`), the pricing
  *    function from the route's own call, the processors from the worker's
  *    registry and wiring (see {@link measureReadCeiling});
- *  - each tool's panel comes from the real dispatch in
- *    `src/app/tools/[slug]/page.tsx` plus its own import table — the two
- *    artifacts rendering actually depends on.
+ *  - each tool's panel comes from the registry the tool page indexes
+ *    (`src/components/tools/worker-panels.tsx`) plus its import table — the
+ *    two artifacts rendering actually depends on.
  *
  * WHAT IS VERIFIED BEHAVIOURALLY, not just structurally: the output-bound
  * engine is RUN. A document one character over the published ceiling must be
@@ -108,6 +108,7 @@ import {
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
 import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
 import { tools } from "./index";
+import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { toolFacts } from "./tool-facts";
 import {
@@ -524,63 +525,38 @@ const CEILING_NAMES: readonly string[] = [
 ];
 
 /* ------------------------------------------------------------------ *
- *  Set 3 — each tool's panel, from the page dispatch + its import table.
+ *  Set 3 — each tool's panel, from the page's registry + its import table.
  * ------------------------------------------------------------------ */
 
-const PAGE = path.join(ROOT, "src", "app", "tools", "[slug]", "page.tsx");
-
 /**
- * slug → panel source file, read off the REAL dispatch: the chained
- * `tool.slug === "..."` ternaries in the page template, resolved through the
- * page's own import statements. A typed slug→panel table here would be a list,
- * and a list cannot see the panel it does not name.
+ * slug → panel source file, read off the REAL dispatch: the registry the tool
+ * page indexes (`@/components/tools/worker-panels`), through the one parse
+ * every source-reading guard shares (`@/tests/worker-panel-dispatch`, which
+ * fails rather than shrinks if the page stops rendering the registry). A
+ * typed slug→panel table here would be a list, and a list cannot see the
+ * panel it does not name.
+ *
+ * WAS a private walk of the page's chained `tool.slug === "..."` ternaries,
+ * resolved through the page's own imports. The chain became the registry
+ * (WP-06, 2026-10-10); that walk would have found nothing.
  */
-/** slug → the panel's module specifier and exported component, as the page imports it. */
+/** slug → the panel's module specifier and exported component, as the registry imports it. */
 const panelComponents = new Map<
   string,
   { specifier: string; component: string }
 >();
 
 function panelsFromDispatch(): Map<string, string> {
-  const source = withoutComments(read(PAGE));
-  const imports = new Map<string, string>();
-  for (const match of source.matchAll(
-    /import\s*\{([^}]+)\}\s*from\s*"([^"]+)"/g,
-  )) {
-    for (const name of match[1]!.split(",")) {
-      imports.set(name.trim(), match[2]!);
-    }
-  }
   const bySlug = new Map<string, string>();
-  let pending: string[] = [];
-  for (const token of source.matchAll(
-    /tool\.slug === "([\w-]+)"|<([A-Z][A-Za-z0-9]*)/g,
-  )) {
-    if (token[1]) {
-      pending.push(token[1]);
-      continue;
-    }
-    if (pending.length === 0) continue;
-    // `moduleSpecifier`, not `module`: eslint's no-assign-module-variable
-    // forbids the shorter name. Rename only — the dispatch walk is unchanged.
-    const moduleSpecifier = imports.get(token[2]!);
-    // The first component in a slug branch that the page imports from the
-    // tools components tree is that branch's panel (ErrorBoundary and shared
-    // UI live elsewhere).
-    if (!moduleSpecifier?.startsWith("@/components/tools/")) continue;
-    const file = path.join(
-      ROOT,
-      "src",
-      moduleSpecifier.replace(/^@\//, "").replace(/\//g, path.sep) + ".tsx",
-    );
-    for (const slug of pending) {
+  for (const arm of panelDispatchArms()) {
+    const file = path.join(ROOT, panelFile(arm));
+    for (const slug of arm.slugs) {
       bySlug.set(slug, file);
       panelComponents.set(slug, {
-        specifier: moduleSpecifier,
-        component: token[2]!,
+        specifier: arm.specifier,
+        component: arm.component,
       });
     }
-    pending = [];
   }
   return bySlug;
 }
@@ -876,12 +852,12 @@ describe("the derived sets are alive", () => {
     }
   });
 
-  it("the page dispatch yields a real panel file for every AI tool", () => {
+  it("the page's panel registry yields a real panel file for every AI tool", () => {
     for (const tool of aiTools) {
       const panel = panels.get(tool.slug);
       expect(
         panel,
-        `src/app/tools/[slug]/page.tsx has no dispatch branch rendering a ` +
+        `src/components/tools/worker-panels.tsx routes no ` +
           `@/components/tools panel for "${tool.slug}"`,
       ).toBeDefined();
       expect(() => read(panel!), `${panel} does not exist`).not.toThrow();

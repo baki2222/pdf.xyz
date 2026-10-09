@@ -9,8 +9,8 @@
  * user to start again. Nothing could cancel a run either, and a reload forgot
  * the job completely.
  *
- * THE SUBJECTS ARE DISCOVERED from the tool page's dispatch (see
- * `@/tests/worker-panel-dispatch`), and each panel is driven through the REAL
+ * THE SUBJECTS ARE DISCOVERED from the panel registry the tool page indexes
+ * (see `@/tests/worker-panel-dispatch`), and each panel is driven through the REAL
  * browser client over a stubbed network:
  *   - a job this tab left running (its id in sessionStorage, as the panel
  *     stores it) is offered back with "Keep waiting";
