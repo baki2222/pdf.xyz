@@ -14,11 +14,13 @@ import type { ProcessingMode } from "./types";
  * dead and still looking authoritative. A mode's colour is now defined here,
  * and today both consumers read it from this row.
  *
- * NOT GUARDED: this comment used to say a `processing-hue` test failed any
- * other file that maps all four modes to colours. No such test was ever
- * committed, so nothing stops a fourth table today; `card-pixels.test.ts`
- * checks only that one in-browser tool's share card paints the client
- * `card.text` hue it reads from here.
+ * GUARDED since 2026-10-09 by `processing-hue-tables.test.ts`, which walks
+ * every shipped source and fails any other file that maps all four modes to a
+ * colour (an object or a switch; Tailwind palette or theme classes, hex, or
+ * colour functions). Until then this comment named a test that was never
+ * committed, so nothing stopped a fourth table. `card-pixels.test.ts` still
+ * checks the other end: that one in-browser tool's share card paints the
+ * client `card.text` hue it reads from here.
  */
 export interface ProcessingHue {
   /** Tailwind utility for the site's status dot. */
