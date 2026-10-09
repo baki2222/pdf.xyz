@@ -67,6 +67,8 @@ import {
 import { decodePng } from "../src/lib/a11y/png";
 import { getAllToolSlugs } from "../src/lib/tools";
 import { getAllGuideSlugs } from "../src/lib/guides";
+import { categories } from "../src/lib/tools/categories";
+import { categoryHref } from "../src/lib/tools/category-href";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:3100";
 
@@ -107,9 +109,23 @@ if (!FIRST_GUIDE) {
   );
 }
 
+/**
+ * A category landing page, the first in the catalogue, for the same reason
+ * as the guide above: the template (eight pages, `SectionHeading` as their
+ * H1) was outside every run until 2026-10-09, and a typed slug would go stale
+ * with the catalogue.
+ */
+const FIRST_CATEGORY = categories[0];
+if (!FIRST_CATEGORY) {
+  throw new Error(
+    "the categories catalogue is empty — refusing to audit a surface set that silently lost a template",
+  );
+}
+
 const DEFAULT_ROUTES = [
   "/",
   "/tools",
+  categoryHref(FIRST_CATEGORY.id),
   "/guides",
   `/guides/${FIRST_GUIDE}`,
   "/workspace",
