@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import type { WorkspaceFile } from "@/lib/workspace";
 import { suggestTools } from "@/lib/workspace/suggestions";
 import { FACT_SEP } from "./fact-separator";
+import { SuggestionsPlaceholder } from "./suggestions-placeholder";
 import type { WorkspaceToolSummary } from "./summary";
 
 type Row = Suggestion<WorkspaceToolSummary>;
@@ -44,11 +45,26 @@ const TERMS: ReadonlySet<Evidence["kind"]> = new Set([
 const MODES: readonly ProcessingMode[] = ["client", "hybrid", "server", "ai"];
 
 /**
- * Rows stop moving once a person is reading them: when the pointer or focus
- * enters the list, or this long after the files were staged — whichever is
- * first. Later facts still update each row's words in place.
+ * The list waits for the staged files' facts, at most this long after they
+ * were staged, then appears once and holds its order: later facts update
+ * each row's words in place.
+ *
+ * WAS: rows appeared at once from the files' names and reordered as facts
+ * landed, until the pointer or focus entered the list or this long passed.
+ * A scan's OCR PDF entering the top three moved the rows under it (review,
+ * 2026-10-09: a row moved 107px, the "More" footer 18px, at 1280).
  */
 const SETTLE_MS = 1500;
+
+/** Still being read: the list would rank it from its name alone. */
+function reading(file: WorkspaceFile): boolean {
+  const facts = file.facts;
+  return (
+    !facts ||
+    (facts.bytes === undefined && !facts.contradicted) ||
+    facts.pdf?.state === "pending"
+  );
+}
 
 /** What a row's link is called: the tool, and what opening it carries. */
 function rowName(row: Row, nameOf: (id: string) => string): string {
@@ -144,10 +160,12 @@ function SuggestionRow({
       <ToolIcon icon={row.tool.icon} size="sm" className="mt-0.5" />
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-fg text-sm font-medium">{row.tool.name}</span>
-        {facts.length > 0 && (
+        {/* A full row keeps its facts line even while it is empty, so a fact
+            that lands later changes words, never the row's height. */}
+        {(facts.length > 0 || !compact) && (
           <span
             id={`${describedBy}-facts`}
-            className="text-muted text-xs leading-relaxed"
+            className="text-muted min-h-lh text-xs leading-relaxed"
           >
             {facts.join(FACT_SEP)}
           </span>
@@ -231,10 +249,19 @@ export default function FileSuggestions({
     [files],
   );
 
-  // Hold the order once someone is reading it (see SETTLE_MS).
+  // Wait for the facts (see SETTLE_MS), then show the list once and hold
+  // its order.
+  const [waited, setWaited] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setWaited(fileKey), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [fileKey]);
+  const ready = waited === fileKey || !files.some(reading);
   const [frozen, setFrozen] = useState<{ key: string; order: string[] } | null>(
     null,
   );
+  if (ready && frozen?.key !== fileKey)
+    setFrozen({ key: fileKey, order: ranking.top.map((row) => row.slug) });
   const top = useMemo(
     () =>
       frozen?.key === fileKey
@@ -242,19 +269,6 @@ export default function FileSuggestions({
         : [...ranking.top],
     [frozen, fileKey, ranking.top],
   );
-  const latest = useRef<string[]>([]);
-  useEffect(() => {
-    latest.current = top.map((row) => row.slug);
-  });
-  const settle = useCallback(() => {
-    setFrozen((prev) =>
-      prev?.key === fileKey ? prev : { key: fileKey, order: latest.current },
-    );
-  }, [fileKey]);
-  useEffect(() => {
-    const timer = setTimeout(settle, SETTLE_MS);
-    return () => clearTimeout(timer);
-  }, [settle]);
 
   // Said once per staged set, when the list settles: how many, and the best.
   const announced = useRef<string | null>(null);
@@ -281,6 +295,9 @@ export default function FileSuggestions({
   const launch = (row: Row, rank: number) =>
     onLaunch(row.tool, row.opens, rank);
 
+  if (frozen?.key !== fileKey)
+    return <SuggestionsPlaceholder className={className} />;
+
   return (
     <section
       aria-labelledby={headingId}
@@ -288,8 +305,6 @@ export default function FileSuggestions({
         "bg-panel border-line rounded-panel flex flex-col gap-4 border p-5",
         className,
       )}
-      onPointerEnter={settle}
-      onFocus={settle}
     >
       <div className="flex items-center justify-between gap-3">
         <h2 id={headingId} className="kicker text-muted">

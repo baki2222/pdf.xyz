@@ -46,10 +46,23 @@ function renderAt(search: string) {
   );
 }
 
+/**
+ * The Suggested link in each copy of the tools panel. There are two since
+ * 2026-10-09 — inline under the files on a phone and in the aside on a wide
+ * screen, one display:none at any width (jsdom applies no CSS, so both are
+ * here) — and they must agree, so this returns one copy's links after
+ * checking the other says the same.
+ */
 function suggested(container: HTMLElement): string[] {
-  return [...container.querySelectorAll('a[aria-current="true"]')].map(
-    (a) => a.getAttribute("href") ?? "",
+  const copies = [...container.querySelectorAll("[data-slot=suggestions]")];
+  expect(copies).toHaveLength(2);
+  const [inline, aside] = copies.map((copy) =>
+    [...copy.querySelectorAll('a[aria-current="true"]')].map(
+      (a) => a.getAttribute("href") ?? "",
+    ),
   );
+  expect(inline).toEqual(aside);
+  return aside!;
 }
 
 afterEach(() => {

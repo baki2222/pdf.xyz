@@ -2,8 +2,7 @@
 
 import {
   Fragment,
-  lazy,
-  Suspense,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -50,11 +49,18 @@ import {
 } from "@/components/upload/accepted-kinds";
 
 /**
- * The ranked suggestions: loaded with the first staged file, never with the
- * page, so the ranking, its evidence and the launch cost the empty workspace
- * nothing.
+ * The ranked suggestions: not part of the page's first load, so the ranking,
+ * its evidence and the launch cost the empty workspace's first paint nothing
+ * — but fetched as soon as the page has hydrated, so files rarely arrive
+ * before it.
+ *
+ * WAS `lazy()` under `<Suspense>`, fetched only when the first file was
+ * staged: its fallback painted on nearly every staging, and a lazy component
+ * suspends once even when its module is already loaded. Held in state, a
+ * component that has loaded renders at once.
  */
-const FileSuggestions = lazy(() => import("./file-suggestions"));
+type Suggestions = typeof import("./file-suggestions").default;
+let suggestionsLoaded: Suggestions | null = null;
 
 const FAMILY_LABEL: Record<FileFamily, string> = {
   pdf: "PDF",
@@ -171,22 +177,6 @@ const CHIP_TONE: Record<FactChip["tone"], string> = {
   warn: "text-warn",
 };
 
-/** Placeholder with the panel's own heading while the ranking loads. */
-function SuggestionsLoading({ className }: { className?: string }) {
-  return (
-    <section
-      aria-busy="true"
-      className={cn(
-        "bg-panel border-line rounded-panel flex flex-col gap-3 border p-5",
-        className,
-      )}
-    >
-      <p className="kicker text-muted">Suggested for your files</p>
-      <p className="text-faint text-sm">Reading your files…</p>
-    </section>
-  );
-}
-
 /**
  * The interactive local workspace command center. Files are staged in browser
  * memory and measured in this tab (never uploaded); a guarded localStorage
@@ -219,6 +209,26 @@ export function WorkspaceClient({
 
   useEarlyFilePick(inputRef, ws.addFiles);
 
+  const [FileSuggestions, setFileSuggestions] = useState(
+    () => suggestionsLoaded,
+  );
+  const staged = state.files.length > 0;
+  useEffect(() => {
+    if (FileSuggestions) return;
+    let alive = true;
+    // A failed fetch is tried again when files are first staged.
+    import("./file-suggestions").then(
+      (m) => {
+        suggestionsLoaded = m.default;
+        if (alive) setFileSuggestions(() => m.default);
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, [staged, FileSuggestions]);
+
   const totalBytes = useMemo(
     () => state.files.reduce((sum, f) => sum + f.size, 0),
     [state.files],
@@ -241,6 +251,24 @@ export function WorkspaceClient({
     launchFailedSlug: ws.launchFailedSlug,
     onLaunch: ws.launchSuggestion,
   };
+  /**
+   * One suggestions slot's content; only the aside's speaks the summary.
+   * Until the suggestions have loaded (files picked before hydration, or a
+   * slow network) the tools panel stays: it is the same box, so the swap
+   * moves nothing, and the placeholder lives with the suggestions instead
+   * of in every visit's first load.
+   */
+  const slot = (announce?: boolean) =>
+    hasFiles && FileSuggestions ? (
+      <FileSuggestions {...suggestionProps} announce={announce} />
+    ) : (
+      <SuggestedTools
+        summaries={tools}
+        popular={popular}
+        preselected={preselected}
+        onOpen={ws.openTool}
+      />
+    );
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1.35fr_1fr] lg:items-start">
@@ -336,7 +364,11 @@ export function WorkspaceClient({
 
           {/* Staged files or the empty state */}
           {hasFiles ? (
-            <ul className="flex flex-col gap-2" aria-label="Staged files">
+            <ul
+              className="flex flex-col gap-2"
+              aria-label="Staged files"
+              data-slot="staged-files"
+            >
               {state.files.map((file) => {
                 const Icon = FAMILY_ICON[file.family];
                 const chips = factChips(file);
@@ -355,8 +387,15 @@ export function WorkspaceClient({
                       {/* Inline flow, not flex: each fact is unbreakable and
                           keeps its dot, so a line breaks only BETWEEN facts —
                           never inside "4 form fields", never before a dot —
-                          and the badge keeps the first line. */}
-                      <span className="figure text-muted min-w-0 text-[11px] leading-relaxed">
+                          and the badge keeps the first line. On a phone the
+                          measured facts wrap to a second line, so it is
+                          held from the start: "measuring…" becomes the
+                          facts without the row growing (review, 2026-10-09:
+                          the rows grew and the suggestions below moved). */}
+                      <span
+                        data-facts=""
+                        className="figure text-muted min-w-0 text-[11px] leading-relaxed max-sm:min-h-[2lh]"
+                      >
                         <span className="border-line bg-wash text-muted inline-block rounded border px-1 py-px align-[1px] font-sans text-[10px] leading-none font-semibold tracking-wide uppercase">
                           {file.kind}
                         </span>{" "}
@@ -456,13 +495,14 @@ export function WorkspaceClient({
         </div>
 
         {/* On a phone the suggestions follow the files, before the batch;
-            on a wide screen the aside holds them. One list is display:none
-            at any width, so assistive technology meets exactly one. */}
-        {hasFiles && (
-          <Suspense fallback={<SuggestionsLoading className="lg:hidden" />}>
-            <FileSuggestions {...suggestionProps} className="lg:hidden" />
-          </Suspense>
-        )}
+            on a wide screen the aside holds them. One copy is display:none
+            at any width, so assistive technology meets exactly one. The
+            slot is there before any file is (popular tools, the same box),
+            so the first file swaps its words instead of pushing the batch
+            down — 0.42 of CLS at 390 when it appeared then. */}
+        <div data-slot="suggestions" className="lg:hidden">
+          {slot()}
+        </div>
 
         <BatchPanel
           files={state.files}
@@ -481,22 +521,9 @@ export function WorkspaceClient({
 
       {/* ── Tools + activity column ── */}
       <aside className="flex min-w-0 flex-col gap-6">
-        {hasFiles ? (
-          <Suspense fallback={<SuggestionsLoading className="max-lg:hidden" />}>
-            <FileSuggestions
-              {...suggestionProps}
-              announce
-              className="max-lg:hidden"
-            />
-          </Suspense>
-        ) : (
-          <SuggestedTools
-            summaries={tools}
-            popular={popular}
-            preselected={preselected}
-            onOpen={ws.openTool}
-          />
-        )}
+        <div data-slot="suggestions" className="max-lg:hidden">
+          {slot(true)}
+        </div>
 
         <RecentActivity
           actions={state.recentActions}

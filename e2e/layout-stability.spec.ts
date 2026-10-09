@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { waitForHydration } from "./helpers";
+import { makePdfBytes, makeScanPdfBytes, waitForHydration } from "./helpers";
 
 /**
  * Layout stability, measured in a real browser through load, hydration and a
@@ -652,6 +652,296 @@ test.describe("layout stability through load, hydration and scroll", () => {
         m.animated.filter((a) => a.startsWith("still running")),
         "a probe was still running when read — it no longer tests the recorder",
       ).toEqual([]);
+    });
+  });
+});
+
+/**
+ * /workspace as files arrive: the page's client-filled slots are the staged
+ * files and the suggestions for them (inline under the files on a phone, in
+ * the aside on a wide screen). Files are DROPPED synthetically, which carries
+ * no input flag — the same way a file chosen in the OS picker arrives, long
+ * after the click that opened it — so every shift counts.
+ *
+ * WHAT SHIPPED (review, 2026-10-09): staging read CLS 0.0937 at 1280 and
+ * 0.546 at 390 scrolled to the Add files button, against 0.0041 and 0.106 on
+ * the build before. The suggestions' loading placeholder was a 90px box
+ * between a ~570px panel and a ~400px list, so the aside and the batch queue
+ * jumped twice; measured facts then reordered the list and grew the staged
+ * rows. Nothing measured /workspace, so it shipped green.
+ *
+ * TWO WINDOWS. The drop itself adds content — the staged rows, the file-type
+ * chips — and what it adds pushes what is under it; that is the visitor's
+ * own action, measured and reported but not what a reserved slot promises.
+ * Everything AFTER that first frame is the slots filling in: the
+ * placeholder giving way to the list, and the measured facts landing. In
+ * that window nothing inside a `[data-slot]` may move, and the window is
+ * proved to contain the swap (the placeholder is up and the facts are still
+ * "measuring…" when it opens).
+ *
+ * Chunks requested after the page has settled are held back
+ * {@link LATE_CHUNK_MS}, as on a slow phone: the placeholder then paints for
+ * certain, and the measured facts land after it, so both swaps are measured
+ * every run rather than when the machine happens to be slow.
+ */
+const LATE_CHUNK_MS = 400;
+const STAGING_DEVICES = [
+  {
+    name: "desktop",
+    use: { viewport: { width: 1280, height: 720 } },
+    // The aside's slot is in view at the top of the page.
+    scrolled: false,
+  },
+  {
+    name: "phone",
+    use: {
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: 3,
+    },
+    // At the top the inline slot is below the fold, where no shift is
+    // reported at all; scrolled, the staged files and the slot under them
+    // are both on screen.
+    scrolled: true,
+  },
+] as const;
+
+interface StagingMeasurement {
+  innerWidth: number;
+  /** Every shift from the drop on, and their sum. */
+  cls: number;
+  counted: ShiftRecord[];
+  /** Shifts after the drop's first frame that moved something in a slot. */
+  inReserved: ShiftRecord[];
+  /** `[data-slot]` elements on screen once the facts were in. */
+  slots: string[];
+}
+
+/**
+ * Load /workspace with fonts cached, optionally scroll the staging area to
+ * the top, drop a text PDF and a scan on the drop zone, and wait until the
+ * suggestions show what the probe measured.
+ */
+async function measureStaging(
+  page: Page,
+  scrolled: boolean,
+): Promise<StagingMeasurement> {
+  const files = [
+    { name: "text.pdf", bytes: await makePdfBytes("text.pdf", 2) },
+    { name: "scan.pdf", bytes: await makeScanPdfBytes(1) },
+  ].map((f) => ({
+    name: f.name,
+    b64: Buffer.from(f.bytes).toString("base64"),
+  }));
+
+  await page.goto("/workspace", { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await page.goto("/workspace", { waitUntil: "load" });
+  await waitForHydration(page.locator('input[type="file"]').first());
+  await page.waitForLoadState("networkidle");
+  await page.route(
+    /\/_next\/static\/chunks\/.+\.js(?:\?.*)?$/,
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, LATE_CHUNK_MS));
+      await route.continue();
+    },
+  );
+  if (scrolled)
+    await page
+      .getByText(/no files staged yet/i)
+      // The box the staged files replace, at the top. Instant: the page
+      // scrolls smoothly by default, and a scroll still under way when the
+      // files land moves everything for the wrong reason.
+      .evaluate((el) =>
+        el.parentElement!.scrollIntoView({
+          block: "start",
+          behavior: "instant",
+        }),
+      );
+  await page.waitForTimeout(300);
+
+  const dropped = await page.evaluate(() => window.__shifts?.length ?? -1);
+  expect(dropped, "the shift recorder is not installed").toBeGreaterThanOrEqual(
+    0,
+  );
+  const dataTransfer = await page.evaluateHandle((list) => {
+    const dt = new DataTransfer();
+    for (const { name, b64 } of list) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      dt.items.add(new File([bytes], name, { type: "application/pdf" }));
+    }
+    return dt;
+  }, files);
+  await page
+    .locator("label")
+    .filter({ hasText: /drop files here/i })
+    .dispatchEvent("drop", { dataTransfer });
+
+  // The drop's frame: the rows are in, the facts are still being measured,
+  // and the suggestions slot shows its placeholder. Two frames on, the
+  // second window opens — with the swap and the facts still ahead of it.
+  const staged = page.getByRole("list", { name: /staged files/i });
+  await expect(staged.getByText("measuring…").first()).toBeVisible();
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => setTimeout(resolve, 50)),
+        ),
+      ),
+  );
+  const filling = await page.evaluate(() => ({
+    at: window.__shifts?.length ?? -1,
+    placeholder: [
+      ...document.querySelectorAll(
+        '[data-slot=suggestions] [aria-busy="true"]',
+      ),
+    ].some((el) => el.getClientRects().length > 0),
+    measuring: document.body.textContent?.includes("measuring…") ?? false,
+  }));
+  expect(
+    filling.placeholder && filling.measuring,
+    "the second window opened after the swap it exists to measure",
+  ).toBe(true);
+
+  // The facts are in: the staged list counted both files' pages, and the
+  // suggestions on screen show what the probe found in the scan.
+  await expect(staged.getByText(/2 pages/)).toBeVisible();
+  await expect(staged.getByText(/no selectable text/)).toBeVisible();
+  const ocr = page
+    .getByRole("link", { name: /^open ocr pdf/i })
+    .filter({ visible: true });
+  await expect(ocr).toContainText(/no selectable text on page 1/i, {
+    timeout: 15_000,
+  });
+  await page.waitForTimeout(600);
+
+  const read = await page.evaluate((from) => {
+    const visible = (el: Element) => el.getClientRects().length > 0;
+    return {
+      shifts: (window.__shifts ?? []).slice(from),
+      innerWidth: window.innerWidth,
+      slots: [...document.querySelectorAll("[data-slot]")]
+        .filter(visible)
+        .map((el) => el.getAttribute("data-slot") ?? ""),
+    };
+  }, dropped);
+  const counted = read.shifts.filter((s) => !s.hadRecentInput);
+  return {
+    innerWidth: read.innerWidth,
+    cls: counted.reduce((sum, s) => sum + s.value, 0),
+    counted,
+    inReserved: read.shifts
+      .slice(filling.at - dropped)
+      .filter((s) => s.sources.some((x) => x.reserved)),
+    slots: read.slots,
+  };
+}
+
+test.describe("the workspace as files arrive", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(observe, RESERVED);
+  });
+
+  for (const device of STAGING_DEVICES) {
+    test.describe(device.name, () => {
+      test.use(device.use);
+
+      test(`staging a text PDF and a scan at ${device.use.viewport.width}px: nothing inside a slot moves as it fills${device.scrolled ? "" : `, and CLS ≤ ${MAX_CLS}`}`, async ({
+        page,
+      }, testInfo) => {
+        const m = await measureStaging(page, device.scrolled);
+        testInfo.annotations.push({
+          type: "cls",
+          description: m.cls.toFixed(4),
+        });
+        if (m.counted.length > 0)
+          testInfo.annotations.push({
+            type: "shifts",
+            description: report(m.counted),
+          });
+        // Health: the width asked for painted, and the slots this measures
+        // were on screen — a page without them would move nothing in them.
+        expect(m.innerWidth, "the viewport did not apply").toBe(
+          device.use.viewport.width,
+        );
+        expect([...new Set(m.slots)].sort()).toEqual([
+          "staged-files",
+          "suggestions",
+        ]);
+        expect(
+          m.inReserved.length,
+          `a slot moved while it filled in:\n${report(m.inReserved)}`,
+        ).toBe(0);
+        // On a phone the drop pushes the page under the staged files, and a
+        // suggestion whose words wrap makes the list taller than its
+        // placeholder (both reported above, neither inside a slot).
+        if (!device.scrolled)
+          expect(
+            m.cls,
+            `staging CLS ${m.cls.toFixed(4)} over ${m.counted.length} shift(s):\n${report(m.counted)}`,
+          ).toBeLessThanOrEqual(MAX_CLS);
+      });
+    });
+  }
+
+  test.describe("positive controls: the defects this replaced, injected, are measured", () => {
+    /**
+     * Inject a stylesheet once the document has a head, and prove it landed
+     * — a control whose defect never reached the page passes for nothing
+     * (the first version appended to a documentElement that did not exist
+     * yet, and both controls read green-for-the-wrong-reason as zero).
+     */
+    async function inject(page: Page, css: string) {
+      await page.addInitScript((text) => {
+        const add = () => {
+          const style = document.createElement("style");
+          style.dataset.probe = "";
+          style.textContent = text;
+          document.head.append(style);
+        };
+        if (document.head) add();
+        else document.addEventListener("DOMContentLoaded", add);
+      }, css);
+    }
+    const landed = (page: Page) =>
+      expect(page.locator("style[data-probe]")).toHaveCount(1);
+
+    test.describe("desktop", () => {
+      test.use(STAGING_DEVICES[0].use);
+
+      // The placeholder cut back to its heading — the 90px box that shipped —
+      // so the panel shrinks when the files arrive and grows when the list
+      // replaces it. The aside below it jumps; this is what CLS sees.
+      test("a placeholder shorter than the list", async ({ page }) => {
+        await inject(
+          page,
+          'section[aria-busy="true"] > :not(:first-child){display:none !important}',
+        );
+        const m = await measureStaging(page, false);
+        await landed(page);
+        expect(m.cls, report(m.counted)).toBeGreaterThan(MAX_CLS);
+      });
+    });
+
+    test.describe("phone", () => {
+      test.use(STAGING_DEVICES[1].use);
+
+      // The staged row's facts line without its reserved second line: the
+      // measured chips wrap, the row grows, and the suggestions slot under
+      // the staged files moves down.
+      test("a staged row whose facts change its height", async ({ page }) => {
+        await inject(page, "[data-facts]{min-height:0 !important}");
+        const m = await measureStaging(page, true);
+        await landed(page);
+        expect(
+          m.inReserved.flatMap((s) => s.sources.map((x) => x.selector)),
+          report(m.counted),
+        ).not.toEqual([]);
+      });
     });
   });
 });

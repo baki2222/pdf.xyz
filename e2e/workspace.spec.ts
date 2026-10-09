@@ -99,11 +99,16 @@ test("surfaces the deep-linked tool as Suggested and routes to its runner", asyn
   const guard = attachConsoleGuard(page);
   await page.goto("/workspace?tool=rotate-pdf");
 
-  // Arriving with ?tool=<tool> surfaces it as the suggested next step.
-  await expect(page.getByText("Suggested")).toBeVisible();
+  // Arriving with ?tool=<tool> surfaces it as the suggested next step. The
+  // tools panel is in the page twice (under the files on a phone, in the
+  // aside on a wide screen; one display:none), so the visible copy is meant.
+  await expect(
+    page.getByText("Suggested", { exact: true }).filter({ visible: true }),
+  ).toBeVisible();
   const rotateLink = page
     .getByRole("main")
-    .locator('a[href="/tools/rotate-pdf"]');
+    .locator('a[href="/tools/rotate-pdf"]')
+    .filter({ visible: true });
   await expect(rotateLink).toBeVisible();
 
   // Picking it routes to the real, in-browser tool page.
@@ -182,7 +187,11 @@ test("remembers recent activity across navigation (local only)", async ({
   await page.goto("/workspace?tool=rotate-pdf");
 
   // Opening a tool from the workspace records it as recent activity.
-  await page.getByRole("main").locator('a[href="/tools/rotate-pdf"]').click();
+  await page
+    .getByRole("main")
+    .locator('a[href="/tools/rotate-pdf"]')
+    .filter({ visible: true })
+    .click();
   await expect(page).toHaveURL(/\/tools\/rotate-pdf$/);
 
   // Returning restores the activity from localStorage (no file names stored).
