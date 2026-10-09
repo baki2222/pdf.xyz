@@ -21,6 +21,8 @@ let pathname = "/";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 
 const { default: NotFound } = await import("./not-found");
+const { MissingPathSuggestion } =
+  await import("@/components/layout/missing-path-suggestion");
 
 afterEach(() => {
   pathname = "/";
@@ -91,5 +93,41 @@ describe("the 404 page", () => {
     await renderAndSettle();
     expect(screen.queryByText(/did you mean/i)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
+  });
+
+  it("a matcher that fails to load costs only the suggestion — and is handled", async () => {
+    // Ultrareview, 2026-10-09: the import had no handler, so a chunk that
+    // failed to load (a tab holding a pre-deploy build) rejected unhandled on
+    // every 404. The failure arrives through the component's own loader seam
+    // rather than vi.mock (a mocked module would stay cached for other files);
+    // vitest fails the run on an unhandled rejection, so this is red without
+    // the handler.
+    pathname = "/merge-pdf";
+    render(
+      <MissingPathSuggestion
+        loadMatcher={() =>
+          Promise.reject(new Error("simulated ChunkLoadError"))
+        }
+      />,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.queryByText(/did you mean/i)).not.toBeInTheDocument();
+  });
+
+  it("after a client navigation to another missing path, the old suggestion never shows", async () => {
+    // Ultrareview, 2026-10-09: suggestions lived in state that only the
+    // effect replaced, so the previous path's "Did you mean" painted until it
+    // ran. Asserted BEFORE settling, on the very render the path changes.
+    pathname = "/merge-pdf";
+    const view = render(<NotFound />);
+    await act(async () => {
+      await import("@/lib/tools/path-suggest");
+    });
+    expect(screen.getByText(/did you mean/i)).toBeInTheDocument();
+    pathname = "/zzqx-vvbn";
+    view.rerender(<NotFound />);
+    expect(screen.queryByText(/did you mean/i)).not.toBeInTheDocument();
   });
 });

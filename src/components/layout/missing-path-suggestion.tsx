@@ -24,22 +24,46 @@ interface Suggestion {
  * catalogue only on pages that need it") reads the chunk CONTENT and fails if
  * it comes back.
  */
-export function MissingPathSuggestion() {
+type PathSuggest = typeof import("@/lib/tools/path-suggest");
+
+/** The real matcher, fetched on demand. Tests pass a failing one (no vi.mock). */
+const loadPathSuggest = (): Promise<PathSuggest> =>
+  import("@/lib/tools/path-suggest");
+
+export function MissingPathSuggestion({
+  loadMatcher = loadPathSuggest,
+}: { loadMatcher?: () => Promise<PathSuggest> } = {}) {
   const pathname = usePathname() ?? "";
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  // Keyed by the path they were computed for: after a client navigation to
+  // another missing path, the previous path's suggestions never render, not
+  // even for the frame before the effect below runs.
+  const [result, setResult] = useState<{
+    path: string;
+    list: Suggestion[];
+  } | null>(null);
+  const suggestions = result?.path === pathname ? result.list : [];
 
   useEffect(() => {
     let live = true;
-    void import("@/lib/tools/path-suggest").then(({ toolsForMissingPath }) => {
-      if (!live) return;
-      setSuggestions(
-        toolsForMissingPath(pathname).map(({ slug, name }) => ({ slug, name })),
-      );
-    });
+    loadMatcher()
+      .then(({ toolsForMissingPath }) => {
+        if (!live) return;
+        setResult({
+          path: pathname,
+          list: toolsForMissingPath(pathname).map(({ slug, name }) => ({
+            slug,
+            name,
+          })),
+        });
+      })
+      // A chunk that fails to load (a tab holding a pre-deploy build, a
+      // dropped request) costs only the suggestion: the page keeps its links
+      // home, to every tool, and the popular tools.
+      .catch(() => {});
     return () => {
       live = false;
     };
-  }, [pathname]);
+  }, [pathname, loadMatcher]);
 
   if (suggestions.length === 0) return null;
   return (

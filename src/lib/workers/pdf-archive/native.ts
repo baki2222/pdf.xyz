@@ -302,10 +302,9 @@ export function createNativeGhostscriptPdfARunner(
     : (seams.resolveOnPath ?? resolveOnPath)(config.qpdfBinary);
 
   /**
-   * Asked BEFORE Ghostscript runs, and again on any file-caused failure.
-   * `--requires-password`, not `--is-encrypted`: a permissions-only
-   * (owner-password) PDF is encrypted, opens without a password, and converts —
-   * rejecting it would break files that work today.
+   * Asked BEFORE Ghostscript runs. `--requires-password`, not `--is-encrypted`:
+   * a permissions-only (owner-password) PDF is encrypted, opens without a
+   * password, and converts — rejecting it would break files that work today.
    *
    * WAS: asked only after Ghostscript had failed, "so the happy path pays
    * nothing". The image proof (`pnpm worker:pdfa-proof`, first run in CI on
@@ -314,9 +313,13 @@ export function createNativeGhostscriptPdfARunner(
    * whatever it wrote passed the PDF/A gate. A user would have received a
    * "PDF/A" that is not their document. One qpdf probe up front (milliseconds)
    * is the price of asking the question where it can still change the answer.
+   *
+   * "no-qpdf" when the worker has no qpdf: nothing can be asked, now or later.
    */
-  async function needsOpenPassword(inputPath: string): Promise<boolean> {
-    if (!qpdfAvailable) return false;
+  async function openPasswordAnswer(
+    inputPath: string,
+  ): Promise<OpenPasswordAnswer | "no-qpdf"> {
+    if (!qpdfAvailable) return "no-qpdf";
     const probe = await exec(
       config.qpdfBinary,
       ["--requires-password", inputPath],
@@ -326,24 +329,27 @@ export function createNativeGhostscriptPdfARunner(
         windowsHide: true,
       },
     ).catch(() => null);
-    // Only "needs a password" is the file's own failure; every other answer
-    // leaves Ghostscript's failure as it was reported.
-    return readOpenPasswordAnswer(probe) === "needs-password";
+    return readOpenPasswordAnswer(probe);
   }
 
   /**
    * The file's own failure: an open-password file if qpdf says so, otherwise
-   * `reason`. Checked on EVERY file-caused failure, not only a non-zero exit —
-   * whether Ghostscript exits non-zero on a file it cannot open, or exits 0
-   * having written nothing usable, is its choice, and the user's fix is the
-   * same either way.
+   * `reason`. Whether Ghostscript exits non-zero on a file it cannot open, or
+   * exits 0 having written nothing usable, is its choice; the user's fix is the
+   * same either way. qpdf is asked AGAIN only when the up-front answer was
+   * inconclusive (a timeout, a probe that did not run): a definite answer about
+   * the same, unchanged input cannot have changed, so re-asking it only doubled
+   * the failure path's latency (ultrareview, 2026-10-09).
    */
   async function fileFailure(
     inputPath: string,
+    upFront: OpenPasswordAnswer | "no-qpdf",
     reason: "engine_exit" | "bad_output",
     message: string,
   ): Promise<GhostscriptRunError> {
-    return (await needsOpenPassword(inputPath))
+    const answer =
+      upFront === "unknown" ? await openPasswordAnswer(inputPath) : upFront;
+    return answer === "needs-password"
       ? new GhostscriptRunError(
           "password_required",
           "The input needs an open password.",
@@ -375,7 +381,8 @@ export function createNativeGhostscriptPdfARunner(
           throw new GhostscriptRunError("io", "Could not stage the input.");
         }
         // Before Ghostscript: its success is not evidence the file opened.
-        if (await needsOpenPassword(inputPath))
+        const upFront = await openPasswordAnswer(inputPath);
+        if (upFront === "needs-password")
           throw new GhostscriptRunError(
             "password_required",
             "The input needs an open password.",
@@ -401,6 +408,7 @@ export function createNativeGhostscriptPdfARunner(
         if (result.code !== GHOSTSCRIPT_EXIT_OK)
           throw await fileFailure(
             inputPath,
+            upFront,
             "engine_exit",
             "Ghostscript PDF/A conversion failed.",
           );
@@ -412,6 +420,7 @@ export function createNativeGhostscriptPdfARunner(
           if (isNotFound(error))
             throw await fileFailure(
               inputPath,
+              upFront,
               "bad_output",
               "Ghostscript produced no usable PDF output.",
             );
@@ -426,6 +435,7 @@ export function createNativeGhostscriptPdfARunner(
         ) {
           throw await fileFailure(
             inputPath,
+            upFront,
             "bad_output",
             "Ghostscript produced no usable PDF output.",
           );

@@ -366,6 +366,31 @@ describe("why a conversion failed travels as a type, not a sentence", () => {
     expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf"]);
   });
 
+  it("a Ghostscript failure after a DEFINITE probe answer does not ask qpdf again", async () => {
+    // Ultrareview, 2026-10-09: the answer about an unchanged input cannot
+    // change, so a second probe only doubled the failure path's latency.
+    const { run, exec } = runnerWith(gsFails(2));
+    expect(await reasonOf(run())).toBe("engine_exit");
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf", "gs"]);
+  });
+
+  it("an INCONCLUSIVE up-front probe is asked again after a failure, and can still say password", async () => {
+    let qpdfCalls = 0;
+    const { run, exec } = runnerWith(async (cmd) => {
+      if (cmd !== "qpdf") return { code: 1, timedOut: false };
+      qpdfCalls += 1;
+      return qpdfCalls === 1
+        ? { code: -1, timedOut: true }
+        : { code: 0, timedOut: false };
+    });
+    expect(await reasonOf(run())).toBe("password_required");
+    expect(exec.mock.calls.map((call) => call[0])).toEqual([
+      "qpdf",
+      "gs",
+      "qpdf",
+    ]);
+  });
+
   it("the happy path pays exactly one probe, and it comes first", async () => {
     const { run, exec } = runnerWith(async (cmd) => ({
       code: cmd === "qpdf" ? 2 : 0,
