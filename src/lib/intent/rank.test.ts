@@ -328,14 +328,75 @@ describe("the carry property, over every mix", () => {
       "annex.pdf has 4 form fields",
     );
     expect(fill.carry.ids).toEqual([annex.id]);
-    expect(fill.evidence.map(renderEvidence)).toContain(
-      "takes one file — annex.pdf",
-    );
-    // Control: with no boost, the first file it opens is the one it takes.
+    // INVERTED (2026-10-09, second visual pass): this asserted the row said
+    // "annex.pdf has 4 form fields · takes one file — annex.pdf", naming the
+    // file twice in one line. When the fact before it already names the file
+    // it takes, the row says so without repeating the name.
+    const words = fill.evidence.map(renderEvidence);
+    expect(words).toContain("takes only that file");
+    expect(words).not.toContain("takes one file — annex.pdf");
+    // Control: with no boost, the first file it opens is the one it takes,
+    // and since no fact names it, the row does.
     const split = all(rankForFiles([contract, annex], index)).find(
       (s) => s.slug === "split-pdf",
     )!;
     expect(split.carry.ids).toEqual([contract.id]);
+    expect(split.evidence.map(renderEvidence)).toContain(
+      "takes one file — contract.pdf",
+    );
+  });
+
+  /**
+   * The same shape through the pins (found while fixing the boost): with a
+   * plain PDF staged before a locked one, Unlock PDF's row said "locked.pdf
+   * needs a password to open" and listed plain.pdf first in what it opens —
+   * Unlock opens both. Repair PDF the same with a broken file second.
+   *
+   * No visitor receives the wrong file TODAY: neither tool has a browser
+   * runner, so neither receives a hand-off (`carry` is empty, by the gate's
+   * own rule, asserted below rather than assumed). `opens` is the order a
+   * carry takes — and WP-10's stage mode will — so the file the pin names
+   * goes first now, before a runner makes the order visible.
+   */
+  it("a pinned tool opens the file its pin names first", () => {
+    const all = (r: ReturnType<typeof rankForFiles>) => [...r.top, ...r.more];
+    const plain = pdf("plain.pdf");
+    const locked = pdf("locked.pdf", {
+      lock: "password-required",
+      pages: null,
+      formFields: null,
+      sample: [],
+    });
+    const unlock = all(rankForFiles([plain, locked], index)).find(
+      (s) => s.slug === "unlock-pdf",
+    )!;
+    expect(unlock.pinned).toBe("lock");
+    expect(unlock.evidence.map(renderEvidence)[0]).toBe(
+      "locked.pdf needs a password to open",
+    );
+    // Health: it opens both, so the order is a real choice.
+    expect([...unlock.opens].sort()).toEqual([plain.id, locked.id].sort());
+    expect(unlock.opens[0]).toBe(locked.id);
+    expect(unlock.carry.ids).toEqual(
+      unlock.tool.handoffMode === "none" ? [] : [locked.id],
+    );
+
+    const ok = pdf("ok.pdf");
+    const broken = pdf("broken.pdf", {
+      read: "unreadable",
+      pages: null,
+      formFields: null,
+      sample: [],
+    });
+    const repair = all(rankForFiles([ok, broken], index)).find(
+      (s) => s.slug === "repair-pdf",
+    )!;
+    expect(repair.pinned).toBe("repair");
+    expect([...repair.opens].sort()).toEqual([ok.id, broken.id].sort());
+    expect(repair.opens[0]).toBe(broken.id);
+    expect(repair.carry.ids).toEqual(
+      repair.tool.handoffMode === "none" ? [] : [broken.id],
+    );
   });
 
   it("a file no tool opens has its own note, and does not count against every tool", () => {

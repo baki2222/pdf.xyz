@@ -54,8 +54,15 @@ export type Evidence =
   | { readonly kind: "unreadable"; readonly name: string }
   /** The tool opens the file only after another one runs. */
   | { readonly kind: "after"; readonly tool: string }
-  /** A one-file tool offered several: the one it takes. */
-  | { readonly kind: "one-file"; readonly name: string }
+  /**
+   * A one-file tool offered several: the one it takes. `named` when the
+   * fact before it already names that file, so the row says it once.
+   */
+  | {
+      readonly kind: "one-file";
+      readonly name: string;
+      readonly named: boolean;
+    }
   /** It opens some of the files, not all. */
   | { readonly kind: "partial"; readonly opens: number; readonly total: number }
   /** A worker or AI tool: the moment the file moves. */
@@ -121,7 +128,7 @@ export function renderEvidence(e: Evidence): string {
     case "after":
       return `after ${e.tool}`;
     case "one-file":
-      return `takes one file — ${e.name}`;
+      return e.named ? "takes only that file" : `takes one file — ${e.name}`;
     case "partial":
       return `opens ${e.opens} of your ${plural(e.total, "file")}`;
     case "uploads":

@@ -399,12 +399,27 @@ export function rankForFiles<T extends ToolIndexEntry>(
         : reasons.includes("unlock-first")
           ? "unlock-first"
           : "repair-first";
-    // The file a measured fact names goes first, so a one-file tool carries
-    // the file that justified it, not whichever was staged first.
+    const locked = within.find((f) => (probeOf(f)?.lock ?? "none") !== "none");
+    const broken = within.find((f) => probeOf(f)?.read === "unreadable");
+    let pinned: Suggestion["pinned"] = null;
+    if (tool.slug === UNLOCK && locked) pinned = "lock";
+    else if (tool.slug === REPAIR && broken) pinned = "repair";
+    else if (ctx.pending === tool.slug) pinned = "pending";
+    else if (ctx.currentTool === tool.slug) pinned = "current";
     const boost = blocked ? null : boostFor(tool, open, pdfsInMix);
-    const opens = boost
-      ? [boost.file, ...open.filter((f) => f !== boost.file)]
-      : open;
+    // The file the leading fact names goes first — the pin's, else the
+    // boost's — so a one-file tool carries the file that justified it, not
+    // whichever was staged first.
+    const subject =
+      pinned === "lock"
+        ? locked
+        : pinned === "repair"
+          ? broken
+          : (boost?.file ?? null);
+    const opens =
+      subject && open.includes(subject)
+        ? [subject, ...open.filter((f) => f !== subject)]
+        : open;
     const basis = blocked ? within : opens;
 
     // What a launch carries — the gate's rule, from the index's fields.
@@ -416,14 +431,6 @@ export function rankForFiles<T extends ToolIndexEntry>(
           );
     const sent =
       tool.handoffMode === "single" ? eligible.slice(0, 1) : eligible;
-
-    const locked = within.find((f) => (probeOf(f)?.lock ?? "none") !== "none");
-    const broken = within.find((f) => probeOf(f)?.read === "unreadable");
-    let pinned: Suggestion["pinned"] = null;
-    if (tool.slug === UNLOCK && locked) pinned = "lock";
-    else if (tool.slug === REPAIR && broken) pinned = "repair";
-    else if (ctx.pending === tool.slug) pinned = "pending";
-    else if (ctx.currentTool === tool.slug) pinned = "current";
 
     const recent = Math.min(
       RECENT_CAP,
@@ -447,7 +454,13 @@ export function rankForFiles<T extends ToolIndexEntry>(
       evidence.push(...countEvidence(tool, basis));
     }
     if (tool.handoffMode === "single" && eligible.length > 1) {
-      evidence.push({ kind: "one-file", name: eligible[0]!.name });
+      // Named once: when the fact before says which file, this need not.
+      const taken = eligible[0]!;
+      evidence.push({
+        kind: "one-file",
+        name: taken.name,
+        named: subject === taken,
+      });
     }
     if (basis.length < total) {
       evidence.push({ kind: "partial", opens: basis.length, total });
