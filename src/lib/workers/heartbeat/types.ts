@@ -151,6 +151,21 @@ export interface HeartbeatCapabilities {
    * count for those tools only while this reads `true` on a fresh heartbeat.
    */
   readonly aiReadCap: boolean;
+  /**
+   * This image's PDF to PowerPoint engine writes a package whose slide master
+   * → layout → theme chain is present and resolves, one slide per page.
+   *
+   * PROVEN AT START-UP by running the real engine and inspecting its output
+   * (`pdf-office-export/capability.ts`). Until 2026-09-27 the engine wrote
+   * slides with no master, layout or theme, and PowerPoint for Windows refused
+   * every file as corrupted while the catalogue promised editable slides. The
+   * fix reaches users only in an image built after it, and this field is how
+   * the web tier can tell. It does not claim PowerPoint opens the file — no
+   * PowerPoint runs on the worker — only that this image's engine writes decks
+   * that pass the inspection the engine measured opening on Windows passed
+   * (last measured 2026-10-09; see `pdf-office-export/capability.ts`).
+   */
+  readonly pptxPresentationChain: boolean;
 }
 
 /**

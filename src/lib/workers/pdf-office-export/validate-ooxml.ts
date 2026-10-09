@@ -33,6 +33,7 @@
  */
 import JSZip from "jszip";
 import { JSDOM } from "jsdom";
+import { inspectPptxPackage } from "./pptx-inspect";
 
 const PML = "http://schemas.openxmlformats.org/presentationml/2006/main";
 const DML = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -413,9 +414,14 @@ export async function readPptx(bytes: Uint8Array): Promise<PptxRead> {
 
 /**
  * The deployment proof's verdict on a PDF to PowerPoint artifact: the deck
- * must pass `readPptx` AND carry `wantText` on some slide. Lives here, not in
+ * must pass `readPptx`, pass the package inspector the worker itself runs
+ * (`./pptx-inspect`), and carry `wantText` on some slide. Lives here, not in
  * `scripts/worker-prove-tools.ts`, so the verdict the proof prints is the one
  * the unit tests pin — including against the deck PowerPoint refused.
+ *
+ * Both readers, because neither covers the other: the inspector has no model
+ * of a shape tree or a theme, and `readPptx` never reads a content-type
+ * override or a part nothing points at.
  */
 export async function pptxProofVerdict(
   bytes: Uint8Array,
@@ -426,6 +432,16 @@ export async function pptxProofVerdict(
     return {
       ok: false,
       detail: `PowerPoint cannot open this deck — ${deck.problems.length} problem(s): ${deck.problems.slice(0, 4).join("; ")}`,
+    };
+  // No `wellFormed` parser: every part already went through one above.
+  const inspected = await inspectPptxPackage(bytes);
+  if (inspected.problems.length > 0)
+    return {
+      ok: false,
+      detail: `not a complete presentation — ${inspected.problems.length} problem(s): ${inspected.problems
+        .slice(0, 4)
+        .map((p) => `${p.check}: ${p.detail}`)
+        .join("; ")}`,
     };
   const found = deck.slides.some((paragraphs) =>
     paragraphs.some((p) => p.includes(wantText)),

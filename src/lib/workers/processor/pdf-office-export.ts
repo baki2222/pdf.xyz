@@ -97,6 +97,15 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "incomplete_output":
+      // The engine's own inspection refused the file it wrote. Deterministic:
+      // the same text through the same writer writes the same file, so a
+      // retry would fail the same way twice more.
+      return {
+        code: "internal_error",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };
