@@ -366,7 +366,7 @@ function findingsIn(file: string, raw: string): Finding[] {
 
 describe("user-facing copy does not hand-write figures the code owns", () => {
   it("reads the copy files, so a move cannot quietly empty this census", () => {
-    expect(copyFiles().length).toBeGreaterThanOrEqual(30);
+    expect(copyFiles().length).toBeGreaterThanOrEqual(120);
   });
 
   it("reaches the sources that state or own the figures", () => {
