@@ -247,3 +247,43 @@ describe("cancelled: the unsaved-work check runs first", () => {
     ).toBe("carried");
   });
 });
+
+describe("openWorkspaceWithFiles: every file, into the workspace", () => {
+  it("stashes all of them for the workspace's own target and opens it", async () => {
+    const { openWorkspaceWithFiles } = await import("./launch");
+    const result = await openWorkspaceWithFiles({
+      files: [pdf("a.pdf"), docx],
+      origin: { kind: "drop", surface: "home" },
+      router,
+    });
+    expect(result).toBe("carried");
+    expect(pushed[0]).toMatch(/^\/workspace\?handoff=h_/);
+    const record = await claimedFrom(pushed[0]!);
+    expect(record?.toolSlug).toBe("workspace");
+    expect(record?.files.map((f) => f.name)).toEqual(["a.pdf", "letter.docx"]);
+    expect(record?.origin).toEqual({ kind: "drop", surface: "home" });
+  });
+
+  it("a storage failure does not navigate", async () => {
+    const { openWorkspaceWithFiles } = await import("./launch");
+    __setHandoffStoreForTests(
+      new HandoffStore({
+        backend: {
+          put: () => Promise.reject(new Error("quota")),
+          get: () => Promise.resolve(undefined),
+          delete: () => Promise.resolve(),
+          getAll: () => Promise.reject(new Error("quota")),
+          clear: () => Promise.resolve(),
+        },
+      }),
+    );
+    expect(
+      await openWorkspaceWithFiles({
+        files: [pdf("a.pdf")],
+        origin: { kind: "drop", surface: "home" },
+        router,
+      }),
+    ).toBe("failed");
+    expect(pushed).toEqual([]);
+  });
+});

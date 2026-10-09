@@ -332,3 +332,60 @@ describe("planBatch", () => {
     ).toBe("unavailable");
   });
 });
+
+describe("set-facts: what this tab measured about a staged file", () => {
+  const measured = (id: string, pages: number | null) => ({
+    id,
+    name: "a.pdf",
+    size: 10,
+    type: "application/pdf",
+    format: "PDF" as const,
+    bytes: "PDF" as const,
+    contradicted: false,
+    pdf: {
+      state: "checked" as const,
+      probe: {
+        read: "ok" as const,
+        lock: "none" as const,
+        pages,
+        formFields: 0,
+        sample: [],
+      },
+    },
+  });
+
+  it("attaches the facts and the page count the probe found", () => {
+    const state = withFiles(2);
+    const id = state.files[0]!.id;
+    const next = workspaceReducer(state, {
+      type: "set-facts",
+      id,
+      facts: measured(id, 7),
+    });
+    expect(next.files[0]!.facts?.pdf).toMatchObject({ state: "checked" });
+    expect(next.files[0]!.pageCount).toBe(7);
+    expect(next.files[1]).toBe(state.files[1]);
+  });
+
+  it("a locked file with no count leaves the page count unset", () => {
+    const state = withFiles(1);
+    const id = state.files[0]!.id;
+    const next = workspaceReducer(state, {
+      type: "set-facts",
+      id,
+      facts: measured(id, null),
+    });
+    expect(next.files[0]!.pageCount).toBeUndefined();
+  });
+
+  it("ignores a file that is no longer staged, keeping identity", () => {
+    const state = withFiles(1);
+    expect(
+      workspaceReducer(state, {
+        type: "set-facts",
+        id: "gone",
+        facts: measured("gone", 3),
+      }),
+    ).toBe(state);
+  });
+});

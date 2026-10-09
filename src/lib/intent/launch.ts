@@ -23,6 +23,7 @@ import {
   handoffCapabilityFor,
   handoffPayload,
   HANDOFF_PARAM,
+  HANDOFF_TARGET_WORKSPACE,
   stashHandoff,
   type HandoffOrigin,
   type PendingStep,
@@ -106,5 +107,31 @@ export async function launchWithFiles(
   if (suggestion) {
     track(suggestionOpenedEvent({ toolSlug, ...suggestion, carried: true }));
   }
+  return "carried";
+}
+
+/**
+ * Carry files into the workspace — every one of them: the workspace stages
+ * anything it can read and says what each tool would do with it. Addressed
+ * to the workspace's reserved target, which only `/workspace` claims.
+ * `"failed"` does not navigate, as above.
+ */
+export async function openWorkspaceWithFiles(input: {
+  readonly files: readonly File[];
+  readonly origin: HandoffOrigin;
+  readonly router: LaunchRouter;
+  readonly confirmLeave?: () => boolean;
+}): Promise<Exclude<LaunchResult, "plain">> {
+  if (input.confirmLeave && !input.confirmLeave()) return "cancelled";
+  let id: string | null;
+  try {
+    id = await stashHandoff(HANDOFF_TARGET_WORKSPACE, input.files, {
+      origin: input.origin,
+    });
+  } catch {
+    id = null;
+  }
+  if (!id) return "failed";
+  input.router.push(`/workspace?${HANDOFF_PARAM}=${encodeURIComponent(id)}`);
   return "carried";
 }

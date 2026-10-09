@@ -137,18 +137,25 @@ describe("a suggestion is a link that carries the files", () => {
     expect(pushed).toEqual([]);
   });
 
-  it("a scan: OCR PDF shows the pages with no selectable text, and when the file moves", async () => {
-    const { container } = renderWorkspace();
-    stage(container, [await pdfFile("scan.pdf", imageOnlyPdf(1))]);
-    const ocr = await rowFor(/^open ocr pdf/i);
-    await waitFor(
-      () => expect(ocr.textContent).toMatch(/No selectable text on page 1/),
-      { timeout: 5000 },
-    );
-    expect(ocr.textContent).toMatch(/uploads only when you start it/);
-    // It cannot carry the file yet, and its name says so.
-    expect(ocr.getAttribute("aria-label")).toMatch(/add the file there/i);
-  });
+  it(
+    "a scan: OCR PDF shows the pages with no selectable text, and when the file moves",
+    { timeout: 15_000 },
+    async () => {
+      const { container } = renderWorkspace();
+      stage(container, [await pdfFile("scan.pdf", imageOnlyPdf(1))]);
+      // Re-read on every try: once the probe finds the scan, the OCR PDF row
+      // moves from "More" to the top, and the element found first is gone.
+      const ocr = () =>
+        screen.getAllByRole("link", { name: /^open ocr pdf/i })[0]!;
+      await waitFor(
+        () => expect(ocr().textContent).toMatch(/No selectable text on page 1/),
+        { timeout: 8000 },
+      );
+      expect(ocr().textContent).toMatch(/uploads only when you start it/);
+      // It cannot carry the file yet, and its name says so.
+      expect(ocr().getAttribute("aria-label")).toMatch(/add the file there/i);
+    },
+  );
 
   it("announces the suggestions once for the staged set", async () => {
     const { container } = renderWorkspace();

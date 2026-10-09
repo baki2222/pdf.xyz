@@ -1,6 +1,14 @@
 "use client";
 
-import { useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  lazy,
+  Suspense,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   AlertTriangle,
   Clock,
@@ -8,6 +16,7 @@ import {
   FileImage,
   FileSpreadsheet,
   FileText,
+  FolderInput,
   FolderOpen,
   Layers,
   Presentation,
@@ -18,21 +27,32 @@ import {
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
+import { HANDOFF_LIFETIME } from "@/lib/browser-storage";
+import { originPhrase } from "@/lib/handoff/origin";
+import { imageOnlyRange } from "@/lib/pdf/probe-result";
 import { cn, formatBytes } from "@/lib/utils";
 import {
   FILE_FAMILIES,
   type FileFamily,
   type WorkspaceAction,
+  type WorkspaceFile,
 } from "@/lib/workspace";
 import { BatchPanel } from "./batch-panel";
 import type { WorkspaceToolSummary } from "./summary";
 import { SuggestedTools } from "./suggested-tools";
-import { useWorkspace } from "./use-workspace";
+import { useWorkspace, type WorkspaceArrival } from "./use-workspace";
 import { deepLinkedToolSlug } from "./deep-link";
 import {
   acceptAttribute,
   acceptHint,
 } from "@/components/upload/accepted-kinds";
+
+/**
+ * The ranked suggestions: loaded with the first staged file, never with the
+ * page, so the ranking, its evidence and the launch cost the empty workspace
+ * nothing.
+ */
+const FileSuggestions = lazy(() => import("./file-suggestions"));
 
 const FAMILY_LABEL: Record<FileFamily, string> = {
   pdf: "PDF",
@@ -76,11 +96,81 @@ function activityIcon(kind: WorkspaceAction["kind"]) {
   return FolderOpen;
 }
 
+interface FactChip {
+  text: string;
+  tone: "faint" | "muted" | "warn";
+}
+
 /**
- * The interactive local workspace command center. Files are staged as metadata
- * in browser memory (bytes are never held or uploaded); a guarded localStorage
- * bridge remembers only tool choices + a name-free activity log. Everything else
- * — summaries, suggestions, batch queue — is derived from that in-memory state.
+ * What this tab found in a staged file, as short chips beside its size:
+ * measured facts only — a PDF still being read says so, and one past the
+ * probe limit says it was not checked rather than implying it was.
+ */
+function factChips(file: WorkspaceFile): FactChip[] {
+  const facts = file.facts;
+  if (!facts) return [];
+  if (facts.contradicted) {
+    return [
+      {
+        text: facts.bytes
+          ? `really ${facts.bytes === "PDF" ? "a PDF" : `${facts.bytes}`}`
+          : "not what its name says",
+        tone: "warn",
+      },
+    ];
+  }
+  const pdf = facts.pdf;
+  if (!pdf) return [];
+  if (pdf.state === "pending") return [{ text: "measuring…", tone: "faint" }];
+  if (pdf.state === "not-checked")
+    return [{ text: "not checked", tone: "faint" }];
+  const { probe } = pdf;
+  if (probe.read === "unreadable")
+    return [{ text: "couldn't be read here", tone: "warn" }];
+  const chips: FactChip[] = [];
+  if (probe.lock === "password-required")
+    chips.push({ text: "needs a password", tone: "warn" });
+  else if (probe.lock === "restricted")
+    chips.push({ text: "editing restricted", tone: "warn" });
+  else if (probe.lock === "unknown")
+    chips.push({ text: "encrypted", tone: "warn" });
+  if ((probe.formFields ?? 0) > 0)
+    chips.push({
+      text: `${probe.formFields} form field${probe.formFields === 1 ? "" : "s"}`,
+      tone: "muted",
+    });
+  if (imageOnlyRange(probe))
+    chips.push({ text: "no selectable text", tone: "muted" });
+  return chips;
+}
+
+const CHIP_TONE: Record<FactChip["tone"], string> = {
+  faint: "text-faint",
+  muted: "text-muted",
+  warn: "text-warn",
+};
+
+/** Placeholder with the panel's own heading while the ranking loads. */
+function SuggestionsLoading({ className }: { className?: string }) {
+  return (
+    <section
+      aria-busy="true"
+      className={cn(
+        "bg-panel border-line rounded-panel flex flex-col gap-3 border p-5",
+        className,
+      )}
+    >
+      <p className="kicker text-muted">Suggested for your files</p>
+      <p className="text-faint text-sm">Reading your files…</p>
+    </section>
+  );
+}
+
+/**
+ * The interactive local workspace command center. Files are staged in browser
+ * memory and measured in this tab (never uploaded); a guarded localStorage
+ * bridge remembers only tool choices + a name-free activity log. Suggestions,
+ * the batch queue and every hand-off are derived from that in-memory state.
  */
 export function WorkspaceClient({
   tools,
@@ -122,204 +212,226 @@ export function WorkspaceClient({
   );
 
   const hasFiles = state.files.length > 0;
+  const suggestionProps = {
+    files: state.files,
+    summaries: tools,
+    preselected,
+    launchingSlug: ws.launchingSlug,
+    launchFailedSlug: ws.launchFailedSlug,
+    onLaunch: ws.launchSuggestion,
+  };
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1.35fr_1fr] lg:items-start">
       {/* ── Staging + batch column ── */}
       <div className="flex flex-col gap-6">
-        <div className="">
-          <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
-            {/* Dropzone */}
-            <label
-              htmlFor={inputId}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
+        <div className="border-line bg-panel rounded-panel flex flex-col gap-5 border p-5 sm:p-7">
+          {/* Dropzone */}
+          <label
+            htmlFor={inputId}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              ws.addFiles(e.dataTransfer.files);
+            }}
+            className={cn(
+              "group rounded-sheet crop-marks relative flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
+              "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
+              dragging
+                ? "border-accent/40 bg-accent/10"
+                : "border-line-strong bg-wash hover:border-line-strong hover:bg-wash",
+            )}
+          >
+            <input
+              id={inputId}
+              ref={inputRef}
+              type="file"
+              accept={ACCEPT}
+              multiple
+              className="sr-only"
+              onChange={(e) => {
+                ws.addFiles(e.target.files);
+                e.target.value = "";
               }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragging(false);
-                ws.addFiles(e.dataTransfer.files);
-              }}
-              className={cn(
-                "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[4px] border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
-                "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
-                dragging
-                  ? "border-accent/40 bg-accent/10"
-                  : "border-line-strong bg-wash hover:border-line-strong hover:bg-wash",
-              )}
-            >
-              <input
-                id={inputId}
-                ref={inputRef}
-                type="file"
-                accept={ACCEPT}
-                multiple
-                className="sr-only"
-                onChange={(e) => {
-                  ws.addFiles(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-              <span className="text-muted grid size-14 place-items-center rounded-[4px]">
-                <UploadCloud
-                  className="size-7"
-                  strokeWidth={1.75}
-                  aria-hidden
-                />
-              </span>
-              <span className="flex flex-col gap-1">
-                <span className="text-fg text-base font-semibold">
-                  Drop files here, or{" "}
-                  <span className="text-accent underline underline-offset-4">
-                    browse
-                  </span>
+            />
+            <span className="text-muted grid size-14 place-items-center rounded-[4px]">
+              <UploadCloud className="size-7" strokeWidth={1.75} aria-hidden />
+            </span>
+            <span className="flex flex-col gap-1">
+              <span className="text-fg text-base font-semibold">
+                Drop files here, or{" "}
+                <span className="text-accent underline underline-offset-4">
+                  browse
                 </span>
-                <span className="text-muted text-sm">{acceptHint()}</span>
               </span>
-            </label>
+              <span className="text-muted text-sm">{acceptHint()}</span>
+            </span>
+          </label>
 
-            {/* Error state — files we declined to stage */}
-            {rejected.length > 0 && (
-              <div
-                role="alert"
-                className="border-warn/40 bg-warn/10 flex flex-col gap-2 rounded-[3px] border p-3.5"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-warn inline-flex items-center gap-1.5 text-sm font-medium">
-                    <AlertTriangle className="size-4" aria-hidden />
-                    {rejected.length} file{rejected.length === 1 ? "" : "s"}{" "}
-                    couldn&apos;t be staged
-                  </span>
-                  <button
-                    type="button"
-                    onClick={ws.dismissRejected}
-                    className="text-warn hover:bg-wash hover:text-fg grid size-6 place-items-center rounded-md transition"
-                    aria-label="Dismiss"
+          {ws.arrival && (
+            <ArrivalNote arrival={ws.arrival} onDismiss={ws.dismissArrival} />
+          )}
+
+          {/* Error state — files we declined to stage */}
+          {rejected.length > 0 && (
+            <div
+              role="alert"
+              className="border-warn/40 bg-warn/10 flex flex-col gap-2 rounded-[3px] border p-3.5"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-warn inline-flex items-center gap-1.5 text-sm font-medium">
+                  <AlertTriangle className="size-4" aria-hidden />
+                  {rejected.length} file{rejected.length === 1 ? "" : "s"}{" "}
+                  couldn&apos;t be staged
+                </span>
+                <button
+                  type="button"
+                  onClick={ws.dismissRejected}
+                  className="text-warn hover:bg-wash hover:text-fg grid size-6 place-items-center rounded-md transition"
+                  aria-label="Dismiss"
+                >
+                  <X className="size-3.5" aria-hidden />
+                </button>
+              </div>
+              <ul className="text-warn flex flex-col gap-1 text-xs">
+                {rejected.map((r, i) => (
+                  <li key={`${r.name}-${i}`}>
+                    <span className="text-warn font-medium">{r.name}</span> —{" "}
+                    {r.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Staged files or the empty state */}
+          {hasFiles ? (
+            <ul className="flex flex-col gap-2" aria-label="Staged files">
+              {state.files.map((file) => {
+                const Icon = FAMILY_ICON[file.family];
+                const chips = factChips(file);
+                return (
+                  <li
+                    key={file.id}
+                    className="bg-panel border-line flex items-center gap-3 rounded-[3px] border px-3 py-2.5 motion-safe:transition-[opacity,translate] motion-safe:duration-200 motion-safe:starting:-translate-y-1 motion-safe:starting:opacity-0"
                   >
-                    <X className="size-3.5" aria-hidden />
-                  </button>
-                </div>
-                <ul className="text-warn flex flex-col gap-1 text-xs">
-                  {rejected.map((r, i) => (
-                    <li key={`${r.name}-${i}`}>
-                      <span className="text-warn font-medium">{r.name}</span> —{" "}
-                      {r.reason}
+                    <span className="bg-wash text-accent grid size-9 shrink-0 place-items-center rounded-lg">
+                      <Icon className="size-4" aria-hidden />
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-fg truncate text-sm">
+                        {file.name}
+                      </span>
+                      <span className="text-muted flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px]">
+                        <span className="border-line bg-wash text-muted rounded border px-1 py-px text-[10px] font-semibold tracking-wide uppercase">
+                          {file.kind}
+                        </span>
+                        <span className="figure truncate">
+                          {formatBytes(file.size)}
+                          {typeof file.pageCount === "number"
+                            ? ` · ${file.pageCount} ${file.pageCount === 1 ? "page" : "pages"}`
+                            : ""}
+                        </span>
+                        {chips.map((chip) => (
+                          <span
+                            key={chip.text}
+                            className={CHIP_TONE[chip.tone]}
+                          >
+                            · {chip.text}
+                          </span>
+                        ))}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => ws.removeFile(file.id)}
+                      aria-label={`Remove ${file.name}`}
+                      className="text-muted hover:bg-wash hover:text-fg grid size-7 shrink-0 place-items-center rounded-md transition"
+                    >
+                      <X className="size-3.5" aria-hidden />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="border-line bg-wash flex flex-col items-center gap-1 rounded-[4px] border border-dashed px-6 py-8 text-center">
+              <p className="text-muted text-sm font-medium">
+                No files staged yet
+              </p>
+              <p className="text-muted max-w-sm text-xs">
+                Drop documents above to see tool suggestions read from the files
+                themselves, and to build a batch. Nothing is uploaded.
+              </p>
+            </div>
+          )}
+
+          {/* Summary + actions */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <p className="text-muted inline-flex items-center gap-1.5 text-xs">
+                <ShieldCheck className="text-ok size-3.5" aria-hidden />
+                {hasFiles ? (
+                  <span>
+                    {state.files.length} file
+                    {state.files.length === 1 ? "" : "s"} ·{" "}
+                    {formatBytes(totalBytes)} — staged in this browser only.
+                  </span>
+                ) : (
+                  <span>Files stay in this browser. Nothing is uploaded.</span>
+                )}
+              </p>
+              {familyChips.length > 0 && (
+                <ul
+                  className="flex flex-wrap gap-1.5"
+                  aria-label="File types staged"
+                >
+                  {familyChips.map(({ family, count }) => (
+                    <li
+                      key={family}
+                      className="border-line bg-wash text-muted rounded-[2px] border px-2 py-0.5 font-mono text-[11px] font-medium"
+                    >
+                      {FAMILY_LABEL[family]} · {count}
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
-
-            {/* Staged files or the empty state */}
-            {hasFiles ? (
-              <ul className="flex flex-col gap-2" aria-label="Staged files">
-                {state.files.map((file) => {
-                  const Icon = FAMILY_ICON[file.family];
-                  return (
-                    <li
-                      key={file.id}
-                      className="bg-panel border-line flex items-center gap-3 rounded-[3px] border px-3 py-2.5"
-                    >
-                      <span className="bg-wash text-accent grid size-9 shrink-0 place-items-center rounded-lg">
-                        <Icon className="size-4" aria-hidden />
-                      </span>
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="text-fg truncate text-sm">
-                          {file.name}
-                        </span>
-                        <span className="text-muted flex min-w-0 items-center gap-1.5 text-[11px]">
-                          <span className="border-line bg-wash text-muted rounded border px-1 py-px text-[10px] font-semibold tracking-wide uppercase">
-                            {file.kind}
-                          </span>
-                          <span className="truncate tabular-nums">
-                            {formatBytes(file.size)}
-                            {typeof file.pageCount === "number"
-                              ? ` · ${file.pageCount} ${file.pageCount === 1 ? "page" : "pages"}`
-                              : ""}
-                          </span>
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => ws.removeFile(file.id)}
-                        aria-label={`Remove ${file.name}`}
-                        className="text-muted hover:bg-wash hover:text-fg grid size-7 shrink-0 place-items-center rounded-md transition"
-                      >
-                        <X className="size-3.5" aria-hidden />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <div className="border-line bg-wash flex flex-col items-center gap-1 rounded-[4px] border border-dashed px-6 py-8 text-center">
-                <p className="text-muted text-sm font-medium">
-                  No files staged yet
-                </p>
-                <p className="text-muted max-w-sm text-xs">
-                  Drop documents above to see file-aware tool suggestions and
-                  build a batch. Nothing is uploaded.
-                </p>
-              </div>
-            )}
-
-            {/* Summary + actions */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-col gap-1.5">
-                <p className="text-muted inline-flex items-center gap-1.5 text-xs">
-                  <ShieldCheck className="text-ok size-3.5" aria-hidden />
-                  {hasFiles ? (
-                    <span>
-                      {state.files.length} file
-                      {state.files.length === 1 ? "" : "s"} ·{" "}
-                      {formatBytes(totalBytes)} — staged in this browser only.
-                    </span>
-                  ) : (
-                    <span>
-                      Files stay in this browser. Nothing is uploaded.
-                    </span>
-                  )}
-                </p>
-                {familyChips.length > 0 && (
-                  <ul
-                    className="flex flex-wrap gap-1.5"
-                    aria-label="File types staged"
-                  >
-                    {familyChips.map(({ family, count }) => (
-                      <li
-                        key={family}
-                        className="border-line bg-wash text-muted rounded-[2px] border px-2 py-0.5 font-mono text-[11px] font-medium"
-                      >
-                        {FAMILY_LABEL[family]} · {count}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {hasFiles && (
-                  <button
-                    type="button"
-                    onClick={ws.clearFiles}
-                    className={buttonVariants({ variant: "ghost", size: "sm" })}
-                  >
-                    <Trash2 className="size-3.5" aria-hidden />
-                    Clear all
-                  </button>
-                )}
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {hasFiles && (
                 <button
                   type="button"
-                  onClick={() => inputRef.current?.click()}
-                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                  onClick={ws.clearFiles}
+                  className={buttonVariants({ variant: "ghost", size: "sm" })}
                 >
-                  Add files
+                  <Trash2 className="size-3.5" aria-hidden />
+                  Clear all
                 </button>
-              </div>
+              )}
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                Add files
+              </button>
             </div>
           </div>
         </div>
+
+        {/* On a phone the suggestions follow the files, before the batch;
+            on a wide screen the aside holds them. One list is display:none
+            at any width, so assistive technology meets exactly one. */}
+        {hasFiles && (
+          <Suspense fallback={<SuggestionsLoading className="lg:hidden" />}>
+            <FileSuggestions {...suggestionProps} className="lg:hidden" />
+          </Suspense>
+        )}
 
         <BatchPanel
           files={state.files}
@@ -332,19 +444,28 @@ export function WorkspaceClient({
           onClear={ws.clearBatch}
           onLaunch={ws.launchHandoff}
           launchingSlug={ws.launchingSlug}
+          launchFailedSlug={ws.launchFailedSlug}
         />
       </div>
 
       {/* ── Tools + activity column ── */}
       <aside className="flex flex-col gap-6">
-        <SuggestedTools
-          suggestions={ws.suggestions}
-          summaries={tools}
-          popular={popular}
-          hasFiles={hasFiles}
-          preselected={preselected}
-          onOpen={ws.openTool}
-        />
+        {hasFiles ? (
+          <Suspense fallback={<SuggestionsLoading className="max-lg:hidden" />}>
+            <FileSuggestions
+              {...suggestionProps}
+              announce
+              className="max-lg:hidden"
+            />
+          </Suspense>
+        ) : (
+          <SuggestedTools
+            summaries={tools}
+            popular={popular}
+            preselected={preselected}
+            onOpen={ws.openTool}
+          />
+        )}
 
         <RecentActivity
           actions={state.recentActions}
@@ -353,16 +474,63 @@ export function WorkspaceClient({
           onClearSession={ws.clearSession}
         />
 
-        <p className="border-ok/40 bg-ok/10 text-muted flex items-start gap-2 rounded-[4px] border p-4 text-xs leading-relaxed">
+        <div className="border-ok/40 bg-ok/10 text-muted rounded-panel flex items-start gap-2 border p-4 text-xs leading-relaxed">
           <ShieldCheck className="text-ok mt-0.5 size-4 shrink-0" aria-hidden />
-          <span>
-            Browser tools never upload — your files stay in this tab and clear
-            when you close it. Only your tool choices are remembered on this
-            device; file names and contents never are.
-          </span>
-        </p>
+          <div className="flex flex-col gap-2">
+            <p>
+              Browser tools never upload. Staged files live in this tab&apos;s
+              memory and go when you close it. Only your tool choices are
+              remembered on this device; file names and contents never are.
+            </p>
+            <p>{HANDOFF_LIFETIME}</p>
+          </div>
+        </div>
       </aside>
     </div>
+  );
+}
+
+/** What arrived from another page, said where the files are. */
+function ArrivalNote({
+  arrival,
+  onDismiss,
+}: {
+  arrival: WorkspaceArrival;
+  onDismiss: () => void;
+}) {
+  const loaded = arrival.kind === "loaded";
+  return (
+    <p
+      role="status"
+      className={cn(
+        "flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-[3px] border px-3 py-2 text-xs",
+        loaded
+          ? "border-ok/40 bg-ok/10 text-ok"
+          : "border-warn/40 bg-warn/10 text-warn",
+      )}
+    >
+      {loaded ? (
+        <FolderInput className="size-3.5 shrink-0" aria-hidden />
+      ) : (
+        <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+      )}
+      <span>
+        {loaded
+          ? `${originPhrase(arrival.origin, {
+              count: arrival.count,
+              fileName: null,
+              fromName: null,
+            })} Still in this browser; nothing was uploaded.`
+          : "That hand-off expired or was already used. Add your files below — nothing was uploaded."}
+      </span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="hover:bg-wash ml-auto rounded-md px-2 py-0.5 transition"
+      >
+        Dismiss
+      </button>
+    </p>
   );
 }
 
@@ -382,7 +550,7 @@ function RecentActivity({
   return (
     <section
       aria-labelledby="activity-heading"
-      className="bg-panel border-line flex flex-col gap-3 rounded-[4px] border p-5"
+      className="bg-panel border-line rounded-panel flex flex-col gap-3 border p-5"
     >
       <div className="flex items-center justify-between gap-2">
         <h2
