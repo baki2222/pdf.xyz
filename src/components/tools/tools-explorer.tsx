@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import Link from "next/link";
 import {
@@ -36,7 +37,7 @@ import {
   type RunsChoice,
   type RunsFilter,
 } from "@/lib/tools/where-it-runs";
-import { ToolCard } from "@/components/tools/tool-card";
+import { ToolCardView } from "@/components/tools/tool-card-view";
 import { ModeShape } from "@/components/tools/processing-badge";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +50,10 @@ const noSubscription = () => () => {};
 
 /** No "Where it runs" choices: the filter is not offered. */
 const NO_RUNS: readonly RunsChoice[] = [];
+
+/** A tool's glyph by slug, drawn by the server page. */
+export type ToolIcons = Readonly<Record<string, ReactNode>>;
+const NO_ICONS: ToolIcons = {};
 
 /**
  * One filter row: a single sideways-scrolling line on a phone (the chips
@@ -247,6 +252,7 @@ export function resultAnnouncement(
 export function ToolsExplorer({
   loadEngine = loadSearchEngine,
   runs: runsChoices = NO_RUNS,
+  icons = NO_ICONS,
 }: {
   /** The engine loader; a test seam for a chunk that fails to load. */
   loadEngine?: () => Promise<SearchEngine>;
@@ -257,6 +263,12 @@ export function ToolsExplorer({
    * no "Where it runs" filter, and a `?runs=` link shows every tool.
    */
   runs?: readonly RunsChoice[];
+  /**
+   * Each tool's glyph by slug, drawn on the server by `app/tools/page.tsx`.
+   * Drawing them here would ship the icon registry (~50 lucide glyphs) to
+   * this page; `tool-card.test.tsx` holds that every card gets its own.
+   */
+  icons?: ToolIcons;
 } = {}) {
   // The server snapshot is "" — the prerendered, unfiltered grid. On the
   // client React re-renders once with the real query string after hydration.
@@ -434,7 +446,7 @@ export function ToolsExplorer({
               {category.description}
             </p>
           </div>
-          <ToolGrid tools={groupTools} />
+          <ToolGrid tools={groupTools} icons={icons} />
         </section>
       ))}
     </div>
@@ -611,6 +623,7 @@ export function ToolsExplorer({
         {answer && (
           <AnswerBlock
             answer={answer}
+            icons={icons}
             onShowFormat={(format) =>
               updateAndRefocus({
                 category: "all",
@@ -672,7 +685,7 @@ export function ToolsExplorer({
                 </p>
               )}
             </div>
-            <ToolGrid tools={results} />
+            <ToolGrid tools={results} icons={icons} />
           </section>
         ) : pending ? (
           <section
@@ -708,9 +721,11 @@ export function ToolsExplorer({
  */
 function AnswerBlock({
   answer,
+  icons,
   onShowFormat,
 }: {
   answer: UnsupportedAnswer<Tool>;
+  icons: ToolIcons;
   onShowFormat: (format: Format) => void;
 }) {
   const heading = useId();
@@ -736,8 +751,8 @@ function AnswerBlock({
         </div>
       </div>
       {alt?.kind === "tool" && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <ToolCard tool={alt.tool} />
+        <div className={GRID}>
+          <ToolCardView tool={alt.tool} icon={icons[alt.tool.slug]} />
         </div>
       )}
       {alt?.kind === "accepts" && (
@@ -863,11 +878,24 @@ function EmptyState({
   );
 }
 
-function ToolGrid({ tools: list }: { tools: readonly Tool[] }) {
+/**
+ * Cards as index rows: a hairline under each, columns apart, no gap between
+ * rows — the rows' own rules separate them, as on the category pages.
+ */
+const GRID =
+  "grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+
+function ToolGrid({
+  tools: list,
+  icons,
+}: {
+  tools: readonly Tool[];
+  icons: ToolIcons;
+}) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className={GRID}>
       {list.map((tool) => (
-        <ToolCard key={tool.slug} tool={tool} />
+        <ToolCardView key={tool.slug} tool={tool} icon={icons[tool.slug]} />
       ))}
     </div>
   );

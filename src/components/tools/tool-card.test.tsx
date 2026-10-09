@@ -24,6 +24,7 @@ import { ToolCard } from "./tool-card";
 import { getToolBySlug, tools } from "@/lib/tools";
 import { processingMeta } from "@/lib/tools/processing";
 import { formatsLine } from "@/lib/tools/formats-line";
+import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
 import ToolsPage from "@/app/tools/page";
 
 /** The card link for `slug` inside `scope`. */
@@ -86,7 +87,7 @@ describe("ToolCard", () => {
 });
 
 describe("formatsLine", () => {
-  it("names each format a tool takes and makes once, in one spelling", () => {
+  it("names every format a tool takes and makes, once, in one spelling, and never the ZIP", () => {
     for (const tool of tools) {
       const { takes, makes } = formatsLine(tool);
       expect(takes.length, tool.slug).toBeGreaterThan(0);
@@ -95,11 +96,24 @@ describe("formatsLine", () => {
       expect(new Set(makes).size, tool.slug).toBe(makes.length);
       for (const alias of ["JPEG", "HTM", "MARKDOWN"])
         expect([...takes, ...makes], tool.slug).not.toContain(alias);
+      // ZIP is packaging: whether a run hands one over depends on the run,
+      // which a list cannot say (in-browser-claims.test.ts caught
+      // "PDF → JPG, ZIP" on the first run of this line).
+      expect(makes, tool.slug).not.toContain("ZIP");
+      // Complete: every other format the catalogue lists is named.
+      for (const label of tool.outputs.filter((f) => f !== "ZIP"))
+        expect(makes, tool.slug).toContain(normalizeFormatLabel(label));
+      for (const label of tool.accept)
+        expect(takes, tool.slug).toContain(normalizeFormatLabel(label));
     }
-    // Controls: an alias folds into its format; order is the catalogue's.
+    // Controls: an alias folds into its format; order is the catalogue's;
+    // the ZIP is dropped, the formats it packages are not.
     expect(
       formatsLine({ accept: ["JPG", "JPEG", "PNG"], outputs: ["PDF"] }),
     ).toEqual({ takes: ["JPG", "PNG"], makes: ["PDF"] });
+    expect(
+      formatsLine({ accept: ["PDF"], outputs: ["JPG", "ZIP"] }).makes,
+    ).toEqual(["JPG"]);
     expect(formatsLine({ accept: ["URL"], outputs: ["PDF"] })).toEqual({
       takes: ["URL"],
       makes: ["PDF"],

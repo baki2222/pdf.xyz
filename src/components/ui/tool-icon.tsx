@@ -31,6 +31,9 @@ export function ToolIcon(props: {
   // satisfies react-hooks/static-components.
   return (
     <span
+      // Which glyph this is, for the guards that check a card shows its own
+      // tool's icon (`tool-card.test.tsx`); the SVG itself says nothing.
+      data-icon={icon}
       className={cn(
         "border-line bg-wash text-fg relative inline-flex shrink-0 items-center justify-center rounded-[3px] border",
         dims.box,
