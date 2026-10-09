@@ -13,10 +13,12 @@
  *
  * Every translation is the title and the memo's sentences, one per line, in
  * the memo's order, names kept as a translator keeps them; the test holds the
- * line count. There are three Spanish renderings in different words —
- * Spain's, Latin America's and Mexico's — and the first again with the
- * bridge's name translated and left in English, so the check is shown to pass
- * correct translations it was not written against.
+ * line count. There are four Spanish renderings in different words —
+ * Spain's, Latin America's, Mexico's and a concise one — and the first again
+ * with the bridge's name translated and left in English, so the check is shown
+ * to pass correct translations it was not written against. The concise one is
+ * the shortest correct translation here, so the completeness floor
+ * (`TRANSLATION_LENGTH_AT_LEAST`) is derived from it.
  *
  * The wrong packages built from them (re-review, 2026-10-09): the Spanish with
  * one line left in English, at every position; the Spanish whose last lines
@@ -24,6 +26,14 @@
  * languages' markers allowed up to a quarter of the Spanish ones, one English
  * sentence passed at 6 of 13 positions, and the last 2 to 4 lines in
  * Portuguese or Catalan, or the last 2 in Italian, passed.
+ *
+ * And the third round's (re-review 3, 2026-10-09): Galician and German, which
+ * no marker set counts, so any stretch of either passed while the Spanish
+ * markers held — the last six lines in Galician, one German sentence in the
+ * middle; a Spanish SUMMARY passed as the translation; and so did the
+ * translation with its middle six sentences dropped. Galician and German are
+ * rendered whole below ({@link UNMARKED_RENDERINGS}) for the per-line check
+ * to be held to.
  */
 import {
   PROOF_MEMO_BODY_NAMES,
@@ -105,6 +115,29 @@ export const SPANISH_TRANSLATION_MEXICAN = [
   "La próxima inspección completa del puente Kestrel toca dentro de dos años.",
 ].join("\n");
 
+/**
+ * A fourth translator, concise: every fact of the memo in fewer words —
+ * "Coches y bicicletas sí podrán, pero por un solo carril a la vez". The
+ * shortest correct translation here, so the completeness floor is derived
+ * from it: a terse translator must pass.
+ */
+export const SPANISH_TRANSLATION_CONCISE = [
+  "Memorando: inspección del puente Kestrel",
+  "El puente Kestrel lleva la carretera costera sobre el río Varrow.",
+  "La ingeniera Ingrid Halvorsen lo inspeccionó el 14 de marzo.",
+  "Halló corrosión en cuatro de los doce cables de acero del tramo principal.",
+  "Dos de ellos perdieron más de un décimo de su resistencia.",
+  "La reparación cambiará los cuatro cables en nueve semanas.",
+  "Costará 2.480.000 euros, del fondo regional de carreteras.",
+  "Los camiones de más de siete toneladas no podrán cruzarlo durante las obras.",
+  "Coches y bicicletas sí podrán, pero por un solo carril a la vez.",
+  "Un ferry desde el puerto de Ostby llevará los camiones al otro lado.",
+  "El ayuntamiento debe aprobar el presupuesto antes de fin de abril.",
+  "Si las obras pasan de junio, el puente se cerrará a todo el tráfico.",
+  "Halvorsen recomienda cambiar también los otros ocho cables en cinco años.",
+  "La próxima inspección completa del puente será en dos años.",
+].join("\n");
+
 /** The first rendering with the bridge's name translated, as a translator may render a bird's name. */
 export const SPANISH_TRANSLATION_CERNICALO = SPANISH_TRANSLATION.replaceAll(
   "puente Kestrel",
@@ -183,6 +216,52 @@ export const FRENCH_TRANSLATION = [
   "La prochaine inspection complète du pont Kestrel est prévue dans deux ans.",
 ].join("\n");
 
+/**
+ * Galician: Spanish's nearest neighbour, and a language no marker set counts —
+ * so, until the per-line check, any amount of it passed while the Spanish
+ * markers held (re-review 3, 2026-10-09). It shares "pero" with Spanish.
+ */
+export const GALICIAN_TRANSLATION = [
+  "Memorando de inspección da ponte Kestrel",
+  "A ponte Kestrel leva a estrada da costa sobre o río Varrow.",
+  "A enxeñeira Ingrid Halvorsen inspeccionou a ponte o 14 de marzo.",
+  "Atopou corrosión en catro dos doce cables de aceiro que sosteñen o tramo principal.",
+  "Dous deses cables perderon máis dunha décima parte da súa resistencia.",
+  "A reparación substituirá os catro cables e durará nove semanas.",
+  "Espérase que custe 2.480.000 euros, pagados co fondo rexional de estradas.",
+  "Os camións de máis de sete toneladas non poderán cruzar a ponte mentres duren as obras.",
+  "Os coches e as bicicletas aínda poderán cruzar, pero só por un carril á vez.",
+  "Un transbordador desde o porto de Ostby levará os camións ao outro lado do río.",
+  "O concello debe aprobar o orzamento antes de finais de abril.",
+  "Se as obras se atrasan alén de xuño, a ponte pecharase a todo o tráfico.",
+  "Halvorsen tamén recomenda substituír os outros oito cables nun prazo de cinco anos.",
+  "A próxima inspección completa da ponte Kestrel está prevista dentro de dous anos.",
+].join("\n");
+
+/** German: a language no marker set counts, and nobody's neighbour. */
+export const GERMAN_TRANSLATION = [
+  "Inspektionsvermerk zur Kestrel-Brücke",
+  "Die Kestrel-Brücke führt die Küstenstraße über den Fluss Varrow.",
+  "Die Ingenieurin Ingrid Halvorsen hat die Brücke im März geprüft.",
+  "Sie fand Korrosion an vier der zwölf Stahlseile, die die Hauptspannweite tragen.",
+  "Zwei dieser Seile haben mehr als ein Zehntel ihrer Festigkeit verloren.",
+  "Bei der Reparatur werden alle vier Seile ersetzt, und sie dauert neun Wochen.",
+  "Sie soll 2.480.000 Euro kosten, bezahlt aus dem regionalen Straßenfonds.",
+  "Lastwagen über sieben Tonnen dürfen die Brücke während der Arbeiten nicht überqueren.",
+  "Autos und Fahrräder dürfen weiter fahren, aber nur auf einer Spur zugleich.",
+  "Eine Fähre vom Hafen Ostby bringt die Lastwagen stattdessen über den Fluss.",
+  "Der Stadtrat muss das Budget vor Ende April genehmigen.",
+  "Verzögern sich die Arbeiten über Juni hinaus, wird die Brücke für allen Verkehr gesperrt.",
+  "Halvorsen empfiehlt außerdem, die übrigen acht Seile innerhalb von fünf Jahren zu ersetzen.",
+  "Die nächste vollständige Inspektion der Kestrel-Brücke ist in zwei Jahren fällig.",
+].join("\n");
+
+/** Languages no marker set counts, rendered whole, by name. */
+export const UNMARKED_RENDERINGS = {
+  galician: GALICIAN_TRANSLATION,
+  german: GERMAN_TRANSLATION,
+} as const;
+
 /** Every rendering, by the language it is in. */
 export const MEMO_RENDERINGS: Readonly<
   Record<MarkedLanguage, readonly string[]>
@@ -191,6 +270,7 @@ export const MEMO_RENDERINGS: Readonly<
     SPANISH_TRANSLATION,
     SPANISH_TRANSLATION_SECOND,
     SPANISH_TRANSLATION_MEXICAN,
+    SPANISH_TRANSLATION_CONCISE,
     SPANISH_TRANSLATION_CERNICALO,
     SPANISH_TRANSLATION_KESTREL_BRIDGE,
   ],
@@ -211,14 +291,64 @@ export const NEIGHBOUR_RENDERINGS = {
 
 /**
  * {@link SPANISH_TRANSLATION} with its line `line` — 0 the title, then one
- * per sentence — left in the memo's English: a model that skipped one.
+ * per sentence — taken from `rendering` instead: a model that slipped into
+ * another language for one line.
  */
-export function spanishWithEnglishLine(line: number): string {
-  const english = MEMO_TEXT.split("\n");
+export function spanishWithLineFrom(rendering: string, line: number): string {
+  const other = rendering.split("\n");
   return SPANISH_TRANSLATION.split("\n")
-    .map((spanish, i) => (i === line ? english[i]! : spanish))
+    .map((spanish, i) => (i === line ? other[i]! : spanish))
     .join("\n");
 }
+
+/**
+ * {@link SPANISH_TRANSLATION} with its line `line` left in the memo's
+ * English: a model that skipped one.
+ */
+export function spanishWithEnglishLine(line: number): string {
+  return spanishWithLineFrom(MEMO_TEXT, line);
+}
+
+/**
+ * {@link SPANISH_TRANSLATION} with `lines` (indices, 0 the title) left out: a
+ * translation that dropped part of the memo.
+ */
+export function spanishWithout(lines: readonly number[]): string {
+  return SPANISH_TRANSLATION.split("\n")
+    .filter((_, i) => !lines.includes(i))
+    .join("\n");
+}
+
+/**
+ * The reviewer's middle-dropped translation (re-review 3, 2026-10-09):
+ * {@link SPANISH_TRANSLATION} without the longest run of lines that names
+ * none of the memo's body names — six middle sentences — so it keeps every
+ * name and the whole-names rule cannot refuse it. 592 characters against the
+ * memo's 939.
+ */
+export const SPANISH_TRANSLATION_MIDDLE_DROPPED = (() => {
+  const named = SPANISH_TRANSLATION.split("\n").flatMap((line, i) =>
+    PROOF_MEMO_BODY_NAMES.some((name) => mentions(line, name)) ? [i] : [],
+  );
+  let from = 0;
+  let to = 0;
+  for (let k = 1; k < named.length; k += 1)
+    if (named[k]! - named[k - 1]! > to - from) {
+      from = named[k - 1]!;
+      to = named[k]!;
+    }
+  return spanishWithout(
+    Array.from({ length: to - from - 1 }, (_, i) => from + 1 + i),
+  );
+})();
+
+/**
+ * A Spanish SUMMARY of the memo packaged as its translation (re-review 3,
+ * 2026-10-09): Spanish, every body name, nine Spanish markers — and a quarter
+ * of the memo.
+ */
+export const SPANISH_SUMMARY_AS_TRANSLATION =
+  "El informe de Ingrid Halvorsen sobre el puente Kestrel, en el río Varrow, encontró corrosión en cuatro de los doce cables y los camiones deberán usar un ferry desde Ostby mientras duren las obras, pero los coches y las bicicletas podrán pasar.";
 
 /**
  * {@link SPANISH_TRANSLATION} whose last `count` lines are `rendering`'s: a

@@ -26,7 +26,16 @@
  * in Portuguese, Catalan or Italian passed; a translation cut short passed on
  * one name; and the follow-up's docblock still called a right answer evidence
  * the turns reached the model, while a worker that forwards only the user's
- * turns passes every time — now a pinned limit.
+ * turns can pass (and with a reading model does) — now a pinned limit.
+ *
+ * THE THIRD FIX WAS TOO NARROW ON ONE SIDE AND STILL OPEN ON THE OTHER
+ * (re-review 3, 2026-10-09). The summary check refused faithful summaries —
+ * one that rounded the cost and named no one, a TL;DR, "7 tons" — so its
+ * marks are wider, and those summaries are right packages below. The
+ * translation check passed a Spanish summary, the translation with its middle
+ * six sentences dropped, and Galician or German lines; it gained a length
+ * floor DERIVED from the correct renderings, and a per-line check, each with
+ * its wrong packages here and its limits pinned.
  *
  * Every package below is built OFFLINE — no provider is called. The right
  * ones and most wrong ones come out of the REAL engine (`runSummarize`,
@@ -56,18 +65,25 @@ import {
   CATALAN_TRANSLATION,
   ENGLISH_PARAPHRASE,
   FRENCH_TRANSLATION,
+  GALICIAN_TRANSLATION,
+  GERMAN_TRANSLATION,
   ITALIAN_TRANSLATION,
   MEMO_RENDERINGS,
   MEMO_TEXT,
   NEIGHBOUR_RENDERINGS,
   PORTUGUESE_TRANSLATION,
   SPANISH_DRIFTING_INTO_ITALIAN,
+  SPANISH_SUMMARY_AS_TRANSLATION,
   SPANISH_TRANSLATION,
   SPANISH_TRANSLATION_CERNICALO,
   SPANISH_TRANSLATION_CUT_SHORT,
   SPANISH_TRANSLATION_KESTREL_BRIDGE,
+  SPANISH_TRANSLATION_MIDDLE_DROPPED,
+  UNMARKED_RENDERINGS,
   spanishDriftingInto,
   spanishWithEnglishLine,
+  spanishWithLineFrom,
+  spanishWithout,
 } from "@/tests/ai-proof-memo-renderings";
 import {
   CHAT_PROOF_DECOYS,
@@ -76,16 +92,24 @@ import {
   CHAT_PROOF_OPENING,
   CHAT_PROOF_PAGES,
   LANGUAGE_MARKERS,
+  LINE_CHECK_WORDS_AT_LEAST,
   MARKED_LANGUAGES,
+  PROOF_MEMO_BODY_MARKS,
+  PROOF_MEMO_BODY_MONTHS,
   PROOF_MEMO_BODY_NAMES,
   PROOF_MEMO_BODY_STEMS,
   PROOF_MEMO_FIGURES,
   PROOF_MEMO_SENTENCES,
   PROOF_MEMO_SUBJECT,
   PROOF_MEMO_TITLE,
+  SPANISH_LINE_MARKERS,
   SPANISH_MARKERS_AT_LEAST,
+  TRANSLATION_LENGTH_AT_LEAST,
+  TRANSLATION_LENGTH_MARGIN,
   echoes,
   languageMarkers,
+  lengthAgainstMemo,
+  linesNotInSpanish,
   memoBodyMarksIn,
   mentions,
   mentionsStem,
@@ -171,6 +195,14 @@ const userTurnsOnly = (model: AiProvider) => {
 
 const extract = (bytes: Uint8Array) => extractPdfText(bytes);
 
+/** A line's words, as the per-line check counts them. */
+const normalizeLine = (line: string) =>
+  line
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
 const CHAT_LINES = CHAT_PROOF_PAGES.flatMap((page) => page.lines);
 
 async function summaryPackage(summary: string): Promise<Uint8Array> {
@@ -223,9 +255,26 @@ async function handPackage(files: Record<string, string>): Promise<Uint8Array> {
 // ── the answers, right and wrong ────────────────────────────────────────────
 
 /**
+ * Faithful summaries the third version of the check REFUSED (re-review 3,
+ * 2026-10-09): each names no person, river or harbour, does not say ferry,
+ * and rounds or respells every figure it gives.
+ */
+const REVIEWED_RIGHT_SUMMARIES: readonly string[] = [
+  "An inspection of the Kestrel Bridge found corrosion on four of its twelve main cables, two of which have lost over 10% of their strength. " +
+    "Replacing them will cost about €2.5 million and take roughly two months; heavy trucks will be diverted and traffic limited to one lane, " +
+    "and the council must approve the budget by April.",
+  "TL;DR: the Kestrel Bridge needs its corroded cables replaced, and heavy trucks will be diverted while the work goes on.\n" +
+    "- Four of the bridge's cables are corroded and will be replaced.\n" +
+    "- Heavy trucks will be diverted during the repair.\n" +
+    "- The budget must be approved by April, and the bridge closes to all traffic if the work runs past June.",
+  "Trucks over 7 tons may not cross the Kestrel Bridge while its cables are repaired.",
+  "Trucks over seven tons are barred from the Kestrel Bridge during the cable repair.",
+];
+
+/**
  * Summaries of the memo in many wordings: four full ones, then terse ones that
  * each carry ONE mark of the body, so every mark the check counts passes some
- * summary on its own.
+ * summary on its own — and the reviewed ones above.
  */
 const RIGHT_SUMMARY =
   "The memo reports corrosion on the Kestrel Bridge over the Varrow River. " +
@@ -252,6 +301,22 @@ const RIGHT_SUMMARIES: readonly string[] = [
   "The Kestrel Bridge repair will cost €2.48m from the regional roads fund.",
   "Trucks over seven tonnes are barred from the Kestrel Bridge during its cable repair.",
   "Trucks over 7 tonnes may not use the Kestrel Bridge while its cables are replaced.",
+  // The marks the third review asked for (re-review 3, 2026-10-09), each the
+  // only mark of one summary: a month, the council, and every form of the
+  // cables, the lanes and the strength lost.
+  "The Kestrel Bridge was inspected in March and needs new cables.",
+  "The budget for the Kestrel Bridge repair must be approved by April.",
+  "If the Kestrel Bridge repair runs past June, the bridge will close.",
+  "The city council must approve the money for the Kestrel Bridge repair.",
+  "Four of the Kestrel Bridge's twelve cables are corroded.",
+  "Corrosion was found on 4 of the Kestrel Bridge's 12 cables.",
+  "Cars may cross the Kestrel Bridge in one lane during the repair.",
+  "Kestrel Bridge repair: cars limited to 1 lane.",
+  "Cars will use a single lane on the Kestrel Bridge while its cables are fixed.",
+  "Two of the Kestrel Bridge's corroded cables have lost over a tenth of their strength.",
+  "Some Kestrel Bridge cables have lost more than one tenth of their strength.",
+  "Two Kestrel Bridge cables have lost over 10% of their strength.",
+  ...REVIEWED_RIGHT_SUMMARIES,
 ];
 /** What a summary of the harness's old `textPdf` says: fluent, and about something else. */
 const OTHER_DOCUMENT_SUMMARY =
@@ -354,6 +419,10 @@ describe("the fixtures are what the checks assume", () => {
       expect(mentionsStem(body, stem), stem).toBe(true);
       expect(mentionsStem(PROOF_MEMO_TITLE, stem), stem).toBe(false);
     }
+    for (const month of PROOF_MEMO_BODY_MONTHS) {
+      expect(mentions(body, month), month).toBe(true);
+      expect(mentions(PROOF_MEMO_TITLE, month), month).toBe(false);
+    }
     // Each figure is drawn into a sentence as its label says it, and some
     // form of it is what the body carries.
     for (const { label, forms } of PROOF_MEMO_FIGURES) {
@@ -367,11 +436,7 @@ describe("the fixtures are what the checks assume", () => {
     }
     // POSITIVE CONTROL: the title says the subject and none of the body.
     expect(memoBodyMarksIn(PROOF_MEMO_TITLE)).toEqual([]);
-    expect(memoBodyMarksIn(body).length).toBe(
-      PROOF_MEMO_BODY_NAMES.length +
-        PROOF_MEMO_BODY_STEMS.length +
-        PROOF_MEMO_FIGURES.length,
-    );
+    expect(memoBodyMarksIn(body)).toEqual(PROOF_MEMO_BODY_MARKS);
   });
 
   it("every mark the summary check accepts is the ONLY mark of some right summary — so each is what passes it, and none is decoration", () => {
@@ -388,6 +453,7 @@ describe("the fixtures are what the checks assume", () => {
     };
     for (const mark of [
       ...PROOF_MEMO_BODY_NAMES,
+      ...PROOF_MEMO_BODY_MONTHS,
       ...PROOF_MEMO_BODY_STEMS.map((stem) => `${stem}…`),
     ])
       expect(
@@ -427,6 +493,43 @@ describe("the fixtures are what the checks assume", () => {
     // NEGATIVE CONTROL: a cost the memo does not give.
     expect(memoBodyMarksIn("2.5 million euros")).toEqual([]);
     expect(memoBodyMarksIn("12,480,000 euros")).toEqual([]);
+  });
+
+  it("every way a summary may write the truck limit, the lanes, the cables and the strength lost is its figure's", () => {
+    const figure = (label: string) => {
+      const found = PROOF_MEMO_FIGURES.find((f) => f.label === label);
+      expect(found, label).toBeDefined();
+      return found!.label;
+    };
+    for (const [written, label] of [
+      ["Trucks over 7 tonnes", "seven tonnes"],
+      ["trucks over 7 tons", "seven tonnes"],
+      ["a 7-ton limit", "seven tonnes"],
+      ["seven tons", "seven tonnes"],
+      ["one lane", "one lane"],
+      ["a single-lane crossing", "one lane"],
+      ["1 lane", "one lane"],
+      ["four of its twelve main cables", "twelve steel cables"],
+      ["4 of 12 cables", "twelve steel cables"],
+      ["more than a tenth", "more than a tenth"],
+      ["over one tenth", "more than a tenth"],
+      ["over 10%", "more than a tenth"],
+      ["over 10 %", "more than a tenth"],
+      ["over 10 per cent", "more than a tenth"],
+      ["over 10 percent", "more than a tenth"],
+    ] as const)
+      expect(memoBodyMarksIn(written), written).toEqual([figure(label)]);
+    // NEGATIVE CONTROLS: what "10%" is not the start of, any more.
+    expect(memoBodyMarksIn("100 trucks a day")).toEqual([]);
+    expect(memoBodyMarksIn("10,000 cars")).toEqual([]);
+  });
+
+  it("THE LIMITS the figures' docblock states: €2.48bn passes as the cost; '12 main cables' and 'ten percent' are not forms", () => {
+    // Pinned so each limit is a fact. If one goes red, a form changed —
+    // invert it and rewrite PROOF_MEMO_FIGURES's docblock.
+    expect(memoBodyMarksIn("€2.48bn")).toEqual(["2,480,000 euros"]);
+    expect(memoBodyMarksIn("4 of its 12 main cables")).toEqual([]);
+    expect(memoBodyMarksIn("lost ten percent of their strength")).toEqual([]);
   });
 
   it("the memo PDF's extracted text carries every sentence verbatim — so an echo of it is seen", async () => {
@@ -501,6 +604,59 @@ describe("the fixtures are what the checks assume", () => {
   });
 });
 
+describe("the per-line check, against the memo in Spanish, English, German and Galician", () => {
+  /** The lines of every rendering in a language no Spanish line may be. */
+  const NOT_SPANISH: Record<string, readonly string[]> = {
+    english: MEMO_RENDERINGS.english,
+    galician: [GALICIAN_TRANSLATION],
+    german: [GERMAN_TRANSLATION],
+  };
+  const lineWords = (line: string) =>
+    normalizeLine(line).split(" ").filter(Boolean);
+
+  it("every line marker occurs in a Spanish rendering, and in no English, German or Galician one — none is decoration, none is theirs", () => {
+    for (const marker of SPANISH_LINE_MARKERS)
+      expect(
+        MEMO_RENDERINGS.spanish.some((text) => mentions(text, marker)),
+        `"${marker}"`,
+      ).toBe(true);
+    const found = Object.entries(NOT_SPANISH).flatMap(([language, texts]) =>
+      [...SPANISH_LINE_MARKERS]
+        .filter((marker) => texts.some((text) => mentions(text, marker)))
+        .map((marker) => `${language} "${marker}"`),
+    );
+    expect(found).toEqual([]);
+    // "pero" is Galician too: the reason it is not a line marker.
+    expect(mentions(GALICIAN_TRANSLATION, "pero")).toBe(true);
+    expect(SPANISH_LINE_MARKERS.has("pero")).toBe(false);
+  });
+
+  it("every line of every Spanish rendering is marked — the check refuses no correct translation", () => {
+    for (const text of MEMO_RENDERINGS.spanish)
+      expect(linesNotInSpanish(text), text.split("\n")[0]).toEqual([]);
+  });
+
+  it("every line of an English, German or Galician rendering is refused, unless it names someone, is under the word floor, or is the title", () => {
+    for (const [language, texts] of Object.entries(NOT_SPANISH))
+      for (const text of texts) {
+        const lines = text.split("\n");
+        const expected = lines.flatMap((line, i) =>
+          lineWords(line).length >= LINE_CHECK_WORDS_AT_LEAST &&
+          !PROOF_MEMO_BODY_NAMES.some((name) => mentions(line, name)) &&
+          !(i === 0 && !/[.!?]$/.test(line))
+            ? [i + 1]
+            : [],
+        );
+        // The paraphrase runs its sentences together: read apart below.
+        if (text === ENGLISH_PARAPHRASE) continue;
+        // Health: most of each rendering is refused, so the check is not blind.
+        expect(expected.length, language).toBeGreaterThan(lines.length / 2);
+        expect(linesNotInSpanish(text), language).toEqual(expected);
+      }
+    expect(linesNotInSpanish(ENGLISH_PARAPHRASE).length).toBeGreaterThan(0);
+  });
+});
+
 describe("the language markers, against the memo in six languages", () => {
   it("every language the check counts has renderings, and every rendering is a whole translation", () => {
     expect(Object.keys(MEMO_RENDERINGS).sort()).toEqual(
@@ -564,6 +720,15 @@ describe("the language markers, against the memo in six languages", () => {
     }
   });
 
+  it("every unmarked rendering is a whole translation, and is not Spanish by count", () => {
+    for (const [language, text] of Object.entries(UNMARKED_RENDERINGS)) {
+      expect(text.split("\n"), language).toHaveLength(
+        PROOF_MEMO_SENTENCES.length + 1,
+      );
+      expect(readsAsSpanish(text), language).toBe(false);
+    }
+  });
+
   it("each Spanish rendering reads as Spanish with room to spare; no other rendering does", () => {
     for (const text of MEMO_RENDERINGS.spanish) {
       expect(readsAsSpanish(text)).toBe(true);
@@ -620,9 +785,13 @@ describe("verifySummaryProof", () => {
     for (const summary of [TITLE_ONLY_SUMMARY, KESTREL_BIRD_SUMMARY]) {
       const verdict = await verifySummaryProof(await summaryPackage(summary));
       expect(verdict.ok, summary).toBe(false);
-      expect(verdict.detail).toMatch(
-        /but nothing only the memo's body says \(Halvorsen, Varrow, Ostby, ferry…, nine weeks, /,
+      expect(verdict.detail).toContain(
+        `but nothing only the memo's body says (${PROOF_MEMO_BODY_MARKS.join(", ")})`,
       );
+      // Health: the list is the marks, names first.
+      expect(PROOF_MEMO_BODY_MARKS.slice(0, 3)).toEqual([
+        ...PROOF_MEMO_BODY_NAMES,
+      ]);
     }
   });
 
@@ -634,6 +803,34 @@ describe("verifySummaryProof", () => {
         /but nothing only the memo's body says/,
       );
     }
+  });
+
+  it("passes the faithful summaries the third version refused — rounded figures, no names, 'tons'", async () => {
+    for (const summary of REVIEWED_RIGHT_SUMMARIES) {
+      // Health: each names no person, river or harbour and says no ferry,
+      // which is why the narrowed marks refused it.
+      expect(
+        [...PROOF_MEMO_BODY_NAMES, "ferry"].filter((m) =>
+          mentionsStem(summary, m),
+        ),
+        summary,
+      ).toEqual([]);
+      const verdict = await verifySummaryProof(await summaryPackage(summary));
+      expect(verdict, verdict.detail).toMatchObject({ ok: true });
+    }
+  }, 60_000);
+
+  it("THE LIMIT the check's docblock states: a summary of ANOTHER bridge passes when it names one of the memo's months", async () => {
+    // The price of not refusing a faithful summary that names no one. Pinned
+    // so it is a fact; if it goes red, the months stopped counting — invert
+    // it, rewrite verifySummaryProof's docblock, and check the reviewed
+    // summaries above still pass.
+    const verdict = await verifySummaryProof(
+      await summaryPackage(
+        "The Harlan Street Bridge needs new cables, and its repair budget is due in April.",
+      ),
+    );
+    expect(verdict, verdict.detail).toMatchObject({ ok: true });
   });
 
   it("THE LIMIT the check's docblock states: a summary wrong about the memo passes when it carries a mark of the body", async () => {
@@ -779,7 +976,8 @@ describe("verifyTranslationProof", () => {
     // Pinned so the readsAsSpanish docblock's limit is a fact: the title
     // left in English carries no English marker, and the memo's last line
     // in Italian, Portuguese or Catalan carries at most one marker. If this
-    // goes red the check got stronger — invert it and rewrite the docblock.
+    // goes red the count got stronger — invert it and rewrite the docblock.
+    // (The per-line check refuses two of these; see below.)
     expect(readsAsSpanish(spanishWithEnglishLine(0))).toBe(true);
     expect(
       Object.entries(NEIGHBOUR_RENDERINGS)
@@ -789,6 +987,111 @@ describe("verifyTranslationProof", () => {
         .map(([language]) => language),
     ).toEqual(["italian", "portuguese", "catalan"]);
   });
+
+  it("INVERTED: the last line in Portuguese is refused now — line by line", async () => {
+    // It passed while only the count read the text (pinned above, true of
+    // the count still): Portuguese writes none of Spanish's line markers.
+    const verdict = await verifyTranslationProof(
+      await translationPackage(spanishDriftingInto(PORTUGUESE_TRANSLATION, 1)),
+    );
+    expect(verdict.ok, verdict.detail).toBe(false);
+    expect(verdict.detail).toMatch(
+      /\(line 14\) — a line left in another language$/,
+    );
+  }, 60_000);
+
+  it("THE LIMITS of the per-line check: the title is not checked, and an article-less Spanish sentence is refused", async () => {
+    // Pinned so linesNotInSpanish's docblock is a fact. The title left in
+    // English still passes — a Spanish heading drops its articles, so the
+    // first line without a full stop is not read. If this goes red, the
+    // check got stronger — invert it.
+    const title = await verifyTranslationProof(
+      await translationPackage(spanishWithEnglishLine(0)),
+    );
+    expect(title, title.detail).toMatchObject({ ok: true });
+    // What the check gets WRONG: a correct Spanish sentence that writes none
+    // of its words. No rendering here has one; a model's may. If this goes
+    // green, the markers widened — invert it.
+    const lines = SPANISH_TRANSLATION.split("\n");
+    const costLine = lines.findIndex((line) => /2\.480\.000/.test(line));
+    expect(costLine).toBeGreaterThan(0);
+    const articleless = lines
+      .map((line, i) =>
+        i === costLine
+          ? "Se prevé un coste de 2.480.000 euros, pagados con fondos regionales de carreteras."
+          : line,
+      )
+      .join("\n");
+    expect(readsAsSpanish(articleless)).toBe(true);
+    const refused = await verifyTranslationProof(
+      await translationPackage(articleless),
+    );
+    expect(refused.ok).toBe(false);
+    expect(refused.detail).toContain(`(line ${costLine + 1})`);
+  }, 60_000);
+
+  it("THE LIMIT of the per-line check: the last line in Italian or Catalan still passes — they write 'la' and 'del'", async () => {
+    // Pinned so linesNotInSpanish's docblock is a fact: a neighbour that
+    // writes Spanish's articles is the count's to refuse, and the count lets
+    // one line through. If this goes red the check got stronger — invert it.
+    const passed: string[] = [];
+    for (const [language, rendering] of Object.entries(NEIGHBOUR_RENDERINGS)) {
+      const verdict = await verifyTranslationProof(
+        await translationPackage(spanishDriftingInto(rendering, 1)),
+      );
+      if (verdict.ok) passed.push(language);
+    }
+    expect(passed).toEqual(["italian", "catalan"]);
+  }, 60_000);
+
+  it("fails Spanish that drifts into Galician — for its last line, or any number of lines", async () => {
+    // Until 2026-10-09 (re-review 3) the last 1 to 6 lines in Galician passed:
+    // no marker set counts it. Health: the count alone still passes some.
+    expect(readsAsSpanish(spanishDriftingInto(GALICIAN_TRANSLATION, 6))).toBe(
+      true,
+    );
+    const passed: number[] = [];
+    for (let count = 1; count <= PROOF_MEMO_SENTENCES.length; count += 1) {
+      const verdict = await verifyTranslationProof(
+        await translationPackage(
+          spanishDriftingInto(GALICIAN_TRANSLATION, count),
+        ),
+      );
+      if (verdict.ok) passed.push(count);
+    }
+    expect(passed, "Galician drifts that passed").toEqual([]);
+  }, 60_000);
+
+  it("fails ONE line of Galician or German at every position — except the title and a line that names someone, pinned limits", async () => {
+    // Until 2026-10-09 (re-review 3) one German sentence in the middle passed.
+    const named = SPANISH_TRANSLATION.split("\n").flatMap((line, i) =>
+      PROOF_MEMO_BODY_NAMES.some((name) => mentions(line, name)) ? [i] : [],
+    );
+    for (const [language, rendering] of Object.entries(UNMARKED_RENDERINGS)) {
+      const passed: number[] = [];
+      for (let line = 0; line <= PROOF_MEMO_SENTENCES.length; line += 1) {
+        const verdict = await verifyTranslationProof(
+          await translationPackage(spanishWithLineFrom(rendering, line)),
+        );
+        if (verdict.ok) passed.push(line);
+      }
+      // THE LIMITS linesNotInSpanish states: the title is not read, and a
+      // line carrying a body name is not refused. If this goes red, the
+      // check got stronger — invert it.
+      expect(passed, language).toEqual([0, ...named]);
+    }
+    // Health: the named lines are a minority.
+    expect(named.length).toBeLessThan(PROOF_MEMO_SENTENCES.length / 2);
+  }, 60_000);
+
+  it("fails a whole Galician or German rendering, packaged as Spanish", async () => {
+    for (const [language, rendering] of Object.entries(UNMARKED_RENDERINGS)) {
+      const verdict = await verifyTranslationProof(
+        await translationPackage(rendering),
+      );
+      expect(verdict.ok, language).toBe(false);
+    }
+  }, 60_000);
 
   it("fails a Spanish translation cut short — of the memo, Spanish, and missing a name the memo goes on to give", async () => {
     // Health: the cut is Spanish and keeps SOME body names, so only the
@@ -806,6 +1109,106 @@ describe("verifyTranslationProof", () => {
     expect(verdict.detail).toContain(
       `but not ${PROOF_MEMO_BODY_NAMES.filter((n) => !kept.includes(n)).join(", ")} — `,
     );
+  });
+
+  it("the length floor is DERIVED: the most concise correct rendering's length, less the stated margin", () => {
+    const ratios = MEMO_RENDERINGS.spanish.map(lengthAgainstMemo);
+    const lowest = Math.min(...ratios);
+    expect(TRANSLATION_LENGTH_AT_LEAST).toBe(
+      Math.floor((lowest - TRANSLATION_LENGTH_MARGIN) * 100) / 100,
+    );
+    // Health: the memo itself is 1, and a Spanish rendering runs longer than
+    // the concise one — the floor is not set by a broken reader.
+    expect(lengthAgainstMemo(MEMO_TEXT)).toBe(1);
+    expect(Math.max(...ratios)).toBeGreaterThan(1.1);
+    expect(lowest).toBeGreaterThan(0.9);
+  });
+
+  it("fails a Spanish SUMMARY as the translation, and the translation with its middle dropped — Spanish, every name, too short", async () => {
+    for (const [name, translation] of [
+      ["a Spanish summary", SPANISH_SUMMARY_AS_TRANSLATION],
+      ["the middle six sentences dropped", SPANISH_TRANSLATION_MIDDLE_DROPPED],
+    ] as const) {
+      // Health: Spanish by count and line, and keeping every body name, so
+      // only the length can refuse it.
+      expect(readsAsSpanish(translation), name).toBe(true);
+      expect(linesNotInSpanish(translation), name).toEqual([]);
+      for (const body of PROOF_MEMO_BODY_NAMES)
+        expect(mentions(translation, body), `${name}: ${body}`).toBe(true);
+      const verdict = await verifyTranslationProof(
+        await translationPackage(translation),
+      );
+      expect(verdict.ok, name).toBe(false);
+      expect(verdict.detail, name).toMatch(
+        /of the memo's length, under 0\.8 — a summary of the memo, or a translation of part of it$/,
+      );
+    }
+    // Health: the middle-dropped one is six sentences short.
+    expect(SPANISH_TRANSLATION_MIDDLE_DROPPED.split("\n")).toHaveLength(
+      PROOF_MEMO_SENTENCES.length + 1 - 6,
+    );
+  }, 60_000);
+
+  it("THE LIMIT the floor's docblock states: the Spain rendering with ANY three unnamed sentences dropped passes", async () => {
+    // Pinned so the limit is a fact. A length cannot see which part is
+    // missing. If this goes red, the floor rose — invert it and rewrite
+    // TRANSLATION_LENGTH_AT_LEAST's docblock.
+    const lines = SPANISH_TRANSLATION.split("\n");
+    const unnamed = lines.flatMap((line, i) =>
+      PROOF_MEMO_BODY_NAMES.some((name) => mentions(line, name)) ? [] : [i],
+    );
+    let worst = Infinity;
+    for (let a = 0; a < unnamed.length; a += 1)
+      for (let b = a + 1; b < unnamed.length; b += 1)
+        for (let c = b + 1; c < unnamed.length; c += 1)
+          worst = Math.min(
+            worst,
+            lengthAgainstMemo(
+              spanishWithout([unnamed[a]!, unnamed[b]!, unnamed[c]!]),
+            ),
+          );
+    expect(worst).toBeGreaterThanOrEqual(TRANSLATION_LENGTH_AT_LEAST);
+    // And through the package, the three longest gone.
+    const longest = [...unnamed]
+      .sort((x, y) => lines[y]!.length - lines[x]!.length)
+      .slice(0, 3);
+    const verdict = await verifyTranslationProof(
+      await translationPackage(spanishWithout(longest)),
+    );
+    expect(verdict, verdict.detail).toMatchObject({ ok: true });
+  }, 60_000);
+
+  it("THE LIMIT the floor's docblock states: a telegraphic translation that keeps every fact is refused", async () => {
+    // What a length floor gets WRONG, pinned so it is a fact: every sentence
+    // of the memo, in Spanish, cut to its bones. If this goes green, the floor
+    // dropped — invert it and rewrite TRANSLATION_LENGTH_AT_LEAST's docblock.
+    const telegraphic = [
+      "Memorando: puente Kestrel",
+      "El puente Kestrel cruza el río Varrow por la costa.",
+      "La ingeniera Ingrid Halvorsen lo inspeccionó el 14 de marzo.",
+      "Cuatro de los doce cables tienen corrosión.",
+      "Dos han perdido más del 10 % de su resistencia.",
+      "Cambiar los cuatro llevará nueve semanas.",
+      "Coste: 2.480.000 euros, del fondo regional.",
+      "Los camiones de más de siete toneladas no podrán pasar.",
+      "Coches y bicicletas, por un solo carril.",
+      "Un ferry desde Ostby llevará los camiones.",
+      "El ayuntamiento debe aprobarlo antes de fin de abril.",
+      "Si las obras pasan de junio, se cerrará el puente.",
+      "Halvorsen aconseja cambiar los otros ocho en cinco años.",
+      "La próxima inspección, en dos años.",
+    ].join("\n");
+    // Health: Spanish by count and by line, every name — only length refuses.
+    expect(readsAsSpanish(telegraphic)).toBe(true);
+    expect(linesNotInSpanish(telegraphic)).toEqual([]);
+    expect(lengthAgainstMemo(telegraphic)).toBeLessThan(
+      TRANSLATION_LENGTH_AT_LEAST,
+    );
+    const verdict = await verifyTranslationProof(
+      await translationPackage(telegraphic),
+    );
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toMatch(/of the memo's length, under 0\.8/);
   });
 
   it("fails a Spanish translation of some other document", async () => {
@@ -1090,6 +1493,24 @@ const CASES: Record<string, { right: Case[]; wrong: Case[] }> = {
       {
         name: "Spanish with one sentence left in English",
         bytes: () => translationPackage(spanishWithEnglishLine(2)),
+      },
+      {
+        name: "Spanish whose last six lines are Galician",
+        bytes: () =>
+          translationPackage(spanishDriftingInto(GALICIAN_TRANSLATION, 6)),
+      },
+      {
+        name: "Spanish with one German sentence in the middle",
+        bytes: () =>
+          translationPackage(spanishWithLineFrom(GERMAN_TRANSLATION, 7)),
+      },
+      {
+        name: "a Spanish summary as the translation",
+        bytes: () => translationPackage(SPANISH_SUMMARY_AS_TRANSLATION),
+      },
+      {
+        name: "Spanish with its middle six sentences dropped",
+        bytes: () => translationPackage(SPANISH_TRANSLATION_MIDDLE_DROPPED),
       },
       {
         name: "a Spanish translation cut short",

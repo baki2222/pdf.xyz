@@ -142,10 +142,10 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
   // last hop; until 2026-10-09 this comment said it could. Past the engine only the
   // answer speaks, and it cannot show the opening ANSWER reached the model: the
   // opening question names the secure worker fleet, which the notes give one team,
-  // so a worker that forwards only the user's turns passes every time, and one that
-  // forwards none passes on a lucky guess (`CHAT_PROOF_FOLLOW_UP`; both pinned in
-  // `ai-proof-content.test.ts`). What fails is a worker that drops every prior turn
-  // with a model that does not guess right.
+  // so a worker that forwards only the user's turns can pass (and with a reading
+  // model does), and one that forwards none passes on a lucky guess
+  // (`CHAT_PROOF_FOLLOW_UP`; both pinned in `ai-proof-content.test.ts`). What fails
+  // is a worker that drops every prior turn with a model that does not guess right.
   //
   // It also carries the only measurement of the prompt-caching bet. Caching the
   // document is justified in the engine by follow-ups re-sending it verbatim, and
