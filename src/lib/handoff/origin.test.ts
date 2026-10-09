@@ -75,11 +75,13 @@ describe("originPhrase", () => {
     expect(originPhrase({ kind: "workspace" }, one)).toBe(
       "Loaded 1 file from your workspace.",
     );
+    // WAS "Loaded the 2 files you added." / "Loaded the file you added." —
+    // false whenever the gate kept fewer than were added (see below).
     expect(originPhrase({ kind: "drop", surface: "home" }, two)).toBe(
-      "Loaded the 2 files you added.",
+      "Loaded 2 files you added.",
     );
     expect(originPhrase({ kind: "drop", surface: "home" }, one)).toBe(
-      "Loaded the file you added.",
+      "Loaded 1 file you added.",
     );
     expect(originPhrase({ kind: "result", fromSlug: "merge-pdf" }, one)).toBe(
       "Loaded your result from Merge PDF.",
@@ -127,6 +129,47 @@ describe("originPhrase", () => {
           if (Number(n) !== ctx.count) offenders.push(`${phrase} — ${n}`);
       }
     expect(rendered).toBeGreaterThanOrEqual(15);
+    expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * FOUND IN REVIEW (2026-10-09): "Loaded the file you added." is a definite
+ * description — it says the loaded file IS what was added. The count it was
+ * given is what arrived AFTER the gate (`handoffPayload`), which keeps only
+ * what the tool takes: three PDFs dropped on the home page and sent to Sign
+ * PDF arrived as one, and the badge called it "the file you added", with
+ * nothing said of the other two; 2 PDFs and a DOCX sent to Merge PDF read
+ * "the 2 files you added". No phrase may describe the loaded files as THE
+ * files of some larger set, since no origin's count says how many there were.
+ */
+describe("a phrase never says the files that loaded are all that were sent", () => {
+  /** "the file", "the 2 files", "the files": the loaded set, as definite. */
+  const DEFINITE = /\bthe (?:\d+ )?files?\b/i;
+
+  it("the pattern catches every sentence that shipped with the defect", () => {
+    for (const shipped of [
+      "Loaded the file you added.",
+      "Loaded the 2 files you added.",
+      "Loaded the files you added.",
+    ])
+      expect(shipped, shipped).toMatch(DEFINITE);
+  });
+
+  it("no rendered phrase, for any origin or count, is definite about its files", () => {
+    const offenders: string[] = [];
+    let rendered = 0;
+    for (const origin of examples())
+      for (const count of [1, 2, 3]) {
+        const phrase = originPhrase(origin, {
+          count,
+          fileName: count === 1 ? "report.pdf" : null,
+          fromName: "Merge PDF",
+        });
+        rendered += 1;
+        if (DEFINITE.test(phrase)) offenders.push(phrase);
+      }
+    expect(rendered).toBe(examples().length * 3);
     expect(offenders).toEqual([]);
   });
 });

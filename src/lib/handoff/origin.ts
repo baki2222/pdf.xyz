@@ -140,7 +140,10 @@ export function readPending(raw: unknown): PendingStep | null {
 
 /** What a receiving page knows when it says where the files came from. */
 export interface OriginContext {
-  /** How many files the page loaded. */
+  /**
+   * How many files the page loaded — after the gate, so possibly fewer than
+   * were added. No phrase may read it as "all of them".
+   */
   readonly count: number;
   /** The file's name, when there is exactly one to name. */
   readonly fileName: string | null;
@@ -160,9 +163,10 @@ export function originPhrase(
     case "workspace":
       return `Loaded ${files(count)} from your workspace.`;
     case "drop":
-      return count === 1
-        ? "Loaded the file you added."
-        : `Loaded the ${files(count)} you added.`;
+      // A count, never "the file(s) you added": the gate keeps only what the
+      // tool takes, so three PDFs sent to Sign PDF arrive as one, and "the
+      // file you added" was false of them (review, 2026-10-09).
+      return `Loaded ${files(count)} you added.`;
     case "result":
       return count <= 1
         ? `Loaded your result from ${from}.`

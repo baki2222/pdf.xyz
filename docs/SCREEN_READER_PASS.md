@@ -158,7 +158,7 @@ selectable text on page 1"_ and _"uploads only when you start it"_.
 Then go to <https://pdf.xyz>, add two PDFs to the drop zone and press **Open in
 workspace**.
 
-**Must hear:** the workspace, and _"Loaded the 2 files you added. Still in this
+**Must hear:** the workspace, and _"Loaded 2 files you added. Still in this
 browser; nothing was uploaded."_ — never _"from your workspace"_ for files that
 came from the home page.
 

@@ -230,7 +230,8 @@ describe("the workspace receives files", () => {
       expect(within(staged).getByText("a.pdf")).toBeTruthy();
       expect(within(staged).getByText("notes.txt")).toBeTruthy();
     });
-    expect(screen.getByText(/loaded the 2 files you added/i)).toBeTruthy();
+    // WAS /loaded the 2 files you added/: see origin.test.ts.
+    expect(screen.getByText(/loaded 2 files you added/i)).toBeTruthy();
     expect(window.location.search).toBe("");
   });
 });

@@ -90,7 +90,9 @@ describe("the loaded badge names where the files came from", () => {
         skipped={0}
       />,
     );
-    expect(status()).toContain("Loaded the 2 files you added.");
+    // WAS "Loaded the 2 files you added." — a definite description, false
+    // whenever the gate kept fewer files than were added (origin.test.ts).
+    expect(status()).toContain("Loaded 2 files you added.");
     expect(status()).not.toMatch(/workspace/i);
   });
 

@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, expect } from "@playwright/test";
 import { attachConsoleGuard, uploadFiles, writeTempPdf } from "./helpers";
 
@@ -161,7 +164,8 @@ test("files added on the home page arrive in Merge PDF saying where they came fr
   await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
   await expect(page.getByText("first.pdf")).toBeVisible();
   await expect(page.getByText("second.pdf")).toBeVisible();
-  await expect(page.getByText(/loaded the 2 files you added/i)).toBeVisible();
+  // WAS /loaded the 2 files you added/ — see the subset tests below.
+  await expect(page.getByText(/loaded 2 files you added/i)).toBeVisible();
   // Control: the old wording, false for these files, is gone.
   await expect(page.getByText(/from your workspace/i)).toHaveCount(0);
 
@@ -187,7 +191,69 @@ test("Open in workspace carries the home page's files into the workspace", async
   await expect(staged.getByText("two.pdf")).toBeVisible();
   // Measured in this tab once they land: two.pdf has three pages.
   await expect(staged.getByText(/3 pages/)).toBeVisible();
-  await expect(page.getByText(/loaded the 2 files you added/i)).toBeVisible();
+  // WAS /loaded the 2 files you added/ — see the subset tests below.
+  await expect(page.getByText(/loaded 2 files you added/i)).toBeVisible();
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+/**
+ * FOUND IN REVIEW (2026-10-09): the drop badge said "Loaded the file you
+ * added." — a definite description, true only when every file added
+ * arrived. The gate trims what a tool cannot take: three PDFs sent to Sign
+ * PDF (one file) arrive as ONE, and the page claimed it was "the file you
+ * added" with nothing said of the other two. The badge now counts what
+ * loaded, which is true of any subset.
+ */
+test("three PDFs added on the home page and sent to a one-file tool: the badge counts what loaded", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("one.pdf", 1),
+    await writeTempPdf("two.pdf", 1),
+    await writeTempPdf("three.pdf", 1),
+  ]);
+
+  await page.getByRole("button", { name: /sign pdf/i }).click();
+  await expect(page).toHaveURL(/\/tools\/sign-pdf$/);
+
+  // Health: the badge is there and is the drop's — a missing badge would
+  // pass the negative below.
+  const badge = page.getByRole("status").filter({ hasText: /you added/i });
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText(/loaded 1 file you added/i);
+  await expect(badge).not.toContainText(/the file you added/i);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+test("the same holds for a tool that takes several: two of three files reach Merge PDF", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  const dir = mkdtempSync(join(tmpdir(), "pdfxyz-e2e-"));
+  const docx = join(dir, "notes.docx");
+  writeFileSync(docx, Buffer.from("PK\u0003\u0004 not merged", "latin1"));
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("first.pdf", 1),
+    await writeTempPdf("second.pdf", 1),
+    docx,
+  ]);
+
+  await page.getByRole("button", { name: /merge pdf/i }).click();
+  await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
+  await expect(page.getByText("first.pdf")).toBeVisible();
+  await expect(page.getByText("second.pdf")).toBeVisible();
+
+  const badge = page.getByRole("status").filter({ hasText: /you added/i });
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText(/loaded 2 files you added/i);
+  await expect(badge).not.toContainText(/the 2 files you added/i);
 
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
