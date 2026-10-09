@@ -80,8 +80,17 @@
   /* Display type. Two steps, fluid between the two widths every layout is
      drawn at (390px and 1440px); `design-tokens.test.ts` computes both
      endpoints of each clamp rather than trusting a number written here.
-     display-1 is the home H1; display-2 is every section h2. */
-  --text-display-1: clamp(2.5rem, 1.75rem + 2.9vw, 4.25rem);
+     display-1 is the home H1; display-2 is every section h2.
+     display-1's floor and slope are load-bearing, because the H1 must stay
+     the home page's largest paint. At clamp(2.5rem, 1.75rem + 2.9vw, …)
+     the H1 wrapped to two lines on a phone and the lede paragraph was the
+     LCP from 360px to 640px. The floor is the 3rem the hero shipped at
+     before the redesign; the slope reaches 52.8px by 640px, where the lede
+     steps up to 18px — at the old 2.9vw slope the H1 sat at 48px there and
+     lost to the lede between about 660px and 720px whenever the web fonts
+     had not swapped in. `e2e/layout-stability.spec.ts` holds the H1 as the
+     LCP at 360px, 390px and 1280px. */
+  --text-display-1: clamp(3rem, 2.5rem + 2vw, 4.25rem);
   --text-display-1--line-height: 1.02;
   --text-display-1--letter-spacing: -0.02em;
   --text-display-2: clamp(2rem, 1.55rem + 1.8vw, 3rem);

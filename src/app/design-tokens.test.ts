@@ -5,7 +5,8 @@
  *
  * The redesign's token table (spec B.2–B.4) arrived as a paragraph of numbers:
  * "fg 15.6, muted 7.2, faint 5.2, accent 6.8" on the selection tint, "≥ 13:1"
- * through the drop veil, a hero H1 of "40px @390 → 68px @1440". A paragraph
+ * through the drop veil, a hero H1 of "40px @390 → 68px @1440" (now 48px
+ * @390: the 40 it first said cost the H1 the phone LCP). A paragraph
  * cannot fail. Each of those becomes an assertion below against a bound this
  * file does not choose — WCAG's 4.5:1, the layout widths the pages are drawn
  * at — so a later palette tweak that breaks one is red here rather than true
@@ -182,7 +183,10 @@ describe("the display type steps land where the layouts are drawn", () => {
 
   // The phone and desktop widths every layout in the spec is drawn at.
   it.each([
-    ["--text-display-1", 40, 68],
+    // 48 at 390, not the 40 the spec's table first drew: at 40px the hero
+    // H1 lost the home page's LCP to its lede on every phone width (see
+    // e2e/layout-stability.spec.ts, which measures it in a browser).
+    ["--text-display-1", 48, 68],
     ["--text-display-2", 32, 48],
   ] as const)("%s: %ipx at 390, %ipx at 1440", (name, phone, desktop) => {
     expect(Math.round(clampAt(token(name), 390))).toBe(phone);
