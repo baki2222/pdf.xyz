@@ -23,6 +23,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
 import { tools } from "@/lib/tools";
@@ -287,5 +288,74 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
     const taglines = tools.map((t) => t.tagline);
     const text = read(ticket[0]!);
     expect(taglines.filter((tagline) => text.includes(tagline))).toEqual([]);
+  });
+});
+
+/**
+ * What the ticket costs the visitor who brings a file: every chunk the desk
+ * fetches for it, read from the desk's own chunk (the `Promise.all` of chunk
+ * loads in front of the ticket's import), minus the catalogue (counted and
+ * shared above) and minus what the home page already loaded.
+ *
+ * A REGRESSION BOUND, set just above the measurement, not the plan's number.
+ * The redesign planned 16 KB gz (G.1) against a 7.4 KB catalogue and before
+ * the ranking, the facts and the hand-off store existed; measured on
+ * 2026-10-10 the fetch is 19.2 KB gz — the view 6.9, the ranking/evidence/
+ * facts chunk it shares with the workspace 6.3, and the hand-off store and
+ * its helpers 6.2, which every tool page already loads up front (so a visitor
+ * who has opened a tool has them cached). A bound of 16 would fail the day it
+ * was written, and a bound chosen to pass is no bound; this one fails the
+ * day the ticket grows, and raising it is a decision that says what grew.
+ */
+const TICKET_FETCH_GZ_KB = 21;
+
+describe("the ticket's on-demand fetch is bounded", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it(`everything the desk fetches for the ticket, beyond the catalogue and the page, stays under ${TICKET_FETCH_GZ_KB} KB gz`, () => {
+    if (!built) return;
+    const all = walkJs(CHUNKS_DIR);
+    const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
+    const ticket = all.filter((f) => read(f).includes(TICKET_CHUNK_MARKER));
+    expect(ticket).toHaveLength(1);
+    const ticketId = idOf(ticket[0]!);
+    expect(ticketId, "the ticket's chunk has no numeric id").toBeTruthy();
+    // The load in front of the ticket's import, in the chunk that imports it.
+    const loads = all
+      .flatMap((f) =>
+        [
+          ...read(f).matchAll(/Promise\.all\(\[((?:\w+\.e\(\d+\),?)+)\]\)/g),
+        ].map((m) => [...m[1]!.matchAll(/\.e\((\d+)\)/g)].map((x) => x[1]!)),
+      )
+      .filter((ids) => ids.includes(ticketId!));
+    // Health: found, and more than the ticket alone.
+    expect(loads.length, "no chunk loads the ticket").toBeGreaterThanOrEqual(1);
+    const ids = new Set(loads.flat());
+    expect(ids.size).toBeGreaterThanOrEqual(2);
+    const files = [...ids].map((id) => {
+      const f = all.find((c) => idOf(c) === id);
+      expect(f, `chunk ${id} is not on disk`).toBeTruthy();
+      return f!;
+    });
+    const taglines = tools.map((t) => t.tagline);
+    const isCatalogue = (f: string) =>
+      taglines.filter((t) => read(f).includes(t)).length >= taglines.length - 5;
+    const onPage = new Set(
+      chunkFiles(NEXT_DIR, "index.html").map((f) => path.resolve(f)),
+    );
+    const counted = files.filter(
+      (f) => !isCatalogue(f) && !onPage.has(path.resolve(f)),
+    );
+    // Positive control: the catalogue was among the loads and was excluded.
+    expect(files.some(isCatalogue)).toBe(true);
+    const gz =
+      counted.reduce(
+        (sum, f) => sum + gzipSync(readFileSync(f), { level: 9 }).length,
+        0,
+      ) / 1024;
+    expect(
+      gz,
+      `the ticket's fetch is ${gz.toFixed(1)} KB gz over ${counted.map((f) => path.basename(f)).join(", ")}`,
+    ).toBeLessThan(TICKET_FETCH_GZ_KB);
   });
 });
