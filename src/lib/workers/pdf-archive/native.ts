@@ -302,10 +302,18 @@ export function createNativeGhostscriptPdfARunner(
     : (seams.resolveOnPath ?? resolveOnPath)(config.qpdfBinary);
 
   /**
-   * Asked ONLY after Ghostscript has already failed, so the happy path pays
-   * nothing. `--requires-password`, not `--is-encrypted`: a permissions-only
+   * Asked BEFORE Ghostscript runs, and again on any file-caused failure.
+   * `--requires-password`, not `--is-encrypted`: a permissions-only
    * (owner-password) PDF is encrypted, opens without a password, and converts —
    * rejecting it would break files that work today.
+   *
+   * WAS: asked only after Ghostscript had failed, "so the happy path pays
+   * nothing". The image proof (`pnpm worker:pdfa-proof`, first run in CI on
+   * 2026-10-08) then locked a PDF with an open password and the conversion came
+   * back `ok`: Ghostscript did not fail, so the question was never asked, and
+   * whatever it wrote passed the PDF/A gate. A user would have received a
+   * "PDF/A" that is not their document. One qpdf probe up front (milliseconds)
+   * is the price of asking the question where it can still change the answer.
    */
   async function needsOpenPassword(inputPath: string): Promise<boolean> {
     if (!qpdfAvailable) return false;
@@ -366,6 +374,12 @@ export function createNativeGhostscriptPdfARunner(
         } catch {
           throw new GhostscriptRunError("io", "Could not stage the input.");
         }
+        // Before Ghostscript: its success is not evidence the file opened.
+        if (await needsOpenPassword(inputPath))
+          throw new GhostscriptRunError(
+            "password_required",
+            "The input needs an open password.",
+          );
         const result = await exec(
           config.binary,
           ghostscriptPdfAArgs(

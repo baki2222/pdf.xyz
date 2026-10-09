@@ -47,6 +47,31 @@ describe("the page URL in the shapes Chromium prints it", () => {
     expect(containsElidedUrl("file://…", URL_LONG)).toBe(false);
   });
 
+  it("finds a URL and file:// the extractor split at a ligature (the CI shape)", () => {
+    // Verbatim shape from CI's Linux Chromium, 2026-10-08: "fi" was a
+    // ligature and came out as "fi le".
+    const url =
+      "file:///tmp/pdfxyz-isolation-CkZTkW/pdfxyz-html-8piaAJ/chrome.html";
+    const text = `Print chrome proof body 10/7/26, 10:03 PM Header-only title 2235 fi le:///tmp/pdfxyz-isolation-CkZTkW/pdfxyz-html-8piaAJ/chrome.html 1/1`;
+    const leaks = printChromeLeaks(text, {
+      title: "Header-only title",
+      sourceUrl: url,
+    });
+    expect(leaks).toContain("the page URL");
+    expect(leaks).toContain("a file:// URL (the worker's copy)");
+    expect(leaks).toContain("the page <title>");
+    expect(leaks).toContain("a print date");
+  });
+
+  it("negative control: clean output with the same words in prose reports nothing", () => {
+    expect(
+      printChromeLeaks("Invoice for the file you sent. Page body only.", {
+        title: "Header-only title",
+        sourceUrl: "https://example.com/a/b/c/report.html",
+      }),
+    ).toEqual([]);
+  });
+
   it("negative control: an ellipsis after a different URL is not this one", () => {
     const other = "https://example.com/reports/2025/annual-review/x.html";
     expect(containsElidedUrl(`${other.slice(0, 40)}…`, WEB)).toBe(false);

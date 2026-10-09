@@ -270,13 +270,15 @@ describe("why a conversion failed travels as a type, not a sentence", () => {
     expect(await reasonOf(run())).toBe("engine_exit");
   });
 
-  it("a timeout is timeout, and is not followed by a qpdf probe", async () => {
-    const { run, exec } = runnerWith(async () => ({
-      code: -1,
-      timedOut: true,
-    }));
+  it("a timeout is timeout: the up-front probe ran, and no second probe follows", async () => {
+    // qpdf exit 2: not encrypted. Then Ghostscript times out.
+    const { run, exec } = runnerWith(async (cmd) =>
+      cmd === "qpdf"
+        ? { code: 2, timedOut: false }
+        : { code: -1, timedOut: true },
+    );
     expect(await reasonOf(run())).toBe("timeout");
-    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf", "gs"]);
   });
 
   it("a process that never started is spawn", async () => {
@@ -347,14 +349,30 @@ describe("why a conversion failed travels as a type, not a sentence", () => {
     expect(exec).toHaveBeenCalledTimes(1);
   });
 
-  it("the happy path never pays for the qpdf probe", async () => {
+  /*
+   * INVERTED 2026-10-08. This was "the happy path never pays for the qpdf
+   * probe": it pinned asking about an open password ONLY after Ghostscript had
+   * failed. The image proof (`worker:pdfa-proof`, first run in CI that day)
+   * locked a PDF with an open password and the conversion came back ok —
+   * Ghostscript did not fail, so nothing asked. The probe now runs first.
+   */
+  it("the probe runs BEFORE Ghostscript: an open-password PDF is refused even if gs would 'succeed'", async () => {
+    // qpdf exit 0: needs a password. Ghostscript would exit 0 with a PDF.
     const { run, exec } = runnerWith(async () => ({
       code: 0,
       timedOut: false,
     }));
+    expect(await reasonOf(run())).toBe("password_required");
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf"]);
+  });
+
+  it("the happy path pays exactly one probe, and it comes first", async () => {
+    const { run, exec } = runnerWith(async (cmd) => ({
+      code: cmd === "qpdf" ? 2 : 0,
+      timedOut: false,
+    }));
     await run();
-    expect(exec).toHaveBeenCalledTimes(1);
-    expect(exec.mock.calls[0]![0]).toBe("gs");
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf", "gs"]);
   });
 
   it("COMPOSED: the real exec seam reports a missing binary as spawn, not as the file's fault", async () => {

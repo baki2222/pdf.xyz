@@ -40,30 +40,43 @@ const FIXED_MARKERS: readonly { marker: RegExp; what: string }[] = [
   },
 ];
 
-/** Each piece of print header/footer found in `text`; empty when there is none. */
+/**
+ * Each piece of print header/footer found in `text`; empty when there is none.
+ *
+ * Every check also runs on the text with its whitespace removed. On CI's Linux
+ * Chromium (2026-10-08) the footer read `fi le:///tmp/pdfxyz-isolation-…/chrome.html`:
+ * the URL was printed WHOLE, but the extractor split the "fi" ligature, so
+ * neither "the page URL" nor the `file://` marker matched — on the pre-fix
+ * positive control, where both must. Windows extracted it unbroken. A
+ * production webpage URL drawn in the same font splits the same way, so this
+ * was a blind spot of the detector the production proof uses, not of the test.
+ */
 export function printChromeLeaks(
   text: string,
   context: PrintChromeContext = {},
 ): string[] {
-  const found = FIXED_MARKERS.filter((m) => m.marker.test(text)).map(
-    (m) => m.what,
-  );
+  const squeezed = text.replace(/\s+/g, "");
+  const inEither = (test: (t: string) => boolean) =>
+    test(text) || test(squeezed);
+  const found = FIXED_MARKERS.filter((m) =>
+    inEither((t) => m.marker.test(t)),
+  ).map((m) => m.what);
   const title = context.title?.trim();
-  if (title && text.includes(title)) found.push("the page <title>");
+  const squeezedTitle = title?.replace(/\s+/g, "");
+  if (title && (text.includes(title) || squeezed.includes(squeezedTitle!)))
+    found.push("the page <title>");
   const url = context.sourceUrl?.replace(/\/+$/, "");
-  if (url && (text.includes(url) || containsElidedUrl(text, url)))
+  if (url && inEither((t) => t.includes(url) || containsElidedUrl(t, url)))
     found.push("the page URL");
   return found;
 }
 
 /**
- * Chromium draws the footer URL in an HTML template that truncates overflow
- * with an ellipsis, so a URL longer than the footer prints as its PREFIX and
- * "…" — and the whole-URL check above misses it. Found 2026-10-08: on CI's
- * Linux Chromium the pre-fix control's `file:///tmp/…` footer was not found
- * as "the page URL", while Windows (a shorter temp path) printed it whole. A
- * long webpage URL in production elides the same way, so this is the guard's
- * blind spot, not the test's.
+ * Chromium's header/footer template can also truncate an overflowing URL with
+ * an ellipsis, printing its PREFIX and "…". That shape has NOT been observed in
+ * our runs (the 2026-10-08 CI miss was the ligature split above, which an
+ * earlier version of this comment wrongly blamed on elision); it is accepted
+ * defensively and pinned by print-chrome.test.ts.
  *
  * The prefix must be long enough to name THIS url rather than any URL:
  * {@link ELIDED_PREFIX_MIN} characters (`file:///tmp/pdfxyz-html-` alone is
