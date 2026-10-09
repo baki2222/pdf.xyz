@@ -127,6 +127,33 @@ describe("matching", () => {
   });
 });
 
+describe("synonyms match what a tool is called, not prose about it", () => {
+  it("a group's word matches a name, an alias or a keyword — never a tagline or description", () => {
+    // Measured on the catalogue 2026-10-09: "flip" (rotate group, with
+    // "turn") returned Text to PDF, PNG to PDF and three more, because their
+    // descriptions say "Turn … into a PDF". Matching the name is the job.
+    const docs = [
+      doc("rotate", "Rotate PDF"),
+      doc("text", "Text to PDF", { tagline: "Turn notes into a PDF." }),
+      doc("png", "PNG to PDF", { description: "Turn PNGs into a PDF." }),
+      doc("alias", "Fixer", { aliases: ["Turn pages upright"] }),
+      doc("keyword", "Other", { keywords: ["turn pages"] }),
+    ];
+    const index = buildIndex(docs, { synonyms: [["rotate", "turn", "flip"]] });
+    expect(search(index, "flip").results.map((d) => d.id)).toEqual([
+      "rotate",
+      "alias",
+      "keyword",
+    ]);
+    // Control: the word itself still matches anywhere, prose included.
+    expect(
+      search(index, "turn")
+        .results.map((d) => d.id)
+        .sort(),
+    ).toEqual(["alias", "keyword", "png", "rotate", "text"].sort());
+  });
+});
+
 describe("ranking", () => {
   it("the query's order tells 'pdf word' from 'word pdf'", () => {
     expect(ids("pdf word")[0]).toBe("word-out");
