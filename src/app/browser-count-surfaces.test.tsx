@@ -23,6 +23,8 @@
  *    of its partition and the total. 29 + 21 = 50 is checkable arithmetic a
  *    visitor can do, and 30 + 21 = 51 is what they were given.
  */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { tools } from "@/lib/tools";
@@ -31,6 +33,7 @@ import { supportedToolSlugs } from "@/lib/pdf/registry";
 import { CtaSection } from "@/components/sections/cta-section";
 import { StatsBand } from "@/components/sections/stats-band";
 import { PricingSection } from "@/components/sections/pricing-section";
+import { ToolsExplorer } from "@/components/tools/tools-explorer";
 import PrivacyPage from "./privacy/page";
 import StatusPage from "./status/page";
 
@@ -116,14 +119,40 @@ afterEach(() => {
  */
 interface Surface {
   name: string;
+  /** The module whose `processingSplit()` call this surface renders. */
+  module: string;
   render: () => HTMLElement;
 }
 
-/** Privacy-framed surfaces that state a COUNT. */
+/**
+ * Privacy-framed surfaces that state a COUNT.
+ *
+ * The /tools explorer joined on 2026-10-10 (WP-06): its "Where it runs"
+ * radios name each choice with a count, and the first is "Never uploads" —
+ * a privacy sentence in two words, entitled to the never-upload count and to
+ * nothing else.
+ */
 const COUNT_SURFACES: Surface[] = [
-  { name: "homepage CTA", render: () => renderSurface(<CtaSection />) },
-  { name: "homepage spec strip", render: () => renderSurface(<StatsBand />) },
-  { name: "/privacy", render: () => renderSurface(<PrivacyPage />) },
+  {
+    name: "homepage CTA",
+    module: "src/components/sections/cta-section.tsx",
+    render: () => renderSurface(<CtaSection />),
+  },
+  {
+    name: "homepage spec strip",
+    module: "src/components/sections/stats-band.tsx",
+    render: () => renderSurface(<StatsBand />),
+  },
+  {
+    name: "/privacy",
+    module: "src/app/privacy/page.tsx",
+    render: () => renderSurface(<PrivacyPage />),
+  },
+  {
+    name: "/tools explorer",
+    module: "src/components/tools/tools-explorer.tsx",
+    render: () => renderSurface(<ToolsExplorer />),
+  },
 ];
 
 /**
@@ -138,8 +167,58 @@ const COUNT_SURFACES: Surface[] = [
  */
 const PROMISE_SURFACES: Surface[] = [
   ...COUNT_SURFACES,
-  { name: "homepage pricing", render: () => renderSurface(<PricingSection />) },
+  {
+    name: "homepage pricing",
+    module: "src/components/sections/pricing-section.tsx",
+    render: () => renderSurface(<PricingSection />),
+  },
 ];
+
+/** `/status`, checked as a bounded subset below rather than for equality. */
+const STATUS_MODULE = "src/app/status/page.tsx";
+
+/**
+ * Callers this file cannot render, each bound BY NAME to the test that reads
+ * what it states — a relationship checked below, not a comment.
+ *
+ * `socialCardChips()` builds the shared share card's chips for Satori's
+ * ImageResponse, which jsdom cannot paint; `og-chips.test.ts` reads the
+ * chips it returns, and `card-pixels.test.ts` renders and decodes the card.
+ */
+const BOUND_ELSEWHERE: Record<string, { test: string; reads: string }> = {
+  "src/lib/og.tsx": {
+    test: "src/lib/og-chips.test.ts",
+    reads: "socialCardChips",
+  },
+};
+
+/** A CALL of the partition, not a mention of it in prose or an import. */
+const SPLIT_CALL = /\bprocessingSplit\s*\(/;
+
+const withoutComments = (source: string) =>
+  source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
+
+/** Non-test modules under `src` that call `processingSplit()`, repo-relative. */
+function splitCallers(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(name) && !/\.(test|spec)\.tsx?$/.test(name)) {
+        const rel = path
+          .relative(process.cwd(), full)
+          .split(path.sep)
+          .join("/");
+        if (rel === "src/lib/tools/processing-split.ts") continue;
+        if (SPLIT_CALL.test(withoutComments(readFileSync(full, "utf8"))))
+          out.push(rel);
+      }
+    }
+  };
+  walk(path.join(process.cwd(), "src"));
+  return out.sort();
+}
 
 /**
  * Tools that may upload, which no "never leaves your device" sentence may name.
@@ -188,6 +267,67 @@ function sentenceEndingAt(text: string, end: number): string {
   const head = text.slice(0, end);
   return head.slice(head.lastIndexOf(".") + 1);
 }
+
+/**
+ * WHICH surfaces, discovered. Until 2026-10-10 the lists above were the whole
+ * story: typed by hand, so a new page calling `processingSplit()` — the /tools
+ * radios were the next — would have stated a count nothing here rendered.
+ * Now every non-test module that CALLS the partition must be rendered above,
+ * or be bound by name to the test that reads it; and every entry must still
+ * be a caller, so a stale row fails too.
+ */
+describe("every surface that states a partition count is rendered here", () => {
+  const callers = splitCallers();
+
+  it("health: the walk finds the callers, and the call pattern tells a call from a mention", () => {
+    expect(callers.length).toBeGreaterThanOrEqual(6);
+    expect(callers).toContain(STATUS_MODULE);
+    expect(SPLIT_CALL.test("const s = processingSplit();")).toBe(true);
+    expect(SPLIT_CALL.test("const s = processingSplit (tools);")).toBe(true);
+    expect(SPLIT_CALL.test('import { processingSplit } from "x";')).toBe(false);
+    expect(
+      withoutComments("// processingSplit() is called elsewhere\nconst a = 1;"),
+    ).not.toMatch(SPLIT_CALL);
+  });
+
+  it("every caller is rendered here or bound by name, and no entry is stale", () => {
+    const rendered = new Set([
+      ...PROMISE_SURFACES.map((s) => s.module),
+      STATUS_MODULE,
+    ]);
+    const unbound = callers.filter(
+      (file) => !rendered.has(file) && !(file in BOUND_ELSEWHERE),
+    );
+    expect(
+      unbound,
+      "these call processingSplit() and state what it returns somewhere this file never renders",
+    ).toEqual([]);
+    const stale = [...rendered, ...Object.keys(BOUND_ELSEWHERE)].filter(
+      (file) => !callers.includes(file),
+    );
+    expect(stale, "these no longer call processingSplit()").toEqual([]);
+  });
+
+  it("each bound caller's test really imports what it states from it", () => {
+    for (const [module, bound] of Object.entries(BOUND_ELSEWHERE)) {
+      const test = readFileSync(bound.test, "utf8");
+      const from = `./${path.posix
+        .relative(path.posix.dirname(bound.test), module)
+        .replace(/\.tsx?$/, "")}`;
+      const imported = [
+        ...test.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g),
+      ].some(
+        ([, names, specifier]) =>
+          specifier === from &&
+          names!.split(",").some((name) => name.trim() === bound.reads),
+      );
+      expect(
+        imported,
+        `${bound.test} does not import ${bound.reads} from ${from}`,
+      ).toBe(true);
+    }
+  });
+});
 
 describe("countClaims reads counts, not durations", () => {
   it("a tool count beside the vocabulary is read; a duration beside it is not", () => {
