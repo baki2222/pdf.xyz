@@ -247,11 +247,7 @@ export default async function ToolPage({
           <div className="flex flex-col gap-8">
             <div className="flex flex-col gap-5">
               <div className="flex items-start gap-4">
-                <ToolIcon
-                  icon={tool.icon}
-                  gradient={category?.gradient}
-                  size="lg"
-                />
+                <ToolIcon icon={tool.icon} size="lg" />
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
@@ -313,11 +309,7 @@ export default async function ToolPage({
           <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:items-start">
             <div className="flex flex-col gap-6">
               <div className="flex items-start gap-4">
-                <ToolIcon
-                  icon={tool.icon}
-                  gradient={category?.gradient}
-                  size="lg"
-                />
+                <ToolIcon icon={tool.icon} size="lg" />
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">

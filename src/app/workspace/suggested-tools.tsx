@@ -119,7 +119,7 @@ export function SuggestedTools({
                   : "hover:border-line hover:bg-wash border-transparent",
               )}
             >
-              <ToolIcon icon={tool.icon} gradient={tool.gradient} size="sm" />
+              <ToolIcon icon={tool.icon} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
                   <span className="text-fg truncate text-sm font-medium">

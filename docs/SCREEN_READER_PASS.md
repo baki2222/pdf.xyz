@@ -111,7 +111,7 @@ is protecting against, which is usually faster than reading the logic.
 
 ## What this pass does not cover
 
-Colour contrast (`text-slate-500` fails AA in 209 places — a known, separate
-gap), the sticky header covering keyboard-focused controls, and forms beyond the
-run button. Those are visual and structural, and are better found with an
+Colour contrast (measured in a real browser by `pnpm a11y:contrast`, in both
+colour schemes), the sticky header covering keyboard-focused controls, and forms
+beyond the run button. Those are visual and structural, and are better found with an
 automated audit than with your ears.

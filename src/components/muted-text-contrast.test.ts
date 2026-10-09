@@ -8,16 +8,20 @@ import { LIGHTEST_TEXT_BACKGROUND, SLATE } from "@/lib/a11y/palette";
 /**
  * Muted text has to be readable, not merely quiet.
  *
- * `text-slate-500` was the product's tertiary tone in 209 places and
- * `text-slate-600` in 15 more. Measured in a real browser against the pixels
+ * (Slate classes in these notes are written with "·" for their first hyphen:
+ * Tailwind scans this file, and spelled whole they shipped in the stylesheet
+ * long after the last call site left — `shipped-css.test.ts` caught it.)
+ *
+ * `text·slate-500` was the product's tertiary tone in 209 places and
+ * `text·slate-600` in 15 more. Measured in a real browser against the pixels
  * actually painted behind them, they came in at 3.44:1 and 2.66:1 — both below
  * the 4.5:1 that WCAG 2.1 AA asks of body text, on captions, helper text, form
  * placeholders, empty-state copy and status detail across every route.
  *
  * WHY THIS COMPUTES INSTEAD OF BANNING A STRING
- * `expect(source).not.toContain("text-slate-500")` would pass today and say
- * nothing about `text-slate-600`, which was broken the same way and by more,
- * or about `text-slate-700` if someone reaches for it next. This resolves each
+ * `expect(source).not.toContain("text·slate-500")` would pass today and say
+ * nothing about `text·slate-600`, which was broken the same way and by more,
+ * or about `text·slate-700` if someone reaches for it next. This resolves each
  * `text-slate-N` the tree actually uses and applies the contrast formula, so
  * the guard encodes the REQUIREMENT rather than one instance of it. A step that
  * is not in the measured palette fails loudly rather than being skipped —
@@ -27,9 +31,9 @@ import { LIGHTEST_TEXT_BACKGROUND, SLATE } from "@/lib/a11y/palette";
  * WOULD THIS BE GREEN IF THE FIX WERE ABSENT? No, and that is measured rather
  * than assumed: this rule was run over the pre-fix tree by reading every file
  * back out of git (`git show HEAD:<path>`) and it reports 224 offending
- * occurrences across 60 files — 209 `text-slate-500` and 15 `text-slate-600`,
+ * occurrences across 60 files — 209 `text·slate-500` and 15 `text·slate-600`,
  * which is the survey's "209 occurrences" plus the sibling it had not counted.
- * After the swap it reports 0, and `text-slate-400` clears the bar at 6.23:1.
+ * After the swap it reports 0, and `text·slate-400` clears the bar at 6.23:1.
  *
  * WHAT IT CANNOT DO
  * It reads class names, so it cannot see which surface a given element is
@@ -71,9 +75,9 @@ const WHITE = { r: 255, g: 255, b: 255 };
  * mention it, and only this one puts text on it.
  *
  * The exception is still measured: these steps are held to the same 4.5:1,
- * against white instead. Writing this run: `text-slate-900` on the signature
- * itself (17.6:1), and `text-slate-600` on the empty-state line — which was
- * `text-slate-400` at 2.63:1 until this guard pointed at it. That one was NOT
+ * against white instead. Writing this run: `text·slate-900` on the signature
+ * itself (17.6:1), and `text·slate-600` on the empty-state line — which was
+ * `text·slate-400` at 2.63:1 until this guard pointed at it. That one was NOT
  * caused by the slate-500 sweep; it predates it, and it is the reason this
  * check resolves colours instead of banning a token.
  */

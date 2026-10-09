@@ -6,15 +6,18 @@
  * in either colour scheme: `bg-wash` is a light well on paper and a dark one
  * on graphite. A raw palette class opts out of that. It was written for the
  * dark theme the site shipped before 2026-08-28 and kept rendering after the
- * paper redesign, so on light paper:
+ * paper redesign, so on light paper (the retired classes are written with
+ * "·" for their first hyphen, here and in every fixture below — Tailwind
+ * scans this file, and this docblock spelling them whole SHIPPED them in the
+ * first build after the fix; `shipped-css.test.ts` caught it):
  *
- *   - 16 worker spec lists divided their rows with `divide-white/5`, a white
+ *   - 16 worker spec lists divided their rows with `divide·white/5`, a white
  *     hairline on a white panel: no dividers at all;
- *   - the Webpage to PDF address field was `bg-slate-950/70`, a near-black
+ *   - the Webpage to PDF address field was `bg·slate-950/70`, a near-black
  *     box on paper with no label, its placeholder grey on black;
- *   - text areas, input wells and image letterboxes were `bg-black/20` and
- *     `bg-black/30`, grey slabs in the paper design;
- *   - colour swatches marked the chosen one with `ring-white`, which on a
+ *   - text areas, input wells and image letterboxes were `bg·black/20` and
+ *     `bg·black/30`, grey slabs in the paper design;
+ *   - colour swatches marked the chosen one with `ring·white`, which on a
  *     white panel marks nothing;
  *   - the hero sheet's elevation was a literal `rgba(…)` shadow, the light
  *     scheme's value painted in both.
@@ -24,7 +27,8 @@
  * `ring-line-strong`, …). A Tailwind palette colour, black or white, or a raw
  * colour inside an arbitrary value is reported — unless the colour IS the
  * subject: a page of paper, which is white in both schemes because a PDF page
- * is; or ink drawn on that paper. Those are allowlisted below class by class,
+ * is; or ink drawn on that paper. Those are allowlisted class by class
+ * (`src/tests/raw-palette.ts`, shared with the shipped-stylesheet check),
  * each with its reason, and an entry that no longer matches its file fails,
  * so the list can only shrink.
  *
