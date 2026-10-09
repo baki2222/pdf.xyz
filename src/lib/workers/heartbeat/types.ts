@@ -161,8 +161,9 @@ export interface HeartbeatCapabilities {
    * every file as corrupted while the catalogue promised editable slides. The
    * fix reaches users only in an image built after it, and this field is how
    * the web tier can tell. It does not claim PowerPoint opens the file — no
-   * PowerPoint runs on the worker — only that this image carries the engine
-   * that was measured opening on Windows.
+   * PowerPoint runs on the worker — only that this image's engine writes decks
+   * that pass the inspection the engine measured opening on Windows passed
+   * (last measured 2026-10-09; see `pdf-office-export/capability.ts`).
    */
   readonly pptxPresentationChain: boolean;
 }

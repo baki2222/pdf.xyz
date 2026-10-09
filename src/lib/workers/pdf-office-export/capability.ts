@@ -27,9 +27,17 @@
  * A pass means this image's engine writes the structural chain and every
  * relationship in it resolves. It does NOT mean PowerPoint opens the file;
  * there is no PowerPoint on a Linux worker. That property was measured on
- * Windows with `scripts/prove-pptx-opens.ts`, and this probe says whether the
- * running image carries the engine that measurement was made on. The name,
- * `pptxPresentationChain`, promises no more than that.
+ * Windows with `scripts/prove-pptx-opens.ts`: on 2026-09-27 for the writer of
+ * that day, and again on 2026-10-09 for the one that replaced it
+ * (`./pptx-package`, behind the engine's delivery inspection). PowerPoint 16.0
+ * build 20430 opened a real 3-page job as 3 slides with 1 master and read
+ * every page's text back, reopened a deck it saved itself, and refused the
+ * pre-fix package (0x80070570). The extractor on that host was Xpdf 4.00's
+ * `pdftotext`, not the worker's poppler; the writer is the same either way.
+ *
+ * This probe says whether the running image's engine writes decks that pass
+ * the inspection the measured one passed. It cannot tell two such writers
+ * apart, and the name, `pptxPresentationChain`, promises no more than that.
  *
  * An image built before this module publishes no such key, the reader parses
  * the absence as `false`, and the old image does not have to cooperate.
