@@ -458,7 +458,12 @@ const HEDGES: Record<string, RegExp> = {
   // "PowerPoint will not open it yet". `not yet` and `does not yet` need the
   // two words side by side; a verb and an object between them walked past
   // both. Contractions and "cannot" are the same sentence respelled.
-  "not … yet": /\b(?:not|cannot|\w+n['’]t)\s+(?:\w+\s+){1,3}yet\b/i,
+  // Up to FIVE words between, not three: on 2026-10-09 a mutation of the page
+  // planted "It will not open in every app yet." (four) and stayed green.
+  // Measured then over every tool and guide entry: five adds no match to the
+  // three the old bound already made (extract-images twice, the flatten
+  // guide once, none in any capability's scope).
+  "not … yet": /\b(?:not|cannot|\w+n['’]t)\s+(?:\w+\s+){1,5}yet\b/i,
   // "While PowerPoint refuses that file, take the text from…". A SENTENCE-
   // INITIAL while, dating a refusal to open. Mid-sentence ", while … do not"
   // is contrast, not time: HTML to PDF's "while the styling and pictures in
@@ -605,6 +610,7 @@ const HEDGES_IN_THE_WILD: readonly string[] = [
   ...PPTX_DEFERRALS_SHIPPED.map((shipped) => shipped.text),
   // ── those six, respelled the ways that would walk past their own shapes ──
   "PowerPoint won't open the file yet.",
+  "It will not open in every app yet.",
   "At the moment PowerPoint refuses the file.",
   "PowerPoint does not currently open the .pptx.",
   "Until this is resolved, copy the words out with PDF to Text.",
