@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { waitForHydration } from "./helpers";
 import { visualRequested } from "./visual-request";
 
@@ -10,6 +11,17 @@ import { visualRequested } from "./visual-request";
  * the report. They are not committed as baselines: fonts render differently on
  * Windows and on the Linux CI image, so a pixel comparison would fail on the
  * platform rather than on the design.
+ *
+ * THE CONSENT BANNER IS CLOSED in those 28, by storing a decision before the
+ * first navigation. It is `position: fixed`, so a full-page capture painted it
+ * 600-900px down the page, where no visitor ever sees it — over the home drop
+ * zone at 390, the merge page's steps at 1440, the 404's footer. Every capture
+ * of 2026-10-09 carried it, on every machine (the banner renders whenever no
+ * decision is stored). The key is imported from the module the banner reads,
+ * never typed, and each capture asserts the banner is absent, so the seeding
+ * cannot quietly stop working. The banner's own look is captured separately:
+ * two VIEWPORT shots (one per scheme, phone width) with no decision stored,
+ * where `position: fixed` puts it where a visitor sees it. 30 images in all.
  *
  *   pnpm test:visual                                  # or
  *   VISUAL=1 pnpm test:e2e e2e/visual.spec.ts
@@ -32,6 +44,21 @@ async function firstGuide(page: Page): Promise<string> {
     .getAttribute("href");
   expect(href, "the guides index links no guide").toMatch(/^\/guides\/.+/);
   return href!;
+}
+
+/** The banner's decline button: present exactly while the banner is open. */
+const consentBanner = (page: Page) =>
+  page
+    .getByRole("region", { name: "Analytics consent" })
+    .getByRole("button", { name: "No thanks" });
+
+/** Load, hydrate, settle and wait for fonts: the still end state a capture records. */
+async function settle(page: Page, url: string, status: number) {
+  const res = await page.goto(url, { waitUntil: "load" });
+  expect(res?.status(), url).toBe(status);
+  await waitForHydration(page.locator("main"));
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
 }
 
 const ROUTES: {
@@ -61,6 +88,11 @@ for (const route of ROUTES) {
       test(`${route.name} @ ${viewport.name} ${scheme}`, async ({
         page,
       }, testInfo) => {
+        // Before ANY navigation (firstGuide navigates too): a stored decision
+        // keeps the banner closed on every page this test loads.
+        await page.addInitScript((key) => {
+          window.localStorage.setItem(key, "denied");
+        }, CONSENT_STORAGE_KEY);
         await page.setViewportSize({
           width: viewport.width,
           height: viewport.height,
@@ -69,12 +101,14 @@ for (const route of ROUTES) {
           colorScheme: scheme,
           reducedMotion: "reduce",
         });
-        const url = await route.url(page);
-        const res = await page.goto(url, { waitUntil: "load" });
-        expect(res?.status(), url).toBe(route.status);
-        await waitForHydration(page.locator("main"));
-        await page.waitForLoadState("networkidle");
-        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        await settle(page, await route.url(page), route.status);
+        // Health check: the seeding worked. The banner mounts only after
+        // hydration, which settle() waited for; its positive control is the
+        // banner capture below, which finds the same button visible.
+        await expect(
+          consentBanner(page),
+          "the consent banner is open over a full-page capture: the stored decision did not take",
+        ).toHaveCount(0);
         const file = testInfo.outputPath(
           `${route.name}-${viewport.name}-${scheme}.png`,
         );
@@ -88,4 +122,26 @@ for (const route of ROUTES) {
       });
     }
   }
+}
+
+for (const scheme of SCHEMES) {
+  test(`consent banner @ 390 ${scheme} (viewport)`, async ({
+    page,
+  }, testInfo) => {
+    // No decision stored: the banner a first-time visitor sees, captured at
+    // the viewport (not the full page), where `position: fixed` places it.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
+    await settle(page, "/", 200);
+    // Positive control for the absence check above: the same locator finds
+    // the open banner, so a toHaveCount(0) there is not a blind locator.
+    await expect(consentBanner(page)).toBeVisible();
+    const file = testInfo.outputPath(`consent-banner-390-${scheme}.png`);
+    const png = await page.screenshot({ path: file, fullPage: false });
+    expect(png.byteLength).toBeGreaterThan(10_000);
+    await testInfo.attach(`consent-banner-390-${scheme}`, {
+      path: file,
+      contentType: "image/png",
+    });
+  });
 }

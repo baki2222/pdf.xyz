@@ -48,7 +48,8 @@ export default defineConfig({
   // device by accident:
   //  - `chromium`: every spec, desktop. The screenshot run (visual.spec.ts)
   //    joins it only when asked (`VISUAL=1` or `pnpm test:visual`): 28
-  //    full-page captures are an instrument for a reviewer, not a gate.
+  //    full-page captures (consent banner closed) and 2 of the banner itself
+  //    are an instrument for a reviewer, not a gate.
   //  - `mobile`: specs whose name ends in `.mobile` before the spec suffix
   //    (see its testMatch), on a 390x844 touch phone at 3x.
   //  - `reduced-motion`: specs whose name ends in `.rm` the same way, with
