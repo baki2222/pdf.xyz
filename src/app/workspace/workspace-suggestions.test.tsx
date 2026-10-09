@@ -243,4 +243,22 @@ describe("what the page says about keeping files", () => {
     expect(text).not.toMatch(/clear the moment you close/i);
     expect(text).toContain(HANDOFF_LIFETIME);
   });
+
+  /**
+   * FOUND IN THE LAST VISUAL PASS (2026-10-09): the same note said "Only your
+   * tool choices are remembered on this device; file names and contents never
+   * are" — directly above the sentence saying a file passed to a tool waits
+   * in this browser until the tool opens it. The hand-off store keeps the
+   * file, with its name, on this device for up to its lifetime. The claim is
+   * now scoped to what it was true of: the workspace's own memory.
+   */
+  it("scopes 'never remembered' to the workspace, not to every store on this device", async () => {
+    const { container } = renderWorkspace();
+    await act(async () => {});
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/file names and contents never are/i);
+    expect(text).toMatch(
+      /what the workspace remembers on this device is your tool choices/i,
+    );
+  });
 });

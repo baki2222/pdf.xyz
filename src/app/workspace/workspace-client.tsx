@@ -506,8 +506,9 @@ export function WorkspaceClient({
           <div className="flex flex-col gap-2">
             <p>
               Browser tools never upload. Staged files live in this tab&apos;s
-              memory and go when you close it. Only your tool choices are
-              remembered on this device; file names and contents never are.
+              memory and go when you close it. What the workspace remembers on
+              this device is your tool choices — never a file, its name or its
+              contents.
             </p>
             <p>{HANDOFF_LIFETIME}</p>
           </div>
