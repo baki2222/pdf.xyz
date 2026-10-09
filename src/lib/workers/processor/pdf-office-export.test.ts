@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { sanitizeJobResults } from "@/lib/jobs/results";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
+import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { PdfTextExecError } from "../pdf-text/errors";
 import type { PdfFlowExtractor } from "../pdf-office-export/engine";
 import {
@@ -189,6 +190,25 @@ describe("pdf-office-export processor", () => {
     if (!result.ok)
       expect(result.error).toMatchObject({
         code: "payload_too_large",
+        retryable: false,
+      });
+  });
+
+  it("a .pptx that failed its own inspection is final, and is not a download", async () => {
+    // The writer is deterministic: the same text writes the same broken file
+    // on every attempt, so a retry would only spend the worker twice more.
+    const result = await createPdfOfficeExportProcessor({
+      extract,
+      extractFlow,
+      writePptx: () =>
+        pptxBefore20260927([
+          { pageNumber: 1, text: "Hello", characterCount: 5 },
+        ]),
+    }).process({ ...oneInput(), tool: "pdf-to-powerpoint" });
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error).toMatchObject({
+        code: "internal_error",
         retryable: false,
       });
   });

@@ -148,6 +148,7 @@ import { TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
 import { runWorkerHtmlToPdf } from "@/lib/workers/html-render-client";
 import type { FetchLike } from "@/lib/workers/pdf-security-client";
 import { resetUploadedThisSessionForTests } from "@/lib/uploads/session-uploads";
+import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -594,6 +595,8 @@ interface ClaimRule {
   readonly honest: readonly string[];
   readonly probe: () => Promise<Probe>;
 }
+
+const PPTX_EDITABLE_RULE = "PDF to PowerPoint slides are editable";
 
 const RULES: readonly ClaimRule[] = [
   {
@@ -1044,6 +1047,71 @@ const RULES: readonly ClaimRule[] = [
       };
     },
   },
+  {
+    // Added 2026-10-09. The catalogue description said "its own editable
+    // PowerPoint slide" (served as JSON-LD and in site search), and so did
+    // the operations row's promise, while the one PowerPoint check this repo
+    // has (scripts/prove-pptx-opens.ts) opens every file READ-ONLY with
+    // alerts off. Nothing caught it: the "text only" test below asks what the
+    // slides lack, capability-hedges reads deferrals, and "editable" is
+    // neither.
+    id: PPTX_EDITABLE_RULE,
+    subjects: () =>
+      PDF_OFFICE_EXPORT_TOOLS.filter((t) => t === PDF_TO_POWERPOINT_TOOL).map(
+        String,
+      ),
+    shapes: {
+      "editable slide": /\beditable\s+(?:PowerPoint\s+)?slides?\b/i,
+      "a slide you can edit":
+        /\bslides?\s+(?:you\s+can|you['’]ll\s+be\s+able\s+to|ready\s+to)\s+edit\b/i,
+      "edit it in PowerPoint":
+        /\bedit(?:able|ing)?\b(?:\s+\w+){0,3}\s+in\s+PowerPoint\b/i,
+    },
+    shipped: [
+      // catalog.ts description, until 2026-10-09.
+      "Put each PDF page’s selectable text on its own editable PowerPoint slide. Text only: images, charts and page layout are not carried over.",
+      // The audit base's tagline and description (see the docblock).
+      "Turn PDFs into editable slides.",
+      "Convert each PDF page into an editable PowerPoint slide, rebuilt from the page’s selectable text — on a secure worker that deletes the input when the job finishes.",
+      // The operations row's promise for pptxPresentationChain, until 2026-10-09.
+      "PDF to PowerPoint turns each page into an editable slide in a complete presentation (slide master, layout and theme), not the slides-only package PowerPoint for Windows refuses as corrupted",
+    ],
+    synonyms: [
+      "Each page becomes a slide you can edit.",
+      "Open the .pptx and edit the text in PowerPoint.",
+    ],
+    honest: [
+      "To keep the look instead, PDF to JPG renders each page as an image in your browser that you can place on a slide, though its text will not be editable.",
+      "Editing the exported slides has not been tested.",
+      "Each slide holds that page's selectable text in a single text box, one paragraph per line.",
+    ],
+    probe: async () => {
+      // THE PROPERTY: a .pptx downloaded from production, edited and saved
+      // in PowerPoint, reopens with no repair prompt. Only a person in
+      // PowerPoint's own window can check that, and nobody has. What this
+      // repo CAN see is its one PowerPoint instrument, and that opens every
+      // file read-only (`Presentations.Open(path, ReadOnly = $msoTrue, …)`),
+      // so it has never edited one. The day it opens a file writable this
+      // goes red. That is NOT the property arriving, only the moment to
+      // decide: edit and save a real download in PowerPoint, reopen it, and
+      // only then let the copy say "editable".
+      const source = read("scripts/prove-pptx-opens.ts");
+      const opens = [
+        ...source.matchAll(/\bPresentations\.Open\(([^)]*)\)/g),
+      ].map((m) => m[1]!.split(",").map((arg) => arg.trim()));
+      // Health: a probe that found no call would report "absent" for the
+      // wrong reason.
+      if (opens.length === 0)
+        throw new Error(
+          "scripts/prove-pptx-opens.ts no longer calls Presentations.Open",
+        );
+      const writable = opens.filter((args) => args[1] !== "$msoTrue");
+      return {
+        present: writable.length > 0,
+        evidence: `Presentations.Open calls: ${opens.map((args) => `(${args.join(", ")})`).join("; ")}`,
+      };
+    },
+  },
 ];
 
 /* ------------------------------------------------------------------ *
@@ -1407,5 +1475,38 @@ describe("the replacement copy states what the output actually is", () => {
     expect(
       "Convert each PDF page into an editable PowerPoint slide, rebuilt from the page’s selectable text — on a secure worker that deletes the input when the job finishes.",
     ).not.toMatch(QUALIFIER);
+  });
+
+  it("PDF to PowerPoint: the operations row promises no more than the page does", () => {
+    // The row is read where an operator receives it: the promise
+    // ADVERTISED_WORKER_CAPABILITIES carries, not a copy of the literal. It
+    // said "an editable slide" until 2026-10-09, beside a page that no
+    // longer did.
+    const rule = RULES.find((r) => r.id === PPTX_EDITABLE_RULE)!;
+    const subject = rule.subjects()[0]!;
+    const caught = (texts: readonly string[]) =>
+      attributedTo({ where: "operations", home: null, texts }, subject)
+        .filter(({ masked }) =>
+          Object.values(rule.shapes).some((re) => re.test(masked)),
+        )
+        .map(({ sentence }) => sentence);
+    const row = ADVERTISED_WORKER_CAPABILITIES.find(
+      (c) => c.key === "pptxPresentationChain",
+    );
+    expect(row, "no operations row for pptxPresentationChain").toBeDefined();
+    if (!row) return;
+    // Health: the promise names the tool, so it is read as the tool's sentence
+    // at all — attributed to nothing, it would pass vacuously.
+    expect(
+      attributedTo(
+        { where: "operations", home: null, texts: [row.promise] },
+        subject,
+      ),
+    ).not.toEqual([]);
+    expect(caught([row.promise])).toEqual([]);
+    // Positive control, through the same path: the promise it replaced.
+    const before = rule.shipped.find((s) => s.startsWith("PDF to PowerPoint"));
+    expect(before).toBeDefined();
+    expect(caught([before!])).toEqual([before]);
   });
 });

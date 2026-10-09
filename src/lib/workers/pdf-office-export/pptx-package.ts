@@ -16,7 +16,8 @@
  * powerpoint-to-pdf proof converts (`src/tests/pptx-fixture.ts`), which
  * PowerPoint and LibreOffice both open; that deck stays an independent copy
  * because it is the positive control for the checker these decks are tested
- * with (`./validate-ooxml`).
+ * with (`./validate-ooxml`). A second checker, `./pptx-inspect`, reads every
+ * deck this writes before the engine delivers it.
  *
  * Every per-slide name — part, content-type override, relationship id, slide
  * id — keys on the slide's POSITION. The part used to be named after the page

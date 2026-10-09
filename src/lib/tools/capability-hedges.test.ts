@@ -53,6 +53,46 @@
  * it. If the capability really is absent, the honest surface is the live status
  * seam, which says so in the worker's own voice.
  *
+ * ── THE SECOND DEFECT: GREEN OVER SIX DEFERRALS (2026-10-09) ───────────────
+ *
+ * The `pptxPresentationChain` subject was widened on 2026-09-27 to reach "the
+ * sentences a hedge about this capability would actually sit in", and it did:
+ * it matched six deferrals on the PDF to PowerPoint page — "Not at the
+ * moment.", "currently rejects", "Until that is fixed", "While PowerPoint
+ * refuses that file", "Until the .pptx opens", "will not open it yet". Not one
+ * matched a hedge SHAPE, so the rule passed over all six. Its control was a
+ * planted "coming soon", which the shapes were built from; the page's own
+ * sentences were never put through them. `not\s+yet` and `does not yet` both
+ * need the two words side by side, and "will not open it yet" puts a verb and
+ * an object between them. The subject was right; the vocabulary had a hole
+ * exactly the size of what shipped.
+ *
+ * And the copy was about to go false in the direction this file exists for:
+ * `publish.yml` deploys both tiers from main, so the first successful publish
+ * carrying the new writer would have served "PowerPoint refuses it" beside a
+ * worker whose file PowerPoint had been measured opening. Six shapes were
+ * added from those six sentences (each kept verbatim in
+ * `PPTX_DEFERRALS_SHIPPED`), the rule went red on exactly those six, read
+ * through the page's own accessors, and the copy was rewritten so that it
+ * claims neither "refuses" nor "opens" (the content file says why).
+ *
+ * Two holes it found in passing are closed too: a FAQ answer is now also read
+ * against its QUESTION (`faqPairs`), and the subject's gaps let a dot through
+ * when a word follows it ("16.0", ".pptx"). One is NOT closed and is stated
+ * instead: this file reads DEFERRALS. A bare present-tense denial ("it is
+ * refused as corrupted") or a bare "it opens" carries no deferral marker, and
+ * either adjudicates a live capability just as surely. Nothing here sees them.
+ *
+ * A review the same day found two more. The rule's main path had no positive
+ * control: mutated to skip every entry, the file stayed green (the six now go
+ * through `hedgeOffenders` itself). And the rewrite moved four of the six
+ * locations — the meta description, both use cases, step 4 — OUTSIDE the
+ * subject, because their new wording names neither PowerPoint opening nor
+ * refusing; a deferral put back there in other words ("it will not open
+ * yet") would have passed. A subject pattern recognises sentences ABOUT a
+ * capability, and on the page NAMED for the capability every sentence is, so
+ * that page is now read whole (`ownPages`).
+ *
  * ── HOW THE SETS ARE DERIVED (rule 4) ───────────────────────────────────────
  *
  * Neither set is typed:
@@ -68,7 +108,12 @@
  *   - the COPY comes from walking `tools` and calling the same accessors the
  *     page calls — `howToSteps`, `toolFacts`, `toolFaq` — so a new tool, a new
  *     fact, or a new FAQ answer is in the corpus the moment it exists. No slug
- *     is named here.
+ *     is named as a corpus; slugs appear only in assertions ABOUT a derived
+ *     set (which pages it found) and in the fixtures of what shipped.
+ *   - the pages a capability OWNS come from its own subject run over the tool
+ *     NAMES (`ownPages`), not from a list. Rename the tool out of the subject's
+ *     reach and the membership test goes red rather than the page dropping out
+ *     of scope.
  *
  * ── SCOPE, DELIBERATELY ─────────────────────────────────────────────────────
  *
@@ -171,6 +216,51 @@ function catalogueCopy(): CopyEntry[] {
 
 const COPY = catalogueCopy();
 
+/**
+ * One FAQ question with its answer.
+ *
+ * WHY PAIRS (2026-10-09): an answer can be a bare deferral whose subject sits
+ * only in the question. To "Will the .pptx open in PowerPoint?", the answer
+ * "Not at the moment." is about the capability, and no subject pattern can see
+ * that in the answer alone. The PowerPoint page's answer was read only because
+ * its SECOND sentence happened to name PowerPoint, and the answer that
+ * replaced it fell outside the subject altogether (see the subject's note). So
+ * an answer is also read against its own question.
+ */
+interface FaqPair {
+  readonly slug: string;
+  readonly where: string;
+  readonly question: string;
+  readonly answer: string;
+}
+
+/**
+ * Paired FROM {@link COPY}, not walked a second time, so the two cannot
+ * disagree about what a page asks. A question with no answer beside it is a
+ * broken link in that derivation, and it throws rather than shrinking the set.
+ */
+function faqPairs(copy: readonly CopyEntry[]): FaqPair[] {
+  const bySlug = new Map<string, Map<string, string>>();
+  for (const entry of copy) {
+    const page = bySlug.get(entry.slug) ?? new Map<string, string>();
+    page.set(entry.where, entry.text);
+    bySlug.set(entry.slug, page);
+  }
+  const pairs: FaqPair[] = [];
+  for (const entry of copy) {
+    const at = /^(faq\[\d+\])\.question$/.exec(entry.where);
+    if (!at) continue;
+    const where = at[1]!;
+    const answer = bySlug.get(entry.slug)?.get(`${where}.answer`);
+    if (answer === undefined)
+      throw new Error(`${entry.slug} ${where} has a question and no answer`);
+    pairs.push({ slug: entry.slug, where, question: entry.text, answer });
+  }
+  return pairs;
+}
+
+const FAQ_PAIRS = faqPairs(COPY);
+
 /* ------------------------------------------------------------------ *
  *  The capability set — derived twice, from the heartbeat.
  * ------------------------------------------------------------------ */
@@ -260,6 +350,45 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     subject: /\bread cap\b|one run never counts|reads no more of/i,
     catalogueCopy: true,
   },
+  pptxPresentationChain: {
+    // The EXPORT to PowerPoint, not PowerPoint to PDF: the catalogue's names
+    // for it, AND any sentence saying the .pptx opens (or is refused) in
+    // PowerPoint or is a complete presentation — the sentences a hedge about
+    // this capability would actually sit in.
+    //
+    // The first version had only the names. It was measured on main's
+    // catalogue (15 sentences about PowerPoint, slides or PPTX), matched all 7
+    // of pdf-to-powerpoint's and none of powerpoint-to-pdf's, and was blind to
+    // "Not at the moment. Opened in PowerPoint's Windows desktop app, it is
+    // refused…" — a sentence written for this tool's page that same day. A
+    // right pattern over the wrong set. Re-measured 2026-09-27 on both sets:
+    // main 7/7 export sentences, 0/8 powerpoint-to-pdf; with the authored page
+    // content (seo/content) 11/18 export sentences, 0/22 powerpoint-to-pdf, 0
+    // from any other tool. Re-measured 2026-10-09 on the integration branch it
+    // merged into (seo/content and the 2026-10-08 copy in): 15/23 of
+    // pdf-to-powerpoint's entries that name PowerPoint, PPTX or slides,
+    // 0/26 of powerpoint-to-pdf's, 0 from any other tool or guide.
+    //
+    // 2026-10-09, after the six deferrals were rewritten: the new FAQ answer
+    // to "Will the .pptx open in PowerPoint?" — the one sentence most about
+    // this capability — fell OUTSIDE the subject. "PowerPoint 16.0 for Windows
+    // opened a .pptx" put a dot inside both gaps (`[^.?!]` stops at "16.0" and
+    // at ".pptx"), and "PowerPoint opens it" fell to `open\b`, which "opens"
+    // does not satisfy. So the gaps now let a dot through when a word follows
+    // it, and the verbs take their inflections. Re-measured on both copies:
+    // the old one 15/23 (unchanged, all six deferrals among them), the new
+    // one 11/23 including that answer, 0/26 of powerpoint-to-pdf's and 0
+    // from any other tool or guide on either.
+    //
+    // Since the review of 2026-10-09 the pdf-to-powerpoint page is read WHOLE
+    // (`ownPages`), so on that page this pattern no longer decides what is
+    // read. It still decides it everywhere else — another tool's page, a
+    // guide — and "the subject still reaches the FAQ answer that needed its
+    // widening" pins the widening above, which nothing else would now miss.
+    subject:
+      /PDF to PowerPoint|pdf to (?:pptx|slides)|editable (?:PowerPoint )?slides?|\.pptx\b(?:[^.?!]|\.(?=\w)){0,40}\bopen|\bopen(?:s|ed)?\b(?:[^.?!]|\.(?=\w)){0,40}\bPowerPoint\b|\bPowerPoint\b(?:[^.?!]|\.(?=\w)){0,40}\b(?:open(?:s|ed)?|refus(?:e[sd]?|ing)|reject(?:s|ed|ing)?)\b|slide master|complete presentation/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -296,7 +425,174 @@ const HEDGES: Record<string, RegExp> = {
   // miss.
   "in a future": /\b(?:in|at|for)\s+an?\s*future\b|\b(?:in|at|for)\s+future\b/i,
   "work in progress": /\bwork[- ]in[- ]progress\b|\bbeta\s+soon\b/i,
+  // ── the six below, added 2026-10-09: one for each deferral the PDF to
+  // PowerPoint page SHIPPED that every shape above let through (see
+  // PPTX_DEFERRALS_SHIPPED and the docblock). Each is the SHAPE of its shipped
+  // sentence, widened to the obvious respellings, and each is held off the
+  // honest prose that sits nearest it by a NOT_HEDGES control.
+  //
+  // "Not at the moment." — and "not currently", which `not available yet`
+  // only catches when "available" follows.
+  "not at the moment":
+    /\bnot\s+(?:at\s+(?:the\s+moment|present)|right\s+now|currently)\b/i,
+  // "PowerPoint for Windows currently rejects the file". A NOW word followed,
+  // within the same clause, by a refusal. Not a bare `currently`: the unlock
+  // guide's "the password that currently opens the file" is honest, and so is
+  // "this tool currently writes" — a now-word is a hedge only when what it
+  // dates is a NO. The clause stops at a comma, because "currently opens the
+  // file, and it cannot recover…" is two claims, the second honest.
+  "currently refuses":
+    /\b(?:currently|at\s+the\s+moment|at\s+present|right\s+now|presently)\b[^.?!,;]{0,30}?\b(?:rejects?|refuses?|cannot|can['’]t|won['’]t|fails?\s+to|does\s+not|doesn['’]t|will\s+not|is\s+not|isn['’]t)\b/i,
+  // "Until that is fixed". Singular and demonstrative on purpose: Create
+  // Fillable Forms' "stays disabled until they are fixed" is about the
+  // reader's own warnings, and is honest.
+  "until … is fixed":
+    /\buntil\s+(?:that|this|it)\s+(?:is|gets|has\s+been)\s+(?:fixed|resolved|repaired|sorted|addressed)\b/i,
+  // "Until the .pptx opens". The verb is what makes it a deferral: "until the
+  // job finishes", "until the conversion finishes" and "until it has been
+  // unlocked" are the honest neighbours, and none of them waits on the
+  // product. `\.(?=\w)` lets ".pptx" through, which a bare `[^.]` cut in half
+  // — the first measurement of this shape matched nothing for that reason.
+  "until … opens":
+    /\buntil\s+(?:it|the\s+(?:[^.?!,;]|\.(?=\w)){1,30}?)\s+(?:opens?|works?|ships?|lands?)\b/i,
+  // "PowerPoint will not open it yet". `not yet` and `does not yet` need the
+  // two words side by side; a verb and an object between them walked past
+  // both. Contractions and "cannot" are the same sentence respelled.
+  // Up to FIVE words between, not three: on 2026-10-09 a mutation of the page
+  // planted "It will not open in every app yet." (four) and stayed green.
+  // Measured then over every tool and guide entry: five adds no match to the
+  // three the old bound already made (extract-images twice, the flatten
+  // guide once, none in any capability's scope).
+  "not … yet": /\b(?:not|cannot|\w+n['’]t)\s+(?:\w+\s+){1,5}yet\b/i,
+  // "While PowerPoint refuses that file, take the text from…". A SENTENCE-
+  // INITIAL while, dating a refusal to open. Mid-sentence ", while … do not"
+  // is contrast, not time: HTML to PDF's "while the styling and pictures in
+  // that folder do not" is honest, and so is "While the job runs, the button
+  // reads…".
+  "while … refuses":
+    /(?:^|[.?!;:]\s+)while\s+(?:[^.?!,;]|\.(?=\w)){1,40}?\b(?:refuses?|rejects?|(?:won['’]t|will\s+not|cannot|can['’]t|does\s+not|doesn['’]t|fails?\s+to)\s+open)\b/i,
 };
+
+/**
+ * The tool pages a capability OWNS: those whose NAME its subject matches.
+ *
+ * A subject recognises sentences ABOUT a capability, and on the page named for
+ * it every sentence is — step 4 of PDF to PowerPoint is about the .pptx
+ * whether or not it says "PowerPoint". Read from the `name` entries of the
+ * copy it is given, so a control passes its own; guides have a `title`, not a
+ * `name`, and own nothing (a guide is a task, not a capability's page).
+ * Measured 2026-10-09: `ocr` owns ocr-pdf and `pptxPresentationChain` owns
+ * pdf-to-powerpoint; no other capability owns a page, and both pages, read
+ * whole, carry no hedge.
+ */
+function ownPages(subject: RegExp, copy: readonly CopyEntry[]): Set<string> {
+  return new Set(
+    copy
+      .filter((entry) => entry.where === "name" && subject.test(entry.text))
+      .map((entry) => entry.slug),
+  );
+}
+
+/**
+ * THE RULE, as a function so its control runs through the same code. Every
+ * entry about a capability, every entry on a page named for one, and every
+ * answer whose QUESTION is about one, is read for a deferral.
+ */
+function hedgeOffenders(
+  copy: readonly CopyEntry[],
+  pairs: readonly FaqPair[],
+): string[] {
+  const offenders: string[] = [];
+  const hedgesIn = (text: string) =>
+    Object.entries(HEDGES)
+      .filter(([, re]) => re.test(text))
+      .map(([shape]) => shape);
+  for (const key of WIRE_KEYS) {
+    const pairing = SUBJECTS[key];
+    // A capability with no subject matcher is a capability this rule cannot
+    // see. The pairing test already fails on it; skipping silently here would
+    // leave the rule green on the same hole, and a green next to a red is how
+    // a hole gets argued away.
+    if (!pairing) {
+      offenders.push(
+        `${key} has no subject matcher, so nothing about it is read`,
+      );
+      continue;
+    }
+    const { subject } = pairing;
+    const owned = ownPages(subject, copy);
+    for (const entry of copy) {
+      if (!owned.has(entry.slug) && !subject.test(entry.text)) continue;
+      for (const shape of hedgesIn(entry.text))
+        offenders.push(
+          `${entry.slug} ${entry.where} hedges "${key}" with "${shape}": "${entry.text}"`,
+        );
+    }
+    for (const pair of pairs) {
+      // An answer on an owned page, or already in the subject, was read above.
+      if (
+        owned.has(pair.slug) ||
+        !subject.test(pair.question) ||
+        subject.test(pair.answer)
+      )
+        continue;
+      for (const shape of hedgesIn(pair.answer))
+        offenders.push(
+          `${pair.slug} ${pair.where} answers a question about "${key}" with "${shape}": "${pair.answer}"`,
+        );
+    }
+  }
+  return offenders;
+}
+
+/** The shapes cut from {@link PPTX_DEFERRALS_SHIPPED}; each must catch one of THEM. */
+const SHAPES_FROM_THE_PPTX_PAGE: readonly string[] = [
+  "not at the moment",
+  "currently refuses",
+  "until … is fixed",
+  "until … opens",
+  "not … yet",
+  "while … refuses",
+];
+
+/**
+ * The six deferrals the PDF to PowerPoint page served at 9f2a2efb, VERBATIM as
+ * the page's own accessors returned them (`pageContent`, `pageIntro`,
+ * `pageUseCases`, `pageSteps`, `pageFaq`), with the 60-minute TTL as rendered.
+ * Every one matches the `pptxPresentationChain` subject, and until 2026-10-09
+ * not one matched a single shape in {@link HEDGES} — so the rule test passed
+ * over all six. They are the corpus the six newest shapes were cut from, and
+ * the inverted test below holds both halves: still caught, and gone.
+ */
+const PPTX_DEFERRALS_SHIPPED: readonly {
+  readonly where: string;
+  readonly text: string;
+}[] = [
+  {
+    where: "metaDescription",
+    text: "Export a PDF's selectable text to .pptx, one slide per page. PowerPoint for Windows currently rejects the file as corrupted; read why before you convert.",
+  },
+  {
+    where: "intro[1]",
+    text: "Read this before relying on it: the Windows desktop version of Microsoft PowerPoint refuses to open the file this tool currently writes, reporting it as corrupted and unreadable. PowerPoint for Mac and the web, Google Slides, Keynote and LibreOffice Impress have not been tested, so pdf.xyz cannot tell you whether they accept it. Until that is fixed, PDF to Text is the working route to a PDF's words; it runs in your browser, and nothing is uploaded.",
+  },
+  {
+    where: "useCases[0].body",
+    text: "The export is built to put each page's wording back on a slide of its own. While PowerPoint refuses that file, take the text from PDF to Text instead and paste it into your template; pages there are divided only by a blank line, so keep the PDF open to see where each one ends.",
+  },
+  {
+    where: "useCases[1].body",
+    text: "Because one page becomes one slide, a report's page order becomes a talk's running order. Until the .pptx opens, copy the report's words out with PDF to Text and trim them down to what you will actually say.",
+  },
+  {
+    where: "how[3]",
+    text: "Save the .pptx. \"Your PPTX file is ready.\" appears with a Download button labelled with the output's name: your PDF's name, ending in .pptx. The page has already pulled the file into the tab, so that button saves it from there; the worker's own copy becomes unreachable after 60 minutes. Remember that PowerPoint will not open it yet.",
+  },
+  {
+    where: "faq[0].answer",
+    text: "Not at the moment. Opened in PowerPoint's Windows desktop app, it is refused as corrupted and unreadable. No other presentation app has been checked. Meanwhile, copy the words out with PDF to Text and paste them onto your slides.",
+  },
+];
 
 /**
  * Sentences that ARE deferrals — the positive control for every pattern above.
@@ -305,11 +601,21 @@ const HEDGES: Record<string, RegExp> = {
  * is inverted rather than deleted, so the sentence `catalog.ts` actually shipped
  * for forty days stays here as evidence, and the assertions about it now run the
  * other way: the detector must still catch it, and the catalogue must no longer
- * contain it.
+ * contain it. The PDF to PowerPoint page's six follow it, under the same terms.
  */
 const HEDGES_IN_THE_WILD: readonly string[] = [
   // ── the shipped defect, kept as the fixture it became ──
   "For image-heavy files, deep compression runs on a secure worker (coming soon).",
+  // ── the second shipped defect: six deferrals no shape caught ──
+  ...PPTX_DEFERRALS_SHIPPED.map((shipped) => shipped.text),
+  // ── those six, respelled the ways that would walk past their own shapes ──
+  "PowerPoint won't open the file yet.",
+  "It will not open in every app yet.",
+  "At the moment PowerPoint refuses the file.",
+  "PowerPoint does not currently open the .pptx.",
+  "Until this is resolved, copy the words out with PDF to Text.",
+  "Use PDF to Text until the export works in PowerPoint.",
+  "While PowerPoint cannot open the file, copy the words from PDF to Text.",
   // ── the same claim, spelled the ways that would walk past a literal search ──
   "Deep compression will be available soon.",
   "Deep image compression is not yet enabled on the worker.",
@@ -342,6 +648,21 @@ const NOT_HEDGES: readonly string[] = [
   "Your file is available to download for 30 minutes.",
   "Files are deleted as soon as the job finishes.",
   "Choose your options.",
+  // ── the near-misses of the 2026-10-09 shapes, each the honest catalogue
+  // sentence (shortened where long) that sits closest to one of them ──
+  // `currently refuses`: a now-word dating a YES.
+  "Unlock PDF needs the password that currently opens the file.",
+  // `until … opens` / `until … is fixed`: waits on the job, or on the reader.
+  "The password rides along in the job request, where it waits in the job queue until the job finishes.",
+  "Stay online until the conversion finishes; saving the finished file needs no connection.",
+  "Any encrypted PDF is refused until it has been unlocked, including a file your viewer shows with no password prompt.",
+  "Problems such as a duplicate name, a radio group with one option or a box running off the page appear in red on that card, and “Create form” stays disabled until they are fixed.",
+  // `not … yet`: "yet" as a conjunction, and a "yet" the live badge decides.
+  "Some PDFs need no password to view yet still block printing or copying, because an owner password sets those permissions.",
+  "If it says Not enabled or Status unknown, there is nowhere to add a file yet.",
+  // `while … refuses`: while as time with no refusal, and while as contrast.
+  "While the job runs, the button reads Uploading your file…, Waiting for the worker…, Extracting tables… and Downloading the result… in turn.",
+  "Only the .html travels here, so text written into the markup survives, while the styling and pictures in that folder do not.",
 ];
 
 describe("catalogue copy may not hedge a worker capability", () => {
@@ -360,6 +681,14 @@ describe("catalogue copy may not hedge a worker capability", () => {
         `no copy discovered for ${tool.slug}`,
       ).toBeGreaterThan(4);
     }
+    // The pairs are derived from COPY, so they are bounded against it: one
+    // per question entry (a dropped question would shrink both silently, so
+    // there is a floor too — 576 at 2026-10-09, over 72 pages).
+    const questions = COPY.filter((entry) =>
+      /^faq\[\d+\]\.question$/.test(entry.where),
+    );
+    expect(FAQ_PAIRS).toHaveLength(questions.length);
+    expect(FAQ_PAIRS.length).toBeGreaterThanOrEqual(400);
   });
 
   it("the capability set is derived from the heartbeat, and both derivations agree", () => {
@@ -460,31 +789,140 @@ describe("catalogue copy may not hedge a worker capability", () => {
   /* ---------------- the rule ------------------------------------------------ */
 
   it("no catalogue sentence hedges a capability the worker reports", () => {
-    const offenders: string[] = [];
-    for (const key of WIRE_KEYS) {
-      const pairing = SUBJECTS[key];
-      // A capability with no subject matcher is a capability this rule cannot
-      // see. The pairing test above already fails on it; skipping silently here
-      // would leave THIS test green on the same hole, and a green next to a red
-      // is how a hole gets argued away.
-      expect(pairing, `${key} has no subject matcher`).toBeDefined();
-      if (!pairing) continue;
-      const { subject } = pairing;
-      for (const entry of COPY) {
-        if (!subject.test(entry.text)) continue;
-        for (const [shape, re] of Object.entries(HEDGES)) {
-          if (re.test(entry.text)) {
-            offenders.push(
-              `${entry.slug} ${entry.where} hedges "${key}" with "${shape}": "${entry.text}"`,
-            );
-          }
-        }
-      }
-    }
+    const offenders = hedgeOffenders(COPY, FAQ_PAIRS);
     expect(
       offenders,
       `the worker publishes these capabilities in its heartbeat, and this copy — which also ships as HowTo JSON-LD — tells readers they are unshipped:\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("control: an answer's deferral is read against its question", () => {
+    // The pair the FAQ shipped, cut to the sentence the subject cannot see.
+    const question = "Will the .pptx open in PowerPoint?";
+    const answer = "Not at the moment.";
+    const chain = SUBJECTS.pptxPresentationChain;
+    expect(chain).toBeDefined();
+    if (!chain) return;
+    // The hole: the question is about the capability, the answer is not...
+    expect(chain.subject.test(question)).toBe(true);
+    expect(chain.subject.test(answer)).toBe(false);
+    // ...so as an entry on its own the answer passes the rule,
+    expect(
+      hedgeOffenders(
+        [{ slug: "control", where: "faq[0].answer", text: answer }],
+        [],
+      ),
+    ).toEqual([]);
+    // and as a pair, through the same function the rule test calls, it fails.
+    expect(
+      hedgeOffenders(
+        [],
+        [{ slug: "control", where: "faq[0]", question, answer }],
+      ),
+    ).toEqual([
+      `control faq[0] answers a question about "pptxPresentationChain" with "not at the moment": "${answer}"`,
+    ]);
+  });
+
+  /* ---------------- a capability's own page, read whole --------------------- */
+
+  it("the pages capabilities own are derived from their names, and few", () => {
+    // Members, not a count. Both directions are red: a rename that takes a
+    // page out of its subject's reach (the page would silently drop back to
+    // per-sentence scope), and a subject that starts owning a page it should
+    // not (every sentence there would be read as about that capability).
+    const owners = Object.fromEntries(
+      Object.entries(SUBJECTS)
+        .map(
+          ([key, { subject }]) => [key, [...ownPages(subject, COPY)]] as const,
+        )
+        .filter(([, pages]) => pages.length > 0),
+    );
+    expect(owners).toEqual({
+      ocr: ["ocr-pdf"],
+      pptxPresentationChain: ["pdf-to-powerpoint"],
+    });
+    // And the PowerPoint page it found is the page the six deferrals shipped
+    // on: every location they were served at is a location on it.
+    const chain = SUBJECTS.pptxPresentationChain;
+    expect(chain).toBeDefined();
+    if (!chain) return;
+    const [page] = [...ownPages(chain.subject, COPY)];
+    const there = new Set(
+      COPY.filter((entry) => entry.slug === page).map((entry) => entry.where),
+    );
+    expect(
+      PPTX_DEFERRALS_SHIPPED.map(({ where }) => where).filter(
+        (where) => !there.has(where),
+      ),
+    ).toEqual([]);
+  });
+
+  it("a deferral planted on the PowerPoint page is caught where the subject cannot see it", () => {
+    const chain = SUBJECTS.pptxPresentationChain;
+    expect(chain).toBeDefined();
+    if (!chain) return;
+    const [page] = [...ownPages(chain.subject, COPY)];
+    expect(page).toBeDefined();
+    if (!page) return;
+    // Two of the four locations the rewrite moved outside the subject. The
+    // planted words name nothing the subject knows, as a respelled deferral
+    // would not.
+    const planted = "Remember that it will not open yet.";
+    const plant = (slug: string, where: string) => {
+      let replaced = 0;
+      const copy = COPY.map((entry) => {
+        if (entry.slug !== slug || entry.where !== where) return entry;
+        replaced += 1;
+        return { ...entry, text: `${entry.text} ${planted}` };
+      });
+      // A location that no longer exists would leave the copy clean, and the
+      // assertion below red for the wrong reason.
+      expect(replaced, `${slug} has no ${where}`).toBe(1);
+      const text = copy.find((e) => e.slug === slug && e.where === where)!;
+      // The hole: the subject does not see the planted entry at all.
+      expect(chain.subject.test(text.text)).toBe(false);
+      return hedgeOffenders(copy, faqPairs(copy)).map((line) =>
+        line.slice(0, line.indexOf(" hedges ")),
+      );
+    };
+    for (const where of ["how[3]", "useCases[1].body"])
+      expect(plant(page, where)).toEqual([`${page} ${where}`]);
+    // Read whole only on its OWN page. The same words on a page no capability
+    // owns are about nothing this rule reads, and stay out.
+    const owned = new Set(
+      Object.values(SUBJECTS).flatMap(({ subject }) => [
+        ...ownPages(subject, COPY),
+      ]),
+    );
+    const elsewhere = COPY.find(
+      (entry) => entry.where === "how[3]" && !owned.has(entry.slug),
+    );
+    expect(elsewhere).toBeDefined();
+    if (!elsewhere) return;
+    expect(plant(elsewhere.slug, "how[3]")).toEqual([]);
+  });
+
+  it("the subject still reaches the FAQ answer that needed its widening", () => {
+    // With the page read whole, narrowing the subject back would pass every
+    // other test here: on pdf-to-powerpoint the subject no longer decides what
+    // is read. It still does everywhere else, so the widening is pinned on the
+    // sentence it was made for.
+    const chain = SUBJECTS.pptxPresentationChain;
+    expect(chain).toBeDefined();
+    if (!chain) return;
+    const question = "Will the .pptx open in PowerPoint?";
+    const asked = FAQ_PAIRS.filter((pair) => pair.question === question);
+    expect(asked, `no page asks "${question}" any more`).toHaveLength(1);
+    const answer = asked[0]!.answer;
+    expect(chain.subject.test(answer)).toBe(true);
+    // Positive control: the subject as it was before the widening does NOT
+    // reach this answer, so the line above holds the widening and not some
+    // other alternative. If this goes red, the answer was reworded into the
+    // old subject's reach: pin the widening on a sentence that still needs it.
+    const BEFORE_WIDENING =
+      /PDF to PowerPoint|pdf to (?:pptx|slides)|editable (?:PowerPoint )?slides?|\.pptx\b[^.?!]{0,40}\bopen|\bopen(?:s|ed)?\b[^.?!]{0,40}\bPowerPoint\b|\bPowerPoint\b[^.?!]{0,40}\b(?:open|refuses?|rejects?)\b|slide master|complete presentation/i;
+    expect(BEFORE_WIDENING.test(answer)).toBe(false);
   });
 
   /* ---------------- the inverted defect ------------------------------------- */
@@ -502,5 +940,64 @@ describe("catalogue copy may not hedge a worker capability", () => {
     expect(comingSoon.test(shipped)).toBe(true);
     // And it is no longer in the catalogue.
     expect(COPY.map((entry) => entry.text)).not.toContain(shipped);
+  });
+
+  it("the six deferrals the PowerPoint page shipped are caught, and are gone", () => {
+    // Inverted, not deleted. Until 2026-10-09 the rule test above was GREEN
+    // over all six, because no shape matched any of them.
+    expect(PPTX_DEFERRALS_SHIPPED).toHaveLength(6);
+    const chain = SUBJECTS.pptxPresentationChain;
+    expect(chain).toBeDefined();
+    if (!chain) return;
+    // About the capability, so the rule reads each one...
+    expect(
+      PPTX_DEFERRALS_SHIPPED.filter(
+        ({ text }) => !chain.subject.test(text),
+      ).map(({ where }) => where),
+      "these shipped sentences are not about the capability at all",
+    ).toEqual([]);
+    // ...and caught, so the rule would fire on each one today.
+    expect(
+      PPTX_DEFERRALS_SHIPPED.filter(
+        ({ text }) => !Object.values(HEDGES).some((re) => re.test(text)),
+      ).map(({ where }) => where),
+      "these shipped deferrals are caught by no shape",
+    ).toEqual([]);
+    // ...and REPORTED, by the rule itself. The two checks above test the
+    // subject and the shapes BESIDE `hedgeOffenders`, which proves nothing
+    // about it: with its main path mutated to skip every entry
+    // (`if (!subject.test(entry.text) || entry) continue;`, a reviewer's
+    // mutation on 2026-10-09) this whole file stayed green, because the rule
+    // test only ever sees a clean catalogue and the one control through the
+    // function ran its FAQ-pair branch. So each shipped sentence goes through
+    // the function the rule test calls, once each, in order.
+    expect(
+      hedgeOffenders(
+        PPTX_DEFERRALS_SHIPPED.map(({ where, text }) => ({
+          slug: "pdf-to-powerpoint",
+          where,
+          text,
+        })),
+        [],
+      ).map((line) => line.slice(0, line.indexOf(" hedges "))),
+    ).toEqual(
+      PPTX_DEFERRALS_SHIPPED.map(({ where }) => `pdf-to-powerpoint ${where}`),
+    );
+    // Each shape cut from them catches one of THEM, not only a respelling.
+    expect(
+      SHAPES_FROM_THE_PPTX_PAGE.filter((name) => {
+        const re = HEDGES[name];
+        return !re || !PPTX_DEFERRALS_SHIPPED.some(({ text }) => re.test(text));
+      }),
+      "these shapes catch none of the sentences they were cut from",
+    ).toEqual([]);
+    // And none is served any more. Verbatim, so this half alone is weak (an
+    // edit of one word passes it); the rule test is what holds the page.
+    const served = new Set(COPY.map((entry) => entry.text));
+    expect(
+      PPTX_DEFERRALS_SHIPPED.filter(({ text }) => served.has(text)).map(
+        ({ where }) => where,
+      ),
+    ).toEqual([]);
   });
 });
