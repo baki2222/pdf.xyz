@@ -46,7 +46,7 @@ import type { AiUsageMeta } from "@/lib/jobs/ai-results";
  *     `invoice_number`). A requested field the model did not return is `null` there
  *     and is NAMED in manifest.json (`extraction.missingKeys`) and in extraction.md
  *     as "not returned by the model" — never folded into a null the model
- *     returned (shown as "not found, or more than one match"). Until
+ *     returned (shown as "not found, or several different values"). Until
  *     2026-09-28 a dropped field simply vanished: a request for 12 fields could ship
  *     10 rows, and a consumer keyed on the requested names broke, while the manifest
  *     said "absent values are null". A LIST reply in schema mode fails honestly.
@@ -499,7 +499,7 @@ export async function runAiExtract(
         }
       : { keys: extractedKeys },
     notice: reconciled
-      ? "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. A value of null means the model gave no single value for the field: it was not found, or it matched more than once — ask for the field as a list (the array type) to get every value. A requested field the model did not return at all is also null in extraction.json, and is listed in manifest.json under extraction.missingKeys. No content was fabricated beyond the model's extraction of the provided text."
+      ? "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. A value of null means the model gave no single value for the field: it may not have found one, or the text may hold several different values for it. A value that is not null may also be one of several different values — ask for the field as a list (the array type) to get every value. A requested field the model did not return at all is also null in extraction.json, and is listed in manifest.json under extraction.missingKeys. No content was fabricated beyond the model's extraction of the provided text."
       : "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. No content was fabricated beyond the model's extraction of the provided text.",
   };
 
@@ -696,15 +696,18 @@ function reconcileWithSchema(
 }
 
 /**
- * What a null VALUE is shown as. Not "not found": the model is told to answer
- * null rather than guess, so a single-value field whose value appears several
- * times comes back null too — the ai-extract production proof failed exactly
- * that way (one region asked of a four-row table, 2026-10-09). Until then this
- * cell read "_(not found)_" and told a user whose PDF held the value four
- * times that it held it none. `null-meaning.test.ts` holds every surface that
- * explains a null to both reasons.
+ * What a null VALUE is shown as: the two reasons a model gives one. The system
+ * prompt asks for null only when a value is not present, but a single-value
+ * field whose text holds several DIFFERENT values has no one answer, and a
+ * model may answer null rather than pick — the ai-extract production proof
+ * failed that way (one region asked of a four-row table, 2026-10-09). Until
+ * then this cell read "_(not found)_" and told a user whose PDF held four
+ * values that it held none. It then read "_(not found, or more than one
+ * match)_" — but a value printed twice over is one value, which a model
+ * returns (review, 2026-10-09). `null-meaning.test.ts` holds every surface that
+ * explains a null to both reasons, as possibilities.
  */
-export const NULL_VALUE_CELL = "_(not found, or more than one match)_";
+export const NULL_VALUE_CELL = "_(not found, or several different values)_";
 
 /** Render a single extracted value for the human-readable Markdown table. */
 function renderValue(value: unknown): string {
@@ -739,7 +742,7 @@ function renderMarkdown(
   if (manifest.source.truncationNotice) {
     lines.push(`>`);
     lines.push(
-      `> **${manifest.source.truncationNotice}** A field shown as not found, or more than one match, was judged on the pages examined only — it may still appear later in the document.`,
+      `> **${manifest.source.truncationNotice}** A field shown as not found, or several different values, was judged on the pages examined only — it may still appear later in the document.`,
     );
   }
   lines.push("");

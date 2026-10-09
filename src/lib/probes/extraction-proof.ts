@@ -75,8 +75,10 @@ export function proofColumn(header: string): string[] {
 /**
  * The schema the proof requests: one LIST field per requested column. A table
  * holds a value per row, so a single-valued field over it has as many
- * candidates as rows, and the engine instructs the model to answer null rather
- * than pick one.
+ * candidates as rows. The engine's prompt asks for null only when a value is
+ * not present, "never a guess" — so a model may answer null rather than pick
+ * one (production's did, 2026-10-09) or may pick one; neither is a proof.
+ * (Until 2026-10-09 this said the engine instructs null here. It does not.)
  */
 export const PROOF_EXTRACTION_SCHEMA: readonly {
   readonly name: string;

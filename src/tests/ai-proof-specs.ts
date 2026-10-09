@@ -99,8 +99,9 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
     // The fixture, the request and the expected answer are one definition
     // (`@/lib/probes/extraction-proof`). Until 2026-10-09 the request asked
     // for ONE region and ONE Q1 figure of a four-row table — no single right
-    // answer, so the model answered null as the engine instructs — and the
-    // verifier accepted any one row. It now asks for each column as a list
+    // answer, and the model answered null rather than pick one (the engine's
+    // "never a guess" allows it; nothing instructs it) — and the verifier
+    // accepted any one row. It now asks for each column as a list
     // and accepts the whole column, top to bottom, and nothing less.
     make: proofTablePdf,
     name: "table.pdf",

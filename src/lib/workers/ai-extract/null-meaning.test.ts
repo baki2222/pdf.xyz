@@ -4,16 +4,29 @@
  *
  * THE DEFECT (2026-10-09). The engine tells the model "When a requested value
  * is not present in the text, use null — never a guess". A single-value field
- * whose value appears SEVERAL times has no one right answer, so the model
- * answers null — the instruction followed (the production proof of ai-extract
- * failed exactly that way: one `region` asked of a four-row table). Every
- * surface then told the user that null meant ABSENT: extraction.md showed
- * "_(not found)_", the manifest said "A value of null means the model
+ * whose text holds several DIFFERENT values has no one right answer, and a
+ * model may answer null rather than pick one — the production proof of
+ * ai-extract failed exactly that way: one `region` asked of a four-row table.
+ * Every surface then told the user that null meant ABSENT: extraction.md
+ * showed "_(not found)_", the manifest said "A value of null means the model
  * reported the field as not found", and the panel, the page and its FAQ said
- * the same. A user whose PDF holds the value four times was told it holds it
- * none. Nothing about the model's behaviour changes here; what changes is
- * that every sentence explaining a null now names both reasons, and the way
- * out — ask for a list.
+ * the same. A user whose PDF holds four values was told it holds none.
+ * Nothing about the model's behaviour changes here; what changes is that
+ * every sentence explaining a null names both reasons, and the way out — ask
+ * for a list.
+ *
+ * THE FIRST REWORDING OVERCLAIMED (review, 2026-10-09), twice. It said a field
+ * "comes back null" / "is null" when it "matches more than once" — a
+ * certainty the engine does not make true: its prompt says null only for a
+ * value not present, so a model may as well return one of the several, and a
+ * reader told that several values always give null takes any single value
+ * for the only one. And "more than once" covers the commonest repeat, the
+ * SAME value printed twice (an invoice number in the header and the footer),
+ * which a model returns, not null. So the other reason is now DIFFERENT
+ * values ({@link AMBIGUITY}); a sentence that ties null to several values must
+ * hedge it ({@link HEDGE}) and say they differ; and the page and the package
+ * must warn that a value that is not null may still be one of several. Its
+ * sentences are a second corpus below, each caught.
  *
  * THE GUARD. Its subjects are DISCOVERED, at the point of consumption:
  *  - the package a user downloads — every file in it — built by the real
@@ -61,8 +74,35 @@ const ABSENCE: readonly RegExp[] = [
   /\bis silent\b/i,
 ];
 
-/** What makes such a sentence true: the other reason a model answers null. */
-const AMBIGUITY = /\bmore than (?:one|once)\b/i;
+/**
+ * What makes such a sentence true: the other reason a model gives null —
+ * DIFFERENT values. WAS `more than (one|once)`, which the first rewording
+ * satisfied with "matches more than once": a value printed twice, which a
+ * model returns rather than nulls.
+ */
+const AMBIGUITY = /\bdifferent (?:values?|answers?)\b/i;
+
+/** Words for "more than one", whether or not the values differ. */
+const PLURAL = /\bmore than (?:one|once)\b|\bseveral\b/i;
+
+/**
+ * A null attributed to a field or by a model: "comes back null", "is null",
+ * "answers null". Not the bare "to answer null rather than guess" — that is
+ * the instruction, quoted, not a claim about what comes back.
+ */
+const NULL_PREDICATE = /\b(?:comes? back|is|answers) null\b/i;
+
+/**
+ * What makes "several values → null" a possibility, not a rule — read in the
+ * CLAUSE that says null, not anywhere in the sentence: a mutation of the FAQ
+ * to "a field is null when … several different values; a value that is not
+ * null may still be one of several" stayed green while the hedge was read
+ * per sentence (2026-10-09).
+ */
+const HEDGE = /\b(?:can|may)\b/i;
+
+/** A sentence's clauses: at a semicolon, a colon, or ", so". */
+const clauses = (sentence: string) => sentence.split(/\s*(?:[;:]|,\s+so\b)\s*/);
 
 /** Every sentence of the false meaning the product shipped (origin/main, 2026-10-09). */
 const SHIPPED: readonly string[] = [
@@ -76,10 +116,55 @@ const SHIPPED: readonly string[] = [
   "A field reported as not found may still appear further on.",
 ];
 
+/**
+ * Every null-explaining sentence of the FIRST rewording (c46ff2ad, 2026-10-09),
+ * as it reached the package, the panel and the page.
+ */
+const FIRST_REWORDING: readonly string[] = [
+  "_(not found, or more than one match)_",
+  "A value of null means the model gave no single value for the field: it was not found, or it matched more than once — ask for the field as a list (the array type) to get every value.",
+  "A field shown as not found, or more than one match, was judged on the pages examined only — it may still appear later in the document.",
+  "The model is told to answer null rather than guess, so a field that matches more than once can come back null.",
+  "A field shown as not found, or more than one match, was judged on those pages only — it may still appear later in the document.",
+  "The model's instructions are to use only that text and to answer null rather than guess, so a field comes back null when its value is not found, or when it matches more than once; ask for a list to get every value.",
+  "Because the model is told to answer null rather than guess, a null means the pages it saw did not settle it: the answer was not found there, or the text said more than one thing.",
+  "A field of any other type asks for one value, so where the text holds several it can come back null.",
+  "It shows a null value as not found, or more than one match, marks a requested field the model never returned as not returned by the model, and lists any keys you did not ask for in a separate table.",
+  "A field shown as not found, or more than one match, was judged only on the text that was read, so it may still appear further on.",
+  "A field comes back null when the model found no single answer for it: it is told to answer null rather than guess, so a field is null when its value is not found, or when it matches more than once.",
+  "A single-value field asked of a column of figures has a candidate in every row; extraction.md shows it as not found, or more than one match.",
+];
+
+/**
+ * The first rewording's sentences that said several values MAKE a null — the
+ * two the review named on the page, and the two comments that said it first
+ * (engine.ts's NULL_VALUE_CELL docblock, this file's own docblock).
+ */
+const FIRST_REWORDING_CERTAIN: readonly string[] = [
+  FIRST_REWORDING[5]!,
+  FIRST_REWORDING[10]!,
+  'Not "not found": the model is told to answer null rather than guess, so a single-value field whose value appears several times comes back null too — the ai-extract production proof failed exactly that way (one region asked of a four-row table, 2026-10-09).',
+  "A single-value field whose value appears SEVERAL times has no one right answer, so the model answers null — the instruction followed (the production proof of ai-extract failed exactly that way: one `region` asked of a four-row table).",
+];
+
 const saysAbsent = (sentence: string) => ABSENCE.some((p) => p.test(sentence));
 /** A sentence that says null means absent and stops there. */
 const falseMeaning = (sentence: string) =>
   saysAbsent(sentence) && !AMBIGUITY.test(sentence);
+/**
+ * A sentence that says several values make a null, as a rule: it speaks of
+ * more than one value, and some clause of it says null comes back with no
+ * hedge in that clause. The plural may sit in another clause — "a field has
+ * several values, so the model answers null" is the same claim.
+ */
+const certainNull = (sentence: string) =>
+  (PLURAL.test(sentence) || AMBIGUITY.test(sentence)) &&
+  clauses(sentence).some((c) => NULL_PREDICATE.test(c) && !HEDGE.test(c));
+/** A sentence that ties a null to "more than one" without saying the values differ. */
+const repeatsAsReason = (sentence: string) =>
+  /\bnull\b/i.test(sentence) &&
+  PLURAL.test(sentence) &&
+  !AMBIGUITY.test(sentence);
 
 /** Sentences, as a reader meets them: by line, by table cell, by full stop. */
 function sentences(text: string): string[] {
@@ -230,18 +315,63 @@ describe("the corpus", () => {
       ).toBe(true);
   });
 
+  it("every sentence of the first rewording is caught by some check, and each check catches one", () => {
+    const caughtBy = (s: string) =>
+      [
+        falseMeaning(s) && "absence",
+        certainNull(s) && "certain",
+        repeatsAsReason(s) && "repeat",
+      ].filter(Boolean);
+    for (const sentence of FIRST_REWORDING)
+      expect(caughtBy(sentence).length, sentence).toBeGreaterThan(0);
+    for (const sentence of FIRST_REWORDING_CERTAIN)
+      expect(certainNull(sentence), sentence).toBe(true);
+    // Each check, and each alternative of each pattern, catches a shipped
+    // sentence — none is decoration.
+    const all = [...FIRST_REWORDING, ...FIRST_REWORDING_CERTAIN];
+    expect(all.filter(falseMeaning).length).toBeGreaterThan(0);
+    expect(all.filter(certainNull).length).toBeGreaterThan(0);
+    expect(all.filter(repeatsAsReason).length).toBeGreaterThan(0);
+    for (const alternative of ["comes back", "is", "answers"])
+      expect(
+        all.some(
+          (s) =>
+            certainNull(s) &&
+            new RegExp(`\\b${alternative} null\\b`, "i").test(s),
+        ),
+        `"${alternative} null" catches no shipped sentence`,
+      ).toBe(true);
+    for (const plural of [/\bmore than (?:one|once)\b/i, /\bseveral\b/i])
+      expect(
+        all.some((s) => repeatsAsReason(s) && plural.test(s)),
+        `${plural} catches no shipped sentence`,
+      ).toBe(true);
+    // NEGATIVE CONTROL: a hedged sentence that names different values is
+    // none of these — each check can say yes and no.
+    const hedged =
+      "A field can come back null when its value is not found, or when the text holds several different values for it.";
+    expect(caughtBy(hedged)).toEqual([]);
+    // POSITIVE CONTROL for the clause: a hedge elsewhere in the sentence does
+    // not license an unhedged "is null" — the FAQ mutation that once stayed green.
+    expect(
+      certainNull(
+        "It is told to answer null rather than guess, so a field is null when its value is not found, or when the text holds several different values for it; a value that is not null may still be one of several different values.",
+      ),
+    ).toBe(true);
+  });
+
   it("the sentence splitter keeps a table cell, a markdown note and a FAQ sentence whole", () => {
     // The splitter is the instrument: a sentence cut in half could separate
-    // "not found" from the "more than one" that makes it true.
+    // "not found" from the "different values" that makes it true.
     expect(
       sentences(
-        "| po_number | _(not found, or more than one match)_ |\nNext. A null field was not found, or matched more than once. It cannot find. pdf.xyz says **so.** Then.",
+        "| po_number | _(not found, or several different values)_ |\nNext. A null field was not found, or held several different values. It cannot find. pdf.xyz says **so.** Then.",
       ),
     ).toEqual([
       "| po_number",
-      "_(not found, or more than one match)_",
+      "_(not found, or several different values)_",
       "Next.",
-      "A null field was not found, or matched more than once.",
+      "A null field was not found, or held several different values.",
       "It cannot find.",
       "pdf.xyz says **so.**",
       "Then.",
@@ -263,6 +393,20 @@ describe("every surface says what a null means truly", () => {
     expect(found).toEqual([]);
   });
 
+  it("no sentence says several values MAKE a null — only that they can", () => {
+    const found = Object.entries(surfaces).flatMap(([name, list]) =>
+      list.filter(certainNull).map((s) => `${name}: ${s}`),
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("no sentence gives a value found more than once as a reason for null without saying the values differ", () => {
+    const found = Object.entries(surfaces).flatMap(([name, list]) =>
+      list.filter(repeatsAsReason).map((s) => `${name}: ${s}`),
+    );
+    expect(found).toEqual([]);
+  });
+
   it("the package and the page say how to get every value: ask for a list", () => {
     for (const name of [
       "the schema-mode package",
@@ -274,11 +418,39 @@ describe("every surface says what a null means truly", () => {
       ).toBe(true);
   });
 
+  it("the package and the page warn that a value that is not null may still be one of several", () => {
+    // The convenient direction of the first rewording: told that several
+    // values make a null, a reader takes any single value for the only one.
+    for (const name of [
+      "the schema-mode package",
+      "the rendered page",
+    ] as const)
+      expect(
+        surfaces[name]!.some(
+          (s) =>
+            /\bnot null\b/i.test(s) &&
+            /\bone of several\b/i.test(s) &&
+            HEDGE.test(s),
+        ),
+        name,
+      ).toBe(true);
+  });
+
   it("POSITIVE CONTROL: the package as it shipped is refused", () => {
     expect(
       sentences("| region | _(not found)_ |\n| q1 | 1200 |").filter(
         falseMeaning,
       ),
     ).toEqual(["_(not found)_"]);
+  });
+
+  it("POSITIVE CONTROL: the page sentences the review named are refused as the page splits them", () => {
+    // Through the same splitter the rendered page goes through, so a check
+    // that only matched the corpus strings — not served sentences — fails here.
+    const page = `${FIRST_REWORDING[5]} pdf.xyz invents no values. Compare the value with the page. ${FIRST_REWORDING[10]} Give that field the array type.`;
+    expect(sentences(page).filter(certainNull)).toEqual([
+      FIRST_REWORDING[5],
+      FIRST_REWORDING[10],
+    ]);
   });
 });

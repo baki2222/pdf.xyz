@@ -119,25 +119,30 @@ describe("schema mode reconciles the reply with the request", () => {
   // INVERTED 2026-10-09, history kept. This test was titled "a null the model
   // DID return reads as not found, distinct from not returned" and pinned the
   // cell `_(not found)_`. The distinction from "not returned" was right; the
-  // meaning was not: the model is told to answer null rather than guess, so a
-  // field whose value appears more than once comes back null too (the
-  // ai-extract production proof failed exactly that way), and "_(not found)_"
-  // told that user their value was absent. `null-meaning.test.ts` now holds
-  // every surface that explains a null to both reasons.
-  it("a null the model DID return reads as not found OR more than one match, distinct from not returned", async () => {
+  // meaning was not: a field whose text holds several different values can
+  // come back null too (the ai-extract production proof failed exactly that
+  // way), and "_(not found)_" told that user their value was absent.
+  // AGAIN 2026-10-09: it then pinned "_(not found, or more than one match)_"
+  // and a notice saying a null "matched more than once" — a value printed
+  // twice over is one value, which a model returns, and the notice stated the
+  // reason as fact (review). `null-meaning.test.ts` holds every surface that
+  // explains a null to both reasons, as possibilities.
+  it("a null the model DID return reads as not found OR several different values, distinct from not returned", async () => {
     const pkg = await run(schema("invoice", "po_number"), {
       invoice: "INV-7",
       po_number: null,
     });
     expect(pkg.manifest.extraction.missingKeys).toEqual([]);
     expect(pkg.md).toMatch(
-      /\| po_number \| _\(not found, or more than one match\)_ \|/,
+      /\| po_number \| _\(not found, or several different values\)_ \|/,
     );
     expect(pkg.md).not.toMatch(/_\(not found\)_/);
+    expect(pkg.md).not.toMatch(/more than one match/);
     expect(pkg.md).not.toContain("not returned by the model");
-    // The note under the table says how to get every value.
+    // The note under the table gives both reasons as possibilities, warns
+    // that a single value may be one of several, and says how to get every value.
     expect(pkg.manifest.notice).toMatch(
-      /not found, or it matched more than once — ask for the field as a list/,
+      /it may not have found one, or the text may hold several different values for it\. A value that is not null may also be one of several different values — ask for the field as a list/,
     );
   });
 
