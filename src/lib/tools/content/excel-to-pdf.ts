@@ -43,8 +43,8 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *    `WorkerJobStatus` shows a still-running note with Keep waiting, which
  *    resumes the SAME job (it used to say Convert to PDF "starts a fresh
  *    job", which uploads again). too_large is non-retryable.
- *  - busy label: `jobBusyLabel(job.phase, "Converting PDF…")` — Uploading
- *    your file…, Waiting for the worker…, Converting PDF…, Downloading the
+ *  - busy label: `jobBusyLabel(job.phase, "Converting to PDF…")` — Uploading
+ *    your file…, Waiting for the worker…, Converting to PDF…, Downloading the
  *    result…, with a Cancel button below while busy. Step 2 said "Converting
  *    PDF…" for the whole round trip until 2026-10-07.
  *  - size: ONE figure, `toolFileCeiling` — the smaller of the upload gate and
@@ -147,7 +147,7 @@ const content: ToolContent = {
     },
     {
       title: "Start the conversion",
-      body: `With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button shows where the job is: "Uploading your file…", then "Waiting for the worker…" while it is queued, "Converting PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
+      body: `With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button shows where the job is: "Uploading your file…", then "Waiting for the worker…" while it is queued, "Converting to PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
     },
     {
       title: "Save the converted PDF",

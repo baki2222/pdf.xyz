@@ -273,7 +273,7 @@ function OfficeRunArea({
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel={jobBusyLabel(job.phase, "Converting PDF…")}
+        busyLabel={jobBusyLabel(job.phase, "Converting to PDF…")}
         icon={FileText}
       >
         Convert to PDF

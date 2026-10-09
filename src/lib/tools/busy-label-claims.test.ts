@@ -189,7 +189,11 @@ describe("a page that names a busy label names the stages around it", () => {
   it("the predicate catches every one-label sentence that shipped, and not the fixed ones", () => {
     for (const shipped of [
       "Type your question. Write it in the Your question box in plain language, up to 2,000 characters, and press Ask the PDF. The button reads Answering… until the answer package is back in the page.",
-      'Start the conversion. With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button reads "Converting PDF…" while the spreadsheet uploads, LibreOffice renders it and the finished PDF comes back.',
+      // Shipped as "Converting PDF…"; the label became "Converting to PDF…"
+      // on 2026-10-09, so the sentence is held here with the label it would
+      // quote today — the SHAPE (one label for the whole round trip) is what
+      // this control is about.
+      'Start the conversion. With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button reads "Converting to PDF…" while the spreadsheet uploads, LibreOffice renders it and the finished PDF comes back.',
       "Press Extract data. The button reads Extracting… while the PDF uploads and the job runs.",
     ])
       expect(oneLabelClaim(shipped), shipped).toBe(true);
