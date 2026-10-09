@@ -96,16 +96,45 @@ precisely so a conversation is never interrupted mid-sentence.
 
 ---
 
+## 6. Searching the tools, and an answer that says no
+
+<https://pdf.xyz/tools> — `Tab` to **Search tools** and type `flip`, then pause.
+
+**Must hear:** after the pause, once, the count — _"1 tool for “flip”"_ or
+similar. Not letter by letter while you type, and nothing at all when the page
+first loads. Arrow down through the page: the first heading after the field
+must be **Best matches for “flip”**, and the first tool under it **Rotate
+PDF**.
+
+Then clear the field and type `heic`.
+
+**Must hear:** _"No tool here opens HEIC photos. …"_ at the start of the
+announcement, and a heading with those words above a **JPG to PDF** link.
+
+Then open <https://pdf.xyz/tools?accepts=docx>. `Tab` to the button **Takes
+DOCX, remove this filter** and press `Enter`.
+
+**Must hear:** the grid's new count. **Focus must land in the search field**,
+not at the top of the page — the button you pressed is gone.
+
+**Fails if:** the count is read while you are still typing; a "Closest matches"
+list is announced as if it matched every word; the HEIC answer is not read; or
+removing the filter drops focus to the document.
+
+---
+
 ## Recording the result
 
-Note the browser, screen reader, and version, and for each of the five: heard /
+Note the browser, screen reader, and version, and for each of the six: heard /
 not heard / heard but wrong. A partial pass is a finding, not a failure — write
 down what was actually said, because the wording is the deliverable.
 
 If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `src/components/tools/runner/runner-kit.tsx`, and `LiveRegion` in
-`src/components/a11y/live-region.tsx`. Each carries a docblock explaining what it
-is protecting against, which is usually faster than reading the logic.
+`src/components/a11y/live-region.tsx` — for check 6, `ToolsExplorer` and its
+`resultAnnouncement` in `src/components/tools/tools-explorer.tsx`. Each carries
+a docblock explaining what it is protecting against, which is usually faster
+than reading the logic.
 
 ---
 
