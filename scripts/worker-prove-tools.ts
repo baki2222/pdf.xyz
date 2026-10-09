@@ -102,6 +102,11 @@ import {
 } from "@/lib/probes/extraction-proof";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
+import {
+  pageShowsText,
+  webpageProof404Url,
+  webpageProofPage,
+} from "@/lib/probes/webpage-proof";
 import { spliceStartxrefPastEnd } from "@/tests/damaged-xref";
 import { unsupportedEncryptionPdf } from "@/tests/unsupported-encryption";
 import {
@@ -408,6 +413,8 @@ function rasterJpg(): Buffer {
  * Chromium's print header put it there (see `printChromeLeaks`).
  */
 const HTML_PROOF_TITLE = "pdf.xyz proof";
+/** The page Webpage to PDF is proven on — ours, see `@/lib/probes/webpage-proof`. */
+const WEBPAGE_PROOF = webpageProofPage();
 const HTML_PROOF_VISIBLE = "HTML to PDF";
 function htmlFile(): Buffer {
   return Buffer.from(
@@ -459,7 +466,9 @@ const ISOLATION_LEAKS: readonly { marker: RegExp; what: string }[] = [
  * every page came back with a print date and the `<title>` along the top and
  * the worker's `file:///tmp/pdfxyz-html-…/input.html` (or the webpage's URL)
  * along the bottom, and `isPdf` could not see any of it. `visible` is the
- * positive control — an empty PDF cannot pass by containing no header.
+ * positive control — an empty PDF cannot pass by containing no header. It is
+ * read ligature- and whitespace-tolerantly (`pageShowsText`): an extractor
+ * gives "files" back as "ﬁles" or "fi les", and neither is a missing page.
  */
 function verifyPageOnly(
   visible: string,
@@ -467,7 +476,7 @@ function verifyPageOnly(
 ) {
   return async (bytes: Buffer) => {
     const text = await pdfPlainText(bytes);
-    if (!text.includes(visible))
+    if (!pageShowsText(text, visible))
       return {
         ok: false,
         detail: `the page's own text is missing (${text.length} chars extracted), so an absent header proves nothing`,
@@ -930,24 +939,30 @@ const SPECS: ProofSpec[] = [
     want: "PDF showing the page and nothing of the worker",
   },
   {
+    // A page of OURS, its expected text derived from our source
+    // (`@/lib/probes/webpage-proof`). Until 2026-10-09 this rendered a
+    // third-party example page and required text typed here; the page was
+    // replaced, its text moved into the <title> a correct render never
+    // prints, and the proof failed while the worker rendered correctly. The
+    // guide's body never prints its own URL (held by webpage-proof.test.tsx),
+    // so only the print footer can show it.
     tool: "webpage-to-pdf",
-    url: "https://example.com/",
+    url: WEBPAGE_PROOF.url,
     expect: isPdf,
-    // example.com's <title> is also its <h1>, so only the URL — which the
-    // page body never prints — can show the footer.
-    verify: verifyPageOnly("Example Domain", {
-      sourceUrl: "https://example.com/",
+    verify: verifyPageOnly(WEBPAGE_PROOF.visible, {
+      sourceUrl: WEBPAGE_PROOF.url,
     }),
     want: "PDF of the page with no print header or footer",
   },
   {
     // The NEGATIVE control for the spec above, and the only proof that the
-    // worker reads the site's answer at all. example.com answers any other
-    // path with a 404 carrying ITS HOME PAGE ("Example Domain"), so until
-    // 2026-09 this printed a PDF the spec above would have passed.
+    // worker reads the site's answer at all: a guide slug our route answers
+    // with a real 404 (`dynamicParams = false`). Until 2026-10-09 this asked a
+    // third-party site that answered unknown paths with a 404 carrying its
+    // home page, so until 2026-09 it printed a PDF of that page.
     tool: "webpage-to-pdf",
     label: "webpage-to-pdf (404 refused)",
-    url: "https://example.com/pdfxyz-proof-404",
+    url: webpageProof404Url(),
     refuses: webpageFetchMessage({ reason: "http", status: 404 }),
     expect: () => false,
     want: "the job refused with the site's 404, not a PDF of the error page",
