@@ -15,7 +15,7 @@
  * The page is now one we publish and whose text our own source DEFINES: the
  * first guide in the catalogue, at the canonical origin, with its title — the
  * `<h1>` the guide route renders — as the visible text. Renaming, reordering or
- * retitling the guides moves the proof with them; `webpage-proof.test.ts`
+ * retitling the guides moves the proof with them; `webpage-proof.test.tsx`
  * renders that route and holds the h1 to this text and the body free of the
  * URL, so the footer check stays a check.
  *
@@ -23,7 +23,7 @@
  *
  * Moved to a guide slug the catalogue does not have. The guide route sets
  * `dynamicParams = false`, so every slug outside `generateStaticParams` is a
- * real 404 — our code, held to that by `webpage-proof.test.ts` (and measured
+ * real 404 — our code, held to that by `webpage-proof.test.tsx` (and measured
  * on production 2026-10-09: 404), rather than the 404 behaviour of a site that
  * has asked not to be relied on. The control asserts the job is REFUSED with
  * the site's status, which does not depend on what the 404 body says.

@@ -36,8 +36,8 @@
  * ── WHAT IS CHECKED ─────────────────────────────────────────────────────────
  *
  * Against the proof's own table ({@link PROOF_TABLE_ROWS}, which
- * {@link proofTablePdf} draws, so the request, the fixture and the expected
- * answer are one definition):
+ * `proofTablePdf` in `@/tests/extraction-proof-fixtures` draws, so the request,
+ * the fixture and the expected answer are one definition):
  *
  *  - extraction.json is an object carrying every requested key;
  *  - none is listed in manifest.json's `extraction.missingKeys` — since the
@@ -49,7 +49,6 @@
  *    but not a value, a row or an order the table does not hold.
  */
 import JSZip from "jszip";
-import { PDFDocument, StandardFonts } from "pdf-lib";
 
 /** The table the proof PDF draws: a header row, then one row per region. */
 export const PROOF_TABLE_ROWS: readonly (readonly string[])[] = [
@@ -88,27 +87,6 @@ export const PROOF_EXTRACTION_SCHEMA: readonly {
   type: "array",
   description: `Every value in the table's "${header}" column, one per row, top to bottom`,
 }));
-
-/** The proof's PDF: the title, then {@link PROOF_TABLE_ROWS} as a table. */
-export async function proofTablePdf(): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const page = doc.addPage([595, 842]);
-  page.drawText(PROOF_TABLE_TITLE, { x: 60, y: 780, size: 16, font: bold });
-  const cols = [60, 200, 330, 450];
-  PROOF_TABLE_ROWS.forEach((row, r) => {
-    row.forEach((cell, c) => {
-      page.drawText(cell, {
-        x: cols[c]!,
-        y: 740 - r * 24,
-        size: 11,
-        font: r === 0 ? bold : font,
-      });
-    });
-  });
-  return doc.save();
-}
 
 export interface ProofVerdict {
   ok: boolean;

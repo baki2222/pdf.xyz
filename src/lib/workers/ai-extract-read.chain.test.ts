@@ -55,9 +55,9 @@ import {
   PROOF_EXTRACTION_SCHEMA,
   PROOF_TABLE_ROWS,
   PROOF_TABLE_TITLE,
-  proofTablePdf,
   verifyExtractionProof,
 } from "@/lib/probes/extraction-proof";
+import { proofTablePdf } from "@/tests/extraction-proof-fixtures";
 import { RATE_LIMIT_ENV } from "@/lib/ratelimit";
 import { resetRateLimitGuardForTests } from "@/lib/ratelimit/guard";
 import { POST } from "@/app/api/jobs/route";

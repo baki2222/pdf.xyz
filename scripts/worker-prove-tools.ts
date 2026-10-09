@@ -97,9 +97,9 @@ import type { JobResults } from "@/lib/jobs/results";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
   PROOF_EXTRACTION_SCHEMA,
-  proofTablePdf,
   verifyExtractionProof,
 } from "@/lib/probes/extraction-proof";
+import { proofTablePdf } from "@/tests/extraction-proof-fixtures";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
 import {
