@@ -1,29 +1,73 @@
-import { getProcessingMeta } from "@/lib/tools/processing";
+import type { ReactNode } from "react";
+import {
+  getProcessingMeta,
+  type ProcessingShape,
+} from "@/lib/tools/processing";
 import type { ProcessingMode } from "@/lib/tools/types";
 import { cn } from "@/lib/utils";
 
 /**
- * Non-text status dot per mode. These are semantic (where does my file go?),
- * not decoration, so they keep distinct hues — but the words moved to plain
- * mono text so the chip stopped being a coloured pill.
- *
- * WAS A LOCAL `dotByMode` TABLE, with a docblock explaining that
- * `processing.ts`'s `tone` field was not consumed here because it held the
- * legacy dark palette. That was true and it was the wrong fix: it left the
- * abandoned field in place, still reading as the source of truth, while this
- * file and the per-tool share card each grew a copy. The field now holds the
- * hue in both syntaxes — `dot` for here, `card` for Satori — so the site and
- * the card cannot disagree about what "AI-assisted" looks like.
+ * The geometry of each mode's mark, on an 8×8 grid. Keyed by SHAPE, not by
+ * mode: which mode wears which shape is decided once, in `processing.ts`.
+ * The ring and the half share a 1.5px stroke so the family reads as one set
+ * at 8px; the diamond is the dot's square turned 45°.
  */
-function ProcessingDot({ mode }: { mode: ProcessingMode }) {
-  return (
-    <span
-      className={cn(
-        "size-1.5 shrink-0 rounded-full",
-        getProcessingMeta(mode).hue.dot,
-      )}
-      aria-hidden
+const GEOMETRY: Record<ProcessingShape, ReactNode> = {
+  dot: <circle cx="4" cy="4" r="3.5" />,
+  half: (
+    <>
+      <circle
+        cx="4"
+        cy="4"
+        r="3.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path d="M4 .75a3.25 3.25 0 0 0 0 6.5z" />
+    </>
+  ),
+  ring: (
+    <circle
+      cx="4"
+      cy="4"
+      r="3.25"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
     />
+  ),
+  diamond: <path d="M4 .25 7.75 4 4 7.75.25 4z" />,
+};
+
+/**
+ * Where a tool runs, as a shape: ● in-browser, ◐ browser-first, ○ secure
+ * worker, ◆ AI. Decorative to assistive tech — the mode word always travels
+ * with it, visibly or in `sr-only` text — and drawn in `currentColor` so the
+ * mode's text-colour ink fills it and forced-colours mode can repaint it.
+ *
+ * WAS A 6px DOT, the same circle for every mode, told apart by hue alone
+ * (WCAG 1.4.1); `processing-badge.test.tsx` now fails any two modes that
+ * draw the same geometry, and any ink under 3:1 on a ground the badge uses.
+ */
+export function ModeShape({
+  mode,
+  className,
+}: {
+  mode: ProcessingMode;
+  className?: string;
+}) {
+  const { hue, shape } = getProcessingMeta(mode);
+  return (
+    <svg
+      viewBox="0 0 8 8"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+      className={cn("size-2 shrink-0", hue.ink, className)}
+    >
+      {GEOMETRY[shape]}
+    </svg>
   );
 }
 
@@ -49,7 +93,7 @@ export function ProcessingBadge({
         className,
       )}
     >
-      <ProcessingDot mode={mode} />
+      <ModeShape mode={mode} />
       {variant === "short" ? meta.short : meta.label}
     </span>
   );
