@@ -216,13 +216,13 @@ function merge(into: Map<string, Group>, groups: Group[]): void {
 
 const ratio = (g: Group) => g.fallbackWidth / g.realWidth;
 
+// Fractional glyph advances, as people's browsers set them; see the docblock
+// ("MEASURED WITH HINTING OFF"). File level, because launch options start a
+// worker of their own and Playwright refuses them inside a describe group.
+test.use({ launchOptions: { args: ["--font-render-hinting=none"] } });
+
 test.describe("fallback faces", () => {
-  test.use({
-    viewport: { width: 1440, height: 900 },
-    // Fractional glyph advances, as people's browsers set them; see the
-    // docblock ("MEASURED WITH HINTING OFF").
-    launchOptions: { args: ["--font-render-hinting=none"] },
-  });
+  test.use({ viewport: { width: 1440, height: 900 } });
 
   test("set the site's own text within 1.5% of the real face, at every weight it uses", async ({
     page,
