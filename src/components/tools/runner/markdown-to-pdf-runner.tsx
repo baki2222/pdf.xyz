@@ -210,7 +210,14 @@ function MarkdownToPdfEditor({
   );
 }
 
-function isLikelyMarkdownFile(file: File): boolean {
+/**
+ * The file this runner opens: Markdown by declared type or by name. Exported
+ * so the hand-off gate can be held to it — a file carried here must be one
+ * this check passes (`capability.test.ts`).
+ */
+export function isLikelyMarkdownFile(
+  file: Pick<File, "name" | "type">,
+): boolean {
   return (
     file.type === "text/markdown" ||
     file.type === "text/x-markdown" ||

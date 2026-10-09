@@ -215,7 +215,12 @@ function TextToPdfEditor({
   );
 }
 
-function isLikelyTextFile(file: File): boolean {
+/**
+ * The file this runner opens: plain text by declared type or by name.
+ * Exported so the hand-off gate can be held to it — a file carried here must
+ * be one this check passes (`capability.test.ts`).
+ */
+export function isLikelyTextFile(file: Pick<File, "name" | "type">): boolean {
   return file.type === "text/plain" || /\.(txt|text)$/i.test(file.name);
 }
 
