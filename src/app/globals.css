@@ -249,7 +249,9 @@
  * ------------------------------------------------------------------ */
 @font-face {
   font-family: "pdfxyz Sans Fallback";
-  src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
   font-weight: 100 349;
   size-adjust: 100.42%;
   ascent-override: 100.08%;
@@ -258,7 +260,9 @@
 }
 @font-face {
   font-family: "pdfxyz Sans Fallback";
-  src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
   font-weight: 350 449;
   size-adjust: 102.05%;
   ascent-override: 98.48%;
@@ -267,25 +271,31 @@
 }
 @font-face {
   font-family: "pdfxyz Sans Fallback";
-  src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
   font-weight: 450 549;
-  size-adjust: 103.60%;
+  size-adjust: 103.6%;
   ascent-override: 97.01%;
   descent-override: 28.47%;
   line-gap-override: 0%;
 }
 @font-face {
   font-family: "pdfxyz Sans Fallback";
-  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
   font-weight: 550 649;
   size-adjust: 99.41%;
-  ascent-override: 101.10%;
+  ascent-override: 101.1%;
   descent-override: 29.68%;
   line-gap-override: 0%;
 }
 @font-face {
   font-family: "pdfxyz Sans Fallback";
-  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
   font-weight: 650 749;
   size-adjust: 101.34%;
   ascent-override: 99.17%;
@@ -294,7 +304,9 @@
 }
 @font-face {
   font-family: "pdfxyz Sans Fallback";
-  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
   font-weight: 750 900;
   size-adjust: 103.46%;
   ascent-override: 97.14%;
@@ -303,7 +315,9 @@
 }
 @font-face {
   font-family: "pdfxyz Display Fallback";
-  src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
   font-weight: 100 349;
   size-adjust: 103.24%;
   ascent-override: 90.08%;
@@ -312,7 +326,9 @@
 }
 @font-face {
   font-family: "pdfxyz Display Fallback";
-  src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
   font-weight: 350 449;
   size-adjust: 104.55%;
   ascent-override: 88.95%;
@@ -321,7 +337,9 @@
 }
 @font-face {
   font-family: "pdfxyz Display Fallback";
-  src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
   font-weight: 450 549;
   size-adjust: 105.84%;
   ascent-override: 87.87%;
@@ -330,7 +348,9 @@
 }
 @font-face {
   font-family: "pdfxyz Display Fallback";
-  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
   font-weight: 550 649;
   size-adjust: 99.84%;
   ascent-override: 93.15%;
@@ -339,7 +359,9 @@
 }
 @font-face {
   font-family: "pdfxyz Display Fallback";
-  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
   font-weight: 650 749;
   size-adjust: 100.03%;
   ascent-override: 92.97%;
@@ -348,7 +370,9 @@
 }
 @font-face {
   font-family: "pdfxyz Display Fallback";
-  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
   font-weight: 750 900;
   size-adjust: 102.32%;
   ascent-override: 90.89%;
@@ -357,7 +381,9 @@
 }
 @font-face {
   font-family: "pdfxyz Mono Fallback";
-  src: local("Courier New"), local("CourierNewPSMT"), local("Liberation Mono"), local("LiberationMono-Regular"), local("Cousine"), local("Cousine-Regular");
+  src:
+    local("Courier New"), local("CourierNewPSMT"), local("Liberation Mono"),
+    local("LiberationMono-Regular"), local("Cousine"), local("Cousine-Regular");
   font-weight: 100 549;
   size-adjust: 100.04%;
   ascent-override: 100.46%;
@@ -366,7 +392,10 @@
 }
 @font-face {
   font-family: "pdfxyz Mono Fallback";
-  src: local("Courier New Bold"), local("CourierNewPS-BoldMT"), local("Liberation Mono Bold"), local("LiberationMono-Bold"), local("Cousine Bold"), local("Cousine-Bold");
+  src:
+    local("Courier New Bold"), local("CourierNewPS-BoldMT"),
+    local("Liberation Mono Bold"), local("LiberationMono-Bold"),
+    local("Cousine Bold"), local("Cousine-Bold");
   font-weight: 550 900;
   size-adjust: 100.04%;
   ascent-override: 100.46%;
