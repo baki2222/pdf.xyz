@@ -97,7 +97,7 @@ import type { JobResults } from "@/lib/jobs/results";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import {
   PROOF_EXTRACTION_SCHEMA,
-  PROOF_TABLE_ROWS,
+  proofTablePdf,
   verifyExtractionProof,
 } from "@/lib/probes/extraction-proof";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
@@ -246,38 +246,6 @@ async function chatDocPdf(): Promise<Buffer> {
       );
     }
   }
-  return Buffer.from(await doc.save());
-}
-
-/**
- * A PDF whose text is laid out as a column-aligned grid under a title, for
- * AI Extract. Columns sit at fixed x positions and rows at fixed y.
- *
- * Until 2026-09-27 this was Extract Tables' proof fixture too, checked only
- * for a `PK` at byte 0 — while the engine returned its title as a data row
- * and an empty column in every row. Extract Tables now proves itself on
- * `reportTablesPdf`, cell by cell (see its spec).
- */
-async function tablePdf(): Promise<Buffer> {
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const page = doc.addPage([595, 842]);
-  page.drawText("Quarterly results", { x: 60, y: 780, size: 16, font: bold });
-  const cols = [60, 200, 330, 450];
-  // Shared with the ai-extract proof's verifier, so the figures it accepts are
-  // the figures this PDF draws — derived, never typed twice.
-  const rows = PROOF_TABLE_ROWS;
-  rows.forEach((row, r) => {
-    row.forEach((cell, c) => {
-      page.drawText(cell, {
-        x: cols[c]!,
-        y: 740 - r * 24,
-        size: 11,
-        font: r === 0 ? bold : font,
-      });
-    });
-  });
   return Buffer.from(await doc.save());
 }
 
@@ -1188,7 +1156,13 @@ const SPECS: ProofSpec[] = [
   },
   {
     tool: "ai-extract",
-    make: tablePdf,
+    // The fixture, the request and the expected answer are one definition
+    // (`@/lib/probes/extraction-proof`). Until 2026-10-09 the request asked
+    // for ONE region and ONE Q1 figure of a four-row table — no single right
+    // answer, so the model answered null as the engine instructs — and the
+    // verifier accepted any one row. It now asks for each column as a list
+    // and accepts the whole column, top to bottom, and nothing less.
+    make: async () => Buffer.from(await proofTablePdf()),
     name: "table.pdf",
     type: PDF_MIME,
     options: {
