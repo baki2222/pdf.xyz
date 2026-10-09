@@ -17,6 +17,14 @@
  * whole table cell), because the test discovers them from the exports: a
  * fragment exported here would be one a surface could build any claim around.
  *
+ * A WRONG SENTENCE HERE is one every surface renders, so the structure passes
+ * it; and a ban list of wrong wordings passed "A null means the requested
+ * value is not present in the text the model read." (review, 2026-10-09). So
+ * the test also holds each export to what it must SAY — a bound per export
+ * NAME, and an export added here without one is red. The meaning must give
+ * both reasons as alternatives of one clause and hedge them; the not-null
+ * warning must say a value may be one of several different values.
+ *
  * WHAT IS TRUE OF THE ENGINE. Its system prompt says "When a requested value
  * is not present in the text, use null — never a guess". A single-value field
  * whose text holds several DIFFERENT values has no one right answer, and a
