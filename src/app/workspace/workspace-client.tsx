@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   lazy,
   Suspense,
   useId,
@@ -100,6 +101,25 @@ function activityIcon(kind: WorkspaceAction["kind"]) {
 interface FactChip {
   text: string;
   tone: "faint" | "muted" | "warn";
+}
+
+interface MetaFact extends FactChip {
+  /** A measurement, set in the figure face: size and page count. */
+  figure: boolean;
+}
+
+/** A staged file's line of facts: size, pages, then what was measured. */
+function metaFacts(file: WorkspaceFile, chips: FactChip[]): MetaFact[] {
+  const facts: MetaFact[] = [
+    { text: formatBytes(file.size), tone: "muted", figure: true },
+  ];
+  if (typeof file.pageCount === "number")
+    facts.push({
+      text: `${file.pageCount} ${file.pageCount === 1 ? "page" : "pages"}`,
+      tone: "muted",
+      figure: true,
+    });
+  return [...facts, ...chips.map((chip) => ({ ...chip, figure: false }))];
 }
 
 /**
@@ -328,25 +348,30 @@ export function WorkspaceClient({
                       <span className="text-fg truncate text-sm">
                         {file.name}
                       </span>
-                      <span className="text-muted flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px]">
-                        <span className="border-line bg-wash text-muted rounded border px-1 py-px text-[10px] font-semibold tracking-wide uppercase">
+                      {/* Inline flow, not flex: each fact is unbreakable and
+                          keeps its dot, so a line breaks only BETWEEN facts —
+                          never inside "4 form fields", never before a dot —
+                          and the badge keeps the first line. */}
+                      <span className="figure text-muted min-w-0 text-[11px] leading-relaxed">
+                        <span className="border-line bg-wash text-muted inline-block rounded border px-1 py-px align-[1px] font-sans text-[10px] leading-none font-semibold tracking-wide uppercase">
                           {file.kind}
-                        </span>
-                        {/* One inline run, so a wrap breaks after a dot. */}
-                        <span className="figure min-w-0">
-                          {formatBytes(file.size)}
-                          {typeof file.pageCount === "number"
-                            ? `${FACT_SEP}${file.pageCount} ${file.pageCount === 1 ? "page" : "pages"}`
-                            : ""}
-                          {chips.map((chip) => (
-                            <span
-                              key={chip.text}
-                              className={CHIP_TONE[chip.tone]}
-                            >
-                              {`${FACT_SEP}${chip.text}`}
+                        </span>{" "}
+                        {metaFacts(file, chips).map((fact, i, all) => (
+                          <Fragment key={`${i}-${fact.text}`}>
+                            <span className="whitespace-nowrap">
+                              <span
+                                className={cn(
+                                  CHIP_TONE[fact.tone],
+                                  !fact.figure && "font-sans",
+                                )}
+                              >
+                                {fact.text}
+                              </span>
+                              {i < all.length - 1 && FACT_SEP.trimEnd()}
                             </span>
-                          ))}
-                        </span>
+                            {i < all.length - 1 && " "}
+                          </Fragment>
+                        ))}
                       </span>
                     </span>
                     <button
