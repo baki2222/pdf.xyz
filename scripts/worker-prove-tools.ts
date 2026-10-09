@@ -1097,9 +1097,12 @@ const SPECS: ProofSpec[] = [
     // `PK` at byte 0 was true of every deck this tool shipped until
     // 2026-09-27, and PowerPoint refused every one of them as "corrupted and
     // unreadable": no master, layout or theme, no slide size, empty shape
-    // properties. Walk the package the way PowerPoint does — the same checker
-    // the unit test runs on `main`, here run on the bytes the deployment
-    // returned — then read the fixture's text off a slide.
+    // properties. Walk the package the way PowerPoint does — the same two
+    // readers the unit tests run on `main` (readPptx, and the package
+    // inspector the worker's capability probe runs), here run on the bytes
+    // the deployment returned — then read the fixture's text off a slide.
+    // Keep a copy with PROOF_ARTIFACT_DIR and open it in PowerPoint with
+    // `pnpm prove:pptx-opens --file`.
     verify: (bytes) => pptxProofVerdict(bytes, "pdf.xyz deployment proof"),
     keepArtifactAs: "pptx-from-pdf",
   },
