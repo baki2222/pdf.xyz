@@ -285,6 +285,195 @@
 }
 
 /* ------------------------------------------------------------------ *
+ *  Fallback faces
+ *
+ *  Every web face swaps in over a fallback (`display: swap`), so the
+ *  fallback must set a line as wide as the real face will, or the text
+ *  re-wraps at the swap and everything below it moves. next/font's own
+ *  `adjustFontFallback` gave each face ONE size-adjust, taken from the
+ *  font file's average glyph width rather than from prose. Measured on
+ *  production 2026-10-09, it set Geist body text 4.1% wide at 400 and
+ *  the display headings 7.0% wide at 500. Its one face declared no
+ *  weight, so every 600/700 line was Arial Regular synthesised bold.
+ *  That re-wrapped the 404 and the first guide at 1440 px when the fonts
+ *  arrived late (CLS 0.0232 and 0.0217).
+ *
+ *  So each face gets a fallback per weight range, against Arial (Arial
+ *  Bold from 550). A range the site renders (sans 400/500/600, display
+ *  500/700, mono) is fitted to the text set at that weight, from the
+ *  spec's own measured table. Any other range takes the ratio over the 574
+ *  strings ten production pages render, all set at that weight. Ascent and descent
+ *  are the real face's own (Geist 1005/295, Bricolage 930/270 per 1000),
+ *  divided by that size-adjust, so line boxes keep their height. Arial,
+ *  Liberation Sans and Arimo share advance widths, as do Courier New,
+ *  Liberation Mono and Cousine. One set of numbers therefore holds on
+ *  Windows, macOS, ChromeOS and Linux. Android has none of them and gets
+ *  its system face, unadjusted. Geist Mono and Courier New both advance
+ *  0.6 em, so mono needs one value for every weight.
+ *
+ *  These are constants, so nothing in this file can check them.
+ *  e2e/font-fallback.spec.ts is the independent bound: it sets the text
+ *  the pages actually render in each real face and in its fallback, from
+ *  the stylesheet as served, and fails outside 1.5%. Re-measure there
+ *  when a face, a weight or the copy changes.
+ * ------------------------------------------------------------------ */
+@font-face {
+  font-family: "pdfxyz Sans Fallback";
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  font-weight: 100 349;
+  size-adjust: 100.42%;
+  ascent-override: 100.08%;
+  descent-override: 29.38%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Sans Fallback";
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  font-weight: 350 449;
+  size-adjust: 102.05%;
+  ascent-override: 98.48%;
+  descent-override: 28.91%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Sans Fallback";
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  font-weight: 450 549;
+  size-adjust: 103.6%;
+  ascent-override: 97.01%;
+  descent-override: 28.47%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Sans Fallback";
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  font-weight: 550 649;
+  size-adjust: 99.41%;
+  ascent-override: 101.1%;
+  descent-override: 29.68%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Sans Fallback";
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  font-weight: 650 749;
+  size-adjust: 101.34%;
+  ascent-override: 99.17%;
+  descent-override: 29.11%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Sans Fallback";
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  font-weight: 750 900;
+  size-adjust: 103.46%;
+  ascent-override: 97.14%;
+  descent-override: 28.51%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Display Fallback";
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  font-weight: 100 349;
+  size-adjust: 103.24%;
+  ascent-override: 90.08%;
+  descent-override: 26.15%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Display Fallback";
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  font-weight: 350 449;
+  size-adjust: 104.55%;
+  ascent-override: 88.95%;
+  descent-override: 25.82%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Display Fallback";
+  src:
+    local("Arial"), local("ArialMT"), local("Liberation Sans"),
+    local("LiberationSans-Regular"), local("Arimo"), local("Arimo-Regular");
+  font-weight: 450 549;
+  size-adjust: 105.84%;
+  ascent-override: 87.87%;
+  descent-override: 25.51%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Display Fallback";
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  font-weight: 550 649;
+  size-adjust: 99.84%;
+  ascent-override: 93.15%;
+  descent-override: 27.04%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Display Fallback";
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  font-weight: 650 749;
+  size-adjust: 100.03%;
+  ascent-override: 92.97%;
+  descent-override: 26.99%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Display Fallback";
+  src:
+    local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
+    local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
+  font-weight: 750 900;
+  size-adjust: 102.32%;
+  ascent-override: 90.89%;
+  descent-override: 26.39%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Mono Fallback";
+  src:
+    local("Courier New"), local("CourierNewPSMT"), local("Liberation Mono"),
+    local("LiberationMono-Regular"), local("Cousine"), local("Cousine-Regular");
+  font-weight: 100 549;
+  size-adjust: 100.04%;
+  ascent-override: 100.46%;
+  descent-override: 29.49%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "pdfxyz Mono Fallback";
+  src:
+    local("Courier New Bold"), local("CourierNewPS-BoldMT"),
+    local("Liberation Mono Bold"), local("LiberationMono-Bold"),
+    local("Cousine Bold"), local("Cousine-Bold");
+  font-weight: 550 900;
+  size-adjust: 100.04%;
+  ascent-override: 100.46%;
+  descent-override: 29.49%;
+  line-gap-override: 0%;
+}
+
+/* ------------------------------------------------------------------ *
  *  Base
  * ------------------------------------------------------------------ */
 @layer base {
