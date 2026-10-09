@@ -253,3 +253,46 @@ describe("no GitHub Actions workflow carries a committed secret", () => {
     });
   }
 });
+
+/*
+ * Two loaded images do not fit beside ubuntu-latest's preinstalled
+ * toolchains. On 2026-10-09 publish.yml died loading the worker image ("no
+ * space left on device") once the worker gained the fonts its Office
+ * conversions draw in; container.yml's identical build had just fit on the
+ * PR. The set is DERIVED: every workflow that builds an image with
+ * `load: true` must free the runner disk before its FIRST such build.
+ */
+describe("image-loading workflows free the runner disk before building", () => {
+  /** Index of the first `load: true` build and of the disk-freeing step. */
+  const positions = (yaml: string) => ({
+    firstLoad: yaml.search(/^\s*load:\s*true\s*$/m),
+    freeDisk: yaml.search(/sudo rm -rf [^\n]*\/usr\/local\/lib\/android/),
+  });
+  const loaders = workflowFiles().filter(
+    (rel) => positions(read(rel)).firstLoad !== -1,
+  );
+
+  it("finds the image-loading workflows (health check)", () => {
+    expect(loaders).toContain(path.join(".github", "workflows", "publish.yml"));
+    expect(loaders).toContain(
+      path.join(".github", "workflows", "container.yml"),
+    );
+  });
+
+  for (const rel of loaders) {
+    it(`${rel}: frees disk before its first loaded image build`, () => {
+      const { firstLoad, freeDisk } = positions(read(rel));
+      expect(freeDisk, "no disk-freeing step").toBeGreaterThan(-1);
+      expect(freeDisk).toBeLessThan(firstLoad);
+    });
+  }
+
+  it("positive control: the same file without the step fails", () => {
+    const yaml = read(".github/workflows/publish.yml").replace(
+      /sudo rm -rf [^\n]*\/usr\/local\/lib\/android[^\n]*\n/,
+      "",
+    );
+    expect(positions(yaml).freeDisk).toBe(-1);
+    expect(positions(yaml).firstLoad).toBeGreaterThan(-1);
+  });
+});
