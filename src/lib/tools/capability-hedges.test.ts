@@ -83,6 +83,16 @@
  * refused as corrupted") or a bare "it opens" carries no deferral marker, and
  * either adjudicates a live capability just as surely. Nothing here sees them.
  *
+ * A review the same day found two more. The rule's main path had no positive
+ * control: mutated to skip every entry, the file stayed green (the six now go
+ * through `hedgeOffenders` itself). And the rewrite moved four of the six
+ * locations — the meta description, both use cases, step 4 — OUTSIDE the
+ * subject, because their new wording names neither PowerPoint opening nor
+ * refusing; a deferral put back there in other words ("it will not open
+ * yet") would have passed. A subject pattern recognises sentences ABOUT a
+ * capability, and on the page NAMED for the capability every sentence is, so
+ * that page is now read whole (`ownPages`).
+ *
  * ── HOW THE SETS ARE DERIVED (rule 4) ───────────────────────────────────────
  *
  * Neither set is typed:
@@ -98,7 +108,12 @@
  *   - the COPY comes from walking `tools` and calling the same accessors the
  *     page calls — `howToSteps`, `toolFacts`, `toolFaq` — so a new tool, a new
  *     fact, or a new FAQ answer is in the corpus the moment it exists. No slug
- *     is named here.
+ *     is named as a corpus; slugs appear only in assertions ABOUT a derived
+ *     set (which pages it found) and in the fixtures of what shipped.
+ *   - the pages a capability OWNS come from its own subject run over the tool
+ *     NAMES (`ownPages`), not from a list. Rename the tool out of the subject's
+ *     reach and the membership test goes red rather than the page dropping out
+ *     of scope.
  *
  * ── SCOPE, DELIBERATELY ─────────────────────────────────────────────────────
  *
@@ -364,6 +379,12 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     // the old one 15/23 (unchanged, all six deferrals among them), the new
     // one 11/23 including that answer, 0/26 of powerpoint-to-pdf's and 0
     // from any other tool or guide on either.
+    //
+    // Since the review of 2026-10-09 the pdf-to-powerpoint page is read WHOLE
+    // (`ownPages`), so on that page this pattern no longer decides what is
+    // read. It still decides it everywhere else — another tool's page, a
+    // guide — and "the subject still reaches the FAQ answer that needed its
+    // widening" pins the widening above, which nothing else would now miss.
     subject:
       /PDF to PowerPoint|pdf to (?:pptx|slides)|editable (?:PowerPoint )?slides?|\.pptx\b(?:[^.?!]|\.(?=\w)){0,40}\bopen|\bopen(?:s|ed)?\b(?:[^.?!]|\.(?=\w)){0,40}\bPowerPoint\b|\bPowerPoint\b(?:[^.?!]|\.(?=\w)){0,40}\b(?:open(?:s|ed)?|refus(?:e[sd]?|ing)|reject(?:s|ed|ing)?)\b|slide master|complete presentation/i,
     catalogueCopy: true,
@@ -448,9 +469,29 @@ const HEDGES: Record<string, RegExp> = {
 };
 
 /**
+ * The tool pages a capability OWNS: those whose NAME its subject matches.
+ *
+ * A subject recognises sentences ABOUT a capability, and on the page named for
+ * it every sentence is — step 4 of PDF to PowerPoint is about the .pptx
+ * whether or not it says "PowerPoint". Read from the `name` entries of the
+ * copy it is given, so a control passes its own; guides have a `title`, not a
+ * `name`, and own nothing (a guide is a task, not a capability's page).
+ * Measured 2026-10-09: `ocr` owns ocr-pdf and `pptxPresentationChain` owns
+ * pdf-to-powerpoint; no other capability owns a page, and both pages, read
+ * whole, carry no hedge.
+ */
+function ownPages(subject: RegExp, copy: readonly CopyEntry[]): Set<string> {
+  return new Set(
+    copy
+      .filter((entry) => entry.where === "name" && subject.test(entry.text))
+      .map((entry) => entry.slug),
+  );
+}
+
+/**
  * THE RULE, as a function so its control runs through the same code. Every
- * entry about a capability, and every answer whose QUESTION is about one, is
- * read for a deferral.
+ * entry about a capability, every entry on a page named for one, and every
+ * answer whose QUESTION is about one, is read for a deferral.
  */
 function hedgeOffenders(
   copy: readonly CopyEntry[],
@@ -474,16 +515,22 @@ function hedgeOffenders(
       continue;
     }
     const { subject } = pairing;
+    const owned = ownPages(subject, copy);
     for (const entry of copy) {
-      if (!subject.test(entry.text)) continue;
+      if (!owned.has(entry.slug) && !subject.test(entry.text)) continue;
       for (const shape of hedgesIn(entry.text))
         offenders.push(
           `${entry.slug} ${entry.where} hedges "${key}" with "${shape}": "${entry.text}"`,
         );
     }
     for (const pair of pairs) {
-      // An answer already in the subject was read above.
-      if (!subject.test(pair.question) || subject.test(pair.answer)) continue;
+      // An answer on an owned page, or already in the subject, was read above.
+      if (
+        owned.has(pair.slug) ||
+        !subject.test(pair.question) ||
+        subject.test(pair.answer)
+      )
+        continue;
       for (const shape of hedgesIn(pair.answer))
         offenders.push(
           `${pair.slug} ${pair.where} answers a question about "${key}" with "${shape}": "${pair.answer}"`,
@@ -769,6 +816,107 @@ describe("catalogue copy may not hedge a worker capability", () => {
     ).toEqual([
       `control faq[0] answers a question about "pptxPresentationChain" with "not at the moment": "${answer}"`,
     ]);
+  });
+
+  /* ---------------- a capability's own page, read whole --------------------- */
+
+  it("the pages capabilities own are derived from their names, and few", () => {
+    // Members, not a count. Both directions are red: a rename that takes a
+    // page out of its subject's reach (the page would silently drop back to
+    // per-sentence scope), and a subject that starts owning a page it should
+    // not (every sentence there would be read as about that capability).
+    const owners = Object.fromEntries(
+      Object.entries(SUBJECTS)
+        .map(
+          ([key, { subject }]) => [key, [...ownPages(subject, COPY)]] as const,
+        )
+        .filter(([, pages]) => pages.length > 0),
+    );
+    expect(owners).toEqual({
+      ocr: ["ocr-pdf"],
+      pptxPresentationChain: ["pdf-to-powerpoint"],
+    });
+    // And the PowerPoint page it found is the page the six deferrals shipped
+    // on: every location they were served at is a location on it.
+    const chain = SUBJECTS.pptxPresentationChain;
+    expect(chain).toBeDefined();
+    if (!chain) return;
+    const [page] = [...ownPages(chain.subject, COPY)];
+    const there = new Set(
+      COPY.filter((entry) => entry.slug === page).map((entry) => entry.where),
+    );
+    expect(
+      PPTX_DEFERRALS_SHIPPED.map(({ where }) => where).filter(
+        (where) => !there.has(where),
+      ),
+    ).toEqual([]);
+  });
+
+  it("a deferral planted on the PowerPoint page is caught where the subject cannot see it", () => {
+    const chain = SUBJECTS.pptxPresentationChain;
+    expect(chain).toBeDefined();
+    if (!chain) return;
+    const [page] = [...ownPages(chain.subject, COPY)];
+    expect(page).toBeDefined();
+    if (!page) return;
+    // Two of the four locations the rewrite moved outside the subject. The
+    // planted words name nothing the subject knows, as a respelled deferral
+    // would not.
+    const planted = "Remember that it will not open yet.";
+    const plant = (slug: string, where: string) => {
+      let replaced = 0;
+      const copy = COPY.map((entry) => {
+        if (entry.slug !== slug || entry.where !== where) return entry;
+        replaced += 1;
+        return { ...entry, text: `${entry.text} ${planted}` };
+      });
+      // A location that no longer exists would leave the copy clean, and the
+      // assertion below red for the wrong reason.
+      expect(replaced, `${slug} has no ${where}`).toBe(1);
+      const text = copy.find((e) => e.slug === slug && e.where === where)!;
+      // The hole: the subject does not see the planted entry at all.
+      expect(chain.subject.test(text.text)).toBe(false);
+      return hedgeOffenders(copy, faqPairs(copy)).map((line) =>
+        line.slice(0, line.indexOf(" hedges ")),
+      );
+    };
+    for (const where of ["how[3]", "useCases[1].body"])
+      expect(plant(page, where)).toEqual([`${page} ${where}`]);
+    // Read whole only on its OWN page. The same words on a page no capability
+    // owns are about nothing this rule reads, and stay out.
+    const owned = new Set(
+      Object.values(SUBJECTS).flatMap(({ subject }) => [
+        ...ownPages(subject, COPY),
+      ]),
+    );
+    const elsewhere = COPY.find(
+      (entry) => entry.where === "how[3]" && !owned.has(entry.slug),
+    );
+    expect(elsewhere).toBeDefined();
+    if (!elsewhere) return;
+    expect(plant(elsewhere.slug, "how[3]")).toEqual([]);
+  });
+
+  it("the subject still reaches the FAQ answer that needed its widening", () => {
+    // With the page read whole, narrowing the subject back would pass every
+    // other test here: on pdf-to-powerpoint the subject no longer decides what
+    // is read. It still does everywhere else, so the widening is pinned on the
+    // sentence it was made for.
+    const chain = SUBJECTS.pptxPresentationChain;
+    expect(chain).toBeDefined();
+    if (!chain) return;
+    const question = "Will the .pptx open in PowerPoint?";
+    const asked = FAQ_PAIRS.filter((pair) => pair.question === question);
+    expect(asked, `no page asks "${question}" any more`).toHaveLength(1);
+    const answer = asked[0]!.answer;
+    expect(chain.subject.test(answer)).toBe(true);
+    // Positive control: the subject as it was before the widening does NOT
+    // reach this answer, so the line above holds the widening and not some
+    // other alternative. If this goes red, the answer was reworded into the
+    // old subject's reach: pin the widening on a sentence that still needs it.
+    const BEFORE_WIDENING =
+      /PDF to PowerPoint|pdf to (?:pptx|slides)|editable (?:PowerPoint )?slides?|\.pptx\b[^.?!]{0,40}\bopen|\bopen(?:s|ed)?\b[^.?!]{0,40}\bPowerPoint\b|\bPowerPoint\b[^.?!]{0,40}\b(?:open|refuses?|rejects?)\b|slide master|complete presentation/i;
+    expect(BEFORE_WIDENING.test(answer)).toBe(false);
   });
 
   /* ---------------- the inverted defect ------------------------------------- */
