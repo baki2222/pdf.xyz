@@ -12,6 +12,7 @@
 import { PDFDocument } from "pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import {
+  CHAT_PROOF_PAGES,
   PROOF_MEMO_PAGES,
   PROOF_MEMO_SENTENCES,
   PROOF_MEMO_TITLE,
@@ -52,45 +53,23 @@ export async function memoProofPdf(): Promise<Uint8Array> {
  */
 export async function chatProofPdf(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  // Distinct, factual sentences rather than one repeated line: a provider may
-  // collapse trivially repetitive text, and the follow-up question should
-  // have a real document to be about.
-  const topics = [
-    "retention",
-    "encryption",
-    "signed uploads",
-    "queue draining",
-    "artifact expiry",
-    "malware scanning",
-    "structural preflight",
-    "sandbox isolation",
-    "egress policy",
-    "language packs",
-    "confidence scoring",
-    "prompt caching",
-  ];
-  const headings: string[] = [];
-  const pages: string[][] = [];
-  for (let p = 0; p < 6; p++) {
-    headings.push(`pdf.xyz platform notes — section ${p + 1}`);
-    const lines: string[] = [];
-    for (let line = 0; line < 34; line++) {
-      const topic = topics[(p * 34 + line) % topics.length];
-      lines.push(
-        `Section ${p + 1} paragraph ${line + 1} records how ${topic} behaves on the ` +
-          `secure worker, and why it is reported rather than assumed.`,
-      );
-    }
-    pages.push(lines);
-  }
-  const font = await embedDrawingFont(doc, pages.flat());
-  const bold = await embedDrawingFont(doc, headings, "sans-bold");
-  pages.forEach((lines, p) => {
+  // The notes, with the two facts the chat proof asks about planted on page
+  // 2, are one definition in `@/lib/probes/ai-proof-content`.
+  const font = await embedDrawingFont(
+    doc,
+    CHAT_PROOF_PAGES.flatMap((p) => p.lines),
+  );
+  const bold = await embedDrawingFont(
+    doc,
+    CHAT_PROOF_PAGES.map((p) => p.heading),
+    "sans-bold",
+  );
+  for (const { heading, lines } of CHAT_PROOF_PAGES) {
     const page = doc.addPage([595, 842]);
-    page.drawText(headings[p]!, { x: 60, y: 790, size: 14, font: bold });
+    page.drawText(heading, { x: 60, y: 790, size: 14, font: bold });
     lines.forEach((text, line) => {
       page.drawText(text, { x: 60, y: 760 - line * 21, size: 9, font });
     });
-  });
+  }
   return doc.save();
 }

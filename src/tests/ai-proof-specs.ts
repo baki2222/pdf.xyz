@@ -17,7 +17,18 @@ import {
   PROOF_EXTRACTION_SCHEMA,
   verifyExtractionProof,
 } from "@/lib/probes/extraction-proof";
-import JSZip from "jszip";
+import {
+  CHAT_PROOF_FOLLOW_UP,
+  CHAT_PROOF_OPENING,
+  PROOF_TRANSLATION_TARGET,
+  verifyChatProof,
+  verifySummaryProof,
+  verifyTranslationProof,
+} from "@/lib/probes/ai-proof-content";
+import {
+  buildChatContext,
+  readAnswerFromPackage,
+} from "@/lib/workers/chat-with-pdf-conversation";
 import { proofTablePdf } from "./extraction-proof-fixtures";
 import { chatProofPdf, memoProofPdf } from "./ai-proof-fixtures";
 
@@ -43,53 +54,14 @@ export interface AiProofSpec {
     readonly build: (bytes: Uint8Array) => Promise<Record<string, unknown>>;
   };
   readonly want: string;
-  /** What is INSIDE the package, once the container shape has passed. */
-  readonly verify?: (bytes: Uint8Array) => Promise<AiProofVerdict>;
+  /**
+   * What is INSIDE the package, once the container shape has passed. Required:
+   * every AI tool returns a ZIP, so the container says only "a ZIP came back",
+   * which was all summarize-pdf and translate-pdf were proven by until
+   * 2026-10-09 (`@/lib/probes/ai-proof-content`).
+   */
+  readonly verify: (bytes: Uint8Array) => Promise<AiProofVerdict>;
   readonly keepArtifactAs?: string;
-}
-
-/**
- * The slice of `chat-with-pdf`'s `manifest.json` this proof reads. Counts only —
- * the harness never prints the answer text.
- */
-interface ChatProofManifest {
-  question?: string;
-  contextTurns?: number;
-  usage?: { input?: number; output?: number; cachedInput?: number };
-}
-
-/** Read `manifest.json` + `answer.txt` out of a chat answer ZIP. */
-async function readChatAnswer(
-  zipBytes: Uint8Array,
-): Promise<{ manifest: ChatProofManifest; answer: string }> {
-  const zip = await JSZip.loadAsync(zipBytes);
-  const manifestFile = zip.file("manifest.json");
-  const answerFile = zip.file("answer.txt");
-  if (!manifestFile || !answerFile) {
-    throw new Error("the answer ZIP is missing manifest.json or answer.txt");
-  }
-  const manifest = JSON.parse(
-    await manifestFile.async("string"),
-  ) as ChatProofManifest;
-  return { manifest, answer: (await answerFile.async("string")).trim() };
-}
-
-/**
- * The contract caps one turn at `MAX_TURN_CHARS` (4000) and `POST /api/jobs` caps the
- * whole options object at 8 KB of UTF-8, so a long answer has to be shortened before
- * it can travel back as context — exactly what the browser-side builder does. Kept
- * well under both so this proof fails on the worker's behaviour, never on a bound.
- */
-const PROOF_TURN_CHARS = 1500;
-
-/** Report token accounting without ever printing text. */
-function usageNote(m: ChatProofManifest): string {
-  if (!m.usage) return "usage not reported";
-  const cached = m.usage.cachedInput;
-  return (
-    `input=${m.usage.input ?? "?"} output=${m.usage.output ?? "?"} ` +
-    `cachedInput=${cached ?? 0}${cached ? "" : " (no cache read)"}`
-  );
 }
 
 // The AI tools run only when an operator has configured a provider; with none
@@ -103,13 +75,22 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
     name: "report.pdf",
     options: { length: "brief", format: "paragraphs" },
     want: "summary ZIP",
+    // A summary OF THE MEMO: not empty, not the memo echoed, naming what it
+    // is about. A ZIP alone passed this spec until 2026-10-09.
+    verify: (bytes) => verifySummaryProof(bytes),
   },
   {
     tool: "translate-pdf",
     make: memoProofPdf,
     name: "letter.pdf",
-    options: { targetLanguage: "es", sourceLanguage: "auto" },
+    options: {
+      targetLanguage: PROOF_TRANSLATION_TARGET,
+      sourceLanguage: "auto",
+    },
     want: "translation ZIP",
+    // Spanish, of the memo: not empty, not the memo echoed, not its English,
+    // keeping its names. A ZIP alone passed this spec until 2026-10-09.
+    verify: (bytes) => verifyTranslationProof(bytes),
   },
   {
     tool: "ai-extract",
@@ -134,24 +115,16 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
     tool: "chat-with-pdf",
     make: chatProofPdf,
     name: "doc.pdf",
-    options: { question: "In one sentence, what is this document for?" },
+    // A question the notes answer, and only with the team planted in them.
+    // Until 2026-10-09 it asked "what is this document for?", which any
+    // fluent sentence answers, and the check read the turn count alone.
+    options: { question: CHAT_PROOF_OPENING.question },
     want: "answer ZIP",
-    // Pins the OPENING turn as context-free. Without this the follow-up below could
-    // pass while every request silently carried the same context, and neither spec
-    // would notice.
-    verify: async (bytes) => {
-      const { manifest } = await readChatAnswer(bytes);
-      const turns = manifest.contextTurns ?? -1;
-      return turns === 0
-        ? {
-            ok: true,
-            detail: `contextTurns=0 (opening turn), ${usageNote(manifest)}`,
-          }
-        : {
-            ok: false,
-            detail: `opening turn reported contextTurns=${turns}, wanted 0`,
-          };
-    },
+    // Pins the OPENING turn as context-free — without it the follow-up below
+    // could pass while every request silently carried the same context — and
+    // its answer as THE NOTES' answer to THIS question.
+    verify: (bytes) =>
+      verifyChatProof(bytes, { ...CHAT_PROOF_OPENING, contextTurns: 0 }),
     keepArtifactAs: "chat-answer-1",
   },
   // The conversation itself. `chat-with-pdf` accepted prior turns on the wire long
@@ -176,32 +149,31 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
     name: "doc.pdf",
     optionsFrom: {
       artifact: "chat-answer-1",
+      // As the panel builds it: the answer read back with the browser's own
+      // reader, the turns with the browser's own builder. Until 2026-10-09
+      // this sent answer.txt whole — "Q: … A: …" — as the assistant turn,
+      // cut at a length of its own, which no browser ever sends.
       build: async (bytes) => {
-        const { manifest, answer } = await readChatAnswer(bytes);
-        const asked =
-          manifest.question ?? "In one sentence, what is this document for?";
+        const answer = await readAnswerFromPackage(
+          bytes,
+          CHAT_PROOF_OPENING.question,
+        );
+        if (answer === null)
+          throw new Error(
+            "the opening answer could not be read back as the browser reads it",
+          );
         return {
-          question: "Which document were you just asked about?",
-          context: [
-            { role: "user", content: asked.slice(0, PROOF_TURN_CHARS) },
-            { role: "assistant", content: answer.slice(0, PROOF_TURN_CHARS) },
-          ],
+          question: CHAT_PROOF_FOLLOW_UP.question,
+          context: buildChatContext([
+            { question: CHAT_PROOF_OPENING.question, answer },
+          ]).turns,
         };
       },
     },
     want: "answer ZIP",
-    verify: async (bytes) => {
-      const { manifest } = await readChatAnswer(bytes);
-      const turns = manifest.contextTurns ?? -1;
-      return turns === 2
-        ? {
-            ok: true,
-            detail: `contextTurns=2 (conversation held), ${usageNote(manifest)}`,
-          }
-        : {
-            ok: false,
-            detail: `follow-up reported contextTurns=${turns}, wanted 2 — prior turns did not reach the worker`,
-          };
-    },
+    // Both turns reached the worker, and "that team" was answered from the
+    // notes: the channel only that team's line names.
+    verify: (bytes) =>
+      verifyChatProof(bytes, { ...CHAT_PROOF_FOLLOW_UP, contextTurns: 2 }),
   },
 ];
