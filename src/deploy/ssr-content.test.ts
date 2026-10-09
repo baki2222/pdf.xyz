@@ -24,7 +24,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { getAllToolSlugs } from "@/lib/tools";
+import { categories, getAllToolSlugs, getToolsByCategory } from "@/lib/tools";
 import { prerenderedPages } from "../../scripts/page-weight";
 import {
   pageContent,
@@ -202,6 +202,30 @@ describe("the build keeps every piece of server-rendered content the baseline re
     const home = new Set(pages["index.html"]!.links);
     expect(
       getAllToolSlugs().filter((slug) => !home.has(`/tools/${slug}`)),
+    ).toEqual([]);
+  });
+
+  it("the /tools hub serves the whole catalogue, unfiltered, whatever a query will rank", () => {
+    if (!built) return;
+    // The explorer ranks `?q=` after hydration; the server never sees the
+    // query, so the served page must be the complete catalogue a crawler
+    // reads — every tool linked, every category's heading — and none of the
+    // headings only a query renders. Derived from the catalogue, not typed.
+    const page = snapshotBuild(NEXT_DIR).pages["tools.html"]!;
+    const links = new Set(page.links);
+    expect(
+      getAllToolSlugs().filter((slug) => !links.has(`/tools/${slug}`)),
+    ).toEqual([]);
+    const missing = categories
+      .filter((category) => getToolsByCategory(category.id).length > 0)
+      .filter((category) => !page.h2.some((h) => h.startsWith(category.name)));
+    expect(missing.map((c) => c.name)).toEqual([]);
+    expect(
+      page.h2.filter((h) =>
+        /^(?:Best matches|Closest matches|Nothing matches|No tool here opens|Search results)/.test(
+          h,
+        ),
+      ),
     ).toEqual([]);
   });
 

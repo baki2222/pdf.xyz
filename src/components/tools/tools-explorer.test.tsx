@@ -18,6 +18,7 @@ import {
   ToolsExplorer,
   resultAnnouncement,
 } from "./tools-explorer";
+import { toolAcceptsFormat } from "@/lib/intent/formats";
 import { categories, getToolsByCategory, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
 
@@ -60,11 +61,17 @@ describe("ToolsExplorer headings", () => {
     expect(levels.filter((l) => l === 3)).toHaveLength(tools.length);
   });
 
-  it("a search is one flat list under a hidden 'Search results' H2", () => {
+  it("a search is one ranked list under a visible H2 that says what kind of answer it is", () => {
+    // INVERTED 2026-10-09. This pinned a visually hidden "Search results"
+    // heading over an unranked filter of the grid. The list is ranked now,
+    // and it can be the best matches or only the closest ones, so the
+    // heading a sighted reader sees says which — and it is still the one H2
+    // the cards sit under.
     render(<ToolsExplorer />);
     fireEvent.change(search(), { target: { value: "pdf" } });
     const h2s = screen.getAllByRole("heading", { level: 2 });
-    expect(h2s.map((h) => h.textContent)).toEqual(["Search results"]);
+    expect(h2s.map((h) => h.textContent)).toEqual(["Best matches for “pdf”"]);
+    expect(h2s[0]!.className).not.toMatch(/\bsr-only\b/);
   });
 });
 
@@ -136,5 +143,168 @@ describe("ToolsExplorer deep links (read in the browser, not on the server)", ()
     expect(window.location.search).toBe("?category=ai");
     fireEvent.click(screen.getByRole("button", { name: /^All tools/ }));
     expect(window.location.search).toBe("");
+  });
+});
+
+/** The tool pages the explorer currently links, in order. */
+const toolLinks = () =>
+  screen
+    .queryAllByRole("link")
+    .map((a) => a.getAttribute("href"))
+    .filter((h): h is string => Boolean(h?.match(/^\/tools\/[a-z0-9-]+$/)));
+
+/**
+ * The ranked search, as the reader receives it — deep links rendered after
+ * hydration, the way `/tools?q=` arrives from the WebSite SearchAction.
+ * The served HTML stays the whole catalogue (`ssr-content.test.ts` holds
+ * that); these are the acceptance checks the redesign spec wrote for "the
+ * served HTML", moved to where the ranking actually happens.
+ */
+describe("ToolsExplorer ranked search", () => {
+  it("/tools?q=pdf%20jpg puts PDF to JPG first, under 'Best matches'", () => {
+    window.history.replaceState(null, "", "/tools?q=pdf%20jpg");
+    render(<ToolsExplorer />);
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "Best matches for “pdf jpg”",
+      }),
+    ).toBeInTheDocument();
+    expect(toolLinks()[0]).toBe("/tools/pdf-to-jpg");
+  });
+
+  it("/tools?q=heic answers that nothing opens HEIC, and never offers Webpage to PDF", () => {
+    window.history.replaceState(null, "", "/tools?q=heic");
+    render(<ToolsExplorer />);
+    const answer = screen.getByRole("region", {
+      name: "No tool here opens HEIC photos.",
+    });
+    expect(
+      within(answer).getByText(/Save a JPG copy first\./),
+    ).toBeInTheDocument();
+    expect(
+      within(answer).getByRole("link", { name: /JPG to PDF/ }),
+    ).toHaveAttribute("href", "/tools/jpg-to-pdf");
+    expect(toolLinks()).not.toContain("/tools/webpage-to-pdf");
+    // Every card heading still sits under an H2.
+    expect(headingLevels(document.body)[0]).toBe(2);
+  });
+
+  it("labels the fallback: a query no tool matches in full shows 'Closest matches'", () => {
+    window.history.replaceState(null, "", "/tools?q=merge%20zzqx");
+    render(<ToolsExplorer />);
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "Closest matches for “merge zzqx”",
+      }),
+    ).toBeInTheDocument();
+    expect(toolLinks()[0]).toBe("/tools/merge-pdf");
+  });
+
+  it("an empty result says so, offers the nearest names and the guides, and resets", () => {
+    window.history.replaceState(null, "", "/tools?q=mregee");
+    render(<ToolsExplorer />);
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "Nothing matches “mregee”",
+      }),
+    ).toBeInTheDocument();
+    expect(toolLinks()).toEqual(["/tools/merge-pdf"]);
+    expect(screen.getByRole("link", { name: /guides/i })).toHaveAttribute(
+      "href",
+      "/guides",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /reset filters/i }));
+    expect(toolLinks()).toHaveLength(tools.length);
+  });
+
+  it("noise gets no guesses", () => {
+    window.history.replaceState(null, "", "/tools?q=zzzz");
+    render(<ToolsExplorer />);
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Nothing matches “zzzz”" }),
+    ).toBeInTheDocument();
+    expect(toolLinks()).toEqual([]);
+  });
+
+  it("an archive's answer leads to the tools that take what is inside", () => {
+    window.history.replaceState(null, "", "/tools?q=zip");
+    render(<ToolsExplorer />);
+    const takesPdf = tools.filter((t) => toolAcceptsFormat(t.accept, "PDF"));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Show the ${takesPdf.length} tools that take PDF`,
+      }),
+    );
+    expect(window.location.search).toBe("?accepts=pdf");
+    expect(new Set(toolLinks())).toEqual(
+      new Set(takesPdf.map((t) => `/tools/${t.slug}`)),
+    );
+  });
+});
+
+describe("ToolsExplorer ?accepts=", () => {
+  it("shows only the tools that take the format, with a chip that removes the filter", () => {
+    window.history.replaceState(null, "", "/tools?accepts=docx");
+    render(<ToolsExplorer />);
+    const expected = tools
+      .filter((t) => toolAcceptsFormat(t.accept, "DOCX"))
+      .map((t) => `/tools/${t.slug}`);
+    expect(expected.length).toBeGreaterThan(0);
+    expect(toolLinks()).toEqual(expected);
+    fireEvent.click(screen.getByRole("button", { name: /takes docx/i }));
+    expect(toolLinks()).toHaveLength(tools.length);
+    expect(window.location.search).toBe("");
+  });
+
+  it("reads any spelling of the format, and keeps it through a category click", () => {
+    window.history.replaceState(null, "", "/tools?accepts=JPEG");
+    render(<ToolsExplorer />);
+    expect(
+      screen.getByRole("button", { name: /takes jpg/i }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^All tools/ }));
+    expect(window.location.search).toBe("?accepts=jpg");
+  });
+
+  it("negative control: an unknown or unsupported format filters nothing and shows no chip", () => {
+    for (const value of ["bogus", "heic"]) {
+      window.history.replaceState(null, "", `/tools?accepts=${value}`);
+      const { unmount } = render(<ToolsExplorer />);
+      expect(toolLinks(), value).toHaveLength(tools.length);
+      expect(
+        screen.queryByRole("button", { name: /^takes/i }),
+        value,
+      ).toBeNull();
+      unmount();
+    }
+  });
+});
+
+describe("resultAnnouncement", () => {
+  it("says which kind of answer it is", () => {
+    const state = {
+      category: "all" as const,
+      query: "merge zzqx",
+      accepts: null,
+    };
+    expect(resultAnnouncement(3, state, { mode: "closest" })).toBe(
+      "No tool matches every word of “merge zzqx”. 3 closest matches",
+    );
+    expect(
+      resultAnnouncement(2, { category: "all", query: "", accepts: "DOCX" }),
+    ).toBe("2 tools take DOCX");
+    expect(
+      resultAnnouncement(0, { category: "ai", query: "", accepts: "DOCX" }),
+    ).toBe("No tools take DOCX in AI Tools");
+    expect(
+      resultAnnouncement(
+        0,
+        { category: "all", query: "heic", accepts: null },
+        { unsupported: "No tool here opens HEIC photos." },
+      ),
+    ).toBe("No tool here opens HEIC photos. No tools match “heic”");
   });
 });

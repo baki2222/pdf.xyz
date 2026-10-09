@@ -95,8 +95,13 @@ describe("pages are prerenderable", () => {
     expect(parseToolsQuery("?category=ai&q=chat")).toEqual({
       category: "ai",
       query: "chat",
+      accepts: null,
     });
     expect(parseToolsQuery("?category=bogus").category).toBe("all");
+    // ?accepts= is read here too, never by the page: a known format, in any
+    // spelling, or nothing at all.
+    expect(parseToolsQuery("?accepts=jpeg").accepts).toBe("JPG");
+    expect(parseToolsQuery("?accepts=bogus").accepts).toBeNull();
     const summaries = [{ slug: "merge-pdf" }];
     expect(deepLinkedToolSlug("?tool=merge-pdf", summaries)).toBe("merge-pdf");
     expect(deepLinkedToolSlug("?tool=not-a-tool", summaries)).toBeUndefined();
