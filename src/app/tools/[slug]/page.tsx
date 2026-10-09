@@ -1,14 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  FileDown,
-  FileUp,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ShieldCheck } from "lucide-react";
 import { getAllToolSlugs, getRelatedTools, getToolBySlug } from "@/lib/tools";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
@@ -19,6 +12,7 @@ import { ToolIcon } from "@/components/ui/tool-icon";
 import { ToolBadgePill } from "@/components/ui/badge";
 import { ToolCard } from "@/components/tools/tool-card";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
+import { FormatsLine } from "@/components/tools/formats-line";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { WORKER_PANELS } from "@/components/tools/worker-panels";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
@@ -158,8 +152,9 @@ export default async function ToolPage({
       {steps.map((step, i) => (
         <li key={i} className="flex items-start gap-3">
           {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
-              theme ground — 16.4:1 here, and correct inside any future scope. */}
-          <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
+              theme ground — 16.4:1 here, and correct inside any future scope.
+              Square since WP-06: a number that counts a step is a tag. */}
+          <span className="bg-invert text-fg-invert rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold">
             {i + 1}
           </span>
           <span className="text-muted text-sm leading-relaxed">
@@ -173,17 +168,45 @@ export default async function ToolPage({
     </ol>
   );
 
-  const formatChips = (
-    <div className="flex flex-wrap items-center gap-2">
-      <ProcessingBadge mode={tool.processing} variant="long" />
-      <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-[11px]">
-        <FileUp className="text-faint size-3.5" aria-hidden />
-        In: {tool.accept.join(", ")}
+  /*
+   * The facts a reader checks before they pick a file: where the tool runs
+   * and what goes in and out. One line, so on a phone the panel sits right
+   * under the tool's name; it may scroll sideways rather than wrap, and
+   * `e2e/tool-layout.mobile.spec.ts` holds that on every tool page today it
+   * never has to.
+   */
+  const factsRow = (
+    <div
+      data-tool-facts
+      className="-mx-5 flex [scrollbar-width:none] items-center gap-3 overflow-x-auto px-5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
+    >
+      <ProcessingBadge
+        mode={tool.processing}
+        variant="long"
+        className="shrink-0"
+      />
+      <span className="border-line bg-wash rounded-tag inline-flex shrink-0 items-center border px-2.5 py-1">
+        <FormatsLine tool={tool} />
       </span>
-      <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-[11px]">
-        <FileDown className="text-faint size-3.5" aria-hidden />
-        Out: {tool.outputs.join(", ")}
-      </span>
+    </div>
+  );
+
+  /** The tool's name, what it does, and its facts: first on every layout. */
+  const head = (
+    <div className="flex flex-col gap-4 sm:gap-5">
+      <div className="flex items-start gap-4">
+        <ToolIcon icon={tool.icon} size="lg" />
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
+              {tool.name}
+            </h1>
+            {tool.badge && <ToolBadgePill badge={tool.badge} />}
+          </div>
+          <p className="text-muted text-base">{tool.tagline}</p>
+        </div>
+      </div>
+      {factsRow}
     </div>
   );
 
@@ -205,7 +228,7 @@ export default async function ToolPage({
             : []),
         ]}
       />
-      <Container className="flex flex-col gap-10">
+      <Container className="flex flex-col gap-6 sm:gap-10">
         <nav
           aria-label="Breadcrumb"
           className="text-muted flex items-center gap-2 text-sm"
@@ -229,25 +252,14 @@ export default async function ToolPage({
         </nav>
 
         {runnerKind ? (
-          /* ── Workbench layout: interactive, client-side tool runner ── */
-          <div className="flex flex-col gap-8">
-            <div className="flex flex-col gap-5">
-              <div className="flex items-start gap-4">
-                <ToolIcon icon={tool.icon} size="lg" />
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
-                      {tool.name}
-                    </h1>
-                    {tool.badge && <ToolBadgePill badge={tool.badge} />}
-                  </div>
-                  <p className="text-muted text-base">{tool.tagline}</p>
-                </div>
-              </div>
-              {formatChips}
-            </div>
+          /* ── Workbench: the in-browser runner, under the head ── */
+          <div className="flex flex-col gap-6 sm:gap-8">
+            {head}
 
-            <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
+            <div
+              data-tool-panel
+              className="border-line bg-panel rounded-panel flex flex-col gap-5 border p-5 sm:p-7"
+            >
               <div className="text-ok flex items-center gap-2 text-sm">
                 <ShieldCheck className="size-4" aria-hidden />
                 {/* Gated on the PROPERTY (can this file leave the device?),
@@ -267,7 +279,7 @@ export default async function ToolPage({
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2">
-              <div className="border-line bg-panel flex flex-col gap-3 rounded-[4px] border p-5">
+              <div className="border-line bg-panel rounded-panel flex flex-col gap-3 border p-5">
                 <h2 className="text-faint kicker">About this tool</h2>
                 {intro.map((paragraph, i) => (
                   <p
@@ -283,7 +295,7 @@ export default async function ToolPage({
                 {useCaseList}
               </div>
               {steps.length > 0 && (
-                <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+                <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
                   <h2 className="text-faint kicker">How it works</h2>
                   {stepList}
                 </div>
@@ -291,22 +303,29 @@ export default async function ToolPage({
             </div>
           </div>
         ) : (
-          /* ── Overview layout: polished, implementation-ready placeholder ── */
-          <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:items-start">
-            <div className="flex flex-col gap-6">
-              <div className="flex items-start gap-4">
-                <ToolIcon icon={tool.icon} size="lg" />
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
-                      {tool.name}
-                    </h1>
-                    {tool.badge && <ToolBadgePill badge={tool.badge} />}
-                  </div>
-                  <p className="text-muted text-base">{tool.tagline}</p>
-                </div>
-              </div>
+          /*
+           * ── Worker and AI tools: head, panel, details ──
+           * DOM order is head → panel → details, so on a phone the panel
+           * comes right after the tool's name (it was under the whole
+           * introduction: 2,192px down on Word to PDF at 390px). From `lg`
+           * the grid areas put the panel in a sticky column beside the head
+           * and the details, as before.
+           */
+          <div className="grid gap-10 [grid-template-areas:'head'_'panel'_'details'] lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-y-6 lg:[grid-template-areas:'head_panel'_'details_panel']">
+            <div className="[grid-area:head]">{head}</div>
 
+            <div
+              data-tool-panel
+              className="self-start [grid-area:panel] lg:sticky lg:top-24"
+            >
+              {panel && (
+                <ErrorBoundary boundary={panel.boundary}>
+                  <panel.Panel tool={tool} />
+                </ErrorBoundary>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-6 [grid-area:details]">
               {intro.map((paragraph, i) => (
                 <p
                   key={i}
@@ -316,9 +335,7 @@ export default async function ToolPage({
                 </p>
               ))}
 
-              {formatChips}
-
-              <p className="border-line bg-wash text-muted rounded-[4px] border p-4 text-sm leading-relaxed">
+              <p className="border-line bg-wash text-muted rounded-panel border p-4 text-sm leading-relaxed">
                 {processing.description}
               </p>
 
@@ -336,21 +353,13 @@ export default async function ToolPage({
                 </div>
               )}
             </div>
-
-            <div className="lg:sticky lg:top-24">
-              {panel && (
-                <ErrorBoundary boundary={panel.boundary}>
-                  <panel.Panel tool={tool} />
-                </ErrorBoundary>
-              )}
-            </div>
           </div>
         )}
 
         {(facts.length > 0 || faq.length > 0) && (
           <div className="grid gap-6 sm:grid-cols-2">
             {facts.length > 0 && (
-              <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+              <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
                 <h2 className="text-faint kicker">What this tool can do</h2>
                 <dl className="flex flex-col gap-3">
                   {facts.map((fact) => (
@@ -367,7 +376,7 @@ export default async function ToolPage({
               </div>
             )}
             {faq.length > 0 && (
-              <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+              <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
                 <h2 className="text-faint kicker">Common questions</h2>
                 {faq.map((entry) => (
                   <div key={entry.question} className="flex flex-col gap-1.5">
@@ -431,7 +440,7 @@ export default async function ToolPage({
                 <Link
                   key={guide.slug}
                   href={`/guides/${guide.slug}`}
-                  className="border-line bg-panel hover:border-line-strong flex flex-col gap-2 rounded-[4px] border p-5 transition-colors"
+                  className="border-line bg-panel hover:border-line-strong rounded-panel flex flex-col gap-2 border p-5 transition-colors"
                 >
                   <span className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">
                     {role === "primary"

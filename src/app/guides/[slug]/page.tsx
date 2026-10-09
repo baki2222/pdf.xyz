@@ -176,7 +176,9 @@ export default async function GuidePage({
             <ol className="flex flex-col gap-3">
               {guide.steps.map((step, index) => (
                 <li key={step} className="flex items-start gap-3">
-                  <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
+                  {/* Square, like the tool pages' step numbers (D.9): a
+                      number that counts a step is a tag. */}
+                  <span className="bg-invert text-fg-invert rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold">
                     {index + 1}
                   </span>
                   <span className={PROSE}>{step}</span>
