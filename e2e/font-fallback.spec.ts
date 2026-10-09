@@ -209,7 +209,7 @@ test.describe("fallback faces", () => {
 
   test("set the site's own text within 1.5% of the real face, at every weight it uses", async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(120_000);
     const all = new Map<string, Group>();
     const unfollowed = new Set<string>();
@@ -230,6 +230,13 @@ test.describe("fallback faces", () => {
           `fallback/real ${ratio(g).toFixed(4)}`,
       )
       .join("\n");
+    // The measured table travels with every run, green or red: a re-fit of
+    // globals.css's size-adjust values is computed from it.
+    await testInfo.attach("fallback widths", {
+      body: table,
+      contentType: "text/plain",
+    });
+    console.log(`fallback widths:\n${table}`);
 
     // HEALTH. Every web face the pages render is followed by a local() face,
     // and each of those resolves to an installed font. Otherwise the widths
