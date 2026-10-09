@@ -60,7 +60,8 @@ export const MIME_BY_FORMAT: Record<string, readonly string[]> = {
  * spelling, plus the two extra spellings an in-browser runner already opens:
  * `.text` (Text to PDF) and `.mdown` (Markdown to PDF). Recognising a file by
  * a narrower list than its runner would only cost a pick; a WIDER one would
- * carry a file the runner refuses.
+ * carry a file the runner refuses, which `capability.test.ts` holds against
+ * every runner's own check.
  */
 export const EXTENSIONS_BY_FORMAT: Record<string, readonly string[]> = {
   PDF: ["pdf"],
