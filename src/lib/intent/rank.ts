@@ -210,7 +210,7 @@ function boostFor(
   tool: ToolIndexEntry,
   opens: readonly FileFacts[],
   pdfsInMix: number,
-): { points: number; evidence: Evidence } | null {
+): { points: number; evidence: Evidence; file: FileFacts } | null {
   const probed = opens
     .filter(isPdf)
     .map((f) => ({ f, probe: probeOf(f) }))
@@ -221,6 +221,7 @@ function boostFor(
         const range = imageOnlyRange(probe!);
         if (range)
           return {
+            file: f,
             points: NO_TEXT_BOOST,
             evidence: {
               kind: "no-text",
@@ -237,6 +238,7 @@ function boostFor(
         .sort((a, b) => b.probe!.formFields! - a.probe!.formFields!)[0];
       return most
         ? {
+            file: most.f,
             points: FORM_BOOST,
             evidence: {
               kind: "fields",
@@ -250,6 +252,7 @@ function boostFor(
       const largest = [...opens].sort((a, b) => b.size - a.size)[0];
       return largest && largest.size >= BIG_FILE_BYTES
         ? {
+            file: largest,
             points: BIG_FILE_BOOST,
             evidence: {
               kind: "big-file",
@@ -265,6 +268,7 @@ function boostFor(
         .sort((a, b) => b.probe!.pages! - a.probe!.pages!)[0];
       return longest
         ? {
+            file: longest.f,
             points: LONG_DOC_BOOST,
             evidence: {
               kind: "long",
@@ -319,8 +323,18 @@ export function rankForFiles<T extends ToolIndexEntry>(
   index: readonly T[],
   ctx: RankContext = {},
 ): Ranking<T> {
-  const total = facts.length;
   const usable = facts.filter((f) => !f.contradicted);
+  // The files some tool here can open. One that none can (a HEIC, a renamed
+  // file, a format nothing reads) is answered by its own note, and must not
+  // count against every tool in "opens 2 of your 3 files" or the mix share.
+  const total = Math.max(
+    1,
+    usable.filter(
+      (f) =>
+        f.format !== null &&
+        index.some((t) => toolAcceptsFormat(t.accept, f.format)),
+    ).length,
+  );
   const anyJpg = usable.some((f) => f.format === "JPG");
   const pdfsInMix = usable.filter(isPdf).length;
   const trail = new Set(ctx.trail ?? []);
@@ -378,13 +392,19 @@ export function rankForFiles<T extends ToolIndexEntry>(
     if (within.length === 0) continue;
 
     const reasons = within.map((f) => blockFor(tool, f));
-    const opens = within.filter((_, i) => reasons[i] === null);
+    const open = within.filter((_, i) => reasons[i] === null);
     const blocked: Blocked | null =
-      opens.length > 0
+      open.length > 0
         ? null
         : reasons.includes("unlock-first")
           ? "unlock-first"
           : "repair-first";
+    // The file a measured fact names goes first, so a one-file tool carries
+    // the file that justified it, not whichever was staged first.
+    const boost = blocked ? null : boostFor(tool, open, pdfsInMix);
+    const opens = boost
+      ? [boost.file, ...open.filter((f) => f !== boost.file)]
+      : open;
     const basis = blocked ? within : opens;
 
     // What a launch carries — the gate's rule, from the index's fields.
@@ -405,7 +425,6 @@ export function rankForFiles<T extends ToolIndexEntry>(
     else if (ctx.pending === tool.slug) pinned = "pending";
     else if (ctx.currentTool === tool.slug) pinned = "current";
 
-    const boost = blocked ? null : boostFor(tool, opens, pdfsInMix);
     const recent = Math.min(
       RECENT_CAP,
       recents.filter((slug) => slug === tool.slug).length * RECENT_BOOST,
@@ -428,7 +447,7 @@ export function rankForFiles<T extends ToolIndexEntry>(
       evidence.push(...countEvidence(tool, basis));
     }
     if (tool.handoffMode === "single" && eligible.length > 1) {
-      evidence.push({ kind: "first-file", name: eligible[0]!.name });
+      evidence.push({ kind: "one-file", name: eligible[0]!.name });
     }
     if (basis.length < total) {
       evidence.push({ kind: "partial", opens: basis.length, total });

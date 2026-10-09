@@ -54,8 +54,8 @@ export type Evidence =
   | { readonly kind: "unreadable"; readonly name: string }
   /** The tool opens the file only after another one runs. */
   | { readonly kind: "after"; readonly tool: string }
-  /** A one-file tool offered several: it takes the first. */
-  | { readonly kind: "first-file"; readonly name: string }
+  /** A one-file tool offered several: the one it takes. */
+  | { readonly kind: "one-file"; readonly name: string }
   /** It opens some of the files, not all. */
   | { readonly kind: "partial"; readonly opens: number; readonly total: number }
   /** A worker or AI tool: the moment the file moves. */
@@ -75,7 +75,7 @@ export const EVIDENCE_KINDS = [
   "lock",
   "unreadable",
   "after",
-  "first-file",
+  "one-file",
   "partial",
   "uploads",
   "add-there",
@@ -120,8 +120,8 @@ export function renderEvidence(e: Evidence): string {
       return `${e.name} couldn't be read here`;
     case "after":
       return `after ${e.tool}`;
-    case "first-file":
-      return `opens the first file, ${e.name}`;
+    case "one-file":
+      return `takes one file — ${e.name}`;
     case "partial":
       return `opens ${e.opens} of your ${plural(e.total, "file")}`;
     case "uploads":

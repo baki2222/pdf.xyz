@@ -34,7 +34,7 @@ const FACT_KINDS: ReadonlySet<Evidence["kind"]> = new Set<Evidence["kind"]>([
   "fields",
   "lock",
   "unreadable",
-  "first-file",
+  "one-file",
   "partial",
 ]);
 
