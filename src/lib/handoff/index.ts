@@ -8,12 +8,13 @@
  * browser's origin-private storage — nothing is ever uploaded.
  */
 
+import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
 import { MemoryHandoffBackend, type HandoffBackend } from "./backend";
 import { IndexedDbHandoffBackend, isIndexedDbAvailable } from "./idb";
 import { HANDOFF_MAX_TOTAL_BYTES, totalHandoffBytes } from "./record";
 import { HandoffStore } from "./store";
 import { eligibleFilesFor, handoffCapabilityFor } from "./capability";
-import { HANDOFF_PARAM } from "./url";
+import type { HandoffMeta } from "./origin";
 import type { HandoffFileEntry, HandoffRecord } from "./types";
 
 export type { HandoffFileEntry, HandoffRecord, HandoffSummary } from "./types";
@@ -34,6 +35,24 @@ export {
   type HandoffMode,
 } from "./capability";
 export { HandoffStore } from "./store";
+export {
+  DROP_SURFACES,
+  HANDOFF_ORIGINS,
+  HANDOFF_TARGET_PARKED,
+  HANDOFF_TARGET_WORKSPACE,
+  MAX_TRAIL,
+  RESERVED_HANDOFF_TARGETS,
+  originPhrase,
+  readOrigin,
+  readPending,
+  readTrail,
+  type DropSurface,
+  type HandoffMeta,
+  type HandoffOrigin,
+  type OriginContext,
+  type PendingStep,
+  type RemedyProblem,
+} from "./origin";
 export { MemoryHandoffBackend, type HandoffBackend } from "./backend";
 export { IndexedDbHandoffBackend, isIndexedDbAvailable } from "./idb";
 
@@ -72,16 +91,22 @@ export function filesToHandoffEntries(files: File[]): HandoffFileEntry[] {
 /**
  * Stash files for `toolSlug` and return the handoff id, or null if nothing could
  * be stashed (no files, over the total-bytes budget, or a storage failure). A
- * null result tells the caller to fall back to the normal file picker.
+ * null result tells the caller the files did not travel.
+ *
+ * `meta.origin` is required — where the files came from is the receiving
+ * page's first sentence, and only the creator knows it. Launch surfaces go
+ * through `launchWithFiles` (`@/lib/intent/launch`), which also decides what
+ * travels and reports a failure instead of opening an empty tool.
  */
 export async function stashHandoff(
   toolSlug: string,
-  files: File[],
+  files: readonly File[],
+  meta: HandoffMeta,
 ): Promise<string | null> {
   if (files.length === 0) return null;
-  const entries = filesToHandoffEntries(files);
+  const entries = filesToHandoffEntries([...files]);
   if (totalHandoffBytes(entries) > HANDOFF_MAX_TOTAL_BYTES) return null;
-  const record = await getHandoffStore().create(toolSlug, entries);
+  const record = await getHandoffStore().create(toolSlug, entries, meta);
   return record?.id ?? null;
 }
 
@@ -90,12 +115,19 @@ export async function claimHandoff(id: string): Promise<HandoffRecord | null> {
   return getHandoffStore().claim(id);
 }
 
-/** Reconstruct real `File` objects from a claimed handoff's entries. */
+/**
+ * Reconstruct real `File` objects from a claimed handoff's entries.
+ *
+ * An entry the browser gave no type keeps its name's type, read through the
+ * table the server validates uploads with — or none. It used to be given
+ * `application/pdf` whatever it was, so a `.docx` with no declared type
+ * reached the tool claiming to be a PDF.
+ */
 export function handoffEntriesToFiles(entries: HandoffFileEntry[]): File[] {
   return entries.map(
     (entry) =>
       new File([entry.blob], entry.name, {
-        type: entry.type || "application/pdf",
+        type: entry.type || declaredContentTypeFor(entry.name) || "",
       }),
   );
 }
@@ -120,36 +152,15 @@ export async function clearHandoffs(): Promise<void> {
  * first of those for a single-file tool.
  *
  * ONE definition of that gating, for every surface that launches a tool with
- * files: the workspace's launch button and the homepage drop zone. They were
- * about to be two copies, and two copies of a gate drift.
+ * files — through `launchWithFiles`. They were about to be two copies, and two
+ * copies of a gate drift.
  */
-export function handoffPayload(toolSlug: string, files: File[]): File[] {
+export function handoffPayload(
+  toolSlug: string,
+  files: readonly File[],
+): File[] {
   const cap = handoffCapabilityFor(toolSlug);
   if (!cap.supported) return [];
-  const eligible = eligibleFilesFor(toolSlug, files);
+  const eligible = eligibleFilesFor(toolSlug, [...files]);
   return cap.mode === "single" ? eligible.slice(0, 1) : eligible;
-}
-
-/**
- * Stash `files` for `toolSlug` and return the URL that opens the tool with
- * them pre-loaded: `/tools/<slug>?handoff=<id>`. Falls back to the plain tool
- * URL when nothing can travel (an unsupported tool, no eligible file, over
- * {@link HANDOFF_MAX_TOTAL_BYTES}, or a storage failure) — an honest open,
- * never a claim that files came along when they did not. Never throws.
- */
-export async function handoffHref(
-  toolSlug: string,
-  files: File[],
-): Promise<string> {
-  const target = `/tools/${toolSlug}`;
-  const payload = handoffPayload(toolSlug, files);
-  if (payload.length === 0) return target;
-  try {
-    const token = await stashHandoff(toolSlug, payload);
-    return token
-      ? `${target}?${HANDOFF_PARAM}=${encodeURIComponent(token)}`
-      : target;
-  } catch {
-    return target;
-  }
 }

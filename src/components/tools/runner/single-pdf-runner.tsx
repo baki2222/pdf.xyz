@@ -84,7 +84,11 @@ export function SinglePdfRunner({
         className="flex flex-col gap-4"
       >
         {handoff.status === "ready" && (
-          <HandoffLoadedBadge count={1} skipped={handoff.skipped} />
+          <HandoffLoadedBadge
+            origin={handoff.origin}
+            count={1}
+            skipped={handoff.skipped}
+          />
         )}
         {writesPdf && pdf.digitalSignatures > 0 && (
           <SignedInputNotice

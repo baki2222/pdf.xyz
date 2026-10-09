@@ -90,7 +90,11 @@ export function MarkdownToPdfRunner() {
     <div className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName="Markdown to PDF" />
       {handoff.status === "ready" && (
-        <HandoffLoadedBadge count={1} skipped={handoff.skipped} />
+        <HandoffLoadedBadge
+          origin={handoff.origin}
+          count={1}
+          skipped={handoff.skipped}
+        />
       )}
       <MarkdownToPdfEditor
         source={source}

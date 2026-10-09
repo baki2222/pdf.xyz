@@ -11,12 +11,10 @@ import {
 import { useRouter } from "next/navigation";
 import {
   clearHandoffs,
-  handoffCapabilityFor,
-  handoffHref,
   handoffPayload,
   purgeExpiredHandoffs,
-  readHandoffId,
 } from "@/lib/handoff";
+import { launchWithFiles } from "@/lib/intent/launch";
 import { isLikelyPdf, MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { countPdfPages } from "@/lib/pdf/page-count";
 import {
@@ -37,7 +35,6 @@ import {
 } from "@/lib/workspace";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { indexSummaries, type WorkspaceToolSummary } from "./summary";
-import { handoffCreatedEvent, track } from "@/lib/telemetry/track";
 
 /** In-browser tools never load files larger than this. Exported so the copy
  * DERIVES the figure — the old comment admitted it was "manually kept in
@@ -105,6 +102,11 @@ export interface WorkspaceController {
   launchHandoff: (tool: WorkspaceToolSummary, ids: string[]) => void;
   /** Slug of the tool currently being launched via hand-off, or null. */
   launchingSlug: string | null;
+  /**
+   * Slug of the last tool whose hand-off could not be stored — the files did
+   * not travel, nothing navigated, and the page must say so. Null otherwise.
+   */
+  launchFailedSlug: string | null;
 }
 
 /**
@@ -131,6 +133,8 @@ export function useWorkspace(
   const router = useRouter();
   // Slug of the tool currently being launched with a hand-off (button spinner).
   const [launchingSlug, setLaunchingSlug] = useState<string | null>(null);
+  // Slug of a launch whose files could not be stored (said on the page).
+  const [launchFailedSlug, setLaunchFailedSlug] = useState<string | null>(null);
 
   // Live File handles for staged files, kept by id in a ref (never rendered, so
   // no re-render churn). This is what makes a real hand-off possible: staged
@@ -373,44 +377,35 @@ export function useWorkspace(
 
   /**
    * Stash the queued files in browser-local storage and open the target tool
-   * with them pre-loaded. Single-file tools receive just the first eligible PDF;
-   * collect/batch tools receive the whole eligible set. If the hand-off can't be
-   * created (unsupported, no eligible files, or a storage failure) we open the
-   * tool plainly — an honest fallback, never a fake pass.
+   * with them pre-loaded, through `launchWithFiles` — the one launch, which
+   * also decides what travels (single-file tools receive just the first
+   * eligible file) and measures it. A tool that can take none of them opens
+   * plainly; a hand-off that cannot be stored does NOT navigate, and the page
+   * says so (`launchFailedSlug`) instead of opening an empty tool.
    */
   const launchHandoff = useCallback(
     (tool: WorkspaceToolSummary, ids: string[]) => {
       const ordered = ids
         .map((id) => fileHandles.current.get(id))
         .filter((file): file is File => file !== undefined);
-      // The gating (capability, eligibility, single-file slice) is
-      // `handoffPayload`'s, shared with the homepage drop zone.
-      const toStash = handoffPayload(tool.slug, ordered);
 
       // Record the launch as name-free activity, same as a plain batch launch.
-      launchBatch(tool, toStash.length || ids.length);
+      launchBatch(
+        tool,
+        handoffPayload(tool.slug, ordered).length || ids.length,
+      );
 
-      if (toStash.length === 0) {
-        router.push(`/tools/${tool.slug}`);
-        return;
-      }
-
+      setLaunchFailedSlug(null);
       setLaunchingSlug(tool.slug);
-      void handoffHref(tool.slug, toStash).then((href) => {
-        // Only a hand-off that really exists is counted: `handoffHref` falls
-        // back to the plain tool URL (no token) when nothing could be stashed,
-        // and that honest plain open is not a hand-off.
-        const query = href.includes("?") ? href.slice(href.indexOf("?")) : "";
-        if (readHandoffId(query)) {
-          track(
-            handoffCreatedEvent({
-              toolSlug: tool.slug,
-              mode: handoffCapabilityFor(tool.slug).mode,
-              fileCount: toStash.length,
-            }),
-          );
-        }
-        router.push(href);
+      void launchWithFiles({
+        toolSlug: tool.slug,
+        files: ordered,
+        origin: { kind: "workspace" },
+        router,
+      }).then((result) => {
+        if (result === "carried" || result === "plain") return;
+        setLaunchingSlug(null);
+        if (result === "failed") setLaunchFailedSlug(tool.slug);
       });
     },
     [launchBatch, router],
@@ -437,5 +432,6 @@ export function useWorkspace(
     launchBatch,
     launchHandoff,
     launchingSlug,
+    launchFailedSlug,
   };
 }

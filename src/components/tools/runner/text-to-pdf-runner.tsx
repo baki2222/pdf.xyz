@@ -99,7 +99,11 @@ export function TextToPdfRunner() {
     <div className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName="Text to PDF" />
       {handoff.status === "ready" && (
-        <HandoffLoadedBadge count={1} skipped={handoff.skipped} />
+        <HandoffLoadedBadge
+          origin={handoff.origin}
+          count={1}
+          skipped={handoff.skipped}
+        />
       )}
       <TextToPdfEditor
         source={source}

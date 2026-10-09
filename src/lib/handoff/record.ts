@@ -4,6 +4,7 @@
  * TTL/expiry and summarization deterministic and unit-testable.
  */
 
+import { MAX_TRAIL, type HandoffMeta } from "./origin";
 import type { HandoffFileEntry, HandoffRecord, HandoffSummary } from "./types";
 
 /** How long a handoff stays valid before it's treated as expired (30 minutes). */
@@ -22,8 +23,12 @@ export function totalHandoffBytes(files: readonly HandoffFileEntry[]): number {
   return files.reduce((sum, file) => sum + Math.max(0, file.size), 0);
 }
 
-/** Inputs to {@link makeHandoffRecord}; timing is injected, never read here. */
-export interface MakeHandoffInput {
+/**
+ * Inputs to {@link makeHandoffRecord}; timing is injected, never read here.
+ * The origin is REQUIRED: a record that does not say where its files came
+ * from makes the receiving page guess, and it used to guess "your workspace".
+ */
+export interface MakeHandoffInput extends HandoffMeta {
   id: string;
   toolSlug: string;
   files: HandoffFileEntry[];
@@ -40,6 +45,9 @@ export function makeHandoffRecord({
   files,
   now,
   ttlMs = DEFAULT_HANDOFF_TTL_MS,
+  origin,
+  trail,
+  pending,
 }: MakeHandoffInput): HandoffRecord {
   const ttl =
     Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_HANDOFF_TTL_MS;
@@ -49,6 +57,10 @@ export function makeHandoffRecord({
     files,
     createdAt: now,
     expiresAt: now + ttl,
+    origin,
+    // Only what was given: an absent trail is not an empty job.
+    ...(trail && trail.length > 0 ? { trail: trail.slice(-MAX_TRAIL) } : {}),
+    ...(pending ? { pending } : {}),
   };
 }
 

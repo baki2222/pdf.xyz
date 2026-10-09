@@ -246,6 +246,7 @@ export function MergeRunner() {
       {announcer}
       {handoff.status === "ready" && (
         <HandoffLoadedBadge
+          origin={handoff.origin}
           count={handoff.files.length}
           skipped={handoff.skipped}
         />

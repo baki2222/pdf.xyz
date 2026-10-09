@@ -125,18 +125,19 @@ describe("the loaded badge names where the files came from", () => {
 });
 
 describe("the problem notes say what happened, in the target tool's own terms", () => {
-  const problem = (over: Partial<ToolHandoff>): ToolHandoff => ({
-    status: "incompatible",
-    files: [],
-    skipped: 1,
-    claimed: 1,
-    origin: { kind: "workspace" },
-    trail: [],
-    pending: null,
-    accept: ["JPG", "JPEG", "PNG"],
-    dismiss: () => {},
-    ...over,
-  });
+  const problem = (over: Partial<ToolHandoff>): ToolHandoff =>
+    ({
+      status: "incompatible",
+      files: [],
+      skipped: 1,
+      claimed: 1,
+      origin: { kind: "workspace" },
+      trail: [],
+      pending: null,
+      accept: ["JPG", "JPEG", "PNG"],
+      dismiss: () => {},
+      ...over,
+    }) as ToolHandoff;
 
   it("an incompatible file is named by what the tool DOES take", () => {
     render(<HandoffProblem handoff={problem({})} toolName="JPG to PDF" />);

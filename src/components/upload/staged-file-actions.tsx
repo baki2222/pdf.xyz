@@ -4,11 +4,8 @@ import { useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2 } from "lucide-react";
-import {
-  handoffCapabilityFor,
-  handoffHref,
-  handoffPayload,
-} from "@/lib/handoff";
+import { handoffCapabilityFor, handoffPayload } from "@/lib/handoff";
+import { launchWithFiles } from "@/lib/intent/launch";
 import { getToolBySlug } from "@/lib/tools";
 import { createWorkspaceFile, suggestTools } from "@/lib/workspace";
 import { buttonVariants } from "@/components/ui/button";
@@ -34,9 +31,11 @@ interface Choice {
  * Now the zone keeps the `File`s themselves, and this offers the tools that
  * fit them (the workspace's own `suggestTools`). A tool that can receive a
  * hand-off gets a button that stashes the files in browser-local storage and
- * opens the tool with them loaded, through `handoffHref` — the same gate the
- * workspace's launch button uses, so the two cannot disagree about which
- * files travel. A tool that cannot receive one (it runs on a worker, or none
+ * opens the tool with them loaded, through `launchWithFiles` — the same
+ * launch the workspace uses, so the two cannot disagree about which files
+ * travel, and the record says they came from a drop here, not from a
+ * workspace they never visited. A launch whose files could not be stored
+ * says so with a plain link instead of opening an empty tool. A tool that cannot receive one (it runs on a worker, or none
  * of the files are its kind) is offered as a plain link whose text says the
  * file has to be picked again there, because it does.
  *
@@ -73,10 +72,26 @@ export default function StagedFileActions({ files }: { files: File[] }) {
     };
   }, [files]);
 
-  const open = (slug: string) => {
+  // A hand-off that could not be stored: said here, with a plain way on.
+  const [failed, setFailed] = useState<Choice | null>(null);
+
+  const open = (choice: Choice, rank: number) => {
     if (pending) return;
-    setPending(slug);
-    void handoffHref(slug, files).then((href) => router.push(href));
+    setPending(choice.slug);
+    setFailed(null);
+    void launchWithFiles({
+      toolSlug: choice.slug,
+      files,
+      // Where these files came from — the tool page says so, and never
+      // "from your workspace" for a file that did not visit it.
+      origin: { kind: "drop", surface: "home" },
+      suggestion: { source: "desk", rank },
+      router,
+    }).then((result) => {
+      if (result === "carried" || result === "plain") return;
+      setPending(null);
+      if (result === "failed") setFailed(choice);
+    });
   };
 
   return (
@@ -90,11 +105,11 @@ export default function StagedFileActions({ files }: { files: File[] }) {
             Continue with your {files.length === 1 ? "file" : "files"}
           </p>
           <ul aria-labelledby={readyLabel} className="flex flex-col gap-1.5">
-            {ready.map((choice) => (
+            {ready.map((choice, i) => (
               <li key={choice.slug}>
                 <button
                   type="button"
-                  onClick={() => open(choice.slug)}
+                  onClick={() => open(choice, i + 1)}
                   // Not `disabled`: that would drop the focused button out of
                   // the focus order mid-launch (run-trigger-focus.test.ts).
                   // `open` ignores clicks while one is pending.
@@ -131,6 +146,20 @@ export default function StagedFileActions({ files }: { files: File[] }) {
             ))}
           </ul>
         </div>
+      )}
+
+      {failed && (
+        <p role="alert" className="text-warn text-xs leading-relaxed">
+          Couldn&apos;t carry your {files.length === 1 ? "file" : "files"} to{" "}
+          {failed.name} in this browser.{" "}
+          <Link
+            href={`/tools/${failed.slug}`}
+            className="text-accent underline underline-offset-4"
+          >
+            Open {failed.name}
+          </Link>{" "}
+          and add {files.length === 1 ? "it" : "them"} there.
+        </p>
       )}
 
       {elsewhere.length > 0 && (

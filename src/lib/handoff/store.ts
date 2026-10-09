@@ -13,6 +13,7 @@
  */
 
 import type { HandoffBackend } from "./backend";
+import type { HandoffMeta } from "./origin";
 import { newHandoffId } from "./ids";
 import {
   DEFAULT_HANDOFF_TTL_MS,
@@ -48,13 +49,17 @@ export class HandoffStore {
    * Persist a new handoff for `toolSlug` and return the created record. Expired
    * records are purged first so the store can't accumulate stale bytes. Returns
    * null if the backend write fails (caller falls back to the file picker).
+   * `meta.origin` is required: the receiving page says where the files came
+   * from, and only the creator knows.
    */
   async create(
     toolSlug: string,
     files: HandoffFileEntry[],
+    meta: HandoffMeta,
   ): Promise<HandoffRecord | null> {
     await this.purgeExpired();
     const record = makeHandoffRecord({
+      ...meta,
       id: this.idFactory(),
       toolSlug,
       files,

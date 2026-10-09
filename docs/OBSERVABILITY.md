@@ -45,6 +45,7 @@ a free-form string. The events today:
 | `tool_completed`            | `toolSlug`, `capability`, `inputCount?`, `outputSize?`, `duration?`              |
 | `tool_failed`               | `toolSlug`, `capability`, `reason` (coarse category)                             |
 | `workspace_handoff_created` | `toolSlug`, `mode`, `fileCount`                                                  |
+| `suggestion_opened`         | `toolSlug`, `source` (fixed enum), `rank` (`1`–`3`, `4+`), `carried`             |
 | `worker_status_checked`     | `mode`, `enabled`                                                                |
 | `worker_operations_checked` | `mode`, `health` (SLO class), `recommendedAction`, `drainable`, `daemonObserved` |
 | `gated_tool_interest`       | `toolSlug`, `capability`                                                         |

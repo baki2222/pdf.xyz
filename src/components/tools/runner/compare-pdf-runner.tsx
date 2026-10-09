@@ -126,6 +126,7 @@ export function ComparePdfRunner({
       <HandoffProblem handoff={handoff} toolName="Compare PDF" />
       {handoff.status === "ready" && (
         <HandoffLoadedBadge
+          origin={handoff.origin}
           count={Math.min(2, handoff.files.length)}
           skipped={handoff.skipped}
         />

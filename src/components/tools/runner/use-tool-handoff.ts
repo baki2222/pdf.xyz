@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   claimHandoff,
@@ -8,12 +8,20 @@ import {
   handoffEntriesToFiles,
   purgeExpiredHandoffs,
   readHandoffId,
+  readOrigin,
+  readPending,
+  readTrail,
   stripHandoffFromUrl,
+  type HandoffFileEntry,
+  type HandoffOrigin,
+  type PendingStep,
 } from "@/lib/handoff";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
+import { getToolBySlug } from "@/lib/tools";
 
 /**
- * Client hook that lets a tool runner receive files handed off from `/workspace`.
+ * Client hook that lets a tool runner receive files handed off from another
+ * page — the workspace, a drop on the home page, or a previous tool.
  * On mount it reads a `?handoff=<id>` token from the URL, claims the matching
  * record from the browser-local handoff store (single-use, so it's consumed),
  * and narrows the files to the ones this tool can actually open.
@@ -35,24 +43,46 @@ export type HandoffStatus =
   | "expired" // the handoff was missing/expired/unreadable
   | "incompatible"; // claimed, but none of the files work with this tool
 
-export interface ToolHandoff {
-  status: HandoffStatus;
+interface ClaimBase {
   /** Eligible files to preload; non-empty only when `status === "ready"`. */
   files: File[];
   /** Files dropped because they aren't compatible with this tool. */
   skipped: number;
   /** Total files the handoff carried (eligible + skipped). */
   claimed: number;
-  /** Dismiss an expired/incompatible notice and fall back to the picker. */
-  dismiss: () => void;
+  /** Tool slugs the job has already been through, oldest first. */
+  trail: string[];
+  /** A step to take after this tool, when the job planned one. */
+  pending: PendingStep | null;
 }
 
-const IDLE: Omit<ToolHandoff, "dismiss"> = {
+/**
+ * What a claim found: the files, and — once a record was read — where they
+ * came from. Discriminated, so a page that shows "ready" files always has an
+ * origin to name, and one that read no record never invents one.
+ */
+export type ClaimedHandoff =
+  | (ClaimBase & { status: "idle" | "loading" | "expired"; origin: null })
+  | (ClaimBase & { status: "ready" | "incompatible"; origin: HandoffOrigin });
+
+export type ToolHandoff = ClaimedHandoff & {
+  /** The receiving tool's `accept` row, for naming what it can open. */
+  accept: readonly string[];
+  /** Dismiss an expired/incompatible notice and fall back to the picker. */
+  dismiss: () => void;
+};
+
+const IDLE: ClaimedHandoff = {
   status: "idle",
   files: [],
   skipped: 0,
   claimed: 0,
+  origin: null,
+  trail: [],
+  pending: null,
 };
+const LOADING: ClaimedHandoff = { ...IDLE, status: "loading" };
+const EXPIRED: ClaimedHandoff = { ...IDLE, status: "expired" };
 
 /** Read a validated handoff id from the current address bar, or null. */
 function readHandoffIdFromLocation(): string | null {
@@ -119,12 +149,54 @@ function stripHandoffParam(router: ReturnType<typeof useRouter>): void {
 }
 
 /**
+ * Claim the hand-off named in the address bar for `target` — a tool slug, or
+ * the workspace's reserved target — and keep the files `select` returns.
+ *
+ * ONE claim for every page that receives files. Returns null, without
+ * touching storage, when the URL names no hand-off; the token is stripped
+ * either way, so a reload cannot replay it. A record addressed to another
+ * target reads as expired (it is still consumed: single-use is the store's
+ * rule, and a token that reached the wrong page is spent). The record's
+ * provenance comes back with the files — read through `./origin`'s readers,
+ * so a record from before origins existed reads as the workspace.
+ */
+export function claimFromUrl(
+  target: string,
+  select: (entries: HandoffFileEntry[]) => HandoffFileEntry[],
+  router: ReturnType<typeof useRouter>,
+): Promise<ClaimedHandoff> | null {
+  const id = readHandoffIdFromLocation();
+  stripHandoffParam(router);
+  if (!id) return null; // no token → idle (normal file picker), no storage touch
+
+  // We're already opening the store to claim; sweep any expired records too.
+  void purgeExpiredHandoffs();
+  return claimHandoff(id)
+    .then((record): ClaimedHandoff => {
+      if (!record || record.toolSlug !== target) return EXPIRED;
+      const claimed = record.files.length;
+      const files = handoffEntriesToFiles(select(record.files));
+      const skipped = claimed - files.length;
+      return {
+        status: files.length === 0 ? "incompatible" : "ready",
+        files,
+        skipped,
+        claimed,
+        origin: readOrigin(record.origin),
+        trail: readTrail(record.trail),
+        pending: readPending(record.pending),
+      };
+    })
+    .catch(() => EXPIRED);
+}
+
+/**
  * @param slug the tool this runner implements, or `undefined` to disable the
  *   hook (used when a parent already claimed the handoff and passes it down).
  */
 export function useToolHandoff(slug: string | undefined): ToolHandoff {
   const router = useRouter();
-  const [state, setState] = useState<Omit<ToolHandoff, "dismiss">>(IDLE);
+  const [state, setState] = useState<ClaimedHandoff>(IDLE);
   // Claims exactly once, even under React StrictMode's double-invoked effects.
   const startedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -140,50 +212,36 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
     if (!slug || startedRef.current) return;
     startedRef.current = true;
 
-    const id = readHandoffIdFromLocation();
-    stripHandoffParam(router);
-    if (!id) return; // no token → stay idle (normal file picker), no storage touch
+    const claim = claimFromUrl(
+      slug,
+      (entries) => eligibleFilesFor(slug, entries),
+      router,
+    );
+    if (!claim) return;
 
-    // We're already opening the store to claim; sweep any expired records too.
-    void purgeExpiredHandoffs();
     queueMicrotask(() => {
       if (mountedRef.current) {
-        setState((prev) => ({ ...prev, status: "loading" }));
+        setState(LOADING);
       }
     });
-    claimHandoff(id)
-      .then((record) => {
-        if (!mountedRef.current) return;
-        if (!record || record.toolSlug !== slug) {
-          setState({ status: "expired", files: [], skipped: 0, claimed: 0 });
-          return;
-        }
-        const claimed = record.files.length;
-        const files = handoffEntriesToFiles(
-          eligibleFilesFor(slug, record.files),
-        );
-        const skipped = claimed - files.length;
-        if (files.length > 0) {
-          // Files are about to repopulate a runner without touching the
-          // Dropzone, so this is the flow's file-pick moment: start the engine
-          // download now rather than paying it at run-click (the one gap the
-          // pdf-lib deferral left open — TASK-05 §3c).
-          warmPdfLib();
-        }
-        setState(
-          files.length === 0
-            ? { status: "incompatible", files: [], skipped, claimed }
-            : { status: "ready", files, skipped, claimed },
-        );
-      })
-      .catch(() => {
-        if (mountedRef.current) {
-          setState({ status: "expired", files: [], skipped: 0, claimed: 0 });
-        }
-      });
+    void claim.then((result) => {
+      if (!mountedRef.current) return;
+      if (result.status === "ready") {
+        // Files are about to repopulate a runner without touching the
+        // Dropzone, so this is the flow's file-pick moment: start the engine
+        // download now rather than paying it at run-click (the one gap the
+        // pdf-lib deferral left open — TASK-05 §3c).
+        warmPdfLib();
+      }
+      setState(result);
+    });
   }, [slug, router]);
 
   const dismiss = useCallback(() => setState(IDLE), []);
+  const accept = useMemo(
+    () => (slug ? (getToolBySlug(slug)?.accept ?? []) : []),
+    [slug],
+  );
 
-  return { ...state, dismiss };
+  return { ...state, accept, dismiss };
 }

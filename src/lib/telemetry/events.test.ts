@@ -15,6 +15,7 @@ describe("event name allowlist", () => {
         "tool_completed",
         "tool_failed",
         "workspace_handoff_created",
+        "suggestion_opened",
         "worker_status_checked",
         "worker_operations_checked",
         "gated_tool_interest",
