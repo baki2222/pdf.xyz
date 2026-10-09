@@ -3,11 +3,12 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * A fallback face takes the room the real face will take.
  *
- * Both web fonts load with `display: swap`, so on a first visit the page is
+ * The web fonts load with `display: swap`, so on a first visit the page is
  * painted in a FALLBACK face and repainted when the real one arrives. If the
  * fallback sets a line wider or narrower than the real face, paragraphs and
  * headings re-wrap at the swap and everything below them moves. That is the
- * first-visit CLS `layout-stability.spec.ts` records under `FONTS_LATE=1`.
+ * first-visit CLS that `layout-stability.spec.ts` measures with the fonts
+ * held back.
  *
  * WHAT WAS WRONG, measured 2026-10-09 on production (1440 px, 574 strings
  * from ten pages): next/font's `adjustFontFallback: "Arial"` derives ONE
