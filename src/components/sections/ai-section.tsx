@@ -8,7 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 const highlights = [
   "Answers grounded in your document, with page-level citations",
   "Summaries, translations, and structured data extraction",
-  "Runs on secure infrastructure under provider agreements that prohibit training on your content",
+  "Your PDF's text goes to a third-party AI provider, under terms that prohibit training on it",
 ];
 
 /**

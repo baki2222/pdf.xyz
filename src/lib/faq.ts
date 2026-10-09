@@ -14,7 +14,12 @@ export interface FaqItem {
 export const faqs: FaqItem[] = [
   {
     q: "Are my files uploaded to a server?",
-    a: "For most tools, no. Merge, split, compress, rotate, image conversions and more run entirely in your browser, so your files never leave your device. A handful of heavy or AI-powered tools use encrypted, auto-deleting workers — and each tool clearly labels where it runs.",
+    // Compress is browser-first: its worker step uploads only when chosen,
+    // so it is named apart rather than listed with the tools that never
+    // upload. And the tools that DO upload are not "a handful" — they are
+    // most of the rest — so they are named by kind, not by a quantifier
+    // (unbacked-claims.test.ts).
+    a: "For most tools, no. Merge, split, rotate, image conversions and more run entirely in your browser, so your files never leave your device. Compress does too unless you choose its secure-worker option. The rest — Office conversions, OCR, PDF/A, password protection and the AI tools among them — use encrypted, auto-deleting workers, and each tool clearly labels where it runs.",
   },
   {
     q: "Do I need to create an account?",
@@ -30,7 +35,10 @@ export const faqs: FaqItem[] = [
   },
   {
     q: "Is my content used to train AI models?",
-    a: "Never. AI tools run on secure infrastructure and your document content is never used to train any model.",
+    // Said the way `processing.ts` says it: the model runs at a third-party
+    // provider, not on pdf.xyz's servers ("AI tools run on secure
+    // infrastructure" placed it on ours).
+    a: "No. The AI tools send your PDF's selectable text — not the file — to a third-party AI provider, under terms that prohibit training on it. pdf.xyz trains no models of its own.",
   },
   {
     q: "What happens to files sent to a worker?",

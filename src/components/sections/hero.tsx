@@ -98,7 +98,9 @@ export function Hero() {
           </div>
 
           <div className="mt-8">
-            <p className="text-faint kicker">Popular right now</p>
+            {/* Was "Popular right now": an editorial list (a catalogue flag)
+                labelled as if it were measured, and live. */}
+            <p className="text-faint kicker">Start with</p>
             <ul className="border-line mt-3 grid grid-cols-2 gap-x-6 border-t">
               {popular.map((tool) => (
                 <li key={tool.slug} className="border-line border-b">

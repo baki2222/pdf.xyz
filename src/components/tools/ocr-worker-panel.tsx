@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import {
   Check,
@@ -450,8 +451,14 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
           No account required. OCR runs on a separate processing server, not in
           your browser: files are encrypted in transit and at rest, recognized
           in a temporary per-job folder that is erased when the job ends, and
-          deleted automatically. It&apos;s enabled per deployment — see our
-          worker architecture and security docs.
+          deleted automatically. It&apos;s enabled per deployment; the{" "}
+          <Link
+            href="/privacy#files"
+            className="text-accent underline underline-offset-4"
+          >
+            privacy policy
+          </Link>{" "}
+          says what happens to an uploaded file and when it is deleted.
         </p>
       </div>
     </div>

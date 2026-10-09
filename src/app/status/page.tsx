@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Activity } from "lucide-react";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { supportedToolSlugs } from "@/lib/pdf/registry";
@@ -122,13 +123,17 @@ export default function StatusPage() {
                 interactive workbench, so a reader was told a live page was
                 inert. The true part is the one worth keeping: nothing is faked
                 locally. */}
-            Secure-worker, hybrid, and AI tools upload your file to an encrypted
-            worker and tell you so before you run them — pdf.xyz never fakes
-            processing in the browser. See the{" "}
-            <span className="text-muted">
-              worker architecture and security docs
-            </span>{" "}
-            for how uploads, scanning, isolation, and auto-delete work.
+            Secure-worker and AI tools upload your file to an encrypted worker,
+            as does Compress&apos;s optional worker step, and each tells you so
+            before you run it — pdf.xyz never fakes processing in the browser.
+            The{" "}
+            <Link
+              href="/privacy#files"
+              className="text-accent underline underline-offset-4"
+            >
+              privacy policy
+            </Link>{" "}
+            sets out how uploads, malware scanning and deletion work.
           </p>
         </section>
       </Container>
