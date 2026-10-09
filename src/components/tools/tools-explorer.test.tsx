@@ -22,7 +22,7 @@ import { UNSUPPORTED_FORMATS, toolAcceptsFormat } from "@/lib/intent/formats";
 import { categories, getToolsByCategory, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
 import { processingSplit } from "@/lib/tools/processing-split";
-import { whereItRuns } from "@/lib/tools/where-it-runs";
+import { runsChoices, whereItRuns } from "@/lib/tools/where-it-runs";
 import * as searchEngine from "@/lib/tools/search-tools";
 
 function headingLevels(container: HTMLElement): number[] {
@@ -624,13 +624,15 @@ describe("the search engine loads on demand, never with the page", () => {
  */
 describe("ToolsExplorer: Where it runs", () => {
   const options = whereItRuns(processingSplit());
+  /** What `app/tools/page.tsx` hands the explorer: the choices as slugs. */
+  const RUNS = runsChoices(options);
   const group = () => screen.getByRole("radiogroup", { name: "Where it runs" });
   const radio = (name: RegExp) => within(group()).getByRole("radio", { name });
   const hrefsOf = (list: readonly { slug: string }[]) =>
     list.map((t) => `/tools/${t.slug}`);
 
   it("offers All, then one choice per place a tool runs, each named with its count", () => {
-    render(<ToolsExplorer loadEngine={engineNow} />);
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
     const expected = [
       "All",
       ...options.map((o) => `${o.label} ${o.tools.length}`),
@@ -646,7 +648,7 @@ describe("ToolsExplorer: Where it runs", () => {
 
   it("choosing a place shows exactly its tools, keeps the URL shareable, and says so", () => {
     vi.useFakeTimers();
-    render(<ToolsExplorer loadEngine={engineNow} />);
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
     const never = options[0]!;
     fireEvent.click(radio(/^Never uploads/));
     expect(radio(/^Never uploads/)).toBeChecked();
@@ -665,15 +667,22 @@ describe("ToolsExplorer: Where it runs", () => {
 
   it("a deep link checks its choice and filters, after hydration", () => {
     window.history.replaceState(null, "", "/tools?runs=secure-worker");
-    render(<ToolsExplorer loadEngine={engineNow} />);
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
     const worker = options.find((o) => o.id === "secure-worker")!;
     expect(radio(/^Secure worker/)).toBeChecked();
     expect(new Set(toolLinks())).toEqual(new Set(hrefsOf(worker.tools)));
   });
 
+  it("without choices from the page there is no such filter, and ?runs= filters nothing", () => {
+    window.history.replaceState(null, "", "/tools?runs=never-uploads");
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(toolLinks()).toHaveLength(tools.length);
+  });
+
   it("negative control: an unknown ?runs= is All, never an empty grid", () => {
     window.history.replaceState(null, "", "/tools?runs=bogus");
-    render(<ToolsExplorer loadEngine={engineNow} />);
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
     expect(radio(/^All$/)).toBeChecked();
     expect(toolLinks()).toHaveLength(tools.length);
   });
@@ -684,7 +693,7 @@ describe("ToolsExplorer: Where it runs", () => {
       "",
       "/tools?category=ai&runs=never-uploads",
     );
-    render(<ToolsExplorer loadEngine={engineNow} />);
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
     // Health: no AI tool works without uploading, so this IS empty.
     expect(options[0]!.tools.filter((t) => t.category === "ai")).toEqual([]);
     expect(
@@ -702,7 +711,7 @@ describe("ToolsExplorer: Where it runs", () => {
   it("a query keeps the choice, and the count names it", async () => {
     vi.useFakeTimers();
     window.history.replaceState(null, "", "/tools?runs=ai");
-    render(<ToolsExplorer loadEngine={engineNow} />);
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
     fireEvent.change(search(), { target: { value: "pdf" } });
     await settle();
     act(() => {

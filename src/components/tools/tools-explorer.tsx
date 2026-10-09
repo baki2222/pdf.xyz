@@ -31,7 +31,13 @@ import {
   type ToolsFilter,
   type ToolsQuery,
 } from "@/lib/tools/tools-query";
+import {
+  RUNS_COPY,
+  type RunsChoice,
+  type RunsFilter,
+} from "@/lib/tools/where-it-runs";
 import { ToolCard } from "@/components/tools/tool-card";
+import { ModeShape } from "@/components/tools/processing-badge";
 import { cn } from "@/lib/utils";
 
 const counts = getCategoryCounts();
@@ -40,6 +46,27 @@ const counts = getCategoryCounts();
 export const ANNOUNCE_DELAY_MS = 400;
 
 const noSubscription = () => () => {};
+
+/** No "Where it runs" choices: the filter is not offered. */
+const NO_RUNS: readonly RunsChoice[] = [];
+
+/**
+ * One filter row: a single sideways-scrolling line on a phone (the chips
+ * snap, and the ends fade inside the gutter so the first chip is never
+ * dimmed), a label column beside wrapping chips from `sm`.
+ */
+const FILTER_ROW =
+  "-mx-5 flex snap-x snap-proximity scroll-px-5 items-center gap-2 overflow-x-auto px-5 [scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:grid sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:items-start sm:gap-x-4 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
+const FILTER_LABEL = "text-faint kicker shrink-0 pr-1 sm:pt-2";
+/** The chips: flex items of the scrolling row on a phone, a wrap from `sm`. */
+const FILTER_CHIPS = "contents sm:flex sm:flex-wrap sm:gap-2";
+const CHIP =
+  "rounded-tag ring-accent/50 inline-flex h-8 shrink-0 snap-start items-center gap-1.5 border px-3 text-sm font-medium whitespace-nowrap transition-colors";
+const CHIP_ON = "bg-invert text-fg-invert border-transparent";
+const CHIP_OFF =
+  "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg";
+const chipCount = (on: boolean) =>
+  cn("text-xs tabular-nums", on ? "text-fg-invert/70" : "text-faint");
 
 /** What the explorer needs from the search engine chunk. */
 export interface SearchEngine {
@@ -74,6 +101,23 @@ function categoryName(id: ToolsFilter): string | undefined {
   return id === "all" ? undefined : categories.find((c) => c.id === id)?.name;
 }
 
+/**
+ * The filters, said as what the tools they leave DO: "take DOCX", "work
+ * without uploading". One tool or many, so a sentence can agree with its
+ * count. The category is not a verb; callers add " in Organize".
+ */
+function filterVerbs(
+  n: number,
+  accepts: Format | null,
+  runs: RunsFilter,
+): string[] {
+  const verbs: string[] = [];
+  if (accepts) verbs.push(`${n === 1 ? "takes" : "take"} ${accepts}`);
+  if (runs !== "all")
+    verbs.push(n === 1 ? RUNS_COPY[runs].one : RUNS_COPY[runs].many);
+  return verbs;
+}
+
 /** "The filter hides 1 match", "The filters hide 3 closest matches". */
 export function hiddenMatches(
   hidden: number,
@@ -98,50 +142,61 @@ export function hiddenMatches(
  * every word — the filter had removed it, and only the category filter was
  * ever named. An empty list now says which filter emptied it and how many
  * matches it hid; a query that matches nothing at all says so plainly.
+ * "Where it runs" is said the same way, as a verb beside "take DOCX": "29
+ * tools work without uploading", "No tools run on a secure worker in AI
+ * Tools".
  */
 export function resultAnnouncement(
   count: number,
   state: Pick<ToolsQuery, "category" | "query"> & {
     readonly accepts?: Format | null;
+    readonly runs?: RunsFilter;
   },
   outcome: ResultOutcome = {},
 ): string {
   const q = state.query.trim();
   const accepts = state.accepts ?? null;
+  const runs = state.runs ?? "all";
   const category = categoryName(state.category);
   const inCategory = category ? ` in ${category}` : "";
-  const filters = (accepts ? 1 : 0) + (category ? 1 : 0);
-  const takes = (n: number) =>
-    accepts ? ` that ${n === 1 ? "takes" : "take"} ${accepts}` : "";
+  const filters =
+    (accepts ? 1 : 0) + (category ? 1 : 0) + (runs !== "all" ? 1 : 0);
+  /** " that take DOCX and use AI", or "" with no such filter. */
+  const that = (n: number) => {
+    const verbs = filterVerbs(n, accepts, runs);
+    return verbs.length ? ` that ${verbs.join(" and ")}` : "";
+  };
+  /** "take DOCX and use AI", or "". */
+  const bare = (n: number) => filterVerbs(n, accepts, runs).join(" and ");
   const prefix = outcome.unsupported ? `${outcome.unsupported} ` : "";
   const noun = count === 1 ? "tool" : "tools";
   if (q && outcome.searchFailed) {
-    return `Search could not load. Showing ${filters ? "" : "all "}${count} ${noun}${takes(count)}${inCategory}`;
+    return `Search could not load. Showing ${filters ? "" : "all "}${count} ${noun}${that(count)}${inCategory}`;
   }
   if (count === 0) {
     if (q) {
       if (filters === 0 || outcome.hidden === 0) {
         return `${prefix}No tools match “${q}”`;
       }
-      const none = accepts
-        ? `No tools for “${q}” take ${accepts}${inCategory}`
+      const none = bare(0)
+        ? `No tools for “${q}” ${bare(0)}${inCategory}`
         : `No tools match “${q}”${inCategory}`;
       return outcome.hidden
         ? `${prefix}${none}. ${hiddenMatches(outcome.hidden, filters, outcome.mode)}`
         : `${prefix}${none}`;
     }
-    return accepts
-      ? `${prefix}No tools take ${accepts}${inCategory}`
+    return bare(0)
+      ? `${prefix}No tools ${bare(0)}${inCategory}`
       : `${prefix}No tools found`;
   }
   if (q && outcome.mode === "closest") {
-    return `${prefix}No tool matches every word of “${q}”. ${count} closest ${count === 1 ? "match" : "matches"}${takes(count)}${inCategory}`;
+    return `${prefix}No tool matches every word of “${q}”. ${count} closest ${count === 1 ? "match" : "matches"}${that(count)}${inCategory}`;
   }
   if (q) {
-    return `${prefix}${count} ${noun} for “${q}”${takes(count)}${inCategory}`;
+    return `${prefix}${count} ${noun} for “${q}”${that(count)}${inCategory}`;
   }
-  if (accepts) {
-    return `${prefix}${count} ${noun} ${count === 1 ? "takes" : "take"} ${accepts}${inCategory}`;
+  if (bare(count)) {
+    return `${prefix}${count} ${noun} ${bare(count)}${inCategory}`;
   }
   return `${prefix}${count} ${noun}${inCategory}`;
 }
@@ -191,9 +246,17 @@ export function resultAnnouncement(
  */
 export function ToolsExplorer({
   loadEngine = loadSearchEngine,
+  runs: runsChoices = NO_RUNS,
 }: {
   /** The engine loader; a test seam for a chunk that fails to load. */
   loadEngine?: () => Promise<SearchEngine>;
+  /**
+   * The "Where it runs" choices and their members, computed on the server
+   * from the one partition (`whereItRuns(processingSplit())` in
+   * `app/tools/page.tsx`) and handed over as slugs. Without them there is
+   * no "Where it runs" filter, and a `?runs=` link shows every tool.
+   */
+  runs?: readonly RunsChoice[];
 } = {}) {
   // The server snapshot is "" — the prerendered, unfiltered grid. On the
   // client React re-renders once with the real query string after hydration.
@@ -207,6 +270,14 @@ export function ToolsExplorer({
   const [chosen, setChosen] = useState<ToolsQuery | null>(null);
   const state = chosen ?? linked;
   const { category: active, query, accepts } = state;
+  const runsMembers = useMemo(
+    () =>
+      new Map(runsChoices.map((choice) => [choice.id, new Set(choice.slugs)])),
+    [runsChoices],
+  );
+  // A choice this page does not offer is every tool, never an empty grid.
+  const runs: RunsFilter =
+    state.runs !== "all" && runsMembers.has(state.runs) ? state.runs : "all";
   const update = (patch: Partial<ToolsQuery>) =>
     setChosen({ ...state, ...patch });
   const searchField = useRef<HTMLInputElement>(null);
@@ -264,9 +335,10 @@ export function ToolsExplorer({
       (ranking?.ranked ?? tools).filter(
         (tool) =>
           (active === "all" || tool.category === active) &&
-          (accepts === null || toolAcceptsFormat(tool.accept, accepts)),
+          (accepts === null || toolAcceptsFormat(tool.accept, accepts)) &&
+          (runs === "all" || Boolean(runsMembers.get(runs)?.has(tool.slug))),
       ),
-    [ranking, active, accepts],
+    [ranking, active, accepts, runs, runsMembers],
   );
   // Matches the filters removed: only ever non-zero when they removed all.
   const hidden = ranking && results.length === 0 ? ranking.ranked.length : 0;
@@ -279,7 +351,7 @@ export function ToolsExplorer({
     if (!chosen || pending) return;
     const text = resultAnnouncement(
       results.length,
-      { category: active, query: trimmed, accepts },
+      { category: active, query: trimmed, accepts, runs },
       {
         mode,
         unsupported: answer?.headline ?? null,
@@ -296,6 +368,7 @@ export function ToolsExplorer({
     active,
     trimmed,
     accepts,
+    runs,
     mode,
     answer,
     hidden,
@@ -324,8 +397,15 @@ export function ToolsExplorer({
 
   const resultsHeading = useId();
   const pendingHeading = useId();
+  const runsLabel = useId();
+  const runsName = useId();
   const reset = () =>
-    updateAndRefocus({ category: "all", query: "", accepts: null });
+    updateAndRefocus({
+      category: "all",
+      query: "",
+      accepts: null,
+      runs: "all",
+    });
 
   const grouped = (
     <div className="flex flex-col gap-12">
@@ -435,50 +515,109 @@ export function ToolsExplorer({
         </div>
       </div>
 
-      <div
-        className="-mx-1 flex flex-wrap gap-2 px-1"
-        role="group"
-        aria-label="Filter by category"
-      >
-        {filters.map((filter) => {
-          const selected = active === filter.id;
-          return (
-            <button
-              key={filter.id}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => update({ category: filter.id })}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-[2px] border px-3.5 py-1.5 text-sm font-medium transition-colors",
-                selected
-                  ? "bg-invert text-fg-invert border-transparent"
-                  : "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
-              )}
-            >
-              {filter.label}
-              <span
-                className={cn(
-                  "text-xs tabular-nums",
-                  selected ? "text-fg-invert/70" : "text-faint",
-                )}
-              >
-                {filter.count}
-              </span>
-            </button>
-          );
-        })}
+      {/* Two filter rows. On a phone each is ONE line that scrolls sideways
+          (its label scrolls with it), so the first tool stays near the top
+          of the screen; from `sm` the label takes a column and the chips
+          wrap beside it. Every chip is focusable, so a keyboard reaches the
+          ones off-screen and the browser scrolls them in. */}
+      <div className="flex flex-col gap-2 sm:gap-3">
+        {runsChoices.length > 0 && (
+          <div
+            role="radiogroup"
+            aria-labelledby={runsLabel}
+            className={FILTER_ROW}
+          >
+            <span id={runsLabel} className={FILTER_LABEL}>
+              Where it runs
+            </span>
+            <div className={FILTER_CHIPS}>
+              {[{ id: "all" as const }, ...runsChoices].map((choice) => {
+                const checked = runs === choice.id;
+                return (
+                  <label
+                    key={choice.id}
+                    className={cn(
+                      CHIP,
+                      checked ? CHIP_ON : CHIP_OFF,
+                      "relative cursor-pointer has-[:focus-visible]:ring-2",
+                    )}
+                  >
+                    {/* `relative` on the label keeps this input inside the
+                        scrolling row: positioned against the page instead,
+                        a radio off the right edge widened the page. */}
+                    <input
+                      type="radio"
+                      name={runsName}
+                      value={choice.id}
+                      checked={checked}
+                      onChange={() => update({ runs: choice.id })}
+                      className="sr-only"
+                    />
+                    {"mode" in choice ? (
+                      <>
+                        <ModeShape mode={choice.mode} />
+                        {RUNS_COPY[choice.id].label}{" "}
+                        <span className={chipCount(checked)}>
+                          {choice.slugs.length}
+                        </span>
+                      </>
+                    ) : (
+                      "All"
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div
+          role="group"
+          aria-label="Filter by category"
+          className={FILTER_ROW}
+        >
+          <span aria-hidden className={FILTER_LABEL}>
+            Category
+          </span>
+          <div className={FILTER_CHIPS}>
+            {filters.map((filter) => {
+              const selected = active === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => update({ category: filter.id })}
+                  className={cn(
+                    CHIP,
+                    selected ? CHIP_ON : CHIP_OFF,
+                    "outline-none focus-visible:ring-2",
+                  )}
+                >
+                  {filter.label}
+                  <span className={chipCount(selected)}>{filter.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Keyed on what it shows: see "NOTHING THE SERVER PAINTED MOVES". */}
       <div
-        key={`${active}|${accepts ?? ""}|${phase}`}
+        key={`${active}|${accepts ?? ""}|${runs}|${phase}`}
         className="flex min-h-svh flex-col gap-6"
       >
         {answer && (
           <AnswerBlock
             answer={answer}
             onShowFormat={(format) =>
-              updateAndRefocus({ category: "all", query: "", accepts: format })
+              updateAndRefocus({
+                category: "all",
+                query: "",
+                accepts: format,
+                runs: "all",
+              })
             }
           />
         )}
@@ -498,13 +637,19 @@ export function ToolsExplorer({
             <EmptyState
               query={ranking ? trimmed : ""}
               accepts={accepts}
+              runs={runs}
               category={categoryName(active)}
               near={near}
               hidden={hidden}
               mode={mode}
               onReset={reset}
               onShowHidden={() =>
-                updateAndRefocus({ ...state, category: "all", accepts: null })
+                updateAndRefocus({
+                  ...state,
+                  category: "all",
+                  accepts: null,
+                  runs: "all",
+                })
               }
             />
           )
@@ -621,6 +766,7 @@ function AnswerBlock({
 function EmptyState({
   query,
   accepts,
+  runs,
   category,
   near,
   hidden,
@@ -630,6 +776,7 @@ function EmptyState({
 }: {
   query: string;
   accepts: Format | null;
+  runs: RunsFilter;
   category: string | undefined;
   near: readonly Tool[];
   /** Matches the filters removed; 0 when the query matched nothing. */
@@ -640,8 +787,13 @@ function EmptyState({
 }) {
   const heading = useId();
   const inCategory = category ? ` in ${category}` : "";
-  const filters = (accepts ? 1 : 0) + (category ? 1 : 0);
+  const filters =
+    (accepts ? 1 : 0) + (category ? 1 : 0) + (runs !== "all" ? 1 : 0);
   const filtered = Boolean(query) && hidden > 0;
+  /** "takes DOCX and uses AI": what the one missing tool would do. */
+  const one = filterVerbs(1, accepts, runs).join(" and ");
+  /** "take DOCX and use AI": what no tool here does. */
+  const none = filterVerbs(0, accepts, runs).join(" and ");
   return (
     <section
       aria-labelledby={heading}
@@ -651,10 +803,10 @@ function EmptyState({
       <h2 id={heading} className="text-fg text-lg font-semibold wrap-anywhere">
         {query
           ? filtered
-            ? `Nothing${inCategory}${accepts ? ` that takes ${accepts}` : ""} matches “${query}”`
+            ? `Nothing${inCategory}${one ? ` that ${one}` : ""} matches “${query}”`
             : `Nothing matches “${query}”`
-          : accepts
-            ? `No tools take ${accepts}${inCategory}`
+          : none
+            ? `No tools ${none}${inCategory}`
             : `No tools found${inCategory}`}
       </h2>
       {filtered && (

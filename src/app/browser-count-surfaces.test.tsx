@@ -33,8 +33,8 @@ import { supportedToolSlugs } from "@/lib/pdf/registry";
 import { CtaSection } from "@/components/sections/cta-section";
 import { StatsBand } from "@/components/sections/stats-band";
 import { PricingSection } from "@/components/sections/pricing-section";
-import { ToolsExplorer } from "@/components/tools/tools-explorer";
 import PrivacyPage from "./privacy/page";
+import ToolsPage from "./tools/page";
 import StatusPage from "./status/page";
 
 const split = processingSplit();
@@ -127,10 +127,11 @@ interface Surface {
 /**
  * Privacy-framed surfaces that state a COUNT.
  *
- * The /tools explorer joined on 2026-10-10 (WP-06): its "Where it runs"
+ * `/tools` joined on 2026-10-10 (WP-06): its explorer's "Where it runs"
  * radios name each choice with a count, and the first is "Never uploads" —
  * a privacy sentence in two words, entitled to the never-upload count and to
- * nothing else.
+ * nothing else. The page computes the choices (the explorer receives slugs),
+ * so the page is what is rendered here.
  */
 const COUNT_SURFACES: Surface[] = [
   {
@@ -149,9 +150,9 @@ const COUNT_SURFACES: Surface[] = [
     render: () => renderSurface(<PrivacyPage />),
   },
   {
-    name: "/tools explorer",
-    module: "src/components/tools/tools-explorer.tsx",
-    render: () => renderSurface(<ToolsExplorer />),
+    name: "/tools",
+    module: "src/app/tools/page.tsx",
+    render: () => renderSurface(<ToolsPage />),
   },
 ];
 
