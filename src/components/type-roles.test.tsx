@@ -58,12 +58,17 @@ export function isKickerLonghand(classes: string): boolean {
   );
 }
 
-/** Verbatim, as they shipped on 2026-10-09. */
+/**
+ * Verbatim, as they shipped on 2026-10-09 — the retired trackings written
+ * with "·" for their hyphen and restored at runtime, because Tailwind scans
+ * test files too and would otherwise keep shipping the classes this file
+ * exists to retire.
+ */
 const SHIPPED_LONGHAND = [
   "text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase",
-  "text-muted font-mono text-xs font-medium tracking-[0.14em] uppercase sm:tracking-[0.2em]",
-  "text-faint font-mono text-xs font-medium tracking-[0.2em] uppercase",
-];
+  "text-muted font-mono text-xs font-medium tracking·[0.14em] uppercase sm:tracking·[0.2em]",
+  "text-faint font-mono text-xs font-medium tracking·[0.2em] uppercase",
+].map((c) => c.replaceAll("·", "-"));
 
 /** Every string literal (and template chunk) in a source: its class strings. */
 function literals(
