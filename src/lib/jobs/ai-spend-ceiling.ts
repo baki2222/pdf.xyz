@@ -137,7 +137,7 @@ export function aiSpendTokens(usage: {
  * is the worker-not-ready path's: a real reason, no blame, no invented ETA.
  */
 export const AI_CEILING_REACHED_MESSAGE =
-  "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side, not on your file or your account. Please try again tomorrow; every other PDF tool is unaffected.";
+  "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side, not a problem with your file or your own allowance. Please try again tomorrow; every other PDF tool is unaffected.";
 
 /* ------------------------------------------------------------------ *
  *  The OTHER ceiling — the one outside this system.
