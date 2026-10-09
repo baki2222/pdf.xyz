@@ -37,6 +37,7 @@
     "test:bundle": "vitest run src/deploy/bundle-budget.test.ts src/deploy/lazy-chunks.test.ts src/deploy/ssr-content.test.ts",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:visual": "playwright test e2e/visual.spec.ts",
     "test:e2e:install": "playwright install --with-deps chromium",
     "qa": "tsx scripts/qa.ts",
     "format": "prettier --write .",
