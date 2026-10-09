@@ -61,7 +61,9 @@ export const MIME_BY_FORMAT: Record<string, readonly string[]> = {
  * `.text` (Text to PDF) and `.mdown` (Markdown to PDF). Recognising a file by
  * a narrower list than its runner would only cost a pick; a WIDER one would
  * carry a file the runner refuses, which `capability.test.ts` holds against
- * every runner's own check.
+ * every runner's own check — over a corpus BUILT FROM this table, so an
+ * extension added here is tested the moment it is added (widening TXT with
+ * "log" turned it red, measured 2026-10-09).
  */
 export const EXTENSIONS_BY_FORMAT: Record<string, readonly string[]> = {
   PDF: ["pdf"],

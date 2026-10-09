@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { isLikelyMarkdownFile } from "@/components/tools/runner/markdown-to-pdf-runner";
 import { isLikelyTextFile } from "@/components/tools/runner/text-to-pdf-runner";
-import { formatOf, toolAcceptsFormat } from "@/lib/intent/formats";
+import {
+  EXTRA_MIMES,
+  UNSUPPORTED_SIGNS,
+  formatOf,
+  toolAcceptsFormat,
+} from "@/lib/intent/formats";
+import {
+  EXTENSIONS_BY_FORMAT,
+  MIME_BY_FORMAT,
+} from "@/lib/jobs/mime-by-format";
 import { isLikelyPdf } from "@/lib/pdf/files";
 import { isImageAllowedForKind } from "@/lib/pdf/image-to-pdf";
 import {
@@ -174,8 +183,71 @@ describe("eligibleFilesFor", () => {
  *  2. a carried file is one that tool's RUNNER opens, by the runner's own
  *     check. The direction that matters: a runner taking a file the hand-off
  *     does not carry costs a pick; the reverse is a refusal on arrival.
+ *
+ * THE CORPUS IS DERIVED from the tables that decide what a file is
+ * ({@link DERIVED}), with the hand-typed rows kept as an adversarial extra
+ * ({@link TYPED}). Until 2026-10-09 it was only the 21 typed rows, while
+ * `mime-by-format.ts` told its reader that a WIDER extension list "would
+ * carry a file the runner refuses, which capability.test.ts holds" — and it
+ * did not: TXT widened to `["txt", "text", "log"]` and PDF to
+ * `["pdf", "pdfx"]`, which carries `notes.log` to Text to PDF (its runner
+ * refuses it) and `x.pdfx` to every PDF runner, left this file, formats.test.ts
+ * and mime-by-format.test.ts green, 117 of 117 (review of WP-03). A typed
+ * corpus cannot see a file it does not name.
+ *
+ * MUTATION, run against the derived corpus on 2026-10-09 (each edit applied
+ * to `mime-by-format.ts`, grepped back, then restored from a copy):
+ *  - TXT widened to `["txt", "text", "log"]` alone: "carries only files the
+ *    receiving runner opens" went red with 30 refusals, `text-to-pdf would
+ *    refuse file.log` and `… FILE.LOG`, 15 each (no declared type, and every
+ *    type but `text/plain`, which its runner does open);
+ *  - with PDF widened to `["pdf", "pdfx"]` as well: 810, the other 780 being
+ *    `.pdfx` refused by every PDF runner (`merge-pdf would refuse file.pdfx`…).
+ * In both runs "carries exactly the files the tool's accept row names"
+ * stayed green, as it must — eligibility still equals the widened accept
+ * rule, and only a runner's own check can say the rule is wrong — and so did
+ * formats.test.ts and mime-by-format.test.ts: 117 other tests passed.
  */
-const CORPUS: { name: string; type: string }[] = [
+type FileMeta = { name: string; type: string };
+
+/**
+ * One file per thing the tables recognise: every extension in
+ * `EXTENSIONS_BY_FORMAT`, lower and upper case, with no declared type and
+ * with each type `MIME_BY_FORMAT` knows (its own and every other format's,
+ * since a browser's declaration and a name can disagree); one nameless file
+ * per type in `MIME_BY_FORMAT` and `EXTRA_MIMES`; and every extension and
+ * type the unsupported formats are recognised by.
+ */
+function derivedCorpus(): FileMeta[] {
+  const files: FileMeta[] = [];
+  const mimes = [
+    ...new Set([
+      ...Object.values(MIME_BY_FORMAT).flat(),
+      ...Object.keys(EXTRA_MIMES),
+    ]),
+  ];
+  for (const extensions of Object.values(EXTENSIONS_BY_FORMAT)) {
+    for (const ext of extensions) {
+      for (const name of [`file.${ext}`, `FILE.${ext.toUpperCase()}`]) {
+        files.push({ name, type: "" });
+        for (const type of mimes) files.push({ name, type });
+      }
+    }
+  }
+  for (const type of mimes) files.push({ name: "upload", type });
+  for (const signs of Object.values(UNSUPPORTED_SIGNS)) {
+    for (const ext of signs.extensions) {
+      files.push({ name: `file.${ext}`, type: "" });
+      for (const type of signs.mimes) files.push({ name: `file.${ext}`, type });
+    }
+    for (const type of signs.mimes) files.push({ name: "upload", type });
+  }
+  return files;
+}
+
+const DERIVED = derivedCorpus();
+
+const TYPED: FileMeta[] = [
   { name: "a.pdf", type: "application/pdf" },
   { name: "b.PDF", type: "" },
   { name: "c", type: "application/pdf" },
@@ -198,6 +270,8 @@ const CORPUS: { name: string; type: string }[] = [
   { name: "archive.zip", type: "application/zip" },
   { name: "unknown", type: "" },
 ];
+
+const CORPUS: FileMeta[] = [...DERIVED, ...TYPED];
 
 /**
  * What each runner opens, by its OWN check. Exhaustive over RunnerKind (the
@@ -243,6 +317,25 @@ const carried = (slug: string, file: { name: string; type: string }) =>
   eligibleFilesFor(slug, [file]).length === 1;
 
 describe("eligibility is derived from the catalogue's accept row", () => {
+  it("builds its corpus from the tables, at a plausible size (health)", () => {
+    // Measured 2026-10-09: 16 labels, 18 extensions and 15 distinct types
+    // (text/x-markdown among them), so 18 x 2 cases x 16 = 576 named files,
+    // 15 nameless ones and 54 for the unsupported formats: 645. A corpus that
+    // quietly shrinks reports the strongest pass there is; one that
+    // explodes is a derivation bug.
+    expect(Object.keys(EXTENSIONS_BY_FORMAT).length).toBeGreaterThanOrEqual(
+      Object.keys(MIME_BY_FORMAT).length,
+    );
+    expect(DERIVED.length).toBeGreaterThanOrEqual(600);
+    expect(DERIVED.length).toBeLessThanOrEqual(2000);
+    // Every recognised extension is in it, so a widened table widens it.
+    const names = new Set(DERIVED.map((f) => f.name));
+    const missing = Object.values(EXTENSIONS_BY_FORMAT)
+      .flat()
+      .filter((ext) => !names.has(`file.${ext}`));
+    expect(missing).toEqual([]);
+  });
+
   it("finds every runner-backed tool, and a corpus that every one of them takes from (health)", () => {
     expect(supportedToolSlugs.length).toBeGreaterThanOrEqual(25);
     const starved = supportedToolSlugs.filter(

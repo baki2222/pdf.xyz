@@ -78,8 +78,12 @@ export type UnsupportedFormat = (typeof UNSUPPORTED_FORMATS)[number];
 
 export type FileFormat = Format | UnsupportedFormat;
 
-/** How an unsupported format is recognised by name and by declared type. */
-const UNSUPPORTED_SIGNS: Record<
+/**
+ * How an unsupported format is recognised by name and by declared type.
+ * Exported for `capability.test.ts`, which builds its corpus from every table
+ * that decides what a file is.
+ */
+export const UNSUPPORTED_SIGNS: Record<
   UnsupportedFormat,
   { readonly extensions: readonly string[]; readonly mimes: readonly string[] }
 > = {
@@ -116,7 +120,7 @@ const UNSUPPORTED_SIGNS: Record<
  * never needs to accept them as a declaration — the Markdown runner opens
  * `text/x-markdown`, so recognising it here keeps the two in step.
  */
-const EXTRA_MIMES: Readonly<Record<string, Format>> = {
+export const EXTRA_MIMES: Readonly<Record<string, Format>> = {
   "text/x-markdown": "MD",
 };
 
