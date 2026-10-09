@@ -131,7 +131,7 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
           </ol>
         </div>
 
-        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
+        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
           <SpecRow icon={Download} label="Output" value="ZIP · CSV + XLSX" />
           <SpecRow
             icon={Timer}

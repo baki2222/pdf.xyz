@@ -611,10 +611,10 @@ function ColorSwatches({
             title={swatch.label}
             onClick={() => onChange(swatch.hex)}
             className={cn(
-              "size-5 rounded-full ring-offset-1 ring-offset-black/40 transition",
+              "ring-offset-wash size-5 rounded-full ring-offset-1 transition",
               active
-                ? "ring-2 ring-white"
-                : "ring-1 ring-white/20 hover:ring-white/50",
+                ? "ring-fg ring-2"
+                : "ring-line-strong hover:ring-fg/50 ring-1",
             )}
             style={{ backgroundColor: swatch.hex }}
           />
@@ -636,7 +636,7 @@ function ImagePicker({
 }) {
   if (image) {
     return (
-      <div className="border-line flex items-center gap-3 rounded-[3px] border bg-black/20 px-3.5 py-2.5">
+      <div className="border-line bg-canvas flex items-center gap-3 rounded-[3px] border px-3.5 py-2.5">
         <ImageIcon className="text-accent size-4 shrink-0" aria-hidden />
         <span className="text-muted min-w-0 flex-1 truncate text-xs">
           {image.name} · {image.format.toUpperCase()} · {image.width} ×{" "}
@@ -732,7 +732,7 @@ function TypeFields({
             rows={2}
             placeholder="Type the text to add to the page…"
             onChange={(event) => setField("text", event.target.value)}
-            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 w-full resize-y rounded-[3px] border bg-black/20 px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas w-full resize-y rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
           <span className="text-muted text-[11px]">
             Y is the baseline of the first line; wrapped lines flow downward.
@@ -916,7 +916,7 @@ function EditList({
         >
           <span
             aria-hidden
-            className="size-3 shrink-0 rounded-full ring-1 ring-white/30"
+            className="ring-line-strong size-3 shrink-0 rounded-full ring-1"
             style={{
               backgroundColor:
                 edit.op.type === "image" ? "#94a3b8" : edit.op.color,

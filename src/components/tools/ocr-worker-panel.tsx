@@ -425,7 +425,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {/* Spec rows */}
-        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
+        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
           <SpecRow
             icon={FileUp}
             label="Inputs"
@@ -697,7 +697,7 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
   return (
     <div className="border-line bg-wash mt-1 flex flex-col gap-1 rounded-[3px] border p-3">
       <h4 className="text-faint kicker">Recognition summary</h4>
-      <dl className="divide-y divide-white/5">
+      <dl className="divide-line divide-y">
         {rows.map((row) => (
           <div
             key={row.label}

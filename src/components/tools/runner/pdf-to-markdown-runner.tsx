@@ -71,7 +71,7 @@ function PdfToMarkdownEditor({
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
-            <div className="border-line text-fg max-h-72 overflow-auto rounded-[4px] border bg-black/20 p-4 font-mono text-sm leading-6 whitespace-pre-wrap">
+            <div className="border-line text-fg bg-canvas max-h-72 overflow-auto rounded-[4px] border p-4 font-mono text-sm leading-6 whitespace-pre-wrap">
               {result.markdown}
             </div>
             <button

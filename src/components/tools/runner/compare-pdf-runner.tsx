@@ -264,7 +264,7 @@ export function ComparePdfEditor({
               }
             />
           </div>
-          <div className="border-line text-fg max-h-80 overflow-auto rounded-[4px] border bg-black/20 p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
+          <div className="border-line text-fg bg-canvas max-h-80 overflow-auto rounded-[4px] border p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
             {result.report}
           </div>
           <button

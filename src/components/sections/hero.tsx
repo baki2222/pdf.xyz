@@ -92,7 +92,7 @@ export function Hero() {
               aria-hidden
               className="border-line bg-panel absolute -top-[5px] right-2 left-2 h-16 border"
             />
-            <div className="border-line bg-panel crop-marks relative border p-4 shadow-[0_28px_48px_-32px_rgba(12,18,26,0.45)] sm:p-5">
+            <div className="border-line bg-panel crop-marks shadow-sheet relative border p-4 sm:p-5">
               <UploadZone id={UPLOAD_ANCHOR} />
             </div>
           </div>

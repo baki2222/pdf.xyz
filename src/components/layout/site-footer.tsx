@@ -25,7 +25,7 @@ export function SiteFooter() {
             </p>
             <p className="text-muted inline-flex items-center gap-2 text-xs">
               <span
-                className="size-1.5 shrink-0 rounded-full bg-emerald-600"
+                className="bg-ok size-1.5 shrink-0 rounded-full"
                 aria-hidden
               />
               Privacy-first by architecture, not by policy.

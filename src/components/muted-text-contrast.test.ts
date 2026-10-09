@@ -41,10 +41,14 @@ import { LIGHTEST_TEXT_BACKGROUND, SLATE } from "@/lib/a11y/palette";
  * job completes. Neither subsumes the other.
  *
  * SCOPE, DELIBERATELY
- * Only the slate ramp used as a TEXT colour. `bg-slate-500`, `from-slate-500`
- * and `bg-slate-500/50` are still in the tree on purpose: they are decorative
- * fills and gradient stops, and non-text contrast is a different rule with a
- * different threshold. Widening this to every `text-*` utility would have to
+ * Only the slate ramp used as a TEXT colour. Slate fills and gradient stops
+ * are a different rule with a different threshold (non-text contrast), and
+ * since 2026-10-09 `raw-palette.test.ts` decides where any fill may name a
+ * hue at all: only on the white page a tool draws, such as the page tile's
+ * skeleton lines. (This note used to list three slate fill classes by name;
+ * two had left the tree, and Tailwind generates any class a comment spells
+ * whole, so the list kept shipping CSS for them.) Widening this to every
+ * `text-*` utility would have to
  * distinguish colours from `text-xs`, `text-center` and `text-[11px]`, and a
  * guard that flags unrelated things is a guard the next person routes around.
  */

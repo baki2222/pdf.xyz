@@ -146,7 +146,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
           </ol>
         </div>
 
-        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
+        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
           <SpecRow icon={FileUp} label="Input" value="One PDF" />
           <SpecRow
             icon={FileDown}

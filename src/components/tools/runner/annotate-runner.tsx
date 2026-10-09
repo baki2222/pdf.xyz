@@ -493,10 +493,10 @@ function ColorSwatches({
             title={swatch.label}
             onClick={() => onChange(swatch.hex)}
             className={cn(
-              "size-5 rounded-full ring-offset-1 ring-offset-black/40 transition",
+              "ring-offset-wash size-5 rounded-full ring-offset-1 transition",
               active
-                ? "ring-2 ring-white"
-                : "ring-1 ring-white/20 hover:ring-white/50",
+                ? "ring-fg ring-2"
+                : "ring-line-strong hover:ring-fg/50 ring-1",
             )}
             style={{ backgroundColor: swatch.hex }}
           />
@@ -629,7 +629,7 @@ function TypeFields({
             rows={2}
             placeholder="Type the note to place on the page…"
             onChange={(event) => setField("text", event.target.value)}
-            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 w-full resize-y rounded-[3px] border bg-black/20 px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas w-full resize-y rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
           <span className="text-muted text-[11px]">
             Y is the baseline of the first line; wrapped lines flow downward.
@@ -730,7 +730,7 @@ function MarkupList({
         >
           <span
             aria-hidden
-            className="size-3 shrink-0 rounded-full ring-1 ring-white/30"
+            className="ring-line-strong size-3 shrink-0 rounded-full ring-1"
             style={{ backgroundColor: markup.annotation.color }}
           />
           <span className="bg-accent/10 text-accent grid shrink-0 place-items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">

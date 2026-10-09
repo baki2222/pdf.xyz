@@ -444,7 +444,7 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
  * ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  "w-full rounded-[3px] border border-line bg-black/20 px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
+  "w-full rounded-[3px] border border-line bg-canvas px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
 
 function FieldCard({
   draft,
