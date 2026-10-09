@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import {
   Download,
   FileCode,
@@ -263,6 +263,7 @@ function useUnbundledAssetsNote(file: File | null): string | null {
 function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("https://");
+  const urlId = useId();
   const job = useWorkerJob<HtmlRenderWorkerResult>({
     tool: mode === "url" ? "webpage-to-pdf" : "html-to-pdf",
     resume: (id, controls) =>
@@ -306,15 +307,28 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
       </p>
 
       {mode === "url" ? (
-        <input
-          value={url}
-          onChange={(event) => {
-            setUrl(event.target.value);
-            setOutcome(null);
-          }}
-          className="border-line text-fg placeholder:text-muted focus:border-info/40 bg-panel rounded-[3px] border px-3 py-2 text-sm transition outline-none"
-          placeholder="https://example.com"
-        />
+        // Named by a visible label: the placeholder used to be the field's
+        // only name, and it vanishes on the first keystroke.
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={urlId} className="text-fg text-xs font-medium">
+            Web address
+          </label>
+          <input
+            id={urlId}
+            type="url"
+            inputMode="url"
+            autoComplete="url"
+            autoCapitalize="none"
+            spellCheck={false}
+            value={url}
+            onChange={(event) => {
+              setUrl(event.target.value);
+              setOutcome(null);
+            }}
+            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-panel w-full rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            placeholder="https://example.com"
+          />
+        </div>
       ) : file ? (
         <div className="flex flex-col gap-2">
           <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">

@@ -80,7 +80,7 @@ export function SiteFooter() {
               Terms
             </Link>
             <Link href="/#security" className="hover:text-fg transition-colors">
-              Security
+              Security practices
             </Link>
             <Link href="/tools" className="hover:text-fg transition-colors">
               All tools
