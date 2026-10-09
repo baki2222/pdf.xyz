@@ -113,6 +113,22 @@ describe("the copy surface reaches what the guards must read", () => {
     expect(components.filter((f) => !reached.has(f))).toEqual([]);
   });
 
+  it("reaches every intent module — the root guards itself by discovery", () => {
+    // `src/lib/intent` holds the redesign's phrase code (answers, evidence,
+    // hints). Dropping its root from copyFiles() must fail here, so the set
+    // is read from disk rather than named, and bounded below so an empty or
+    // renamed folder cannot pass vacuously.
+    const reached = new Set(copyFiles().map(rel));
+    const dir = path.join(process.cwd(), "src", "lib", "intent");
+    const modules = readdirSync(dir, { recursive: true, encoding: "utf8" })
+      .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."))
+      .map((f) => rel(path.join(dir, f)));
+    expect(modules.length).toBeGreaterThanOrEqual(1);
+    // Member control: the first module the root was created for.
+    expect(modules).toContain("src/lib/intent/formats.ts");
+    expect(modules.filter((f) => !reached.has(f))).toEqual([]);
+  });
+
   it("reaches every tool page's content file — the set the page consumes", () => {
     // The fifty authored content files (2026-09-27) sit under
     // `src/lib/tools/content/` and reach the walk by recursion. That is
