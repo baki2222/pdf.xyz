@@ -54,11 +54,12 @@ const ICONS: ToolIcons = Object.fromEntries(
 
 export default function ToolsPage() {
   return (
-    <div className="bg-canvas text-fg py-10 sm:py-20">
+    <div className="bg-canvas text-fg py-8 sm:py-20">
       <Container className="flex flex-col gap-6 sm:gap-12">
         <SectionHeading
           as="h1"
           align="left"
+          className="gap-3 sm:gap-4"
           eyebrow="Tool catalog"
           title="Every PDF tool, one place"
           description={`All ${toolCount} tools, organized into ${categories.length} categories. Search, filter, and each tool tells you honestly whether it runs in your browser or on a secure worker.`}

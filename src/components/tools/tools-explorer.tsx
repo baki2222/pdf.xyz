@@ -61,8 +61,13 @@ const NO_ICONS: ToolIcons = {};
  * dimmed), a label column beside wrapping chips from `sm`.
  */
 const FILTER_ROW =
-  "-mx-5 flex snap-x snap-proximity scroll-px-5 items-center gap-2 overflow-x-auto px-5 [scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:grid sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:items-start sm:gap-x-4 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
-const FILTER_LABEL = "text-faint kicker shrink-0 pr-1 sm:pt-2";
+  "-mx-5 flex snap-x snap-proximity scroll-px-5 items-center gap-2 overflow-x-auto px-5 [scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:grid sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start sm:gap-x-4 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
+/**
+ * The row's label. A snap point too: otherwise a phone snaps the row to its
+ * first chip on load and the label starts scrolled out of view.
+ */
+const FILTER_LABEL =
+  "text-faint kicker shrink-0 snap-start pr-1 whitespace-nowrap sm:pt-2";
 /** The chips: flex items of the scrolling row on a phone, a wrap from `sm`. */
 const FILTER_CHIPS = "contents sm:flex sm:flex-wrap sm:gap-2";
 const CHIP =
@@ -425,12 +430,12 @@ export function ToolsExplorer({
         <section
           key={category.id}
           aria-labelledby={`tools-group-${category.id}`}
-          className="flex flex-col gap-3"
+          className="flex flex-col gap-2 sm:gap-3"
         >
           <div className="flex flex-col gap-1">
             <h2
               id={`tools-group-${category.id}`}
-              className="font-display text-fg text-2xl font-medium tracking-tight"
+              className="font-display text-fg text-xl font-medium tracking-tight sm:text-2xl"
             >
               <Link
                 href={categoryHref(category.id)}
@@ -453,7 +458,7 @@ export function ToolsExplorer({
   );
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <p
         role="status"
         aria-live="polite"
@@ -462,8 +467,12 @@ export function ToolsExplorer({
       >
         {announcement}
       </p>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <label className="relative w-full lg:max-w-md">
+      {/* The field and the count share one row at every width: on a phone a
+          row of its own for "50 tools" pushed the first tool 44px further
+          down. A format chip from a deep link (`?accepts=`) takes the
+          count's place on a phone, so it adds no row and moves nothing. */}
+      <div className="flex items-center gap-3 lg:justify-between lg:gap-4">
+        <label className="relative min-w-0 flex-1 lg:max-w-md">
           <Search
             className="text-muted pointer-events-none absolute top-1/2 left-4 size-4.5 -translate-y-1/2"
             aria-hidden
@@ -490,15 +499,17 @@ export function ToolsExplorer({
             </button>
           )}
         </label>
-        {/* The count leads the row, and on a wide screen the row runs from
-            its far edge: the count keeps its place and a chip from a deep
-            link lands beside it, in a row whose height is reserved. */}
-        <div className="flex min-h-8 flex-wrap items-center gap-x-4 gap-y-2 lg:flex-1 lg:flex-row-reverse">
+        {/* On a wide screen the row runs from its far edge: the count keeps
+            its place and a chip from a deep link lands beside it. */}
+        <div className="flex shrink-0 items-center gap-x-4 lg:flex-1 lg:flex-row-reverse">
           <p
             data-result-count
-            className="text-muted inline-flex items-center gap-2 text-sm"
+            className={cn(
+              "text-muted inline-flex items-center justify-end gap-2 text-sm whitespace-nowrap max-sm:w-[4.5rem]",
+              accepts && "max-sm:hidden",
+            )}
           >
-            <SlidersHorizontal className="size-4" aria-hidden />
+            <SlidersHorizontal className="size-4 max-sm:hidden" aria-hidden />
             {pending ? (
               // No number while the engine loads: the grid's count is not
               // the count for the query.
@@ -507,10 +518,12 @@ export function ToolsExplorer({
                 <span className="sr-only">Searching</span>
               </>
             ) : (
-              <>
+              // One span: the row's flex gap would otherwise also sit
+              // between the number and its word ("50  tools").
+              <span>
                 <span className="tabular-nums">{results.length}</span>
                 {results.length === 1 ? " tool" : " tools"}
-              </>
+              </span>
             )}
           </p>
           {accepts && (
