@@ -307,16 +307,19 @@ export default async function ToolPage({
            * ── Worker and AI tools: head, panel, details ──
            * DOM order is head → panel → details, so on a phone the panel
            * comes right after the tool's name (it was under the whole
-           * introduction: 2,192px down on Word to PDF at 390px). From `lg`
-           * the grid areas put the panel in a sticky column beside the head
-           * and the details, as before.
+           * introduction: 2,192px down on Word to PDF at 390px), with no
+           * placement needed. From `lg` the panel takes a sticky second
+           * column spanning both rows, beside the head and the details, as
+           * before. Placed by column and row, not `grid-template-areas`: an
+           * areas value needs quotes, and a quoted arbitrary class broke the
+           * stylesheet scanner the motion guards read (fixed there too).
            */
-          <div className="grid gap-10 [grid-template-areas:'head'_'panel'_'details'] lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-y-6 lg:[grid-template-areas:'head_panel'_'details_panel']">
-            <div className="[grid-area:head]">{head}</div>
+          <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-y-6">
+            <div className="lg:col-start-1 lg:row-start-1">{head}</div>
 
             <div
               data-tool-panel
-              className="self-start [grid-area:panel] lg:sticky lg:top-24"
+              className="self-start lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1"
             >
               {panel && (
                 <ErrorBoundary boundary={panel.boundary}>
@@ -325,7 +328,7 @@ export default async function ToolPage({
               )}
             </div>
 
-            <div className="flex flex-col gap-6 [grid-area:details]">
+            <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-2">
               {intro.map((paragraph, i) => (
                 <p
                   key={i}
