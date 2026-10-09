@@ -1,6 +1,7 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 /**
- * What a null means in AI Data Extraction, said truly wherever it is said.
+ * What a null means in AI Data Extraction, said truly wherever it is said —
+ * and said in ONE set of words, `@/lib/jobs/ai-extract-null-meaning`.
  *
  * THE DEFECT (2026-10-09). The engine tells the model "When a requested value
  * is not present in the text, use null — never a guess". A single-value field
@@ -11,86 +12,130 @@
  * showed "_(not found)_", the manifest said "A value of null means the model
  * reported the field as not found", and the panel, the page and its FAQ said
  * the same. A user whose PDF holds four values was told it holds none.
- * Nothing about the model's behaviour changes here; what changes is that
- * every sentence explaining a null names both reasons, and the way out — ask
- * for a list.
  *
- * THE FIRST REWORDING OVERCLAIMED (review, 2026-10-09), twice. It said a field
- * "comes back null" / "is null" when it "matches more than once" — a
- * certainty the engine does not make true: its prompt says null only for a
- * value not present, so a model may as well return one of the several, and a
- * reader told that several values always give null takes any single value
- * for the only one. And "more than once" covers the commonest repeat, the
- * SAME value printed twice (an invoice number in the header and the footer),
- * which a model returns, not null. So the other reason is now DIFFERENT
- * values ({@link AMBIGUITY}); a sentence that ties null to several values must
- * hedge it ({@link HEDGE}) and say they differ; and the page and the package
- * must warn that a value that is not null may still be one of several. Its
- * sentences are a second corpus below, each caught.
+ * THREE ROUNDS OF REWORDING, EACH WITH A HOLE (review, 2026-10-09). The first
+ * said several values MAKE a null, and counted a value printed twice as
+ * several. The second's guard read "different values" anywhere in the
+ * sentence, so the page's own warning licensed any reason beside it. The
+ * third's guard read per clause, and still: no shape matched the README's
+ * "may not have found one", so dropping its second reason stayed green; the
+ * boolean FAQ's "does not answer the question" and an intro rewritten to
+ * "missing" passed the same way; and a comma is not a clause boundary, so
+ * ", or when it matches more than once" appended after "different values"
+ * passed too. Each was a new wording for a guard that banned wordings.
  *
- * THAT GUARD READ "different values" ANYWHERE IN THE SENTENCE (re-review,
- * 2026-10-09). The warning it asked for — "a value that is not null may
- * still be one of several different values" — sits in the same sentence as
- * the reasons on the page, so it licensed any reason clause beside it: the
- * intro rewritten to "…or when it matches more than once; …", the FAQ to
- * "…or when the same value is printed more than once; …", and the second
- * reason dropped altogether all passed every check here. A clause
- * that ties null to "not found", or to "more than one" or "several", must now
- * say "different values" ITSELF; the three mutations are positive controls
- * below, made to the page as served.
+ * THE STRUCTURE NOW. The words are not banned, they are OWNED: every surface
+ * renders the module's phrases ({@link PHRASES}, discovered from its exports)
+ * and none words a null itself. The main property is read off every surface
+ * as served — the page as rendered (text and FAQPage JSON-LD), the package
+ * as the real engine builds it (every file), the panel the page dispatches as
+ * rendered (its builder in both modes, and its result card after a truncated
+ * run) — and it is this: a sentence that speaks of a null
+ * ({@link SPEAKS_OF_NULL}) must BE one of the module's phrases, whole. Not
+ * contain one: a phrase inside a sentence licenses whatever the author wrote
+ * around it, and the first draft of this guard ("take the phrases out; what
+ * is left may not speak of a null") passed a cut sentence rewritten around
+ * the cell's label. Beside it, each surface must render
+ * {@link AI_EXTRACT_NULL_MEANING}, and the instruction is never left to speak
+ * alone: the meaning is the very next sentence.
  *
- * THE GUARD. Its subjects are DISCOVERED, at the point of consumption:
- *  - the package a user downloads — every file in it — built by the real
- *    engine from a reply with a null, in schema and prompt mode, with a cut
- *    window so the truncation sentence is there too;
- *  - the tool page as served — visible text and FAQPage JSON-LD — rendered in
- *    a fresh process (`@/tests/rendered-tool-pages`);
- *  - the panel the page dispatches for `ai-extract`, found by the page's own
- *    dispatch (`@/tests/worker-panel-dispatch`), read without comments.
- * A clause that says null means ABSENT ({@link ABSENCE}) must also name the
- * other reason ({@link AMBIGUITY}). Each surface must contribute at least one
- * such sentence — a surface that stopped explaining null would otherwise pass
- * by saying nothing (`[] ⊆ X`).
+ * A SECOND, INDEPENDENT BOUND. Structure cannot see a wrong module: if the
+ * module's own sentence lost its second reason, every surface would render
+ * the loss and pass. So a small regex check ({@link regexBound}) runs over
+ * every module phrase and every served sentence: a clause that says ABSENT
+ * must also say "different values"; a reason given for a null that speaks of
+ * more than one value must say they differ IN THAT REASON (split at "or");
+ * and "several values → null" must be hedged. Its corpora — every false
+ * sentence the product shipped, and every wording a review caught — are
+ * positive controls, each caught by both bounds.
  *
- * CORPUS IN BOTH DIRECTIONS (CLAUDE.md rule 1): every sentence that shipped
- * with the false meaning is caught by some ABSENCE shape, and every shape
- * catches some shipped sentence.
+ * STATED LIMITS. {@link SPEAKS_OF_NULL} is two words, "null" and "not found",
+ * and both bounds read only sentences that say one of them: a sentence that
+ * glosses a null in neither ("a field with no value is missing", "comes back
+ * empty") is seen by neither. A FAQ question that names null is exempt — it
+ * asks, and claims nothing — and the test lists which.
  */
 import JSZip from "jszip";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import type { ExtractOptions } from "@/lib/jobs/ai-extract";
+import { sanitizeJobResults } from "@/lib/jobs/results";
+import * as NULL_WORDS from "@/lib/jobs/ai-extract-null-meaning";
+import {
+  AI_EXTRACT_NOT_NULL_WARNING,
+  AI_EXTRACT_NULL_CELL,
+  AI_EXTRACT_NULL_INSTRUCTION,
+  AI_EXTRACT_NULL_MEANING,
+  AI_EXTRACT_NULL_PAST_CUT,
+} from "@/lib/jobs/ai-extract-null-meaning";
+import { resetTelemetry } from "@/lib/telemetry/track";
 import type { AiProvider } from "../ai/provider";
 import { runAiExtract } from "./engine";
-import { createRequire } from "node:module";
-import type * as TS from "typescript";
-import { flattenForPhraseSearch } from "@/lib/tools/copy-surface";
+import { userTruncationNotice } from "../ai/truncation";
 import {
   renderToolPages,
   type RenderedToolPage,
 } from "@/tests/rendered-tool-pages";
-import { panelDispatchArms } from "@/tests/worker-panel-dispatch";
+import {
+  catalogTool,
+  panelComponent,
+  panelDispatchArms,
+} from "@/tests/worker-panel-dispatch";
+import { READY_WORKER_STATUS } from "@/tests/ready-worker-status";
+import { stubJobNetwork } from "@/tests/stub-job-network";
 
-const ts = createRequire(import.meta.url)("typescript") as typeof TS;
-
-/** Shapes that tell a user a null means the value is ABSENT. */
-const ABSENCE: readonly RegExp[] = [
-  // "_(not found)_", "reported as not found", "null values as not found"
-  /\bnot found\b/i,
-  // "answer null for whatever it cannot find"
-  /\bcannot find\b/i,
-  // "use null when the text is silent"
-  /\bis silent\b/i,
-];
+// ── the one source ──────────────────────────────────────────────────────────
 
 /**
- * What makes such a sentence true: the other reason a model gives null —
- * DIFFERENT values. WAS `more than (one|once)`, which the first rewording
- * satisfied with "matches more than once": a value printed twice, which a
- * model returns rather than nulls.
+ * Every phrase the module exports — DISCOVERED from its exports, not listed,
+ * so a phrase added there is one a surface may render, and is held to the
+ * regex bound below.
  */
+const PHRASES: readonly string[] = (
+  Object.values(NULL_WORDS) as unknown[]
+).filter((v): v is string => typeof v === "string");
+
+/** Words that speak of a null: the word itself, and the cell's "not found". */
+const SPEAKS_OF_NULL = /\bnull\b|\bnot found\b/i;
+
+/**
+ * A sentence without the markdown around it: extraction.md wraps its note in
+ * `_…_` and quotes the cut with `> **…**`, and the cell is `_(…)_`.
+ */
+const bare = (sentence: string) => sentence.replace(/^[\s>*_]+|[\s*_]+$/g, "");
+
+const PHRASE_SET: ReadonlySet<string> = new Set(PHRASES.map(bare));
+
+/**
+ * A sentence that speaks of a null and is not ONE of the module's phrases —
+ * whole. WAS "contains one" (with the phrases taken out, nothing left may
+ * speak of a null): the panel's cut sentence rewritten in its own words
+ * around the cell's LABEL ("A field shown as not found, or several different
+ * values, was judged on those pages only…") passed that way, and so would
+ * any claim built around a fragment of the module's (mutation, 2026-10-09).
+ */
+const ownNullWording = (sentence: string): boolean =>
+  SPEAKS_OF_NULL.test(sentence) && !PHRASE_SET.has(bare(sentence));
+
+// ── the second bound: a small regex check ───────────────────────────────────
+
+/**
+ * Shapes that say a null means the value is ABSENT. Each catches a sentence of
+ * a corpus below (rule 1): the shipped ones, and the third round's — "may not
+ * have found", "does not answer", "missing" — which no shape caught then.
+ */
+const ABSENCE: readonly RegExp[] = [
+  /\bnot found\b/i,
+  /\bcannot find\b/i,
+  /\bis silent\b/i,
+  /\bmay not have found\b/i,
+  /\bdoes not answer\b/i,
+  /\bmissing\b/i,
+];
+
+/** The other reason a model gives null: DIFFERENT values. */
 const AMBIGUITY = /\bdifferent (?:values?|answers?)\b/i;
 
 /** Words for "more than one", whether or not the values differ. */
@@ -98,22 +143,62 @@ const PLURAL = /\bmore than (?:one|once)\b|\bseveral\b/i;
 
 /**
  * A null attributed to a field or by a model: "comes back null", "is null",
- * "answers null". Not the bare "to answer null rather than guess" — that is
- * the instruction, quoted, not a claim about what comes back.
+ * "answers null". Not "answer null rather than guess" — the instruction.
  */
 const NULL_PREDICATE = /\b(?:comes? back|is|answers) null\b/i;
 
-/**
- * What makes "several values → null" a possibility, not a rule — read in the
- * CLAUSE that says null, not anywhere in the sentence: a mutation of the FAQ
- * to "a field is null when … several different values; a value that is not
- * null may still be one of several" stayed green while the hedge was read
- * per sentence (2026-10-09).
- */
+/** What makes "several values → null" a possibility, not a rule. */
 const HEDGE = /\b(?:can|may)\b/i;
 
 /** A sentence's clauses: at a semicolon, a colon, or ", so". */
 const clauses = (sentence: string) => sentence.split(/\s*(?:[;:]|,\s+so\b)\s*/);
+
+/**
+ * A clause's REASONS: its alternatives, at "or". WAS read per clause, and a
+ * comma is not a clause boundary — ", or when it matches more than once"
+ * after "…several different values for it" sat in a clause that said
+ * "different values", and passed (re-review 3, 2026-10-09).
+ */
+const reasons = (clause: string) => clause.split(/,?\s+or\s+/);
+
+/** The sentence speaks of a null at all. */
+const aboutNull = (sentence: string) => SPEAKS_OF_NULL.test(sentence);
+
+/**
+ * Says null means ABSENT and stops there: some clause says absent without
+ * naming different values IN THAT CLAUSE. Per clause, not per reason — the
+ * true sentence gives absence as one reason and different values as its
+ * sibling. Only about a null: "Values may be missing" is a disclaimer.
+ */
+const falseMeaning = (sentence: string) =>
+  aboutNull(sentence) &&
+  clauses(sentence).some(
+    (c) => ABSENCE.some((p) => p.test(c)) && !AMBIGUITY.test(c),
+  );
+
+/**
+ * Says several values MAKE a null, as a rule: it speaks of more than one
+ * value, and some clause says null comes back with no hedge in that clause.
+ */
+const certainNull = (sentence: string) =>
+  (PLURAL.test(sentence) || AMBIGUITY.test(sentence)) &&
+  clauses(sentence).some((c) => NULL_PREDICATE.test(c) && !HEDGE.test(c));
+
+/**
+ * Gives "more than one" as a reason without saying the values differ — in
+ * THAT REASON. A value printed twice is one value, which a model returns.
+ */
+const repeatsAsReason = (sentence: string) =>
+  /\bnull\b/i.test(sentence) &&
+  clauses(sentence)
+    .flatMap(reasons)
+    .some((r) => PLURAL.test(r) && !AMBIGUITY.test(r));
+
+/** The regex bound: refused by any of its three checks. */
+const regexBound = (sentence: string) =>
+  falseMeaning(sentence) || certainNull(sentence) || repeatsAsReason(sentence);
+
+// ── the corpora: every wording that was ever caught ─────────────────────────
 
 /** Every sentence of the false meaning the product shipped (origin/main, 2026-10-09). */
 const SHIPPED: readonly string[] = [
@@ -158,53 +243,45 @@ const FIRST_REWORDING_CERTAIN: readonly string[] = [
   "A single-value field whose value appears SEVERAL times has no one right answer, so the model answers null — the instruction followed (the production proof of ai-extract failed exactly that way: one `region` asked of a four-row table).",
 ];
 
-const saysAbsent = (sentence: string) => ABSENCE.some((p) => p.test(sentence));
 /**
- * A sentence that says null means absent and stops there: some CLAUSE of it
- * says "not found" without "different values" in that clause. Read per
- * sentence until 2026-10-09 (re-review), the page's own warning clause — "a
- * value that is not null may still be one of several different values" —
- * licensed any reason clause beside it, "not found" alone included.
+ * The third review's wordings (2026-10-09): mutations of the then-live copy
+ * that every check here passed, each now caught.
  */
-const falseMeaning = (sentence: string) =>
-  clauses(sentence).some((c) => saysAbsent(c) && !AMBIGUITY.test(c));
-/**
- * A sentence that says several values make a null, as a rule: it speaks of
- * more than one value, and some clause of it says null comes back with no
- * hedge in that clause. The plural may sit in another clause — "a field has
- * several values, so the model answers null" is the same claim.
- */
-const certainNull = (sentence: string) =>
-  (PLURAL.test(sentence) || AMBIGUITY.test(sentence)) &&
-  clauses(sentence).some((c) => NULL_PREDICATE.test(c) && !HEDGE.test(c));
-/**
- * A sentence about null with a clause that says "more than one" or "several"
- * without saying, in that clause, that the values differ. The null may sit
- * in another clause — "a field may hold several values, so it can come back
- * null" — but the "different" must sit with the plural: read per sentence,
- * "…or when it matches more than once; a value that is not null may still be
- * one of several different values" passed on the second clause's words
- * (re-review, 2026-10-09).
- */
-const repeatsAsReason = (sentence: string) =>
-  /\bnull\b/i.test(sentence) &&
-  clauses(sentence).some((c) => PLURAL.test(c) && !AMBIGUITY.test(c));
-
-/** Refused by any check above. */
-const flagged = (sentence: string) =>
-  falseMeaning(sentence) || certainNull(sentence) || repeatsAsReason(sentence);
-
-/** The live page's second reason, as its intro and its FAQ word it. */
-const SECOND_REASON =
-  ", or when the text holds several different values for it";
+const ROUND_3: readonly { name: string; text: string }[] = [
+  {
+    name: "README, second reason dropped",
+    text: "A value of null means the model gave no single value for the field: it may not have found one.",
+  },
+  {
+    name: "boolean use case, second reason dropped",
+    text: "The model is told to answer null rather than guess, so a null can mean the text it read does not answer the question.",
+  },
+  {
+    name: "intro, 'not found' as 'missing' and the second reason dropped",
+    text: "The model's instructions are to use only that text and to answer null rather than guess, so a field can come back null when its value is missing; a value that is not null may still be one of several different values, so ask for a list to get every value.",
+  },
+  {
+    name: "intro, ', or when it matches more than once' appended",
+    text: "The model's instructions are to use only that text and to answer null rather than guess, so a field can come back null when its value is not found, or when the text holds several different values for it, or when it matches more than once; a value that is not null may still be one of several different values, so ask for a list to get every value.",
+  },
+  {
+    name: "FAQ, ', or when the same value is printed more than once' appended",
+    text: "It is told to answer null rather than guess, so a field can come back null when its value is not found, or when the text holds several different values for it, or when the same value is printed more than once; a value that is not null may still be one of several different values.",
+  },
+  {
+    // The review's control for `repeatsAsReason` alone: no "not found" for
+    // `falseMeaning` to catch, a hedge for `certainNull` to accept.
+    name: "a repeat as the only reason, beside a warning that says 'different values'",
+    text: "A field can come back null when the text holds the same value more than once; a value that is not null may still be one of several different values.",
+  },
+];
 
 /** Sentences, as a reader meets them: by line, by table cell, by full stop. */
 function sentences(text: string): string[] {
   return (
     text
-      // After a full stop, whatever follows: "find. pdf.xyz" is two sentences,
-      // and merging them could let one sentence's "more than one" license the
-      // other's "not found". Markdown emphasis may close a sentence ("…**").
+      // After a full stop, whatever follows: "find. pdf.xyz" is two sentences.
+      // Markdown emphasis may close a sentence ("…**").
       .split(/\n+|\s\|\s|(?<=[.!?][*_)"”]*)\s+/)
       .map((s) => s.replace(/\s+/g, " ").trim())
       .filter((s) => s.length > 0)
@@ -240,11 +317,33 @@ const replying = (reply: unknown): AiProvider => ({
   }),
 });
 
-/** Every file of a package the engine builds for `options` from `reply`. */
-async function packageText(
+/** Every string a JSON value holds: its copy. A JSON `null` is data, not words. */
+function jsonStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(jsonStrings);
+  if (value && typeof value === "object")
+    return Object.values(value).flatMap(jsonStrings);
+  return [];
+}
+
+interface BuiltPackage {
+  /** The engine's run, for the job record a panel is handed. */
+  readonly output: Uint8Array;
+  readonly window: Parameters<typeof sanitizeJobResults>[0];
+  /** The sentence the engine discloses the cut with. */
+  readonly cutNotice: string;
+  /** File name → its sentences (a JSON file's strings). */
+  readonly files: Record<string, string[]>;
+  readonly md: string;
+  readonly extraction: Record<string, unknown>;
+  readonly missingKeys: readonly string[];
+}
+
+/** The package the engine builds for `options` from `reply`, read file by file. */
+async function buildPackage(
   options: ExtractOptions,
   reply: unknown,
-): Promise<string> {
+): Promise<BuiltPackage> {
   const run = await runAiExtract(new Uint8Array([1]), options, {
     extract,
     provider: replying(reply),
@@ -253,9 +352,6 @@ async function packageText(
   });
   if (!run.ok) throw new Error(`engine: ${run.message}`);
   const zip = await JSZip.loadAsync(run.output);
-  const files = await Promise.all(
-    Object.values(zip.files).map((f) => f.async("string")),
-  );
   // Health: the package is the five files a user downloads.
   expect(Object.keys(zip.files).sort()).toEqual([
     "README.txt",
@@ -264,139 +360,192 @@ async function packageText(
     "manifest.json",
     "model-output.json",
   ]);
-  return files.join("\n");
+  const files: Record<string, string[]> = {};
+  const raw: Record<string, string> = {};
+  for (const [name, file] of Object.entries(zip.files)) {
+    raw[name] = await file.async("string");
+    files[name] = name.endsWith(".json")
+      ? jsonStrings(JSON.parse(raw[name]!)).flatMap(sentences)
+      : sentences(raw[name]!);
+  }
+  const manifest = JSON.parse(raw["manifest.json"]!) as {
+    extraction: { missingKeys?: string[] };
+  };
+  return {
+    output: run.output,
+    window: { ai: { truncation: run.meta.window } },
+    cutNotice: userTruncationNotice(run.meta.window),
+    files,
+    md: raw["extraction.md"]!,
+    extraction: JSON.parse(raw["extraction.json"]!) as Record<string, unknown>,
+    missingKeys: manifest.extraction.missingKeys ?? [],
+  };
+}
+
+// ── the panel, as rendered ──────────────────────────────────────────────────
+
+/**
+ * The panel's text as a reader meets it: each element's own text is a line —
+ * so a label is not glued to the sentence after it, as a tag-stripped string
+ * glues "Fields to extract" to the hint below it — then split into sentences.
+ */
+function panelText(container: HTMLElement): string[] {
+  const lines: string[] = [];
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let parent: Node | null = null;
+  let line = "";
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.parentNode !== parent) {
+      lines.push(line);
+      line = "";
+      parent = node.parentNode;
+    }
+    line += node.nodeValue ?? "";
+  }
+  lines.push(line);
+  return lines.flatMap(sentences);
+}
+
+/**
+ * The panel the tool page dispatches for ai-extract, rendered: its builder in
+ * schema mode, in prompt mode, and its result card after a run whose job
+ * record and package come from the real engine, cut short.
+ */
+async function renderedPanel(
+  built: BuiltPackage,
+): Promise<Record<string, string[]>> {
+  const arm = panelDispatchArms().find((a) => a.slugs.includes("ai-extract"));
+  if (!arm) throw new Error("the tool page dispatches no panel for ai-extract");
+  const Panel = await panelComponent(arm);
+  const results = sanitizeJobResults(built.window);
+  // Health: the job record carries the cut, or no notice can render.
+  expect(results?.ai?.truncation.truncated).toBe(true);
+  stubJobNetwork(READY_WORKER_STATUS, () => ({
+    status: "completed",
+    artifact: {
+      artifact: {
+        artifactId: "a_stub",
+        filename: "invoice.extraction.zip",
+        contentType: "application/zip",
+        bytes: built.output.byteLength,
+        url: "/stub/artifacts/a_stub",
+        expiresAt: new Date(0).toISOString(),
+      },
+      bytes: built.output,
+    },
+    ...(results ? { results } : {}),
+  }));
+  const { container } = render(
+    createElement(Panel, { tool: catalogTool("ai-extract") }),
+  );
+  await screen.findByRole("textbox", { name: "Field 1 name" });
+  const schemaMode = panelText(container);
+  fireEvent.click(screen.getByRole("button", { name: "Prompt" }));
+  const promptBox = await screen.findByRole("textbox");
+  const promptMode = panelText(container);
+  fireEvent.change(promptBox, { target: { value: "Extract the region." } });
+  const input = container.querySelector('input[type="file"]');
+  if (!input) throw new Error("the builder has no file input");
+  fireEvent.change(input, {
+    target: {
+      files: [
+        new File([new Uint8Array([1, 2, 3])], "invoice.pdf", {
+          type: "application/pdf",
+        }),
+      ],
+    },
+  });
+  const button = screen.getByRole("button", { name: /extract data/i });
+  await waitFor(() =>
+    expect(button).not.toHaveAttribute("aria-disabled", "true"),
+  );
+  fireEvent.click(button);
+  // Health: the card shows the cut — the engine's own notice for this
+  // window — so the consequence sentence beside it is read.
+  expect(built.cutNotice).not.toBe("");
+  await screen.findByText(built.cutNotice, undefined, { timeout: 15_000 });
+  return {
+    "the panel's builder, field schema": schemaMode,
+    "the panel's builder, prompt": promptMode,
+    "the panel's result card": panelText(container),
+  };
 }
 
 // ── the surfaces ────────────────────────────────────────────────────────────
 
-/**
- * The text a panel can show: every string literal, template text and JSX
- * text in its source, read through the TypeScript parser — so a sentence is
- * never glued to the markup around it, and a comment is never copy.
- */
-function panelCopy(source: string): string[] {
-  const file = ts.createSourceFile(
-    "panel.tsx",
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
-  const out: string[] = [];
-  const walk = (n: TS.Node) => {
-    if (
-      ts.isStringLiteral(n) ||
-      ts.isNoSubstitutionTemplateLiteral(n) ||
-      ts.isJsxText(n)
-    )
-      out.push(n.text);
-    else if (ts.isTemplateExpression(n))
-      out.push(
-        [n.head.text, ...n.templateSpans.map((s) => s.literal.text)].join(" "),
-      );
-    ts.forEachChild(n, walk);
-  };
-  walk(file);
-  return out.map((text) => flattenForPhraseSearch(text));
-}
-
 let page: RenderedToolPage;
+let schemaPackage: BuiltPackage;
+let promptPackage: BuiltPackage;
+/** Surface → its sentences, every one as a reader receives it. */
 let surfaces: Record<string, string[]>;
 
+afterEach(() => {
+  resetTelemetry();
+  vi.unstubAllGlobals();
+});
+
 beforeAll(async () => {
-  const schemaPackage = await packageText(
+  schemaPackage = await buildPackage(
     {
       mode: "schema",
       schema: [
         { name: "region", type: "string" },
         { name: "q1", type: "number" },
+        { name: "due_date", type: "date" },
       ],
     },
     // Two regions on the page and one asked for: a model MAY answer null
-    // here, though the prompt asks for null only when a value is absent —
-    // what the package says about that null is what is checked.
+    // here; due_date is left out of the reply, so pdf.xyz fills its null.
     { region: null, q1: 1200 },
   );
-  const promptPackage = await packageText(
+  promptPackage = await buildPackage(
     { mode: "prompt", prompt: "Extract the region and its Q1 figure." },
     { region: null, invoice: "INV-7" },
   );
   page = renderToolPages().get("ai-extract")!;
-  const arm = panelDispatchArms().find((a) => a.slugs.includes("ai-extract"));
-  if (!arm) throw new Error("the tool page dispatches no panel for ai-extract");
-  const panelFile = path.resolve(
-    arm.specifier.replace(/^@\//, "src/") + ".tsx",
-  );
+  const panel = await renderedPanel(schemaPackage);
+  vi.unstubAllGlobals();
   surfaces = {
-    "the schema-mode package": sentences(schemaPackage),
-    "the prompt-mode package": sentences(promptPackage),
-    "the rendered page": [
-      ...sentences(page.text),
-      ...page.faq.flatMap((q) => sentences(q.answer)),
-    ],
-    "the panel": panelCopy(readFileSync(panelFile, "utf8")).flatMap(sentences),
+    ...Object.fromEntries(
+      Object.entries(schemaPackage.files).map(([name, list]) => [
+        `the schema-mode package's ${name}`,
+        list,
+      ]),
+    ),
+    ...Object.fromEntries(
+      Object.entries(promptPackage.files).map(([name, list]) => [
+        `the prompt-mode package's ${name}`,
+        list,
+      ]),
+    ),
+    "the rendered page": sentences(page.text),
+    "the page's FAQPage JSON-LD": page.faq.flatMap((q) => sentences(q.answer)),
+    ...panel,
   };
 }, 180_000);
 
-describe("the corpus", () => {
-  it("every sentence that shipped the false meaning is caught, and every shape catches one", () => {
-    for (const sentence of SHIPPED)
-      expect(falseMeaning(sentence), sentence).toBe(true);
-    for (const shape of ABSENCE)
-      expect(
-        SHIPPED.some((s) => shape.test(s)),
-        `${shape} catches no shipped sentence`,
-      ).toBe(true);
-  });
+/** A FAQ question asks; it claims nothing. These are exempt from the structure. */
+const isFaqQuestion = (sentence: string) =>
+  page.faq.some((q) => q.question === sentence);
 
-  it("every sentence of the first rewording is caught by some check, and each check catches one", () => {
-    const caughtBy = (s: string) =>
-      [
-        falseMeaning(s) && "absence",
-        certainNull(s) && "certain",
-        repeatsAsReason(s) && "repeat",
-      ].filter(Boolean);
-    for (const sentence of FIRST_REWORDING)
-      expect(caughtBy(sentence).length, sentence).toBeGreaterThan(0);
-    for (const sentence of FIRST_REWORDING_CERTAIN)
-      expect(certainNull(sentence), sentence).toBe(true);
-    // Each check, and each alternative of each pattern, catches a shipped
-    // sentence — none is decoration.
-    const all = [...FIRST_REWORDING, ...FIRST_REWORDING_CERTAIN];
-    expect(all.filter(falseMeaning).length).toBeGreaterThan(0);
-    expect(all.filter(certainNull).length).toBeGreaterThan(0);
-    expect(all.filter(repeatsAsReason).length).toBeGreaterThan(0);
-    for (const alternative of ["comes back", "is", "answers"])
-      expect(
-        all.some(
-          (s) =>
-            certainNull(s) &&
-            new RegExp(`\\b${alternative} null\\b`, "i").test(s),
-        ),
-        `"${alternative} null" catches no shipped sentence`,
-      ).toBe(true);
-    for (const plural of [/\bmore than (?:one|once)\b/i, /\bseveral\b/i])
-      expect(
-        all.some((s) => repeatsAsReason(s) && plural.test(s)),
-        `${plural} catches no shipped sentence`,
-      ).toBe(true);
-    // NEGATIVE CONTROL: a hedged sentence that names different values is
-    // none of these — each check can say yes and no.
-    const hedged =
-      "A field can come back null when its value is not found, or when the text holds several different values for it.";
-    expect(caughtBy(hedged)).toEqual([]);
-    // POSITIVE CONTROL for the clause: a hedge elsewhere in the sentence does
-    // not license an unhedged "is null" — the FAQ mutation that once stayed green.
-    expect(
-      certainNull(
-        "It is told to answer null rather than guess, so a field is null when its value is not found, or when the text holds several different values for it; a value that is not null may still be one of several different values.",
-      ),
-    ).toBe(true);
+/** Every served sentence that words a null itself, as "surface: sentence". */
+const ownWordingOn = (all: Record<string, string[]>) =>
+  Object.entries(all).flatMap(([name, list]) =>
+    list
+      .filter((s) => ownNullWording(s) && !isFaqQuestion(s))
+      .map((s) => `${name}: ${s}`),
+  );
+
+describe("the instruments", () => {
+  it("the module's phrases are found, and each is rendered somewhere — none is decoration", () => {
+    // Health: discovered, not typed; a broken import would leave none.
+    expect(PHRASES).toContain(AI_EXTRACT_NULL_MEANING);
+    expect(PHRASES.length).toBeGreaterThanOrEqual(5);
+    const served = new Set(Object.values(surfaces).flat().map(bare));
+    expect(PHRASES.filter((p) => !served.has(bare(p)))).toEqual([]);
   });
 
   it("the sentence splitter keeps a table cell, a markdown note and a FAQ sentence whole", () => {
-    // The splitter is the instrument: a sentence cut in half could separate
-    // "not found" from the "different values" that makes it true.
     expect(
       sentences(
         "| po_number | _(not found, or several different values)_ |\nNext. A null field was not found, or held several different values. It cannot find. pdf.xyz says **so.** Then.",
@@ -410,141 +559,300 @@ describe("the corpus", () => {
       "pdf.xyz says **so.**",
       "Then.",
     ]);
+    // Every module phrase survives the splitter whole, or no served sentence
+    // could ever BE one.
+    for (const phrase of PHRASES)
+      expect(sentences(phrase).join(" "), phrase).toBe(phrase);
+  });
+
+  it("each surface is read whole, and speaks of null — the structure is not reading silence", () => {
+    const sizes = Object.fromEntries(
+      Object.entries(surfaces).map(([name, list]) => [name, list.length]),
+    );
+    // Health, both directions: a reader that lost most of a surface, or
+    // split one into fragments, is implausible either way.
+    for (const [name, size] of Object.entries(sizes))
+      expect(size, name).toBeLessThan(400);
+    expect(sizes["the rendered page"]).toBeGreaterThan(60);
+    expect(sizes["the page's FAQPage JSON-LD"]).toBeGreaterThan(30);
+    expect(sizes["the schema-mode package's README.txt"]).toBeGreaterThan(10);
+    expect(sizes["the panel's builder, field schema"]).toBeGreaterThan(10);
+    // The data files carry the model's values, and no words about null.
+    for (const [name, list] of Object.entries(surfaces).filter(([n]) =>
+      /(?:extraction|model-output)\.json$/.test(n),
+    ))
+      expect(list.filter(aboutNull), name).toEqual([]);
+    for (const name of [
+      "the schema-mode package's README.txt",
+      "the schema-mode package's extraction.md",
+      "the schema-mode package's manifest.json",
+      "the prompt-mode package's README.txt",
+      "the prompt-mode package's extraction.md",
+      "the prompt-mode package's manifest.json",
+      "the rendered page",
+      "the page's FAQPage JSON-LD",
+      "the panel's builder, field schema",
+      "the panel's builder, prompt",
+      "the panel's result card",
+    ])
+      expect(
+        surfaces[name]!.filter(aboutNull).length,
+        `${name} says nothing about null`,
+      ).toBeGreaterThan(0);
   });
 });
 
-describe("every surface says what a null means truly", () => {
-  it("each surface explains a null at least once (the guard is not reading silence)", () => {
-    expect(page, "the ai-extract page did not render").toBeDefined();
-    for (const [name, list] of Object.entries(surfaces))
-      expect(list.filter(saysAbsent).length, name).toBeGreaterThan(0);
+describe("one source: every surface words a null only in the module's phrases", () => {
+  it("no served sentence speaks of a null in words of its own", () => {
+    expect(ownWordingOn(surfaces)).toEqual([]);
   });
 
-  it("no sentence says a null means absent without naming the other reason", () => {
-    const found = Object.entries(surfaces).flatMap(([name, list]) =>
-      list.filter(falseMeaning).map((s) => `${name}: ${s}`),
+  it("the only exemption is a FAQ question, and it is the one the page asks", () => {
+    const exempt = Object.values(surfaces)
+      .flat()
+      .filter((s) => ownNullWording(s) && isFaqQuestion(s));
+    expect([...new Set(exempt)]).toEqual(
+      page.faq.map((q) => q.question).filter((q) => SPEAKS_OF_NULL.test(q)),
     );
-    expect(found).toEqual([]);
   });
 
-  it("no sentence says several values MAKE a null — only that they can", () => {
-    const found = Object.entries(surfaces).flatMap(([name, list]) =>
-      list.filter(certainNull).map((s) => `${name}: ${s}`),
+  it("every surface that speaks of null renders the meaning", () => {
+    const missing = Object.entries(surfaces)
+      .filter(([, list]) => list.some(aboutNull))
+      .filter(([, list]) => !list.includes(AI_EXTRACT_NULL_MEANING))
+      .map(([name]) => name);
+    expect(missing).toEqual([]);
+  });
+
+  it("the instruction never speaks alone: the very next sentence is the meaning", () => {
+    const alone = Object.entries(surfaces).flatMap(([name, list]) =>
+      list
+        .map((s, i) => [s, list[i + 1]] as const)
+        .filter(
+          ([s, next]) =>
+            s.includes(AI_EXTRACT_NULL_INSTRUCTION) &&
+            next !== AI_EXTRACT_NULL_MEANING,
+        )
+        .map(([s]) => `${name}: ${s}`),
     );
-    expect(found).toEqual([]);
-  });
-
-  it("no sentence gives a value found more than once as a reason for null without saying the values differ", () => {
-    const found = Object.entries(surfaces).flatMap(([name, list]) =>
-      list.filter(repeatsAsReason).map((s) => `${name}: ${s}`),
-    );
-    expect(found).toEqual([]);
-  });
-
-  it("the package and the page say how to get every value: ask for a list", () => {
+    expect(alone).toEqual([]);
+    // Health: the instruction IS said, on the page, the package and the panel.
     for (const name of [
-      "the schema-mode package",
       "the rendered page",
-    ] as const)
-      expect(
-        surfaces[name]!.some((s) => AMBIGUITY.test(s) && /\blist\b/i.test(s)),
-        name,
-      ).toBe(true);
+      "the schema-mode package's README.txt",
+      "the panel's builder, field schema",
+    ])
+      expect(surfaces[name], name).toContain(AI_EXTRACT_NULL_INSTRUCTION);
   });
 
-  it("the package and the page warn that a value that is not null may still be one of several", () => {
-    // The convenient direction of the first rewording: told that several
-    // values make a null, a reader takes any single value for the only one.
+  it("the package, the page and the panel warn that a value that is not null may still be one of several", () => {
     for (const name of [
-      "the schema-mode package",
+      "the schema-mode package's README.txt",
+      "the prompt-mode package's README.txt",
       "the rendered page",
-    ] as const)
-      expect(
-        surfaces[name]!.some(
-          (s) =>
-            /\bnot null\b/i.test(s) &&
-            /\bone of several\b/i.test(s) &&
-            HEDGE.test(s),
-        ),
-        name,
-      ).toBe(true);
+      "the page's FAQPage JSON-LD",
+      "the panel's builder, field schema",
+      "the panel's builder, prompt",
+    ])
+      expect(surfaces[name], name).toContain(AI_EXTRACT_NOT_NULL_WARNING);
   });
 
-  it("POSITIVE CONTROL: the package as it shipped is refused", () => {
-    expect(
-      sentences("| region | _(not found)_ |\n| q1 | 1200 |").filter(
-        falseMeaning,
-      ),
-    ).toEqual(["_(not found)_"]);
+  it("a cut is followed by what it means for a null — in extraction.md and on the panel's result card", () => {
+    // Health: the run WAS cut, so there is a notice to follow.
+    expect(schemaPackage.cutNotice).not.toBe("");
+    for (const name of [
+      "the schema-mode package's extraction.md",
+      "the prompt-mode package's extraction.md",
+      "the panel's result card",
+    ]) {
+      const list = surfaces[name]!;
+      const at = list.findIndex((s) => s.includes(schemaPackage.cutNotice));
+      expect(at, `${name}: the cut notice`).toBeGreaterThanOrEqual(0);
+      expect(list[at + 1], name).toBe(AI_EXTRACT_NULL_PAST_CUT);
+    }
   });
 
-  it("no live sentence, on any surface, is refused by any check", () => {
-    // Health: each surface is read whole — 66 to 168 sentences each on
-    // 2026-10-09 — so a reader that lost most of one cannot pass vacuously.
-    for (const [name, list] of Object.entries(surfaces))
-      expect(list.length, name).toBeGreaterThan(40);
+  it("extraction.md shows every null the model returned as the module's cell, and a field it left out as not returned", () => {
+    for (const built of [schemaPackage, promptPackage]) {
+      const nulls = Object.entries(built.extraction).filter(
+        ([, v]) => v === null,
+      );
+      // Health: there is a null to show, in each mode.
+      expect(nulls.length).toBeGreaterThan(0);
+      for (const [key] of nulls) {
+        const row = built.md
+          .split("\n")
+          .find((line) => line.startsWith(`| ${key} |`));
+        expect(row, key).toBe(
+          built.missingKeys.includes(key)
+            ? `| ${key} | _(not returned by the model)_ |`
+            : `| ${key} | ${AI_EXTRACT_NULL_CELL} |`,
+        );
+      }
+    }
+    // Health: the schema package has one of each.
+    expect(schemaPackage.missingKeys).toEqual(["due_date"]);
+  });
+});
+
+describe("POSITIVE CONTROLS: a paraphrase, a dropped reason and an added reason, made to what is served", () => {
+  const MUTATIONS: readonly { name: string; to: string }[] = [
+    {
+      // TRUE, and the README's own wording until this change — refused for
+      // being a second source, which only the structure can see.
+      name: "paraphrased",
+      to: "A value of null means the model gave no single value for the field: it may not have found one, or the text may hold several different values for it.",
+    },
+    {
+      name: "second reason dropped",
+      to: "A null means the model gave no single value: it may not have found one.",
+    },
+    {
+      name: "', or when it matches more than once' appended",
+      to: "A null means the model gave no single value: it may not have found one, or the text may hold several different values for the field, or when it matches more than once.",
+    },
+  ];
+
+  it("in the README as built, each is refused by the structure", () => {
+    const readme = schemaPackage.files["README.txt"]!;
+    // Health: the mutation starts from the one live sentence.
+    expect(readme.filter((s) => s === AI_EXTRACT_NULL_MEANING)).toHaveLength(1);
+    for (const { name, to } of MUTATIONS) {
+      const mutated = readme.map((s) =>
+        s === AI_EXTRACT_NULL_MEANING ? to : s,
+      );
+      expect(mutated, name).not.toEqual(readme);
+      expect(ownWordingOn({ README: readme }), `${name}: before`).toEqual([]);
+      expect(ownWordingOn({ README: mutated }), name).toEqual([
+        `README: ${to}`,
+      ]);
+    }
+  });
+
+  it("on the page as served, each is refused by the structure — wherever the page says it", () => {
+    const at: number[] = [];
+    for (
+      let i = page.text.indexOf(AI_EXTRACT_NULL_MEANING);
+      i >= 0;
+      i = page.text.indexOf(AI_EXTRACT_NULL_MEANING, i + 1)
+    )
+      at.push(i);
+    // Health: the page says it in the intro, the use cases and the FAQ.
+    expect(at.length).toBeGreaterThanOrEqual(3);
+    expect(ownWordingOn({ page: sentences(page.text) }), "before").toEqual([]);
+    for (const { name, to } of MUTATIONS)
+      for (const i of at) {
+        const served =
+          page.text.slice(0, i) +
+          to +
+          page.text.slice(i + AI_EXTRACT_NULL_MEANING.length);
+        // Health: the mutation landed in the served text, read back whole.
+        expect(sentences(served), name).toContain(to);
+        expect(ownWordingOn({ page: sentences(served) }), name).toEqual([
+          `page: ${to}`,
+        ]);
+      }
+  });
+
+  it("the regex bound refuses the dropped and the added reason even when the MODULE says them — what structure cannot see", () => {
+    // A module whose own sentence went wrong would be rendered everywhere,
+    // and the structure would pass it. Only the second bound sees it.
+    expect(regexBound(MUTATIONS[1]!.to)).toBe(true);
+    expect(regexBound(MUTATIONS[2]!.to)).toBe(true);
+    // And the paraphrase is TRUE: no regex refuses it.
+    expect(regexBound(MUTATIONS[0]!.to)).toBe(false);
+  });
+});
+
+describe("the second bound: a regex check over every phrase and every served sentence", () => {
+  it("no module phrase and no served sentence is refused", () => {
+    expect(PHRASES.filter(regexBound)).toEqual([]);
     expect(
       Object.entries(surfaces).flatMap(([name, list]) =>
-        list.filter(flagged).map((s) => `${name}: ${s}`),
+        list.filter(regexBound).map((s) => `${name}: ${s}`),
       ),
     ).toEqual([]);
   });
 
-  it("POSITIVE CONTROL: a reason clause that is not 'different values' is refused, though the warning clause beside it says 'different values'", () => {
-    // The re-review's mutations (2026-10-09), made to the page AS SERVED and
-    // read back through its own splitter. All three stayed green while
-    // AMBIGUITY was read anywhere in the sentence: the warning clause ("a
-    // value that is not null may still be one of several different values")
-    // licensed whatever reason clause sat beside it.
-    const intro = sentences(page.text).filter(
-      (s) => s.includes(SECOND_REASON) && /\bask for a list\b/.test(s),
-    );
-    const faq = page.faq.filter((q) =>
-      sentences(q.answer).some(
-        (s) => s.includes(SECOND_REASON) && !/\bask for a list\b/.test(s),
-      ),
-    );
-    // Health: each mutation starts from ONE live sentence.
-    expect(intro, "the intro's null sentence").toHaveLength(1);
-    expect(faq, "the FAQ answer with the null sentence").toHaveLength(1);
-    const mutations = [
-      {
-        name: "intro: 'or when it matches more than once'",
-        text: page.text,
-        from: intro[0]!,
-        to: ", or when it matches more than once",
-      },
-      {
-        name: "FAQ: 'or when the same value is printed more than once'",
-        text: faq[0]!.answer,
-        from: sentences(faq[0]!.answer).find((s) => s.includes(SECOND_REASON))!,
-        to: ", or when the same value is printed more than once",
-      },
-      {
-        name: "intro: the second reason dropped",
-        text: page.text,
-        from: intro[0]!,
-        to: "",
-      },
+  it("every sentence that ever shipped wrong, or that a review caught, is refused by BOTH bounds; every shape catches one", () => {
+    const corpus = [
+      ...SHIPPED,
+      ...FIRST_REWORDING,
+      ...FIRST_REWORDING_CERTAIN,
+      ...ROUND_3.map((r) => r.text),
     ];
-    for (const { name, text, from, to } of mutations) {
-      const mutated = from.replace(SECOND_REASON, to);
-      const served = text.replace(from, mutated);
-      // Health: the mutation landed, in the sentence and in the served text.
-      expect(mutated, name).not.toBe(from);
-      expect(served, name).not.toBe(text);
-      expect(sentences(text).filter(flagged), `${name}: before`).toEqual([]);
-      expect(sentences(served).filter(flagged), name).toEqual([mutated]);
-    }
+    expect(corpus.filter((s) => !regexBound(s))).toEqual([]);
+    expect(corpus.filter((s) => !ownNullWording(s))).toEqual([]);
+    for (const shape of ABSENCE)
+      expect(
+        corpus.some((s) => falseMeaning(s) && shape.test(s)),
+        `${shape} catches no corpus sentence`,
+      ).toBe(true);
+    for (const shape of [/\bnull\b/i, /\bnot found\b/i])
+      expect(
+        corpus.some((s) => SPEAKS_OF_NULL.test(s) && shape.test(s)),
+        `${shape} catches no corpus sentence`,
+      ).toBe(true);
+    for (const alternative of ["comes back", "is", "answers"])
+      expect(
+        corpus.some(
+          (s) =>
+            certainNull(s) &&
+            new RegExp(`\\b${alternative} null\\b`, "i").test(s),
+        ),
+        `"${alternative} null" catches no corpus sentence`,
+      ).toBe(true);
+    for (const plural of [/\bmore than (?:one|once)\b/i, /\bseveral\b/i])
+      expect(
+        corpus.some((s) => repeatsAsReason(s) && plural.test(s)),
+        `${plural} catches no corpus sentence`,
+      ).toBe(true);
+    for (const sentence of FIRST_REWORDING_CERTAIN)
+      expect(certainNull(sentence), sentence).toBe(true);
   });
 
-  it("POSITIVE CONTROL: the page sentences the review named are refused as the page splits them", () => {
-    // Through the same splitter the rendered page goes through, so a check
-    // that only matched the corpus strings — not served sentences — fails here.
-    const page = `${FIRST_REWORDING[5]} pdf.xyz invents no values. Compare the value with the page. ${FIRST_REWORDING[10]} Give that field the array type.`;
-    expect(sentences(page).filter(certainNull)).toEqual([
-      FIRST_REWORDING[5],
-      FIRST_REWORDING[10],
-    ]);
+  it("each of its three checks is the ONLY one to refuse some sentence — none rides on another", () => {
+    const only = (s: string) =>
+      [
+        falseMeaning(s) && "absence",
+        certainNull(s) && "certain",
+        repeatsAsReason(s) && "repeat",
+      ].filter(Boolean);
+    // The review's control for the repeat check (round 3): no "not found",
+    // and a hedge — reverting the check to per-sentence turns this red.
+    expect(only(ROUND_3[5]!.text)).toEqual(["repeat"]);
+    // The appended reason: "different values" sits in its clause, so only
+    // the per-REASON split sees it.
+    expect(only(ROUND_3[3]!.text)).toEqual(["repeat"]);
+    expect(only(ROUND_3[0]!.text)).toEqual(["absence"]);
+    expect(
+      only(
+        "It is told to answer null rather than guess, so a field is null when its value is not found, or when the text holds several different values for it; a value that is not null may still be one of several different values.",
+      ),
+    ).toEqual(["certain"]);
+    // NEGATIVE CONTROL: the hedged, two-reason sentence is none of these.
+    expect(
+      only(
+        "A field can come back null when its value is not found, or when the text holds several different values for it.",
+      ),
+    ).toEqual([]);
+    // A disclaimer about values is not a claim about null.
+    expect(
+      only("Values may be missing or incorrect — verify against the original."),
+    ).toEqual([]);
+  });
+
+  it("THE LIMIT the docblock states: a gloss of a null in neither word is seen by neither bound", () => {
+    // Pinned so the limit is a fact. If this goes red, a bound got wider —
+    // invert it and rewrite the docblock.
+    const gloss = "A field with no value is missing from the text.";
+    expect(ownNullWording(gloss)).toBe(false);
+    expect(regexBound(gloss)).toBe(false);
+  });
+
+  it("POSITIVE CONTROL: the package as it shipped is refused by both bounds", () => {
+    const shipped = sentences("| region | _(not found)_ |\n| q1 | 1200 |");
+    expect(shipped.filter(falseMeaning)).toEqual(["_(not found)_"]);
+    expect(shipped.filter(ownNullWording)).toEqual(["_(not found)_"]);
   });
 });

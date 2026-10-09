@@ -14,6 +14,14 @@ import {
   AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
+import {
+  AI_EXTRACT_NOT_NULL_WARNING,
+  AI_EXTRACT_NULL_CELL_LEGEND,
+  AI_EXTRACT_NULL_INSTRUCTION,
+  AI_EXTRACT_NULL_MEANING,
+  AI_EXTRACT_NULL_PAST_CUT,
+  AI_EXTRACT_UNRETURNED_NULL,
+} from "@/lib/jobs/ai-extract-null-meaning";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -49,11 +57,8 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    every requested field in order, respelled keys mapped back, a dropped
  *    field null), extraction.md, manifest.json (missing/renamed/extra keys) and
  *    README.txt. No CSV is written. extraction.md is a Field | Value table (a
- *    numbered list for a list reply), a null shown as NULL_VALUE_CELL ("not
- *    found, or several different values" — the model is told to answer null
- *    rather than guess, so a field whose text holds several different values
- *    can come back null too, though nothing tells it to; a null inside a list
- *    as "_(null)_"), a dropped
+ *    numbered list for a list reply), a null shown as AI_EXTRACT_NULL_CELL (a
+ *    null inside a list as "_(null)_"), a dropped
  *    field as "_(not returned by the model)_", and unrequested keys in a
  *    separate table.
  *  - src/lib/workers/processor/ai-extract.ts + executor/executor.ts — a
@@ -85,7 +90,10 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    code; it is quoted from that page, not asserted independently.
  *  - src/lib/workers/table-extract/engine.ts — Extract Tables writes
  *    table-N.csv per table plus tables.xlsx.
- * Every number is interpolated from the constant that owns it.
+ * Every number is interpolated from the constant that owns it, and every
+ * sentence about what a null means is `@/lib/jobs/ai-extract-null-meaning`'s,
+ * rendered rather than paraphrased: three rounds of this page's own wording
+ * each got a null wrong in a new way (null-meaning.test.ts keeps them all).
  */
 
 /** The per-file cap a worker-tier upload is refused above, in whole MB. */
@@ -130,7 +138,7 @@ const content: ToolContent = {
   intro: [
     `AI Data Extraction asks an AI model for just the values you name in a PDF, such as an invoice number, a due date or a list of product codes, and hands them back as JSON. In a field schema you list up to ${MAX_EXTRACTION_FIELDS} named fields, each typed as ${FIELD_TYPES}, and the model is told to use each name, unchanged, as a key in its answer. Alternatively, write an instruction of up to ${PROMPT_CHARS} characters in your own words; the model is then asked for a flat JSON object and chooses descriptive key names itself.`,
     `Your browser sends the file over TLS to pdf.xyz's secure worker. The worker reads out its text layer and passes that text, with your field list or instruction, to a third-party AI provider. The provider gets text only, never the PDF. When the job ends the worker deletes the uploaded file; the extraction package stays downloadable for ${OUTPUT_TTL} minutes, and once that window closes a daily storage rule sweeps the stored copy away.`,
-    `Per run the builder accepts one PDF, capped at ${CEILING_MB} MB. Of its text, the model sees no more than ${MAX_CHARS} characters, and that count includes the spaces and line breaks the worker's text reader keeps to mirror the page layout, so how many pages fit depends on how the pages are set; a long file's result states how far reading got. The model's instructions are to use only that text and to answer null rather than guess, so a field can come back null when its value is not found, or when the text holds several different values for it; a value that is not null may still be one of several different values, so ask for a list to get every value. pdf.xyz invents no values: with a field schema it lines the reply up with your field names and marks any field the model left out as null, and the model's own reply is kept beside it, as returned. Instructions are not guarantees, so check any figure you will act on.`,
+    `Per run the builder accepts one PDF, capped at ${CEILING_MB} MB. Of its text, the model sees no more than ${MAX_CHARS} characters, and that count includes the spaces and line breaks the worker's text reader keeps to mirror the page layout, so how many pages fit depends on how the pages are set; a long file's result states how far reading got. The model's instructions are to use only that text. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} pdf.xyz invents no values: with a field schema it lines the reply up with your field names, and the model's own reply is kept beside it, as returned. ${AI_EXTRACT_UNRETURNED_NULL} Instructions are not guarantees, so check any figure you will act on.`,
   ],
 
   useCases: [
@@ -144,11 +152,11 @@ const content: ToolContent = {
     },
     {
       title: "Check whether a clause is there at all",
-      body: "A boolean field such as auto_renewal puts a yes-or-no question to the text. The model is told to answer null rather than guess, so a null can mean the text it read does not answer the question, or that the text gives different answers. Neither a null nor a false is a confirmed no: each is the model's reading of the pages it saw, so check the contract itself before you rely on either.",
+      body: `A boolean field such as auto_renewal puts a yes-or-no question to the text. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} A false is not a confirmed no either: it is the model's reading of the pages it saw, so check the contract itself before you rely on it.`,
     },
     {
       title: "Collect a list from a long report",
-      body: "Give a field the array type to gather every part number or attendee name into one list. A field of any other type asks for one value, so where the text holds several different values it can come back null, or as just one of them. For data that lives in rows and columns, Extract Tables is the better fit.",
+      body: `Give a field the array type to gather every part number or attendee name into one list. A field of any other type asks for one value. ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} For data that lives in rows and columns, Extract Tables is the better fit.`,
     },
   ],
 
@@ -178,7 +186,7 @@ const content: ToolContent = {
     },
     {
       q: "What is inside the ZIP I download, and can I get CSV or Excel?",
-      a: "The ZIP holds five files. model-output.json is the model's JSON reply as it was returned. extraction.json holds the same data. With a field schema, it lists every field you asked for, in your order and under your names: a key the model respelled is mapped back to your name, and a field it left out is null. With a prompt, it is the reply as given. extraction.md lays the data out as a Field and Value table, or as a numbered list if the reply is a list. It shows a null value as not found, or several different values, marks a requested field the model never returned as not returned by the model, and lists any keys you did not ask for in a separate table. manifest.json records the provider, the model, your prompt or schema, the page and character counts, any cut, and which fields were missing, respelled or extra. README.txt describes the package. There is no CSV or spreadsheet in it. For data laid out in rows and columns, Extract Tables writes one CSV per table plus an Excel workbook.",
+      a: `The ZIP holds five files. model-output.json is the model's JSON reply as it was returned. extraction.json holds the same data. With a field schema, it lists every field you asked for, in your order and under your names, and a key the model respelled is mapped back to your name. ${AI_EXTRACT_UNRETURNED_NULL} With a prompt, it is the reply as given. extraction.md lays the data out as a Field and Value table, or as a numbered list if the reply is a list. ${AI_EXTRACT_NULL_CELL_LEGEND} It marks a requested field the model never returned as not returned by the model, and lists any keys you did not ask for in a separate table. manifest.json records the provider, the model, your prompt or schema, the page and character counts, any cut, and which fields were missing, respelled or extra. README.txt describes the package. There is no CSV or spreadsheet in it. For data laid out in rows and columns, Extract Tables writes one CSV per table plus an Excel workbook.`,
     },
     {
       q: "Is my document sent to an AI company, and is it used for training?",
@@ -190,11 +198,11 @@ const content: ToolContent = {
     },
     {
       q: "What happens with a very long PDF?",
-      a: `Text past the first ${MAX_CHARS} characters is dropped before the model sees it. The warning on the page, the manifest and extraction.md name the last page read in full whenever that can be worked out. A field shown as not found, or several different values, was judged only on the text that was read, so it may still appear further on. Extract Pages can cut the file down to the pages that matter before you start.`,
+      a: `Text past the first ${MAX_CHARS} characters is dropped before the model sees it. The warning on the page, the manifest and extraction.md name the last page read in full whenever that can be worked out. ${AI_EXTRACT_NULL_PAST_CUT} Extract Pages can cut the file down to the pages that matter before you start.`,
     },
     {
       q: "Why did my extraction fail, or come back null or wrong?",
-      a: "When the model's reply is not valid JSON, the worker can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt or in a descriptive field name. A null means the model gave no single answer for a field. It is told to answer null rather than guess, so a field can come back null when its value is not found, or when the text holds several different values for it; a value that is not null may still be one of several different values. A single-value field asked of a column of figures has a candidate in every row, so it may come back null (extraction.md shows not found, or several different values) or as just one row's value. Give that field the array type to get every value as a list.",
+      a: `When the model's reply is not valid JSON, the worker can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt or in a descriptive field name. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
     },
   ],
 
