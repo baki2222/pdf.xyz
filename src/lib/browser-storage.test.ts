@@ -130,10 +130,88 @@ interface Found {
   line: number;
 }
 
-/** Every storage key `text` uses, resolved — or null where it cannot be. */
+/** What a `Storage` is called through; any other named property is a key. */
+const STORAGE_MEMBERS = new Set([
+  "getItem",
+  "setItem",
+  "removeItem",
+  "clear",
+  "key",
+  "length",
+]);
+
+/** `(x)`, `x!`, `x as T`, `x satisfies T` → `x`. */
+function unwrap(e: ts.Expression): ts.Expression {
+  while (
+    ts.isParenthesizedExpression(e) ||
+    ts.isNonNullExpression(e) ||
+    ts.isAsExpression(e) ||
+    ts.isSatisfiesExpression(e)
+  )
+    e = e.expression;
+  return e;
+}
+
+/**
+ * Every storage key `text` uses, resolved — or null where it cannot be.
+ *
+ * A key is read from the first argument of `getItem`/`setItem`/`removeItem`
+ * (any receiver) and of a database `open`. A `Storage` can also be used as
+ * an object — `localStorage["k"] = v`, `localStorage.k = v`, `delete
+ * sessionStorage[k]` — and that idiom has no argument to read, so ANY
+ * element access, or any property that is not a `Storage` member, on a
+ * receiver that is `localStorage`/`sessionStorage` (bare, through
+ * `window.`/`globalThis.`/`self.`, or a const in the same file holding one)
+ * is reported as an unresolved key, which the fatal check below refuses.
+ *
+ * FOUND IN REVIEW (2026-10-09): the walker read only the call shapes, so a
+ * new file with `window.localStorage["pdfxyz.new"] = "1"` left every test
+ * here green while /privacy says it lists everything the site keeps.
+ *
+ * What it still cannot see: a `Storage` reached through a function's return
+ * value and then indexed (`getStore()["k"]`), or written by
+ * `Object.assign(localStorage, …)`. Neither shape exists in `src` today.
+ */
 function storageKeys(file: string, text: string): Found[] {
   const sf = parse(file, text);
   const out: Found[] = [];
+  const at = (n: ts.Node) =>
+    sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+  // Same-file names that hold a Storage: `const s = window.localStorage`.
+  const aliases = new Set<string>();
+  const isStorage = (raw: ts.Expression): boolean => {
+    const e = unwrap(raw);
+    if (ts.isIdentifier(e))
+      return (
+        e.text === "localStorage" ||
+        e.text === "sessionStorage" ||
+        aliases.has(e.text)
+      );
+    if (ts.isPropertyAccessExpression(e))
+      return e.name.text === "localStorage" || e.name.text === "sessionStorage";
+    if (
+      ts.isElementAccessExpression(e) &&
+      ts.isStringLiteralLike(e.argumentExpression)
+    )
+      return (
+        e.argumentExpression.text === "localStorage" ||
+        e.argumentExpression.text === "sessionStorage"
+      );
+    return false;
+  };
+  const collectAliases = (n: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      isStorage(n.initializer)
+    )
+      aliases.add(n.name.text);
+    ts.forEachChild(n, collectAliases);
+  };
+  // Twice, so an alias of an alias declared before it is found too.
+  collectAliases(sf);
+  collectAliases(sf);
   const resolve = (
     e: ts.Expression,
   ): { key: string | null; perTool: boolean } => {
@@ -148,6 +226,14 @@ function storageKeys(file: string, text: string): Found[] {
     return { key: null, perTool: false };
   };
   const visit = (n: ts.Node) => {
+    // A Storage used as an object: its key is not an argument anyone reads.
+    if (
+      (ts.isElementAccessExpression(n) && isStorage(n.expression)) ||
+      (ts.isPropertyAccessExpression(n) &&
+        isStorage(n.expression) &&
+        !STORAGE_MEMBERS.has(n.name.text))
+    )
+      out.push({ file: rel(file), key: null, perTool: false, line: at(n) });
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
       const method = n.expression.name.text;
       const receiver = n.expression.expression;
@@ -164,7 +250,7 @@ function storageKeys(file: string, text: string): Found[] {
         out.push({
           file: rel(file),
           ...resolve(n.arguments[0]),
-          line: sf.getLineAndCharacterOfPosition(n.getStart()).line + 1,
+          line: at(n),
         });
       }
     }
@@ -180,9 +266,30 @@ const WRITERS = sources().filter((f) =>
 const FOUND = WRITERS.flatMap((f) => storageKeys(f, readFileSync(f, "utf8")));
 const id = (k: { key: string | null; perTool: boolean }) =>
   `${k.key}${k.perTool ? "<tool>" : ""}`;
+/** The call sites whose key could not be read: `file:line`. */
+const unresolved = (found: readonly Found[]) =>
+  found.filter((f) => f.key === null).map((f) => `${f.file}:${f.line}`);
+
+/**
+ * Files that name a storage API and rightly hold no key — each with why. A
+ * file here that stops naming one, or starts yielding keys, fails: the list
+ * cannot outlive what it excuses.
+ */
+const KEYLESS_WRITERS: Record<string, string> = {
+  "src/lib/browser-storage.ts":
+    "the registry itself: it names the storage AREAS as words for /privacy and writes nothing",
+  "src/lib/handoff/idb-requests.ts":
+    "the IndexedDB factory helper: it returns `indexedDB` for idb.ts and sweep.ts, which open the database by name",
+};
 
 describe("the browser-storage registry is what the code writes", () => {
-  it("health: the writers are found, and each yields a key", () => {
+  /**
+   * WAS titled "…and each yields a key" while asserting only totals — 4
+   * writers, 5 by name, 8 keys overall — so a writer yielding nothing passed
+   * silently (review, 2026-10-09: browser-storage.ts and idb-requests.ts
+   * did). Now every writer is checked one by one.
+   */
+  it("health: the writers are found, and each yields a key or is excused by name", () => {
     const writers = WRITERS.map(rel);
     expect(writers.length, writers.join("\n")).toBeGreaterThanOrEqual(4);
     for (const expected of [
@@ -194,6 +301,20 @@ describe("the browser-storage registry is what the code writes", () => {
     ])
       expect(writers).toContain(expected);
     expect(FOUND.length).toBeGreaterThanOrEqual(8);
+
+    const resolvedIn = (file: string) =>
+      FOUND.filter((f) => f.file === file && f.key !== null).length;
+    expect(
+      writers.filter((w) => !(w in KEYLESS_WRITERS) && resolvedIn(w) === 0),
+      "these touch browser storage and yield no key this walker can read",
+    ).toEqual([]);
+    // Stale excuses: no longer a writer, or now yielding keys of its own.
+    expect(
+      Object.keys(KEYLESS_WRITERS).filter(
+        (w) => !writers.includes(w) || FOUND.some((f) => f.file === w),
+      ),
+      "these are excused as keyless but are not (or no longer) keyless writers",
+    ).toEqual([]);
   });
 
   it("positive controls: a prefix key in sessionStorage, and an injected store", () => {
@@ -219,15 +340,41 @@ describe("the browser-storage registry is what the code writes", () => {
     ).toEqual(["pdfxyz.secret"]);
   });
 
-  it("every call site's key resolves — an unread key is a hole, so it is fatal", () => {
+  it("positive controls: a Storage used as an object is an unresolved key, so the fatal check refuses it", () => {
+    const fixture = path.join(SRC, "fixture.ts");
+    const keys = (code: string) => storageKeys(fixture, code);
+    // The mutation the review shipped past this file: all green before.
     expect(
-      FOUND.filter((f) => f.key === null).map((f) => `${f.file}:${f.line}`),
-    ).toEqual([]);
+      unresolved(keys('window.localStorage["pdfxyz.new"] = "1";')),
+    ).toEqual(["src/fixture.ts:1"]);
+    for (const code of [
+      'localStorage["pdfxyz.new"] = "1";',
+      'globalThis.sessionStorage["pdfxyz.new"] = "1";',
+      'window["localStorage"]["pdfxyz.new"] = "1";',
+      'localStorage.pdfxyzNew = "1";',
+      "delete sessionStorage[key];",
+      'const s = window.localStorage;\ns["pdfxyz.new"] = "1";',
+      'const s = window.localStorage as Storage;\nconst t = s;\nt.pdfxyzNew = "1";',
+    ])
+      expect(unresolved(keys(code)), code).toHaveLength(1);
+    // Precision: Storage's own members, and objects that are not storage.
+    for (const code of [
+      "localStorage.length; localStorage.key(0); localStorage.clear();",
+      "if (window.localStorage) void window.localStorage;",
+      'const o: Record<string, string> = {}; o["pdfxyz.x"] = "1";',
+      'const store = { setItem() {} }; store["setItem"]();',
+    ])
+      expect(keys(code), code).toEqual([]);
+  });
+
+  it("every call site's key resolves — an unread key is a hole, so it is fatal", () => {
+    expect(unresolved(FOUND)).toEqual([]);
   });
 
   it("every key the code uses is registered, and every registered key is used", () => {
     const registered = new Set(BROWSER_STORAGE.map(id));
-    const used = new Set(FOUND.map(id));
+    // An unread key is the fatal check's to report, not a key named "null".
+    const used = new Set(FOUND.filter((f) => f.key !== null).map(id));
     expect(
       [...used].filter((k) => !registered.has(k)),
       "the code keeps these in the browser and /privacy does not say so",
