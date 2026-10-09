@@ -8,7 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 const highlights = [
   "Answers grounded in your document, with page-level citations",
   "Summaries, translations, and structured data extraction",
-  "Runs on secure infrastructure under provider agreements that prohibit training on your content",
+  "Your PDF's text goes to a third-party AI provider, under terms that prohibit training on it",
 ];
 
 /**
@@ -20,13 +20,11 @@ export function AiSection() {
   const aiTools = getAiTools();
 
   return (
-    <section className="border-line border-b py-20 sm:py-28">
+    <section className="border-line border-b py-20 sm:py-24">
       <Container className="grid gap-12 lg:grid-cols-2 lg:gap-16">
         <div className="flex flex-col items-start gap-6">
-          <span className="text-accent font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            AI, done right
-          </span>
-          <h2 className="font-display text-fg text-4xl leading-[1.08] font-medium tracking-tight text-balance sm:text-5xl">
+          <span className="text-accent kicker">AI, done right</span>
+          <h2 className="font-display text-fg text-display-2 font-medium text-balance">
             Understand documents, not just process them
           </h2>
           <p className="text-muted text-base leading-relaxed text-pretty">

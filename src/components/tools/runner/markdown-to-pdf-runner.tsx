@@ -175,7 +175,7 @@ function MarkdownToPdfEditor({
             onSource({ ...source, text: event.target.value })
           }
           placeholder="# Title\n\nWrite or paste Markdown here…"
-          className="border-line text-fg focus:border-accent focus:ring-accent/50 [min-height:18rem] w-full resize-y rounded-[4px] border bg-black/20 px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
+          className="border-line text-fg focus:border-accent focus:ring-accent/50 bg-canvas [min-height:18rem] w-full resize-y rounded-[4px] border px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
         />
         <TextSourceNotes readNote={source.readNote} text={source.text} />
         <div className="grid gap-3 sm:grid-cols-3">
@@ -210,7 +210,14 @@ function MarkdownToPdfEditor({
   );
 }
 
-function isLikelyMarkdownFile(file: File): boolean {
+/**
+ * The file this runner opens: Markdown by declared type or by name. Exported
+ * so the hand-off gate can be held to it — a file carried here must be one
+ * this check passes (`capability.test.ts`).
+ */
+export function isLikelyMarkdownFile(
+  file: Pick<File, "name" | "type">,
+): boolean {
   return (
     file.type === "text/markdown" ||
     file.type === "text/x-markdown" ||

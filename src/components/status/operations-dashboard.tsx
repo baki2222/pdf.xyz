@@ -31,7 +31,7 @@ export function WorkerOperationsDashboard() {
       <div className="flex flex-col gap-1">
         <h2
           id="worker-operations-heading"
-          className="text-faint inline-flex items-center gap-2 font-mono text-xs font-medium tracking-[0.18em] uppercase"
+          className="text-faint kicker inline-flex items-center gap-2"
         >
           <Gauge className="text-faint size-4" aria-hidden />
           Worker operations

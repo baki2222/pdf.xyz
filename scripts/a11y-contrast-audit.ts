@@ -67,6 +67,8 @@ import {
 import { decodePng } from "../src/lib/a11y/png";
 import { getAllToolSlugs } from "../src/lib/tools";
 import { getAllGuideSlugs } from "../src/lib/guides";
+import { categories } from "../src/lib/tools/categories";
+import { categoryHref } from "../src/lib/tools/category-href";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:3100";
 
@@ -107,9 +109,23 @@ if (!FIRST_GUIDE) {
   );
 }
 
+/**
+ * A category landing page, the first in the catalogue, for the same reason
+ * as the guide above: the template (eight pages, `SectionHeading` as their
+ * H1) was outside every run until 2026-10-09, and a typed slug would go stale
+ * with the catalogue.
+ */
+const FIRST_CATEGORY = categories[0];
+if (!FIRST_CATEGORY) {
+  throw new Error(
+    "the categories catalogue is empty — refusing to audit a surface set that silently lost a template",
+  );
+}
+
 const DEFAULT_ROUTES = [
   "/",
   "/tools",
+  categoryHref(FIRST_CATEGORY.id),
   "/guides",
   `/guides/${FIRST_GUIDE}`,
   "/workspace",
@@ -122,6 +138,20 @@ const DEFAULT_ROUTES = [
   "/tools/ocr-pdf",
   "/tools/summarize-pdf",
   "/tools/protect-pdf",
+  // The /tools explorer's query states (WP-03, 2026-10-09). They render only
+  // after hydration — the page is static and ranks the query in the browser,
+  // and the ranking chunk loads on demand — which the networkidle wait below
+  // covers: the "No tool here opens…" answer with its card, the "Closest
+  // matches" note, the empty state with its "Did you mean", and the "Takes …"
+  // filter chip on the selection tint. None is in the served HTML, so the
+  // bare "/tools" entry above cannot see them.
+  "/tools?q=heic",
+  "/tools?q=merge%20zzqx",
+  "/tools?q=mregee",
+  "/tools?accepts=docx",
+  // A query whose only match a filter removed: the empty state's "The filter
+  // hides 1 match." and its "Show the match" button (WP-03 review fix).
+  "/tools?q=merge&accepts=docx",
 ];
 
 const VIEWPORTS = [

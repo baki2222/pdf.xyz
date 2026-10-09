@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import {
   Check,
@@ -242,9 +243,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Recognition settings */}
         <div className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-4 sm:p-5">
-          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            Recognition settings
-          </h3>
+          <h3 className="text-faint kicker">Recognition settings</h3>
 
           {/* Languages */}
           <div className="flex flex-col gap-2">
@@ -399,9 +398,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            What happens to your file
-          </h3>
+          <h3 className="text-faint kicker">What happens to your file</h3>
           <ol className="flex flex-col gap-1">
             {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, i, all) => (
@@ -429,7 +426,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {/* Spec rows */}
-        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
+        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
           <SpecRow
             icon={FileUp}
             label="Inputs"
@@ -454,8 +451,14 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
           No account required. OCR runs on a separate processing server, not in
           your browser: files are encrypted in transit and at rest, recognized
           in a temporary per-job folder that is erased when the job ends, and
-          deleted automatically. It&apos;s enabled per deployment — see our
-          worker architecture and security docs.
+          deleted automatically. It&apos;s enabled per deployment; the{" "}
+          <Link
+            href="/privacy#files"
+            className="text-accent underline underline-offset-4"
+          >
+            privacy policy
+          </Link>{" "}
+          says what happens to an uploaded file and when it is deleted.
         </p>
       </div>
     </div>
@@ -700,10 +703,8 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
 
   return (
     <div className="border-line bg-wash mt-1 flex flex-col gap-1 rounded-[3px] border p-3">
-      <h4 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-        Recognition summary
-      </h4>
-      <dl className="divide-y divide-white/5">
+      <h4 className="text-faint kicker">Recognition summary</h4>
+      <dl className="divide-line divide-y">
         {rows.map((row) => (
           <div
             key={row.label}

@@ -3,9 +3,16 @@ import type { ProcessingMode } from "./types";
 /**
  * The one hue a mode is allowed. Two consumers, two syntaxes, one row.
  *
- * `dot` is what the site paints (`processing-badge.tsx`); `card` is what
- * Satori paints on the per-tool share card, which has no Tailwind and so needs
- * the same hue as literal colour.
+ * `ink` is what the site paints — the mode's shape, drawn in `currentColor`
+ * (`processing-badge.tsx`); `card` is what Satori paints on the per-tool
+ * share card, which has no Tailwind and so needs the same hue as literal
+ * colour.
+ *
+ * The ink is the palette step that clears 3:1 (WCAG 1.4.11) on every ground
+ * the badge sits on in BOTH colour schemes — canvas, panel and wash, light
+ * and dark. That is why AI's ink is violet-500 and not the 600 its dot used:
+ * the 600 measured 2.7:1 on the dark wash. `processing-badge.test.tsx`
+ * measures each ink from Tailwind's own palette on every ground.
  *
  * WAS a `tone` field holding Tailwind chip classes that NOTHING READ — the
  * badge's own docblock said so, and named the reason ("they hardcode the
@@ -23,17 +30,31 @@ import type { ProcessingMode } from "./types";
  * client `card.text` hue it reads from here.
  */
 export interface ProcessingHue {
-  /** Tailwind utility for the site's status dot. */
-  dot: string;
+  /**
+   * Text-colour utility for the mode's shape. A TEXT colour because the
+   * shape is an SVG filled with `currentColor`, which also lets forced-colours
+   * mode repaint it with the system text colour.
+   */
+  ink: string;
   /** Literal colours for the share card: Satori resolves no class names. */
   card: { text: string; border: string; background: string };
 }
+
+/**
+ * The mode's mark, so where a tool runs is never told by colour alone
+ * (WCAG 1.4.1): a filled dot for in-browser, a half-filled dot for
+ * browser-first, a ring for the secure worker, a diamond for AI. The fill
+ * reads as "on your device" and the ring as "leaves it", with the hybrid
+ * mode literally between them.
+ */
+export type ProcessingShape = "dot" | "half" | "ring" | "diamond";
 
 export interface ProcessingMeta {
   label: string;
   short: string;
   description: string;
   hue: ProcessingHue;
+  shape: ProcessingShape;
 }
 
 /**
@@ -64,8 +85,9 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
     short: "In-browser",
     description:
       "This tool processes files entirely on your device. Nothing is uploaded to a server.",
+    shape: "dot",
     hue: {
-      dot: "bg-emerald-600",
+      ink: "text-emerald-600",
       card: {
         text: "#6ee7b7",
         border: "rgba(52,211,153,0.32)",
@@ -78,8 +100,9 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
     short: "Secure worker",
     description:
       "Files are processed on an encrypted, isolated worker and permanently deleted shortly after.",
+    shape: "ring",
     hue: {
-      dot: "bg-blue-600",
+      ink: "text-blue-600",
       card: {
         text: "#93c5fd",
         border: "rgba(96,165,250,0.32)",
@@ -91,8 +114,9 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
     label: "Browser-first",
     short: "Hybrid",
     description: HYBRID_SUMMARY,
+    shape: "half",
     hue: {
-      dot: "bg-cyan-600",
+      ink: "text-cyan-600",
       card: {
         text: "#67e8f9",
         border: "rgba(34,211,238,0.32)",
@@ -108,8 +132,9 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
     // infrastructure" read as if the model ran on ours.
     description:
       "Sends your PDF's selectable text — not the file — to a third-party AI provider, under terms that prohibit training on it.",
+    shape: "diamond",
     hue: {
-      dot: "bg-violet-600",
+      ink: "text-violet-500",
       card: {
         text: "#c4b5fd",
         border: "rgba(167,139,250,0.32)",

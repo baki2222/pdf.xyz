@@ -12,15 +12,15 @@ const sizeMap = {
  * Renders a tool/category icon as a plain ink glyph in a hairline box.
  *
  * The multicolour gradient tiles this used to paint were the loudest single
- * element of the old design — a different hue per category, everywhere. The
- * `gradient` prop is still accepted (category data and out-of-scope routes
- * pass it) but deliberately no longer painted; it retires with the catalog
- * data when the tool routes are redesigned.
+ * element of the old design — a different hue per category, everywhere. For
+ * months after it stopped painting them it still took a `gradient` prop, and
+ * every category still carried a `from-… to-…` pair for it: data nothing
+ * rendered, from which Tailwind went on generating sixteen gradient stops
+ * into the stylesheet every page downloads. Both retired on 2026-10-09
+ * (`shipped-css.test.ts` found the stops).
  */
 export function ToolIcon(props: {
   icon: IconName;
-  /** @deprecated Ignored — kept only for call-site compatibility. */
-  gradient?: string;
   size?: keyof typeof sizeMap;
   className?: string;
 }) {

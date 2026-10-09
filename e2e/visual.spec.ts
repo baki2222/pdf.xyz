@@ -1,18 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
+import { categories } from "../src/lib/tools/categories";
+import { categoryHref } from "../src/lib/tools/category-href";
 import { waitForHydration } from "./helpers";
 import { visualRequested } from "./visual-request";
 
 /**
- * Full-page screenshots for a reviewer, never a pixel gate: seven routes, at a
- * phone (390x844) and a desktop (1440x900), in the light and the dark scheme,
- * with reduced motion so every capture is a still end state. 28 images, saved
- * to each test's output directory (`test-results/`, ignored) and attached to
- * the report. They are not committed as baselines: fonts render differently on
+ * Full-page screenshots for a reviewer, never a pixel gate: every route in
+ * ROUTES, at a phone (390x844) and a desktop (1440x900), in the light and the
+ * dark scheme, with reduced motion so every capture is a still end state —
+ * four images a route, saved to each test's output directory (`test-results/`,
+ * ignored) and attached to the report. They are not committed as baselines: fonts render differently on
  * Windows and on the Linux CI image, so a pixel comparison would fail on the
  * platform rather than on the design.
  *
- * THE CONSENT BANNER IS CLOSED in those 28, by storing a decision before the
+ * THE CONSENT BANNER IS CLOSED in those captures, by storing a decision before the
  * first navigation. It is `position: fixed`, so a full-page capture painted it
  * 600-900px down the page, where no visitor ever sees it — over the home drop
  * zone at 390, the merge page's steps at 1440, the 404's footer. Every capture
@@ -21,7 +23,13 @@ import { visualRequested } from "./visual-request";
  * never typed, and each capture asserts the banner is absent, so the seeding
  * cannot quietly stop working. The banner's own look is captured separately:
  * two VIEWPORT shots (one per scheme, phone width) with no decision stored,
- * where `position: fixed` puts it where a visitor sees it. 30 images in all.
+ * where `position: fixed` puts it where a visitor sees it.
+ *
+ * The routes include each page TEMPLATE a design change can reach, not only
+ * the busiest pages: the guides index and a category page joined on
+ * 2026-10-09, because `SectionHeading` is their H1 and the type scale had
+ * just given it two sizes. The category is the catalogue's first, through
+ * `categoryHref`, so a renamed category moves the capture with it.
  *
  *   pnpm test:visual                                  # or
  *   VISUAL=1 pnpm test:e2e e2e/visual.spec.ts
@@ -68,6 +76,12 @@ const ROUTES: {
 }[] = [
   { name: "home", url: async () => "/", status: 200 },
   { name: "tools", url: async () => "/tools", status: 200 },
+  {
+    name: "category",
+    url: async () => categoryHref(categories[0]!.id),
+    status: 200,
+  },
+  { name: "guides", url: async () => "/guides", status: 200 },
   { name: "merge-pdf", url: async () => "/tools/merge-pdf", status: 200 },
   { name: "ocr-pdf", url: async () => "/tools/ocr-pdf", status: 200 },
   { name: "workspace", url: async () => "/workspace", status: 200 },

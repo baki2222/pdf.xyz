@@ -59,11 +59,16 @@ export function checkStartOver(source: string): Finding[] {
         ? block.match(new RegExp(`const ${expr} = [^;]*?=>[\\s\\S]*?\\n  \\};`))
         : null;
       const body = localFn ? localFn[0] : expr;
+      // A reload used to count as a way out: it does leave the result, by
+      // throwing the page away (the document and its chunks fetched again,
+      // focus back at the top, any hand-off claimed a second time). Compare
+      // PDF shipped exactly that until 2026-10-09. Inverted, not deleted: a
+      // reload is now a failure, and the control below holds it.
       const ok =
-        props.includes(expr) || // the parent's callback: it unmounts us
-        (hookNames.includes("reset") && /\breset\(\)/.test(body)) ||
-        (expr === "reset" && hookNames.includes("reset")) ||
-        /location\.reload\(\)/.test(body);
+        !/location\.reload\(\)/.test(body) &&
+        (props.includes(expr) || // the parent's callback: it unmounts us
+          (hookNames.includes("reset") && /\breset\(\)/.test(body)) ||
+          (expr === "reset" && hookNames.includes("reset")));
       findings.push({ component: match[1]!, onReset: expr, ok });
     }
   });
@@ -94,11 +99,16 @@ function Runner() {
 function Fixed({ onReset }) {
   const { result, run } = useAsyncRun<Uint8Array>();
   if (result) return <ResultPanel onReset={onReset} />;
+}
+function Reloads() {
+  const { result, run, reset } = useAsyncRun<Uint8Array>();
+  if (result) return <ResultPanel onReset={() => window.location.reload()} />;
 }`;
     expect(checkStartOver(shipped).map((f) => [f.component, f.ok])).toEqual([
       ["Editor", false],
       ["Runner", false],
       ["Fixed", true],
+      ["Reloads", false],
     ]);
   });
 

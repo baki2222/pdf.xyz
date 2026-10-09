@@ -25,7 +25,7 @@ export function SiteFooter() {
             </p>
             <p className="text-muted inline-flex items-center gap-2 text-xs">
               <span
-                className="size-1.5 shrink-0 rounded-full bg-emerald-600"
+                className="bg-ok size-1.5 shrink-0 rounded-full"
                 aria-hidden
               />
               Privacy-first by architecture, not by policy.
@@ -40,9 +40,7 @@ export function SiteFooter() {
           >
             {footerNav.map((column) => (
               <div key={column.title} className="flex flex-col gap-3">
-                <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                  {column.title}
-                </h3>
+                <h3 className="text-faint kicker">{column.title}</h3>
                 <ul className="flex flex-col gap-2.5">
                   {column.items.map((item) => (
                     <li key={item.label}>
@@ -82,7 +80,7 @@ export function SiteFooter() {
               Terms
             </Link>
             <Link href="/#security" className="hover:text-fg transition-colors">
-              Security
+              Security practices
             </Link>
             <Link href="/tools" className="hover:text-fg transition-colors">
               All tools

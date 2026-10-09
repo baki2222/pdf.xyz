@@ -23,6 +23,7 @@ import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { runSecurityJob } from "@/lib/workers/pdf-security-client";
 import { POST } from "@/app/api/uploads/route";
 import { declaredContentTypeFor, MIME_BY_FORMAT } from "./mime-by-format";
+import { MIME_BY_FORMAT as VALIDATED_TABLE } from "./validation";
 
 beforeEach(() => {
   for (const name of REQUIRED_WORKER_ENV) delete process.env[name];
@@ -164,7 +165,11 @@ describe("the browser's declared type is the type the server accepts", () => {
 
   it("is the table the server validates with, not a copy", () => {
     // validation.ts re-exports this module's object; a second table would be a
-    // second truth.
+    // second truth. This used to check only `toContain("DOCX")`, which a copy
+    // passes just as well — identity is the property.
+    expect(VALIDATED_TABLE).toBe(MIME_BY_FORMAT);
+    // Positive control: an equal copy is NOT the table.
+    expect({ ...MIME_BY_FORMAT }).not.toBe(MIME_BY_FORMAT);
     expect(Object.keys(MIME_BY_FORMAT)).toContain("DOCX");
   });
 });

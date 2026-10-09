@@ -13,7 +13,7 @@ const pillars = [
   {
     icon: Lock,
     title: "Encrypted when it leaves",
-    body: "The few heavy or AI tasks that need a server use TLS in transit and encrypted, isolated workers.",
+    body: "Tools that need a server — Office conversions, OCR and the AI tools among them — use TLS in transit and encrypted, isolated workers.",
   },
   {
     icon: Trash2,
@@ -27,7 +27,7 @@ const pillars = [
   {
     icon: Eye,
     title: "No training on your data",
-    body: "AI tools run on secure infrastructure and your content is never used to train any model.",
+    body: "The AI tools send your PDF's text to a third-party provider under terms that prohibit training on it, and pdf.xyz trains no models of its own.",
   },
   {
     icon: UserX,

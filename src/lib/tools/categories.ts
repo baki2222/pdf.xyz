@@ -8,7 +8,6 @@ export const categories: ToolCategory[] = [
     short: "Organize",
     description: "Merge, split, reorder, rotate, and clean up pages.",
     icon: "organize",
-    gradient: "from-violet-500 to-indigo-500",
   },
   {
     id: "convert-to",
@@ -16,7 +15,6 @@ export const categories: ToolCategory[] = [
     short: "To PDF",
     description: "Turn Office files, images, web pages, and text into PDF.",
     icon: "convertTo",
-    gradient: "from-blue-500 to-cyan-500",
   },
   {
     id: "convert-from",
@@ -24,7 +22,6 @@ export const categories: ToolCategory[] = [
     short: "From PDF",
     description: "Export PDFs to Word, Excel, images, and structured data.",
     icon: "convertFrom",
-    gradient: "from-cyan-500 to-teal-500",
   },
   {
     id: "edit",
@@ -32,7 +29,6 @@ export const categories: ToolCategory[] = [
     short: "Edit",
     description: "Edit text and images, annotate, watermark, and number pages.",
     icon: "edit",
-    gradient: "from-fuchsia-500 to-pink-500",
   },
   {
     id: "sign",
@@ -40,7 +36,6 @@ export const categories: ToolCategory[] = [
     short: "Sign",
     description: "Sign documents, request signatures, and fill forms.",
     icon: "sign",
-    gradient: "from-emerald-500 to-green-500",
   },
   {
     id: "security",
@@ -48,7 +43,6 @@ export const categories: ToolCategory[] = [
     short: "Security",
     description: "Protect, unlock, redact, flatten, and compare PDFs.",
     icon: "shield",
-    gradient: "from-amber-500 to-orange-500",
   },
   {
     id: "optimize",
@@ -56,7 +50,6 @@ export const categories: ToolCategory[] = [
     short: "Optimize",
     description: "Compress, OCR, repair, and web-optimize your documents.",
     icon: "speed",
-    gradient: "from-rose-500 to-red-500",
   },
   {
     id: "ai",
@@ -64,7 +57,6 @@ export const categories: ToolCategory[] = [
     short: "AI",
     description: "Chat with, summarize, translate, and extract data from PDFs.",
     icon: "ai",
-    gradient: "from-violet-500 via-purple-500 to-blue-500",
   },
 ];
 

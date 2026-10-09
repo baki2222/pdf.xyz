@@ -24,6 +24,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
 
 const ROOT = process.cwd();
@@ -164,6 +165,72 @@ describe("heavy libraries are not first-load on any page", () => {
         stale,
         `the allowlist names a page that no longer loads ${what} up front — delete the entry`,
       ).toEqual([]);
+    },
+  );
+});
+
+/**
+ * Our own on-demand modules stay on demand.
+ *
+ * A library is found by a string its own code carries; our modules carry no
+ * such string, so each exports one and renders it (`data-chunk`), which keeps
+ * it through minification. The marker is therefore IN our source, once, by
+ * design — the opposite of the library rule above, so these are a table of
+ * their own.
+ *
+ * The search engine is the first entry (2026-10-09): the ranking, the synonym
+ * groups, the task aliases and the unsupported-format answers. Statically
+ * imported by the `/tools` explorer it cost that page 6.9 KB gz up front, 1.9
+ * over the page's ceiling; fetched on demand it costs nothing until someone
+ * searches.
+ */
+const OUR_LAZY: LazyLibrary[] = [
+  {
+    what: "the catalogue search engine",
+    marker: SEARCH_ENGINE_CHUNK,
+    why: "the /tools explorer fetches it for a query, or as the search field is approached; the 404 fetches it for its Did you mean",
+    allowedAtLoad: {},
+  },
+];
+
+describe("our on-demand modules are not first-load on any page", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("health check: a real table", () => {
+    expect(OUR_LAZY.length).toBeGreaterThanOrEqual(1);
+    for (const entry of OUR_LAZY) {
+      expect(entry.marker.length, entry.what).toBeGreaterThanOrEqual(12);
+    }
+  });
+
+  it.each(OUR_LAZY)(
+    "positive control: the build ships $what, and exactly one module defines its marker",
+    ({ marker }) => {
+      if (!built) return;
+      expect(
+        walkJs(CHUNKS_DIR).filter((f) => read(f).includes(marker)).length,
+      ).toBeGreaterThanOrEqual(1);
+      const defining = ourSources().filter((f) => read(f).includes(marker));
+      expect(defining).toHaveLength(1);
+    },
+  );
+
+  it.each(OUR_LAZY)(
+    "no page loads $what up front, except the reasoned allowlist",
+    ({ what, marker, why, allowedAtLoad }) => {
+      if (!built) return;
+      const pages = prerenderedPages(NEXT_DIR);
+      const leaks = pages
+        .filter((html) => !(html in allowedAtLoad))
+        .filter((html) => carriesAtLoad(html, marker));
+      expect(
+        leaks,
+        `these pages load ${what} with the page (${why}). A component they render imports it statically, or imports a module that does.`,
+      ).toEqual([]);
+      const stale = Object.keys(allowedAtLoad).filter(
+        (html) => !pages.includes(html) || !carriesAtLoad(html, marker),
+      );
+      expect(stale).toEqual([]);
     },
   );
 });

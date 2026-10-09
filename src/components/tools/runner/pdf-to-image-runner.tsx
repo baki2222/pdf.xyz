@@ -374,7 +374,7 @@ export function ImageResult({
                 <img
                   src={url}
                   alt={`Page ${page.index + 1}`}
-                  className="h-40 w-full bg-black/30 object-contain"
+                  className="bg-canvas h-40 w-full object-contain"
                 />
                 <div className="flex items-center justify-between gap-2 p-2.5">
                   <span className="text-muted text-xs">

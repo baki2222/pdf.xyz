@@ -329,6 +329,30 @@ export async function makeImageBearingPdf(label: string): Promise<{
 }
 
 /**
+ * A PDF with one raster image per page, each embedded as its own format at
+ * its native size — the shape an image-to-PDF engine is expected to produce,
+ * built here so a proof can hand its assertion a near miss (a dropped file, a
+ * re-encoded file, the wrong order) that differs from the real artifact only
+ * in the property under test.
+ */
+export async function makeImagePagesPdf(
+  images: readonly { bytes: Uint8Array; format: "jpg" | "png" }[],
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  for (const { bytes, format } of images) {
+    const image = await embedRasterImage(doc, bytes, format);
+    const page = doc.addPage([image.width + 72, image.height + 72]);
+    await drawRasterImage(page, image, {
+      x: 36,
+      y: 36,
+      width: image.width,
+      height: image.height,
+    });
+  }
+  return doc.save();
+}
+
+/**
  * Copy bytes into a Buffer that OWNS its ArrayBuffer.
  *
  * `Buffer.from(string, "base64")` serves small results out of Node's shared

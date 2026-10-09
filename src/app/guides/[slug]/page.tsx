@@ -146,9 +146,7 @@ export default async function GuidePage({
         <article className="mx-auto flex w-full max-w-3xl flex-col gap-10">
           <header className="flex flex-col gap-4">
             {primary && (
-              <span className="text-accent font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                {primary.name}
-              </span>
+              <span className="text-accent kicker">{primary.name}</span>
             )}
             <h1 className="font-display text-fg text-3xl font-medium tracking-tight text-balance sm:text-4xl">
               {guide.title}
@@ -174,9 +172,7 @@ export default async function GuidePage({
             id="steps"
             className="border-line bg-panel flex scroll-mt-24 flex-col gap-4 rounded-[4px] border p-5 sm:p-7"
           >
-            <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-              Step by step
-            </h2>
+            <h2 className="text-faint kicker">Step by step</h2>
             <ol className="flex flex-col gap-3">
               {guide.steps.map((step, index) => (
                 <li key={step} className="flex items-start gap-3">
@@ -213,9 +209,7 @@ export default async function GuidePage({
               id="faq"
               className="border-line bg-panel flex scroll-mt-24 flex-col gap-4 rounded-[4px] border p-5 sm:p-7"
             >
-              <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                Common questions
-              </h2>
+              <h2 className="text-faint kicker">Common questions</h2>
               {guide.faq.map((entry) => (
                 <div key={entry.question} className="flex flex-col gap-1.5">
                   <h3 className="text-fg text-sm font-semibold">
