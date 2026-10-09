@@ -175,3 +175,52 @@ describe("HtmlRenderWorkerPanel — linked files the upload does not carry", () 
     expect(screen.queryByText(MISSING)).toBeNull();
   });
 });
+
+/**
+ * The address field of Webpage to PDF had no name at all: no `<label>`, no
+ * `aria-label`, only a placeholder ("https://example.com") that disappears as
+ * the first character is typed and that several screen readers do not
+ * announce. On light paper it was also a near-black slab. It is now named by
+ * a visible label, so a sighted reader and a screen reader get the same word.
+ */
+describe("HtmlRenderWorkerPanel — the address field is named", () => {
+  const urlTool = getToolBySlug("webpage-to-pdf")!;
+
+  async function mountUrl() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
+    );
+    render(<HtmlRenderWorkerPanel tool={urlTool} />);
+    await screen.findByText("Secure worker");
+  }
+
+  it("by a visible label, not by its placeholder", async () => {
+    await mountUrl();
+    const field = screen.getByLabelText("Web address");
+    expect(field.tagName).toBe("INPUT");
+    const label = document.querySelector(`label[for="${field.id}"]`);
+    expect(
+      label,
+      "the name must come from a <label> a reader can see",
+    ).not.toBeNull();
+    expect(label!.className).not.toMatch(/\bsr-only\b/);
+  });
+
+  it("as a URL field, so phones offer the URL keyboard and autofill", async () => {
+    await mountUrl();
+    const field = screen.getByLabelText("Web address");
+    expect(field.getAttribute("type")).toBe("url");
+    expect(field.getAttribute("autocomplete")).toBe("url");
+  });
+
+  it("control: the HTML upload mode has no address field to name", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
+    );
+    render(<HtmlRenderWorkerPanel tool={htmlTool} />);
+    await screen.findByText("Secure worker");
+    expect(screen.queryByLabelText("Web address")).toBeNull();
+  });
+});
