@@ -7,6 +7,7 @@ import { ModeShape } from "@/components/tools/processing-badge";
 import { ToolIcon } from "@/components/ui/tool-icon";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import { cn } from "@/lib/utils";
+import { FACTS_LINE, WHERE_LINE } from "./row-lines";
 import { indexSummaries, type WorkspaceToolSummary } from "./summary";
 
 interface DisplayItem {
@@ -25,11 +26,11 @@ const SHOWN = 3;
  * takes this panel's place with suggestions ranked from the files themselves.
  *
  * THE SAME BOX as what replaces it: a heading row, {@link SHOWN} rows of the
- * suggestion row's line boxes, and a "More" footer — so staging a file
- * swaps the panel's words, not its height. WAS every popular tool in a
- * column, ~570px against the suggestions' ~380px, so the recent activity and
- * privacy note under it jumped ~190px on every first staging (review,
- * 2026-10-09). The rest stay links, inside the footer.
+ * suggestion row's line boxes (`./row-lines`), and a "More" footer — so
+ * staging a file swaps the panel's words, not its height. WAS every popular
+ * tool in a column, ~570px against the suggestions' ~380px, so the recent
+ * activity and privacy note under it jumped ~190px on every first staging
+ * (review, 2026-10-09). The rest stay links, inside the footer.
  */
 export function SuggestedTools({
   summaries,
@@ -78,8 +79,8 @@ export function SuggestedTools({
         )}
       >
         <ToolIcon icon={tool.icon} size="sm" className="mt-0.5" />
-        {/* The suggestion row's line boxes: a 20px name, a relaxed 12px
-            line and a relaxed 11px line, each one line high. */}
+        {/* The suggestion row's line boxes (./row-lines): a 20px name, then
+            the tagline and where it runs, each held at two lines. */}
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="flex items-center gap-1.5">
             <span className="text-fg truncate text-sm font-medium">
@@ -91,11 +92,12 @@ export function SuggestedTools({
               </span>
             )}
           </span>
-          <span className="text-muted line-clamp-1 text-xs leading-relaxed">
-            {tool.tagline}
-          </span>
-          <span className="text-faint flex items-center gap-1.5 text-[11px] leading-relaxed">
-            <ModeShape mode={tool.processing} />
+          <span className={cn("text-muted", FACTS_LINE)}>{tool.tagline}</span>
+          <span className={cn("text-faint", WHERE_LINE)}>
+            <ModeShape
+              mode={tool.processing}
+              className="mr-1.5 inline-block align-[-0.5px]"
+            />
             <span className="font-mono font-medium tracking-wide uppercase">
               {getProcessingMeta(tool.processing).short}
             </span>

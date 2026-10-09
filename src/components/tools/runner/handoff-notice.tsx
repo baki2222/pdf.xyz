@@ -137,7 +137,11 @@ export function HandoffLoadedBadge({
       className="border-ok/40 bg-ok/10 text-ok inline-flex flex-wrap items-center gap-1.5 rounded-[3px] border px-3 py-2 text-xs"
     >
       <FolderInput className="size-3.5 shrink-0" aria-hidden />
-      <span>{originPhrase(origin, { count, fileName, fromName })}</span>
+      {/* Names the file for a remedy; a name with no break opportunity
+          breaks anywhere rather than run off a phone's screen. */}
+      <span className="min-w-0 wrap-anywhere">
+        {originPhrase(origin, { count, fileName, fromName })}
+      </span>
       <ShieldCheck className="text-ok size-3.5 shrink-0" aria-hidden />
       <span className="text-ok">
         Still in this browser; nothing was uploaded.

@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import type { WorkspaceFile } from "@/lib/workspace";
 import { suggestTools } from "@/lib/workspace/suggestions";
 import { FACT_SEP } from "./fact-separator";
+import { FACTS_LINE, WHERE_LINE } from "./row-lines";
 import { SuggestionsPlaceholder } from "./suggestions-placeholder";
 import type { WorkspaceToolSummary } from "./summary";
 
@@ -159,20 +160,31 @@ function SuggestionRow({
     >
       <ToolIcon icon={row.tool.icon} size="sm" className="mt-0.5" />
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-fg text-sm font-medium">{row.tool.name}</span>
-        {/* A full row keeps its facts line even while it is empty, so a fact
-            that lands later changes words, never the row's height. */}
+        <span className="text-fg truncate text-sm font-medium">
+          {row.tool.name}
+        </span>
+        {/* A full row is the placeholder's box: its two lines below the name
+            are held at two lines each and clamped there (./row-lines), so
+            the list replaces the placeholder without changing the slot's
+            height. A compact row, under "More", is as tall as its words —
+            but it too breaks inside a long file name. */}
         {(facts.length > 0 || !compact) && (
           <span
             id={`${describedBy}-facts`}
-            className="text-muted min-h-lh text-xs leading-relaxed"
+            className={cn(
+              "text-muted",
+              compact ? "text-xs leading-relaxed wrap-anywhere" : FACTS_LINE,
+            )}
           >
             {facts.join(FACT_SEP)}
           </span>
         )}
         <span
           id={`${describedBy}-where`}
-          className="text-faint text-[11px] leading-relaxed"
+          className={cn(
+            "text-faint",
+            compact ? "text-[11px] leading-relaxed" : WHERE_LINE,
+          )}
         >
           <ModeShape
             mode={row.tool.processing}
@@ -372,7 +384,9 @@ export default function FileSuggestions({
                 className="text-warn mt-0.5 size-3.5 shrink-0"
                 aria-hidden
               />
-              <span>{renderNote(note)}</span>
+              {/* A note names the file; a name with no break opportunity
+                  breaks anywhere rather than run out of the panel. */}
+              <span className="min-w-0 wrap-anywhere">{renderNote(note)}</span>
             </li>
           ))}
         </ul>

@@ -171,6 +171,10 @@ function factChips(file: WorkspaceFile): FactChip[] {
   return chips;
 }
 
+/** A file-type chip in the summary: "PDF · 2". */
+const FAMILY_CHIP =
+  "border-line bg-wash text-muted rounded-[2px] border px-2 py-0.5 font-mono text-[11px] font-medium";
+
 const CHIP_TONE: Record<FactChip["tone"], string> = {
   faint: "text-faint",
   muted: "text-muted",
@@ -351,7 +355,9 @@ export function WorkspaceClient({
                   <X className="size-3.5" aria-hidden />
                 </button>
               </div>
-              <ul className="text-warn flex flex-col gap-1 text-xs">
+              {/* A rejected file is named; a name with no break opportunity
+                  breaks anywhere rather than run off the panel. */}
+              <ul className="text-warn flex flex-col gap-1 text-xs wrap-anywhere">
                 {rejected.map((r, i) => (
                   <li key={`${r.name}-${i}`}>
                     <span className="text-warn font-medium">{r.name}</span> —{" "}
@@ -456,33 +462,53 @@ export function WorkspaceClient({
                   <span>Files stay in this browser. Nothing is uploaded.</span>
                 )}
               </p>
-              {familyChips.length > 0 && (
+              {familyChips.length > 0 ? (
                 <ul
+                  data-chips=""
                   className="flex flex-wrap gap-1.5"
                   aria-label="File types staged"
                 >
                   {familyChips.map(({ family, count }) => (
-                    <li
-                      key={family}
-                      className="border-line bg-wash text-muted rounded-[2px] border px-2 py-0.5 font-mono text-[11px] font-medium"
-                    >
+                    <li key={family} className={FAMILY_CHIP}>
                       {FAMILY_LABEL[family]} · {count}
                     </li>
                   ))}
                 </ul>
+              ) : (
+                // The chips' line, held before any file: the first drop then
+                // changes the summary's words, not its height. Scrolled past
+                // the drop zone, the browser anchors on the summary and keeps
+                // it still while the staged list grows above it; a summary
+                // that grew too pushed the phone's suggestions slot 28px
+                // (CLS 0.04, measured 2026-10-09 with this line removed).
+                <span
+                  data-chips=""
+                  aria-hidden
+                  className={cn(FAMILY_CHIP, "invisible self-start")}
+                >
+                  PDF · 0
+                </span>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {hasFiles && (
-                <button
-                  type="button"
-                  onClick={ws.clearFiles}
-                  className={buttonVariants({ variant: "ghost", size: "sm" })}
-                >
-                  <Trash2 className="size-3.5" aria-hidden />
-                  Clear all
-                </button>
-              )}
+            {/* Clear all keeps its place while there is nothing to clear
+                (invisible: out of the tab order and the accessibility tree),
+                so the first file shows it without moving Add files; the row
+                sits at the end at every width. WAS inserted by the drop: Add
+                files jumped 116px across, and at 1280 that jump set the
+                distance for the 6px the staged list pushes the page under
+                it — CLS 0.0097 against 0.0005 now (measured 2026-10-09). */}
+            <div className="flex shrink-0 items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={ws.clearFiles}
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "sm" }),
+                  !hasFiles && "invisible",
+                )}
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+                Clear all
+              </button>
               <button
                 type="button"
                 onClick={() => inputRef.current?.click()}
