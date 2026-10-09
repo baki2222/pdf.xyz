@@ -282,7 +282,10 @@ const WORKER_CAPABILITY_PROMISES: Record<
   pptxPresentationChain: {
     label: "PowerPoint package structure",
     promise:
-      "PDF to PowerPoint turns each page into an editable slide in a complete presentation (slide master, layout and theme), not the slides-only package PowerPoint for Windows refuses as corrupted",
+      // Until 2026-10-09: "turns each page into an editable slide in a
+      // complete presentation". Nobody has edited one, and the page no longer
+      // says it; the row promises what the page does (claims-vs-capability).
+      "PDF to PowerPoint delivers the package its page reports PowerPoint for Windows opening through automation: one slide per page holding that page's text, with a slide master, layout and theme, not the slides-only package PowerPoint refused as corrupted",
     proves: provenByFlag,
   },
 };

@@ -10,7 +10,8 @@
  * The fix that gave PDF to PowerPoint its slide master, layout and theme
  * changes nothing a user downloads until an image carrying it is running, and
  * nothing on the web tier could tell whether one is. The catalogue
- * has promised "an editable PowerPoint slide" per page all along, so the
+ * promised "an editable PowerPoint slide" per page until 2026-10-09 (it now
+ * says "its own slide in a .pptx file": nobody has edited one), so the
  * question is the 2026-08-21 one again (`translate/capability.ts`): does the
  * running image do what the copy says?
  *
