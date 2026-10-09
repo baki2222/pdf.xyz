@@ -1067,8 +1067,12 @@ describe("POSITIVE CONTROLS: a paraphrase, a dropped reason and an added reason,
       i = page.text.indexOf(AI_EXTRACT_NULL_MEANING, i + 1)
     )
       at.push(i);
-    // Health: the page says it in the intro, the use cases and the FAQ.
-    expect(at.length).toBeGreaterThanOrEqual(3);
+    // Health: the page says it in the boolean use case and the "why null"
+    // FAQ. It used to repeat it a third time (and the instruction and the
+    // warning beside it) in the read-limit answer and the list use case; the
+    // page read as the same paragraph three times, so each section now keeps
+    // only the sentence its context needs. Every occurrence is still mutated.
+    expect(at.length).toBeGreaterThanOrEqual(2);
     expect(ownWordingOn({ page: sentences(page.text) }), "before").toEqual([]);
     for (const { name, to } of MUTATIONS)
       for (const i of at) {

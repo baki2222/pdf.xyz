@@ -138,7 +138,7 @@ const content: ToolContent = {
   intro: [
     `AI Data Extraction asks an AI model for just the values you name in a PDF, such as an invoice number, a due date or a list of product codes, and hands them back as JSON. In a field schema you list up to ${MAX_EXTRACTION_FIELDS} named fields, each typed as ${FIELD_TYPES}, and the model is told to use each name, unchanged, as a key in its answer. Alternatively, write an instruction of up to ${PROMPT_CHARS} characters in your own words; the model is then asked for a flat JSON object and chooses descriptive key names itself.`,
     `Your browser sends the file over TLS to pdf.xyz's secure worker. The worker reads out its text layer and passes that text, with your field list or instruction, to a third-party AI provider. The provider gets text only, never the PDF. When the job ends the worker deletes the uploaded file; the extraction package stays downloadable for ${OUTPUT_TTL} minutes, and once that window closes a daily storage rule sweeps the stored copy away.`,
-    `Per run the builder accepts one PDF, capped at ${CEILING_MB} MB. Of its text, the model sees no more than ${MAX_CHARS} characters, and that count includes the spaces and line breaks the worker's text reader keeps to mirror the page layout, so how many pages fit depends on how the pages are set; a long file's result states how far reading got. The model's instructions are to use only that text. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} pdf.xyz invents no values: with a field schema it lines the reply up with your field names, and the model's own reply is kept beside it, as returned. ${AI_EXTRACT_UNRETURNED_NULL} Instructions are not guarantees, so check any figure you will act on.`,
+    `Per run the builder accepts one PDF, capped at ${CEILING_MB} MB. Of its text, the model sees no more than ${MAX_CHARS} characters, and that count includes the spaces and line breaks the worker's text reader keeps to mirror the page layout, so how many pages fit depends on how the pages are set; a long file's result states how far reading got. The model's instructions are to use only that text. pdf.xyz invents no values: with a field schema it lines the reply up with your field names, and the model's own reply is kept beside it, as returned. ${AI_EXTRACT_UNRETURNED_NULL} Instructions are not guarantees, so check any figure you will act on.`,
   ],
 
   useCases: [
@@ -152,11 +152,11 @@ const content: ToolContent = {
     },
     {
       title: "Check whether a clause is there at all",
-      body: `A boolean field such as auto_renewal puts a yes-or-no question to the text. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} A false is not a confirmed no either: it is the model's reading of the pages it saw, so check the contract itself before you rely on it.`,
+      body: `A boolean field such as auto_renewal puts a yes-or-no question to the text. ${AI_EXTRACT_NULL_MEANING} A false is not a confirmed no either: it is the model's reading of the pages it saw, so check the contract itself before you rely on it.`,
     },
     {
       title: "Collect a list from a long report",
-      body: `Give a field the array type to gather every part number or attendee name into one list. A field of any other type asks for one value. ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} For data that lives in rows and columns, Extract Tables is the better fit.`,
+      body: `Give a field the array type to gather every part number or attendee name into one list. A field of any other type asks for one value. ${AI_EXTRACT_NOT_NULL_WARNING} For data that lives in rows and columns, Extract Tables is the better fit.`,
     },
   ],
 
