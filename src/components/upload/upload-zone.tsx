@@ -187,10 +187,7 @@ export function UploadZone({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-muted inline-flex items-center gap-2 text-xs">
-          <span
-            className="size-1.5 shrink-0 rounded-full bg-emerald-600"
-            aria-hidden
-          />
+          <span className="bg-ok size-1.5 shrink-0 rounded-full" aria-hidden />
           Files stay on your device until you pick a tool.
         </p>
         <div className="flex items-center gap-2">

@@ -68,7 +68,7 @@ const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
  *   - an over-ceiling deck is refused WHEN PICKED (`pickRefusal`), before it
  *     is read or uploaded; the engine's `too_large` is a backstop this page
  *     cannot reach;
- *   - the button's busy label is `jobBusyLabel(phase, "Converting PDF…")`, so
+ *   - the button's busy label is `jobBusyLabel(phase, "Converting to PDF…")`, so
  *     it follows the job (busy-label-claims.test.ts);
  *   - "is a PDF" is `looksLikePdf`: a `%PDF` header in the first 1 KiB and
  *     `%%EOF` in the last 2 KiB, nothing deeper, so the copy says exactly that;
@@ -128,7 +128,7 @@ const content: ToolContent = {
     },
     {
       title: "Click Convert to PDF",
-      body: 'The button follows the round trip: "Uploading your file…" while the deck goes to the secure worker, "Waiting for the worker…" while the job is queued, "Converting PDF…" during the LibreOffice export, and "Downloading the result…" while the finished PDF comes back into this tab.',
+      body: 'The button follows the round trip: "Uploading your file…" while the deck goes to the secure worker, "Waiting for the worker…" while the job is queued, "Converting to PDF…" during the LibreOffice export, and "Downloading the result…" while the finished PDF comes back into this tab.',
     },
     {
       title: "Download the PDF",

@@ -307,7 +307,7 @@ function FieldsEditor({
           </span>
         }
       >
-        <div className="border-line bg-wash flex flex-col divide-y divide-white/5 overflow-hidden rounded-[4px] border">
+        <div className="border-line bg-wash divide-line flex flex-col divide-y overflow-hidden rounded-[4px] border">
           {editable.map((field) => (
             <FieldRow key={field.name} field={field}>
               <FieldControl
@@ -398,7 +398,7 @@ function FieldRow({
 }
 
 const INPUT_CLASS =
-  "w-full rounded-[3px] border border-line bg-black/20 px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
+  "w-full rounded-[3px] border border-line bg-canvas px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
 
 function asString(value: FieldValue): string {
   return typeof value === "string"
@@ -686,7 +686,7 @@ function ReadOnlyControl({ field }: { field: FormFieldInfo }) {
         : (field.text ?? "");
   return (
     <div className="flex items-center gap-2">
-      <span className="border-line text-muted min-w-0 flex-1 truncate rounded-[3px] border bg-black/10 px-3.5 py-2.5 text-sm">
+      <span className="border-line text-muted min-w-0 flex-1 truncate rounded-[3px] border px-3.5 py-2.5 text-sm">
         {current || <span className="text-muted">(empty)</span>}
       </span>
       <span className="border-line text-muted inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px]">

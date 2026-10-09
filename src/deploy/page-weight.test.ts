@@ -212,90 +212,121 @@ function runWeighPages(args: string[]): {
   }
 }
 
+// Every case below spawns the real CLI through tsx, two or three times. Alone
+// the block takes under 2 s; in a loaded full-suite run on 2026-10-09 the first
+// case timed out at vitest's 5 s default (green alone) — the same class as
+// 2b20baa7, so the same remedy: an explicit budget for each spawning case.
+const SPAWNS = 30_000;
+
 describe("pnpm weigh:pages refuses to print a smaller table than it was asked for", () => {
-  it("a listed page with no HTML in the build exits 1 — table and --json", () => {
-    // Before 2026-10-09 a missing page returned null and was FILTERED out of
-    // the rows: the script printed a shorter table and exited 0, so a renamed
-    // route silently left the before/after comparison.
-    const next = fixtureBuild([SHARED], { "index.html": [URL_SHARED] });
-    for (const mode of [[], ["--json"]]) {
-      const run = runWeighPages(["--next-dir", next, ...mode]);
-      expect(run.status, `mode ${mode.join(" ") || "table"}`).toBe(1);
-      expect(run.stderr).toMatch(/not in the build/);
-    }
-  });
+  it(
+    "a listed page with no HTML in the build exits 1 — table and --json",
+    () => {
+      // Before 2026-10-09 a missing page returned null and was FILTERED out of
+      // the rows: the script printed a shorter table and exited 0, so a renamed
+      // route silently left the before/after comparison.
+      const next = fixtureBuild([SHARED], { "index.html": [URL_SHARED] });
+      for (const mode of [[], ["--json"]]) {
+        const run = runWeighPages(["--next-dir", next, ...mode]);
+        expect(run.status, `mode ${mode.join(" ") || "table"}`).toBe(1);
+        expect(run.stderr).toMatch(/not in the build/);
+      }
+    },
+    SPAWNS,
+  );
 
-  it("a complete build prints raw and gz for every listed page, equal to weighPage", async () => {
-    const { WEIGHED_PAGES } = await import("../../scripts/weigh-pages");
-    // Health check on the list itself: an empty list would make every
-    // assertion below vacuous.
-    expect(WEIGHED_PAGES.length).toBeGreaterThanOrEqual(8);
-    const next = fixtureBuild(
-      [SHARED, SLUG],
-      Object.fromEntries(
-        WEIGHED_PAGES.map((p) => [
-          p.html,
-          p.html.startsWith("tools/") ? [URL_SHARED, URL_SLUG] : [URL_SHARED],
-        ]),
-      ),
-    );
-    const run = runWeighPages(["--next-dir", next, "--json"]);
-    expect(run.status, run.stderr).toBe(0);
-    const rows = JSON.parse(run.stdout) as {
-      html: string;
-      kb: number;
-      gzKb: number;
-    }[];
-    expect(rows.map((r) => r.html)).toEqual(WEIGHED_PAGES.map((p) => p.html));
-    for (const row of rows) {
-      const w = weighPage(next, row.html)!;
-      expect(row.kb, row.html).toBe(w.kb);
-      expect(row.gzKb, row.html).toBe(w.gzKb);
-    }
-    const table = runWeighPages(["--next-dir", next]);
-    expect(table.status, table.stderr).toBe(0);
-    expect(table.stdout).toMatch(/KB raw/);
-    expect(table.stdout).toMatch(/KB gz/);
-  });
-
-  it("--baseline prints the delta against an earlier --json run", async () => {
-    const { WEIGHED_PAGES } = await import("../../scripts/weigh-pages");
-    const next = fixtureBuild(
-      [SHARED],
-      Object.fromEntries(WEIGHED_PAGES.map((p) => [p.html, [URL_SHARED]])),
-    );
-    const now = JSON.parse(
-      runWeighPages(["--next-dir", next, "--json"]).stdout,
-    ) as { html: string; kb: number; gzKb: number }[];
-    // An earlier build where the homepage was 10 KB raw / 2.5 KB gz lighter,
-    // and the 404 was not weighed at all.
-    const before = now
-      .filter((r) => r.html !== "_not-found.html")
-      .map((r) =>
-        r.html === "index.html"
-          ? { ...r, kb: r.kb - 10, gzKb: Math.round((r.gzKb - 2.5) * 10) / 10 }
-          : r,
+  it(
+    "a complete build prints raw and gz for every listed page, equal to weighPage",
+    async () => {
+      const { WEIGHED_PAGES } = await import("../../scripts/weigh-pages");
+      // Health check on the list itself: an empty list would make every
+      // assertion below vacuous.
+      expect(WEIGHED_PAGES.length).toBeGreaterThanOrEqual(8);
+      const next = fixtureBuild(
+        [SHARED, SLUG],
+        Object.fromEntries(
+          WEIGHED_PAGES.map((p) => [
+            p.html,
+            p.html.startsWith("tools/") ? [URL_SHARED, URL_SLUG] : [URL_SHARED],
+          ]),
+        ),
       );
-    const file = path.join(next, "baseline.json");
-    writeFileSync(file, JSON.stringify(before));
-    const run = runWeighPages(["--next-dir", next, "--baseline", file]);
-    expect(run.status, run.stderr).toBe(0);
-    const home = run.stdout.split("\n").find((l) => l.includes("homepage"));
-    expect(home).toMatch(/\+10 KB raw/);
-    expect(home).toMatch(/\+2\.5 KB gz/);
-    const notFound = run.stdout.split("\n").find((l) => l.includes("404"));
-    expect(notFound).toMatch(/new/);
-    // An unreadable baseline is an error, not a table with no deltas.
-    const bad = runWeighPages(["--next-dir", next, "--baseline", file + ".x"]);
-    expect(bad.status).toBe(1);
-  });
+      const run = runWeighPages(["--next-dir", next, "--json"]);
+      expect(run.status, run.stderr).toBe(0);
+      const rows = JSON.parse(run.stdout) as {
+        html: string;
+        kb: number;
+        gzKb: number;
+      }[];
+      expect(rows.map((r) => r.html)).toEqual(WEIGHED_PAGES.map((p) => p.html));
+      for (const row of rows) {
+        const w = weighPage(next, row.html)!;
+        expect(row.kb, row.html).toBe(w.kb);
+        expect(row.gzKb, row.html).toBe(w.gzKb);
+      }
+      const table = runWeighPages(["--next-dir", next]);
+      expect(table.status, table.stderr).toBe(0);
+      expect(table.stdout).toMatch(/KB raw/);
+      expect(table.stdout).toMatch(/KB gz/);
+    },
+    SPAWNS,
+  );
 
-  it("is spawned the way package.json runs it", () => {
-    const pkg = JSON.parse(
-      readFileSync(path.join(ROOT, "package.json"), "utf8"),
-    ) as { scripts: Record<string, string> };
-    expect(pkg.scripts["weigh:pages"]).toBe("tsx scripts/weigh-pages.ts");
-  });
+  it(
+    "--baseline prints the delta against an earlier --json run",
+    async () => {
+      const { WEIGHED_PAGES } = await import("../../scripts/weigh-pages");
+      const next = fixtureBuild(
+        [SHARED],
+        Object.fromEntries(WEIGHED_PAGES.map((p) => [p.html, [URL_SHARED]])),
+      );
+      const now = JSON.parse(
+        runWeighPages(["--next-dir", next, "--json"]).stdout,
+      ) as { html: string; kb: number; gzKb: number }[];
+      // An earlier build where the homepage was 10 KB raw / 2.5 KB gz lighter,
+      // and the 404 was not weighed at all.
+      const before = now
+        .filter((r) => r.html !== "_not-found.html")
+        .map((r) =>
+          r.html === "index.html"
+            ? {
+                ...r,
+                kb: r.kb - 10,
+                gzKb: Math.round((r.gzKb - 2.5) * 10) / 10,
+              }
+            : r,
+        );
+      const file = path.join(next, "baseline.json");
+      writeFileSync(file, JSON.stringify(before));
+      const run = runWeighPages(["--next-dir", next, "--baseline", file]);
+      expect(run.status, run.stderr).toBe(0);
+      const home = run.stdout.split("\n").find((l) => l.includes("homepage"));
+      expect(home).toMatch(/\+10 KB raw/);
+      expect(home).toMatch(/\+2\.5 KB gz/);
+      const notFound = run.stdout.split("\n").find((l) => l.includes("404"));
+      expect(notFound).toMatch(/new/);
+      // An unreadable baseline is an error, not a table with no deltas.
+      const bad = runWeighPages([
+        "--next-dir",
+        next,
+        "--baseline",
+        file + ".x",
+      ]);
+      expect(bad.status).toBe(1);
+    },
+    SPAWNS,
+  );
+
+  it(
+    "is spawned the way package.json runs it",
+    () => {
+      const pkg = JSON.parse(
+        readFileSync(path.join(ROOT, "package.json"), "utf8"),
+      ) as { scripts: Record<string, string> };
+      expect(pkg.scripts["weigh:pages"]).toBe("tsx scripts/weigh-pages.ts");
+    },
+    SPAWNS,
+  );
 });
 
 /**

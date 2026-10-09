@@ -33,9 +33,11 @@ export default function HomePage() {
           faqPageSchema(faqs),
         ]}
       />
-      {/* The homepage renders inside the paper scope; the sticky header and
-          the footer carry the same scope themselves (they live outside every
-          page). Routes not yet redesigned keep the :root dark tokens. */}
+      {/* The paper scope is applied once, on <body> in the root layout, and
+          `:root` shares its tokens, so this page, the header and the footer
+          resolve one palette in either colour scheme. This wrapper only sets
+          the page's ground and ink; the closing band inverts locally with
+          `.theme-ink`. */}
       <div className="bg-canvas text-fg">
         <Hero />
         <StatsBand />

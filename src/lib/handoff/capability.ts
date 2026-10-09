@@ -1,8 +1,9 @@
 /**
  * Per-tool handoff capability: given a tool slug, decide whether staged files
- * can be handed off to its in-browser runner and in what shape. This is pure
- * and derived from the live-runner registry, so it can't drift from what the
- * runners actually accept.
+ * can be handed off to its in-browser runner and in what shape. Pure, and
+ * derived twice over: the MODE from the live-runner registry, the FILES from
+ * the tool's catalogue `accept` row read through the one recogniser — and the
+ * second is held to each runner's own check (`capability.test.ts`).
  *
  * Modes:
  *  - `collect`: the runner takes many files and combines them (merge).
@@ -14,8 +15,9 @@
  *               a runner yet).
  */
 
-import { isLikelyPdf } from "@/lib/pdf/files";
+import { formatOf, toolAcceptsFormat } from "@/lib/intent/formats";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
+import { getToolBySlug } from "@/lib/tools";
 
 export type HandoffMode = "collect" | "batch" | "single" | "none";
 
@@ -81,36 +83,26 @@ interface FileMetaLike {
 }
 
 /**
- * Filter a list of files to those a tool's runner can actually open.
+ * Filter a list of files to those a tool's runner can actually open: the
+ * files whose format — read by `formatOf`, the one recogniser — is in the
+ * tool's catalogue `accept` row.
+ *
+ * WAS a branch per slug (a regex for Text to PDF, another for Markdown, a MIME
+ * list for the two image tools, `isLikelyPdf` for the rest): a second
+ * statement of what `accept` already said, which nothing held to it. It
+ * carried a `.docx` declared as a PDF to every PDF runner, and a `.md` typed
+ * `text/plain` to Text to PDF. `capability.test.ts` now holds this to the row
+ * for every runner-backed tool, and to each runner's OWN check — a carried
+ * file must be one the runner opens.
  */
 export function eligibleFilesFor<T extends FileMetaLike>(
   slug: string,
   files: T[],
 ): T[] {
   if (!handoffCapabilityFor(slug).supported) return [];
-  if (getRunnerKind(slug) === "text-to-pdf") {
-    return files.filter(
-      (file) => file.type === "text/plain" || /\.(txt|text)$/i.test(file.name),
-    );
-  }
-  if (getRunnerKind(slug) === "markdown-to-pdf") {
-    return files.filter(
-      (file) =>
-        file.type === "text/markdown" ||
-        file.type === "text/x-markdown" ||
-        /\.(md|markdown|mdown)$/i.test(file.name),
-    );
-  }
-  if (slug === "jpg-to-pdf" || slug === "png-to-pdf") {
-    // Both image tools embed PNG and JPEG alike (the decoder follows the
-    // bytes), so a mixed batch reaches either one whole.
-    return files.filter(
-      (file) =>
-        file.type === "image/jpeg" ||
-        file.type === "image/jpg" ||
-        file.type === "image/png" ||
-        /\.(jpe?g|png)$/i.test(file.name),
-    );
-  }
-  return files.filter((file) => isLikelyPdf(file));
+  const accept = getToolBySlug(slug)?.accept;
+  if (!accept) return [];
+  return files.filter((file) =>
+    toolAcceptsFormat(accept, formatOf(file).format),
+  );
 }

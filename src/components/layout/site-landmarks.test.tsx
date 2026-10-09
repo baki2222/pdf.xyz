@@ -119,3 +119,67 @@ describe("the footer", () => {
     expect(covering).toHaveLength(1);
   });
 });
+
+/**
+ * One name, one destination (WCAG 2.4.4 and 3.2.4).
+ *
+ * WHAT SHIPPED: the footer carried two links named "Privacy" — the Company
+ * column's to the homepage's privacy section (`/#privacy`), the bottom row's
+ * to the privacy policy (`/privacy`). A screen reader's links list showed
+ * "Privacy" twice with nothing to tell them apart, and a sighted reader
+ * clicking the first expecting the policy got a marketing section.
+ *
+ * Read across the chrome every page carries — the header (with its menu
+ * open, so the phone's links count) and the footer — so a name reused in
+ * either for a different place is caught, not only the footer's.
+ */
+describe("the chrome's links", () => {
+  /** Accessible name → the distinct places links with that name go. */
+  function destinationsByName(root: HTMLElement): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    for (const a of root.querySelectorAll("a[href]")) {
+      const name = (a.getAttribute("aria-label") ?? a.textContent ?? "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!name) continue;
+      const href = new URL(a.getAttribute("href")!, "https://pdf.xyz").href;
+      out.set(name, (out.get(name) ?? new Set()).add(href));
+    }
+    return out;
+  }
+
+  const ambiguous = (byName: Map<string, Set<string>>) =>
+    [...byName]
+      .filter(([, hrefs]) => hrefs.size > 1)
+      .map(([name, hrefs]) => `${name} → ${[...hrefs].sort().join(" | ")}`);
+
+  function chrome(): HTMLElement {
+    const { container } = render(
+      at(
+        "/",
+        <>
+          <SiteHeader />
+          <SiteFooter />
+        </>,
+      ),
+    );
+    fireEvent.click(toggle());
+    return container;
+  }
+
+  it("health check: the header and the footer both rendered their links", () => {
+    expect(destinationsByName(chrome()).size).toBeGreaterThan(20);
+  });
+
+  it("no two links share a name and go to different places", () => {
+    expect(ambiguous(destinationsByName(chrome()))).toEqual([]);
+  });
+
+  it("positive control: the pair that shipped is reported", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `<a href="/#privacy">Privacy</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/terms">Terms</a>`;
+    expect(ambiguous(destinationsByName(root))).toEqual([
+      "Privacy → https://pdf.xyz/#privacy | https://pdf.xyz/privacy",
+    ]);
+  });
+});

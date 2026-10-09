@@ -13,7 +13,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   PENDING_COPY_ROOTS,
   copyFiles,
@@ -111,6 +111,22 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/components/upload/staged-file-actions.tsx",
     );
     expect(components.filter((f) => !reached.has(f))).toEqual([]);
+  });
+
+  it("reaches every intent module — the root guards itself by discovery", () => {
+    // `src/lib/intent` holds the redesign's phrase code (answers, evidence,
+    // hints). Dropping its root from copyFiles() must fail here, so the set
+    // is read from disk rather than named, and bounded below so an empty or
+    // renamed folder cannot pass vacuously.
+    const reached = new Set(copyFiles().map(rel));
+    const dir = path.join(process.cwd(), "src", "lib", "intent");
+    const modules = readdirSync(dir, { recursive: true, encoding: "utf8" })
+      .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."))
+      .map((f) => rel(path.join(dir, f)));
+    expect(modules.length).toBeGreaterThanOrEqual(1);
+    // Member control: the first module the root was created for.
+    expect(modules).toContain("src/lib/intent/formats.ts");
+    expect(modules.filter((f) => !reached.has(f))).toEqual([]);
   });
 
   it("reaches every tool page's content file — the set the page consumes", () => {
@@ -418,6 +434,15 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
         .map((f) => phraseModule(rel(f), readFileSync(f, "utf8")))
         .filter((m) => m.sentences.length > 0 || m.names.length > 0));
 
+    // The walk parses every src/lib module (~0.6 s alone), and whichever test
+    // calls discovered() first used to pay for it inside vitest's 5 s default:
+    // the health check timed out in a parallel full run on 2026-10-09 once
+    // WP-03 added src/lib/intent. The walk is setup, so it runs here, with an
+    // explicit budget, before any test reads it — the same class as 2b20baa7.
+    beforeAll(() => {
+      discovered();
+    }, 30_000);
+
     /**
      * Plausibility bounds, not measurements: 233 modules on 2026-10-09. The
      * floor catches a predicate gone blind (the old name-only predicate found
@@ -633,6 +658,8 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
       [
         TOOLING,
         [
+          "src/lib/probes/ai-proof-content.ts",
+          "src/lib/probes/ai-proof-declaration.ts",
           "src/lib/probes/extraction-proof.ts",
           "src/lib/probes/origin-knock.ts",
           "src/lib/probes/proof-outcome.ts",
@@ -697,8 +724,19 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
      * discovering by content and found the 163 recorded above). Lowering this
      * number is the only allowed edit: a module that leaves the record lowers
      * it, and a new phrase module goes into a walked root instead of joining.
+     *
+     * Raised ONCE, to 165, on 2026-10-09, for the two AI-proof modules
+     * (`ai-proof-content.ts`, `ai-proof-declaration.ts`). Both were written on
+     * a branch cut before this ratchet existed, and they are the proofs' own
+     * tooling: a fixture document and an operator's error. They were walked
+     * first, as the rule says, and the walk produced exactly two findings, both
+     * false: the chat fixture's topic word "sandbox isolation" read as an
+     * isolation claim, and the declaration's import of the translate ceiling
+     * (it mirrors the browser's preflight) read as an unattributed ceiling
+     * sentence. The module the same branch added for READERS, the null
+     * meaning, is walked.
      */
-    const OUTSIDE_THE_WALK_CEILING = 163;
+    const OUTSIDE_THE_WALK_CEILING = 165;
 
     /**
      * Identity language a recorded module may hold, each with the reason, as

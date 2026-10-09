@@ -30,8 +30,6 @@ export interface ToolCategory {
   short: string;
   description: string;
   icon: IconName;
-  /** Tailwind gradient token pair used for accents (from-… to-…). */
-  gradient: string;
 }
 
 export interface Tool {

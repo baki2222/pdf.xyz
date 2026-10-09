@@ -64,7 +64,7 @@ export function PricingSection() {
   return (
     <section
       id="pricing"
-      className="border-line scroll-mt-24 border-b py-20 sm:py-28"
+      className="border-line scroll-mt-24 border-b py-20 sm:py-24"
     >
       <Container className="flex flex-col gap-12">
         <SectionHeading

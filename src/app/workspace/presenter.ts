@@ -9,7 +9,6 @@
 import { handoffCapabilityFor } from "@/lib/handoff";
 import { capabilityForMode, describeCapability } from "@/lib/jobs";
 import { isToolSupported } from "@/lib/pdf/registry";
-import { getCategory } from "@/lib/tools/categories";
 import { tools as allTools } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import type { WorkspaceToolSummary } from "./summary";
@@ -23,7 +22,6 @@ function toSummary(tool: Tool): WorkspaceToolSummary {
     name: tool.name,
     tagline: tool.tagline,
     icon: tool.icon,
-    gradient: getCategory(tool.category)?.gradient,
     badge: tool.badge,
     processing: tool.processing,
     capabilityLabel: capability.label,

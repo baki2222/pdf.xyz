@@ -28,10 +28,7 @@ const ROOT = process.cwd();
  * root is moved into `copyFiles()`'s own root list and its entry here is
  * deleted, so a typo'd root cannot hide here.
  */
-export const PENDING_COPY_ROOTS: Record<string, string> = {
-  "src/lib/intent":
-    "the redesign's intent layer (WP-03 creates it: formats, search, and later evidence, hints and the ticket) — user-facing phrase modules by design",
-};
+export const PENDING_COPY_ROOTS: Record<string, string> = {};
 
 /**
  * Every user-facing source file whose text a visitor can read.
@@ -123,6 +120,12 @@ export function copyFiles(): string[] {
     // The workspace's suggestions and file classification (see above). Same
     // rule: no trailing unit comments in its files.
     path.join(ROOT, "src", "lib", "workspace"),
+    // The redesign's intent layer: what a file is, what a query means, and
+    // the answers both produce ("No tool here opens HEIC photos."). Pending
+    // from 2026-10-09 and walked from its first file (2026-10-09, WP-03), so
+    // its phrase code was never outside the guards. Same rule: no trailing
+    // unit comments in its files.
+    path.join(ROOT, "src", "lib", "intent"),
     ...Object.keys(PENDING_COPY_ROOTS).map((root) => path.join(ROOT, root)),
   ];
   const out: string[] = [
@@ -147,6 +150,10 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
+    // What a null means in AI Extract's answer, and the sentences the panel,
+    // the page and the download each say about one. Engine-adjacent, so
+    // listed singly, like the modules above.
+    path.join(ROOT, "src", "lib", "jobs", "ai-extract-null-meaning.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

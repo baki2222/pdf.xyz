@@ -254,7 +254,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
                 <img
                   src={item.previewUrl}
                   alt=""
-                  className="h-40 w-full bg-black/30 object-contain"
+                  className="bg-canvas h-40 w-full object-contain"
                 />
                 <div className="flex items-center gap-2 p-3">
                   <GripVertical className="text-muted size-4" aria-hidden />

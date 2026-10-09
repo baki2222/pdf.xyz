@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import {
+  formatForToken,
+  formatOf,
+  toolAcceptsFormat,
+  type FileFormat,
+} from "@/lib/intent/formats";
+import { tools } from "@/lib/tools";
 import { ACCEPTED_KINDS, acceptAttribute, acceptHint } from "./accepted-kinds";
 import { UploadZone } from "./upload-zone";
 
@@ -99,5 +106,71 @@ describe("the zone a visitor actually receives", () => {
         `caption names "${kind.label}" but the input admits none of ${kind.accept.join(",")}`,
       ).toBe(true);
     }
+  });
+});
+
+/**
+ * The picker admits only what some tool opens.
+ *
+ * WHAT SHIPPED: the home picker's image kind listed `image/webp`, `image/gif`,
+ * `.webp` and `.gif`. No tool takes either — both image tools embed PNG and
+ * JPEG only, and say so ("Choose PNG or JPG images.") — so the picker invited
+ * a file every tool on the site turns away. The caption read "images", which
+ * hid it; the pair-checks above are about the caption and the picker agreeing
+ * with each other, and they did.
+ *
+ * Read through the one recogniser (`formatOf` / `formatForToken`), each token
+ * must name a format that some tool's `accept` row takes.
+ */
+function formatOfToken(token: string): FileFormat | null {
+  return token.startsWith(".")
+    ? formatForToken(token.slice(1))
+    : formatOf({ name: "", type: token }).format;
+}
+
+function nobodyOpens(kinds: typeof ACCEPTED_KINDS): string[] {
+  return kinds.flatMap((kind) =>
+    kind.accept.filter((token) => {
+      const format = formatOfToken(token);
+      return !tools.some((t) => toolAcceptsFormat(t.accept, format));
+    }),
+  );
+}
+
+describe("the picker admits only what some tool opens", () => {
+  it("reads every token as a format (health)", () => {
+    const tokens = ACCEPTED_KINDS.flatMap((kind) => kind.accept);
+    expect(tokens.length).toBeGreaterThanOrEqual(10);
+    expect(tokens.filter((token) => formatOfToken(token) === null)).toEqual([]);
+  });
+
+  it("every token names a format some tool's accept row takes", () => {
+    expect(nobodyOpens(ACCEPTED_KINDS)).toEqual([]);
+  });
+
+  it("positive control: the image kind that shipped is caught on exactly its four extra tokens", () => {
+    const shipped = [
+      {
+        label: "images",
+        accept: [
+          "image/png",
+          "image/jpeg",
+          "image/webp",
+          "image/gif",
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".webp",
+          ".gif",
+        ],
+        maxBytes: 1,
+      },
+    ];
+    expect(nobodyOpens(shipped)).toEqual([
+      "image/webp",
+      "image/gif",
+      ".webp",
+      ".gif",
+    ]);
   });
 });

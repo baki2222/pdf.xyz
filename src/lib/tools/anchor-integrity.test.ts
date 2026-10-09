@@ -109,6 +109,58 @@ describe("every internal link resolves to something that renders", () => {
     ).toEqual([]);
   });
 
+  /**
+   * `/route#section` links: the route's page must render that id. Added
+   * 2026-10-09 with the first links into the privacy policy's sections from
+   * outside the consent banner — the checks above see `/#x` (the homepage)
+   * and bare routes, so a renamed policy section would have left every such
+   * link scrolling to the top of the page. Read from the page file itself,
+   * which is where every section id on a routed page lives today.
+   */
+  const fragmentMisses = (sources: Map<string, string>) => {
+    const offenders: string[] = [];
+    for (const [file, body] of sources) {
+      for (const m of body.matchAll(/href="(\/[a-z0-9/-]+)#([a-z0-9-]+)"/gi)) {
+        const [, route, id] = m as unknown as [string, string, string];
+        const page = path.join(
+          ROOT,
+          "src",
+          "app",
+          ...route.slice(1).split("/"),
+          "page.tsx",
+        );
+        const rendered =
+          existsSync(page) && readFileSync(page, "utf8").includes(`id="${id}"`);
+        if (!rendered) offenders.push(`${relative(file)} → ${route}#${id}`);
+      }
+    }
+    return offenders;
+  };
+
+  it("every /route#fragment link targets an id that route's page renders", () => {
+    const links = [...bodies.values()].flatMap((b) => [
+      ...b.matchAll(/href="\/[a-z0-9/-]+#[a-z0-9-]+"/gi),
+    ]);
+    // Health check: the consent banner's /privacy#cookies at the least.
+    expect(links.length).toBeGreaterThanOrEqual(1);
+    expect(
+      fragmentMisses(bodies),
+      "these links scroll to the top of their page (no such section id)",
+    ).toEqual([]);
+  });
+
+  it("positive control: a fragment the page does not render is reported, one it does is not", () => {
+    const fixture = new Map([
+      [
+        path.join(ROOT, "src", "fixture.tsx"),
+        '<a href="/privacy#cookies">a</a><a href="/privacy#no-such-section">b</a>',
+      ],
+    ]);
+    expect(fragmentMisses(fixture)).toEqual([
+      "src/fixture.tsx → /privacy#no-such-section",
+    ]);
+  });
+
   it("every bare route link has a page file", () => {
     const offenders: string[] = [];
     for (const [file, body] of bodies) {

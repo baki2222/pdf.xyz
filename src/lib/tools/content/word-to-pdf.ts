@@ -27,9 +27,9 @@ import { resolveNativeOfficeConversionConfig } from "@/lib/workers/office-conver
  *    lifetime governs the stored copy, not the button.
  *  - UI labels quoted in the steps are from office-conversion-worker-panel.tsx
  *    and runner/runner-kit.tsx: "Add your document, or browse", "Remove" (a button),
- *    "Convert to PDF", its busy label `jobBusyLabel(job.phase, "Converting
- *    PDF…")` (Uploading your file…, Waiting for the worker…, Converting PDF…,
- *    Downloading the result…), "Your PDF is ready.", the "Secure
+ *    "Convert to PDF", its busy label `jobBusyLabel(job.phase, "Converting to
+ *    PDF…")` (Uploading your file…, Waiting for the worker…, Converting to
+ *    PDF…, Downloading the result…), "Your PDF is ready.", the "Secure
  *    worker" / "Not enabled" / "Status unknown" badge, the "Limit" spec row,
  *    and NotifyMe's "Notify me when this ships" — shown ONLY with "Not
  *    enabled" (phase "ready", worker unable to convert). "Status unknown" is
@@ -125,7 +125,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Convert to PDF",
-      body: 'The document is sent to pdf.xyz\'s secure worker over an encrypted connection. The button reads "Uploading your file…", then "Waiting for the worker…" while the job is queued, "Converting PDF…" while LibreOffice converts it, and "Downloading the result…" as the finished PDF is fetched back into the tab.',
+      body: 'The document is sent to pdf.xyz\'s secure worker over an encrypted connection. The button reads "Uploading your file…", then "Waiting for the worker…" while the job is queued, "Converting to PDF…" while LibreOffice converts it, and "Downloading the result…" as the finished PDF is fetched back into the tab.',
     },
     {
       title: "Save the PDF",

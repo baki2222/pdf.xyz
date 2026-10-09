@@ -76,7 +76,7 @@ export function StatsBand() {
                 (i % 2 === 1 ? "max-lg:pl-6" : "")
               }
             >
-              <dd className="text-fg order-1 font-mono text-3xl font-medium tracking-tight tabular-nums sm:text-4xl">
+              <dd className="figure text-fg order-1 text-3xl font-medium sm:text-4xl">
                 {stat.value}
               </dd>
               <dt className="text-muted order-2 text-[13px]">{stat.label}</dt>

@@ -19,6 +19,12 @@ import type { ExtractedPdfText } from "@/lib/pdf/text";
 import type { ExtractOptions } from "@/lib/jobs/ai-extract";
 import type { AiCompletionResult, AiProvider } from "../ai/provider";
 import { runAiExtract } from "./engine";
+import {
+  AI_EXTRACT_NOT_NULL_WARNING,
+  AI_EXTRACT_NULL_CELL,
+  AI_EXTRACT_NULL_INSTRUCTION,
+  AI_EXTRACT_NULL_MEANING,
+} from "@/lib/jobs/ai-extract-null-meaning";
 
 const INPUT = new Uint8Array([1, 2, 3]);
 const TEXT = "Invoice INV-7 from Acme. Total 1200. Due 30 June.";
@@ -116,14 +122,55 @@ describe("schema mode reconciles the reply with the request", () => {
     expect(pkg.raw).toEqual({ invoice: "INV-7", total: 1200 });
   });
 
-  it("a null the model DID return reads as not found, distinct from not returned", async () => {
+  // INVERTED 2026-10-09, history kept. This test was titled "a null the model
+  // DID return reads as not found, distinct from not returned" and pinned the
+  // cell `_(not found)_`. The distinction from "not returned" was right; the
+  // meaning was not: a field whose text holds several different values can
+  // come back null too (the ai-extract production proof failed exactly that
+  // way), and "_(not found)_" told that user their value was absent.
+  // AGAIN 2026-10-09: it then pinned "_(not found, or more than one match)_"
+  // and a notice saying a null "matched more than once" — a value printed
+  // twice over is one value, which a model returns, and the notice stated the
+  // reason as fact (review). `null-meaning.test.ts` holds every surface that
+  // explains a null to both reasons, as possibilities. AND AGAIN: a third
+  // round of the package's own wording dropped a reason unseen (re-review 3),
+  // so the words are now `@/lib/jobs/ai-extract-null-meaning`'s, and this
+  // test holds the package to RENDERING them — the relationship, not a copy
+  // of the string.
+  it("a null the model DID return reads as not found OR several different values, distinct from not returned", async () => {
     const pkg = await run(schema("invoice", "po_number"), {
       invoice: "INV-7",
       po_number: null,
     });
     expect(pkg.manifest.extraction.missingKeys).toEqual([]);
-    expect(pkg.md).toMatch(/\| po_number \| _\(not found\)_ \|/);
+    expect(pkg.md).toContain(`| po_number | ${AI_EXTRACT_NULL_CELL} |`);
+    // Health: the cell is the two reasons, not one.
+    expect(AI_EXTRACT_NULL_CELL).toBe(
+      "_(not found, or several different values)_",
+    );
+    expect(pkg.md).not.toMatch(/_\(not found\)_/);
+    expect(pkg.md).not.toMatch(/more than one match/);
     expect(pkg.md).not.toContain("not returned by the model");
+    // The note under the table: the instruction, then what a null means,
+    // then the warning that a single value may be one of several.
+    expect(pkg.manifest.notice).toContain(
+      [
+        AI_EXTRACT_NULL_INSTRUCTION,
+        AI_EXTRACT_NULL_MEANING,
+        AI_EXTRACT_NOT_NULL_WARNING,
+      ].join(" "),
+    );
+  });
+
+  it("a null INSIDE a list is shown as the model's null, with no reason claimed for it", async () => {
+    const pkg = await run(
+      {
+        mode: "schema",
+        schema: [{ name: "regions", type: "array" }],
+      },
+      { regions: ["North", null, "East"] },
+    );
+    expect(pkg.md).toMatch(/\| regions \| North; _\(null\)_; East \|/);
   });
 
   it("a RESPELLED key lands under the requested name, and the respelling is recorded", async () => {

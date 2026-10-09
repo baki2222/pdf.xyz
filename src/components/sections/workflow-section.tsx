@@ -159,7 +159,7 @@ function StageGlyph({ stage }: { stage: Stage }) {
  */
 export function WorkflowSection() {
   return (
-    <section className="border-line bg-wash border-b py-20 sm:py-28">
+    <section className="border-line bg-wash border-b py-20 sm:py-24">
       <Container className="flex flex-col gap-14">
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
           <SectionHeading
@@ -178,9 +178,7 @@ export function WorkflowSection() {
         </div>
 
         <div className="flex flex-col gap-5">
-          <p className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            Tools that open your staged files
-          </p>
+          <p className="text-faint kicker">Tools that open your staged files</p>
           <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-10 sm:justify-between">
             {stages.map((stage) => (
               <div key={stage} className="flex flex-col items-center gap-3">

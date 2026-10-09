@@ -111,10 +111,14 @@ export const footerNav: { title: string; items: FooterNavItem[] }[] = [
   },
   {
     title: "Company",
+    // Named for what each one opens. These were "Privacy" and "Security",
+    // and the footer already had a "Privacy" for the policy (/privacy) and
+    // the Categories column a "Security" for the tool category, so two names
+    // each led two places (site-landmarks.test.tsx).
     items: [
       { label: "About", href: "/#about" },
-      { label: "Privacy", href: "/#privacy" },
-      { label: "Security", href: "/#security" },
+      { label: "How files are handled", href: "/#privacy" },
+      { label: "Security practices", href: "/#security" },
       { label: "Contact", href: "/#contact" },
     ],
   },
