@@ -21,6 +21,7 @@ import {
 import { toolAcceptsFormat } from "@/lib/intent/formats";
 import { categories, getToolsByCategory, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
+import * as searchEngine from "@/lib/tools/search-tools";
 
 function headingLevels(container: HTMLElement): number[] {
   return [...container.querySelectorAll("h1,h2,h3,h4,h5,h6")].map((h) =>
@@ -31,6 +32,16 @@ function headingLevels(container: HTMLElement): number[] {
 const status = () => screen.getByRole("status");
 const search = () => screen.getByRole("searchbox", { name: /search tools/i });
 
+/**
+ * The search engine is its own chunk, fetched on demand. Most tests hand the
+ * explorer the module already in memory — still as a promise, the way the
+ * real import arrives — and let it land inside act(); the tests of the
+ * loading itself use the real import, a loader that never answers, and one
+ * that fails.
+ */
+const engineNow = () => Promise.resolve(searchEngine);
+const settle = () => act(async () => {});
+
 beforeEach(() => {
   window.history.replaceState(null, "", "/tools");
 });
@@ -40,7 +51,7 @@ afterEach(() => {
 
 describe("ToolsExplorer headings", () => {
   it("groups every tool under an H2 per category, each linking its landing page", () => {
-    const { container } = render(<ToolsExplorer />);
+    const { container } = render(<ToolsExplorer loadEngine={engineNow} />);
     const h2s = screen.getAllByRole("heading", { level: 2 });
     // Derived from `categories`: a category with tools has a heading.
     expect(h2s.map((h) => h.textContent?.replace(/\d+$/, "").trim())).toEqual(
@@ -61,14 +72,15 @@ describe("ToolsExplorer headings", () => {
     expect(levels.filter((l) => l === 3)).toHaveLength(tools.length);
   });
 
-  it("a search is one ranked list under a visible H2 that says what kind of answer it is", () => {
+  it("a search is one ranked list under a visible H2 that says what kind of answer it is", async () => {
     // INVERTED 2026-10-09. This pinned a visually hidden "Search results"
     // heading over an unranked filter of the grid. The list is ranked now,
     // and it can be the best matches or only the closest ones, so the
     // heading a sighted reader sees says which — and it is still the one H2
     // the cards sit under.
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
     fireEvent.change(search(), { target: { value: "pdf" } });
+    await settle();
     const h2s = screen.getAllByRole("heading", { level: 2 });
     expect(h2s.map((h) => h.textContent)).toEqual(["Best matches for “pdf”"]);
     expect(h2s[0]!.className).not.toMatch(/\bsr-only\b/);
@@ -76,11 +88,12 @@ describe("ToolsExplorer headings", () => {
 });
 
 describe("ToolsExplorer live status", () => {
-  it("is silent on load, then announces the empty state after the pause", () => {
+  it("is silent on load, then announces the empty state after the pause", async () => {
     vi.useFakeTimers();
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
     expect(status().textContent).toBe("");
     fireEvent.change(search(), { target: { value: "zzzz" } });
+    await settle();
     // Debounced: nothing is read out mid-typing.
     expect(status().textContent).toBe("");
     act(() => {
@@ -89,10 +102,11 @@ describe("ToolsExplorer live status", () => {
     expect(status().textContent).toContain("No tools match “zzzz”");
   });
 
-  it("announces a non-zero count for a real search (positive control)", () => {
+  it("announces a non-zero count for a real search (positive control)", async () => {
     vi.useFakeTimers();
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
     fireEvent.change(search(), { target: { value: "merge" } });
+    await settle();
     act(() => {
       vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
     });
@@ -101,7 +115,7 @@ describe("ToolsExplorer live status", () => {
 
   it("announces a category filter", () => {
     vi.useFakeTimers();
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
     fireEvent.click(screen.getByRole("button", { name: /^AI/ }));
     act(() => {
       vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
@@ -117,9 +131,10 @@ describe("ToolsExplorer live status", () => {
 });
 
 describe("ToolsExplorer deep links (read in the browser, not on the server)", () => {
-  it("applies ?category= and ?q= and leaves the URL as the reader arrived", () => {
+  it("applies ?category= and ?q= and leaves the URL as the reader arrived", async () => {
     window.history.replaceState(null, "", "/tools?category=ai&q=chat");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    await settle();
     const links = screen
       .getAllByRole("link")
       .map((a) => a.getAttribute("href"))
@@ -131,14 +146,14 @@ describe("ToolsExplorer deep links (read in the browser, not on the server)", ()
 
   it("an unknown category falls back to every tool, not an empty grid", () => {
     window.history.replaceState(null, "", "/tools?category=bogus");
-    const { container } = render(<ToolsExplorer />);
+    const { container } = render(<ToolsExplorer loadEngine={engineNow} />);
     expect(headingLevels(container).filter((l) => l === 3)).toHaveLength(
       tools.length,
     );
   });
 
   it("writes the filter back once the reader changes it", () => {
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
     fireEvent.click(screen.getByRole("button", { name: /^AI/ }));
     expect(window.location.search).toBe("?category=ai");
     fireEvent.click(screen.getByRole("button", { name: /^All tools/ }));
@@ -161,9 +176,10 @@ const toolLinks = () =>
  * served HTML", moved to where the ranking actually happens.
  */
 describe("ToolsExplorer ranked search", () => {
-  it("/tools?q=pdf%20jpg puts PDF to JPG first, under 'Best matches'", () => {
+  it("/tools?q=pdf%20jpg puts PDF to JPG first, under 'Best matches'", async () => {
     window.history.replaceState(null, "", "/tools?q=pdf%20jpg");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    await settle();
     expect(
       screen.getByRole("heading", {
         level: 2,
@@ -173,9 +189,10 @@ describe("ToolsExplorer ranked search", () => {
     expect(toolLinks()[0]).toBe("/tools/pdf-to-jpg");
   });
 
-  it("/tools?q=heic answers that nothing opens HEIC, and never offers Webpage to PDF", () => {
+  it("/tools?q=heic answers that nothing opens HEIC, and never offers Webpage to PDF", async () => {
     window.history.replaceState(null, "", "/tools?q=heic");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    await settle();
     const answer = screen.getByRole("region", {
       name: "No tool here opens HEIC photos.",
     });
@@ -190,9 +207,10 @@ describe("ToolsExplorer ranked search", () => {
     expect(headingLevels(document.body)[0]).toBe(2);
   });
 
-  it("labels the fallback: a query no tool matches in full shows 'Closest matches'", () => {
+  it("labels the fallback: a query no tool matches in full shows 'Closest matches'", async () => {
     window.history.replaceState(null, "", "/tools?q=merge%20zzqx");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    await settle();
     expect(
       screen.getByRole("heading", {
         level: 2,
@@ -202,9 +220,10 @@ describe("ToolsExplorer ranked search", () => {
     expect(toolLinks()[0]).toBe("/tools/merge-pdf");
   });
 
-  it("an empty result says so, offers the nearest names and the guides, and resets", () => {
+  it("an empty result says so, offers the nearest names and the guides, and resets", async () => {
     window.history.replaceState(null, "", "/tools?q=mregee");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    await settle();
     expect(
       screen.getByRole("heading", {
         level: 2,
@@ -220,18 +239,20 @@ describe("ToolsExplorer ranked search", () => {
     expect(toolLinks()).toHaveLength(tools.length);
   });
 
-  it("noise gets no guesses", () => {
+  it("noise gets no guesses", async () => {
     window.history.replaceState(null, "", "/tools?q=zzzz");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    await settle();
     expect(
       screen.getByRole("heading", { level: 2, name: "Nothing matches “zzzz”" }),
     ).toBeInTheDocument();
     expect(toolLinks()).toEqual([]);
   });
 
-  it("an archive's answer leads to the tools that take what is inside", () => {
+  it("an archive's answer leads to the tools that take what is inside", async () => {
     window.history.replaceState(null, "", "/tools?q=zip");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    await settle();
     const takesPdf = tools.filter((t) => toolAcceptsFormat(t.accept, "PDF"));
     fireEvent.click(
       screen.getByRole("button", {
@@ -248,7 +269,7 @@ describe("ToolsExplorer ranked search", () => {
 describe("ToolsExplorer ?accepts=", () => {
   it("shows only the tools that take the format, with a chip that removes the filter", () => {
     window.history.replaceState(null, "", "/tools?accepts=docx");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
     const expected = tools
       .filter((t) => toolAcceptsFormat(t.accept, "DOCX"))
       .map((t) => `/tools/${t.slug}`);
@@ -261,7 +282,7 @@ describe("ToolsExplorer ?accepts=", () => {
 
   it("reads any spelling of the format, and keeps it through a category click", () => {
     window.history.replaceState(null, "", "/tools?accepts=JPEG");
-    render(<ToolsExplorer />);
+    render(<ToolsExplorer loadEngine={engineNow} />);
     expect(
       screen.getByRole("button", { name: /takes jpg/i }),
     ).toBeInTheDocument();
@@ -272,7 +293,7 @@ describe("ToolsExplorer ?accepts=", () => {
   it("negative control: an unknown or unsupported format filters nothing and shows no chip", () => {
     for (const value of ["bogus", "heic"]) {
       window.history.replaceState(null, "", `/tools?accepts=${value}`);
-      const { unmount } = render(<ToolsExplorer />);
+      const { unmount } = render(<ToolsExplorer loadEngine={engineNow} />);
       expect(toolLinks(), value).toHaveLength(tools.length);
       expect(
         screen.queryByRole("button", { name: /^takes/i }),
@@ -306,5 +327,69 @@ describe("resultAnnouncement", () => {
         { unsupported: "No tool here opens HEIC photos." },
       ),
     ).toBe("No tool here opens HEIC photos. No tools match “heic”");
+  });
+});
+
+describe("the search engine loads on demand, never with the page", () => {
+  it("is not fetched on load; approaching the field fetches it, once", () => {
+    const loader = vi.fn(engineNow);
+    render(<ToolsExplorer loadEngine={loader} />);
+    expect(loader).not.toHaveBeenCalled();
+    fireEvent.pointerEnter(search());
+    fireEvent.focus(search());
+    fireEvent.change(search(), { target: { value: "merge" } });
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("a deep link with a query fetches the real chunk at once, and marks the results it ranked", async () => {
+    window.history.replaceState(null, "", "/tools?q=pdf%20jpg");
+    render(<ToolsExplorer />);
+    const heading = await screen.findByRole("heading", {
+      level: 2,
+      name: "Best matches for “pdf jpg”",
+    });
+    // The marker the bundle tests find this chunk by, rendered from the
+    // module the browser actually loaded.
+    expect(heading.closest("section")).toHaveAttribute(
+      "data-chunk",
+      searchEngine.SEARCH_ENGINE_CHUNK,
+    );
+  });
+
+  it("while it loads, a query shows the served grid, busy, and announces nothing", () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <ToolsExplorer loadEngine={() => new Promise(() => {})} />,
+    );
+    fireEvent.change(search(), { target: { value: "merge" } });
+    act(() => {
+      vi.advanceTimersByTime(ANNOUNCE_DELAY_MS * 2);
+    });
+    expect(status().textContent).toBe("");
+    expect(
+      screen
+        .getAllByRole("heading", { level: 2 })
+        .map((h) => h.textContent?.replace(/\d+$/, "").trim()),
+    ).toEqual(categories.map((c) => c.name));
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
+  it("a chunk that fails to load leaves every tool and says how to search", async () => {
+    // A tab holding a page from before a deploy asks for a chunk that no
+    // longer exists. The page must not go blank, or reject unhandled.
+    window.history.replaceState(null, "", "/tools?q=merge");
+    render(
+      <ToolsExplorer
+        loadEngine={() => Promise.reject(new Error("ChunkLoadError"))}
+      />,
+    );
+    await settle();
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Search could not load. Reload the page to search",
+    );
+    expect(toolLinks()).toHaveLength(tools.length);
+    expect(
+      screen.queryByRole("heading", { level: 2, name: /matches for/ }),
+    ).toBeNull();
   });
 });
