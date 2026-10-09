@@ -39,6 +39,17 @@ import { expect, test, type Page } from "@playwright/test";
  * Windows, macOS, ChromeOS and the Linux runner, and this spec FAILS rather
  * than skips when no face resolves. Android ships none of them and falls
  * through to its system face, unadjusted; that is stated, not covered.
+ *
+ * MEASURED WITH HINTING OFF. Headless Chromium on Linux applies full
+ * hinting, which rounds every glyph's advance to whole pixels. On the CI
+ * runner, the same fitted faces read 0.980 (Geist 400) and 1.022 (600)
+ * against 0.9996 and 0.9995 here. That error depends on the font size and is
+ * not the fit, and the browsers people use set text with fractional advances
+ * (Chrome on Windows, macOS and Android). So this spec launches with
+ * `--font-render-hinting=none`, a flag other platforms ignore. The property
+ * this instrument serves, first-visit CLS, is gated on the hinted runner as
+ * it stands: layout-stability.spec.ts's late-font run uses CI's defaults,
+ * and passed there at ≤ 0.01 on every route with these faces.
  */
 
 /** |fallback width / real width − 1|, summed over a group's text. */
@@ -206,7 +217,12 @@ function merge(into: Map<string, Group>, groups: Group[]): void {
 const ratio = (g: Group) => g.fallbackWidth / g.realWidth;
 
 test.describe("fallback faces", () => {
-  test.use({ viewport: { width: 1440, height: 900 } });
+  test.use({
+    viewport: { width: 1440, height: 900 },
+    // Fractional glyph advances, as people's browsers set them; see the
+    // docblock ("MEASURED WITH HINTING OFF").
+    launchOptions: { args: ["--font-render-hinting=none"] },
+  });
 
   test("set the site's own text within 1.5% of the real face, at every weight it uses", async ({
     page,
