@@ -16,7 +16,10 @@ import { waitForHydration } from "./helpers";
  *    bound binds today.
  *  - LCP on `/`: the largest paint is the H1 (or inside it), and nothing in
  *    its lineage animates — the H1 is the promise, and an entrance animation
- *    on it would delay the paint the page is judged by.
+ *    on it would delay the paint the page is judged by. Motion is RECORDED
+ *    as it starts (CSS animations, CSS transitions, `Element.animate()`),
+ *    not sampled at the end: a finished `fill: none` animation is gone from
+ *    `getAnimations()` long before the measurement reads it.
  *
  * Observation is installed with `addInitScript`, so it runs before the page's
  * own code, and every shift records where it came from as a selector at the
@@ -24,7 +27,8 @@ import { waitForHydration } from "./helpers";
  * A failure prints those selectors, how far each moved, and whether the web
  * fonts had loaded. The positive controls at the bottom inject a shift, a
  * moving reserved slot, a bigger paint and an animation, and go through the
- * SAME measurement as the real pages.
+ * SAME measurement as the real pages; the animations among them are short
+ * and over before the read, so they pass only through the recorder.
  *
  * FONT TIMING IS CHOSEN, NEVER LEFT TO CHANCE. Every shift measured on
  * 2026-10-09 was a `display: swap` font replacing its fallback, and whether
@@ -80,10 +84,28 @@ interface LcpRecord {
   size: number;
 }
 
+/**
+ * One motion, recorded the moment it STARTED: a CSS animation
+ * (`animationstart`), a CSS transition (`transitionstart`) or a script
+ * animation (`Element.prototype.animate`). `lineage` is whether its target
+ * contains the H1 or sits inside it, judged then if the H1 was already parsed
+ * and otherwise at read time (the element is kept for that).
+ */
+interface MotionRecord {
+  kind: "animation" | "transition" | "animate()";
+  name: string;
+  selector: string;
+  /** ms since navigation. */
+  at: number;
+  lineage: boolean | null;
+}
+
 declare global {
   interface Window {
     __shifts?: ShiftRecord[];
     __lcp?: LcpRecord[];
+    __h1Motion?: MotionRecord[];
+    __motionTargets?: Element[];
   }
 }
 
@@ -109,6 +131,53 @@ function observe(reserved: string) {
     node instanceof Element ? node : (node?.parentElement ?? null);
   window.__shifts = [];
   window.__lcp = [];
+  // Motion is recorded WHILE IT HAPPENS. An end-of-run `getAnimations()` scan
+  // cannot see an entrance animation: with the default `fill: none` it has
+  // finished and left the list long before load, hydration, a scroll and a
+  // settle are over — measured 2026-10-09, a 600 ms animation on the H1's
+  // parent read as "nothing animates". All motion is recorded here, with its
+  // target, and the test keeps the ones in the H1's lineage.
+  window.__h1Motion = [];
+  window.__motionTargets = [];
+  const note = (
+    target: EventTarget | null,
+    kind: MotionRecord["kind"],
+    name: string,
+  ) => {
+    if (!(target instanceof Element)) return;
+    const h1 = document.querySelector("main h1");
+    window.__h1Motion!.push({
+      kind,
+      name,
+      selector: describe(target),
+      at: Math.round(performance.now()),
+      lineage: h1 ? target.contains(h1) || h1.contains(target) : null,
+    });
+    window.__motionTargets!.push(target);
+  };
+  document.addEventListener(
+    "animationstart",
+    (e) => note(e.target, "animation", e.animationName),
+    true,
+  );
+  document.addEventListener(
+    "transitionstart",
+    (e) => note(e.target, "transition", e.propertyName),
+    true,
+  );
+  const animate = Element.prototype.animate;
+  Element.prototype.animate = function (
+    this: Element,
+    ...args: Parameters<Element["animate"]>
+  ) {
+    const [, options] = args;
+    note(
+      this,
+      "animate()",
+      typeof options === "object" && options?.id ? options.id : "",
+    );
+    return animate.apply(this, args);
+  };
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries() as unknown as {
       value: number;
@@ -153,8 +222,13 @@ interface Measurement {
   counted: ShiftRecord[];
   inReserved: ShiftRecord[];
   lcp: LcpRecord[];
-  /** Animations whose target contains the H1 or sits inside it. */
+  /**
+   * Motion whose target contains the H1 or sits inside it: every one the
+   * recorder saw START, plus any still running at the end.
+   */
   animated: string[];
+  /** Every motion the recorder saw start, anywhere on the page. */
+  motionSeen: number;
 }
 
 type FontTiming = "warm" | "late";
@@ -195,21 +269,32 @@ async function measure(
     if (atBottom) break;
   }
   await page.waitForTimeout(500);
-  const { shifts, lcp, animated } = await page.evaluate(() => {
+  const { shifts, lcp, animated, motionSeen } = await page.evaluate(() => {
     const h1 = document.querySelector("main h1");
+    const inLineage = (t: Element) =>
+      h1 != null && (t.contains(h1) || h1.contains(t));
+    const motion = window.__h1Motion ?? [];
+    const targets = window.__motionTargets ?? [];
+    // What the recorder saw start, in the lineage — judged when it started,
+    // or now if the H1 was not parsed yet then.
+    const recorded = motion
+      .filter((m, i) => m.lineage ?? inLineage(targets[i]!))
+      .map((m) => `${m.kind} ${m.name} on ${m.selector} at ${m.at}ms`);
+    // And what is still running now (an infinite or long animation that the
+    // recorder would also have seen start; kept as a second reading).
+    const running = document
+      .getAnimations()
+      .map((a) => (a.effect as KeyframeEffect | null)?.target ?? null)
+      .filter((t): t is Element => t instanceof Element && inLineage(t))
+      .map(
+        (t) =>
+          `still running on ${t.tagName.toLowerCase()}${t.id ? `#${t.id}` : ""}`,
+      );
     return {
       shifts: window.__shifts ?? [],
       lcp: window.__lcp ?? [],
-      animated: h1
-        ? document
-            .getAnimations()
-            .map((a) => (a.effect as KeyframeEffect | null)?.target ?? null)
-            .filter(
-              (t): t is Element =>
-                t instanceof Element && (t.contains(h1) || h1.contains(t)),
-            )
-            .map((t) => t.tagName.toLowerCase() + (t.id ? `#${t.id}` : ""))
-        : ["(no h1)"],
+      animated: h1 ? [...recorded, ...running] : ["(no h1)"],
+      motionSeen: motion.length,
     };
   });
   const counted = shifts.filter((s) => !s.hadRecentInput);
@@ -220,6 +305,7 @@ async function measure(
     inReserved: shifts.filter((s) => s.sources.some((x) => x.reserved)),
     lcp,
     animated,
+    motionSeen,
   };
 }
 
@@ -318,7 +404,7 @@ test.describe("layout stability through load, hydration and scroll", () => {
     ).toBe(true);
     expect(
       m.animated,
-      "an animation targets the H1, an ancestor or its words",
+      `motion started on the H1, an ancestor or its words (${m.motionSeen} motion(s) recorded on the page)`,
     ).toEqual([]);
   });
 
@@ -359,7 +445,14 @@ test.describe("layout stability through load, hydration and scroll", () => {
       ).toContain("p#probe-child");
     });
 
-    test("a paint bigger than the H1, and an animation on its ancestor", async ({
+    // The animation controls are SHORT and `fill: none`, like a real entrance:
+    // each is over long before the measurement reads, so they pass only
+    // through the recorder. The control used to be a 120 s animation, still
+    // running at the end — which an end-of-run `getAnimations()` scan sees, so
+    // it could not fail on the realistic case (2026-10-09: a 600 ms version
+    // read 0). Each asserts that nothing was still running, which is what
+    // makes it a control of the recorder rather than of the end scan.
+    test("a paint bigger than the H1, and a short script animation on its ancestor", async ({
       page,
     }) => {
       await page.addInitScript(() => {
@@ -373,14 +466,51 @@ test.describe("layout stability through load, hydration and scroll", () => {
           document
             .querySelector("main h1")
             ?.parentElement?.animate([{ opacity: 0.99 }, { opacity: 1 }], {
-              duration: 120_000,
+              duration: 300,
+              fill: "none",
+              id: "probe-fade",
             });
         });
       });
       const m = await measure(page, "/", "warm");
       expect(m.lcp.at(-1)?.inH1).toBe(false);
       expect(m.lcp.at(-1)?.selector).toContain("p#probe-big");
-      expect(m.animated.length).toBeGreaterThan(0);
+      expect(m.animated.join("\n")).toContain("animate() probe-fade on");
+      expect(
+        m.animated.filter((a) => a.startsWith("still running")),
+        "the probe animation was still running when read — it no longer tests the recorder",
+      ).toEqual([]);
+    });
+
+    test("a short CSS entrance animation and a transition on the H1", async ({
+      page,
+    }) => {
+      await page.addInitScript(() => {
+        window.addEventListener("load", () => {
+          const style = document.createElement("style");
+          style.textContent =
+            "@keyframes probe-rise{from{opacity:.5;transform:translateY(8px)}to{opacity:1;transform:none}}";
+          document.head.append(style);
+          const h1 = document.querySelector<HTMLElement>("main h1");
+          if (!h1) return;
+          h1.style.animation = "probe-rise 300ms ease-out";
+          // A transition needs a style change after the transition is set.
+          h1.style.transition = "letter-spacing 200ms";
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              h1.style.letterSpacing = "0.01em";
+            }),
+          );
+        });
+      });
+      const m = await measure(page, "/", "warm");
+      const seen = m.animated.join("\n");
+      expect(seen).toMatch(/animation probe-rise on .*\bh1\b/);
+      expect(seen).toMatch(/transition letter-spacing on .*\bh1\b/);
+      expect(
+        m.animated.filter((a) => a.startsWith("still running")),
+        "a probe was still running when read — it no longer tests the recorder",
+      ).toEqual([]);
     });
   });
 });
