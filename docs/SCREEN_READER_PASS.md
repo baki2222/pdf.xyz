@@ -129,6 +129,24 @@ list is announced as if it matched every word; the HEIC answer is not read; an
 empty list blames the query when a filter emptied it; or removing the filter
 drops focus to the document.
 
+Reload <https://pdf.xyz/tools>. `Tab` past the search field to the **Where it
+runs** group.
+
+**Must hear:** the group's name, _"Where it runs"_, and the checked choice —
+_"All, radio button, checked, 1 of 5"_. Press the right arrow once.
+
+**Must hear:** _"Never uploads 29, radio button, checked, 2 of 5"_ (the number
+is however many tools never upload today), then after the pause, once: _"29
+tools work without uploading"_. Arrow down into the grid to the first card.
+
+**Must hear:** the tool's name, its description, _"Takes PDF; makes PDF."_ and
+where it runs — the formats said as a sentence, never _"right arrow"_.
+
+**Fails if:** the group has no name; the arrow keys move focus without changing
+the choice (these must be radios, not buttons); the count is read before the
+pause; a mode's shape (● ◐ ○ ◆) is read aloud; or a card reads _"PDF right
+arrow PDF"_.
+
 ---
 
 ## 7. Suggestions for staged files, and files that arrive
@@ -178,7 +196,8 @@ down what was actually said, because the wording is the deliverable.
 If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `src/components/tools/runner/runner-kit.tsx`, and `LiveRegion` in
 `src/components/a11y/live-region.tsx` — for check 6, `ToolsExplorer` and its
-`resultAnnouncement` in `src/components/tools/tools-explorer.tsx`; for check 7,
+`resultAnnouncement` in `src/components/tools/tools-explorer.tsx`, and
+`FormatsLine` in `src/components/tools/formats-line.tsx`; for check 7,
 `FileSuggestions` in `src/app/workspace/file-suggestions.tsx` and
 `HandoffLoadedBadge` in `src/components/tools/runner/handoff-notice.tsx`. Each carries
 a docblock explaining what it is protecting against, which is usually faster
