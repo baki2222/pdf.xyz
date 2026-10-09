@@ -68,30 +68,49 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  * middle page blank; the extractor on that Windows host was Xpdf 4.00's
  * pdftotext, not the worker's poppler) and PowerPoint 16.0 build 20430 opened
  * the 14,253-byte result through COM with 3 slides and 1 master, and read
- * every page's text back. In the same run a deck PowerPoint saved reopened
- * and the pre-2026-09-27 package was refused (0x80070570). Measured on
- * 9f2a2efb by its author, reproduced on it by the reviewer, and run once more
- * on it before this copy was rewritten, with the same figures each time.
+ * every page's text back. It opened it READ-ONLY (`Presentations.Open(path,
+ * ReadOnly = msoTrue, …)`) with PowerPoint's alerts switched off
+ * (`DisplayAlerts = ppAlertsNone`), and edited and saved nothing. In the same
+ * run a deck PowerPoint saved reopened and the pre-2026-09-27 package was
+ * refused (0x80070570). Measured on 9f2a2efb by its author, reproduced on it
+ * by the reviewer, and run once more on it before this copy was rewritten,
+ * with the same figures each time.
  *
  * WHY THE COPY SAYS NEITHER "refuses" NOR "opens". `publish.yml` deploys both
  * tiers from main on every push, so the six "refuses" sentences would turn
  * false with the first successful publish that carries 8920ee1b. "Opens"
  * would claim more than was measured: COM is not a double-click, and
  * scripts/prove-pptx-opens.ts records damaged files that "opened" through COM
- * with no alert, so it cannot see a silent repair or a repair prompt. The copy
- * states the COM measurement, dated, says the double-click has not been
- * checked, and names the apps nobody tried (PowerPoint for Mac and the web,
- * Google Slides, Keynote, LibreOffice Impress) rather than implying they work
- * or fail.
+ * with no alert, so it cannot see a silent repair or a repair prompt. "Edit"
+ * would too: nothing was edited. So the copy states the COM measurement,
+ * dated, with how it was taken (read-only, alerts off), says the double-click
+ * and editing have not been checked, and makes NO claim about other
+ * presentation apps. Until 2026-10-09 it listed them as not tried (PowerPoint
+ * for Mac and the web, Google Slides, Keynote, LibreOffice Impress), and that
+ * list goes stale by itself: worker-prove-tools' powerpoint-to-pdf round trip
+ * feeds this tool's .pptx to LibreOffice's importer on every deployment
+ * proof. That is neither Impress opening it for a person nor PowerPoint, so
+ * the copy claims nothing from it either.
  *
- * WHICH IMAGE IT IS TRUE OF. The measurement is of the engine on main. An
- * image older than 8920ee1b still serves the package PowerPoint refused, and
- * merging is not shipping: production's last successful publish before this
- * rewrite was #165's, and #167's failed on 2026-10-09. The live answer is the
- * heartbeat's `pptxPresentationChain` (absent or false on an older image), and
- * a static string cannot read it, so the copy adjudicates nothing in either
- * direction. capability-hedges.test.ts holds every sentence about this
- * capability to "no deferral", with the six old sentences as its fixtures.
+ * WHICH IMAGE IT IS TRUE OF. The measurement is of the engine on main, and the
+ * copy says "this tool's export code", so it is true of a download only while
+ * production runs an image carrying 8920ee1b. An older image serves the
+ * package PowerPoint refused, and merging is not shipping: #167's publish
+ * failed on 2026-10-09. A later publish that day put the writer into
+ * production (worker build fingerprint 282f44f02ebf). The live answer would be
+ * the heartbeat's `pptxPresentationChain`, but that probe is on this branch,
+ * not main, so production's heartbeat does not carry it yet, and a static
+ * string cannot read it anyway: the copy dates its one measurement and states
+ * what was not checked; it cannot follow the image.
+ *
+ * WHAT HOLDS IT. capability-hedges.test.ts reads every entry on this page (the
+ * page is named for `pptxPresentationChain`, so it is read whole) and every
+ * sentence elsewhere its subject recognises, for a DEFERRAL shape, with the
+ * six old sentences as fixtures. It reads deferrals only: a bare "PowerPoint
+ * refuses it" or "it opens" carries no deferral marker and passes it, so the
+ * "neither refuses nor opens" rule above is held by review, not by a test.
+ * claims-vs-capability.test.ts holds the page and its guides to no "editable"
+ * claim ("PDF to PowerPoint slides are editable").
  *
  * EXIT CONDITION for an "opens in PowerPoint" claim — the PROPERTY, not the
  * mechanism: a file a user DOWNLOADS FROM PRODUCTION opens on a double-click
@@ -102,7 +121,9 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  * job. Three of the four have already happened, and the fourth arrives with
  * the first successful publish that carries the probe, which is exactly why
  * none of them can be the exit. Until the owner has made that check, the copy
- * keeps to the dated measurement.
+ * keeps to the dated measurement. An "editable" claim has its own exit, and
+ * opening is not it: that same download, edited and saved in PowerPoint for
+ * Windows, reopens with no repair prompt.
  *
  * The upload ceiling below is WORKER_FILE_CEILING (JOB_LIMITS.maxFileBytes).
  * The extractor has its own env-configurable cap
@@ -125,18 +146,18 @@ const content: ToolContent = {
 
   intro: [
     "PDF to PowerPoint reads the words you can select in a PDF and packs them into a .pptx file, page by page: the first page's text goes on slide one, the second page's on slide two, and so on. Each slide holds a single text box, with one paragraph for every line of text found on that page. Pictures, charts, logos, colours, fonts, sizes and the position of each block stay behind, and a sentence the PDF wrapped over two lines arrives as two paragraphs.",
-    "What has been tested is narrow, so here it is in full. On 9 October 2026, a .pptx built by this tool's export code from a three-page test PDF was opened through the automation interface of PowerPoint for Windows, which found one slide per page and read every page's text back. Whether a downloaded file opens on a double-click without PowerPoint offering to repair it has not been checked, and PowerPoint for Mac and the web, Google Slides, Keynote and LibreOffice Impress have not been tried. If all you need is the words, PDF to Text copies them out in your browser, and nothing is uploaded.",
+    "What has been tested is narrow, so here it is in full. On 9 October 2026, PowerPoint for Windows was driven through its automation interface, with its alerts switched off, to open a .pptx this tool's export code built from a three-page test PDF: it opened the file read-only, found one slide per page and read every page's text back. Whether a downloaded file opens on a double-click without PowerPoint offering to repair it has not been checked, editing the slides has not been tested, and this page makes no claim about any other presentation app. If all you need is the words, PDF to Text copies them out in your browser, and nothing is uploaded.",
     `A PDF made only of scanned images holds pictures of lettering rather than characters, so the export stops and points you to OCR as the first step. The reading is done by poppler's pdftotext on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure worker, where your input is deleted as each job finishes. The worker keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
   ],
 
   useCases: [
     {
-      title: "Recover a deck when only the PDF survived",
-      body: "Each page's wording comes back on a slide of its own, in page order, as plain paragraphs in a single text box, so none of it has to be retyped. The look stays behind: rebuild the layout, pictures and styling yourself, with the PDF open beside you for reference.",
+      title: "Recover a deck's wording when only the PDF survived",
+      body: "Each page's wording is written to a slide of its own, in page order, as plain paragraphs in a single text box: raw material for rebuilding a deck, not the deck itself. The layout, pictures and styling stay in the PDF, and editing the exported slides has not been tested, so keep the PDF open beside you as the reference.",
     },
     {
       title: "Turn a report into talking points",
-      body: "Because one page becomes one slide, a report's page order becomes a talk's running order, and each slide starts out holding every line its page did. What remains is cutting those lines down to what you will actually say.",
+      body: "Because one page becomes one slide, the .pptx lists a report's pages in a talk's running order, and each slide starts out holding every line its page did. Cutting those lines down to what you will actually say means editing the slides, which has not been tested; the first question below says what has.",
     },
     {
       title: "Bring a scanned handout's words out",
@@ -166,7 +187,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the .pptx open in PowerPoint?",
-      a: "Only one route has been checked. On 9 October 2026, PowerPoint 16.0 for Windows opened a .pptx this tool made from a three-page test PDF through its automation interface, counted three slides and read each page's text back. That interface cannot show a repair prompt, and a download has not been opened with a double-click, so pdf.xyz does not promise that PowerPoint opens it without asking to repair it. No other presentation app has been tried.",
+      a: "Only one route has been checked. On 9 October 2026, PowerPoint 16.0 for Windows opened a .pptx this tool made from a three-page test PDF through its automation interface, counted three slides and read each page's text back. That check switched PowerPoint's alerts off and opened the file read-only, so it would not have shown a repair prompt. No download has been opened with a double-click, and editing has not been tested, so pdf.xyz does not promise that PowerPoint opens the file without asking to repair it, or that the slides can be edited there. This page makes no claim about other presentation apps.",
     },
     {
       q: "Will the design, images and fonts of my PDF be kept?",
