@@ -809,6 +809,26 @@ describe("catalogue copy may not hedge a worker capability", () => {
       ).map(({ where }) => where),
       "these shipped deferrals are caught by no shape",
     ).toEqual([]);
+    // ...and REPORTED, by the rule itself. The two checks above test the
+    // subject and the shapes BESIDE `hedgeOffenders`, which proves nothing
+    // about it: with its main path mutated to skip every entry
+    // (`if (!subject.test(entry.text) || entry) continue;`, a reviewer's
+    // mutation on 2026-10-09) this whole file stayed green, because the rule
+    // test only ever sees a clean catalogue and the one control through the
+    // function ran its FAQ-pair branch. So each shipped sentence goes through
+    // the function the rule test calls, once each, in order.
+    expect(
+      hedgeOffenders(
+        PPTX_DEFERRALS_SHIPPED.map(({ where, text }) => ({
+          slug: "pdf-to-powerpoint",
+          where,
+          text,
+        })),
+        [],
+      ).map((line) => line.slice(0, line.indexOf(" hedges "))),
+    ).toEqual(
+      PPTX_DEFERRALS_SHIPPED.map(({ where }) => `pdf-to-powerpoint ${where}`),
+    );
     // Each shape cut from them catches one of THEM, not only a respelling.
     expect(
       SHAPES_FROM_THE_PPTX_PAGE.filter((name) => {
