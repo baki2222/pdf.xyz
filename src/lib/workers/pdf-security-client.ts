@@ -11,8 +11,11 @@
  *
  * Password handling on the client: the password is placed ONLY in the job
  * request's `options` body, which is exactly what the worker needs to perform the
- * encryption/decryption. It is never logged, never put in a URL, and never stored;
- * the request is sent over the same origin as every other job call. It never
+ * encryption/decryption. It is never logged and never put in a URL. It IS stored
+ * — in the job's queue spec, until FINALIZE deletes it (complete, fail, cancel,
+ * expire) or the queue TTL lapses — sealed to the worker's key when the operator
+ * has configured one (`../workers/queue/sealed-options.ts`). Until 2026-09 this
+ * line said "never stored", and the panel repeated it to users. It never
  * fabricates output: when qpdf isn't available on the worker, the first job call
  * returns the server's honest `not_implemented` / `worker_not_configured` error and
  * this driver surfaces it as a typed failure — never a fake protected/unlocked file.
@@ -22,17 +25,29 @@
 // browser module never pulls the server-side validators or the tools catalog into
 // the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
-import type { ApiError } from "@/lib/jobs/responses";
 import type { PdfKeyLength } from "@/lib/jobs/pdf-security";
 import type { WorkerStatus } from "./status";
-import { pollJobToTerminal } from "./job-polling";
+import {
+  phaseOfJob,
+  pollJobToTerminal,
+  type WorkerJobPhase,
+} from "./job-polling";
+import { jobPollFor } from "@/lib/jobs/client-wait";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
 import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
+import {
+  describeByteCeiling,
+  workerFileCeilingBytes,
+} from "./engine-file-ceilings";
+import { readWorkerError } from "./read-error";
+import {
+  NO_SELECTABLE_TEXT_MESSAGE,
+  readsOnlySelectableText,
+} from "@/lib/jobs/ai-no-text";
+import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const PROTECT_TOOL = "protect-pdf";
 const UNLOCK_TOOL = "unlock-pdf";
-const DEFAULT_POLL_INTERVAL_MS = 800;
-const DEFAULT_MAX_POLL_ATTEMPTS = 150; // ~2 minutes at the default cadence.
 
 /** What the caller wants protected, and how. */
 export interface ProtectWorkerInput {
@@ -50,7 +65,10 @@ export interface ProtectWorkerInput {
 export interface UnlockWorkerInput {
   filename: string;
   bytes: Uint8Array;
-  /** The password that currently opens the encrypted PDF. */
+  /**
+   * The password that opens the encrypted PDF — or, for one that opens without
+   * a password and only restricts printing/copying/editing, its owner password.
+   */
   password: string;
 }
 
@@ -66,8 +84,23 @@ export interface PdfSecurityWorkerFailure {
   ok: false;
   /** A client-safe, honest message (from the server's typed error when present). */
   message: string;
-  /** The contract error code or job error code, when one is available. */
+  /**
+   * The contract error code or job error code, when one is available — or
+   * `timeout` when polling stopped while the job was still running. Read by
+   * the `tool_failed` telemetry (`toolErrorReason`), never shown to a user.
+   */
   code?: string;
+  /**
+   * The job this failure is about, once one exists. It used to be folded into
+   * the message as "(job job_…)" — text a user could read and nothing could
+   * act on.
+   */
+  jobId?: string;
+  /**
+   * True when the client stopped WAITING, not when the job failed: it may
+   * still finish, and {@link resumeSecurityJob} picks it up by `jobId`.
+   */
+  stillRunning?: boolean;
 }
 
 export type PdfSecurityWorkerResult =
@@ -87,6 +120,8 @@ export type FetchLike = (
   status: number;
   json: () => Promise<unknown>;
   arrayBuffer: () => Promise<ArrayBuffer>;
+  /** Optional so stubs need not carry it; read for a 429's `Retry-After`. */
+  headers?: { get(name: string): string | null };
 }>;
 
 export interface PdfSecurityWorkerOptions {
@@ -99,6 +134,10 @@ export interface PdfSecurityWorkerOptions {
   maxPollAttempts?: number;
   /** Injectable delay so polling is instant under test. */
   sleep?: (ms: number) => Promise<void>;
+  /** Called once the job exists, with its id — what a Cancel button needs. */
+  onJobCreated?: (jobId: string) => void;
+  /** Called as the run moves between upload, queue, work and download. */
+  onPhase?: (phase: WorkerJobPhase) => void;
 }
 
 const defaultFetch: FetchLike = (input, init) =>
@@ -115,30 +154,30 @@ function jsonBody(value: unknown): ArrayBuffer {
   return toArrayBuffer(new TextEncoder().encode(JSON.stringify(value)));
 }
 
-function isApiError(value: unknown): value is ApiError {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "error" in value &&
-    typeof (value as { error: unknown }).error === "object" &&
-    (value as { error: unknown }).error !== null
-  );
-}
-
-/** Pull an honest message + code out of a non-OK response body. */
+/** Pull an honest message + code out of a non-OK response (see `./read-error`). */
 async function readError(
   res: Awaited<ReturnType<FetchLike>>,
   fallback: string,
 ): Promise<PdfSecurityWorkerFailure> {
+  return readWorkerError(res, fallback);
+}
+
+/**
+ * Whether the PDF has selectable text: `true`, `false`, or `undefined` when the
+ * browser could not tell (an encrypted or damaged file pdfjs cannot open).
+ * Only a definite `false` refuses — a verdict the browser never reached is left
+ * to the worker. pdfjs is imported on demand so a panel that never runs an AI
+ * job never downloads it.
+ */
+async function selectableTextVerdict(
+  bytes: Uint8Array,
+): Promise<boolean | undefined> {
   try {
-    const body = await res.json();
-    if (isApiError(body)) {
-      return { ok: false, message: body.error.message, code: body.error.code };
-    }
+    const { pdfHasSelectableText } = await import("@/lib/pdf/text");
+    return await pdfHasSelectableText(bytes);
   } catch {
-    // Non-JSON error body — fall through to the generic message.
+    return undefined;
   }
-  return { ok: false, message: fallback };
 }
 
 /**
@@ -166,10 +205,51 @@ export async function runSecurityJob(
    */
   declaredTextPages?: number,
 ): Promise<PdfSecurityWorkerResult> {
+  // Every panel that runs a worker job comes through here, so this is where
+  // its outcome is reported — see `@/lib/telemetry/tool-outcome`.
+  return withToolOutcome(tool, () =>
+    runSecurityJobSteps(
+      tool,
+      filename,
+      bytes,
+      options,
+      opts,
+      declaredCharacters,
+      declaredTextPages,
+    ),
+  );
+}
+
+async function runSecurityJobSteps(
+  tool: string,
+  filename: string,
+  bytes: Uint8Array,
+  options: Record<string, unknown>,
+  opts: PdfSecurityWorkerOptions,
+  declaredCharacters?: number,
+  declaredTextPages?: number,
+): Promise<PdfSecurityWorkerResult> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
-  const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const maxPollAttempts = opts.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
+  opts.onPhase?.("uploading");
+
+  // 0. A tool that reads only selectable text cannot do anything with a PDF
+  //    that has none — and asking the worker costs the user a whole upload AND
+  //    a reservation of their daily AI allowance that a worker-side refusal
+  //    never gives back (three scans locked a connection out for the day,
+  //    audit at 67e8d0f). So the browser asks first, and answers with the
+  //    worker's own words (`@/lib/jobs/ai-no-text`).
+  if (readsOnlySelectableText(tool)) {
+    const hasText = await selectableTextVerdict(bytes);
+    if (hasText === false) {
+      return {
+        ok: false,
+        message: NO_SELECTABLE_TEXT_MESSAGE[tool],
+        // The code the worker's own `no_text` refusal maps to.
+        code: "unprocessable_entity",
+      };
+    }
+  }
 
   // 1. Reserve an upload slot for exactly this file.
   //
@@ -183,6 +263,19 @@ export async function runSecurityJob(
     return {
       ok: false,
       message: "This tool doesn't accept that file type.",
+      code: "unsupported_file_type",
+    };
+  }
+  // Refused HERE, before a request is made, when the file is over what this
+  // tool's engine accepts — the number its page states. The upload API refuses
+  // the same file too; this is the half that can say so in words, without
+  // `files[0].bytes`, and without the file ever being offered to the network.
+  const ceiling = workerFileCeilingBytes(tool);
+  if (bytes.byteLength > ceiling) {
+    return {
+      ok: false,
+      code: "payload_too_large",
+      message: `This file is larger than ${describeByteCeiling(ceiling)}, the most this tool accepts per file. Nothing was uploaded.`,
     };
   }
   const sessionRes = await fetchImpl("/api/uploads", {
@@ -236,27 +329,55 @@ export async function runSecurityJob(
   if (!jobRes.ok) {
     return readError(jobRes, "The worker could not create the job.");
   }
-  let job = (await jobRes.json()) as Job;
+  const job = (await jobRes.json()) as Job;
+  opts.onJobCreated?.(job.jobId);
+
+  // 4–5. Wait for it and download the result — the half a resume re-enters.
+  return finishSecurityJob(tool, job, opts);
+}
+
+/**
+ * Wait for `job` to finish and download its single result. Shared by a fresh
+ * run and by {@link resumeSecurityJob}, so the two cannot drift apart.
+ *
+ * The wait is `jobPollFor(tool)` unless the caller names one: an AI job gets
+ * the AI budget here, in one place, rather than in each of four clients.
+ */
+export async function finishSecurityJob(
+  tool: string,
+  started: Job,
+  opts: PdfSecurityWorkerOptions,
+): Promise<PdfSecurityWorkerResult> {
+  const fetchImpl = opts.fetchImpl ?? defaultFetch;
+  const { signal } = opts;
+  const budget = jobPollFor(tool);
+  opts.onPhase?.(phaseOfJob(started.status));
 
   // 4. Poll to a terminal state (a production worker is async; local-dev is already
   //    terminal on create, so this returns immediately).
   const polled = await pollJobToTerminal({
-    job,
+    job: started,
     fetchImpl,
-    pollIntervalMs,
-    maxPollAttempts,
+    pollIntervalMs: opts.pollIntervalMs ?? budget.intervalMs,
+    maxPollAttempts: opts.maxPollAttempts ?? budget.maxAttempts,
+    onJob: (next) => opts.onPhase?.(phaseOfJob(next.status)),
     ...(signal ? { signal } : {}),
     ...(opts.sleep ? { sleepImpl: opts.sleep } : {}),
   });
   if (!polled.ok) {
+    // The id travels as DATA. Folded into the message it was text a user
+    // could read and nothing could act on, so a job that finished a minute
+    // later was unreachable.
     return {
       ok: false,
-      message: polled.stillRunning
-        ? `${polled.message} (job ${polled.jobId})`
-        : polled.message,
+      message: polled.message,
+      jobId: polled.jobId,
+      // `timeout` is read by the `tool_failed` telemetry only; the resume path
+      // reads `stillRunning`.
+      ...(polled.stillRunning ? { stillRunning: true, code: "timeout" } : {}),
     };
   }
-  job = polled.job;
+  const job = polled.job;
 
   if (job.status !== "completed") {
     return {
@@ -265,21 +386,47 @@ export async function runSecurityJob(
         job.error?.message ??
         `The job ended as "${job.status}" without producing a file.`,
       code: job.error?.code,
+      jobId: job.jobId,
     };
   }
 
   const artifact = job.artifacts?.[0];
   if (!artifact) {
-    return { ok: false, message: "The job completed but produced no file." };
+    return {
+      ok: false,
+      message: "The job completed but produced no file.",
+      jobId: job.jobId,
+    };
   }
 
   // 5. Download the real output.
+  opts.onPhase?.("downloading");
   const downloadRes = await fetchImpl(artifact.url, { signal });
   if (!downloadRes.ok) {
     return readError(downloadRes, "Downloading the result failed.");
   }
   const output = new Uint8Array(await downloadRes.arrayBuffer());
   return { ok: true, job, artifact, output };
+}
+
+/**
+ * Pick up a job this browser stopped waiting for — by id, with no new upload,
+ * no new job and no new charge — and download its result when it finishes.
+ * Returns the same result shape as the run that created it.
+ *
+ * It reports how the job ENDED, like the run that started it: that run
+ * reported `timeout` when it stopped waiting, and without this the finish a
+ * reader went back for — the result they downloaded — was never counted.
+ */
+export function resumeSecurityJob(
+  jobId: string,
+  opts: PdfSecurityWorkerOptions & { tool?: string } = {},
+): Promise<PdfSecurityWorkerResult> {
+  const tool = opts.tool ?? "";
+  // "processing" so the first read happens after one interval: the job was
+  // already running when the previous wait ended.
+  const job = { jobId, status: "processing" } as Job;
+  return withToolOutcome(tool, () => finishSecurityJob(tool, job, opts));
 }
 
 /**

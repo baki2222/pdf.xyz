@@ -14,9 +14,12 @@ import {
   getRedactPageSizes,
   redactPdf,
   redactPresetById,
+  DEFAULT_REDACT_PRESET_ID,
   redactedOutputName,
   validateRedactions,
+  DEFAULT_REDACTION_DRAFT,
   REDACT_DPI_PRESETS,
+  REDACTION_FILL_OPTIONS,
   type PageSize,
   type RedactionFill,
   type RedactionRect,
@@ -43,14 +46,6 @@ interface Box extends RedactionRect {
   id: number;
 }
 
-const DEFAULT_DRAFT: RedactionRect = {
-  page: 1,
-  x: 36,
-  y: 36,
-  width: 200,
-  height: 72,
-};
-
 export function RedactRunner() {
   return (
     <SinglePdfRunner
@@ -73,9 +68,11 @@ function RedactEditor({
   const { busy, error, result, run } = useAsyncRun<RedactResult>();
   const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
   const [boxes, setBoxes] = useState<Box[]>([]);
-  const [draft, setDraft] = useState<RedactionRect>(DEFAULT_DRAFT);
+  const [draft, setDraft] = useState<RedactionRect>({
+    ...DEFAULT_REDACTION_DRAFT,
+  });
   const [fill, setFill] = useState<RedactionFill>("black");
-  const [presetId, setPresetId] = useState("print");
+  const [presetId, setPresetId] = useState<string>(DEFAULT_REDACT_PRESET_ID);
   const [formError, setFormError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{
     done: number;
@@ -272,10 +269,7 @@ function RedactEditor({
             label="Redaction fill"
             value={fill}
             onChange={setFill}
-            options={[
-              { value: "black", label: "Black" },
-              { value: "white", label: "White" },
-            ]}
+            options={[...REDACTION_FILL_OPTIONS]}
           />
         </RunnerSection>
 
@@ -453,11 +447,11 @@ function RasterWarning() {
     <div className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
       <TriangleAlert className="text-warn mt-0.5 size-4 shrink-0" aria-hidden />
       <p className="leading-relaxed">
-        <span className="font-semibold">Output is rasterized.</span> Every
-        redacted page is flattened into an image, so selectable text, form
-        fields, and vectors are converted to pixels. That flattening is exactly
-        what makes the redaction permanent — nothing stays hidden underneath the
-        boxes.
+        <span className="font-semibold">Output is rasterized.</span> Every page
+        — not only the ones with a box — is flattened into an image, so
+        selectable text, form fields, and vectors are converted to pixels on all
+        of them. That flattening is exactly what makes the redaction permanent —
+        nothing stays hidden underneath the boxes.
       </p>
     </div>
   );

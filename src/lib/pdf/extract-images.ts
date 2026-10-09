@@ -9,13 +9,20 @@
  *    verbatim as `.jpg` (byte-for-byte the embedded image — nothing re-encoded).
  *  - `FlateDecode` / `LZWDecode` (± `ASCII85`/`ASCIIHex`/`RunLength`) over
  *    DeviceRGB / DeviceGray / CalRGB / CalGray / ICCBased(N=1|3) at 8 bits per
- *    component, or DeviceGray at 1 bit → the raw samples are inflated, any Flate
- *    predictor is reversed, and the pixels are re-wrapped losslessly as a PNG at
- *    the image's native size.
+ *    component, DeviceGray at 1 bit, or an `Indexed` palette over one of those
+ *    at 1/2/4/8 bits → the raw samples are inflated, any Flate predictor is
+ *    reversed, palette indices are looked up, and the pixels are re-wrapped
+ *    losslessly as a PNG at the image's native size.
+ *  - Transparency travels with the pixels: an `/SMask`, a colour-key `/Mask`
+ *    array or an explicit stencil `/Mask` becomes the PNG's alpha channel.
+ *    Where it cannot be applied (a JPEG keeps its original bytes, or the mask
+ *    is pre-blended, a different size, or in a form we don't read), the image
+ *    is still extracted, opaque, and carries a `note` saying so.
  *
  * Anything we can't reconstruct faithfully — JPEG 2000, CCITT/JBIG2 fax bitmaps,
- * Indexed palettes, CMYK/Separation/DeviceN/Lab, unusual bit depths, custom
- * `/Decode` arrays, or stencil image masks — is reported as *skipped* with a
+ * CMYK/Separation/DeviceN/Lab (including palettes over them), unusual bit
+ * depths, custom `/Decode` arrays, stencil image masks, and inline images
+ * (`BI … ID … EI` in a content stream) — is reported as *skipped* with a
  * concrete reason instead of being guessed at, rasterized, or silently dropped.
  * No page is ever rendered, which is exactly why extracted images keep their
  * real embedded pixels and resolution.
@@ -28,12 +35,17 @@ import {
   PDFArray,
   PDFDict,
   PDFDocument,
+  PDFHexString,
   PDFName,
   PDFNumber,
   PDFRawStream,
   PDFRef,
+  PDFString,
   decodePDFRawStream,
+  type PDFContext,
+  type PDFObject,
 } from "pdf-lib";
+import { pdfLoadError } from "./engine";
 
 /** Image container we can emit — an original JPEG or a losslessly-wrapped PNG. */
 export type ExtractedImageFormat = "jpg" | "png";
@@ -52,6 +64,12 @@ export interface ExtractedImage {
   page: number;
   /** Human colour-space label, e.g. `DeviceRGB`, `ICCBased(3)`, `CMYK (JPEG)`. */
   colorSpace: string;
+  /**
+   * Set when the file differs from how the PDF shows the image — today, only
+   * when its transparency could not be carried over. This is NOT a skip: the
+   * image was extracted, so it is never also counted in `skipped`.
+   */
+  note?: string;
 }
 
 export interface SkippedImage {
@@ -95,7 +113,12 @@ const MAX_XOBJECT_DEPTH = 24;
 export async function extractPdfImages(
   pdfBytes: Uint8Array,
 ): Promise<ExtractImagesResult> {
-  const doc = await PDFDocument.load(pdfBytes, { throwOnInvalidObject: false });
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(pdfBytes, { throwOnInvalidObject: false });
+  } catch (err) {
+    throw await pdfLoadError(err, pdfBytes);
+  }
   const pages = doc.getPages();
   const pageCount = pages.length;
 
@@ -118,25 +141,60 @@ export async function extractPdfImages(
     width: number;
     height: number;
     colorSpace: string;
+    note?: string;
   }
   const records: RawRecord[] = [];
 
-  const emit = (
-    page: number,
-    bytes: Uint8Array,
-    format: ExtractedImageFormat,
-    width: number,
-    height: number,
-    colorSpace: string,
+  const emit: EmitFn = (
+    page,
+    bytes,
+    format,
+    width,
+    height,
+    colorSpace,
+    note,
   ) => {
     const seq = (perPage.get(page) ?? 0) + 1;
     perPage.set(page, seq);
     if (seq > maxSeq) maxSeq = seq;
-    records.push({ page, seq, bytes, format, width, height, colorSpace });
+    records.push({
+      page,
+      seq,
+      bytes,
+      format,
+      width,
+      height,
+      colorSpace,
+      ...(note ? { note } : {}),
+    });
   };
 
   const skip = (page: number, filter: string, reason: string) => {
     skipped.push({ page, reason, filter });
+  };
+
+  // Inline images live in content streams, not in /XObject resources, so the
+  // resource walk alone cannot see them. Each one found is reported as skipped:
+  // a page (or form) whose only images are inline would otherwise read as
+  // "this PDF has no images".
+  const scanContent = (streams: PDFObject | undefined, page: number) => {
+    for (const stream of contentStreams(streams, doc.context, seen)) {
+      let data: Uint8Array;
+      try {
+        data = decodePDFRawStream(stream).decode();
+      } catch {
+        continue;
+      }
+      for (const inline of findInlineImages(data)) {
+        skip(
+          page,
+          inline.filter,
+          inline.stencil
+            ? "Stencil image mask (not a standalone image)"
+            : "Inline image (not yet supported)",
+        );
+      }
+    }
   };
 
   const walk = (
@@ -160,6 +218,7 @@ export async function extractPdfImages(
       if (subtype === PDFName.of("Image")) {
         handleImage(obj, page, emit, skip);
       } else if (subtype === PDFName.of("Form")) {
+        scanContent(obj, page);
         const formResources = obj.dict.lookupMaybe(
           PDFName.of("Resources"),
           PDFDict,
@@ -169,7 +228,10 @@ export async function extractPdfImages(
     }
   };
 
-  pages.forEach((page, i) => walk(page.node.Resources(), i + 1, 0));
+  pages.forEach((page, i) => {
+    walk(page.node.Resources(), i + 1, 0);
+    scanContent(page.node.get(PDFName.of("Contents")), i + 1);
+  });
 
   const pageWidth = Math.max(3, String(pageCount).length);
   const imageWidth = Math.max(3, String(maxSeq).length);
@@ -182,6 +244,7 @@ export async function extractPdfImages(
       height: r.height,
       page: r.page,
       colorSpace: r.colorSpace,
+      ...(r.note ? { note: r.note } : {}),
     });
   }
 
@@ -195,6 +258,7 @@ type EmitFn = (
   width: number,
   height: number,
   colorSpace: string,
+  note?: string,
 ) => void;
 type SkipFn = (page: number, filter: string, reason: string) => void;
 
@@ -237,7 +301,25 @@ function handleImage(
       return;
     }
     const label = jpegColorLabel(dict);
-    emit(page, jpeg, "jpg", width, height, label);
+    // The JPEG is kept byte-for-byte, and a JPEG has no alpha channel, so a
+    // mask beside it cannot travel with it. Say so, rather than hand over an
+    // opaque image as if it were the whole picture.
+    const masked =
+      dict.lookup(PDFName.of("SMask")) instanceof PDFRawStream ||
+      dict.lookup(PDFName.of("Mask")) !== undefined;
+    emit(
+      page,
+      jpeg,
+      "jpg",
+      width,
+      height,
+      label,
+      masked
+        ? noTransparency(
+            "a JPEG is saved exactly as embedded and cannot carry the PDF's separate mask",
+          )
+        : undefined,
+    );
     return;
   }
 
@@ -260,74 +342,575 @@ function handleImage(
   }
 
   // ── Pixel image (Flate/LZW/RunLength/ASCII or uncompressed). ──
-  if (dict.lookup(PDFName.of("Decode")) instanceof PDFArray) {
-    // A custom /Decode remaps sample values (e.g. inverts); honouring it is out
-    // of scope, so skip rather than emit wrong colours.
-    skip(page, filterLabel, "Custom /Decode array is not supported");
-    return;
-  }
-
   const color = classifyColorSpace(dict);
   if (color.kind === "cmyk") {
     skip(page, filterLabel, `CMYK ${color.label} image is not supported`);
     return;
   }
   if (color.kind === "unsupported") {
-    skip(page, filterLabel, `Unsupported colour space: ${color.label}`);
-    return;
-  }
-
-  const bpc = numberOf(dict, "BitsPerComponent");
-  let pngKind: PngKind;
-  let rowBytes: number;
-  if (color.kind === "rgb" && bpc === 8) {
-    pngKind = "rgb8";
-    rowBytes = width * 3;
-  } else if (color.kind === "gray" && bpc === 8) {
-    pngKind = "gray8";
-    rowBytes = width;
-  } else if (color.kind === "gray" && bpc === 1) {
-    pngKind = "gray1";
-    rowBytes = Math.ceil(width / 8);
-  } else {
-    skip(page, filterLabel, `Unsupported ${bpc}-bit ${color.label} image`);
-    return;
-  }
-
-  let samples: Uint8Array;
-  try {
-    samples = decodePDFRawStream(stream).decode();
-  } catch {
-    skip(page, filterLabel, `Could not decode stream (${filterLabel})`);
-    return;
-  }
-
-  const geom = readPredictorGeometry(dict, width, color.channels, bpc);
-  if (geom.predictor > 1) {
-    const reconstructed = reversePredictor(samples, geom);
-    if (!reconstructed) {
-      skip(
-        page,
-        filterLabel,
-        `Predictor ${geom.predictor} is not supported at ${geom.bitsPerComponent}-bit`,
-      );
-      return;
-    }
-    samples = reconstructed;
-  }
-
-  const needed = rowBytes * height;
-  if (samples.length < needed) {
     skip(
       page,
       filterLabel,
-      `Truncated image data (${samples.length}/${needed} bytes)`,
+      color.reason ?? `Unsupported colour space: ${color.label}`,
     );
     return;
   }
 
-  const png = encodePng(width, height, pngKind, samples.subarray(0, needed));
-  emit(page, png, "png", width, height, color.label);
+  const bpc = numberOf(dict, "BitsPerComponent");
+  const depthOk =
+    color.kind === "indexed"
+      ? bpc === 1 || bpc === 2 || bpc === 4 || bpc === 8
+      : color.kind === "rgb"
+        ? bpc === 8
+        : bpc === 1 || bpc === 8;
+  if (!depthOk) {
+    skip(page, filterLabel, `Unsupported ${bpc}-bit ${color.label} image`);
+    return;
+  }
+
+  const decodeArray = dict.lookup(PDFName.of("Decode"));
+  if (
+    decodeArray instanceof PDFArray &&
+    !isDefaultDecode(decodeArray, color, bpc)
+  ) {
+    // A custom /Decode remaps sample values (e.g. inverts); honouring it is out
+    // of scope, so skip rather than emit wrong colours. The DEFAULT array is
+    // the identity and is accepted: some writers spell it out.
+    skip(page, filterLabel, "Custom /Decode array is not supported");
+    return;
+  }
+
+  const packed = decodeSamples(stream, width, height, color.channels, bpc);
+  if (typeof packed === "string") {
+    skip(page, filterLabel, packed);
+    return;
+  }
+
+  // Raw component values, one byte each: what a colour-key /Mask compares
+  // against (for a palette image that is the INDEX, not the looked-up colour).
+  const raw = () =>
+    bpc === 8
+      ? packed
+      : unpackSamples(packed, width, height, color.channels, bpc);
+
+  let kind: PngKind;
+  let pixels: Uint8Array;
+  if (color.kind === "indexed") {
+    pixels = expandPalette(raw(), color.palette);
+    kind = color.palette.baseChannels === 3 ? "rgb8" : "gray8";
+  } else if (color.kind === "rgb") {
+    pixels = packed;
+    kind = "rgb8";
+  } else if (bpc === 8) {
+    pixels = packed;
+    kind = "gray8";
+  } else {
+    pixels = packed;
+    kind = "gray1";
+  }
+
+  const transparency = readTransparency(dict, width, height, color, bpc, raw);
+  if (transparency.alpha) {
+    if (kind === "gray1") {
+      // PNG has no 1-bit gray+alpha, so widen the bitmap to 8-bit first.
+      pixels = unpackSamples(pixels, width, height, 1, 1).map((v) =>
+        v ? 255 : 0,
+      );
+      kind = "gray8";
+    }
+    pixels = interleaveAlpha(
+      pixels,
+      kind === "rgb8" ? 3 : 1,
+      transparency.alpha,
+    );
+    kind = kind === "rgb8" ? "rgba8" : "ga8";
+  }
+
+  const png = encodePng(width, height, kind, pixels);
+  emit(page, png, "png", width, height, color.label, transparency.note);
+}
+
+/**
+ * Inflate an image's samples, reverse any predictor, and check there are
+ * enough of them. Returns the packed rows, or a skip reason.
+ */
+function decodeSamples(
+  stream: PDFRawStream,
+  width: number,
+  height: number,
+  channels: number,
+  bpc: number,
+): Uint8Array | string {
+  const dict = stream.dict;
+  const filterLabel = normalizeFilters(dict).join(", ") || "(none)";
+  let samples: Uint8Array;
+  try {
+    samples = decodePDFRawStream(stream).decode();
+  } catch {
+    return `Could not decode stream (${filterLabel})`;
+  }
+
+  const geom = readPredictorGeometry(dict, width, channels, bpc);
+  if (geom.predictor > 1) {
+    const reconstructed = reversePredictor(samples, geom);
+    if (!reconstructed) {
+      return `Predictor ${geom.predictor} is not supported at ${geom.bitsPerComponent}-bit`;
+    }
+    samples = reconstructed;
+  }
+
+  const needed = Math.ceil((width * channels * bpc) / 8) * height;
+  if (samples.length < needed) {
+    return `Truncated image data (${samples.length}/${needed} bytes)`;
+  }
+  return samples.subarray(0, needed);
+}
+
+/**
+ * Split byte-aligned rows of `bpc`-bit samples (MSB first) into one byte per
+ * sample. Row padding below 8 bits is dropped.
+ */
+function unpackSamples(
+  packed: Uint8Array,
+  width: number,
+  height: number,
+  channels: number,
+  bpc: number,
+): Uint8Array {
+  const perRow = width * channels;
+  const rowBytes = Math.ceil((perRow * bpc) / 8);
+  const out = new Uint8Array(perRow * height);
+  const mask = (1 << bpc) - 1;
+  for (let y = 0; y < height; y++) {
+    const rowOff = y * rowBytes;
+    for (let i = 0; i < perRow; i++) {
+      const bit = i * bpc;
+      const byte = packed[rowOff + (bit >> 3)] ?? 0;
+      out[y * perRow + i] = (byte >> (8 - bpc - (bit & 7))) & mask;
+    }
+  }
+  return out;
+}
+
+/** Look every index up in the palette, clamping to `hival` as readers do. */
+function expandPalette(indices: Uint8Array, palette: Palette): Uint8Array {
+  const n = palette.baseChannels;
+  const out = new Uint8Array(indices.length * n);
+  for (let i = 0; i < indices.length; i++) {
+    const entry = Math.min(indices[i] ?? 0, palette.hival) * n;
+    for (let c = 0; c < n; c++) out[i * n + c] = palette.table[entry + c] ?? 0;
+  }
+  return out;
+}
+
+/** Interleave one alpha byte after each pixel's `channels` colour bytes. */
+function interleaveAlpha(
+  pixels: Uint8Array,
+  channels: number,
+  alpha: Uint8Array,
+): Uint8Array {
+  const count = alpha.length;
+  const stride = channels + 1;
+  const out = new Uint8Array(count * stride);
+  for (let i = 0; i < count; i++) {
+    for (let c = 0; c < channels; c++)
+      out[i * stride + c] = pixels[i * channels + c] ?? 0;
+    out[i * stride + channels] = alpha[i] ?? 255;
+  }
+  return out;
+}
+
+// ─────────────────────────────── Transparency ────────────────────────────────
+
+interface Transparency {
+  /** One alpha byte per pixel (0 = transparent), when it could be applied. */
+  alpha?: Uint8Array;
+  /** Why the image was saved without the transparency the PDF gives it. */
+  note?: string;
+}
+
+function noTransparency(why: string): string {
+  return `Saved without its transparency: ${why}`;
+}
+
+/**
+ * Turn whatever transparency the PDF attaches to an image into an alpha
+ * channel. `/SMask` wins over `/Mask`, as it does when a reader paints it.
+ * Anything we cannot apply faithfully comes back as a `note`, never as a
+ * reason to drop the image: an opaque copy is still worth having.
+ */
+function readTransparency(
+  dict: PDFDict,
+  width: number,
+  height: number,
+  color: ColorSpaceInfo,
+  bpc: number,
+  raw: () => Uint8Array,
+): Transparency {
+  const smask = dict.lookup(PDFName.of("SMask"));
+  if (smask instanceof PDFRawStream) {
+    return softMaskAlpha(smask, width, height);
+  }
+
+  const mask = dict.lookup(PDFName.of("Mask"));
+  if (mask instanceof PDFArray) {
+    return colourKeyAlpha(mask, raw(), color.channels, bpc);
+  }
+  if (mask instanceof PDFRawStream) {
+    return stencilMaskAlpha(mask, width, height);
+  }
+  return {};
+}
+
+/** The checks both kinds of mask stream share: size, and a filter we read. */
+function maskStreamProblem(
+  mask: PDFRawStream,
+  width: number,
+  height: number,
+): string | null {
+  const mw = numberOf(mask.dict, "Width");
+  const mh = numberOf(mask.dict, "Height");
+  if (mw !== width || mh !== height) {
+    return `the mask is ${mw}×${mh} but the image is ${width}×${height}`;
+  }
+  const codec = normalizeFilters(mask.dict).find((f) => !PIXEL_FILTERS.has(f));
+  if (codec) return `the mask is stored as ${codec}, which isn't read`;
+  return null;
+}
+
+/** Read a mask stream's `/Decode`: identity, inverted, or something else. */
+function maskDecode(mask: PDFRawStream): "identity" | "inverted" | "other" {
+  const decode = mask.dict.lookup(PDFName.of("Decode"));
+  if (decode === undefined) return "identity";
+  if (!(decode instanceof PDFArray) || decode.size() !== 2) return "other";
+  const lo = decode.lookup(0);
+  const hi = decode.lookup(1);
+  if (!(lo instanceof PDFNumber) || !(hi instanceof PDFNumber)) return "other";
+  if (lo.asNumber() === 0 && hi.asNumber() === 1) return "identity";
+  if (lo.asNumber() === 1 && hi.asNumber() === 0) return "inverted";
+  return "other";
+}
+
+/** `/SMask`: a grayscale image whose samples ARE the alpha. */
+function softMaskAlpha(
+  mask: PDFRawStream,
+  width: number,
+  height: number,
+): Transparency {
+  if (mask.dict.lookup(PDFName.of("Matte")) !== undefined) {
+    return {
+      note: noTransparency(
+        "its mask is pre-blended (/Matte), which isn't supported",
+      ),
+    };
+  }
+  const problem = maskStreamProblem(mask, width, height);
+  if (problem) return { note: noTransparency(problem) };
+
+  const declared = mask.dict.lookup(PDFName.of("ColorSpace")) !== undefined;
+  if (declared && classifyColorSpace(mask.dict).kind !== "gray") {
+    return { note: noTransparency("its mask is not grayscale") };
+  }
+  const bpc = numberOf(mask.dict, "BitsPerComponent");
+  if (bpc !== 1 && bpc !== 2 && bpc !== 4 && bpc !== 8) {
+    return { note: noTransparency(`its ${bpc}-bit mask isn't supported`) };
+  }
+  const decode = maskDecode(mask);
+  if (decode === "other") {
+    return { note: noTransparency("its mask has a custom /Decode array") };
+  }
+
+  const packed = decodeSamples(mask, width, height, 1, bpc);
+  if (typeof packed === "string") {
+    return { note: noTransparency("its mask could not be decoded") };
+  }
+  const max = (1 << bpc) - 1;
+  const values =
+    bpc === 8 ? packed : unpackSamples(packed, width, height, 1, bpc);
+  const alpha = new Uint8Array(width * height);
+  for (let i = 0; i < alpha.length; i++) {
+    const v = Math.round(((values[i] ?? 0) * 255) / max);
+    alpha[i] = decode === "inverted" ? 255 - v : v;
+  }
+  return { alpha };
+}
+
+/**
+ * Explicit `/Mask` stream: a 1-bit stencil where, under the default `/Decode`,
+ * a sample of 1 masks the image OUT (transparent) and 0 lets it paint.
+ */
+function stencilMaskAlpha(
+  mask: PDFRawStream,
+  width: number,
+  height: number,
+): Transparency {
+  const problem = maskStreamProblem(mask, width, height);
+  if (problem) return { note: noTransparency(problem) };
+  const bpc = numberOr(mask.dict, "BitsPerComponent", 1);
+  if (bpc !== 1) {
+    return { note: noTransparency(`its ${bpc}-bit stencil mask isn't read`) };
+  }
+  const decode = maskDecode(mask);
+  if (decode === "other") {
+    return { note: noTransparency("its mask has a custom /Decode array") };
+  }
+  const packed = decodeSamples(mask, width, height, 1, 1);
+  if (typeof packed === "string") {
+    return { note: noTransparency("its mask could not be decoded") };
+  }
+  const bits = unpackSamples(packed, width, height, 1, 1);
+  const maskedOut = decode === "inverted" ? 0 : 1;
+  const alpha = new Uint8Array(width * height);
+  for (let i = 0; i < alpha.length; i++) {
+    alpha[i] = bits[i] === maskedOut ? 0 : 255;
+  }
+  return { alpha };
+}
+
+/**
+ * Colour-key `/Mask [min₁ max₁ …]`: a pixel is transparent when EVERY raw
+ * component falls inside its range. Compared on the raw samples, so for a
+ * palette image the range is over the index.
+ */
+function colourKeyAlpha(
+  ranges: PDFArray,
+  raw: Uint8Array,
+  channels: number,
+  bpc: number,
+): Transparency {
+  const bounds: number[] = [];
+  for (let i = 0; i < ranges.size(); i++) {
+    const n = ranges.lookup(i);
+    if (!(n instanceof PDFNumber)) break;
+    bounds.push(n.asNumber());
+  }
+  if (bounds.length !== channels * 2) {
+    return {
+      note: noTransparency(
+        `its colour-key mask has ${bounds.length} bounds, not ${channels * 2}`,
+      ),
+    };
+  }
+  const max = (1 << bpc) - 1;
+  const lo = bounds.filter((_, i) => i % 2 === 0);
+  const hi = bounds.filter((_, i) => i % 2 === 1).map((v) => Math.min(max, v));
+  const pixelCount = raw.length / channels;
+  const alpha = new Uint8Array(pixelCount);
+  for (let p = 0; p < pixelCount; p++) {
+    let keyed = true;
+    for (let c = 0; c < channels && keyed; c++) {
+      const v = raw[p * channels + c] ?? 0;
+      if (v < (lo[c] ?? 0) || v > (hi[c] ?? max)) keyed = false;
+    }
+    alpha[p] = keyed ? 0 : 255;
+  }
+  return { alpha };
+}
+
+// ─────────────────────────────── Inline images ───────────────────────────────
+
+/** PDF whitespace: NUL, TAB, LF, FF, CR, SPACE. */
+function isWhite(c: number | undefined): boolean {
+  return (
+    c === 0x20 ||
+    c === 0x0a ||
+    c === 0x0d ||
+    c === 0x09 ||
+    c === 0x0c ||
+    c === 0
+  );
+}
+
+/** PDF delimiters: ( ) < > [ ] { } / % */
+function isDelim(c: number | undefined): boolean {
+  return (
+    c === 0x28 ||
+    c === 0x29 ||
+    c === 0x3c ||
+    c === 0x3e ||
+    c === 0x5b ||
+    c === 0x5d ||
+    c === 0x7b ||
+    c === 0x7d ||
+    c === 0x2f ||
+    c === 0x25
+  );
+}
+
+/**
+ * Every content stream that can draw for a page or form: `/Contents` may be a
+ * single stream, a reference to one, or an array of them. A stream reached by
+ * reference is yielded once per document, like an image shared by pages.
+ */
+function contentStreams(
+  value: PDFObject | undefined,
+  context: PDFContext,
+  seen: Set<string>,
+): PDFRawStream[] {
+  const out: PDFRawStream[] = [];
+  const add = (entry: PDFObject | undefined, nested: boolean) => {
+    if (entry instanceof PDFRef) {
+      const key = `content:${entry.tag}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+    }
+    const obj = entry instanceof PDFRef ? context.lookup(entry) : entry;
+    if (obj instanceof PDFRawStream) {
+      out.push(obj);
+    } else if (obj instanceof PDFArray && !nested) {
+      for (let i = 0; i < obj.size(); i++) add(obj.get(i), true);
+    }
+  };
+  add(value, false);
+  return out;
+}
+
+interface InlineImage {
+  /** The inline dictionary's `/F` (`/Filter`) chain, or `inline`. */
+  filter: string;
+  /** `/IM true`: a stencil mask, reported the way an XObject stencil is. */
+  stencil: boolean;
+}
+
+/**
+ * Find the inline images (`BI <dict> ID <data> EI`) in a decoded content
+ * stream, by tokenizing rather than substring-matching: `BI` inside a string
+ * `( … )`, a hex string, a comment or a name (`/BI`) is not an operator, and
+ * once `ID` is reached the image's binary data is skipped to its closing `EI`,
+ * so sample bytes can never be mistaken for another image.
+ */
+function findInlineImages(data: Uint8Array): InlineImage[] {
+  const found: InlineImage[] = [];
+  const n = data.length;
+  let i = 0;
+
+  /** Read the next token, or null at end of data. Advances `i`. */
+  const next = (): string | null => {
+    while (i < n) {
+      const c = data[i];
+      if (isWhite(c)) {
+        i++;
+      } else if (c === 0x25) {
+        // % comment, to end of line
+        while (i < n && data[i] !== 0x0a && data[i] !== 0x0d) i++;
+      } else {
+        break;
+      }
+    }
+    if (i >= n) return null;
+    const c = data[i]!;
+    if (c === 0x28) {
+      // ( literal string ), balanced parentheses, backslash escapes
+      let depth = 0;
+      while (i < n) {
+        const d = data[i];
+        if (d === 0x5c) {
+          i += 2;
+          continue;
+        }
+        if (d === 0x28) depth++;
+        else if (d === 0x29 && --depth === 0) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      return "(string)";
+    }
+    if (c === 0x3c) {
+      if (data[i + 1] === 0x3c) {
+        i += 2;
+        return "<<";
+      }
+      while (i < n && data[i] !== 0x3e) i++; // <hex string>
+      i++;
+      return "(hex)";
+    }
+    if (c === 0x3e) {
+      i += data[i + 1] === 0x3e ? 2 : 1;
+      return ">>";
+    }
+    if (c === 0x2f) {
+      // /Name — its own token, so `/BI` or `/ID` is never an operator.
+      const start = i++;
+      while (i < n && !isWhite(data[i]) && !isDelim(data[i])) i++;
+      return latin1(data, start, i);
+    }
+    if (isDelim(c)) {
+      i++;
+      return String.fromCharCode(c);
+    }
+    const start = i;
+    while (i < n && !isWhite(data[i]) && !isDelim(data[i])) i++;
+    return latin1(data, start, i);
+  };
+
+  for (let token = next(); token !== null; token = next()) {
+    if (token !== "BI") continue;
+
+    // The inline dictionary, up to the ID operator.
+    const dict: string[] = [];
+    let reachedId = false;
+    for (let t = next(); t !== null; t = next()) {
+      if (t === "ID") {
+        reachedId = true;
+        break;
+      }
+      dict.push(t);
+    }
+    if (!reachedId) break;
+
+    found.push({
+      filter: inlineFilter(dict),
+      stencil: inlineFlag(dict, "/IM") || inlineFlag(dict, "/ImageMask"),
+    });
+
+    // ID is followed by exactly one whitespace byte, then binary data. The
+    // image ends at the first `EI` that stands alone: whitespace before it,
+    // whitespace, a delimiter or end of data after it.
+    i++;
+    let end = -1;
+    for (let j = i; j + 1 < n; j++) {
+      if (
+        data[j] === 0x45 &&
+        data[j + 1] === 0x49 &&
+        isWhite(data[j - 1]) &&
+        (j + 2 >= n || isWhite(data[j + 2]) || isDelim(data[j + 2]))
+      ) {
+        end = j;
+        break;
+      }
+    }
+    if (end < 0) break;
+    i = end + 2;
+  }
+  return found;
+}
+
+/** The value after `/F` or `/Filter` in an inline dictionary's tokens. */
+function inlineFilter(tokens: string[]): string {
+  const at = tokens.findIndex((t) => t === "/F" || t === "/Filter");
+  if (at < 0) return "inline";
+  const value = tokens[at + 1];
+  if (value === "[") {
+    const names: string[] = [];
+    for (let k = at + 2; k < tokens.length && tokens[k] !== "]"; k++)
+      names.push(tokens[k]!.replace(/^\//, ""));
+    return names.length ? `inline, ${names.join(", ")}` : "inline";
+  }
+  return value?.startsWith("/") ? `inline, ${value.slice(1)}` : "inline";
+}
+
+/** Whether a boolean key (e.g. `/IM`) is `true` in an inline dictionary. */
+function inlineFlag(tokens: string[], key: string): boolean {
+  const at = tokens.indexOf(key);
+  return at >= 0 && tokens[at + 1] === "true";
+}
+
+function latin1(data: Uint8Array, start: number, end: number): string {
+  let out = "";
+  for (let k = start; k < end; k++) out += String.fromCharCode(data[k]!);
+  return out;
 }
 
 // ─────────────────────────────── Stream helpers ──────────────────────────────
@@ -386,18 +969,48 @@ function jpegBytesFromChain(
   }
 }
 
-interface ColorSpaceInfo {
-  kind: "rgb" | "gray" | "cmyk" | "unsupported";
-  /** Channel count (3, 1, 4) — 0 when unsupported. */
-  channels: number;
-  /** Human label for reporting. */
-  label: string;
+/** A palette's lookup table, resolved to raw bytes and checked for length. */
+interface Palette {
+  /** Bytes per entry: 3 for an RGB base, 1 for a gray one. */
+  baseChannels: number;
+  /** Highest valid index; larger indices are clamped to it. */
+  hival: number;
+  /** `(hival + 1) * baseChannels` bytes at least. */
+  table: Uint8Array;
 }
+
+type ColorSpaceInfo =
+  | {
+      kind: "rgb" | "gray" | "cmyk";
+      /** Channel count (3, 1, 4). */
+      channels: number;
+      /** Human label for reporting. */
+      label: string;
+    }
+  | {
+      kind: "indexed";
+      /** ONE sample (the index) per pixel, whatever the base colour space. */
+      channels: 1;
+      label: string;
+      palette: Palette;
+    }
+  | {
+      kind: "unsupported";
+      channels: 0;
+      label: string;
+      /** A specific skip reason, when the generic one would say too little. */
+      reason?: string;
+    };
 
 /** Classify an image's `/ColorSpace` into what we can (or can't) render. */
 function classifyColorSpace(dict: PDFDict): ColorSpaceInfo {
-  const cs = dict.lookup(PDFName.of("ColorSpace"));
+  return classifyColorSpaceObject(dict.lookup(PDFName.of("ColorSpace")), true);
+}
 
+function classifyColorSpaceObject(
+  cs: PDFObject | undefined,
+  allowIndexed: boolean,
+): ColorSpaceInfo {
   if (cs instanceof PDFName) {
     const n = nameStr(cs);
     if (n === "DeviceRGB" || n === "CalRGB" || n === "RGB")
@@ -429,12 +1042,96 @@ function classifyColorSpace(dict: PDFDict): ColorSpaceInfo {
       return { kind: "rgb", channels: 3, label: "CalRGB" };
     if (family === "CalGray")
       return { kind: "gray", channels: 1, label: "CalGray" };
-    if (family === "Indexed" || family === "I")
-      return { kind: "unsupported", channels: 0, label: "Indexed (palette)" };
+    if (family === "Indexed" || family === "I") {
+      if (!allowIndexed)
+        return { kind: "unsupported", channels: 0, label: "Indexed" };
+      return classifyIndexed(cs);
+    }
     return { kind: "unsupported", channels: 0, label: family };
   }
 
   return { kind: "unsupported", channels: 0, label: "unknown" };
+}
+
+/**
+ * `[/Indexed base hival lookup]`. Expanding a palette is an exact table
+ * lookup, so it is lossless whenever the base is one we already write (RGB or
+ * gray); a palette over CMYK, Lab, Separation or DeviceN stays skipped.
+ */
+function classifyIndexed(cs: PDFArray): ColorSpaceInfo {
+  const base = classifyColorSpaceObject(cs.lookup(1), false);
+  const label = `Indexed (${base.label})`;
+  const unsupported = (reason: string): ColorSpaceInfo => ({
+    kind: "unsupported",
+    channels: 0,
+    label,
+    reason,
+  });
+  if (base.kind !== "rgb" && base.kind !== "gray") {
+    return unsupported(
+      `Indexed (palette) image over ${base.label} is not supported`,
+    );
+  }
+  const hivalObj = cs.lookup(2);
+  const hival =
+    hivalObj instanceof PDFNumber ? Math.floor(hivalObj.asNumber()) : -1;
+  if (hival < 0 || hival > 255) {
+    return unsupported("Indexed (palette) image with an invalid palette size");
+  }
+  const table = paletteBytes(cs.lookup(3));
+  if (!table) {
+    return unsupported("Indexed (palette) image whose palette can't be read");
+  }
+  if (table.length < (hival + 1) * base.channels) {
+    return unsupported(
+      "Indexed (palette) image whose palette is shorter than it declares",
+    );
+  }
+  return {
+    kind: "indexed",
+    channels: 1,
+    label,
+    palette: { baseChannels: base.channels, hival, table },
+  };
+}
+
+/**
+ * A palette table's raw bytes. Strings are read with `asBytes`, never as
+ * text: a palette entry is a byte, and text decoding would rewrite the high
+ * ones.
+ */
+function paletteBytes(obj: PDFObject | undefined): Uint8Array | null {
+  if (obj instanceof PDFString || obj instanceof PDFHexString) {
+    return obj.asBytes();
+  }
+  if (obj instanceof PDFRawStream) {
+    try {
+      return decodePDFRawStream(obj).decode();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether an image's `/Decode` is the default one, i.e. the identity: `[0 1]`
+ * per component, or `[0 2^bpc−1]` for a palette index.
+ */
+function isDefaultDecode(
+  decode: PDFArray,
+  color: ColorSpaceInfo,
+  bpc: number,
+): boolean {
+  const expected =
+    color.kind === "indexed"
+      ? [0, (1 << bpc) - 1]
+      : Array.from({ length: color.channels }, () => [0, 1]).flat();
+  if (decode.size() !== expected.length) return false;
+  return expected.every((value, i) => {
+    const n = decode.lookup(i);
+    return n instanceof PDFNumber && n.asNumber() === value;
+  });
 }
 
 /** A metadata label for a JPEG, which we extract regardless of colour space. */
@@ -500,9 +1197,12 @@ function readPredictorGeometry(
 
 /**
  * Reverse a Flate/LZW predictor. Supports TIFF horizontal differencing
- * (predictor 2) and the PNG predictors (10–15), both at 8 bits per component —
- * the depths we emit. Returns null for anything else so the caller can skip
- * honestly instead of producing wrong pixels.
+ * (predictor 2) at 8 bits per component, and the PNG predictors (10–15) at 1,
+ * 2, 4 or 8 bits. PNG filters work on BYTES, with "the pixel to the left"
+ * meaning `ceil(bits per pixel / 8)` bytes back, so sub-byte rows (a PNG-8
+ * palette embedded by pdfTeX, say) reverse exactly like 8-bit ones. Returns
+ * null for anything else so the caller can skip honestly instead of producing
+ * wrong pixels.
  */
 export function reversePredictor(
   data: Uint8Array,
@@ -510,9 +1210,12 @@ export function reversePredictor(
 ): Uint8Array | null {
   const { predictor, colors, columns, bitsPerComponent } = geom;
   if (predictor <= 1) return data;
-  if (bitsPerComponent !== 8) return null;
-  const bpp = Math.max(1, colors);
-  const rowBytes = columns * colors;
+  const subByte =
+    bitsPerComponent === 1 || bitsPerComponent === 2 || bitsPerComponent === 4;
+  if (bitsPerComponent !== 8 && !(subByte && predictor >= 10)) return null;
+  const bitsPerPixel = Math.max(1, colors) * bitsPerComponent;
+  const bpp = Math.max(1, Math.ceil(bitsPerPixel / 8));
+  const rowBytes = Math.ceil((columns * bitsPerPixel) / 8);
   if (rowBytes <= 0) return null;
 
   // TIFF predictor 2: per-row horizontal differencing, no filter-type byte.
@@ -584,7 +1287,7 @@ function paeth(a: number, b: number, c: number): number {
 // using stored (uncompressed) DEFLATE blocks. The output is a genuine lossless
 // PNG of the embedded pixels — callers may re-compress it inside a ZIP.
 
-export type PngKind = "rgb8" | "gray8" | "gray1";
+export type PngKind = "rgb8" | "rgba8" | "gray8" | "ga8" | "gray1";
 
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
@@ -630,7 +1333,10 @@ function pngLayout(
 ): { bitDepth: number; colorType: number; rowBytes: number } {
   if (kind === "rgb8")
     return { bitDepth: 8, colorType: 2, rowBytes: width * 3 };
+  if (kind === "rgba8")
+    return { bitDepth: 8, colorType: 6, rowBytes: width * 4 };
   if (kind === "gray8") return { bitDepth: 8, colorType: 0, rowBytes: width };
+  if (kind === "ga8") return { bitDepth: 8, colorType: 4, rowBytes: width * 2 };
   return { bitDepth: 1, colorType: 0, rowBytes: Math.ceil(width / 8) };
 }
 

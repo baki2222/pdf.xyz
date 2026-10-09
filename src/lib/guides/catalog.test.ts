@@ -19,9 +19,9 @@
 import { describe, expect, it } from "vitest";
 import { guides } from "./catalog";
 import type { Guide } from "./types";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolBySlug, tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
-import { AI_ALLOWANCE_FACT } from "@/lib/jobs/ai-allowance";
+import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 
 /** Every string a reader (or a crawler, via JSON-LD) receives from a guide. */
@@ -70,9 +70,11 @@ describe("the guides catalogue is structurally sound", () => {
     expect(slugs.length, `guides: ${slugs.join(", ")}`).toBeGreaterThanOrEqual(
       8,
     );
-    // The route-indexability bounds tolerate 17 guide routes today; a count
+    // The route-indexability bounds tolerate 25 guide routes today; a count
     // near that is the signal to revisit both files together, not to creep.
-    expect(slugs.length).toBeLessThanOrEqual(16);
+    // Revisited 2026-09-27: L04 and L05 each added five guides (16 → 21), so
+    // both bounds moved together, keeping this one a guide under that one.
+    expect(slugs.length).toBeLessThanOrEqual(24);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
@@ -121,6 +123,113 @@ describe("the guides catalogue is structurally sound", () => {
         expect(entry.question, guide.slug).toMatch(/\?$/);
       }
     }
+  });
+
+  it("every tool under 'Tools used in this guide' is one the guide uses", () => {
+    // The guide page renders `guide.tools` under the heading "Tools used in
+    // this guide", and the tool page's Guides band links back through the same
+    // field. So each entry is a claim that the article USES that tool, and a
+    // reader can check it: the tool must be named in the copy. The compress
+    // guide listed Grayscale PDF and Optimize for Web while naming neither,
+    // and Grayscale PDF makes a text PDF 150-300x LARGER (audit, 67e8d0f) —
+    // the "used" claim was the only thing sending compress readers there.
+    const unnamed = (guide: Guide) =>
+      guide.tools.filter((slug) => {
+        const name = getToolBySlug(slug)?.name;
+        const copy = copyStrings(guide).join(" ").toLowerCase();
+        return !name || !copy.includes(name.toLowerCase());
+      });
+    const holes = guides.flatMap((guide) =>
+      unnamed(guide).map((slug) => `${guide.slug} lists ${slug}`),
+    );
+    expect(holes, holes.join("\n")).toEqual([]);
+    // Health check: the corpus is the whole catalogue's tool references.
+    expect(guides.flatMap((g) => g.tools).length).toBeGreaterThanOrEqual(
+      2 * guides.length,
+    );
+    // Positive control, through the same detector: a listed tool the copy
+    // never names is reported; one it names is not.
+    const fixture = {
+      ...fixtureAround("Open Merge PDF and add your files."),
+      tools: ["merge-pdf", "split-pdf"],
+    };
+    expect(unnamed(fixture)).toEqual(["split-pdf"]);
+  });
+
+  it("every tool the site promotes has a guide that teaches it", () => {
+    // Audit at 67e8d0f: the guides covered 11 tasks, and Edit PDF — badged
+    // popular AND featured, the most-promoted in-browser tool in the
+    // catalogue — had no guide at all, not even as a neighbour. The top
+    // intents are the ones the site itself promotes, so the corpus is DERIVED
+    // from the catalogue's own `badge`/`featured`, never typed here.
+    const promoted = tools.filter((t) => t.featured || t.badge === "popular");
+    const untaught = (list: readonly Guide[]) =>
+      promoted
+        .filter((t) => !list.some((g) => g.tools[0] === t.slug))
+        .map((t) => t.slug);
+
+    // The KNOWN gaps, each with the property that excuses it. The excuse is
+    // not "we have not got to it": it is that every claim a guide makes must
+    // be checkable in this tree, and these run on the worker, whose image is
+    // built by hand and can differ from main (the FAQ that advertised
+    // chunking against a nine-day-old worker). An in-browser tool has no such
+    // excuse, so the ledger cannot hold one.
+    const KNOWN_GAPS: Record<string, string> = {
+      "word-to-pdf":
+        "LibreOffice on the worker: fidelity claims need a real job against the running image",
+      "chat-with-pdf":
+        "AI on the worker: answer-grounding claims need a real job against the running image",
+    };
+    // Only a tool whose claims cannot be checked in this tree may be excused.
+    const excusable = (slug: string): boolean => {
+      const tool = getToolBySlug(slug);
+      return (
+        tool !== undefined &&
+        capabilityForMode(tool.processing) !== "in-browser"
+      );
+    };
+    const gaps = untaught(guides);
+    const unexcused = gaps.filter((slug) => !(slug in KNOWN_GAPS));
+    expect(unexcused, unexcused.join("\n")).toEqual([]);
+    for (const [slug, why] of Object.entries(KNOWN_GAPS)) {
+      expect(
+        getToolBySlug(slug),
+        `ledger names unknown tool ${slug}`,
+      ).toBeDefined();
+      expect(
+        excusable(slug),
+        `${slug} runs in the browser, so "${why}" cannot excuse it`,
+      ).toBe(true);
+      // Stale entries go red: an entry the site stopped promoting is no
+      // longer a top intent, and a gap that got its guide leaves the ledger.
+      expect(
+        promoted.map((t) => t.slug),
+        `${slug} is not promoted — drop it from KNOWN_GAPS`,
+      ).toContain(slug);
+      expect(
+        gaps,
+        `${slug} has a guide now — drop it from KNOWN_GAPS`,
+      ).toContain(slug);
+    }
+
+    // Health: the promoted set is a real slice of the catalogue.
+    expect(promoted.length).toBeGreaterThanOrEqual(8);
+    expect(promoted.length).toBeLessThan(tools.length / 2);
+    // Positive control, through the same detector: removing a promoted
+    // tool's only guide surfaces that tool.
+    const merge = guides.filter((g) => g.tools[0] !== "merge-pdf");
+    expect(untaught(merge)).toContain("merge-pdf");
+    // And through the excuse predicate: an in-browser promoted tool (found,
+    // not named) cannot be excused, nor can a slug the catalogue lacks.
+    const inBrowser = promoted.find(
+      (t) => capabilityForMode(t.processing) === "in-browser",
+    );
+    expect(
+      inBrowser,
+      "no promoted in-browser tool to control with",
+    ).toBeDefined();
+    expect(excusable(inBrowser!.slug)).toBe(false);
+    expect(excusable("no-such-tool")).toBe(false);
   });
 
   it("dates are real and ordered", () => {
@@ -222,9 +331,12 @@ describe("guide copy tells the truth about where the work runs", () => {
       }
       const primary = getToolBySlug(guide.tools[0]!)!;
       if (capabilityForMode(primary.processing) === "ai") {
+        // Per tool: the allowance is stated in the unit the route charges the
+        // guide's primary tool (characters for translate, runs for the rest).
+        const fact = aiAllowanceFactFor(primary.slug);
         expect(
-          copyStrings(guide).some((text) => text.includes(AI_ALLOWANCE_FACT)),
-          `${guide.slug}: an AI guide must carry the allowance sentence verbatim (interpolate AI_ALLOWANCE_FACT)`,
+          copyStrings(guide).some((text) => text.includes(fact)),
+          `${guide.slug}: an AI guide must carry its tool's allowance sentence verbatim (interpolate aiAllowanceFactFor)`,
         ).toBe(true);
       }
     }

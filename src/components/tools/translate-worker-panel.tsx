@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import Link from "next/link";
 import {
   Download,
   Languages,
@@ -21,37 +22,46 @@ import {
 } from "@/lib/jobs/translate-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
 import {
   canRunTranslate,
   runWorkerTranslate,
+  translateTextDeps,
   type TranslateWorkerResult,
 } from "@/lib/workers/translate-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { extractPdfText, pageTextChunks } from "@/lib/pdf/text";
-import { planTranslateChunks } from "@/lib/workers/translate/chunking";
+import { PdfEngineError } from "@/lib/pdf/engine";
+import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { translatePreflight } from "@/lib/workers/translate/preflight";
 import {
   TRANSLATE_MAX_INPUT_CHARS,
-  translateTooLongMessage,
+  TRANSLATE_NO_TEXT_MESSAGE,
 } from "@/lib/jobs/translate-limits";
 import { TruncationNotice } from "./truncation-notice";
 import { DeliveryNotice, deliverySummary } from "./delivery-notice";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { translateJobPoll, type JobPollBudget } from "@/lib/jobs/client-wait";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 /** The default target language shown in the builder. */
 const DEFAULT_TARGET: TranslateLanguage = "en";
@@ -69,44 +79,42 @@ function badgeFor(
     : { tone: "muted", label: "Not enabled", pulse: false };
 }
 
-export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
+/**
+ * What the user reads when the run throws. The local text parse runs in the
+ * same `try` as the network job, and the catch used to call EVERY throw a lost
+ * connection — so a password-protected or damaged PDF, which never touches
+ * the network, told the user to check their network. The parse now throws a
+ * typed `PdfEngineError` with the same copy the other PDF tools use;
+ * `runWorkerTranslate` reports its own failures as a returned result, so what
+ * is left is genuinely a transport failure.
+ */
+export function translateFailureMessage(err: unknown): string {
+  if (err instanceof PdfEngineError) return err.message;
+  return "Lost the connection before the job finished. Check your network and try again.";
+}
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+/** The local text parse the builder runs before anything is uploaded. */
+type ExtractText = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+
+export function TranslateWorkerPanel({
+  tool,
+  // Injectable for one reason: the modern pdf.js build needs `DOMMatrix`, which
+  // jsdom lacks, so the panel test passes the REAL `extractPdfText` bound to the
+  // legacy build. The page never passes it.
+  // The default reads `translateTextDeps`, the client module's own swappable
+  // seam, so a test may swap either.
+  extractText = (bytes) => translateTextDeps.extract(bytes),
+}: {
+  tool: Tool;
+  extractText?: ExtractText;
+}) {
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunTranslate(status);
-  const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : aiToolUnavailableDetail(status);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
+  const unavailableDetail = aiToolUnavailableDetail(status);
 
   return (
     <div className="">
@@ -131,20 +139,25 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
             configured AI model to translate only that text into your target
             language, then returns a translation package — Markdown, plain text,
             and a manifest recording the model and scope. It produces translated
-            text (not a layout-preserving PDF) and never fabricates a
-            translation: with no AI model configured, or a scanned PDF with no
-            selectable text, it fails honestly instead of guessing.
+            text (not a layout-preserving PDF). With no AI model configured, or
+            a scanned PDF with no selectable text, the job fails instead of
+            guessing. The model is instructed to translate only the
+            document&apos;s text, but AI output can still be wrong, so check
+            important passages against your PDF.
           </p>
         </div>
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {aiDailyAllowanceNote(tool.slug)}
           </p>
         )}
         {available ? (
-          <TranslateBuilder />
-        ) : (
+          <TranslateBuilder
+            extractText={extractText}
+            refuse={(file) => pickRefusal(tool, file)}
+          />
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -154,8 +167,14 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
               never pretends to produce a translation it cannot actually
               generate.
             </p>
-            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={false}
+            />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -163,7 +182,7 @@ export function TranslateWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -234,7 +253,21 @@ function SpecRow({
   );
 }
 
-function TranslateBuilder() {
+/** A poll budget in the shape the job client's options take. */
+function waitOptions(budget: JobPollBudget) {
+  return {
+    pollIntervalMs: budget.intervalMs,
+    maxPollAttempts: budget.maxAttempts,
+  };
+}
+
+function TranslateBuilder({
+  extractText,
+  refuse,
+}: {
+  extractText: ExtractText;
+  refuse: PickRefusal;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [targetLanguage, setTargetLanguage] =
     useState<TranslateLanguage>(DEFAULT_TARGET);
@@ -242,16 +275,18 @@ function TranslateBuilder() {
     DEFAULT_TRANSLATE_SOURCE,
   );
   const [instructions, setInstructions] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<TranslateWorkerResult | null>(null);
+  const job = useWorkerJob<TranslateWorkerResult>({
+    tool: "translate-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "translate-pdf" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const canRun = file != null && !busy;
 
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const trimmed = instructions.trim();
       const bytes = new Uint8Array(await file.arrayBuffer());
 
@@ -275,68 +310,69 @@ function TranslateBuilder() {
       // The same planner runs on both sides for exactly that reason: two
       // hand-written versions of "does this fit" is how a browser refusal ends
       // up hiding a worker that would have succeeded.
-      const extracted = await extractPdfText(bytes);
+      // A local parse that throws never touched the network: a locked or
+      // damaged PDF is reported as what it is (`translateFailureMessage`),
+      // not as the lost connection the shared job hook calls a throw.
+      let extracted: ExtractedPdfText;
+      try {
+        extracted = await extractText(bytes);
+      } catch (err) {
+        return { ok: false, message: translateFailureMessage(err) };
+      }
       // THE SAME BLOCKS THE WORKER WILL CHUNK, computed once and used for both
       // the refusal below and the page count declared with the job. Counting
       // them twice — here and again at the call site — is how the declaration
       // and the refusal end up describing different documents.
-      const textPages = pageTextChunks(extracted.pages);
-      const plan = planTranslateChunks(textPages, TRANSLATE_MAX_INPUT_CHARS);
-      const noPageStructure = extracted.pages.length === 0;
-      const nothingFits = noPageStructure
-        ? extracted.characterCount > TRANSLATE_MAX_INPUT_CHARS
-        : plan.chunks.length === 0;
-      if (nothingFits) {
-        setOutcome({
-          ok: false,
-          message: translateTooLongMessage(
-            extracted.characterCount,
-            TRANSLATE_MAX_INPUT_CHARS,
-          ),
-        });
-        return;
-      }
+      //
+      // AND THE REFUSAL SAYS WHY. "No chunks" used to be read as "too long",
+      // so a scanned PDF — no text pages, therefore no chunks — was told it had
+      // "0 characters of text" and should be split into smaller files. The
+      // preflight tells no-text, every-page-oversize and too-long apart, in
+      // the worker's order and with the worker's sentences.
+      const { textPages, plan, refusal } = translatePreflight(
+        extracted,
+        TRANSLATE_MAX_INPUT_CHARS,
+      );
+      if (refusal !== null) return { ok: false, message: refusal };
 
-      const result = await runWorkerTranslate({
-        filename: file.name,
-        bytes,
-        targetLanguage,
-        sourceLanguage,
-        ...(trimmed ? { instructions: trimmed } : {}),
-        // The count this panel already extracted, declared so the job reserves
-        // what it will use instead of a whole per-call ceiling. Required by the
-        // client's type rather than optional: the route's fallback is correct
-        // and silent, so the one caller that can count must not be able to stop
-        // quietly.
-        declaredCharacters: extracted.characterCount,
-        // PAGES WITH TEXT, not `extracted.pageCount`. Blank, whitespace-only
-        // and image-only pages are dropped before chunking, so the page count
-        // would over-declare a document with any of them — and the bound this
-        // feeds is the one that is supposed to be exact.
-        declaredTextPages: textPages.length,
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, targetLanguage, sourceLanguage, instructions]);
+      const result = await runWorkerTranslate(
+        {
+          filename: file.name,
+          bytes,
+          targetLanguage,
+          sourceLanguage,
+          ...(trimmed ? { instructions: trimmed } : {}),
+          // The count this panel already extracted, declared so the job reserves
+          // what it will use instead of a whole per-call ceiling. Required by the
+          // client's type rather than optional: the route's fallback is correct
+          // and silent, so the one caller that can count must not be able to stop
+          // quietly.
+          declaredCharacters: extracted.characterCount,
+          // PAGES WITH TEXT, not `extracted.pageCount`. Blank, whitespace-only
+          // and image-only pages are dropped before chunking, so the page count
+          // would over-declare a document with any of them — and the bound this
+          // feeds is the one that is supposed to be exact.
+          declaredTextPages: textPages.length,
+        },
+        {
+          ...controls,
+          // One provider call per chunk, one after another: the wait scales
+          // with the plan computed above, not a flat two minutes.
+          ...waitOptions(translateJobPoll(plan.chunks.length)),
+        },
+      );
+      return result;
+    });
+  }, [file, targetLanguage, sourceLanguage, instructions, extractText, run]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker translates
-        only the PDF&apos;s selectable text with a configured AI model — it does
-        not read scanned images (run OCR first) and does not invent content.
+        Running this uses a private secure-worker job. The worker sends only the
+        PDF&apos;s selectable text to a configured AI model — it does not read
+        scanned images (run OCR first) — and the model is told to translate only
+        that text. AI output can still be wrong.
       </p>
 
       {file ? (
@@ -355,7 +391,13 @@ function TranslateBuilder() {
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          refuse={refuse}
+          onFiles={(files) => {
+            // `refuse` has already turned away a non-PDF (a drop is not
+            // filtered by `accept`), so it never reaches the local parse.
+            setOutcome(null);
+            setFile(files[0] ?? null);
+          }}
           accept="application/pdf,.pdf"
           multiple={false}
           compact
@@ -420,14 +462,30 @@ function TranslateBuilder() {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Translating…"
+        busyLabel={jobBusyLabel(job.phase, "Translating…")}
         icon={Languages}
         tone="violet"
       >
         Translate PDF
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus
+        job={job}
+        action={(failure) =>
+          // Keyed on the SHARED sentence, so the next step appears whether
+          // the browser refused the scan or the worker did (its extractor
+          // can disagree with the browser's). Equality, not a pattern: the
+          // two sides import one constant.
+          failure.message === TRANSLATE_NO_TEXT_MESSAGE ? (
+            <Link
+              href="/tools/ocr-pdf"
+              className="text-fg font-medium underline underline-offset-2"
+            >
+              Open OCR PDF
+            </Link>
+          ) : undefined
+        }
+      />
       {outcome?.ok === true && (
         <ResultCard
           announce={

@@ -24,6 +24,9 @@ export async function runWorkerPdfToPdfA(
     input.filename,
     input.bytes,
     {},
+    // The wait is jobPollFor("pdf-to-pdfa") — PDF_TO_PDFA_JOB_POLL in
+    // `@/lib/jobs/client-wait`, derived from Ghostscript's own budget —
+    // unless the caller names one.
     options,
   );
 }

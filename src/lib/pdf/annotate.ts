@@ -1,9 +1,16 @@
-import type { PDFFont, PDFPage, RGB as PdfLibRGB } from "pdf-lib";
-import { loadPdfLib } from "./pdf-lib";
+import type { PDFFont, PDFPage } from "pdf-lib";
+import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import { PdfEngineError } from "./engine";
 import { outputName } from "./files";
+import {
+  displayedSize,
+  pageFrame,
+  toContentSpace,
+  type PageFrame,
+} from "./page-frame";
 import { embedStampFont, loadPdf, stampProducer } from "./stamp";
 import { isWinAnsiEncodable, nonWinAnsiCharacters } from "./winansi";
+import type { AnnotationType } from "./offered-kinds";
 
 // Re-exported from their new home. Five modules needed the same predicate once
 // a Unicode face could be embedded, and two copies of an alphabet are two
@@ -26,10 +33,16 @@ export { isWinAnsiEncodable, nonWinAnsiCharacters };
  * not selections that snap to the underlying text. There is no freehand drawing
  * canvas; shapes are placed by numeric coordinates/endpoints.
  *
- * Coordinate model: PDF points from the page's bottom-left corner, in the page's
- * *unrotated* content space (pdf-lib's draw space) — the same honest caveat the
- * overlay tool documents. On the uncommon page carrying a `/Rotate` flag, the
- * markup follows the content, not the viewer's rotation.
+ * Coordinate model: PDF points from the bottom-left corner of the page AS A
+ * READER SEES IT — the visible (crop) box, after the page's `/Rotate` flag has
+ * turned it. {@link getAnnotatePageSizes} reports that displayed size, the
+ * runner validates against it, and {@link toContentSpace} maps every point into
+ * pdf-lib's unrotated draw space only at the moment of drawing; note glyphs are
+ * counter-rotated so they read left to right. Until 2026-09-27 the numbers were
+ * used raw, so on any page run through the Rotate tool a markup landed
+ * somewhere else and notes read sideways — `annotate.pdfjs.test.ts` reads the
+ * output back through pdfjs and pins where each markup lands on all four
+ * rotations and on a cropped page.
  *
  * The geometry, color, wrapping, and validation are pure functions so they can
  * be unit-tested with plain numbers; only {@link getAnnotatePageSizes} and
@@ -46,8 +59,13 @@ const NOTE_LINE_HEIGHT_RATIO = 1.18;
 /** Guard against pasting a whole document into a single note. */
 const MAX_NOTE_CHARS = 2000;
 
-/** The four markup shapes this tool can flatten onto a page. */
-export type AnnotationType = "highlight" | "rect" | "note" | "line";
+/**
+ * The markup shapes this tool can flatten onto a page — defined in the
+ * `offered-kinds` leaf so the runner's buttons and the tool page's count read the
+ * same list this union is derived from. (This docblock used to say "four", and
+ * the page said "six".)
+ */
+export type { AnnotationType };
 
 interface AnnotationBase {
   /** 1-based page the markup lands on. */
@@ -111,7 +129,7 @@ export interface LineAnnotation extends AnnotationBase {
 export type Annotation =
   HighlightAnnotation | RectAnnotation | NoteAnnotation | LineAnnotation;
 
-/** A page's size in PDF points (unrotated content space). */
+/** A page's size in PDF points, as displayed (rotation- and crop-aware). */
 export interface PageSize {
   width: number;
   height: number;
@@ -370,7 +388,9 @@ function rectInPage(
  * per problem (empty when everything is valid) so the UI can point at exactly
  * which markup is wrong and why. Rejects out-of-range pages, invalid hex colors,
  * out-of-range opacity, non-finite coordinates, empty shapes/text, and geometry
- * that spills off the page.
+ * that spills off the page. For a note that means its ANCHOR only: how far its
+ * words reach depends on the font, which {@link noteFitIssues} checks once the
+ * font is known.
  */
 export function validateAnnotations(
   annotations: Annotation[],
@@ -493,39 +513,194 @@ export function validateAnnotations(
   return issues;
 }
 
-/** Read each page's size (unrotated content space) for bounding/validation. */
+// The displayed-frame mapping moved to page-frame.ts so create-forms can use
+// the same one; re-exported so this module's API is unchanged.
+export { displayedSize, toContentSpace, type PageFrame };
+
+/**
+ * Read each page's size AS DISPLAYED — the visible box, width and height
+ * swapped on a quarter-turned page. One source for every consumer in the
+ * runner: the size label, the input bounds, validation, and the preview's
+ * aspect ratio.
+ */
 export async function getAnnotatePageSizes(
   bytes: Uint8Array,
 ): Promise<PageSize[]> {
   const doc = await loadPdf(bytes);
-  return doc.getPages().map((page) => {
-    const { width, height } = page.getSize();
-    return { width, height };
-  });
+  return doc.getPages().map((page) => displayedSize(pageFrame(page)));
 }
 
-/** Draw a single markup onto its page. Colors/opacity are already validated. */
+/**
+ * The font measurements a note's fit depends on. A pdf-lib `PDFFont` satisfies
+ * it; it is an interface so the check can be tested with plain numbers.
+ */
+export interface NoteMetrics {
+  widthOfTextAtSize(text: string, size: number): number;
+  heightAtSize(size: number, options?: { descender?: boolean }): number;
+}
+
+/** A note's resolved size, line advance, and wrapped lines — as drawn. */
+function layoutNote(
+  annotation: NoteAnnotation,
+  font: Pick<NoteMetrics, "widthOfTextAtSize">,
+): { size: number; lineHeight: number; lines: string[] } {
+  const size =
+    annotation.size && annotation.size > 0
+      ? annotation.size
+      : DEFAULT_NOTE_SIZE;
+  const lines = wrapText(
+    sanitizeNoteText(annotation.text),
+    annotation.maxWidth ?? 0,
+    (s) => font.widthOfTextAtSize(s, size),
+  );
+  return { size, lineHeight: size * NOTE_LINE_HEIGHT_RATIO, lines };
+}
+
+/**
+ * Notes whose drawn text would leave the page — past the right edge, below the
+ * bottom, or above the top. A page clips whatever leaves it, silently, so
+ * before this check a note could lose its words while the export reported
+ * "Annotated PDF ready". {@link validateAnnotations} can only check a note's
+ * anchor, because how far the words reach depends on the font, and the font is
+ * not chosen until every note's characters are known.
+ *
+ * Measured in the DISPLAYED frame against sizes from
+ * {@link getAnnotatePageSizes}, with the same {@link layoutNote} the drawing
+ * uses. Markups that already fail {@link validateAnnotations} are skipped:
+ * that check reports them.
+ */
+export function noteFitIssues(
+  annotations: Annotation[],
+  pageSizes: PageSize[],
+  font: NoteMetrics,
+): AnnotationIssue[] {
+  const invalid = new Set(
+    validateAnnotations(annotations, pageSizes).map((issue) => issue.index),
+  );
+  const issues: AnnotationIssue[] = [];
+  annotations.forEach((annotation, index) => {
+    if (annotation.type !== "note" || invalid.has(index)) return;
+    const page = pageSizes[annotation.page - 1];
+    if (!page) return;
+    const { size, lineHeight, lines } = layoutNote(annotation, font);
+    const drawn = lines
+      .map((line, i) => ({ line, i }))
+      .filter(({ line }) => line.length > 0);
+    if (drawn.length === 0) return;
+    const widest = Math.max(
+      ...drawn.map(({ line }) => font.widthOfTextAtSize(line, size)),
+    );
+    const ascent = font.heightAtSize(size, { descender: false });
+    const descent = Math.max(0, font.heightAtSize(size) - ascent);
+    const firstBaseline = annotation.y - drawn[0]!.i * lineHeight;
+    const lastBaseline = annotation.y - drawn[drawn.length - 1]!.i * lineHeight;
+    const right = annotation.x + widest;
+    const top = firstBaseline + ascent;
+    const bottom = lastBaseline - descent;
+
+    const problems: string[] = [];
+    if (right > page.width + EDGE_EPSILON) {
+      problems.push(
+        `runs ${Math.ceil(right - page.width)} pt past the right edge`,
+      );
+    }
+    if (top > page.height + EDGE_EPSILON) {
+      problems.push(
+        `rises ${Math.ceil(top - page.height)} pt above the top edge`,
+      );
+    }
+    if (bottom < -EDGE_EPSILON) {
+      problems.push(`runs ${Math.ceil(-bottom)} pt below the bottom edge`);
+    }
+    if (problems.length > 0) {
+      issues.push({
+        index,
+        code: "out-of-bounds",
+        message: `Markup ${index + 1}: the note ${problems.join(" and ")} of the ${Math.round(page.width)}×${Math.round(page.height)} pt page, so part of it would be cut off. Move it, shorten it, or narrow its wrap width.`,
+      });
+    }
+  });
+  return issues;
+}
+
+/** The note texts that decide the font, normalized as they will be drawn. */
+function noteTextsOf(annotations: Annotation[]): string[] {
+  return annotations
+    .filter((item): item is NoteAnnotation => item.type === "note")
+    .map((item) => sanitizeNoteText(item.text));
+}
+
+/**
+ * {@link noteFitIssues} measured with the SAME font {@link annotatePdf} will
+ * choose for this set of markups — so the runner can refuse an overflowing note
+ * when it is added, and can never refuse one that Apply would accept. Throws
+ * the font chooser's own refusal when a note's characters cannot be drawn.
+ */
+export async function findNoteOverflows(
+  annotations: Annotation[],
+  pageSizes: PageSize[],
+): Promise<AnnotationIssue[]> {
+  const notes = noteTextsOf(annotations);
+  if (notes.length === 0) return [];
+  const { PDFDocument } = await loadPdfLib();
+  const font = await embedStampFont(await PDFDocument.create(), notes);
+  return noteFitIssues(annotations, pageSizes, font);
+}
+
+/** A displayed-frame rectangle as a draw-space one (min corner and size). */
+function rectToContentSpace(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  frame: PageFrame,
+): { x: number; y: number; width: number; height: number } {
+  const a = toContentSpace({ x, y }, frame);
+  const b = toContentSpace({ x: x + width, y: y + height }, frame);
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    width: Math.abs(b.x - a.x),
+    height: Math.abs(b.y - a.y),
+  };
+}
+
+/**
+ * Draw a single markup onto its page. Colors/opacity are already validated;
+ * coordinates are in the displayed frame and are mapped through `frame` here.
+ */
 function drawAnnotation(
   page: PDFPage,
   annotation: Annotation,
   font: PDFFont,
-  rgbFn: (r: number, g: number, b: number) => PdfLibRGB,
+  lib: Pick<PdfLibModule, "rgb" | "degrees" | "BlendMode">,
+  frame: PageFrame,
 ): void {
   const parsed = parseHexColor(annotation.color) ?? { r: 0, g: 0, b: 0 };
-  const color = rgbFn(parsed.r, parsed.g, parsed.b);
+  const color = lib.rgb(parsed.r, parsed.g, parsed.b);
 
   switch (annotation.type) {
     case "highlight": {
       const opacity = clampOpacity(
         annotation.opacity ?? DEFAULT_HIGHLIGHT_OPACITY,
       );
+      // Multiply, as a real highlighter: the tint only darkens what is lighter
+      // than it, so black text under it stays black at any opacity. With the
+      // Normal blend it painted OVER the text — washed to olive at the 40%
+      // default, gone at the 100% the runner offers, while the text layer
+      // stayed selectable underneath: a highlight that looked like a redaction
+      // without being one.
       page.drawRectangle({
-        x: annotation.x,
-        y: annotation.y,
-        width: annotation.width,
-        height: annotation.height,
+        ...rectToContentSpace(
+          annotation.x,
+          annotation.y,
+          annotation.width,
+          annotation.height,
+          frame,
+        ),
         color,
         opacity,
+        blendMode: lib.BlendMode.Multiply,
       });
       return;
     }
@@ -538,10 +713,13 @@ function drawAnnotation(
       // Pass only borderColor (no `color`) so pdf-lib strokes an outline without
       // filling — see its drawRectangle default-color behavior.
       page.drawRectangle({
-        x: annotation.x,
-        y: annotation.y,
-        width: annotation.width,
-        height: annotation.height,
+        ...rectToContentSpace(
+          annotation.x,
+          annotation.y,
+          annotation.width,
+          annotation.height,
+          frame,
+        ),
         borderColor: color,
         borderWidth,
         borderOpacity: opacity,
@@ -554,20 +732,21 @@ function drawAnnotation(
         annotation.thickness && annotation.thickness > 0
           ? annotation.thickness
           : DEFAULT_LINE_THICKNESS;
-      page.drawLine({
-        start: { x: annotation.x1, y: annotation.y1 },
-        end: { x: annotation.x2, y: annotation.y2 },
-        thickness,
-        color,
-        opacity,
-      });
+      // A quarter turn is rigid, so the arrowhead built on the mapped
+      // endpoints is the mapped arrowhead.
+      const start = toContentSpace(
+        { x: annotation.x1, y: annotation.y1 },
+        frame,
+      );
+      const end = toContentSpace({ x: annotation.x2, y: annotation.y2 }, frame);
+      page.drawLine({ start, end, thickness, color, opacity });
       if (annotation.arrow) {
         const head = Math.max(6, thickness * 4);
         for (const seg of arrowHeadSegments(
-          annotation.x1,
-          annotation.y1,
-          annotation.x2,
-          annotation.y2,
+          start.x,
+          start.y,
+          end.x,
+          end.y,
           head,
         )) {
           page.drawLine({
@@ -583,20 +762,19 @@ function drawAnnotation(
     }
     case "note": {
       const opacity = clampOpacity(annotation.opacity ?? 1);
-      const size =
-        annotation.size && annotation.size > 0
-          ? annotation.size
-          : DEFAULT_NOTE_SIZE;
-      const safe = sanitizeNoteText(annotation.text);
-      const lines = wrapText(safe, annotation.maxWidth ?? 0, (s) =>
-        font.widthOfTextAtSize(s, size),
-      );
-      const lineHeight = size * NOTE_LINE_HEIGHT_RATIO;
+      const { size, lineHeight, lines } = layoutNote(annotation, font);
       lines.forEach((line, i) => {
         if (line.length === 0) return;
+        // Each baseline steps down the DISPLAYED page and is then mapped;
+        // stepping in draw space would slide lines 2+ sideways on a turned
+        // page. The glyphs turn with the page's rotation so the viewer's turn
+        // cancels it and the note reads left to right.
         page.drawText(line, {
-          x: annotation.x,
-          y: annotation.y - i * lineHeight,
+          ...toContentSpace(
+            { x: annotation.x, y: annotation.y - i * lineHeight },
+            frame,
+          ),
+          rotate: lib.degrees(frame.rotation),
           size,
           font,
           color,
@@ -608,13 +786,26 @@ function drawAnnotation(
   }
 }
 
+/** Throw the first issue (and how many more) as a user-facing error. */
+function refuseIssues(issues: AnnotationIssue[]): void {
+  if (issues.length === 0) return;
+  const first = issues[0]!;
+  const rest = issues.length - 1;
+  throw new PdfEngineError(
+    rest > 0
+      ? `${first.message} (${rest} more issue${rest === 1 ? "" : "s"}.)`
+      : first.message,
+  );
+}
+
 /**
  * Flatten the given markups onto an existing PDF and return a new PDF. The
  * original pages, their count, and their sizes are preserved — only markup
  * content is added on top. Runs entirely in the browser with pdf-lib.
  *
  * Throws a typed, user-facing {@link PdfEngineError} when there are no markups,
- * the file can't be read, or any markup fails validation.
+ * the file can't be read, any markup fails validation, or a note's text would
+ * run off its page ({@link noteFitIssues}).
  */
 export async function annotatePdf(
   bytes: Uint8Array,
@@ -625,32 +816,22 @@ export async function annotatePdf(
     throw new PdfEngineError("Add at least one markup before applying.");
   }
 
-  const { rgb } = await loadPdfLib();
+  const lib = await loadPdfLib();
   const doc = await loadPdf(bytes);
   const pages = doc.getPages();
-  const pageSizes: PageSize[] = pages.map((page) => {
-    const { width, height } = page.getSize();
-    return { width, height };
-  });
+  const frames = pages.map(pageFrame);
+  const pageSizes: PageSize[] = frames.map(displayedSize);
 
-  const issues = validateAnnotations(list, pageSizes);
-  if (issues.length > 0) {
-    const first = issues[0]!;
-    const rest = issues.length - 1;
-    throw new PdfEngineError(
-      rest > 0
-        ? `${first.message} (${rest} more issue${rest === 1 ? "" : "s"}.)`
-        : first.message,
-    );
-  }
+  refuseIssues(validateAnnotations(list, pageSizes));
 
   // Every note that will be drawn, normalized, BEFORE a font is chosen — so a
   // Bengali note on page nine picks the face rather than the ASCII note on page
   // one, and so a refusal lands before any page has been touched.
-  const noteTexts = list
-    .filter((item) => item.type === "note")
-    .map((item) => sanitizeNoteText((item as { text: string }).text));
-  const font = await embedStampFont(doc, noteTexts);
+  const font = await embedStampFont(doc, noteTextsOf(list));
+  // With the font known, each note's real extent — still before any page is
+  // touched.
+  refuseIssues(noteFitIssues(list, pageSizes, font));
+
   const counts: Record<AnnotationType, number> = {
     highlight: 0,
     rect: 0,
@@ -660,8 +841,9 @@ export async function annotatePdf(
 
   for (const annotation of list) {
     const page = pages[annotation.page - 1];
-    if (!page) continue;
-    drawAnnotation(page, annotation, font, rgb);
+    const frame = frames[annotation.page - 1];
+    if (!page || !frame) continue;
+    drawAnnotation(page, annotation, font, lib, frame);
     counts[annotation.type] += 1;
   }
 

@@ -12,7 +12,12 @@ import { Button } from "@/components/ui/button";
 
 const STATE_COPY = {
   granted: "Your current choice: analytics allowed.",
-  denied: "Your current choice: analytics declined — nothing is loaded.",
+  // Not "nothing is loaded": withdrawing on a page where the tag already ran
+  // cannot unload it. What IS true, and `disableGa4` does all of it: the tag
+  // is switched off (Google's documented hard opt-out) and its cookies are
+  // deleted; the next page load never fetches it at all.
+  denied:
+    "Your current choice: analytics declined. Google Analytics is switched off and its cookies are removed.",
   undecided:
     "You haven't decided yet — until you allow it, no analytics code loads.",
 } as const;

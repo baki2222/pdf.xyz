@@ -1,5 +1,6 @@
 import { Cpu, Eye, Lock, ShieldCheck, Trash2, UserX } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
 
@@ -7,7 +8,7 @@ const pillars = [
   {
     icon: Cpu,
     title: "In-browser by default",
-    body: "Most tools run with WebAssembly on your own device. Those tools never upload your files.",
+    body: "Most tools run in your browser, on your own device. Those tools never upload your files.",
   },
   {
     icon: Lock,
@@ -21,7 +22,7 @@ const pillars = [
     // bytes dying, and the job record expiring are three different moments, and
     // the old card ("permanently erased minutes after… Nothing is retained")
     // collapsed them into an absolute the guard now forbids in any synonym.
-    body: `Inputs are wiped the moment a job finishes. Downloads stop after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, stored copies are erased by a daily storage rule, and a job record — the file's name, never its contents — lasts about a day.`,
+    body: `Inputs are wiped the moment a job finishes. Downloads stop after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, stored copies are erased by a daily storage rule, and a job record — the file's name, never its contents — lasts about ${RETENTION_WINDOWS.jobRecord}.`,
   },
   {
     icon: Eye,

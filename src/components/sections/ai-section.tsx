@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { getAiTools } from "@/lib/tools";
+import { categoryHref } from "@/lib/tools/category-href";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -52,7 +53,7 @@ export function AiSection() {
             ))}
           </ul>
           <Link
-            href="/tools?category=ai"
+            href={categoryHref("ai")}
             className={buttonVariants({ variant: "primary", size: "md" })}
           >
             Explore AI tools

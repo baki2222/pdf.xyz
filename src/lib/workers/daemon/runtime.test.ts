@@ -11,6 +11,11 @@ import { createProcessorRegistry } from "../processor";
 import type { QpdfStructureRunner } from "../pdf-structure/engine";
 import { fakeScanner, scanInfected } from "../scanner";
 import { createWorkerDaemon } from "./daemon";
+import {
+  DEFAULT_LEASE_SECONDS,
+  LEASE_MAX_SECONDS,
+  REDIS_QUEUE_ENV,
+} from "../queue/redis-config";
 import { deriveCompressionHealth, resolveWorkerRuntime } from "./runtime";
 
 const noEngines = { tools: { ghostscript: false, qpdf: false, mutool: false } };
@@ -304,6 +309,67 @@ describe("resolveWorkerRuntime — real providers from the environment", () => {
     const runtime = resolveWorkerRuntime(env, { compression: noEngines });
     expect(runtime.executor).toBeDefined();
     expect(runtime.readiness.drainable).toBe(true);
+  });
+});
+
+/**
+ * A `--lease-ms` above the Redis queue's configured ceiling used to be accepted by the
+ * CLI and shortened by the queue with nothing said. The runtime now reports the lease
+ * the queue will GRANT, computed by the queue's own clamp (`grantedLeaseMs`), so the
+ * CLI can log it once.
+ */
+describe("resolveWorkerRuntime — a lease the queue will shorten is reported", () => {
+  const redisEnv = {
+    PDFXYZ_QUEUE_PROVIDER: "redis",
+    PDFXYZ_REDIS_REST_URL: "https://redis.example.com",
+    PDFXYZ_REDIS_REST_TOKEN: "redis-rest-token-1234",
+  };
+  const defaultCeilingMs = DEFAULT_LEASE_SECONDS * 1000;
+  const maxCeilingMs = LEASE_MAX_SECONDS * 1000;
+
+  it("reports the default ceiling as the granted lease for a longer request", () => {
+    // Health check: the two ceilings differ, or the cases below prove nothing.
+    expect(maxCeilingMs).toBeGreaterThan(defaultCeilingMs);
+    const runtime = resolveWorkerRuntime(redisEnv, {
+      compression: noEngines,
+      leaseMs: maxCeilingMs,
+    });
+    expect(runtime.leaseClamp).toEqual({
+      requestedMs: maxCeilingMs,
+      grantedMs: defaultCeilingMs,
+    });
+  });
+
+  it("follows PDFXYZ_QUEUE_LEASE_SECONDS when an operator raises it", () => {
+    const runtime = resolveWorkerRuntime(
+      {
+        ...redisEnv,
+        [REDIS_QUEUE_ENV.leaseSeconds]: String(LEASE_MAX_SECONDS),
+      },
+      { compression: noEngines, leaseMs: maxCeilingMs },
+    );
+    expect(runtime.leaseClamp).toBeUndefined();
+  });
+
+  it("says nothing for a lease within the ceiling, or with no --lease-ms", () => {
+    expect(
+      resolveWorkerRuntime(redisEnv, {
+        compression: noEngines,
+        leaseMs: defaultCeilingMs,
+      }).leaseClamp,
+    ).toBeUndefined();
+    expect(
+      resolveWorkerRuntime(redisEnv, { compression: noEngines }).leaseClamp,
+    ).toBeUndefined();
+  });
+
+  it("says nothing on a queue that does not clamp (not Redis)", () => {
+    expect(
+      resolveWorkerRuntime(
+        {},
+        { compression: noEngines, leaseMs: maxCeilingMs },
+      ).leaseClamp,
+    ).toBeUndefined();
   });
 });
 

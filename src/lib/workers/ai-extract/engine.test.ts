@@ -192,15 +192,26 @@ describe("runAiExtract — provider-injected deterministic success", () => {
     expect(run.ok).toBe(true);
     if (!run.ok) return;
 
-    // The extraction that ships is EXACTLY the provider's parsed JSON — nothing invented.
+    // INVERTED 2026-09-28, history kept. This asserted that extraction.json
+    // was EXACTLY the reply, `paid` included — a key the two-field schema never
+    // asked for — and `extractedKeys: 3` below. Both pinned the shape that let
+    // a DROPPED requested field vanish: the package counted whatever came back.
+    // Now the reply ships verbatim as model-output.json, and extraction.json is
+    // the request reconciled with it: the requested keys, nothing invented.
     const zip = await JSZip.loadAsync(run.output);
+    expect(
+      JSON.parse(await zip.file("model-output.json")!.async("string")),
+    ).toEqual({
+      invoice_number: "INV-42",
+      total: 1200,
+      paid: true,
+    });
     const extractionJson = JSON.parse(
       await zip.file("extraction.json")!.async("string"),
     );
     expect(extractionJson).toEqual({
       invoice_number: "INV-42",
       total: 1200,
-      paid: true,
     });
     // A human-readable rendering ships alongside the JSON.
     expect(await zip.file("extraction.md")!.async("string")).toContain(
@@ -239,7 +250,8 @@ describe("runAiExtract — provider-injected deterministic success", () => {
       model: "claude-sonnet-5",
       mode: "schema",
       fieldCount: 2,
-      extractedKeys: 3,
+      // Requested fields RETURNED — was 3, counting the unrequested `paid`.
+      extractedKeys: 2,
       pageCount: 5,
       truncated: false,
     });

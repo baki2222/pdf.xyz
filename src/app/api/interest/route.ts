@@ -31,13 +31,22 @@ import { ok } from "@/lib/jobs";
 import { getToolBySlug } from "@/lib/tools";
 import { enforceRateLimit } from "@/lib/ratelimit/guard";
 import { noteToolInterest } from "@/lib/interest/store";
-import { readJsonBody, respond, respondRateLimited } from "../_lib/http";
+import {
+  readJsonBody,
+  rejectCrossSite,
+  respond,
+  respondRateLimited,
+} from "../_lib/http";
 import { apiError } from "@/lib/jobs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: Request): Promise<Response> {
+  // Cross-site browser writes are refused before anything else — including
+  // the rate-limit charge they would otherwise spend (see rejectCrossSite).
+  const crossSite = rejectCrossSite(request);
+  if (crossSite) return crossSite;
   const limit = await enforceRateLimit("interest.note", request);
   if (!limit.allowed) return respondRateLimited(limit);
 

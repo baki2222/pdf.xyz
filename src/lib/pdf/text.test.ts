@@ -2,10 +2,47 @@ import { describe, expect, it } from "vitest";
 import {
   joinPageTexts,
   normalizeExtractedText,
+  pagesWithoutText,
+  pageTextChunks,
+  textItemsToLines,
   textItemsToPlainText,
   textOutputName,
   type ExtractedTextPage,
 } from "./text";
+
+/**
+ * A title drawn AFTER the body it heads, as pdfjs hands the items over: the
+ * one shape here whose reading order differs from its stream order.
+ */
+const OUT_OF_ORDER_PAGE = [
+  {
+    str: "Second paragraph of body.",
+    hasEOL: true,
+    transform: [12, 0, 0, 12, 72, 600],
+    width: 140,
+    height: 12,
+  },
+  {
+    str: "Document Title",
+    hasEOL: true,
+    transform: [20, 0, 0, 20, 72, 720],
+    width: 140,
+    height: 20,
+  },
+  {
+    str: "First paragraph of body.",
+    hasEOL: true,
+    transform: [12, 0, 0, 12, 72, 660],
+    width: 140,
+    height: 12,
+  },
+];
+
+/** The items' text in pure stream order, as the extractor once returned it. */
+const streamOrder = (items: { str: string; hasEOL: boolean }[]) =>
+  normalizeExtractedText(
+    items.map((item) => `${item.str}${item.hasEOL ? "\n" : ""}`).join(""),
+  );
 
 describe("PDF text extraction helpers", () => {
   it("preserves pdfjs item text and explicit line endings", () => {
@@ -32,7 +69,148 @@ describe("PDF text extraction helpers", () => {
     expect(joinPageTexts(pages)).toBe("Page one\n\nPage three");
   });
 
+  it("takes a line's geometry from its first VISIBLE item, not pdfjs's EOL filler", () => {
+    // pdfjs 6.1.200 measured on a pdf-lib PDF: after a 22pt title at y=740
+    // `appendEOL` pushed {str:"", hasEOL:true, height:0} carrying the NEXT
+    // line's transform (15pt, y=704). Reading geometry from it would put
+    // every line one line too low and give the title the heading's size.
+    const lines = textItemsToLines([
+      {
+        str: "Title",
+        hasEOL: false,
+        height: 22,
+        transform: [22, 0, 0, 22, 72, 740],
+      },
+      { str: "", hasEOL: true, height: 0, transform: [15, 0, 0, 15, 72, 704] },
+      {
+        str: " ",
+        hasEOL: false,
+        height: 0,
+        transform: [15, 0, 0, 15, 60, 704],
+      },
+      {
+        str: "Heading",
+        hasEOL: true,
+        height: 0,
+        transform: [0, 15, -15, 0, 72, 704],
+      },
+      {
+        str: "   ",
+        hasEOL: true,
+        height: 11,
+        transform: [11, 0, 0, 11, 72, 690],
+      },
+    ]);
+    expect(lines.map(({ text, x, y, size }) => ({ text, x, y, size }))).toEqual(
+      [
+        { text: "Title", x: 72, y: 740, size: 22 },
+        // The leading space is text but not geometry; the height of 0 falls
+        // back to the transform's scale, which rotation does not change.
+        { text: " Heading", x: 72, y: 704, size: 15 },
+        { text: "   ", x: null, y: null, size: null },
+      ],
+    );
+  });
+
+  it("splits lines exactly where textItemsToPlainText breaks them", () => {
+    const corpus = [
+      [{ str: "a", hasEOL: true }, { str: "b" }],
+      [
+        { str: "one\ntwo", hasEOL: false },
+        { str: " three", hasEOL: true },
+      ],
+      [{ str: "crlf\r\nline" }, { str: "", hasEOL: true }, { str: "end  " }],
+      [
+        { str: "x", hasEOL: true },
+        { str: "", hasEOL: true },
+        { str: "", hasEOL: true },
+        { str: "y" },
+      ],
+      [{ str: 42 }, { str: "only text counts" }],
+      OUT_OF_ORDER_PAGE,
+    ];
+    // Health: the corpus has a page whose order really changes. Without one,
+    // every entry keeps stream order and the equality below holds whether or
+    // not the lines follow the text's reading order — which is how it stayed
+    // green while PDF to Markdown's lines were in stream order.
+    expect(textItemsToPlainText(OUT_OF_ORDER_PAGE)).toBe(
+      "Document Title\nFirst paragraph of body.\nSecond paragraph of body.",
+    );
+    expect(streamOrder(OUT_OF_ORDER_PAGE)).not.toBe(
+      textItemsToPlainText(OUT_OF_ORDER_PAGE),
+    );
+    for (const items of corpus) {
+      const joined = textItemsToLines(items)
+        .map((line) => line.text)
+        .join("\n");
+      expect(textItemsToPlainText([{ str: joined }])).toBe(
+        textItemsToPlainText(items),
+      );
+    }
+  });
+
   it("names text downloads from the source PDF", () => {
     expect(textOutputName("report.final.pdf")).toBe("report.final-text.txt");
+  });
+});
+
+/**
+ * The pages the joined text leaves out, named.
+ *
+ * `joinPageTexts` drops a page whose text normalizes to nothing, and joins the
+ * rest with the same blank line as a paragraph break — deliberately, since the
+ * worker parse path, the AI page-offset math and translate's cap all read that
+ * shape. The defect was that PDF to Text then said "N characters from 40
+ * pages" when twelve of them contributed nothing, and nothing in the TXT shows
+ * where they were. `pagesWithoutText` is what the runner reports; it is pinned
+ * here as the exact complement of what the join keeps, so the two can never
+ * disagree about which page is "empty".
+ */
+describe("pagesWithoutText names exactly the pages the join drops", () => {
+  const corpus: Pick<ExtractedTextPage, "text" | "pageNumber">[][] = [
+    // Positive control: an empty middle page.
+    [
+      { pageNumber: 1, text: "Page one" },
+      { pageNumber: 2, text: "   " },
+      { pageNumber: 3, text: "Page three" },
+    ],
+    // Whitespace only (built from char codes: an escape typed through a tool
+    // layer has turned into the raw byte here before).
+    [
+      { pageNumber: 1, text: String.fromCharCode(9, 13, 10, 32, 13) },
+      { pageNumber: 2, text: "Only text" },
+      { pageNumber: 3, text: "" },
+      { pageNumber: 4, text: String.fromCharCode(10, 10, 10) },
+    ],
+    // Every page has text.
+    [
+      { pageNumber: 1, text: "a" },
+      { pageNumber: 2, text: "b" },
+    ],
+    // No page has text.
+    [
+      { pageNumber: 1, text: "" },
+      { pageNumber: 2, text: " " },
+    ],
+  ];
+
+  it("positive control: the empty middle page is named", () => {
+    expect(pagesWithoutText(corpus[0]!)).toEqual([2]);
+  });
+
+  it("is [] when every page has text, and every page when none does", () => {
+    expect(pagesWithoutText(corpus[2]!)).toEqual([]);
+    expect(pagesWithoutText(corpus[3]!)).toEqual([1, 2]);
+  });
+
+  it("partitions the pages with pageTextChunks — disjoint, and together all of them", () => {
+    for (const pages of corpus) {
+      const kept = pageTextChunks(pages).map((chunk) => chunk.pageNumber);
+      const dropped = pagesWithoutText(pages);
+      expect(kept.filter((n) => dropped.includes(n))).toEqual([]);
+      expect([...kept, ...dropped].sort((a, b) => a - b)).toEqual(
+        pages.map((page) => page.pageNumber),
+      );
+    }
   });
 });

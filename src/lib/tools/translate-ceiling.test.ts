@@ -17,8 +17,24 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
+import {
+  AI_CHARACTER_ALLOWANCE,
+  AI_JOB_DELIVERY_LIMITS,
+} from "@/lib/jobs/ai-allowance";
+import { aiReservationGiven } from "@/lib/jobs/delivery-cap";
+import { RATE_LIMIT_ENV } from "@/lib/ratelimit/config";
+import {
+  reserveAiCharacterAllowance,
+  resetRateLimitGuardForTests,
+  resetSelfBuiltProviderForTests,
+} from "@/lib/ratelimit/guard";
+import { clearRateLimitProviderForTests } from "@/lib/ratelimit/provider";
+import { getToolBySlug } from "@/lib/tools";
+import { pageFaq } from "./page-copy";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
+import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
 import {
   TRANSLATE_CALIBRATION,
   TRANSLATE_CHARS_PER_OUTPUT_TOKEN,
@@ -31,11 +47,19 @@ const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 
 const PANEL = "src/components/tools/translate-worker-panel.tsx";
+/**
+ * INVERTED 2026-09-27 for the chat panel, history kept: it was listed here and
+ * this file demanded it state the shared 500,000 reading cap "which is correct
+ * for it" — while each chat question was charged 41,032 and read up to twelve
+ * times that. Bounding chat's read to its charge turned this red; chat's panel
+ * now has its own assertion below, and `ai-ceiling-surfaces.test.ts` derives
+ * the relationship for every AI panel.
+ */
 const SHARED_CAP_PANELS = [
-  "src/components/tools/summarize-worker-panel.tsx",
-  "src/components/tools/chat-with-pdf-worker-panel.tsx",
-  "src/components/tools/ai-extract-worker-panel.tsx",
-];
+  ["src/components/tools/summarize-worker-panel.tsx", "summarize-pdf"],
+  ["src/components/tools/ai-extract-worker-panel.tsx", "ai-extract"],
+] as const;
+const CHAT_PANEL = "src/components/tools/chat-with-pdf-worker-panel.tsx";
 
 describe("translate's ceiling is derived, not typed", () => {
   it("is a function of the output budget, so raising the budget raises it", () => {
@@ -157,21 +181,61 @@ describe("the two numbers cannot drift back together", () => {
     ).not.toContain("AI_INPUT_LIMITS");
   });
 
+  // INVERTED 2026-09-28 ON wave1/l01-page-leak, RESTORED AT ITS INTEGRATION.
+  // That lane clamped every read-bound declaration to one day's allowance in
+  // the browser and had its panels state the resulting 30,774 "characters read
+  // per run"; this test was inverted to require that figure. The branch it
+  // merged into had fixed the same pricing defect the other way — a per-call
+  // run is charged at most one whole run and READ up to its declaration, to the
+  // engine window (`aiReservationFor`, `processor/read-cap-limit.ts`) — and the
+  // clamp was not kept. So the engine window IS what one run can read again,
+  // and the panel must state it; `ai-ceiling-surfaces.test.ts` holds the
+  // rendered panel to the same figure.
+  //
+  // MOVED 2026-10-06 from the constant's NAME to the derived figure, history
+  // kept: the panels now interpolate `aiReadLimitFor(tool.slug)`, the read one
+  // run gets as the route's pricing and the processor decide it
+  // (`@/lib/jobs/ai-read-limit`), rather than the engine window on its own.
+  // The assertion this replaces required `AI_INPUT_LIMITS.maxInputCharacters`
+  // in the source; this one requires the derived call AND that its value is
+  // still the shared reading cap, so the 500,000 the panel shows is held both
+  // ways — by where it comes from and by what it is.
   it.each(SHARED_CAP_PANELS)(
     "%s still states the shared reading cap, which is correct for it",
-    (panel) => {
+    (panel, slug) => {
       const source = read(panel);
       expect(
         source,
-        `${panel} is bounded by READING, so AI_INPUT_LIMITS.maxInputCharacters ` +
-          "is its true limit and must stay.",
-      ).toContain("AI_INPUT_LIMITS.maxInputCharacters");
+        `${panel} is bounded by READING, and must state the read one run gets ` +
+          "through aiReadLimitFor.",
+      ).toContain("aiReadLimitFor(");
+      expect(
+        aiReadLimitFor(slug),
+        `one ${slug} run no longer reads the shared reading cap — every page ` +
+          "stating it must change with it",
+      ).toBe(AI_INPUT_LIMITS.maxInputCharacters);
       expect(
         source,
         `${panel} must not borrow translate's OUTPUT-derived ceiling.`,
       ).not.toContain("TRANSLATE_MAX_INPUT_CHARS");
     },
   );
+
+  it("the chat panel states CHAT's per-question number and neither of the others", () => {
+    const source = read(CHAT_PANEL);
+    // Since 2026-10-06 through the derived figure (see above), whose value
+    // must still be the per-question ceiling.
+    expect(source).toContain("aiReadLimitFor(");
+    expect(aiReadLimitFor("chat-with-pdf")).toBe(
+      CHAT_MAX_CHARACTERS_PER_QUESTION,
+    );
+    expect(
+      source,
+      `${CHAT_PANEL} states the shared reading cap again — chat reads no more ` +
+        "than one question is charged",
+    ).not.toContain("AI_INPUT_LIMITS");
+    expect(source).not.toContain("TRANSLATE_MAX_INPUT_CHARS");
+  });
 
   it("the engine sends the budget the ceiling was derived from", () => {
     // If the engine's default and the published ceiling stop sharing a source,
@@ -236,47 +300,138 @@ describe("the published ceiling describes a pass, not a document", () => {
     expect(facts).toMatch(/skipped/i);
   });
 
-  it("the FAQ names the SECOND bound, which the delivery cap created", () => {
-    /**
-     * "A LONGER DOCUMENT IS NOT REFUSED: it is split at page boundaries" was
-     * true the day it was written and the delivery cap made it conditional.
-     * A job now stops where its reservation stops, and a job whose reservation
-     * covers no page is refused outright — so a reader told only about the
-     * single-oversize-page case has been told the old truth.
-     *
-     * This is the same shape as the claim the test above exists to have
-     * removed, one release later: not a wrong sentence, a sentence the system
-     * grew past. Two independent patterns rather than one phrase, so a rewrite
-     * has to keep the MEANING rather than the wording.
-     */
-    const facts = read("src/lib/tools/tool-facts.ts");
-    expect(
-      facts,
-      "the translate FAQ does not mention the daily allowance, so it still " +
-        "reads as though length is the only bound on how far a translation gets",
-    ).toMatch(/daily allowance/i);
-    expect(
-      facts,
-      "the FAQ does not say what happens to the part the allowance does not " +
-        "cover — a bound with no stated consequence is not actionable",
-    ).toMatch(/marked in place|says so in place|the reason named/i);
+  /**
+   * INVERTED 2026-10-07, history kept. This test read:
+   *
+   *   it("the FAQ names the SECOND bound, which the delivery cap created")
+   *     expect(facts).toMatch(/daily allowance/i);
+   *     expect(facts).toMatch(/marked in place|says so in place|the reason named/i);
+   *
+   * and its message said the FAQ must tell the reader what happens "to the
+   * part the allowance does not cover". It pinned the defect: the FAQ duly
+   * said a document longer than the allowance "is translated as far as the
+   * allowance reaches, with the rest marked in place", and no part of a
+   * document is ever translated against a short allowance. The route charges
+   * the WHOLE declaration (`aiReservationFor`, per-character, no clamp) and
+   * `reserveAiCharacterAllowance` refuses a charge that does not fit, with a
+   * 429 before any job exists — so the page's own intro ("refused whole with
+   * nothing charged rather than half translated") and its FAQPage JSON-LD
+   * contradicted each other for as long as this test was green (verifier,
+   * 028d3a10). The second bound the delivery cap did create is narrower: the
+   * worker finding more text or pages than the job reserved.
+   *
+   * So it now reads the SERVED answer, bans the shipped sentence, demands the
+   * refusal, and licenses the ban by running the pricing and the allowance.
+   */
+  it("the FAQ says a document over today's allowance is refused whole, not half translated", () => {
+    const SHIPPED =
+      "And a document longer than the free daily allowance leaves for it is translated as far as the allowance reaches, with the rest marked in place and the reason named, so nothing stops silently.";
+    // Each alternative must catch what shipped on its own (house rule 1).
+    const PARTIALS = [
+      /\btranslated as far as the allowance reaches\b/i,
+      /\ballowance\b[^.]*\b(?:rest|remainder) (?:is )?marked\b/i,
+    ];
+    const partial = (text: string) => PARTIALS.some((p) => p.test(text));
+    for (const p of PARTIALS)
+      expect(p.test(SHIPPED), `${p} no longer catches what shipped`).toBe(true);
+    const answer =
+      pageFaq(getToolBySlug("translate-pdf")!).find((f) =>
+        /How much of my PDF/i.test(f.question),
+      )?.answer ?? "";
+    expect(answer, "the served FAQ lost its ceiling answer").toMatch(
+      /characters of selectable text per pass/,
+    );
+    expect(partial(answer), answer).toBe(false);
+    expect(answer).toMatch(/daily allowance/i);
+    expect(answer).toMatch(/refused before it runs, with nothing charged/);
+    // The bound the delivery cap DID create, and its marker.
+    expect(answer).toMatch(/more text or more pages than the job reserved/);
+    expect(answer).toMatch(/says so in place/);
+  });
+
+  describe("licence: the allowance refuses a translation whole", () => {
+    const reset = () => {
+      resetRateLimitGuardForTests();
+      resetSelfBuiltProviderForTests();
+      clearRateLimitProviderForTests();
+    };
+    beforeEach(reset);
+    afterEach(reset);
+
+    it("charges the whole declaration and refuses it, spending nothing, when it does not fit", async () => {
+      const env = { [RATE_LIMIT_ENV.provider]: "local-memory" };
+      const req = () =>
+        new Request("http://localhost/api/jobs", { method: "POST" });
+      const declared = 20_000;
+      const { charge } = aiReservationGiven(
+        "translate-pdf",
+        { declaredCharacters: declared },
+        AI_JOB_DELIVERY_LIMITS,
+        false,
+      );
+      // The whole document, scaled by the headroom, with no clamp to what is left.
+      expect(charge).toBe(
+        Math.ceil(declared * AI_JOB_DELIVERY_LIMITS.headroom),
+      );
+      const T0 = 1_700_000_000_000;
+      const left = Math.floor(charge / 2);
+      const first = await reserveAiCharacterAllowance(
+        AI_CHARACTER_ALLOWANCE - left,
+        req(),
+        env,
+        T0,
+      );
+      expect(first.decision.allowed).toBe(true);
+      const refused = await reserveAiCharacterAllowance(charge, req(), env, T0);
+      expect(refused.decision.allowed, "a part of it was admitted").toBe(false);
+      // Nothing was spent: exactly what was left still fits.
+      const rest = await reserveAiCharacterAllowance(left, req(), env, T0);
+      expect(rest.decision.allowed).toBe(true);
+    });
   });
 
   it("the panel refuses on the SAME plan the worker refuses on", () => {
     // Not "the panel mentions chunking" — the panel must call the same planner,
     // or two hand-written versions of "does this fit" drift and the stricter
     // one silently hides the other.
+    //
+    // THE PANEL'S ASSERTION MOVED THE SAME WAY THE ENGINE'S DID (below), one
+    // release later. It read `expect(panel).toContain("planTranslateChunks")`;
+    // on 2026-09-27 the refusal moved into `translate/preflight.ts`, because
+    // "no chunks" had two causes and the panel read both as "too long" — a
+    // scanned PDF was told it had 0 characters and should be split. The
+    // property is unchanged — the panel still plans with the one planner — so
+    // the guard now follows the import rather than the name: the panel either
+    // calls the planner itself, or calls a preflight that does.
     const CHUNKING = "src/lib/workers/translate/chunking.ts";
+    const PREFLIGHT = "src/lib/workers/translate/preflight.ts";
     const panel = read("src/components/tools/translate-worker-panel.tsx");
+    const plansDirectly =
+      panel.includes('from "@/lib/workers/translate/chunking"') &&
+      panel.includes("planTranslateChunks(");
+    const plansViaPreflight =
+      panel.includes('from "@/lib/workers/translate/preflight"') &&
+      panel.includes("translatePreflight(");
     expect(
-      panel,
-      "the translate panel must plan with planTranslateChunks, or its pre-upload " +
-        "refusal can be stricter than the worker and make chunking unreachable",
-    ).toContain("planTranslateChunks");
-    expect(
-      panel,
-      "the panel plans with something other than the worker's chunking module",
-    ).toContain('from "@/lib/workers/translate/chunking"');
+      plansDirectly || plansViaPreflight,
+      "the translate panel must plan with planTranslateChunks (directly or via " +
+        "translate/preflight), or its pre-upload refusal can be stricter than " +
+        "the worker and make chunking unreachable",
+    ).toBe(true);
+    if (plansViaPreflight) {
+      const preflight = read(PREFLIGHT);
+      expect(
+        preflight,
+        "the preflight plans with something other than the worker's chunking module",
+      ).toContain('from "./chunking"');
+      expect(
+        /export function translatePreflight[\s\S]*?planTranslateChunks\(/.test(
+          preflight,
+        ),
+        "translatePreflight no longer delegates to planTranslateChunks — the " +
+          "panel and the worker can now disagree about what fits",
+      ).toBe(true);
+    }
 
     /**
      * THE ENGINE'S ASSERTION WAS A STRING, AND THE STRING MOVED.

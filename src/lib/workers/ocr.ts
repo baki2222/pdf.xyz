@@ -20,12 +20,17 @@
  */
 
 import type { OcrLanguage } from "@/lib/jobs/ocr";
-import { OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
+import { OCR_ENGINE_FAMILIES, OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
 import type { WorkerMode } from "./mode";
 import type { BinaryResolver } from "./compression/engine";
 
-/** Native OCR engines a worker can use, in the order it prefers them. */
-export const OCR_ENGINES = ["ocrmypdf", "tesseract"] as const;
+/**
+ * Native OCR engines a worker can use, in the order it prefers them. This IS
+ * the client-facing family list (`OCR_ENGINE_FAMILIES`), not a copy of it, so an
+ * engine added here is reported to clients by name rather than as "unknown".
+ * `ocr-engine-families.test.ts` pins the identity.
+ */
+export const OCR_ENGINES = OCR_ENGINE_FAMILIES;
 export type OcrEngine = (typeof OCR_ENGINES)[number];
 
 /** Which OCR engines are present on the host (presence only, never values). */

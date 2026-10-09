@@ -12,12 +12,12 @@ it client-side.
 
 Every tool declares one of these, shown on its card and page:
 
-| Mode                         | Meaning                                                                                       |
-| ---------------------------- | --------------------------------------------------------------------------------------------- |
-| **In-browser** (`client`)    | Runs entirely on your device. Files are never uploaded.                                       |
-| **Hybrid**                   | Runs in the browser when possible, with an encrypted server fallback for large/complex files. |
-| **Secure worker** (`server`) | Processed on an encrypted, isolated worker and deleted shortly after.                         |
-| **AI**                       | Uses an AI model on secure infrastructure; your content is never used to train models.        |
+| Mode                         | Meaning                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **In-browser** (`client`)    | Runs entirely on your device. Files are never uploaded.                                                          |
+| **Hybrid**                   | Runs in the browser; an optional, clearly labeled worker step uploads the file only when the user starts it.     |
+| **Secure worker** (`server`) | Processed on an encrypted, isolated worker and deleted shortly after.                                            |
+| **AI**                       | Sends the PDF's selectable text (not the file) to a third-party AI provider whose terms prohibit training on it. |
 
 ## What runs where (honest status)
 
@@ -114,7 +114,7 @@ as in-browser tools, and no processor claims their slugs today.
 
 **OCR** has a dedicated, honest secure-worker page (`/tools/ocr-pdf`) and a full
 request/capability contract (`src/lib/jobs/ocr.ts`, `src/lib/workers/ocr.ts`): it
-validates recognition options (languages, output mode, skip-text), reports its
+validates recognition options (languages, output mode, redo-OCR), reports its
 capability **presence-only**, and mounts an uploader **only** when a worker
 genuinely offers OCR. Phase 23 ships a **real, optional** OCR backend
 (`src/lib/workers/ocr-native.ts`) that shells out to OCRmyPDF/Tesseract on the
@@ -136,8 +136,8 @@ this gate exists to prevent.
 
 They run inside the same envelope as every other worker job
 ([`docs/ENGINE_ROADMAP.md`](ENGINE_ROADMAP.md)): short-lived encrypted storage,
-isolated per-job processing, strict egress limits, inputs wiped as soon as the job
-ends, outputs dropped on their retention TTL (`DEFAULT_RETENTION`), and **no
+processing on the separate worker process (not the web tier), inputs wiped as soon
+as the job ends, outputs dropped on their retention TTL (`DEFAULT_RETENTION`), and **no
 document contents in logs**. Malware scanning is the one item that is _not_
 universal: it is optional and off unless an operator configures a scanner, and an
 unscanned upload is never reported as scanned.
@@ -169,14 +169,32 @@ is on, so the production build is unaffected. The full design is in
 **Strict validation at the edge** (`src/lib/jobs/validation.ts`):
 
 - Only worker-capable tools accept jobs; in-browser tools are rejected.
+- Every state-changing API handler refuses a cross-site browser request FIRST
+  (`rejectCrossSite` in `src/app/api/_lib/http.ts`: `Sec-Fetch-Site` must be
+  `same-origin` or `none`, else `Origin` must name this host) — before the
+  rate-limit charge a hostile page would otherwise spend from its visitors'
+  budgets. JSON bodies are accepted only when the Content-Type ESSENCE is
+  `application/json`; `text/plain;application/json` (CORS-safelisted, so
+  sendable cross-site without a preflight) is refused with 415.
 - Filenames may not contain path separators or `..` traversal.
 - Declared MIME types must be in the tool's allowlist; sizes are bounded by
   `JOB_LIMITS` (100 MB/file, 500 MB/session, 20 files) and request bodies are
   capped before parsing.
 - URL-input tools (e.g. webpage-to-PDF) accept only public `http(s)` URLs;
-  localhost, private, link-local/metadata ranges, embedded credentials, and
-  non-http(s) schemes are blocked — defense-in-depth against SSRF, with the
-  worker's egress policy as the real enforcement.
+  internal names, every non-public address range (`src/lib/net/public-address.ts`),
+  embedded credentials, and non-http(s) schemes are refused. This is the
+  early rejection, not the enforcement: the edge cannot see what DNS returns at
+  render time or where a redirect points. The enforcement is the worker's
+  renderer (`src/lib/workers/html-render/network.ts`): for BOTH HTML and
+  webpage to PDF, every request Chromium makes — top-level, redirect,
+  sub-resource, iframe — is resolved by the worker, refused unless every
+  address is public, and connected to the address that was checked. Chromium's
+  own network is disabled, the uploaded HTML is never loaded from `file://`,
+  and Chromium runs without the worker's environment. There is no network
+  restriction on the worker process itself: it reaches storage, the queue and
+  AI providers by design. Per-job isolation and egress limits are NOT
+  implemented; see `src/lib/jobs/pipeline-honesty.test.ts` for the property
+  that would have to be proven before any page may claim them.
 - Rate limits (`RATE_LIMITS`) are published in the contract and enforced at the
   gateway. Phase 33 adds an in-app **abuse guard** (`src/lib/ratelimit`) as
   defense-in-depth behind that gateway — see **Abuse guard & rate limiting** below.
@@ -414,7 +432,7 @@ business days and will coordinate a fix and disclosure timeline with you.
 
 Storage and queue providers must not accept user-supplied filesystem paths, object keys, Redis keys, stream names, or broker ids. Route handlers work only with opaque ids minted by the backend; providers map those ids to private bucket or broker keys internally. The Phase 14 S3 provider signs keys derived from `inputs/<fileId>` and `artifacts/<artifactId>` plus an optional sanitized prefix — never from filenames — rejects oversized reservations before signing, **binds the declared size into the upload signature** (see below), and treats malformed artifact ids as unavailable/already-gone instead of signing arbitrary paths. The Phase 15 Redis/Upstash queue provider stores jobs under sanitized namespaces (`job`, `spec`, `lease`, `ready`, `active`, `idem`) and hashes idempotency keys before they become broker keys, so raw user-provided idempotency strings are never persisted as key names. Signed URLs and queue keys must expire, buckets must deny public listing, Redis/Upstash tokens must stay server-side only, and `DELETE /api/jobs/:id` must cancel queued/running work or expire completed artifacts without logging file names, file contents, raw URLs, object keys, Redis keys, queue payloads, or credentials.
 
-The Phase 16 worker daemon (`pnpm worker:daemon`) follows the same rules as an out-of-band process. It is **opt-in and never started by the web app** — importing the app spins up no worker. It reads provider configuration for _presence and shape only_ and never logs, serializes, or prints a variable value; its worker-side S3 storage signs keys derived only from opaque `f_…`/`art_…` ids (shared with the app provider), and its structured JSON logs carry only a run mode, tick counters, an opaque job id/attempt, and an error _code_ — never a filename, byte, object key, URL, option value, or secret. It refuses to fabricate work: with no drainable queue + storage it exits non-zero, and a processor with no real runner fails the job `not_implemented` rather than inventing a result. Deploy it in **sandboxed** worker infrastructure whose only egress is to the configured object storage and queue, on the same server-only credentials as the app — never on the request path.
+The Phase 16 worker daemon (`pnpm worker:daemon`) follows the same rules as an out-of-band process. It is **opt-in and never started by the web app** — importing the app spins up no worker. It reads provider configuration for _presence and shape only_ and never logs, serializes, or prints a variable value; its worker-side S3 storage signs keys derived only from opaque `f_…`/`art_…` ids (shared with the app provider), and its structured JSON logs carry only a run mode, tick counters, an opaque job id/attempt, and an error _code_ — never a filename, byte, object key, URL, option value, or secret. It refuses to fabricate work: with no drainable queue + storage it exits non-zero, and a processor with no real runner fails the job `not_implemented` rather than inventing a result. Deploy it on infrastructure off the request path, on the same server-only credentials as the app. Nothing in this repository restricts the daemon's own egress — it reaches object storage, the queue and (for AI tools) the configured provider — so an egress firewall is an operator's choice, not a property this code provides. The one network boundary the code does enforce is the Chromium renderer's (see **Strict validation at the edge** above).
 
 Phase 18 adds useful worker artifact names without turning filenames into identifiers. The only allowed filename channels are display-only values: a sanitized `x-amz-meta-filename` upload metadata header and sanitized `inputNames` in the job spec. The sanitizer strips path components, control bytes, bidi/zero-width characters, unsafe separators, and header-injection vectors before any provider sees the value. These names may be used for `Content-Disposition` / the user's download prompt, but **never** for object keys, Redis keys, signed URL paths or queries, status payloads, telemetry, or daemon/executor logs.
 

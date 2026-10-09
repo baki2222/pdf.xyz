@@ -1,5 +1,6 @@
 /**
- * Where the Noto TTFs come from, and what they actually contain.
+ * Where the shipped TTFs (the Noto faces and Geist Mono) come from, and what
+ * they actually contain.
  *
  * NODE ONLY. This module reads `node_modules` and the filesystem; it exists for
  * the copy step, the coverage generator and the guards. `import-boundary.test.ts`
@@ -13,21 +14,51 @@
  * whole release. Resolution follows the link; a bare path does not.
  */
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { FONT_PACKS, type FontPack, type FontPackId } from "./font-packs";
 
 const require_ = createRequire(import.meta.url);
 
+/**
+ * The installed package's own `package.json`.
+ *
+ * `require.resolve("<pkg>/package.json")` first. A package with an `exports`
+ * map that does not list `./package.json` — `geist`, which carries the
+ * monospace face — refuses that subpath, so the fallback walks the SAME
+ * directories Node's resolver would (`require.resolve.paths`) and follows the
+ * pnpm symlink with `realpathSync`. Not found, or found under a different
+ * name, is thrown: a quiet miss here is a face the copy step never ships.
+ */
+function packageJsonPath(pkg: string): string {
+  try {
+    return require_.resolve(`${pkg}/package.json`);
+  } catch (error) {
+    if ((error as { code?: string }).code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") {
+      throw error;
+    }
+  }
+  for (const dir of require_.resolve.paths(pkg) ?? []) {
+    const candidate = path.join(dir, pkg, "package.json");
+    if (!existsSync(candidate)) continue;
+    const real = realpathSync(candidate);
+    const { name } = JSON.parse(readFileSync(real, "utf8")) as {
+      name?: string;
+    };
+    if (name === pkg) return real;
+  }
+  throw new Error(`cannot locate ${pkg}/package.json from ${import.meta.url}`);
+}
+
 /** Absolute path to a pack's TTF inside the installed package. */
 export function notoTtfPath(pack: FontPack): string {
-  const pkgJson = require_.resolve(`${pack.pkg}/package.json`);
-  return path.join(path.dirname(pkgJson), "400Regular", pack.file);
+  const pkgJson = packageJsonPath(pack.pkg);
+  return path.join(path.dirname(pkgJson), pack.dir, pack.file);
 }
 
 /** The version of the npm package a pack is actually installed from. */
 export function installedPackageVersion(pack: FontPack): string {
-  const pkgJson = require_.resolve(`${pack.pkg}/package.json`);
+  const pkgJson = packageJsonPath(pack.pkg);
   return (JSON.parse(readFileSync(pkgJson, "utf8")) as { version: string })
     .version;
 }

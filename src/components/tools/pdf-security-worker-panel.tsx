@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Download,
   Eye,
@@ -29,22 +29,41 @@ import {
   type PdfSecurityWorkerResult,
 } from "@/lib/workers/pdf-security-client";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { cn, formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
-  Spinner,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 type Mode = "protect" | "unlock";
+
+/**
+ * Whether the run must wait for a password — in BOTH modes. Protect needs one
+ * to set. Unlock needs one the file accepts: the password that opens it, or,
+ * for a file that opens freely but locks printing, copying or editing, its
+ * owner (permissions) password. A blank unlock would lift those locks without
+ * the owner password, which Unlock never does, and the job parser refuses it.
+ *
+ * (wave1/l06-copy-other let unlock run blank; the merge kept the rule the
+ * other lane had kept, a50c54c — see `parseUnlockPdfOptions`.)
+ */
+export function isPasswordMissing(_mode: Mode, password: string): boolean {
+  return password.length === 0;
+}
 
 /** Number of UTF-8 bytes a password occupies (the bound qpdf actually enforces). */
 function passwordByteLength(password: string): number {
@@ -118,7 +137,7 @@ const COPY: Record<
     icon: Lock,
     badge: "Secure-worker encryption",
     blurb:
-      "Encrypting a PDF needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker rather than in your browser. Your password is sent to that worker only to encrypt the file, and the input is wiped right after.",
+      "Encrypting a PDF needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker rather than in your browser. Your password is used only to encrypt the file and is deleted from our job queue when the job ends; the input is wiped right after.",
     cta: "Encrypt on the worker",
     running: "Encrypting on the worker…",
   },
@@ -126,7 +145,7 @@ const COPY: Record<
     icon: Unlock,
     badge: "Secure-worker unlock",
     blurb:
-      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that already opens the file — Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
+      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that opens the file — or, if it opens without one and only printing, copying or editing is locked, its owner (permissions) password. Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
     cta: "Unlock on the worker",
     running: "Unlocking on the worker…",
   },
@@ -146,34 +165,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
   const copy = COPY[mode];
   const HeaderIcon = copy.icon;
 
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((s) => {
-        if (!active) return;
-        setStatus(s);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: s.mode,
-          enabled: s.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunPdfSecurity(status);
@@ -202,9 +194,14 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Status-dependent action area */}
         {available && status ? (
-          <SecurityRunArea mode={mode} localDevOnly={status.localDevOnly} />
+          <SecurityRunArea
+            mode={mode}
+            localDevOnly={status.localDevOnly}
+            refuse={(file) => pickRefusal(tool, file)}
+          />
         ) : (
           <SecurityUnavailable
+            onRetry={retry}
             phase={phase}
             status={status}
             toolName={tool.name}
@@ -218,7 +215,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
             What happens to your file
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, i, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -260,10 +257,13 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         <p className="text-muted text-xs leading-relaxed">
-          No account required. This runs on an isolated secure worker: files are
-          encrypted in transit and at rest, processed in a sandbox with no
-          network egress, and deleted automatically. Your password is used only
-          to perform the operation and is never stored or logged.
+          No account required. This runs on a separate processing server, not in
+          your browser: files are encrypted in transit and at rest, processed in
+          a temporary per-job folder that is erased when the job ends, and
+          deleted automatically. Your password is never logged. It waits in our
+          job queue only until the job finishes or is cancelled (or, if no
+          worker picks it up, until the queue&apos;s retention lapses), then it
+          is deleted.
         </p>
       </div>
     </div>
@@ -277,35 +277,31 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
  */
 function SecurityUnavailable({
   phase,
+  onRetry,
   status,
   toolName,
   toolSlug,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
   toolName: string;
   toolSlug: string;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   return (
     <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-4">
-      {phase === "loading" ? (
-        <p
-          className="text-muted inline-flex items-center gap-2 text-sm"
-          role="status"
-        >
-          <Spinner className="size-4" />
-          Checking whether a secure worker is available…
-        </p>
-      ) : (
-        <p className="text-warn text-sm leading-relaxed">
-          {phase === "error"
-            ? "We couldn't confirm secure-worker availability just now, so this isn't offered here. No file is ever uploaded until it's confirmed available."
-            : (status?.security.detail ??
-              "PDF password protection isn't enabled in this environment. No file is uploaded.")}
-        </p>
-      )}
+      <p className="text-warn text-sm leading-relaxed">
+        {status?.security.detail ??
+          "PDF password protection isn't enabled in this environment. No file is uploaded."}
+      </p>
       <div className="flex flex-col gap-2">
-        <NotifyMe toolName={toolName} toolSlug={toolSlug} />
+        <NotifyMe toolName={toolName} toolSlug={toolSlug} checking={false} />
       </div>
     </div>
   );
@@ -388,51 +384,54 @@ export function PasswordField({
 function SecurityRunArea({
   mode,
   localDevOnly,
+  refuse,
 }: {
   mode: Mode;
   localDevOnly: boolean;
+  refuse: PickRefusal;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
   const [keyLength, setKeyLength] = useState<PdfKeyLength>(
     DEFAULT_PDF_KEY_LENGTH,
   );
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<PdfSecurityWorkerResult | null>(null);
+  const job = useWorkerJob<PdfSecurityWorkerResult>({
+    tool: mode === "protect" ? "protect-pdf" : "unlock-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, {
+        ...controls,
+        tool: mode === "protect" ? "protect-pdf" : "unlock-pdf",
+      }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
-  const canSubmit = file !== null && password.length > 0 && !tooLong && !busy;
+  const passwordMissing = isPasswordMissing(mode, password);
+  const canSubmit = file !== null && !passwordMissing && !tooLong && !busy;
 
   const start = useCallback(async () => {
-    if (!file || password.length === 0 || tooLong) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    if (!file || passwordMissing || tooLong) return;
+    await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
         mode === "protect"
-          ? await runWorkerProtect({
-              filename: file.name,
-              bytes,
-              password,
-              keyLength,
-            })
-          : await runWorkerUnlock({ filename: file.name, bytes, password });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, password, keyLength, mode, tooLong]);
+          ? await runWorkerProtect(
+              {
+                filename: file.name,
+                bytes,
+                password,
+                keyLength,
+              },
+              controls,
+            )
+          : await runWorkerUnlock(
+              { filename: file.name, bytes, password },
+              controls,
+            );
+      return result;
+    });
+  }, [file, password, keyLength, mode, tooLong, passwordMissing, run]);
 
   return (
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
@@ -440,7 +439,7 @@ function SecurityRunArea({
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker — the file and password are processed in-process on this machine, not sent to any third party."
-          : "Running this uploads your file to the encrypted secure worker; your password is sent to it only to perform the operation."}
+          : "Running this uploads your file to the encrypted secure worker; your password travels with the job through our queue and is used only to perform the operation."}
       </p>
 
       {file ? (
@@ -459,6 +458,7 @@ function SecurityRunArea({
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf"
           multiple={false}
@@ -466,7 +466,7 @@ function SecurityRunArea({
           title={
             mode === "protect"
               ? "Add a PDF to password-protect, or"
-              : "Add a password-protected PDF, or"
+              : "Add a locked PDF, or"
           }
           hint="PDF"
         />
@@ -491,7 +491,11 @@ function SecurityRunArea({
       >
         {mode === "protect"
           ? "Anyone opening the PDF will need this password. Store it somewhere safe — it can't be recovered."
-          : "Enter the password that currently opens this PDF."}
+          : // A PDF that opens freely but locks printing or copying has no
+            // password that "opens" it; its owner password is the one qpdf
+            // accepts. Until 2026-09 this hint named only the open password,
+            // so that user had nothing true to type.
+            "Enter the password that opens this PDF — or, if it opens without one, its owner (permissions) password."}
         {tooLong
           ? ` Too long: ${passwordBytes}/${MAX_PDF_PASSWORD_BYTES} bytes.`
           : ""}
@@ -550,13 +554,13 @@ function SecurityRunArea({
         busy={busy}
         // `canSubmit` already folds in `!busy`; both go through one blocked branch.
         disabled={!canSubmit}
-        busyLabel={COPY[mode].running}
+        busyLabel={jobBusyLabel(job.phase, COPY[mode].running)}
         icon={mode === "protect" ? Lock : Unlock}
       >
         {COPY[mode].cta}
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
 
       {outcome?.ok === true && (
         <ResultCard

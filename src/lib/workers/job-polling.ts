@@ -34,8 +34,22 @@
  * `job-polling.test.ts` holds it to that with an injected `fetch` that rejects.
  */
 
-import type { Job } from "@/lib/jobs/types";
+import type { Job, JobStatus } from "@/lib/jobs/types";
 import { isTerminalStatus } from "@/lib/jobs/types";
+
+/**
+ * Where a browser-driven job is, in the words a busy label needs. One label
+ * ("Recognizing on the worker…") used to cover a 100 MB upload, a queue wait
+ * and the work itself, so a user watching an upload was told the text was
+ * being recognized.
+ */
+export type WorkerJobPhase =
+  "uploading" | "queued" | "processing" | "downloading";
+
+/** The phase a job record's status puts it in. */
+export function phaseOfJob(status: JobStatus): WorkerJobPhase {
+  return status === "queued" ? "queued" : "processing";
+}
 
 /** Minimal `fetch` shape, matching the one the client modules already inject. */
 export type PollFetch = (
@@ -56,6 +70,8 @@ export interface PollJobOptions {
   signal?: AbortSignal;
   /** Injected in tests so retry backoff does not spend real time. */
   sleepImpl?: (ms: number) => Promise<void>;
+  /** Called with every job record read, so a caller can report progress. */
+  onJob?: (job: Job) => void;
 }
 
 export type PollJobResult =
@@ -210,6 +226,7 @@ export async function pollJobToTerminal(
     // not the same as three in a row, and only the latter means anything.
     consecutiveFailures = 0;
     job = next as Job;
+    options.onJob?.(job);
   }
 
   return { ok: true, job };

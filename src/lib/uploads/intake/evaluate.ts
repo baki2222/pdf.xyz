@@ -34,6 +34,7 @@ import {
   familyForMime,
   normalizeContentType,
 } from "./families";
+import { formatByteLimit } from "../byte-limit";
 import { sniffPdf, type PdfSniffReason } from "./pdf";
 import { resolveIntakePolicy, type IntakePolicy } from "./policy";
 
@@ -181,7 +182,7 @@ function evaluateFileDescriptor(
     if (!classified.ok) {
       const message =
         classified.reason === "mismatch"
-          ? "A file's declared type does not match its filename extension."
+          ? "A file's name and its type don't match — the extension says one kind of file and the upload says another. Check you picked the right file."
           : `Files of type "${normalizedMime}" are not an accepted upload format.`;
       return reject("unsupported_file_type", message, {
         field: `files[${index}].contentType`,
@@ -201,7 +202,7 @@ function evaluateFileDescriptor(
   ) {
     return reject(
       "file_too_large",
-      `A file exceeds the ${policy.maxFileBytes}-byte per-file upload limit.`,
+      `A file is larger than ${formatByteLimit(policy.maxFileBytes)}, the most one file can be.`,
       { field: `files[${index}].bytes`, limit: policy.maxFileBytes, index },
     );
   }
@@ -245,7 +246,7 @@ export function evaluateUploadDescriptors(
   if (totalBytes > policy.maxRequestBytes) {
     return reject(
       "request_too_large",
-      `The upload's combined size exceeds the ${policy.maxRequestBytes}-byte request limit.`,
+      `These files add up to more than ${formatByteLimit(policy.maxRequestBytes)}, the most one upload can carry.`,
       { field: "files", limit: policy.maxRequestBytes },
     );
   }

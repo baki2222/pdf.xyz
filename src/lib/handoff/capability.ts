@@ -101,17 +101,15 @@ export function eligibleFilesFor<T extends FileMetaLike>(
         /\.(md|markdown|mdown)$/i.test(file.name),
     );
   }
-  if (slug === "jpg-to-pdf") {
+  if (slug === "jpg-to-pdf" || slug === "png-to-pdf") {
+    // Both image tools embed PNG and JPEG alike (the decoder follows the
+    // bytes), so a mixed batch reaches either one whole.
     return files.filter(
       (file) =>
         file.type === "image/jpeg" ||
         file.type === "image/jpg" ||
-        /\.(jpe?g)$/i.test(file.name),
-    );
-  }
-  if (slug === "png-to-pdf") {
-    return files.filter(
-      (file) => file.type === "image/png" || /\.png$/i.test(file.name),
+        file.type === "image/png" ||
+        /\.(jpe?g|png)$/i.test(file.name),
     );
   }
   return files.filter((file) => isLikelyPdf(file));

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { Page } from "@playwright/test";
-import { embedRasterImage } from "../../src/lib/pdf/pdf-lib";
+import { drawRasterImage, embedRasterImage } from "../../src/lib/pdf/pdf-lib";
 
 /**
  * Fixture generators for the in-browser tool proofs. Every input is synthesized
@@ -40,6 +40,30 @@ export interface TextPdfOptions {
    * "the output has no colour" would be true of it before the tool ran.
    */
   colorful?: boolean;
+  /**
+   * The Info dictionary's /Title. Unset by default, as pdf-lib writes none.
+   * The grayscale proof sets it: its output is titled after the source's own
+   * title, a branch that is only exercised when the source has one.
+   */
+  title?: string;
+}
+
+/** An axis-aligned rectangle in PDF points, bottom-left origin. */
+export interface PointRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where {@link makeTextPdf} draws its solid black block on a page of `size`.
+ * Exported so a proof that reasons about "the fixture's own ink" (redact-pdf
+ * does: its default box sits over this block) locates it from the one
+ * definition the fixture draws with, instead of a copy of the numbers.
+ */
+export function inkBlockRect([w, h]: [number, number]): PointRect {
+  return { x: w * 0.1, y: h * 0.15, width: w * 0.5, height: h * 0.35 };
 }
 
 /** A valid multi-page PDF with per-page marker text and an ink rectangle. */
@@ -51,9 +75,11 @@ export async function makeTextPdf(
     bodyLines = [],
     unoptimized,
     colorful,
+    title,
   }: TextPdfOptions = {},
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
+  if (title !== undefined) doc.setTitle(title);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (let i = 0; i < pages; i++) {
     const page = doc.addPage(size);
@@ -85,16 +111,178 @@ export async function makeTextPdf(
         color: rgb(0, 0, 1),
       });
     } else {
-      page.drawRectangle({
-        x: w * 0.1,
-        y: h * 0.15,
-        width: w * 0.5,
-        height: h * 0.35,
-        color: rgb(0, 0, 0),
-      });
+      page.drawRectangle({ ...inkBlockRect(size), color: rgb(0, 0, 0) });
     }
   }
   return doc.save(unoptimized ? { useObjectStreams: false } : undefined);
+}
+
+/**
+ * The document `makeStructuredProsePdf` draws on every page, and the Markdown
+ * each part must become. `lines` is what is drawn, one visual line each;
+ * `text` is the one block it must come out as.
+ *
+ * Written for the pdf-to-markdown proof. The fixture every other text proof
+ * uses draws ONE line per page, so a converter that collapsed each page to a
+ * single paragraph passed it: nothing on the page was a second block to lose.
+ * Drawn the way generators draw — single line breaks, a larger heading face,
+ * vertical gaps between paragraphs, a bullet glyph (U+2022) with a hanging indent — which
+ * pdfjs hands back with one EOL per line and NO blank lines at all.
+ */
+export const STRUCTURED_PROSE = {
+  heading: "Findings overview",
+  paragraphs: [
+    {
+      lines: [
+        "The first paragraph wraps across two",
+        "lines of body text on the page.",
+      ],
+      text: "The first paragraph wraps across two lines of body text on the page.",
+    },
+    {
+      lines: [
+        "A second paragraph follows a gap and has an exam-",
+        "ple of a word hyphenated at the break.",
+      ],
+      text: "A second paragraph follows a gap and has an example of a word hyphenated at the break.",
+    },
+  ],
+  bullets: [
+    { lines: ["First bullet item"], text: "First bullet item" },
+    {
+      lines: ["Second bullet item wraps onto a", "hanging line."],
+      text: "Second bullet item wraps onto a hanging line.",
+    },
+  ],
+  closing: "Closing paragraph after the list.",
+} as const;
+
+/** A multi-page PDF of `STRUCTURED_PROSE`, one page marker paragraph per page. */
+export async function makeStructuredProsePdf(
+  label: string,
+  { pages = 2 }: { pages?: number } = {},
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const BODY = 11;
+  const PITCH = 14; // inside a paragraph
+  const GAP = 24; // between blocks: 1.7x the pitch, as a word processor sets it
+  for (let i = 0; i < pages; i++) {
+    const page = doc.addPage([612, 792]);
+    let y = 720;
+    const line = (text: string, x = 72, size = BODY, face = font) =>
+      page.drawText(text, { x, y, size, font: face });
+
+    line(pageMarker(label, i + 1));
+    y -= GAP + 6;
+    line(STRUCTURED_PROSE.heading, 72, 16, bold);
+    y -= GAP;
+    for (const paragraph of STRUCTURED_PROSE.paragraphs) {
+      paragraph.lines.forEach((text, j) => {
+        if (j > 0) y -= PITCH;
+        line(text);
+      });
+      y -= GAP;
+    }
+    for (const bullet of STRUCTURED_PROSE.bullets) {
+      line("\u2022");
+      bullet.lines.forEach((text, j) => {
+        if (j > 0) y -= PITCH;
+        line(text, 86);
+      });
+      y -= PITCH;
+    }
+    y -= GAP - PITCH;
+    line(STRUCTURED_PROSE.closing);
+  }
+  return doc.save();
+}
+
+/** One block of Markdown as a reader's renderer would see it. */
+export interface MarkdownBlock {
+  kind: "heading" | "paragraph" | "item";
+  text: string;
+}
+
+/**
+ * Split Markdown into headings, paragraphs and list items — the structure a
+ * renderer shows, read from the downloaded text rather than from the
+ * converter's own data.
+ */
+export function markdownBlocks(markdown: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  for (const chunk of markdown.replace(/\r\n?/g, "\n").split(/\n{2,}/)) {
+    const lines = chunk.split("\n").filter((l) => l.trim().length > 0);
+    if (!lines.length) continue;
+    const heading = /^#{1,6}\s+(.*)$/.exec(lines[0] ?? "");
+    if (heading && lines.length === 1) {
+      blocks.push({ kind: "heading", text: heading[1] ?? "" });
+    } else if (lines.every((l) => /^(- |\d+[.)] )/.test(l))) {
+      for (const l of lines) {
+        blocks.push({ kind: "item", text: l.replace(/^(- |\d+[.)] )/, "") });
+      }
+    } else {
+      blocks.push({ kind: "paragraph", text: lines.join(" ") });
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Everything wrong with `markdown` as a conversion of a `pages`-page
+ * `makeStructuredProsePdf(label)`. Empty means right. A list rather than a
+ * boolean so a red proof says WHICH structure was lost.
+ */
+export function structuredProseProblems(
+  markdown: string,
+  label: string,
+  pages: number,
+): string[] {
+  const blocks = markdownBlocks(markdown);
+  const count = (kind: MarkdownBlock["kind"], text: string) =>
+    blocks.filter((b) => b.kind === kind && b.text === text).length;
+  const problems: string[] = [];
+  const expectEach = (kind: MarkdownBlock["kind"], text: string) => {
+    const n = count(kind, text);
+    if (n !== pages) {
+      problems.push(`expected ${pages} ${kind} block(s) "${text}", found ${n}`);
+    }
+  };
+  for (let n = 1; n <= pages; n++) {
+    if (count("paragraph", pageMarker(label, n)) !== 1) {
+      problems.push(
+        `page marker "${pageMarker(label, n)}" is not its own paragraph`,
+      );
+    }
+  }
+  expectEach("heading", STRUCTURED_PROSE.heading);
+  for (const p of STRUCTURED_PROSE.paragraphs) expectEach("paragraph", p.text);
+  for (const b of STRUCTURED_PROSE.bullets) expectEach("item", b.text);
+  expectEach("paragraph", STRUCTURED_PROSE.closing);
+  return problems;
+}
+
+/**
+ * The shape the converter produced before it read geometry: each page one
+ * paragraph of everything on it, bullets inline. `structuredProseProblems`
+ * must reject it — the positive control for the proof.
+ */
+export function collapsedStructuredProse(label: string, pages: number): string {
+  const sections = [`# ${label.replace(/\.pdf$/i, "")}`];
+  for (let n = 1; n <= pages; n++) {
+    sections.push(`## Page ${n}`);
+    sections.push(
+      [
+        pageMarker(label, n),
+        STRUCTURED_PROSE.heading,
+        ...STRUCTURED_PROSE.paragraphs.flatMap((p) => p.lines),
+        ...STRUCTURED_PROSE.bullets.flatMap((b) => ["\u2022", ...b.lines]),
+        STRUCTURED_PROSE.closing,
+      ].join(" "),
+    );
+  }
+  return sections.join("\n\n");
 }
 
 /**
@@ -136,7 +324,7 @@ export async function makeImageBearingPdf(label: string): Promise<{
   const page = doc.addPage([320, 240]);
   page.drawText(pageMarker(label, 1), { x: 20, y: 210, size: 12, font });
   const image = await embedRasterImage(doc, png, "png");
-  page.drawImage(image, { x: 40, y: 60, width: 192, height: 128 });
+  await drawRasterImage(page, image, { x: 40, y: 60, width: 192, height: 128 });
   return { pdf: await doc.save(), imageWidth: width, imageHeight: height };
 }
 
@@ -256,24 +444,96 @@ export function makePngFixture(
 /**
  * A PDF of `pages` pages, each covered edge to edge by the supplied JPEG.
  *
- * This is the shape every rasterizing tool here produces (grayscale-pdf,
- * redact-pdf), so it can stand in as their control: hand it a BLANK jpeg and
- * it is "a rasterized output that rendered nothing"; hand it a COLOUR jpeg and
- * it is "a rasterized output that forgot to desaturate". Both are structurally
+ * This is the shape redact-pdf produces, and the shape grayscale-pdf produced
+ * until its pages became one-channel DeviceGray images, so it can stand in as
+ * their control: hand it a BLANK jpeg and it is "a rasterized output that
+ * rendered nothing"; hand it a COLOUR jpeg and it is "a rasterized output that
+ * forgot to desaturate"; hand it a NEUTRAL jpeg and it is grayscale-pdf's
+ * pre-fix artifact, grey pixels in an RGB container. Each is structurally
  * indistinguishable from a correct artifact, which is the point.
  */
 export async function makeRasterizedPdf(
-  jpeg: Buffer,
+  jpeg: Buffer | Buffer[],
   pages: number,
   size: [number, number],
 ): Promise<Buffer> {
+  // One JPEG for every page, or one per page, which lets a control differ
+  // between pages (e.g. a box painted on page 1 only). Either way each page
+  // gets its own image XObject (below).
+  if (Array.isArray(jpeg) && jpeg.length !== pages) {
+    throw new Error(
+      `makeRasterizedPdf: ${jpeg.length} images for ${pages} pages`,
+    );
+  }
   const doc = await PDFDocument.create();
-  const image = await embedRasterImage(doc, jpeg, "jpg");
   for (let i = 0; i < pages; i++) {
+    // One image XObject PER PAGE, as the real tools write them. A single
+    // shared image drawn on every page was rejected by the proofs' own
+    // "at least one image per page" count before any pixel was looked at —
+    // so every control built here failed, but on structure, and the pixel
+    // and colour assertions it existed to falsify were never reached.
+    const image = await embedRasterImage(
+      doc,
+      Array.isArray(jpeg) ? jpeg[i]! : jpeg,
+      "jpg",
+    );
     const page = doc.addPage(size);
-    page.drawImage(image, { x: 0, y: 0, width: size[0], height: size[1] });
+    await drawRasterImage(page, image, {
+      x: 0,
+      y: 0,
+      width: size[0],
+      height: size[1],
+    });
   }
   return Buffer.from(await doc.save());
+}
+
+/**
+ * A JPEG "render" of a `size`-point page at `scale` px/pt: white, with each
+ * given point-space rectangle (bottom-left origin) filled in its colour.
+ *
+ * Built for controls that must differ from a real output in ONE region only —
+ * "the fixture rendered, but the box was never painted" — which a blank page
+ * or a colour swatch cannot express.
+ */
+export async function makeRasterPageInPage(
+  page: Page,
+  size: [number, number],
+  scale: number,
+  fills: { rect: PointRect; color: string }[],
+): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ([pageSize, s, list]) => {
+      const [w, h] = pageSize as [number, number];
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(w * (s as number));
+      canvas.height = Math.round(h * (s as number));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("2d context unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (const { rect, color } of list as {
+        rect: { x: number; y: number; width: number; height: number };
+        color: string;
+      }[]) {
+        const k = s as number;
+        ctx.fillStyle = color;
+        ctx.fillRect(
+          rect.x * k,
+          (h - rect.y - rect.height) * k,
+          rect.width * k,
+          rect.height * k,
+        );
+      }
+      return canvas.toDataURL("image/jpeg", 0.92);
+    },
+    [size, scale, fills] as const,
+  );
+  const base64 = dataUrl.split(",")[1];
+  if (!base64) throw new Error("canvas.toDataURL returned no payload");
+  const bytes = detached(Buffer.from(base64, "base64"));
+  assertEncodedAs(bytes, "image/jpeg", dataUrl);
+  return bytes;
 }
 
 /**
@@ -309,6 +569,48 @@ export async function makeBlankImageInPage(
   if (!base64) throw new Error("canvas.toDataURL returned no payload");
   const bytes = detached(Buffer.from(base64, "base64"));
   assertEncodedAs(bytes, mime, dataUrl);
+  return bytes;
+}
+
+/**
+ * A browser-encoded JPEG of NEUTRAL ink — black and mid-grey blocks on white.
+ *
+ * Exactly what grayscale-pdf shipped before it wrote DeviceGray images: pixels
+ * with no hue, in the three-component container `canvas.toBlob` always
+ * produces. It passes every look-based check (ink present, no saturated
+ * colour), so it is the control that isolates the colour-space assertion.
+ */
+export async function makeNeutralInkJpegInPage(
+  page: Page,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ([w, h]) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w as number;
+      canvas.height = h as number;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("2d context unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w as number, h as number);
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, (w as number) / 2, (h as number) / 2);
+      ctx.fillStyle = "#808080";
+      ctx.fillRect(
+        (w as number) / 2,
+        (h as number) / 2,
+        w as number,
+        h as number,
+      );
+      return canvas.toDataURL("image/jpeg", 0.92);
+    },
+    [width, height],
+  );
+  const base64 = dataUrl.split(",")[1];
+  if (!base64) throw new Error("canvas.toDataURL returned no payload");
+  const bytes = detached(Buffer.from(base64, "base64"));
+  assertEncodedAs(bytes, "image/jpeg", dataUrl);
   return bytes;
 }
 

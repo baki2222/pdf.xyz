@@ -53,7 +53,7 @@ describe("parseOcrOptions", () => {
       expect(result.value).toEqual({
         languages: ["eng"],
         outputMode: "searchable-pdf",
-        skipTextPages: false,
+        redoOcr: false,
       });
     }
   });
@@ -128,14 +128,43 @@ describe("parseOcrOptions", () => {
     }
   });
 
-  it("accepts an explicit skipTextPages boolean and rejects non-booleans", () => {
-    const on = parseOcrOptions({ skipTextPages: true });
-    expect(on.ok && on.value.skipTextPages).toBe(true);
+  // CHANGED 2026-09-27. This used to assert that `skipTextPages: true` came back
+  // as a switch the runner obeyed — and that off meant "re-recognize". Off never
+  // meant that: OCRmyPDF aborted the whole job on the first page with text. A
+  // page that already has text is now always kept, so the field no longer
+  // decides anything. It stays a validated, accepted field because it is a
+  // public job option (docs/WORKER_ARCHITECTURE.md) that cached pages and API
+  // clients still send; a non-boolean is still a client error.
+  it("still accepts a boolean skipTextPages from older clients, and rejects non-booleans", () => {
+    for (const value of [true, false]) {
+      const parsed = parseOcrOptions({ skipTextPages: value });
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) {
+        expect(parsed.value.redoOcr).toBe(false);
+        expect("skipTextPages" in parsed.value).toBe(false);
+      }
+    }
 
     const coerced = parseOcrOptions({ skipTextPages: "yes" });
     expect(coerced.ok).toBe(false);
     if (!coerced.ok) {
       expect(coerced.error.body.error.code).toBe("invalid_request");
+    }
+  });
+
+  it("accepts an explicit redoOcr boolean, defaulting off, and rejects non-booleans", () => {
+    const on = parseOcrOptions({ redoOcr: true });
+    expect(on.ok && on.value.redoOcr).toBe(true);
+    const off = parseOcrOptions({});
+    expect(off.ok && off.value.redoOcr).toBe(false);
+
+    const coerced = parseOcrOptions({ redoOcr: "yes" });
+    expect(coerced.ok).toBe(false);
+    if (!coerced.ok) {
+      expect(coerced.error.body.error.code).toBe("invalid_request");
+      expect(coerced.error.body.error.details?.[0]?.field).toBe(
+        "options.redoOcr",
+      );
     }
   });
 });

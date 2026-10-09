@@ -1,13 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Download, FileText, ShieldCheck, Sparkles, Timer } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
-import {
-  AI_INPUT_LIMITS,
-  DEFAULT_RETENTION,
-  JOB_LIMITS,
-} from "@/lib/jobs/types";
+import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
   DEFAULT_SUMMARY_FORMAT,
   DEFAULT_SUMMARY_LENGTH,
@@ -17,30 +14,39 @@ import {
 } from "@/lib/jobs/summarize-pdf";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
+import { countDeclaredCharacters } from "@/lib/workers/ai-declared-characters";
 import {
   canRunSummarize,
+  preflightSummarize,
   runWorkerSummarize,
   type SummarizeWorkerResult,
 } from "@/lib/workers/summarize-client";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { TruncationNotice } from "./truncation-notice";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { OfficeExportNextStep } from "./office-export-notices";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 
 const LENGTH_OPTIONS: { value: SummaryLength; label: string }[] = [
   { value: "brief", label: "Brief — TL;DR + key points" },
@@ -68,43 +74,13 @@ function badgeFor(
 }
 
 export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunSummarize(status);
-  const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : aiToolUnavailableDetail(status);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
+  const unavailableDetail = aiToolUnavailableDetail(status);
 
   return (
     <div className="">
@@ -128,20 +104,21 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
             The worker extracts your PDF&apos;s selectable text and asks a
             configured AI model to summarize only that text, then returns a
             summary package — Markdown, plain text, and a manifest recording the
-            model and scope. It never fabricates a summary: with no AI model
-            configured, or a scanned PDF with no selectable text, it fails
-            honestly instead of guessing.
+            model and scope. With no AI model configured, or a scanned PDF with
+            no selectable text, the job fails instead of guessing. The model is
+            instructed to use only the document&apos;s text, but AI output can
+            still be wrong, so check important details against your PDF.
           </p>
         </div>
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {aiDailyAllowanceNote(tool.slug)}
           </p>
         )}
         {available ? (
-          <SummaryBuilder />
-        ) : (
+          <SummaryBuilder refuse={(file) => pickRefusal(tool, file)} />
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -150,8 +127,14 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
               No builder is shown until the worker is ready, so {tool.name}{" "}
               never pretends to produce a summary it cannot actually generate.
             </p>
-            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={false}
+            />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -159,7 +142,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -198,7 +181,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters read`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${aiReadLimitFor(tool.slug).toLocaleString("en-US")} characters read`}
           />
         </div>
       </div>
@@ -226,51 +209,57 @@ function SpecRow({
   );
 }
 
-function SummaryBuilder() {
+function SummaryBuilder({ refuse }: { refuse: PickRefusal }) {
   const [file, setFile] = useState<File | null>(null);
   const [length, setLength] = useState<SummaryLength>(DEFAULT_SUMMARY_LENGTH);
   const [format, setFormat] = useState<SummaryFormat>(DEFAULT_SUMMARY_FORMAT);
   const [focus, setFocus] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<SummarizeWorkerResult | null>(null);
+  const job = useWorkerJob<SummarizeWorkerResult>({
+    tool: "summarize-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, { ...controls, tool: "summarize-pdf" }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
 
   const canRun = file != null && !busy;
 
   const start = useCallback(async () => {
     if (!file) return;
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const trimmedFocus = focus.trim();
-      const result = await runWorkerSummarize({
-        filename: file.name,
-        bytes: new Uint8Array(await file.arrayBuffer()),
-        length,
-        format,
-        ...(trimmedFocus ? { focus: trimmedFocus } : {}),
-      });
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, length, format, focus]);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      // CHECK HERE, BEFORE ANYTHING IS SPENT. The allowance is reserved when
+      // the job is created, and a scan or a locked PDF has no count to
+      // declare, so the worker's refusal would arrive after the undeclared
+      // price (a third of the day) was taken. See preflightSummarize.
+      const refusal = await preflightSummarize(bytes);
+      if (!refusal.ok) return refusal;
+      const result = await runWorkerSummarize(
+        {
+          filename: file.name,
+          bytes,
+          length,
+          format,
+          ...(trimmedFocus ? { focus: trimmedFocus } : {}),
+          // Counted before upload so the run is charged what this document
+          // holds, not a third of the day. `null` (a file pdfjs cannot count)
+          // sends it undeclared at the old price rather than refusing it.
+          declaredCharacters: await countDeclaredCharacters(bytes),
+        },
+        controls,
+      );
+      return result;
+    });
+  }, [file, length, format, focus, run]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker summarizes
-        only the PDF&apos;s selectable text with a configured AI model — it does
-        not read scanned images (run OCR first) and does not invent content.
+        Running this uses a private secure-worker job. The worker sends only the
+        PDF&apos;s selectable text to a configured AI model — it does not read
+        scanned images (run OCR first) — and the model is told to summarize only
+        that text. AI output can still be wrong.
       </p>
 
       {file ? (
@@ -289,6 +278,7 @@ function SummaryBuilder() {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}
@@ -347,14 +337,17 @@ function SummaryBuilder() {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Summarizing…"
+        busyLabel={jobBusyLabel(job.phase, "Summarizing…")}
         icon={FileText}
         tone="violet"
       >
         Summarize PDF
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
+      {outcome?.ok === false && !outcome.stillRunning && (
+        <OfficeExportNextStep code={outcome.code} message={outcome.message} />
+      )}
       {outcome?.ok === true && (
         <ResultCard announce="Your AI summary package is ready.">
           <TruncationNotice

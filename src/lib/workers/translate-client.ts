@@ -5,6 +5,7 @@ import {
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
 import { canRunAiTool } from "./ai-tool-availability";
+import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import type {
   TranslateLanguage,
   TranslateSourceLanguage,
@@ -98,3 +99,13 @@ export function canRunTranslate(
 ): boolean {
   return canRunAiTool(status);
 }
+
+/**
+ * The extractor the Translate panel measures a document with before anything
+ * is uploaded. An object so a test can swap it and put it back: pdfjs needs
+ * `DOMMatrix`, which the test DOM lacks, and `vi.mock` of the text module
+ * would leave it cached with the stub for later files (mock-isolation.test).
+ */
+export const translateTextDeps: {
+  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+} = { extract: extractPdfText };

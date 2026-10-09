@@ -13,7 +13,7 @@ import {
 import { parsePageList } from "@/lib/pdf/ranges";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import {
   ErrorNote,
   ResultPanel,
@@ -30,6 +30,7 @@ import {
   TextField,
 } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
+import { CropDisclosure } from "./crop-disclosure";
 
 const START_MARGIN = 24;
 const MAX_MARGIN = 300;
@@ -121,16 +122,22 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         summary={`Cropped ${count} page${count === 1 ? "" : "s"} · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
       >
-        <button
-          type="button"
-          onClick={() =>
-            downloadBytes(result, croppedOutputName(pdf.file.name))
-          }
-          className={buttonVariants({ variant: "primary", size: "lg" })}
-        >
-          <Download className="size-4" aria-hidden />
-          Download cropped PDF
-        </button>
+        <div className="flex w-full flex-col gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              downloadBytes(result, croppedOutputName(pdf.file.name))
+            }
+            className={cn(
+              buttonVariants({ variant: "primary", size: "lg" }),
+              "self-start",
+            )}
+          >
+            <Download className="size-4" aria-hidden />
+            Download cropped PDF
+          </button>
+          <CropDisclosure />
+        </div>
       </ResultPanel>
     );
   }
@@ -151,7 +158,20 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           <SegmentedControl
             label="Crop mode"
             value={uniform ? "uniform" : "per-side"}
-            onChange={(value) => setUniform(value === "uniform")}
+            onChange={(value) => {
+              const toUniform = value === "uniform";
+              setUniform(toUniform);
+              // "All sides" shows one value, so Uniform must crop with exactly
+              // that value on every edge — never with per-side values the
+              // person can no longer see. Pinned by crop-runner.test.tsx.
+              if (toUniform) {
+                setMargins((m) =>
+                  m.right === m.top && m.bottom === m.top && m.left === m.top
+                    ? m
+                    : { top: m.top, right: m.top, bottom: m.top, left: m.top },
+                );
+              }
+            }}
             options={[
               { value: "uniform", label: "Uniform" },
               { value: "per-side", label: "Per side" },

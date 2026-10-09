@@ -10,6 +10,8 @@ import {
   resetTelemetry,
   type RedactedEvent,
 } from "@/lib/telemetry/track";
+import { buildOcrCapability } from "@/lib/workers/ocr";
+import { describeOcrLanguage } from "@/lib/jobs/ocr";
 import { SystemStatus, type LocalToolRef } from "./system-status";
 
 const DISABLED_STATUS: WorkerStatus = {
@@ -52,6 +54,14 @@ function mockFetchOnce(impl: () => Promise<unknown>) {
   return fn;
 }
 
+/** The OCR row's language line, found the same way by both directions. */
+function languagesLine(): HTMLElement | null {
+  return screen.queryByText(
+    (_, el) =>
+      el?.tagName === "P" && (el.textContent ?? "").startsWith("Languages:"),
+  );
+}
+
 afterEach(() => {
   resetTelemetry();
   vi.unstubAllGlobals();
@@ -83,6 +93,43 @@ describe("SystemStatus", () => {
     expect(screen.getByText(DISABLED_STATUS.ocr.detail)).toBeInTheDocument();
     // Disabled OCR shows its own "Not enabled" badge alongside the worker one.
     expect(screen.getAllByText("Not enabled").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("lists the languages its OCR detail says are listed", async () => {
+    // The detail comes from the real capability builder, so the sentence and
+    // the list it points at cannot be tested apart. Until 2026-09-27 the
+    // detail said "The languages listed are the recognition packs that worker
+    // actually has installed" above a row that listed none.
+    const ocr = buildOcrCapability(
+      "remote-configured",
+      undefined,
+      ["spa", "eng"],
+      true,
+    );
+    expect(ocr.detail).toMatch(/languages listed/i);
+    mockFetchOnce(async () => ({
+      ok: true,
+      json: async () => ({ ...DISABLED_STATUS, ocr }),
+    }));
+    render(<SystemStatus localTools={LOCAL_TOOLS} />);
+
+    expect(await screen.findByText(ocr.detail)).toBeInTheDocument();
+    const list = languagesLine();
+    expect(list).not.toBeNull();
+    expect(list!.textContent).toBe(
+      `Languages: ${ocr.languages.map(describeOcrLanguage).join(", ")}`,
+    );
+    expect(list!.textContent).toBe("Languages: English, Spanish");
+  });
+
+  it("lists no languages while OCR is not available (the mirror)", async () => {
+    mockFetchOnce(async () => ({
+      ok: true,
+      json: async () => DISABLED_STATUS,
+    }));
+    render(<SystemStatus localTools={LOCAL_TOOLS} />);
+    expect(await screen.findByText("OCR")).toBeInTheDocument();
+    expect(languagesLine()).toBeNull();
   });
 
   it("shows an honest AI capability row read from the live status", async () => {

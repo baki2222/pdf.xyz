@@ -90,7 +90,8 @@ OCR is a **secure-worker-only** capability: turning a scan into a searchable PDF
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `languages`     | A single code or an array of [ISO 639-2/T](https://en.wikipedia.org/wiki/ISO_639-2) codes from a curated allowlist (`eng`, `spa`, `fra`, `deu`, …). 1–4 entries, de-duplicated. An unknown code is **rejected**, never dropped. Defaults to `["eng"]`. |
 | `outputMode`    | `searchable-pdf` (invisible selectable text layer under the scan), `text` (a `.txt` sidecar), or `both`. Defaults to `searchable-pdf`.                                                                                                                 |
-| `skipTextPages` | Boolean; skip pages that already carry a text layer (OCRmyPDF `--skip-text`) instead of re-recognizing them. Defaults to `false`.                                                                                                                      |
+| `redoOcr`       | Boolean; replace an existing OCR text layer (OCRmyPDF `--redo-ocr`) instead of keeping it. Defaults to `false`: a page that already carries text is kept as it is (`--skip-text`) and only pages without text are recognized. Never `--force-ocr`.     |
+| `skipTextPages` | **Retired 2026-09-27; accepted, ignored.** Still validated as a boolean so older clients keep working, but skipping pages with text is now always on. It used to default to `false`, which made OCRmyPDF abort any PDF with a text page.               |
 
 A completed OCR job attaches bounded, content-free metadata typed by `OcrResultMeta` and built by the pure `buildOcrResultMeta` (both in `src/lib/jobs/ocr.ts`): the engine family, validated languages, output mode, which artifact kinds were produced, a best-effort output **page count**, a text-sidecar **character count**, and an optional mean confidence. As of Phase 25 the native runner **measures and populates** these from the actual run (page count via pdf-lib, character count from the sidecar length) — never estimated. As of Phase 27 those counts are read from the artifacts **actually produced** — the page count from the produced searchable-PDF's bytes, never the input scan, and the character count from the produced sidecar — so the produced-kind flags and counts can't drift from the returned artifacts, and a missing/invalid searchable-PDF output **throws** rather than fabricating metadata (`src/lib/workers/ocr-native.test.ts`). Nulls are honest ("not determinable / not measured"), counts are bounded, and `meanConfidence` stays `null` because the native backend exposes none. No recognized text, filename, or path ever enters the metadata. **Phase 26 threads it onto the client-facing job record** as `Job.results.ocr` (namespaced container in `src/lib/jobs/results.ts`), returned verbatim by `GET /api/jobs/{id}`; every write is re-bounded by `sanitizeJobResults` (which also collapses the engine to the closed `ocrmypdf`/`tesseract`/`unknown` family set) and dropped again when the outputs are deleted. See [`OCR_BACKEND.md`](./OCR_BACKEND.md) → _Client-visible OCR metadata_.
 
@@ -100,7 +101,7 @@ A completed OCR job attaches bounded, content-free metadata typed by `OcrResultM
 
 ### OCR tool page (`src/components/tools/ocr-worker-panel.tsx`)
 
-`/tools/ocr-pdf` renders a premium, OCR-specific secure-worker panel instead of the generic preview. It reads the live `/api/worker/status` endpoint (emitting the Phase 10 `worker_status_checked` event — mode + enabled only), lets the user configure a real request (languages, output, skip-text) validated by the shared `parseOcrOptions`, and shows the exact pipeline — encrypted upload → scan → isolated recognition → download → auto-delete. When OCR is unavailable it says so plainly and **mounts no uploader**; only when the endpoint honestly reports OCR available does it mount a file picker and run the documented flow via `runWorkerOcr` (`src/lib/workers/ocr-client.ts`), surfacing only real downloaded output or an honest failure.
+`/tools/ocr-pdf` renders a premium, OCR-specific secure-worker panel instead of the generic preview. It reads the live `/api/worker/status` endpoint (emitting the Phase 10 `worker_status_checked` event — mode + enabled only), lets the user configure a real request (languages — narrowed to the packs the live status reports installed — output, redo-OCR) validated by the shared `parseOcrOptions`, and shows the exact pipeline — encrypted upload → scan → isolated recognition → download → auto-delete. When OCR is unavailable it says so plainly and **mounts no uploader**; only when the endpoint honestly reports OCR available does it mount a file picker and run the documented flow via `runWorkerOcr` (`src/lib/workers/ocr-client.ts`), surfacing only real downloaded output or an honest failure.
 
 ### OCR native backend (Phase 23 — optional, off by default)
 
@@ -588,6 +589,12 @@ The validator rejects:
 - too many files or oversized files
 - URL-only tools such as `webpage-to-pdf`
 
+For an AI tool the route then asks, before any slot is minted, the two questions
+`POST /api/jobs` would ask later: is the global AI spend ceiling spent (`503`,
+the job route's own message), and could ANY job still fit in this connection's
+daily allowance (`429`, the allowance message). Both are peeks and spend
+nothing; see Step 5 of [`RATE_LIMITING.md`](./RATE_LIMITING.md).
+
 ### `POST /api/jobs`
 
 Creates a job for a worker-capable tool once files have been uploaded, or directly for URL-input tools.
@@ -614,7 +621,7 @@ URL-input example:
 }
 ```
 
-The URL validator blocks localhost, private IPv4 ranges, link-local/cloud metadata ranges, embedded credentials, non-http(s) protocols, and internal/local hostnames. Production workers must also enforce network egress rules; this edge validator is defense-in-depth, not the only SSRF protection.
+The URL validator refuses internal hostnames, every non-public IPv4/IPv6 range (`src/lib/net/public-address.ts`), embedded credentials and non-http(s) protocols. It is the early rejection only. The enforcement is in the worker's Chromium renderer (`src/lib/workers/html-render/network.ts`), which resolves and checks every request the page makes — redirects and sub-resources included — and connects only to the address it checked.
 
 ### `GET /api/jobs/:id`
 
@@ -860,7 +867,7 @@ Each job runs in an isolated temporary directory/container. Recommended processo
 - No document contents in logs.
 - Strict timeout and memory limits.
 - No arbitrary file paths in requests or outputs.
-- Network egress disabled by default; webpage-to-PDF is the only exception and still requires SSRF guards.
+- Chromium renders (HTML and webpage to PDF) have no network of their own: every request is fulfilled by the worker after a public-address check, and uploaded HTML is never read from `file://`. No other processor is network-isolated today — the worker process reaches storage, the queue and AI providers by design.
 - Signed, expiring download URLs.
 - Idempotency keys for retry-safe job creation.
 
@@ -981,10 +988,11 @@ policy's budget is shared across the fleet instead of multiplied by the replica 
   open). Diagnostics name environment **variables** only, never a value or endpoint.
 
 **Client attribution is private and opt-in.** A limiter must bucket by some
-client identity. The guard derives one only from the proxy forwarding header
-(`x-forwarded-for` / `x-real-ip`) and only when `PDFXYZ_RATE_LIMIT_TRUST_PROXY`
-is truthy — because that header is client-spoofable unless a trusted edge
-overwrites it. Off (the default), every request keys into **one shared bucket**
+client identity. The guard derives one only from the single header named by
+`PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER` (e.g. `cf-connecting-ip`) and only when
+`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is truthy — because any header is
+client-spoofable unless a trusted edge overwrites it (and the origin cannot be
+reached around that edge). Off (the default), every request keys into **one shared bucket**
 (a coarse global throttle) rather than an attacker's rotating fake address. When
 on, the address is immediately **salted-hashed** (per-process random salt) and
 used only as an in-memory map key; the raw address is never retained, logged,
@@ -1028,7 +1036,7 @@ Secure-worker and AI tool pages render a contract preview instead of a fake uplo
 - retention window
 - “not yet enabled” status
 
-`/tools/ocr-pdf` goes further with a dedicated, OCR-specific panel (`ocr-worker-panel.tsx`): the same honest pipeline and retention, plus real recognition settings (languages, output mode, skip-text) validated by the shared contract, a live capability check, and an uploader that appears **only** if the status endpoint reports OCR available. Live in-browser tools do not call these endpoints.
+`/tools/ocr-pdf` goes further with a dedicated, OCR-specific panel (`ocr-worker-panel.tsx`): the same honest pipeline and retention, plus real recognition settings (languages, output mode, redo-OCR) validated by the shared contract, a live capability check, and an uploader that appears **only** if the status endpoint reports OCR available. Live in-browser tools do not call these endpoints.
 
 ## Definition of done for first real worker
 

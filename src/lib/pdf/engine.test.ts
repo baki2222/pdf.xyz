@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber } from "pdf-lib";
 import {
   deletePages,
   extractPages,
@@ -10,9 +10,18 @@ import {
   organizePages,
   PdfEngineError,
   rotatePages,
+  setPageRotations,
   splitPdf,
 } from "./engine";
 import { buildSplitParts, rangesPerPage } from "./ranges";
+import type { Rotation } from "./types";
+import {
+  lostStructure,
+  makeStructuredPdf,
+  readDocumentStructure,
+  STRUCTURED_FIELD_NAME,
+  STRUCTURED_FIELD_VALUE,
+} from "@/tests/fixtures-structured-pdf";
 
 /**
  * Build a PDF where each page has a unique width — (index + 1) * 10 — so tests
@@ -198,5 +207,299 @@ describe("organizePages", () => {
       { sourceIndex: 99, rotation: 0 },
     ]);
     expect(await widths(out)).toEqual([10]);
+  });
+});
+
+/**
+ * The REBUILD these positive controls are about, reconstructed here: a fresh
+ * document with the pages `copyPages`d in and turned — what `organizePages`
+ * shipped until wave1/l01-page-leak rebuilt it on the clean page assembler
+ * (`./page-copy`), which now carries the catalog, the form and the metadata
+ * across. The control used to CALL `organizePages` for this, and so pinned
+ * that defect; after the merge it certified nothing (the predicate found
+ * nothing to lose). Built with pdf-lib directly, in a test file, which the
+ * no-direct-copyPages guard does not walk.
+ */
+async function bareRebuild(
+  bytes: Uint8Array,
+  plan: { sourceIndex: number; rotation: number }[],
+): Promise<Uint8Array> {
+  const { PDFDocument: Doc, degrees } = await import("pdf-lib");
+  const src = await Doc.load(bytes);
+  const out = await Doc.create();
+  const pages = await out.copyPages(
+    src,
+    plan.map((item) => item.sourceIndex),
+  );
+  pages.forEach((page, i) => {
+    page.setRotation(degrees(plan[i]!.rotation));
+    out.addPage(page);
+  });
+  return out.save();
+}
+
+describe("setPageRotations", () => {
+  /*
+   * The rotate tool's engine. It used to be `organizePages`, which rebuilds the
+   * file with `PDFDocument.create()` + `copyPages` and so keeps page objects
+   * only: bookmarks, AcroForm, Title/Author, PageLabels, /Lang and the tag
+   * tree were deleted from every document rotated, and the download looked
+   * right. The existing proofs could not see it because their inputs carried
+   * nothing to lose — hence the structured fixture, and the control below
+   * proving that fixture CAN see the loss.
+   */
+  it("sets absolute rotations and keeps every document-level member", async () => {
+    const input = await makeStructuredPdf(3);
+    const before = await readDocumentStructure(input);
+
+    // Health check: the fixture really carries what the claim is about. A
+    // fixture with nothing to lose makes `lostStructure` vacuously empty.
+    expect([...before.catalog.keys()]).toEqual(
+      expect.arrayContaining([
+        "/AcroForm",
+        "/Lang",
+        "/MarkInfo",
+        "/Outlines",
+        "/PageLabels",
+        "/StructTreeRoot",
+        "/ViewerPreferences",
+      ]),
+    );
+    expect(before.info.get("/Title")).toBe(JSON.stringify("Quarterly Report"));
+    expect(before.fields.get(STRUCTURED_FIELD_NAME)).toBe(
+      STRUCTURED_FIELD_VALUE,
+    );
+    expect(before.pages[0]!.has("/Annots")).toBe(true);
+
+    const out = await setPageRotations(input, [90, 0, 270]);
+    const after = await readDocumentStructure(out);
+    expect(after.rotations).toEqual([90, 0, 270]);
+    expect(lostStructure(before, after)).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: the rebuild path it replaced is caught by the same predicate", async () => {
+    const input = await makeStructuredPdf(3);
+    const before = await readDocumentStructure(input);
+    const rebuilt = await bareRebuild(input, [
+      { sourceIndex: 0, rotation: 90 },
+      { sourceIndex: 1, rotation: 0 },
+      { sourceIndex: 2, rotation: 270 },
+    ]);
+    const after = await readDocumentStructure(rebuilt);
+    // Same rotations — so the ONLY thing separating it from the output above
+    // is what it dropped, and the predicate has to name those members.
+    expect(after.rotations).toEqual([90, 0, 270]);
+    expect(lostStructure(before, after)).toEqual(
+      expect.arrayContaining([
+        "catalog/Outlines",
+        "catalog/AcroForm",
+        "catalog/Lang",
+        "catalog/PageLabels",
+        "catalog/StructTreeRoot",
+        "field/customer.name",
+      ]),
+    );
+  });
+
+  it("INVERTED: organizePages itself no longer drops what the bare rebuild drops", async () => {
+    // Until wave1/l01-page-leak the control above called organizePages AS the
+    // rebuild that loses structure. It was fixed there; kept here so the day
+    // it regresses, this goes red rather than the control going quiet.
+    const input = await makeStructuredPdf(3);
+    const before = await readDocumentStructure(input);
+    const organized = await organizePages(input, [
+      { sourceIndex: 0, rotation: 90 },
+      { sourceIndex: 1, rotation: 0 },
+      { sourceIndex: 2, rotation: 270 },
+    ]);
+    expect(
+      lostStructure(before, await readDocumentStructure(organized)),
+    ).toEqual([]);
+  });
+
+  it("keeps a page's existing rotation when asked for the same angle", async () => {
+    const input = await rotatePages(await makePdf(2), [1], 180);
+    const out = await setPageRotations(input, [0, 180]);
+    expect(await getPageRotations(out)).toEqual([0, 180]);
+    expect(await widths(out)).toEqual([10, 20]);
+  });
+
+  it("snaps and wraps angles like the rest of the engine", async () => {
+    // Out-of-type angles, as a caller holding raw degrees would pass them.
+    const raw = [-90, 450] as unknown as Rotation[];
+    const out = await setPageRotations(await makePdf(2), raw);
+    expect(await getPageRotations(out)).toEqual([270, 90]);
+  });
+
+  it("refuses a plan that does not cover every page exactly once", async () => {
+    const pdf = await makePdf(3);
+    await expect(setPageRotations(pdf, [90, 90])).rejects.toBeInstanceOf(
+      PdfEngineError,
+    );
+    await expect(
+      setPageRotations(pdf, [90, 90, 90, 90]),
+    ).rejects.toBeInstanceOf(PdfEngineError);
+  });
+});
+
+/*
+ * Left-out pages must not ride along inside the file.
+ *
+ * Found by the content writers on 2026-09-27 and published on the Extract and
+ * Delete Pages pages as a warning: a kept page whose link jumped to a left-out
+ * page made `copyPages` copy that page's object — text and images — into the
+ * output, outside the page tree, and transitively through that page's own
+ * links. The page tree was right the whole time, which is why nothing saw it;
+ * these tests count the PAGE OBJECTS in the file instead.
+ */
+describe("pages left out of an output are not carried inside it", () => {
+  /**
+   * Five pages, widths 10..50. Page 1 links to page 3 by `/Dest`, page 3 links
+   * to page 5 by a GoTo action, and page 2 links back to page 1.
+   */
+  async function makeLinkedPdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const pages = [1, 2, 3, 4, 5].map((n) => doc.addPage([n * 10, 100]));
+    const link = (from: number, entries: Record<string, unknown>) => {
+      const annot = doc.context.register(
+        doc.context.obj({
+          Type: "Annot",
+          Subtype: "Link",
+          Rect: [0, 0, 5, 5],
+          ...entries,
+        } as never),
+      );
+      pages[from]!.node.set(PDFName.of("Annots"), doc.context.obj([annot]));
+    };
+    link(0, { Dest: [pages[2]!.ref, PDFName.of("Fit")] });
+    link(2, {
+      A: { S: "GoTo", D: [pages[4]!.ref, PDFName.of("Fit")] },
+    });
+    link(1, { Dest: [pages[0]!.ref, PDFName.of("Fit")] });
+    return doc.save();
+  }
+
+  /** Widths of every /Type /Page object in the file, tree or not. */
+  async function pageObjectWidths(bytes: Uint8Array): Promise<number[]> {
+    const doc = await PDFDocument.load(bytes);
+    const found: number[] = [];
+    for (const [, object] of doc.context.enumerateIndirectObjects()) {
+      if (!(object instanceof PDFDict)) continue;
+      if (object.get(PDFName.of("Type")) !== PDFName.of("Page")) continue;
+      const box = object.lookup(PDFName.of("MediaBox"), PDFArray);
+      found.push(Math.round(box.lookup(2, PDFNumber).asNumber()));
+    }
+    return found.sort((a, b) => a - b);
+  }
+
+  /**
+   * Where each tree page's first link lands: the target's width when it is a
+   * page IN THE TREE, "orphan" when it is a page object the reader cannot
+   * reach, null when the link opens nothing.
+   */
+  async function linkTargets(
+    bytes: Uint8Array,
+  ): Promise<(number | "orphan" | null)[]> {
+    const doc = await PDFDocument.load(bytes);
+    const tree = new Set(doc.getPages().map((page) => page.ref.toString()));
+    return doc.getPages().map((page) => {
+      const annots = page.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+      // A link the engine REMOVED opens nothing, the same as an inert one:
+      // the assembler drops a link whose target page was left out rather
+      // than keep a hot-spot that goes nowhere (src/lib/pdf/page-copy.ts).
+      const annot = annots?.lookupMaybe(0, PDFDict);
+      const action = annot?.lookupMaybe(PDFName.of("A"), PDFDict);
+      const dest =
+        annot?.lookupMaybe(PDFName.of("Dest"), PDFArray) ??
+        action?.lookupMaybe(PDFName.of("D"), PDFArray);
+      if (!dest) return null;
+      if (!tree.has(String(dest.get(0)))) return "orphan";
+      const box = dest
+        .lookup(0, PDFDict)
+        .lookup(PDFName.of("MediaBox"), PDFArray);
+      return Math.round(box.lookup(2, PDFNumber).asNumber());
+    });
+  }
+
+  it("positive control: the counter sees the leak a raw copy makes", async () => {
+    // Without this, a counter that saw only the tree would pass everything.
+    const src = await PDFDocument.load(await makeLinkedPdf());
+    const out = await PDFDocument.create();
+    for (const page of await out.copyPages(src, [0, 1])) out.addPage(page);
+    const bytes = await out.save();
+    // The left-out 3 and 5 ride along, AND page 2's link to kept page 1 made
+    // a second, orphan copy of page 1 — which is what that link opens.
+    expect(await pageObjectWidths(bytes)).toEqual([10, 10, 20, 30, 50]);
+    expect(await linkTargets(bytes)).toEqual(["orphan", "orphan"]);
+  });
+
+  it("extractPages carries only the selection", async () => {
+    const out = await extractPages(await makeLinkedPdf(), [0, 1]);
+    expect(await widths(out)).toEqual([10, 20]);
+    expect(await pageObjectWidths(out)).toEqual([10, 20]);
+    // A link to a KEPT page opens that page; one to a left-out page is inert.
+    expect(await linkTargets(out)).toEqual([null, 10]);
+  });
+
+  it("deletePages leaves the deleted pages out of the bytes", async () => {
+    const out = await deletePages(await makeLinkedPdf(), [2, 3, 4]);
+    expect(await pageObjectWidths(out)).toEqual([10, 20]);
+    expect(await linkTargets(out)).toEqual([null, 10]);
+  });
+
+  it("organizePages drops a deleted page a kept one linked to", async () => {
+    const out = await organizePages(await makeLinkedPdf(), [
+      { sourceIndex: 1, rotation: 0 },
+      { sourceIndex: 0, rotation: 0 },
+    ]);
+    expect(await pageObjectWidths(out)).toEqual([10, 20]);
+    expect(await linkTargets(out)).toEqual([10, null]);
+  });
+
+  it("splitPdf restores the source between parts, so a later part keeps its links", async () => {
+    const [first, second] = await splitPdf(await makeLinkedPdf(), [
+      { name: "a.pdf", indices: [0] },
+      { name: "b.pdf", indices: [0, 2] },
+    ]);
+    expect(await pageObjectWidths(first!.bytes)).toEqual([10]);
+    expect(await pageObjectWidths(second!.bytes)).toEqual([10, 30]);
+    // In the second part page 3 WAS kept, so page 1's link survives the
+    // first part's detaching; page 3's GoTo to the left-out page 5 is inert.
+    expect(await linkTargets(second!.bytes)).toEqual([30, null]);
+    expect(await linkTargets(first!.bytes)).toEqual([null]);
+  });
+});
+
+describe("mergePdfs keeps a file's internal links pointing into the tree", () => {
+  it("re-aims a link at the merged copy of its page, not an orphan", async () => {
+    const doc = await PDFDocument.create();
+    const [first, second] = [doc.addPage([10, 100]), doc.addPage([20, 100])];
+    const annot = doc.context.register(
+      doc.context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [0, 0, 5, 5],
+        Dest: [second.ref, PDFName.of("Fit")],
+      } as never),
+    );
+    first.node.set(PDFName.of("Annots"), doc.context.obj([annot]));
+    const merged = await PDFDocument.load(
+      await mergePdfs([await makePdf(1), await doc.save()]),
+    );
+    const tree = merged.getPages().map((page) => page.ref.toString());
+    const link = merged
+      .getPage(1)
+      .node.lookup(PDFName.of("Annots"), PDFArray)
+      .lookup(0, PDFDict)
+      .lookup(PDFName.of("Dest"), PDFArray);
+    expect(String(link.get(0))).toBe(tree[2]);
+    let pageObjects = 0;
+    for (const [, object] of merged.context.enumerateIndirectObjects())
+      if (
+        object instanceof PDFDict &&
+        object.get(PDFName.of("Type")) === PDFName.of("Page")
+      )
+        pageObjects++;
+    expect(pageObjects).toBe(3);
   });
 });

@@ -6,9 +6,11 @@
  * and the worker image separated, and prove no artifact carries a real-looking
  * secret. They are the testable stand-in for a Docker build.
  */
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { resolveNativePdfArchiveConfig } from "@/lib/workers/pdf-archive/native-config";
 
 const ROOT = process.cwd();
 const read = (rel: string): string =>
@@ -91,6 +93,25 @@ describe("Dockerfile — two independent targets, web ↔ worker separation", ()
   it("the worker image installs LibreOffice for Office to PDF conversion", () => {
     const worker = stageInstructions(stages, "worker");
     expect(worker).toMatch(/apt-get install[\s\S]*libreoffice/);
+  });
+
+  it("the worker image provisions the PDF/A ICC profile at exactly the path the engine reads", () => {
+    // The PDF/A OutputIntent embeds an ICC profile read from disk. The runtime
+    // path is DEFAULT_PDFA_ICC_PROFILE; if the image put the profile anywhere
+    // else, the engine's boot probe would report PDF/A unavailable (or, with a
+    // wrong override, every job would fail the output gate). The derivation
+    // runs from the engine's constant to the Dockerfile, never the reverse.
+    const worker = stageInstructions(stages, "worker");
+    const expected = resolveNativePdfArchiveConfig({}).iccProfile;
+    const copied = /cp -L "\$icc" (\S+)/.exec(worker)?.[1];
+    expect(copied, "the worker stage copies no ICC profile").toBeDefined();
+    expect(copied).toBe(expected);
+    // …found from Ghostscript's own install, and the build FAILS if absent.
+    expect(worker).toMatch(
+      /find \/usr\/share -path '\*ghostscript\*' -name srgb\.icc/,
+    );
+    expect(worker).toContain('test -n "$icc"');
+    expect(worker).toContain(`test -s ${expected}`);
   });
 
   it("the worker image installs the proof-only pdftotext tool (poppler-utils)", () => {
@@ -216,6 +237,85 @@ describe(".dockerignore keeps secrets, prompts, and build output out of the cont
     ]) {
       expect(patterns).toContain(needed);
     }
+  });
+
+  /*
+   * The image build runs `pnpm build`, and Next type-checks every .ts/.tsx in
+   * the context — so a file that stays IN the context must not import one the
+   * context drops. On 2026-10-08 src/tests/pdfjs-load-order.vitest.config.ts
+   * (a test-only config, its test already excluded by `**\/*.test.ts`) imported
+   * ../../vitest.config, which `vitest.config.ts` excludes: every local build
+   * passed (the file exists on disk) and the web image failed with TS2307.
+   * The property, derived from the tree rather than from names: no import edge
+   * from an included file reaches an excluded one. `import type` counts — the
+   * type checker resolves it too.
+   */
+  it("leaves no file in the context importing a file the context drops", () => {
+    const toRegex = (pattern: string) =>
+      new RegExp(
+        "^" +
+          pattern
+            .replace(/^\//, "")
+            .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+            .replace(/\*\*\//g, "\u0000")
+            .replace(/\*\*/g, ".*")
+            .replace(/\*/g, "[^/]*")
+            .replace(/\?/g, "[^/]")
+            .replace(/\u0000/g, "(?:.*/)?") +
+          "(?:/.*)?$",
+      );
+    const excludedBy = (rules: string[]) => {
+      const res = rules.filter((p) => !p.startsWith("!")).map(toRegex);
+      return (rel: string) => res.some((re) => re.test(rel));
+    };
+    const tracked = execFileSync("git", ["ls-files", "*.ts", "*.tsx"], {
+      cwd: ROOT,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean);
+    const resolveImport = (from: string, spec: string): string | null => {
+      const base = spec.startsWith("@/")
+        ? path.posix.join("src", spec.slice(2))
+        : spec.startsWith(".")
+          ? path.posix.join(path.posix.dirname(from), spec)
+          : null;
+      if (!base) return null;
+      for (const cand of [
+        base,
+        `${base}.ts`,
+        `${base}.tsx`,
+        `${base}/index.ts`,
+        `${base}/index.tsx`,
+      ]) {
+        if (tracked.includes(cand)) return cand;
+      }
+      return null;
+    };
+    const SPEC = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)["']([^"']+)["']/g;
+    const violations = (rules: string[]) => {
+      const excluded = excludedBy(rules);
+      const out: string[] = [];
+      for (const file of tracked) {
+        if (excluded(file)) continue;
+        for (const m of read(file).matchAll(SPEC)) {
+          const target = resolveImport(file, m[1]!);
+          if (target && excluded(target)) out.push(`${file} -> ${target}`);
+        }
+      }
+      return out;
+    };
+    // Health check: the walk sees the repository, not an empty list.
+    expect(tracked.length).toBeGreaterThan(500);
+    expect(violations(patterns)).toEqual([]);
+    // Positive control: the context as it stood on 2026-10-08 (without the
+    // `**/*.vitest.config.ts` line) must show exactly the edge that broke the
+    // image — otherwise this check cannot see the defect it exists for.
+    expect(
+      violations(patterns.filter((p) => p !== "**/*.vitest.config.ts")),
+    ).toContain(
+      "src/tests/pdfjs-load-order.vitest.config.ts -> vitest.config.ts",
+    );
   });
 });
 
@@ -488,20 +588,73 @@ describe("worker OCRmyPDF searchable-PDF PROOF script is present, wired, and ima
 // --------------------------------------------------------------------------- //
 // Secret hygiene — no committed artifact may carry a real-looking credential.
 // --------------------------------------------------------------------------- //
-const CONFIG_FILES = [
-  "Dockerfile",
-  "docker-compose.worker.yml",
-  ".env.worker.example",
-];
+/**
+ * BOTH CORPORA ARE DERIVED FROM `git ls-files`, never typed.
+ *
+ * History: until 2026-09 these were hand-typed lists. CONFIG_FILES named three
+ * files and missed `.env.local.example` — the tracked example developers copy
+ * and fill, with PDFXYZ_AI_API_KEY, PDFXYZ_S3_SECRET_ACCESS_KEY and
+ * PDFXYZ_REDIS_REST_TOKEN in it — so a real key pasted there and committed
+ * passed CI. DOC_FILES named 4 of 109 tracked docs, and a renamed one turned
+ * its test into a silent pass (`if (!existsSync(…)) return;`).
+ */
+const tracked = (...pathspec: string[]): string[] =>
+  execFileSync("git", ["ls-files", "-z", "--", ...pathspec], {
+    cwd: ROOT,
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter(Boolean);
+
+/**
+ * Root-level env examples, Dockerfiles and compose files. Root-only on
+ * purpose: `docs/examples/deployment/**` is guarded by
+ * `deployment-blueprint.test.ts` under its own, stricter rules.
+ */
+const CONFIG_FILES = tracked().filter((f) =>
+  /^(?:\.env[^/]*\.example|Dockerfile[^/]*|docker-compose[^/]*\.ya?ml)$/.test(
+    f,
+  ),
+);
+
+/** Binary formats the AWS-key scan cannot meaningfully read. */
+const BINARY = /\.(?:png|jpe?g|gif|webp|ico|pdf|zip|gz|woff2?|ttf|otf)$/i;
+
+/** Every tracked text file under docs/, plus the root Markdown. */
 const DOC_FILES = [
-  "docs/DEPLOYMENT.md",
-  "docs/WORKER_ARCHITECTURE.md",
-  "docs/RUNBOOK.md",
-  "docs/OCR_BACKEND.md",
-];
+  ...tracked("docs"),
+  ...tracked().filter((f) => /^[^/]+\.md$/.test(f)),
+].filter((f) => !BINARY.test(f));
 
 /** AWS-style access-key ids — a hard fail wherever they appear. */
 const AWS_KEY = /\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{16}\b/;
+
+describe("the secret-hygiene corpora are derived, and plausible", () => {
+  it("config: every root env example, Dockerfile and compose file", () => {
+    expect(CONFIG_FILES.length).toBeGreaterThanOrEqual(4);
+    // Positive controls: the file the hand-typed list missed, and one it had.
+    expect(CONFIG_FILES).toContain(".env.local.example");
+    expect(CONFIG_FILES).toContain(".env.worker.example");
+    expect(CONFIG_FILES).toContain("Dockerfile");
+  });
+
+  it("docs: every tracked text doc, and a broken link is fatal", () => {
+    // 77 text files under docs/ today; a collapsed listing would pass
+    // everything below vacuously.
+    expect(DOC_FILES.length).toBeGreaterThanOrEqual(70);
+    expect(DOC_FILES).toContain("docs/DEPLOYMENT.md");
+    for (const rel of DOC_FILES)
+      expect(
+        existsSync(path.join(ROOT, rel)),
+        `${rel} is listed but missing`,
+      ).toBe(true);
+  });
+
+  it("the key pattern catches a key-shaped string (mutation control)", () => {
+    expect(`id=${"AKIA"}${"A".repeat(16)}`).toMatch(AWS_KEY);
+    expect("AKIA-not-a-key").not.toMatch(AWS_KEY);
+  });
+});
 
 /** A value is safe-by-inspection when it is empty, an interpolation, or a placeholder. */
 const PLACEHOLDER =
@@ -591,10 +744,11 @@ describe("deployment artifacts carry no real-looking secrets", () => {
     });
   }
 
-  for (const rel of DOC_FILES) {
-    it(`${rel}: documents provider variables without embedding AWS keys`, () => {
-      if (!existsSync(path.join(ROOT, rel))) return;
-      expect(read(rel)).not.toMatch(AWS_KEY);
-    });
-  }
+  it("no tracked doc embeds an AWS key", () => {
+    // One assertion over the derived set, naming every offender. There is no
+    // `if (!existsSync) return` here any more: the corpus comes from git, and
+    // the health check above makes a listed-but-missing file fatal.
+    const offenders = DOC_FILES.filter((rel) => AWS_KEY.test(read(rel)));
+    expect(offenders).toEqual([]);
+  });
 });

@@ -153,9 +153,19 @@ describe("a run that starts always stops", () => {
    * The client layer is now careful, but care is not a guarantee: `finally` is,
    * and it covers causes that layer cannot see — including ones not written yet.
    */
-  const busyPanels = completionSurfaceFiles().filter(({ file }) =>
-    readFileSync(file, "utf8").includes("setBusy(true)"),
-  );
+  /**
+   * Since 2026-09-27 the worker panels hold their run in the shared
+   * `useWorkerJob` hook (Keep waiting, Cancel, progress), so their busy state
+   * is set THERE, not in the panel. A panel that uses the hook stops where the
+   * hook does, and is checked against the hook's source — the corpus did not
+   * shrink to the one runner left calling `setBusy(true)` itself.
+   */
+  const JOB_HOOK = path.join(TOOLS_DIR, "worker-job.tsx");
+  const USES_JOB_HOOK = /\buseWorkerJob\s*</;
+  const busyPanels = completionSurfaceFiles().filter(({ file }) => {
+    const source = readFileSync(file, "utf8");
+    return source.includes("setBusy(true)") || USES_JOB_HOOK.test(source);
+  });
 
   it("finds the panels that show a busy state", () => {
     expect(busyPanels.length).toBeGreaterThanOrEqual(12);
@@ -164,7 +174,11 @@ describe("a run that starts always stops", () => {
   it.each(busyPanels)(
     "$name clears its busy state in a finally",
     ({ file, name }) => {
-      const source = readFileSync(file, "utf8");
+      const own = readFileSync(file, "utf8");
+      const source =
+        USES_JOB_HOOK.test(own) && !own.includes("setBusy(true)")
+          ? readFileSync(JOB_HOOK, "utf8")
+          : own;
       expect(
         /\}\s*finally\s*\{[^}]*setBusy\(false\)/s.test(source),
         `${name} sets a busy state but does not clear it in a finally — a rejected fetch there leaves the button spinning with no error, and only a page reload recovers it`,

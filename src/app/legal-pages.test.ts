@@ -21,6 +21,7 @@ import { JOB_LIMITS } from "@/lib/jobs/types";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
+import { toolContentFiles } from "@/lib/tools/copy-surface";
 
 const ROOT = process.cwd();
 const PRIVACY = path.join(ROOT, "src", "app", "privacy", "page.tsx");
@@ -48,6 +49,27 @@ const read = (file: string) => readFileSync(file, "utf8");
 function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
 }
+
+/**
+ * Prose with every DERIVED value removed: template interpolations (`${...}`)
+ * and JSX expressions that are a bare name or member path (`{outputWindow}`,
+ * `{RETENTION_WINDOWS.jobRecord}`). Only those two shapes — stripping every
+ * `{...}` would also strip the object literal that holds the page's metadata
+ * description, and a description is prose a search engine shows.
+ */
+function withoutInterpolations(source: string): string {
+  return source
+    .replace(/\$\{[^{}]*\}/g, " ")
+    .replace(/\{\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\}/g, " ");
+}
+
+/**
+ * A duration written out: a quantity — digits, "a"/"an"/"one", "a few",
+ * "several", optionally after "~" — and a unit of time. Every gap is `\s+`:
+ * this scans JSX source, where prose wraps mid-phrase.
+ */
+const DURATION_SHAPE =
+  /(?:~\s*)?\b(?:\d+|an?|one|two|three|a\s+few|a\s+couple\s+of|several)\s+(?:minutes?|hours?|days?|weeks?)\b/gi;
 
 /**
  * WHERE THE MALWARE-SCANNING CLAIM IS GUARDED — deliberately not here.
@@ -92,22 +114,74 @@ describe("the policy pages exist and are reachable", () => {
 });
 
 describe("the policy pages derive their facts rather than restating them", () => {
-  it("neither hard-codes the retention window", () => {
-    // `DEFAULT_RETENTION.inputTtlMinutes` is 60 today. A page that says "60
-    // minutes" in prose reads identically and becomes a false promise the moment
-    // the constant moves — with nothing failing.
+  it("neither hard-codes a duration, in any spelling", () => {
+    // WAS a ban on the one spelling /\b60\s*minutes\b/, and it was green while
+    // the privacy page told readers "we delete files within an hour" and
+    // described its own metadata as "after an hour" — the same figure one
+    // spelling over, and a false one besides (see legal-retention.test.tsx).
+    // A literal ban reports "no figure in the words I know". So the ban is on
+    // the SHAPE — a quantity and a unit of time — over the prose a reader
+    // gets, with every derived value (`${...}`, `{window}`) stripped first:
+    // a duration may appear on these pages only as an interpolation of the
+    // constant that owns it (`src/lib/retention-windows.ts`).
     for (const [name, file] of [
       ["privacy", PRIVACY],
       ["terms", TERMS],
     ] as const) {
       const source = read(file);
-      expect(source, `${name} should import the retention constants`).toContain(
-        "DEFAULT_RETENTION",
-      );
       expect(
-        /\b60\s*minutes\b/i.test(withoutComments(source)),
-        `${name} hard-codes a retention figure in prose instead of reading DEFAULT_RETENTION`,
-      ).toBe(false);
+        source,
+        `${name} should state its windows from the one shared derivation`,
+      ).toContain("RETENTION_WINDOWS");
+      const prose = withoutInterpolations(withoutComments(source));
+      // Health: the stripping must leave the page's prose, not eat it.
+      expect(prose.length, `${name}'s prose was stripped away`).toBeGreaterThan(
+        source.length / 2,
+      );
+      const found = [...prose.matchAll(DURATION_SHAPE)].map((m) => m[0]);
+      expect(
+        found,
+        `${name} hand-writes a duration instead of interpolating the constant that owns it:\n  ${found.join("\n  ")}`,
+      ).toEqual([]);
+    }
+  });
+
+  it("the duration ban catches every spelling that shipped, and spares what it must", () => {
+    // House rule 1, both directions. Each positive was on /privacy or /terms
+    // before 2026-09-27; each negative is true prose, or a derivation, that
+    // must never trip it.
+    const caught = [
+      "60 minutes",
+      "an hour",
+      "delete files within an hour",
+      "stops serving the result after an hour",
+      "a few hours longer than the link does",
+      "is kept\n              for about 24 hours",
+      "that job record for the same ~24 hours",
+      "about a day",
+    ];
+    for (const text of caught) {
+      expect(
+        [...text.matchAll(DURATION_SHAPE)],
+        `the ban no longer catches: ${text}`,
+      ).toHaveLength(1);
+    }
+    const spared = [
+      "that cache lasts minutes, not days",
+      "runs on a daily cycle",
+      "You must be at least 13 years old.",
+      "after {outputWindow}",
+      "after {RETENTION_WINDOWS.outputLink}",
+      "`stops serving the result after ${RETENTION_WINDOWS.outputLink}.`",
+      "`${DEFAULT_RETENTION.outputTtlMinutes} minutes`",
+    ];
+    for (const text of spared) {
+      expect(
+        [...withoutInterpolations(text).matchAll(DURATION_SHAPE)].map(
+          (m) => m[0],
+        ),
+        `the ban trips on honest text: ${text}`,
+      ).toEqual([]);
     }
   });
 
@@ -241,6 +315,27 @@ describe("the policy pages do not promise what the product does not do", () => {
       instead:
         "inputs are actively deleted at job end; outputs are denied at read time and erased later — one sentence cannot honestly cover both",
     },
+    {
+      // Caught: "…and in any case within 60 minutes" (privacy §2, until
+      // 2026-09-27). Pinned INVERTED. The only code that deletes an upload runs
+      // for a claimed job; an upload that never becomes one lives until the
+      // daily lifecycle rule. Exit condition — the PROPERTY: every `inputs/`
+      // object older than the input TTL is deleted by code running in the
+      // production worker (published in its heartbeat, and an observed orphan
+      // upload gone after the window). A sweeper in source is not that.
+      pattern: /\bin\s+any\s+case\s+within\b/i,
+      instead:
+        "state what deletes an upload and when: at the job's end, or — for an upload that never becomes a job — by the daily storage rule after RETENTION_WINDOWS.inputStorageRule",
+    },
+    {
+      // Caught: "because we hold no accounts and delete files within an hour"
+      // (privacy §10, until 2026-09-27). Pinned INVERTED. Uploads, stored
+      // results and job records have three different clocks; one duration
+      // cannot cover them, and the one chosen covered none.
+      pattern: /\bdelete\s+(?:all\s+|your\s+|the\s+)?files\s+within\b/i,
+      instead:
+        "name each clock: uploads end with the job (or the daily rule), the link dies after RETENTION_WINDOWS.outputLink, the job record after RETENTION_WINDOWS.jobRecord",
+    },
     // ------------------------------------------------------------------ //
     // The three entries below were TRUE sentences on this very page until
     // 2026-08-25, when consent-gated Google Analytics shipped (owner's call,
@@ -310,10 +405,19 @@ describe("the policy pages do not promise what the product does not do", () => {
       // first article was written. Guides state retention and privacy facts
       // as a matter of course, which is exactly this list's vocabulary.
       path.join(ROOT, "src", "lib", "guides", "catalog.ts"),
+      // The fifty tool pages' authored content, added 2026-09-27 BEFORE it
+      // shipped — the same in-order rule as tool-facts and the guides. Its
+      // FAQs become FAQPage JSON-LD. DERIVED from the content index (what the
+      // page consumes), not listed, so a fifty-first tool is read on arrival.
+      ...toolContentFiles().values(),
       ...readdirSync(sectionsDir)
         .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test."))
         .map((f) => path.join(sectionsDir, f)),
     ];
+    // Health check: the derived content set is the catalogue, not a sliver.
+    expect([...toolContentFiles().keys()].sort()).toEqual(
+      tools.map((t) => t.slug).sort(),
+    );
     const offenders: string[] = [];
     for (const file of targets) {
       const source = withoutComments(read(file));
@@ -329,5 +433,26 @@ describe("the policy pages do not promise what the product does not do", () => {
       offenders,
       `marketing copy contains a claim the legal pages are forbidden from making:\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("positive control: a retired claim planted in real tool content is caught", () => {
+    // A real content file, with the FAQ lie of 2026-08-09 planted in one of
+    // its answers. Same scan, same list: if the tool content ever falls out
+    // of `targets` above, the corpus test stops reading it; this shows the
+    // list still bites on content-shaped source when it is read.
+    const file = toolContentFiles().get("merge-pdf")!;
+    const real = withoutComments(read(file));
+    expect(OVERCLAIMS.filter((o) => o.pattern.test(real))).toEqual([]);
+    // Anchored on the intro's first words: the answer it used to be planted
+    // in ("Merge copies pages …") left the page at the seo/content merge.
+    const planted = real.replace(
+      "Merge PDF joins whole documents",
+      "Your files are permanently deleted within minutes and nothing is retained. Merge PDF joins whole documents",
+    );
+    expect(planted).not.toBe(real);
+    const caught = OVERCLAIMS.filter((o) => o.pattern.test(planted)).map((o) =>
+      String(o.pattern),
+    );
+    expect(caught.length).toBeGreaterThanOrEqual(2);
   });
 });

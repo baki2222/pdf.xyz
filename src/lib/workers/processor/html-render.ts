@@ -77,6 +77,15 @@ function jobError(run: HtmlRenderFailure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "page_unavailable":
+      // The site's doing, not the worker's: never `internal_error`. Retried
+      // only when the same request could answer differently (5xx, 429, a
+      // dropped connection); a 404 or a bot check answers the same each time.
+      return {
+        code: run.retryable ? "service_unavailable" : "unprocessable_entity",
+        message: run.message,
+        retryable: run.retryable,
+      };
     case "failed":
     default:
       return { code: "internal_error", message: run.message, retryable: true };

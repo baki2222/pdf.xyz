@@ -8,11 +8,15 @@
  */
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useAnalyticsConsent } from "@/lib/analytics/consent";
-import { disableGa4, enableGa4 } from "@/lib/analytics/ga4";
+import { disableGa4, enableGa4, sendGa4PageView } from "@/lib/analytics/ga4";
 
 export function Ga4Gate(): null {
   const consent = useAnalyticsConsent();
+  // The PATH, never the URL: `usePathname()` carries no query string, which is
+  // what keeps `?handoff=<token>` out of every page view.
+  const pathname = usePathname();
 
   useEffect(() => {
     if (consent === "granted") enableGa4();
@@ -20,6 +24,12 @@ export function Ga4Gate(): null {
     // `null` (undecided) deliberately does nothing: basic consent mode means
     // the tag simply does not exist until an explicit yes.
   }, [consent]);
+
+  // One page view per route, sent by us. The tag's own automatic page_view is
+  // off (`send_page_view: false`) because it reports `location.href`.
+  useEffect(() => {
+    if (consent === "granted" && pathname) sendGa4PageView(pathname);
+  }, [consent, pathname]);
 
   return null;
 }

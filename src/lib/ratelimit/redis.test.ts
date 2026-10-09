@@ -239,6 +239,7 @@ function clear(): void {
   clearRateLimitProviderForTests();
   delete process.env[RATE_LIMIT_ENV.provider];
   delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+  delete process.env[RATE_LIMIT_ENV.clientIpHeader];
 }
 beforeEach(clear);
 afterEach(clear);
@@ -247,6 +248,7 @@ describe("guard ↔ Redis provider — enforced remote decisions, content-free 4
   it("delegates to the Redis provider and produces a content-free 429 when denied", async () => {
     process.env[RATE_LIMIT_ENV.provider] = "redis";
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     const { fetchImpl, bodies } = fakeRedis();
     registerRateLimitProvider(
       createRedisRateLimitProvider(CONFIG, { fetchImpl }),
@@ -254,7 +256,7 @@ describe("guard ↔ Redis provider — enforced remote decisions, content-free 4
 
     const policy = policyFor("jobs.create");
     const hostile = {
-      "x-forwarded-for": "203.0.113.77",
+      "cf-connecting-ip": "203.0.113.77",
       "user-agent": "EvilBot/9",
       cookie: "session=TOPSECRET",
     };

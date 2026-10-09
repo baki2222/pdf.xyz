@@ -4,11 +4,11 @@
 # the whole delivery mechanism — no new service, no secret, no mail server, and
 # it arrives in a channel a human already reads.
 #
-# All of the logic lives in the two scripts this runs —
-# scripts/check-operations-posture.mjs (is the worker fleet healthy?) and
-# scripts/check-public-surface.mjs (does the site still serve, and is it still
-# indexable?) — including why each reads already-computed verdicts rather than
-# re-deriving one here. Keeping it out of YAML is deliberate: a `jq` condition
+# All of the logic lives in the scripts this runs — every
+# scripts/check-*.mjs, one step each (src/deploy/public-surface-watch.test.ts
+# fails if one is missing, or if a step after the first can be skipped by an
+# earlier failure) — including why each reads already-computed verdicts rather
+# than re-deriving one here. Keeping it out of YAML is deliberate: a `jq` condition
 # in a shell step is a verdict rule in a second place, and it drifts.
 name: posture-watch
 

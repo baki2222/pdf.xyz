@@ -24,7 +24,11 @@
  */
 
 import { redactValue } from "./redact";
-import { isKnownEventName, type ProductEvent } from "./events";
+import {
+  isKnownEventName,
+  isToolErrorReason,
+  type ProductEvent,
+} from "./events";
 
 // Re-export the schema so a call site needs a single import from "@/lib/telemetry/track".
 export type { ProductEvent, EventName, ToolErrorReason } from "./events";
@@ -32,7 +36,10 @@ export {
   EVENT_NAMES,
   TOOL_ERROR_REASONS,
   isKnownEventName,
+  isToolErrorReason,
   toolCompletedEvent,
+  toolFailedEvent,
+  toolErrorReason,
   handoffCreatedEvent,
 } from "./events";
 export {
@@ -86,6 +93,8 @@ export function defaultSinkFor(
 }
 
 let activeSink: TelemetrySink = defaultSinkFor();
+let configured = false;
+const configuredListeners = new Set<() => void>();
 
 /**
  * Point product telemetry at a sink, or pass `null` to restore the environment
@@ -93,11 +102,41 @@ let activeSink: TelemetrySink = defaultSinkFor();
  */
 export function configureTelemetry(sink: TelemetrySink | null): void {
   activeSink = sink ?? defaultSinkFor();
+  configured = sink !== null;
+  if (!configured) return;
+  for (const listener of [...configuredListeners]) {
+    try {
+      listener();
+    } catch {
+      // One listener's failure must not stop the others.
+    }
+  }
+}
+
+/** True while a real destination (not the environment default) is set. */
+export function isTelemetryConfigured(): boolean {
+  return configured;
+}
+
+/**
+ * Call `listener` each time a real destination is configured; returns the
+ * unsubscribe. Exists for events that describe the page itself: GA4 is enabled
+ * from the ROOT layout's effect, and React runs a child's effects before its
+ * parent's — so on a fresh load a tool page's "viewed" event fired into the
+ * no-op default and reached nobody.
+ */
+export function onTelemetryConfigured(listener: () => void): () => void {
+  configuredListeners.add(listener);
+  return () => {
+    configuredListeners.delete(listener);
+  };
 }
 
 /** Restore the default sink. Primarily for test isolation. */
 export function resetTelemetry(): void {
   activeSink = defaultSinkFor();
+  configured = false;
+  configuredListeners.clear();
 }
 
 /**
@@ -107,6 +146,15 @@ export function resetTelemetry(): void {
  */
 export function sanitizeEvent(event: ProductEvent): RedactedEvent | null {
   if (!event || !isKnownEventName((event as { name?: unknown }).name)) {
+    return null;
+  }
+  // The type says a failure reason is one of a fixed few; a sender that got
+  // around the type (a cast, a spread of a server payload) must not turn an
+  // error message into an analytics field.
+  if (
+    event.name === "tool_failed" &&
+    !isToolErrorReason((event as { reason?: unknown }).reason)
+  ) {
     return null;
   }
   const { name, ...rest } = event;

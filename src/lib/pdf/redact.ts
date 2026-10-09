@@ -1,7 +1,29 @@
-import { embedRasterImage, loadPdfLib } from "./pdf-lib";
+import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
-import { rasterizePdf, type RasterCanvasInfo, type RasterPage } from "./render";
+import { displayedPageSize } from "./page-frame";
+import {
+  rasterizePdf,
+  type RasterCanvasInfo,
+  type RasterPage,
+  type RasterizeOptions,
+} from "./render";
+import type { RedactionFill, RedactionRect } from "./redact-defaults";
+import {
+  DEFAULT_REDACT_PRESET_ID,
+  REDACTED_PDF_TITLE,
+  REDACT_DPI_PRESETS,
+  REDACT_IMAGE_FORMAT,
+  type RedactDpiPreset,
+} from "./redact-output";
+
+export {
+  DEFAULT_REDACT_PRESET_ID,
+  REDACTED_PDF_TITLE,
+  REDACT_DPI_PRESETS,
+  REDACT_IMAGE_FORMAT,
+  type RedactDpiPreset,
+};
 
 /**
  * Privacy-safe, in-browser PDF redaction.
@@ -18,32 +40,24 @@ import { rasterizePdf, type RasterCanvasInfo, type RasterPage } from "./render";
  * is exactly what makes the redaction permanent.
  *
  * The geometry (validation + point→pixel mapping) is pure so it can be unit
- * tested with plain numbers; only {@link getRedactPageSizes}/{@link redactPdf}
- * touch pdf-lib/pdfjs and must run in the browser.
+ * tested with plain numbers. Only the pdfjs page render inside
+ * {@link rasterizePdf} needs a browser: {@link getRedactPageSizes} runs in Node,
+ * and so does {@link redactPdf} when handed a rasterizer, which is how
+ * `redact-paint.test.ts` reads the painted bitmap the encoder receives.
  */
 
 const PRODUCER = "pdf.xyz";
 
-/** Fill colors offered for a redaction box. */
-export type RedactionFill = "black" | "white";
-
-/**
- * A rectangle to redact, in PDF points with a bottom-left origin (the standard
- * PDF coordinate space), on a specific 1-based page. `x`/`y` locate the box's
- * lower-left corner; `width`/`height` size it.
- */
-export interface RedactionRect {
-  /** 1-based page number. */
-  page: number;
-  /** Distance of the box's left edge from the page's left edge, in points. */
-  x: number;
-  /** Distance of the box's bottom edge from the page's bottom edge, in points. */
-  y: number;
-  /** Box width in points. */
-  width: number;
-  /** Box height in points. */
-  height: number;
-}
+// The tool's plain data lives in a leaf module because the browser proof
+// (e2e/client-proof/cases.ts) imports it under Playwright's CommonJS loader,
+// where `./render`'s `import.meta.url` is a SyntaxError. Re-exported here so
+// the runner and the unit tests keep one import site.
+export {
+  DEFAULT_REDACTION_DRAFT,
+  REDACTION_FILL_OPTIONS,
+  type RedactionFill,
+  type RedactionRect,
+} from "./redact-defaults";
 
 /** A page's displayed size in PDF points. */
 export interface PageSize {
@@ -58,13 +72,6 @@ export interface PixelRect {
   width: number;
   height: number;
 }
-
-export const REDACT_DPI_PRESETS = [
-  { id: "screen", label: "Screen", dpi: 96 },
-  { id: "print", label: "Print", dpi: 150 },
-] as const;
-
-export type RedactDpiPreset = (typeof REDACT_DPI_PRESETS)[number]["id"];
 
 export interface RedactOptions {
   /** The rectangles to redact. Must contain at least one box. */
@@ -114,7 +121,7 @@ export function redactPresetById(
 ): (typeof REDACT_DPI_PRESETS)[number] {
   return (
     REDACT_DPI_PRESETS.find((preset) => preset.id === id) ??
-    REDACT_DPI_PRESETS[1]!
+    REDACT_DPI_PRESETS.find((preset) => preset.id === DEFAULT_REDACT_PRESET_ID)!
   );
 }
 
@@ -123,21 +130,10 @@ export function redactionFillHex(fill: RedactionFill | undefined): string {
   return fill === "white" ? "#ffffff" : "#000000";
 }
 
-/**
- * A page's displayed size, accounting for its rotation: a page rotated 90°/270°
- * presents its media box's height as its width and vice-versa. This is the space
- * a redaction rectangle is expressed in — the page as the viewer sees it.
- */
-export function displayedPageSize(
-  width: number,
-  height: number,
-  rotationDegrees = 0,
-): PageSize {
-  const angle = ((Math.round(rotationDegrees) % 360) + 360) % 360;
-  return angle === 90 || angle === 270
-    ? { width: height, height: width }
-    : { width, height };
-}
+// A redaction rectangle is expressed in the page as the viewer sees it. The
+// rotation-aware size lives in page-frame.ts so Edit PDF sizes its pages with the
+// same definition; re-exported here for existing callers.
+export { displayedPageSize };
 
 function isFiniteNumber(value: number): boolean {
   return typeof value === "number" && Number.isFinite(value);
@@ -319,6 +315,24 @@ function paintRedactions(
 export async function redactPdf(
   bytes: Uint8Array,
   options: RedactOptions,
+  /**
+   * The rasterizer. Always {@link rasterizePdf} in the product; a parameter so
+   * `redact-paint.test.ts` can hand the REAL paint path a pixel canvas in Node
+   * and read the bitmap the encoder would receive — the pdfjs render itself
+   * needs a browser, but the paint that makes a redaction a redaction does not.
+   * (A `vi.mock` of ./render would poison this module in the shared test cache:
+   * see src/tests/mock-isolation.test.ts.)
+   *
+   * The default CALLS `rasterizePdf` rather than naming it: the size-promise
+   * guard (`tools/size-neighbours.test.ts`) finds the tools that rebuild pages
+   * as images by their `rasterizePdf(` call, and a bare reference made Redact
+   * drop out of that set at the merge of this parameter (L13) with the guard
+   * (L06).
+   */
+  rasterize: (
+    bytes: Uint8Array,
+    options: RasterizeOptions,
+  ) => Promise<RasterPage[]> = (pdf, opts) => rasterizePdf(pdf, opts),
 ): Promise<RedactResult> {
   const rects = options.rects ?? [];
   if (rects.length === 0) {
@@ -342,9 +356,9 @@ export async function redactPdf(
   const fillHex = redactionFillHex(options.fill);
   const byPage = groupByPage(rects);
 
-  const pages = await rasterizePdf(bytes, {
-    format: "jpg",
-    dpi: options.dpi ?? 150,
+  const pages = await rasterize(bytes, {
+    format: REDACT_IMAGE_FORMAT,
+    dpi: options.dpi ?? redactPresetById(DEFAULT_REDACT_PRESET_ID).dpi,
     quality: options.quality ?? 0.85,
     signal: options.signal,
     onProgress: options.onProgress,
@@ -359,11 +373,38 @@ export async function redactPdf(
     throw new PdfEngineError("No pages could be rendered from this PDF.");
   }
 
+  return {
+    bytes: await assembleRedactedPdf(pages),
+    pageCount: pages.length,
+    redactionCount: rects.length,
+    totalImageBytes: pages.reduce(
+      (sum, page) => sum + page.bytes.byteLength,
+      0,
+    ),
+    undecodedImages: pages.reduce((sum, page) => sum + page.undecodedImages, 0),
+  };
+}
+
+/**
+ * Build the redacted document from the page images ALONE — a fresh
+ * `PDFDocument`, one page per image, nothing else. It is given no access to the
+ * original file, which is what makes the tool page's answers true: nothing of
+ * the original's text, drawings, form, annotations, outline or document
+ * information can reach the output, because none of it is in scope here.
+ * Exported so `redact-answers.test.ts` can build a real output from real JPEG
+ * bytes — the rasterizer needs a browser canvas, this does not.
+ */
+export async function assembleRedactedPdf(
+  pages: readonly Pick<
+    RasterPage,
+    "bytes" | "pageWidth" | "pageHeight" | "width" | "height"
+  >[],
+): Promise<Uint8Array> {
   const { PDFDocument, rgb } = await loadPdfLib();
   const doc = await PDFDocument.create();
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
-  doc.setTitle("Redacted PDF");
+  doc.setTitle(REDACTED_PDF_TITLE);
 
   for (const page of pages) {
     const [pageWidth, pageHeight] = pageSizeForRaster(page);
@@ -375,8 +416,8 @@ export async function redactPdf(
       height: pageHeight,
       color: rgb(1, 1, 1),
     });
-    const image = await embedRasterImage(doc, page.bytes, "jpg");
-    outPage.drawImage(image, {
+    const image = await embedRasterImage(doc, page.bytes, REDACT_IMAGE_FORMAT);
+    await drawRasterImage(outPage, image, {
       x: 0,
       y: 0,
       width: pageWidth,
@@ -384,14 +425,5 @@ export async function redactPdf(
     });
   }
 
-  return {
-    bytes: await doc.save(),
-    pageCount: pages.length,
-    redactionCount: rects.length,
-    totalImageBytes: pages.reduce(
-      (sum, page) => sum + page.bytes.byteLength,
-      0,
-    ),
-    undecodedImages: pages.reduce((sum, page) => sum + page.undecodedImages, 0),
-  };
+  return doc.save();
 }

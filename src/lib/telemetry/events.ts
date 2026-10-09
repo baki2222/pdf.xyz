@@ -19,6 +19,7 @@
  */
 
 import type { ToolCapability } from "@/lib/jobs/types";
+import type { ApiErrorCode } from "@/lib/jobs/responses";
 import type { WorkerMode } from "@/lib/workers/mode";
 import type { HandoffMode } from "@/lib/handoff/capability";
 import type {
@@ -50,6 +51,71 @@ export const TOOL_ERROR_REASONS = [
 
 export type ToolErrorReason = (typeof TOOL_ERROR_REASONS)[number];
 
+const TOOL_ERROR_REASON_SET: ReadonlySet<string> = new Set(TOOL_ERROR_REASONS);
+
+/** True when `reason` is one of the fixed {@link TOOL_ERROR_REASONS}. */
+export function isToolErrorReason(reason: unknown): reason is ToolErrorReason {
+  return typeof reason === "string" && TOOL_ERROR_REASON_SET.has(reason);
+}
+
+/**
+ * Codes a run can fail with that no server sent: the connection dropped
+ * (`network`) or the job was still running when the client stopped polling
+ * (`timeout`).
+ */
+export type ClientFailureCode = "network" | "timeout";
+
+/**
+ * Every failure code -> the coarse category an analyst can act on. A `Record`
+ * over the whole `ApiErrorCode` union, so a code added to the contract is a
+ * compile error here until someone decides what it means — never a silent
+ * `processing-error`.
+ */
+const REASON_BY_CODE: Record<
+  ApiErrorCode | ClientFailureCode,
+  ToolErrorReason
+> = {
+  // Ours, not the user's: the service could not take the job.
+  rate_limited: "worker-unavailable",
+  service_unavailable: "worker-unavailable",
+  worker_not_configured: "worker-unavailable",
+  not_implemented: "worker-unavailable",
+  network: "worker-unavailable",
+  timeout: "worker-unavailable",
+  // The input was refused as it stands.
+  invalid_request: "invalid-input",
+  invalid_upload_request: "invalid-input",
+  unsupported_media_type: "invalid-input",
+  unsupported_file_type: "invalid-input",
+  unprocessable_entity: "invalid-input",
+  payload_too_large: "invalid-input",
+  too_many_files: "invalid-input",
+  file_too_large: "invalid-input",
+  request_too_large: "invalid-input",
+  malformed_pdf: "invalid-input",
+  unsupported_tool: "unsupported-tool",
+  // Anything else went wrong while processing.
+  conflict: "processing-error",
+  not_found: "processing-error",
+  method_not_allowed: "processing-error",
+  internal_error: "processing-error",
+  forbidden: "processing-error",
+  gone: "processing-error",
+};
+
+/**
+ * The one mapping from a failure code (a contract `ApiErrorCode`, a job's
+ * error code, or a {@link ClientFailureCode}) to a {@link ToolErrorReason}.
+ * Unknown or absent codes are `processing-error` — the honest "something
+ * failed and nobody classified it", never a guess at a better category.
+ */
+export function toolErrorReason(code: string | undefined): ToolErrorReason {
+  return code !== undefined &&
+    Object.prototype.hasOwnProperty.call(REASON_BY_CODE, code)
+    ? REASON_BY_CODE[code as ApiErrorCode | ClientFailureCode]
+    : "processing-error";
+}
+
 /**
  * The product-event union. Discriminated by `name`; each variant carries only
  * privacy-safe, low-cardinality fields. Extend by adding a variant here and its
@@ -67,8 +133,12 @@ export type ProductEvent =
       name: "tool_completed";
       toolSlug: string;
       capability: ToolCapability;
-      /** How many inputs the run consumed (bucketed). */
-      inputCount: CountBucket;
+      /**
+       * How many inputs the run consumed (bucketed), when the sender knows.
+       * Optional because the shared run hook does not see its runner's file
+       * list, and a guessed count would be a number nobody measured.
+       */
+      inputCount?: CountBucket;
       /** Coarse size of the produced output, when there is one. */
       outputSize?: SizeBucket;
       /** Coarse wall-clock time the run took, when measured. */
@@ -110,14 +180,6 @@ export type ProductEvent =
       daemonObserved: boolean;
     }
   | {
-      /** The browser exercised the secure-worker job contract; here's the outcome. */
-      name: "worker_contract_hit";
-      capability: ToolCapability;
-      ok: boolean;
-      /** Contract/job error code (a fixed identifier), when the run failed. */
-      code?: string;
-    }
-  | {
       /**
        * Someone asked to be told when a tool that is not enabled here ships.
        *
@@ -139,7 +201,6 @@ export const EVENT_NAMES = [
   "workspace_handoff_created",
   "worker_status_checked",
   "worker_operations_checked",
-  "worker_contract_hit",
   "gated_tool_interest",
 ] as const;
 
@@ -163,7 +224,7 @@ export function isKnownEventName(name: unknown): name is EventName {
 export function toolCompletedEvent(input: {
   toolSlug: string;
   capability: ToolCapability;
-  inputCount: number;
+  inputCount?: number;
   outputBytes?: number;
   elapsedMs?: number;
 }): Extract<ProductEvent, { name: "tool_completed" }> {
@@ -171,8 +232,10 @@ export function toolCompletedEvent(input: {
     name: "tool_completed",
     toolSlug: input.toolSlug,
     capability: input.capability,
-    inputCount: countBucket(input.inputCount),
   };
+  if (input.inputCount !== undefined) {
+    event.inputCount = countBucket(input.inputCount);
+  }
   if (input.outputBytes !== undefined) {
     event.outputSize = sizeBucket(input.outputBytes);
   }
@@ -196,5 +259,23 @@ export function handoffCreatedEvent(input: {
     toolSlug: input.toolSlug,
     mode: input.mode,
     fileCount: countBucket(input.fileCount),
+  };
+}
+
+/**
+ * Build a `tool_failed` event from a failure CODE, never a message: the reason
+ * is {@link toolErrorReason}'s fixed category, so an error string that echoes a
+ * filename can never become an event field.
+ */
+export function toolFailedEvent(input: {
+  toolSlug: string;
+  capability: ToolCapability;
+  code?: string;
+}): Extract<ProductEvent, { name: "tool_failed" }> {
+  return {
+    name: "tool_failed",
+    toolSlug: input.toolSlug,
+    capability: input.capability,
+    reason: toolErrorReason(input.code),
   };
 }

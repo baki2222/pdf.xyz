@@ -27,6 +27,7 @@ import {
   AI_ALLOWANCE_RUNS,
   AI_ALLOWANCE_USED_MESSAGE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
+  aiAllowanceFactFor,
 } from "@/lib/jobs/ai-allowance";
 import { flattenForPhraseSearch, withoutComments } from "./copy-surface";
 
@@ -186,14 +187,146 @@ describe("there is exactly one copy of the sentence", () => {
   it("the panels reach the sentence through the shared source", async () => {
     // Reach, not membership: the re-exports must actually resolve to the same
     // string, or "one copy" is true of the source and false of what renders.
-    const { AI_DAILY_ALLOWANCE_NOTE } =
+    //
+    // INVERTED 2026-09-27, history kept. This asserted
+    // `AI_DAILY_ALLOWANCE_NOTE === AI_ALLOWANCE_FACT` — one note for four
+    // panels — and so pinned the defect: that sentence is translate's
+    // character figure, and Summarize, Chat and Extract are charged per run.
+    // "One copy" is still the rule; it is now one FUNCTION, keyed by tool, and
+    // the panel note must be exactly what the tool's own fact line says.
+    //
+    // A sibling lane had meanwhile split the note in two
+    // (`AI_DAILY_ALLOWANCE_NOTE` for translate, `AI_PER_CALL_ALLOWANCE_NOTE`
+    // for the per-call tools) and asserted each equal to its source. Since the
+    // merge that per-call sentence is the head of every per-call tool's own
+    // fact, so its reach is asserted per tool below, through the pricing map
+    // the route charges by.
+    const { aiDailyAllowanceNote } =
       await import("@/lib/workers/ai-tool-availability");
-    const { AI_ALLOWANCE_FACT: fromTools } = await import("./tool-facts");
+    const { AI_ALLOWANCE_FACT: fromTools, toolFacts } =
+      await import("./tool-facts");
+    const { AI_PER_CALL_ALLOWANCE_FACT } =
+      await import("@/lib/jobs/ai-allowance");
+    const { AI_RUN_PRICING } = await import("@/lib/jobs/delivery-cap");
     const { AI_ALLOWANCE_USED_MESSAGE: fromRateLimit } =
       await import("@/lib/ratelimit/response");
+    const { tools } = await import("./index");
+    const { capabilityForMode } = await import("@/lib/jobs/capabilities");
 
-    expect(AI_DAILY_ALLOWANCE_NOTE).toBe(AI_ALLOWANCE_FACT);
+    const ai = tools.filter((t) => capabilityForMode(t.processing) === "ai");
+    expect(ai.length, "no AI tool in the catalogue — blind").toBeGreaterThan(0);
+    const perCall = ai.filter((t) => AI_RUN_PRICING[t.slug] === "per-call");
+    expect(perCall.length, "no per-call AI tool — blind").toBeGreaterThan(0);
+    for (const tool of ai) {
+      const fact = toolFacts(tool.slug).find(
+        (f) => f.label === "Free allowance",
+      );
+      expect(fact, `${tool.slug} publishes no allowance fact`).toBeDefined();
+      expect(aiDailyAllowanceNote(tool.slug)).toBe(fact!.value);
+      expect(fact!.value).toBe(aiAllowanceFactFor(tool.slug));
+      if (AI_RUN_PRICING[tool.slug] === "per-call") {
+        expect(
+          fact!.value.startsWith(AI_PER_CALL_ALLOWANCE_FACT),
+          `${tool.slug}'s panel does not reach the per-call sentence`,
+        ).toBe(true);
+      } else {
+        expect(fact!.value.startsWith(AI_ALLOWANCE_FACT)).toBe(true);
+      }
+    }
     expect(fromTools).toBe(AI_ALLOWANCE_FACT);
     expect(fromRateLimit).toBe(AI_ALLOWANCE_USED_MESSAGE);
+  });
+});
+
+describe("the refusal speaks to a reader, about every AI tool", () => {
+  /**
+   * Until 2026-09-28 the served refusal ended *"On a shared network that can
+   * include text translated by someone else. The allowance resets daily; retry
+   * after the interval in the Retry-After header."* Summarize, Chat and AI Data
+   * Extraction spend the same bucket, and the panel renders this string
+   * verbatim — so a reader refused after three extractions was told about
+   * somebody's translations and pointed at an HTTP header.
+   *
+   * INTEGRATED (wave1/l01-page-leak onto integrate/wave1-seo). This lane wrote
+   * the refusal to name NO tool's work and to append its own "It resets in
+   * about N hours." The branch it merged into had already fixed the same
+   * sentence the other way — naming EVERY AI tool's unit, so it is true on each
+   * page (`ratelimit/allowance-copy.test.ts`: all of them or none) — and says
+   * the wait in words in the browser, from the same `Retry-After` seconds
+   * (`@/lib/workers/read-error`), for every 429 rather than this one. The two
+   * checks below keep what this lane pinned: never ONE tool's work, and never a
+   * header, with the wait stated in words where the reader receives it.
+   */
+  it("names every AI tool's work or none — never one", async () => {
+    // Derived from the catalog: the verb of every AI tool, as a stem, so
+    // "translated", "summarised" and "extracting" are all caught.
+    const { tools } = await import("./index");
+    const { capabilityForMode } = await import("@/lib/jobs/capabilities");
+    const aiTools = tools.filter(
+      (tool) => capabilityForMode(tool.processing) === "ai",
+    );
+    expect(aiTools.length).toBeGreaterThanOrEqual(4);
+    const STEMS: Record<string, RegExp> = {
+      "translate-pdf": /translat/i,
+      "summarize-pdf": /summar/i,
+      "ai-extract": /extract/i,
+      "chat-with-pdf": /\bchat/i,
+    };
+    // Every AI tool has a stem, so a fifth tool fails here until it is added.
+    expect(Object.keys(STEMS).sort()).toEqual(
+      aiTools.map((tool) => tool.slug).sort(),
+    );
+    const named = (sentence: string) =>
+      Object.entries(STEMS)
+        .filter(([, stem]) => stem.test(sentence))
+        .map(([slug]) => slug);
+    const served = named(AI_ALLOWANCE_USED_MESSAGE);
+    expect(
+      served.length === 0 || served.length === Object.keys(STEMS).length,
+      `the refusal names only ${served.join(", ")}'s work`,
+    ).toBe(true);
+    // Positive control: the sentence that shipped names exactly one.
+    expect(
+      named(
+        "On a shared network that can include text translated by someone else.",
+      ),
+    ).toEqual(["translate-pdf"]);
+  });
+
+  it("states the wait in words where it is read, and never names a header", async () => {
+    const { readWorkerError, describeWait } =
+      await import("@/lib/workers/read-error");
+    expect(AI_ALLOWANCE_USED_MESSAGE).not.toMatch(/header|retry-after/i);
+    for (const seconds of [1, 59, 60, 61, 3599, 3600, 3601, 86_400]) {
+      // The refusal as the browser client reads it off the wire: the served
+      // body, and the `Retry-After` the same decision filled.
+      const read = await readWorkerError(
+        {
+          status: 429,
+          json: async () => ({
+            error: {
+              code: "rate_limited",
+              message: AI_ALLOWANCE_USED_MESSAGE,
+            },
+          }),
+          headers: {
+            get: (name: string) =>
+              name.toLowerCase() === "retry-after" ? String(seconds) : null,
+          },
+        },
+        "fallback",
+      );
+      expect(read.message.startsWith(AI_ALLOWANCE_USED_MESSAGE)).toBe(true);
+      expect(read.message).toBe(
+        `${AI_ALLOWANCE_USED_MESSAGE} Try again in ${describeWait(seconds)}.`,
+      );
+      expect(read.message).not.toMatch(/header|retry-after/i);
+    }
+    // Rounded UP: a reader told a time at which the refusal still stands comes
+    // back early and is refused again.
+    expect(describeWait(30)).toBe("about 30 seconds");
+    expect(describeWait(60)).toBe("about 1 minute");
+    expect(describeWait(3 * 3600 + 1)).toBe("about 3 h 1 min");
+    expect(describeWait(86_400)).toBe("about 24 hours");
   });
 });

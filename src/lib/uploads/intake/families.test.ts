@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { MIME_BY_FORMAT } from "@/lib/jobs";
 import {
@@ -126,5 +129,59 @@ describe("drift guard: intake recognizes every MIME the validator accepts", () =
       for (const mime of spec.mimes) expect(mime).toBe(mime.toLowerCase());
       for (const ext of spec.extensions) expect(ext).toBe(ext.toLowerCase());
     }
+  });
+});
+
+/**
+ * `@/lib/jobs/validation.ts` imports {@link normalizeContentType} from this module
+ * instead of keeping its own copy (the copy had already drifted: no 255-character
+ * cap). That direction is only free because this module imports nothing — were it to
+ * import the job layer, the validator would pull itself, and the browser intake
+ * would pull the whole tool catalog. Both halves are pinned here from the parsed
+ * source, not from a comment.
+ */
+describe("families.ts is the import-free leaf the validator reads MIME types from", () => {
+  const read = (rel: string) =>
+    readFileSync(path.join(process.cwd(), "src", "lib", rel), "utf8");
+
+  /** Every module specifier a source file imports, re-exports, requires or loads. */
+  function moduleSpecifiers(source: string): string[] {
+    const file = ts.createSourceFile(
+      "m.ts",
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const found: string[] = [];
+    const visit = (node: ts.Node): void => {
+      if (
+        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        found.push(node.moduleSpecifier.text);
+      }
+      if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) &&
+            node.expression.text === "require"))
+      ) {
+        found.push(node.getText(file));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    return found;
+  }
+
+  it("positive control: the detector sees the validator import this module", () => {
+    const specifiers = moduleSpecifiers(read("jobs/validation.ts"));
+    expect(specifiers.length).toBeGreaterThan(3);
+    expect(specifiers).toContain("@/lib/uploads/intake/families");
+  });
+
+  it("imports nothing", () => {
+    expect(moduleSpecifiers(read("uploads/intake/families.ts"))).toEqual([]);
   });
 });

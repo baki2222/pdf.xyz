@@ -53,6 +53,7 @@ import {
   provesChunkedTranslate,
   provesDeliveryCap,
 } from "@/lib/workers/translate/capability";
+import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
 import { writeSpendProbe } from "@/lib/ratelimit/guard";
 import { shouldWriteSpendProbe } from "@/lib/ratelimit/spend-probe";
 import {
@@ -146,6 +147,7 @@ async function buildHeartbeatPublisher(
       // its silence is read as `false` on the other side.
       chunkedTranslate: await provesChunkedTranslate(),
       deliveryCap: await provesDeliveryCap(),
+      aiReadCap: await provesAiReadCap(),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),
@@ -533,6 +535,11 @@ async function main(): Promise<number> {
     log: (event: ExecutorLogEvent) => emit({ src: "executor", ...event }),
     metrics: metrics.sink,
   });
+  // The Redis queue grants min(--lease-ms, PDFXYZ_QUEUE_LEASE_SECONDS). Say so once
+  // when that shortens the request, rather than letting the lease shrink silently.
+  if (runtime.leaseClamp) {
+    emit({ src: "daemon", event: "lease_clamped", ...runtime.leaseClamp });
+  }
   // `reportObservability` folds the readiness gauges into the collector just before it
   // snapshots (in every mode that emits), so there is no separate recording step here.
 

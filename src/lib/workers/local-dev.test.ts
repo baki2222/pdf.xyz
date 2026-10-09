@@ -8,6 +8,7 @@ import { DevWorkerStore } from "./store";
 import type { CompressionDeps } from "./compression/engine";
 import type { QpdfRunner } from "./pdf-security/engine";
 import type { QpdfStructureRunner } from "./pdf-structure/engine";
+import { linearizedPdf } from "@/tests/linearized-pdf-fixture";
 import type { WorkerAdapter } from "./types";
 
 async function makePdf(pages = 4): Promise<Uint8Array> {
@@ -385,6 +386,8 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
 
   const fakeQpdf = (over: Partial<QpdfRunner> = {}): QpdfRunner => ({
     isEncrypted: async (b) => isTagged(b, "ENC"),
+    requiresPassword: async (b) =>
+      isTagged(b, "ENC") ? "needs-password" : "not-encrypted",
     protect: async () => taggedPdf("ENC"),
     unlock: async () => ({ ok: true, output: taggedPdf("DEC") }),
     ...over,
@@ -481,7 +484,9 @@ describe("local-dev worker — PDF security (protect/unlock) flow", () => {
 
   it("maps a wrong unlock password to a failed job, password-free", async () => {
     const adapter = adapterWith(
-      fakeQpdf({ unlock: async () => ({ ok: false, wrongPassword: true }) }),
+      fakeQpdf({
+        unlock: async () => ({ ok: false, reason: "wrong-password" }),
+      }),
     );
     const fileId = await seed(
       adapter,
@@ -520,7 +525,11 @@ describe("local-dev worker — qpdf structure job flow", () => {
     over: Partial<QpdfStructureRunner> = {},
   ): QpdfStructureRunner => ({
     repair: async () => ({ bytes: taggedPdf("REPAIRED"), warnings: [] }),
-    linearize: async () => ({ bytes: taggedPdf("LINEARIZED"), warnings: [] }),
+    // A real linearized file: the engine delivers nothing else for optimize-web.
+    linearize: async () => ({
+      bytes: linearizedPdf("LINEARIZED"),
+      warnings: [],
+    }),
     ...over,
   });
 

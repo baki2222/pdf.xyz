@@ -3,8 +3,8 @@
  * worker, plus a presence-only binary probe.
  *
  * This is the ONLY module here that touches Node built-ins. It exists because the
- * pdfjs-backed extractors in `@/lib/pdf/text` and `@/lib/pdf/layout` are browser
- * modules that cannot run under Node at all (see `./parse`), so the worker needs a
+ * pdfjs-backed extractor in `@/lib/pdf/text` is a browser module that cannot run
+ * under Node at all (see `./parse`), so the worker needs a
  * native path — the same shape `../office-conversion/native` uses for LibreOffice.
  *
  * Honesty rules it preserves:
@@ -15,6 +15,8 @@
  *    invoked with a fixed argv array (no shell, no user-supplied path), bounded by a
  *    timeout and byte ceilings, and the temp dir is removed on every exit path;
  *  - failures throw so the engines classify them, and no fabricated text is returned.
+ *    A file poppler cannot OPEN throws a typed {@link PdfTextOpenError} saying
+ *    whether it needs a password or is unreadable (see `./errors`).
  */
 
 import { execFile } from "node:child_process";
@@ -29,16 +31,28 @@ import type {
   TableExtractDeps,
 } from "@/lib/workers/table-extract/engine";
 import type {
+  PdfFlowExtractor,
   PdfOfficeExportDeps,
   PdfTextExtractor,
 } from "@/lib/workers/pdf-office-export/engine";
-import { parseBboxLayout, parseLayoutText } from "./parse";
+import {
+  classifyOpenFailure,
+  isPdfOpenRefusal,
+  pdfTextExecErrorFrom,
+  PdfTextOpenError,
+} from "./errors";
+import { flowText, type PdfFlowText } from "./flow";
+import { parseBboxFlow, parseBboxLayout, parseLayoutText } from "./parse";
 import {
   resolveNativePdfTextConfig,
   type NativePdfTextConfig,
 } from "./native-config";
 
-/** Run a subprocess by argv (never a shell) and return its stdout. Injectable for tests. */
+/**
+ * Run a subprocess by argv (never a shell) and return its stdout. Injectable
+ * for tests. A failure rejects with a {@link PdfTextExecError} carrying the exit
+ * status, which is what tells "could not open the file" apart from a timeout.
+ */
 export type PdfTextExec = (
   command: string,
   args: readonly string[],
@@ -68,7 +82,10 @@ const defaultExec: PdfTextExec = (command, args, options) =>
       [...args],
       { ...options, encoding: "utf8" },
       (error, stdout) => {
-        if (error) return reject(new Error("pdftotext failed."));
+        // The exit status and kill flag travel on the error: they are what
+        // separates "this document will not open" (the same on every retry)
+        // from "this run did not finish". See `./errors`.
+        if (error) return reject(pdfTextExecErrorFrom(error));
         resolve(typeof stdout === "string" ? stdout : String(stdout));
       },
     );
@@ -121,8 +138,10 @@ export function probePdfTextFromConfig(
 /**
  * Build the fixed argv for an extraction mode. `-layout` preserves column spacing
  * (which the office-export engine relies on to recover spreadsheet rows) and
- * `-bbox-layout` emits per-word bounding boxes for table detection. `--` ends
- * option parsing, and the trailing `-` writes to stdout so no output file is read.
+ * `-bbox-layout` emits per-word bounding boxes inside poppler's reading-order
+ * flows and blocks — table detection reads the boxes, PDF to Word reads the
+ * order. `--` ends option parsing, and the trailing `-` writes to stdout so no
+ * output file is read.
  */
 export function pdfTextArgs(
   mode: "layout" | "bbox",
@@ -156,12 +175,23 @@ async function runPdfText(
   const inputPath = path.join(dir, "input.pdf");
   try {
     await fs.writeFile(inputPath, input);
-    const stdout = await exec(binary, pdfTextArgs(mode, inputPath), {
-      timeout: config.timeoutMs,
-      maxBuffer: config.maxOutputBytes,
-      windowsHide: true,
-    });
-    return stdout;
+    try {
+      return await exec(binary, pdfTextArgs(mode, inputPath), {
+        timeout: config.timeoutMs,
+        maxBuffer: config.maxOutputBytes,
+        windowsHide: true,
+      });
+    } catch (err) {
+      // poppler could not OPEN the file. Say why, from the file's own bytes
+      // (see ./errors for why not from poppler's words), so the engine can
+      // tell the user instead of reporting a retryable internal error. A
+      // timeout, an output ceiling or a non-document exit status is not a
+      // refusal (`isPdfOpenRefusal`) and is rethrown as it came.
+      if (isPdfOpenRefusal(err)) {
+        throw new PdfTextOpenError(classifyOpenFailure(input));
+      }
+      throw err;
+    }
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
@@ -172,8 +202,9 @@ async function runPdfText(
  *
  * REQUIRED, with no default, because the two consumers need opposite things and
  * the wrong one is silent either way. `keep` for anything that reads structure
- * out of the spacing — PDF→Office export splits spreadsheet rows on 2+ spaces,
- * so collapsing would merge its columns. `collapse` for anything that feeds a
+ * out of the spacing — PDF to Excel places each cell in a column by where its
+ * text sits on the padded line (`pdf-office-export/layout-grid`), so collapsing
+ * would merge its columns and move empty cells. `collapse` for anything that feeds a
  * language model, where the gap width is noise that inflates the character count
  * the AI ceilings are compared against and is paid for again in output tokens.
  */
@@ -191,6 +222,25 @@ export function createNativePdfTextExtractor(
       padding === "collapse" ? collapseLayoutPadding(stdout) : stdout,
     );
   };
+}
+
+/**
+ * The PDF to Word extractor: poppler's reading order, as paragraphs.
+ *
+ * NOT the `-layout` text the other office exports read. `-layout` is the page's
+ * visual arrangement, so a two-column page comes out with each left-column line
+ * glued to its right-column neighbour — which is exactly what PDF to Word
+ * shipped until this existed. See `./flow` for the paragraph rules.
+ */
+export function createNativePdfFlowExtractor(
+  binary: string,
+  config: NativePdfTextConfig,
+  seams: PdfTextSeams = {},
+): PdfFlowExtractor {
+  return async (bytes: Uint8Array): Promise<PdfFlowText> =>
+    flowText(
+      parseBboxFlow(await runPdfText(binary, config, seams, "bbox", bytes)),
+    );
 }
 
 export function createNativePdfLayoutExtractor(
@@ -225,9 +275,12 @@ export function resolveNativePdfTextExtractor(
 }
 
 /**
- * PDF→Office export deps for this host. `extract` is present only when pdftotext
- * really is — otherwise the engine reports `unsupported` (an honest "this worker
- * cannot do it") instead of accepting jobs it will always fail.
+ * PDF→Office export deps for this host. `extract` and `extractFlow` are present
+ * only when pdftotext really is — otherwise the engine reports `unsupported` (an
+ * honest "this worker cannot do it") instead of accepting jobs it will always
+ * fail. They are two extractors because the tools need opposite things: Excel
+ * and PowerPoint read the page's visual arrangement (`-layout`, padding kept),
+ * Word reads its reading order (`-bbox-layout` flows and blocks).
  */
 export function nativePdfOfficeExportDeps(
   env: Record<string, string | undefined> = process.env,
@@ -237,7 +290,10 @@ export function nativePdfOfficeExportDeps(
   const binary = probePdfTextFromConfig(config, seams);
   return {
     ...(binary
-      ? { extract: createNativePdfTextExtractor(binary, config, "keep", seams) }
+      ? {
+          extract: createNativePdfTextExtractor(binary, config, "keep", seams),
+          extractFlow: createNativePdfFlowExtractor(binary, config, seams),
+        }
       : {}),
     limits: {
       maxInputBytes: config.maxInputBytes,

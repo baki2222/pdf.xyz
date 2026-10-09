@@ -4,6 +4,11 @@ import {
   htmlPdfOutputName,
   webpagePdfOutputName,
 } from "./html-render";
+import {
+  WebpageFetchError,
+  webpageFetchMessage,
+  type WebpageFetchFailure,
+} from "../html-render/engine";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -91,6 +96,45 @@ describe("html-render processor", () => {
     });
     expect(badUrl.ok).toBe(false);
     if (!badUrl.ok) expect(badUrl.error.code).toBe("unprocessable_entity");
+  });
+
+  /*
+   * The composed chain renderer error -> engine -> job error. A site's answer
+   * is the site's doing: it must never read as `internal_error`, and a 404
+   * must not be requeued to fetch the same 404 twice more.
+   */
+  it("a page the site would not serve fails the job with the site's reason", async () => {
+    const run = async (failure: WebpageFetchFailure) =>
+      createHtmlRenderProcessor({
+        chromium: {
+          renderHtml: vi.fn(),
+          renderUrl: vi.fn(async () => {
+            throw new WebpageFetchError(failure);
+          }),
+        },
+      }).process({
+        tool: "webpage-to-pdf",
+        inputs: [],
+        options: { url: "https://example.com/missing" },
+      });
+    const notFound = { reason: "http", status: 404 } as const;
+    expect(await run(notFound)).toMatchObject({
+      ok: false,
+      error: {
+        code: "unprocessable_entity",
+        message: webpageFetchMessage(notFound),
+        retryable: false,
+      },
+    });
+    const down = { reason: "http", status: 503 } as const;
+    expect(await run(down)).toMatchObject({
+      ok: false,
+      error: {
+        code: "service_unavailable",
+        message: webpageFetchMessage(down),
+        retryable: true,
+      },
+    });
   });
 
   it("builds deterministic output names", () => {

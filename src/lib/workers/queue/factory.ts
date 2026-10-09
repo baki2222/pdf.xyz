@@ -21,6 +21,7 @@ import { isWorkerBackendConfigured } from "@/lib/jobs";
 import { createNotConfiguredQueue } from "./not-configured";
 import { parseRedisQueueConfig } from "./redis-config";
 import { createRedisQueue, type RedisQueueDeps } from "./redis";
+import { optionSealingFromEnv } from "./sealed-options";
 import type { QueueProvider } from "./types";
 
 type EnvSource = Record<string, string | undefined>;
@@ -35,7 +36,11 @@ export function createQueueProvider(
   deps: RedisQueueDeps = {},
 ): QueueProvider {
   const parsed = parseRedisQueueConfig(env);
-  if (parsed.ok) return createRedisQueue(parsed.config, deps);
+  if (parsed.ok)
+    return createRedisQueue(parsed.config, {
+      ...deps,
+      sealing: deps.sealing ?? optionSealingFromEnv(env),
+    });
 
   // Not Redis (unset, or selected-but-invalid): fall back to the honest
   // not-configured provider, preserving the mode-based reason/status.

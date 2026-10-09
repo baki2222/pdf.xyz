@@ -66,6 +66,12 @@ import {
   TRANSLATE_EXTRACTOR_HEADROOM,
   TRANSLATE_MAX_INPUT_CHARS,
 } from "./translate-limits";
+import {
+  AI_DELIVERY_LIMITS,
+  AI_RUN_PRICING,
+  deliveryCapFor,
+} from "./delivery-cap";
+import { CHAT_TOOL_SLUG } from "./chat-with-pdf";
 
 /**
  * The quantity, shared by both sentences — and the only part that can go stale,
@@ -140,9 +146,14 @@ export const AI_CHARACTER_ALLOWANCE = Math.floor(
   AI_CHARACTER_ALLOWANCE_DELIVERED * TRANSLATE_EXTRACTOR_HEADROOM,
 );
 
-/** Where the figure came from, so its age is visible rather than implicit. */
+/**
+ * Where the figure came from, and since when it has been provisional.
+ * `provisionalSince` is the commit that introduced it (3f17b0d). The age limit
+ * is enforced by `provisional-age.test.ts`, not by this comment.
+ */
 export const AI_CHARACTER_ALLOWANCE_BASIS = {
   measuredOn: "provisional",
+  provisionalSince: "2026-08-21",
   /** The PUBLISHED figure. The bucket is this times the extractor headroom. */
   derivedFrom: "TRANSLATE_MAX_INPUT_CHARS × aiRunsPerDayPerClient",
   /** Why pages lost: the measured density spread this budget maps onto. */
@@ -174,6 +185,105 @@ export const AI_CHARACTER_ALLOWANCE_BASIS = {
  */
 export const AI_ALLOWANCE_ACTION = "ai.characters";
 
+/**
+ * The limits `POST /api/jobs` prices an AI job under — the route spreads THIS
+ * object into `aiReservationFor`, so the charges below and the charge the route
+ * makes are one expression, not two that happen to agree. It IS
+ * `AI_DELIVERY_LIMITS` (`./delivery-cap`), which the upload route's admission
+ * peek reads too: one object under the name each module's readers know.
+ */
+export const AI_JOB_DELIVERY_LIMITS = AI_DELIVERY_LIMITS;
+
+/**
+ * What ONE undeclared job reserves: a whole call's worth, whatever the
+ * document holds — and, since per-call pricing (2026-09-27), the MOST any
+ * Summarize, Chat or Extract run is ever charged: `aiReservationFor` clamps a
+ * per-call run at exactly this, and charges exactly this whenever the running
+ * worker has not proved its read cap (`aiReadCap`).
+ *
+ * Until then every summary, question and extraction cost this whatever its
+ * length, and the pages said so ("a fixed share … 3 summaries a day"). That
+ * sentence is true of a worker image built before the proof and false of one
+ * built after it; the worker is deployed by hand, after the web tier, so the
+ * copy may only claim what holds on both — this ceiling, and the floor below.
+ */
+export const AI_UNDECLARED_JOB_CHARGE = deliveryCapFor(
+  {},
+  AI_JOB_DELIVERY_LIMITS,
+).characters;
+
+/**
+ * The FEWEST per-call runs (summaries, chat questions, extractions) the day's
+ * bucket holds, however long the documents: no run is charged more than
+ * {@link AI_UNDECLARED_JOB_CHARGE}, so at least this many fit. Floor, because
+ * the limiter refuses a job that does not fit whole.
+ *
+ * WAS `AI_UNDECLARED_RUNS_PER_DAY`, published as the exact count ("3 summaries
+ * a day"), and `CHAT_QUESTIONS_PER_DAY_AT_LEAST`, chat's floor under its old
+ * per-question cap. Per-call pricing charges every per-call run under one
+ * clamp, so there is one floor, and a short document on a proving worker gets
+ * more. `tools/ai-allowance-per-tool.test.ts` spends the real route with the
+ * costliest run each tool can send and counts this number.
+ */
+export const AI_PER_CALL_RUNS_PER_DAY_AT_LEAST = Math.floor(
+  AI_CHARACTER_ALLOWANCE / AI_UNDECLARED_JOB_CHARGE,
+);
+
+/**
+ * How ONE job of each `per-character` AI tool counts against the allowance —
+ * the words the refusal uses for it. A per-character tool missing here is
+ * missing from the refusal, which `ratelimit/allowance-copy.test.ts` fails on
+ * ("names every AI tool's action or none").
+ *
+ * WAS keyed on which browser clients DECLARE their characters (L04). Since
+ * per-call pricing every AI client declares, and the declaration no longer
+ * decides the unit: {@link AI_RUN_PRICING} does, and it is the map the route
+ * prices by.
+ */
+const PER_CHARACTER_JOB_COST: Readonly<Record<string, string>> = {
+  "translate-pdf": "a translation counts its document's text",
+};
+
+/** What one run of a `per-call` AI tool is called on its page. */
+const RUN_UNIT: Readonly<Record<string, { one: string; many: string }>> = {
+  "summarize-pdf": { one: "summary", many: "summaries" },
+  [CHAT_TOOL_SLUG]: { one: "chat question", many: "chat questions" },
+  "ai-extract": { one: "extraction", many: "extractions" },
+};
+
+const GENERIC_RUN = { one: "run", many: "runs" } as const;
+
+/**
+ * What one run of `slug` is called — the table the fact lines and the refusal
+ * both read, exported so `tools/ai-allowance-per-tool.test.ts` can hold the two
+ * to it. A per-call tool missing from the table gets the generic "run", which
+ * that test refuses.
+ */
+export function aiRunUnitFor(slug: string): {
+  readonly one: string;
+  readonly many: string;
+} {
+  return RUN_UNIT[slug] ?? GENERIC_RUN;
+}
+
+/** "a summary", "an extraction". */
+const withArticle = (noun: string) =>
+  `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+
+const runsNoun = (unit: { one: string; many: string }, n: number) =>
+  n === 1 ? unit.one : unit.many;
+
+/** "a, b and c" (or "a, b or c"). */
+const listed = (items: readonly string[], conjunction: "and" | "or") =>
+  items.length <= 2
+    ? items.join(` ${conjunction} `)
+    : `${items.slice(0, -1).join(", ")} ${conjunction} ${items.at(-1)}`;
+
+/** The `per-call` AI tools, in the order {@link AI_RUN_PRICING} lists them. */
+const PER_CALL_TOOLS = Object.entries(AI_RUN_PRICING)
+  .filter(([, pricing]) => pricing === "per-call")
+  .map(([slug]) => slug);
+
 export const AI_ALLOWANCE_RUNS = `${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} free characters of AI text`;
 
 /**
@@ -186,8 +296,102 @@ export const AI_ALLOWANCE_RUNS = `${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleStr
  */
 export const AI_ALLOWANCE_CLAUSE = `${AI_ALLOWANCE_RUNS} a day`;
 
-/** What a visitor is offered, stated before they spend it. */
+/**
+ * What a visitor is offered, stated before they spend it — in the unit of the
+ * `per-character` tools (translate). Never publish this alone on a page whose
+ * runs are priced `per-call`: use {@link aiAllowanceFactFor}.
+ */
 export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection — the allowance resets daily.`;
+
+/**
+/**
+ * The most one Summarize, Chat or Extract run can take from the allowance, in
+ * the browser's unit — the same unit as {@link AI_CHARACTER_ALLOWANCE_DELIVERED}.
+ *
+ * It is the undeclared charge (`TRANSLATE_MAX_INPUT_CHARS × h`) with the
+ * headroom taken back out, exactly as the published daily figure is the bucket
+ * with it taken out. `ratelimit/allowance-unit.test.ts` prices a run through
+ * `aiReservationFor` and holds the sentence below to what it returns.
+ */
+export const AI_PER_CALL_RUN_CEILING = TRANSLATE_MAX_INPUT_CHARS;
+
+/**
+ * The offer on the three `per-call` tools, where one run is one provider call.
+ *
+ * ⚠️ WHY IT SAYS "NEVER MORE THAN" AND NOT "THE CHARACTERS IN YOUR DOCUMENT".
+ * A run is charged by what it sends (its declared document, plus the question,
+ * prompt or focus the server measures, plus the engine's instructions) only
+ * while the running worker proves it sends no more than that (`aiReadCap`); an
+ * image built before that proof charges every run the ceiling. Either way the
+ * sentence's ceiling holds: the price is clamped at one whole run. The worker
+ * is deployed by hand, after the web tier, so the stronger sentence would be
+ * true of `main` and false of whatever image is serving — the defect this
+ * codebase keeps paying for. This one is true of both.
+ *
+ * Until 2026-09-27 the three panels showed {@link AI_ALLOWANCE_FACT} alone, and
+ * every run cost the ceiling: three one-page summaries, or three chat
+ * questions, against a published 30,774 characters.
+ */
+export const AI_PER_CALL_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection. One run never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them, however long the document is, and the allowance resets daily.`;
+
+/**
+ * What one chat question costs — the chat-specific half of its allowance.
+ *
+ * The per-call sentence says how much a connection gets and the most one run
+ * can take; it cannot say that a chat RUN is a question, and chat is the one
+ * AI tool whose cost repeats: the document is re-sent with every question.
+ *
+ * TRUE OF EVERY WORKER IMAGE, like the sentence it follows. It used to say
+ * each question counts "this PDF's text again, plus the question and the
+ * conversation … so a short document leaves room for many follow-ups". That is
+ * how a question is priced only while the running worker proves its read cap
+ * (`aiReadCap`, see `aiReservationFor`); on an image that has not, every
+ * question costs one whole run and the day holds three. It also said "at most
+ * 41,032 characters a question" beside a daily figure of 30,774: the
+ * per-question ceiling in the bucket's unit, next to the allowance in the
+ * reader's. The most a question can take, in the reader's unit, is in the
+ * per-call sentence; the ceiling on what one question READS is the chat
+ * panel's Limit row and its FAQ (`CHAT_MAX_CHARACTERS_PER_QUESTION`).
+ *
+ * It lived in the chat panel as `CHAT_QUESTION_COST_NOTE` beside the per-call
+ * note; it lives here since the merge of L04 and L10, so the panel, the fact
+ * line and the FAQPage answer are one string.
+ */
+const CHAT_QUESTION_COST_NOTE =
+  "Each question counts against the allowance as a run of its own, because this PDF's text and the conversation so far are sent again with every question.";
+
+/**
+ * The allowance, stated for ONE tool in the unit the route charges that tool —
+ * the tool page's fact line, its "Is it free?" answer and its panel note are
+ * all this one string.
+ *
+ * WAS {@link AI_ALLOWANCE_FACT} on all four AI pages; then (L04) a per-tool
+ * sentence keyed on which clients DECLARE, which told Summarize and Extract
+ * "a fixed share … whatever the document's length — 3 … a day". Per-call
+ * pricing (L10) made that false once the worker proves its read cap: a short
+ * document then costs what it sends. So a `per-call` page states what holds on
+ * every worker image — the daily figure, the per-run ceiling, and the floor
+ * that ceiling guarantees — and chat adds that each question is a run.
+ *
+ * Every sentence says the allowance is SHARED: every AI tool debits one
+ * bucket, so "at least 3 summaries" alone would be false for anyone who
+ * translated first — hence "if nothing else draws on it".
+ */
+export function aiAllowanceFactFor(slug: string): string {
+  if (AI_RUN_PRICING[slug] === "per-character") {
+    return `${AI_ALLOWANCE_FACT} The other AI tools draw on the same allowance.`;
+  }
+  const unit = aiRunUnitFor(slug);
+  const n = AI_PER_CALL_RUNS_PER_DAY_AT_LEAST;
+  const chat = slug === CHAT_TOOL_SLUG ? ` ${CHAT_QUESTION_COST_NOTE}` : "";
+  return `${AI_PER_CALL_ALLOWANCE_FACT}${chat} However long the document, at least ${n} ${runsNoun(unit, n)} ${n === 1 ? "fits" : "fit"} in a day if nothing else draws on it. The other AI tools draw on the same allowance.`;
+}
+
+/** "a summary, a chat question or an extraction", from the pages' own table. */
+const PER_CALL_UNITS = listed(
+  PER_CALL_TOOLS.map((slug) => withArticle(aiRunUnitFor(slug).one)),
+  "or",
+);
 
 /**
  * What a visitor is told when it runs out.
@@ -198,10 +402,37 @@ export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection —
  * about the reader's own past conduct and is false for everyone behind a shared
  * address who has run nothing.
  *
- * The middle sentence is the one addition beyond stating the scope: "this
- * connection" is accurate but leaves a blameless reader hunting for what they
- * did. Naming the shared-network case answers that without reinstating the old
- * "shared across everyone using pdf.xyz", which claimed one bucket for the whole
- * product and was false for every visitor.
+ * The shared-network sentence is the one addition beyond stating the scope:
+ * "this connection" is accurate but leaves a blameless reader hunting for what
+ * they did. Naming the shared-network case answers that without reinstating
+ * the old "shared across everyone using pdf.xyz", which claimed one bucket for
+ * the whole product and was false for every visitor.
+ *
+ * NOT TOOL-AWARE: the route cannot say which tool is refused — it is one
+ * constant, served by `rateLimitErrorResult` to every AI tool, and nothing
+ * passes the tool in. So it must be true on every AI page alike, and it names
+ * EVERY AI tool's unit, never one:
+ *  - it said "The 30,774 free characters of AI text for this connection are
+ *    used up for today" — false for a visitor refused after three one-page
+ *    summaries, who had used a few thousand;
+ *  - until 2026-09-27 its middle sentence said "text translated by someone
+ *    else" — one tool's use, false on the chat, summarize and extract pages,
+ *    which is where the refusal was met most (a chat question used to cost a
+ *    third of the day);
+ *  - it ended "retry after the interval in the Retry-After header", developer
+ *    copy a person cannot act on. The browser client now reads that header and
+ *    says the wait in words (`@/lib/workers/read-error`).
+ *  - it then said "… or 3 summaries or extractions", the count when every such
+ *    run cost the ceiling. Per-call pricing (2026-09-27) makes a short run on
+ *    a proving worker cost what it sends, so it states the per-run CEILING —
+ *    true of every worker image — and names each per-call tool's run.
+ *  - "used up" alone was false for a connection refused with part of its day
+ *    left: the limiter refuses when `used + this job` would pass the bucket,
+ *    not only when the bucket is empty. "or too little of it is left for this
+ *    document" says which of the two it can be without claiming to know
+ *    (wave1/l01-page-leak, 2026-09-28).
+ * `ratelimit/allowance-copy.test.ts` holds it to every AI tool in the
+ * catalogue (all of them or none), and `tools/ai-allowance-per-tool.test.ts`
+ * holds its per-run clause to the pages' own units.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The ${AI_ALLOWANCE_RUNS} for this connection are used up for today. On a shared network that can include text translated by someone else. The allowance resets daily; retry after the interval in the Retry-After header.`;
+export const AI_ALLOWANCE_USED_MESSAGE = `The free AI allowance for this connection is used up for today, or too little of it is left for this document. It covers ${AI_ALLOWANCE_CLAUSE}, shared across the AI tools: ${listed(Object.values(PER_CHARACTER_JOB_COST), "and")}, and ${PER_CALL_UNITS} never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them. On a shared network that can include AI work by someone else. The allowance resets daily.`;

@@ -96,6 +96,15 @@ export const DEFAULT_OCR_LANGUAGE: OcrLanguage = "eng";
 /** Max language packs one job may combine (each pack adds real processing cost). */
 export const MAX_OCR_LANGUAGES = 4;
 
+/**
+ * Files one OCR job reads. The native runner recognizes one document per run,
+ * and the processor refuses more before it starts; the tool page states this
+ * number. It is the OCR tool's own limit, NOT the platform's
+ * `JOB_LIMITS.maxInputFiles` (20) — the page showed that one until 2026-09-27,
+ * "up to 20 files" above an uploader that kept only the first.
+ */
+export const OCR_MAX_INPUT_FILES = 1;
+
 /** True when `value` is a supported OCR language code. */
 export function isOcrLanguage(value: unknown): value is OcrLanguage {
   return typeof value === "string" && OCR_LANGUAGE_SET.has(value);
@@ -177,10 +186,24 @@ export interface OcrOptions {
   /** What to produce (searchable PDF, text sidecar, or both). */
   outputMode: OcrOutputMode;
   /**
-   * Skip pages that already carry a text layer instead of re-recognizing them
-   * (OCRmyPDF `--skip-text`). Off by default: the common case is a pure scan.
+   * Replace a PDF's existing OCR text layer instead of keeping it (OCRmyPDF
+   * `--redo-ocr`). Off by default.
+   *
+   * With it off, a page that already carries text is kept exactly as it is
+   * (`--skip-text`) and only the pages without text are recognized — so a
+   * scanner's "searchable PDF", a scan with a typed cover page, or an office
+   * export runs instead of aborting. Turning it on strips invisible OCR text and
+   * recognizes those pages again, while text typed into the document itself is
+   * kept. It never rasterizes a page (`--force-ocr` would, destroying vector
+   * text). Image inputs have no text layer, so it does not apply to them.
+   *
+   * Replaced `skipTextPages` on 2026-09-27. That switch defaulted OFF and was
+   * described as "re-recognize pages with text" — but off passed neither flag,
+   * and OCRmyPDF aborts the whole job on the first page with text. The old field
+   * is still accepted from older clients (see {@link parseOcrOptions}) and no
+   * longer decides anything: skipping is the default, not an option.
    */
-  skipTextPages: boolean;
+  redoOcr: boolean;
 }
 
 function invalid(message: string, field: string): ParseResult<never> {
@@ -258,20 +281,30 @@ export function parseOcrOptions(
     );
   }
 
-  // ── skipTextPages ── optional boolean; never coerce a truthy string.
+  // ── skipTextPages ── the retired switch. Still validated, because older
+  // clients (a cached page, an API caller following the documented contract)
+  // send it; a non-boolean stays a client error rather than being ignored. Its
+  // value no longer decides anything — pages with text are always kept unless
+  // `redoOcr` asks otherwise — so it is not carried into the options.
   const rawSkip = options.skipTextPages;
-  let skipTextPages = false;
-  if (rawSkip !== undefined) {
-    if (typeof rawSkip !== "boolean") {
-      return invalid(
-        "`options.skipTextPages` must be a boolean.",
-        "options.skipTextPages",
-      );
-    }
-    skipTextPages = rawSkip;
+  if (rawSkip !== undefined && typeof rawSkip !== "boolean") {
+    return invalid(
+      "`options.skipTextPages` must be a boolean.",
+      "options.skipTextPages",
+    );
   }
 
-  return { ok: true, value: { languages, outputMode: rawMode, skipTextPages } };
+  // ── redoOcr ── optional boolean; never coerce a truthy string.
+  const rawRedo = options.redoOcr;
+  let redoOcr = false;
+  if (rawRedo !== undefined) {
+    if (typeof rawRedo !== "boolean") {
+      return invalid("`options.redoOcr` must be a boolean.", "options.redoOcr");
+    }
+    redoOcr = rawRedo;
+  }
+
+  return { ok: true, value: { languages, outputMode: rawMode, redoOcr } };
 }
 
 /**
@@ -293,9 +326,9 @@ export function describeOcrRequest(options: OcrOptions): string {
  * The closed set of OCR engine FAMILIES a completed job may name to a client. A
  * client-facing engine is ALWAYS one of these families or {@link UNKNOWN_OCR_ENGINE}
  * — never a path, a version, or a stray token — so the field can identify what ran
- * without becoming a leak vector. It mirrors the worker layer's `OCR_ENGINES`
- * (the engines a worker actually shells out to); extend both together when a new
- * engine family genuinely ships.
+ * without becoming a leak vector. The worker layer's `OCR_ENGINES` (the engines
+ * a worker actually shells out to, in preference order) is this same array, so a
+ * new engine family is added in exactly one place.
  */
 export const OCR_ENGINE_FAMILIES = ["ocrmypdf", "tesseract"] as const;
 export type OcrEngineFamily = (typeof OCR_ENGINE_FAMILIES)[number];

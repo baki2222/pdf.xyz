@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
 import {
   PAGE_JOIN,
   pageTextChunks,
@@ -29,6 +30,8 @@ import {
 import type { AiProvider, AiCompletionResult, AiUsage } from "../ai/provider";
 import {
   TRANSLATE_DEFAULT_MAX_OUTPUT_TOKENS,
+  TRANSLATE_NO_TEXT_MESSAGE,
+  translateEveryPageTooLongMessage,
   translateMaxInputChars,
   translateTooLongMessage,
 } from "@/lib/jobs/translate-limits";
@@ -149,6 +152,8 @@ export type TranslateFailureKind =
   | "unsupported"
   | "ai_unconfigured"
   | "no_text"
+  /** The PDF needs a password, or is not a readable PDF: a fact about the file. */
+  | "cannot_open"
   | "too_large"
   /**
    * The document has more TEXT than the model may write back. Distinct from
@@ -487,7 +492,12 @@ export async function runTranslate(
   let extracted: ExtractedPdfText;
   try {
     extracted = await extract(input);
-  } catch {
+  } catch (err) {
+    // A file the extractor cannot OPEN (it needs a password, or is not a
+    // readable PDF) gets its own reason, never the generic failure. No model
+    // has been called yet, so this failure has spent nothing.
+    const open = pdfTextOpenFailure(err);
+    if (open) return { ok: false, ...open };
     return {
       ok: false,
       kind: "failed",
@@ -502,8 +512,9 @@ export async function runTranslate(
       ok: false,
       kind: "no_text",
       retryable: false,
-      message:
-        "This PDF has no selectable text to translate. It may be a scan or image-only PDF — run OCR PDF first, then translate the result.",
+      // Shared with the browser's pre-upload check, which refuses a scan with
+      // this exact sentence before anything is uploaded or charged.
+      message: TRANSLATE_NO_TEXT_MESSAGE,
     };
   }
 
@@ -595,12 +606,25 @@ export async function runTranslate(
     // Every page individually exceeds one call, so there is nothing to deliver.
     // Refusing here costs the caller nothing; a partial delivery of zero pages
     // would cost them an allowance for an empty package.
+    //
+    // NAME THE PAGES, and do not say "split it into smaller files": pages are
+    // already the unit this engine splits at, so a smaller file holds the same
+    // page at the same length. That advice shipped here, and in the browser,
+    // until the two were given one sentence. It applies only when nothing was
+    // withheld by the delivery cap — then every page with text is oversize and
+    // "every page" is true; with a cap in play the old wording stands.
+    const everyPageOversize =
+      capped !== null &&
+      capped.withheldPages.length === 0 &&
+      plan.oversize.length > 0;
     return {
       ok: false,
       kind: "too_much_text",
       characters: sourceText.length,
       ceilingCharacters,
-      message: translateTooLongMessage(sourceText.length, ceilingCharacters),
+      message: everyPageOversize
+        ? translateEveryPageTooLongMessage(plan.oversize, ceilingCharacters)
+        : translateTooLongMessage(sourceText.length, ceilingCharacters),
     };
   }
 

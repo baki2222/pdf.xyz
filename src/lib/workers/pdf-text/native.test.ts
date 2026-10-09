@@ -20,6 +20,11 @@ import {
   type PdfTextSeams,
 } from "./native";
 import { resolveNativePdfTextConfig } from "./native-config";
+import {
+  isPdfOpenRefusal,
+  PDF_REFUSAL_EXIT_CODES,
+  PdfTextExecError,
+} from "./errors";
 
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
 
@@ -259,6 +264,91 @@ describe("extractors", () => {
   });
 });
 
+describe("a failed run says HOW it failed", () => {
+  it("carries the exit status of a real process that refused its input", async () => {
+    // A real spawn through the default runner: node itself, handed pdftotext's
+    // argv, exits 9 on the unknown `-layout` flag. The runner used to reject
+    // with a bare Error, so an engine could not tell "this document will not
+    // open" from "this run timed out" — and retried both.
+    const error = await createNativePdfTextExtractor(
+      process.execPath,
+      resolveNativePdfTextConfig({}),
+      "keep",
+    )(PDF).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(PdfTextExecError);
+    expect(error).toMatchObject({
+      exitCode: 9,
+      killed: false,
+      outputTooLarge: false,
+    });
+    // INVERTED: this asserted `true` while any non-zero exit counted as the
+    // document refusing to open. Exit 9 is node rejecting a flag, which says
+    // nothing about the PDF; only poppler's document statuses do.
+    expect(isPdfOpenRefusal(error)).toBe(false);
+  });
+
+  it("calls only poppler's DOCUMENT exit statuses a refusal", () => {
+    const exit = (exitCode: number) =>
+      isPdfOpenRefusal(
+        new PdfTextExecError({
+          exitCode,
+          killed: false,
+          outputTooLarge: false,
+        }),
+      );
+    // 1: error opening the PDF; 3: PDF permissions — the document's answer.
+    expect(exit(1)).toBe(true);
+    expect(exit(3)).toBe(true);
+    // 2: error opening the OUTPUT file; 99: other error — not the document's.
+    expect(exit(2)).toBe(false);
+    expect(exit(99)).toBe(false);
+  });
+
+  it("does not call a timeout or an output ceiling a refusal", () => {
+    expect(
+      isPdfOpenRefusal(
+        new PdfTextExecError({
+          exitCode: null,
+          killed: true,
+          outputTooLarge: false,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isPdfOpenRefusal(
+        new PdfTextExecError({
+          exitCode: null,
+          killed: false,
+          outputTooLarge: true,
+        }),
+      ),
+    ).toBe(false);
+    expect(isPdfOpenRefusal(new Error("pdftotext failed."))).toBe(false);
+  });
+
+  it("does not call a killed or over-ceiling run a refusal even when it carries a DOCUMENT exit status", () => {
+    // The cases above have no exit status, so the refusal set alone already
+    // rejects them and the killed / outputTooLarge clauses were decoration:
+    // neutering `!error.killed` turned nothing red. The status and the kill
+    // flag are read from separate fields of the runner's error (and the
+    // runner is an injectable seam), so nothing ties "killed" to "no
+    // status" — and a timeout says nothing about the document.
+    for (const exitCode of PDF_REFUSAL_EXIT_CODES) {
+      const refusal = (detail: { killed: boolean; outputTooLarge: boolean }) =>
+        isPdfOpenRefusal(new PdfTextExecError({ exitCode, ...detail }));
+      // Control: the same status, run to completion, IS a refusal.
+      expect(refusal({ killed: false, outputTooLarge: false })).toBe(true);
+      expect(refusal({ killed: true, outputTooLarge: false })).toBe(false);
+      expect(refusal({ killed: false, outputTooLarge: true })).toBe(false);
+    }
+    // Health check: the loop ran over a non-empty set.
+    expect(PDF_REFUSAL_EXIT_CODES.size).toBeGreaterThan(0);
+  });
+});
+
 describe("deps wiring — readiness must reflect the host, not the wiring", () => {
   it("injects extract only when pdftotext is present", () => {
     expect(
@@ -267,6 +357,34 @@ describe("deps wiring — readiness must reflect the host, not the wiring", () =
     expect(
       nativePdfOfficeExportDeps({}, { resolveOnPath: () => false }).extract,
     ).toBeUndefined();
+  });
+
+  it("injects extractFlow only when pdftotext is present", () => {
+    expect(
+      nativePdfOfficeExportDeps({}, { resolveOnPath: () => true }).extractFlow,
+    ).toBeTypeOf("function");
+    expect(
+      nativePdfOfficeExportDeps({}, { resolveOnPath: () => false }).extractFlow,
+    ).toBeUndefined();
+  });
+
+  it("gives PDF to Word the reading-order extractor and Excel/PowerPoint the layout one", async () => {
+    // THE RELATIONSHIP, read off the argv each extractor really runs. PDF to
+    // Word read `-layout` until 2026-09-27, which glued a two-column page's
+    // columns together line by line; Excel must keep `-layout`, whose padding
+    // its column placement depends on.
+    const argvs: string[][] = [];
+    const wired: PdfTextSeams = {
+      ...seams(""),
+      exec: async (_command, args) => {
+        argvs.push([...args]);
+        return "";
+      },
+    };
+    const deps = nativePdfOfficeExportDeps({}, wired);
+    await deps.extract!(PDF);
+    await deps.extractFlow!(PDF);
+    expect(argvs.map((argv) => argv[0])).toEqual(["-layout", "-bbox-layout"]);
   });
 
   it("injects extractLayout only when pdftotext is present", () => {
@@ -287,7 +405,7 @@ describe("deps wiring — readiness must reflect the host, not the wiring", () =
     // THE RELATIONSHIP, not the argument. Both builders call the same factory
     // and the padding choice is now the only thing separating them; a swap is
     // silent in both directions — AI ceilings would count alignment spaces
-    // again, and office export would lose the 2+ spaces it splits rows on.
+    // again, and office export would lose the padding it places columns by.
     const row = "North   1200  1350";
     const wired = { resolveOnPath: () => true, ...seams(row) };
 
@@ -306,7 +424,7 @@ describe("deps wiring — readiness must reflect the host, not the wiring", () =
     ).toBe("North 1200 1350");
     expect(
       (await office!(PDF)).text,
-      "PDF→Office export splits spreadsheet rows on runs of 2+ spaces; " +
+      "PDF to Excel places each cell by its position on the padded line; " +
         "collapsing here merges its columns",
     ).toBe(row);
   });

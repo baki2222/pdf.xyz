@@ -38,6 +38,19 @@ export const MAX_REQUEST_TITLE_CHARS = 200;
 export const MAX_REQUEST_MESSAGE_CHARS = 1000;
 export const MAX_FIELD_LABEL_CHARS = 80;
 
+/**
+ * The files in the package a request produces, by role. The engine names its
+ * ZIP entries and its README from this record and the tool page lists them
+ * from it, so the page cannot name a file the download does not hold —
+ * `worker-tool-answers.test.ts` unzips a real package and compares both ways.
+ */
+export const REQUEST_PACKAGE_FILES = {
+  prepared: "prepared.pdf",
+  manifest: "manifest.json",
+  audit: "audit-trail.json",
+  readme: "README.txt",
+} as const;
+
 /** Floating-point slack when checking a fractional box fits inside the page. */
 const COORD_EPS = 1e-3;
 
@@ -86,8 +99,10 @@ export interface RequestSigner {
 
 /**
  * One field a signer must complete, positioned with fractional coordinates
- * (0..1) from the page's bottom-left corner so the placement is independent of the
- * page's absolute point size. The engine resolves these to points per page.
+ * (0..1) from the bottom-left corner of the page AS DISPLAYED — its CropBox,
+ * turned by its `/Rotate` — so "the bottom of the page" means what the reader
+ * sees there, independent of the page's point size, crop or rotation. The worker
+ * resolves these against that visible frame (`@/lib/pdf/page-frame`).
  */
 export interface RequestSignatureField {
   /** Index into the request's `signers` array. */
@@ -392,4 +407,50 @@ export function signatureRequestOutputName(originalName: unknown): string {
       .replace(/\.[^.]+$/, "")
       .trim() || FALLBACK_STEM;
   return `${stem.length > budget ? stem.slice(0, budget).trim() : stem}${tail}`;
+}
+
+/**
+ * The builder's default signature block: one signature field per signer (plus an
+ * optional date field beside it), stacked from the bottom of the target page, in
+ * the fractional coordinates of the page AS DISPLAYED. Deterministic and always
+ * in-bounds, so the request the worker receives validates.
+ *
+ * Lives here, not in the panel, so the preview the user sees and the worker
+ * integration test that reads the prepared PDF back both consume the SAME layout
+ * the request is built from.
+ */
+export function signatureBlockFields(
+  signerCount: number,
+  page: number,
+  includeDate: boolean,
+): RequestSignatureField[] {
+  const fields: RequestSignatureField[] = [];
+  const rowHeight = Math.min(0.11, 0.6 / Math.max(1, signerCount));
+  const boxHeight = rowHeight * 0.55;
+  for (let i = 0; i < signerCount; i += 1) {
+    const y = 0.06 + i * rowHeight;
+    fields.push({
+      signer: i,
+      page,
+      type: "signature",
+      x: 0.08,
+      y,
+      width: 0.4,
+      height: boxHeight,
+      required: true,
+    });
+    if (includeDate) {
+      fields.push({
+        signer: i,
+        page,
+        type: "date",
+        x: 0.56,
+        y,
+        width: 0.22,
+        height: boxHeight,
+        required: true,
+      });
+    }
+  }
+  return fields;
 }

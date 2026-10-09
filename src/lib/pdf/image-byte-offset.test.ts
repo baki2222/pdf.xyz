@@ -363,8 +363,9 @@ describe("embedRasterImage — the one place the offset is normalized", () => {
 
   it("does not copy bytes that are already a whole buffer at offset 0", async () => {
     // The normalization must be free on every path we actually ship — the
-    // rasterizer hands `grayscalePdf` a full-page JPEG per page, and a copy of
-    // each would be a real cost paid for nothing.
+    // rasterizer hands `redactPdf` a full-page JPEG per page, `grayscalePdf`
+    // encodes one of its own per page, and a copy of each would be a real cost
+    // paid for nothing.
     const doc = await PDFDocument.create();
     const image = await embedRasterImage(doc, JPG_1X1, "jpg");
     const out = await extractPdfImages(await withImage(doc, image));

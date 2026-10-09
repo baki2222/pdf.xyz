@@ -344,6 +344,7 @@ describe("worker operations snapshot — abuse-guard rate-limit posture", () => 
       // Per-client enforcement needs trusted identity too; without it the same
       // store reads `remote-configured-shared` (one bucket for everyone).
       PDFXYZ_RATE_LIMIT_TRUST_PROXY: "true",
+      PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER: "cf-connecting-ip",
       PDFXYZ_RATE_LIMIT_KEY_SALT: "test-shared-salt",
     });
     expect(snap.rateLimit.code).toBe("remote-configured");
@@ -445,6 +446,7 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
     atomicQueue: false,
     chunkedTranslate: false,
     deliveryCap: false,
+    aiReadCap: false,
     ...extra,
   });
 
@@ -497,7 +499,19 @@ describe("advertised capabilities — the deploy gap becomes a reported state", 
       }),
     );
     expect(row?.health).toBe("ok");
-    expect(row?.detail).toContain("proved every capability");
+    /**
+     * INVERTED. This used to assert `toContain("proved every capability")`,
+     * pinning a sentence — "The running worker proved every capability the
+     * product's copy promises" — that was false: the corpus is what a worker
+     * PUBLISHES, and LibreOffice, Chromium, qpdf, Ghostscript and pdftotext
+     * serve advertised tools while publishing no proof at all. The green row
+     * must now name the set it checked, and say the rest is not vouched for.
+     */
+    expect(row?.detail).not.toMatch(/every capability the product/i);
+    for (const capability of ADVERTISED_WORKER_CAPABILITIES) {
+      expect(row?.detail).toContain(capability.label);
+    }
+    expect(row?.detail).toMatch(/does not vouch/i);
   });
 
   it("EVERY published capability can turn the row red, one at a time", () => {

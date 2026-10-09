@@ -16,10 +16,13 @@
 // browser module never pulls the server-side validators or the tools catalog
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
-import type { ApiError } from "@/lib/jobs/responses";
 import type { CompressionProfile } from "./compression/engine";
 import { pollJobToTerminal } from "./job-polling";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
+import { readWorkerError } from "./read-error";
+import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
+
+const COMPRESS_TOOL = "compress-pdf";
 
 /** What the caller wants compressed, and how. */
 export interface CompressWorkerInput {
@@ -63,6 +66,8 @@ export type FetchLike = (
   status: number;
   json: () => Promise<unknown>;
   arrayBuffer: () => Promise<ArrayBuffer>;
+  /** Optional so stubs need not carry it; read for a 429's `Retry-After`. */
+  headers?: { get(name: string): string | null };
 }>;
 
 export interface CompressWorkerOptions {
@@ -92,30 +97,12 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy;
 }
 
-function isApiError(value: unknown): value is ApiError {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "error" in value &&
-    typeof (value as { error: unknown }).error === "object" &&
-    (value as { error: unknown }).error !== null
-  );
-}
-
-/** Pull an honest message + code out of a non-OK response body. */
+/** Pull an honest message + code out of a non-OK response (see `./read-error`). */
 async function readError(
   res: Awaited<ReturnType<FetchLike>>,
   fallback: string,
 ): Promise<CompressWorkerFailure> {
-  try {
-    const body = await res.json();
-    if (isApiError(body)) {
-      return { ok: false, message: body.error.message, code: body.error.code };
-    }
-  } catch {
-    // Non-JSON error body — fall through to the generic message.
-  }
-  return { ok: false, message: fallback };
+  return readWorkerError(res, fallback);
 }
 
 /**
@@ -127,6 +114,18 @@ async function readError(
 export async function runWorkerCompression(
   input: CompressWorkerInput,
   options: CompressWorkerOptions = {},
+): Promise<CompressWorkerResult> {
+  // The run's outcome is reported here, where every deep-compression job
+  // passes — see `@/lib/telemetry/tool-outcome`. It was not, until the audit
+  // after 6a2fc17: compress-pdf, the most-used tool, sent no outcome at all.
+  return withToolOutcome(COMPRESS_TOOL, () =>
+    runWorkerCompressionSteps(input, options),
+  );
+}
+
+async function runWorkerCompressionSteps(
+  input: CompressWorkerInput,
+  options: CompressWorkerOptions,
 ): Promise<CompressWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const { signal } = options;
@@ -140,7 +139,7 @@ export async function runWorkerCompression(
     body: toArrayBuffer(
       new TextEncoder().encode(
         JSON.stringify({
-          tool: "compress-pdf",
+          tool: COMPRESS_TOOL,
           files: [
             {
               filename: input.filename,
@@ -187,7 +186,7 @@ export async function runWorkerCompression(
     body: toArrayBuffer(
       new TextEncoder().encode(
         JSON.stringify({
-          tool: "compress-pdf",
+          tool: COMPRESS_TOOL,
           inputs: [slot.fileId],
           // Carry the original filename as display-only metadata so the worker
           // names the output after it. The server re-sanitizes it and never lets

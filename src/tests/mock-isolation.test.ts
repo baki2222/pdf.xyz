@@ -44,10 +44,14 @@
  * import the mocked module transitively. `@/lib/workers` was never the problem;
  * `app/api/jobs/route`, which both files import, was.
  *
- * It also explains why the one other mock in the repo is safe rather than
- * fortunate: the panel test mocks its client, so the poisoned intermediary is
- * the panel component, and no other test file imports the panel. Nothing needs
- * grandfathering.
+ * It also explained why the one other mock in the repo was safe rather than
+ * fortunate: the chat panel test mocked its client, so the poisoned
+ * intermediary was the panel component, and no other test file imported the
+ * panel. That stopped being true on 2026-09-27, when the tool-page guards began
+ * importing every worker panel — by a specifier read from the page, which this
+ * parser could not see — and the chat tests failed only in a full run. The
+ * chat test now swaps its driver through a seam, so no `vi.mock` remains, and
+ * a computed `import(...)` now makes its test an observer of everything.
  *
  * The corpus is DISCOVERED — every tracked source file, the graph built from
  * their actual import statements — rather than named, because a list of files
@@ -132,6 +136,22 @@ interface Parsed {
   imports: string[];
   /** Specifiers passed to `vi.mock` / `vi.doMock`, resolved. */
   mocks: string[];
+  /**
+   * Every `vi.mock` / `vi.doMock` call with a literal specifier, resolved or
+   * not: a package mock (`next/navigation`) runs the same detection as a
+   * local one. Only the health check reads it.
+   */
+  mockCalls?: number;
+  /**
+   * True when this file calls `import(...)` with a specifier that is NOT a
+   * string literal. Such a file can load any module, so the graph cannot say
+   * which — and a test that reaches it is treated as observing EVERY module
+   * (the safe direction: over-eager costs a conversation, a missed edge a red
+   * CI). Added 2026-09-27: the tool-page guards import every worker panel by
+   * a specifier read from the page, which this parser could not see, and one
+   * of those panels was the intermediary the chat panel's `vi.mock` poisoned.
+   */
+  computedImport?: boolean;
 }
 
 /**
@@ -163,11 +183,18 @@ function parse(file: string): Parsed {
   try {
     source = readFileSync(file, "utf8");
   } catch {
-    return { imports: [], mocks: [] };
+    return { imports: [], mocks: [], mockCalls: 0 };
   }
+  return parseSource(file, source);
+}
+
+/** {@link parse} on source text — so detection can be proven on a sample. */
+function parseSource(file: string, source: string): Parsed {
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const imports: string[] = [];
   const mocks: string[] = [];
+  let mockCalls = 0;
+  let computedImport = false;
 
   const walk = (node: TS.Node): void => {
     if (
@@ -191,6 +218,7 @@ function parse(file: string): Parsed {
       if (receiver === "vi" && (name === "mock" || name === "doMock")) {
         const arg = node.arguments[0];
         if (arg && ts.isStringLiteral(arg)) {
+          mockCalls += 1;
           const target = resolveSpecifier(file, arg.text);
           if (target) mocks.push(target);
         }
@@ -201,13 +229,20 @@ function parse(file: string): Parsed {
         if (arg && ts.isStringLiteral(arg)) {
           const target = resolveSpecifier(file, arg.text);
           if (target) imports.push(target);
+        } else if (arg) {
+          computedImport = true;
         }
       }
     }
     ts.forEachChild(node, walk);
   };
   walk(sf);
-  return { imports, mocks };
+  return {
+    imports,
+    mocks,
+    mockCalls,
+    ...(computedImport ? { computedImport } : {}),
+  };
 }
 
 /** Every file reachable from `roots` through import edges. */
@@ -274,7 +309,13 @@ function findMockLeaks(
       if (poisoned.length === 0) continue;
       const observers = testFiles.filter(
         (file) =>
-          file !== mocker && poisoned.some((module) => reach(file).has(module)),
+          file !== mocker &&
+          (poisoned.some((module) => reach(file).has(module)) ||
+            // A computed `import(...)` can load any module, poisoned ones
+            // included; the graph cannot rule it out, so it does not.
+            [...reach(file)].some(
+              (module) => graph.get(module)?.computedImport,
+            )),
       );
       if (observers.length > 0) {
         violations.push({ mocker, target, poisoned, observers });
@@ -286,12 +327,19 @@ function findMockLeaks(
 
 /** Build a tiny graph by hand, for the probes below. */
 function graphOf(
-  spec: Record<string, { imports?: string[]; mocks?: string[] }>,
+  spec: Record<
+    string,
+    { imports?: string[]; mocks?: string[]; computedImport?: boolean }
+  >,
 ): Map<string, Parsed> {
   return new Map(
     Object.entries(spec).map(([file, node]) => [
       file,
-      { imports: node.imports ?? [], mocks: node.mocks ?? [] },
+      {
+        imports: node.imports ?? [],
+        mocks: node.mocks ?? [],
+        ...(node.computedImport ? { computedImport: true } : {}),
+      },
     ]),
   );
 }
@@ -340,6 +388,51 @@ describe("the detection reproduces the probes that found the mechanism", () => {
   });
 });
 
+describe("a computed import observes everything", () => {
+  it("PROBE D: a test that loads modules by a computed specifier is an observer of every poisoned module", () => {
+    // The shape that broke the chat panel's tests in a full run: the mocker
+    // poisons panel.tsx; a guard test loads every panel through a helper that
+    // imports by a path read at runtime. No literal edge reaches panel.tsx.
+    const graph = graphOf({
+      "panel.test.tsx": { mocks: ["client.ts"], imports: ["panel.tsx"] },
+      "guard.test.tsx": { imports: ["dispatch.ts"] },
+      "dispatch.ts": { computedImport: true },
+      "panel.tsx": { imports: ["client.ts"] },
+      "client.ts": {},
+    });
+    const found = findMockLeaks(graph, ["panel.test.tsx", "guard.test.tsx"]);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.observers).toEqual(["guard.test.tsx"]);
+  });
+
+  it("POSITIVE CONTROL: without the computed import the same graph is clean", () => {
+    const graph = graphOf({
+      "panel.test.tsx": { mocks: ["client.ts"], imports: ["panel.tsx"] },
+      "guard.test.tsx": { imports: ["dispatch.ts"] },
+      "dispatch.ts": {},
+      "panel.tsx": { imports: ["client.ts"] },
+      "client.ts": {},
+    });
+    expect(findMockLeaks(graph, ["panel.test.tsx", "guard.test.tsx"])).toEqual(
+      [],
+    );
+  });
+
+  it("the parser sees a mock, a literal import and a computed one in source", () => {
+    const parsed = parseSource(
+      "src/tests/sample.test.ts",
+      [
+        'vi.mock("@/lib/jobs/types");',
+        'await import("@/lib/jobs/index");',
+        "await import(`${dir}/x.ts`);",
+      ].join("\n"),
+    );
+    expect(parsed.mocks).toEqual(["src/lib/jobs/types.ts"]);
+    expect(parsed.imports).toContain("src/lib/jobs/index.ts");
+    expect(parsed.computedImport).toBe(true);
+  });
+});
+
 describe("no mock is observable by another test file", () => {
   it("holds across every tracked test file", () => {
     const files = trackedSources();
@@ -383,14 +476,35 @@ describe("no mock is observable by another test file", () => {
       `only ${reachesBarrel.length} test files reach the jobs barrel — the walk is broken, not the code`,
     ).toBeGreaterThan(20);
 
-    // And a mock must actually be FOUND, or the check below asks nothing.
-    const mockers = testFiles.filter(
-      (file) => (graph.get(file)?.mocks ?? []).length > 0,
+    // And vi.mock detection must be shown to WORK on the real tree, or the
+    // check below asks nothing. Until 2026-09-27 this counted test files that
+    // mock a LOCAL module. The last one (the Chat with PDF panel test) now
+    // hands its driver in as a prop, precisely so the panel is not left cached
+    // against a stub, so that count is 0 for the good reason, and its own
+    // message said so ("either that is true, or ..."). The property this check
+    // needs is "the parser sees a vi.mock call", and a package mock
+    // (`next/navigation`, `pdf-lib`) goes through exactly that code; resolving
+    // its specifier is the same `resolveSpecifier` the import graph is proven
+    // on above.
+    const mockCalls = testFiles.reduce(
+      (n, file) => n + (graph.get(file)?.mockCalls ?? 0),
+      0,
     );
     expect(
-      mockers.length,
-      "no test file mocks anything — either that is true, or vi.mock detection has stopped working and this guard is inert",
+      mockCalls,
+      "no vi.mock / vi.doMock call was found in any test file — detection has stopped working and this guard is inert",
     ).toBeGreaterThan(0);
+    // Detection must be SEEN working before a clean result means anything.
+    // This used to require a live `vi.mock` somewhere in the corpus; since
+    // 2026-09-27 there is none (the chat panel test swaps its driver through
+    // a seam instead), so detection is proven on a sample ("the parser sees a
+    // mock…" above) and here on the real graph, where the tool-page guards'
+    // computed panel imports must be found — or they observe nothing.
+    const computed = files.filter((file) => graph.get(file)?.computedImport);
+    expect(
+      computed,
+      "no computed import() found — the tool-page dispatch helper uses one, so detection is broken",
+    ).toContain("src/tests/worker-panel-dispatch.ts");
 
     const violations = findMockLeaks(graph, testFiles);
     expect(

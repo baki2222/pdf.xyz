@@ -1,4 +1,6 @@
 import JSZip from "jszip";
+import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import {
   PAGE_JOIN,
   pageTextChunks,
@@ -109,6 +111,8 @@ export type SummarizeFailureKind =
   | "unsupported"
   | "ai_unconfigured"
   | "no_text"
+  /** The PDF needs a password, or is not a readable PDF: a fact about the file. */
+  | "cannot_open"
   | "too_large"
   | "rate_limited"
   | "content_filtered"
@@ -324,7 +328,12 @@ export async function runSummarize(
   let extracted: ExtractedPdfText;
   try {
     extracted = await extract(input);
-  } catch {
+  } catch (err) {
+    // A file the extractor cannot OPEN (it needs a password, or is not a
+    // readable PDF) gets its own reason, never the generic failure. No model
+    // has been called yet, so this failure has spent nothing.
+    const open = pdfTextOpenFailure(err);
+    if (open) return { ok: false, ...open };
     return {
       ok: false,
       kind: "failed",
@@ -339,8 +348,8 @@ export async function runSummarize(
       ok: false,
       kind: "no_text",
       retryable: false,
-      message:
-        "This PDF has no selectable text to summarize. It may be a scan or image-only PDF — run OCR PDF first, then summarize the result.",
+      // One string for both sides of the upload — see `@/lib/jobs/ai-no-text`.
+      message: NO_SELECTABLE_TEXT_MESSAGE["summarize-pdf"],
     };
   }
 

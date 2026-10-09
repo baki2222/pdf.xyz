@@ -15,6 +15,7 @@ const creds = (): Record<string, string> => ({
   [RATE_LIMIT_REDIS_ENV.restUrl]: "https://rl-example-98765.upstash.io",
   [RATE_LIMIT_REDIS_ENV.restToken]: "RL_tokenEXAMPLEvalue00000000000000000000",
   [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+  [RATE_LIMIT_ENV.clientIpHeader]: "cf-connecting-ip",
   [RATE_LIMIT_ENV.keySalt]: "test-shared-salt",
 });
 
@@ -63,6 +64,39 @@ describe("resolveRateLimitStatus — the four static states", () => {
     expect(s.code).toBe("remote-configured");
     expect(s.enforced).toBe(true);
     expect(s.distributed).toBe(true);
+  });
+
+  it("trusted identity with NO client-IP header named is the shared bucket, and says which variable", () => {
+    // Before 2026-09 trust + salt was enough: identity then GUESSED a header
+    // from a fallback list, and every guess was client-writable. With no
+    // header named, identity refuses to key per client — and the posture must
+    // say so rather than report a per-client limiter that is not one.
+    const { [RATE_LIMIT_ENV.clientIpHeader]: _unset, ...noHeader } = creds();
+    void _unset;
+    const s = resolveRateLimitStatus(
+      { [RATE_LIMIT_ENV.provider]: "redis", ...noHeader },
+      { providerRegistered: true },
+    );
+    expect(s.code).toBe("remote-configured-shared");
+    expect(s.envVars).toContain(RATE_LIMIT_ENV.clientIpHeader);
+    for (const bad of [
+      "",
+      "   ",
+      "cf connecting ip",
+      "x-forwarded-for,x-real-ip",
+    ]) {
+      const withBad = resolveRateLimitStatus(
+        {
+          [RATE_LIMIT_ENV.provider]: "redis",
+          ...noHeader,
+          [RATE_LIMIT_ENV.clientIpHeader]: bad,
+        },
+        { providerRegistered: true },
+      );
+      expect(withBad.code, JSON.stringify(bad)).toBe(
+        "remote-configured-shared",
+      );
+    }
   });
 });
 

@@ -56,6 +56,25 @@ export const RATE_LIMIT_ACTIONS = [
 ] as const satisfies readonly RateLimitAction[];
 
 /**
+ * Actions that keep a policy but that NOTHING ENFORCES any more.
+ *
+ * `ai.run` stays in the union because a deployed record may still carry it;
+ * the free AI allowance moved to `ai.characters` (see `AI_ALLOWANCE_ACTION`).
+ * This is the one definition of "superseded": the runbook's policy table is
+ * every action minus these, and `rate-limiting-doc.test.ts` checks this list
+ * against the call sites it discovers, so it cannot claim an action is dead
+ * while a route still enforces it, or live after its last caller is gone.
+ * "Caller" means a CALL of an enforcing function (`enforceRateLimit`,
+ * `enforceAiCharacterAllowance`, and for `ai.spend` BOTH `peekAiSpendCeiling`
+ * and `recordAiSpend`) from outside this package — not a `policyFor` lookup,
+ * which enforces nothing. That test's CONTROLs remove each caller and must
+ * see the action drop.
+ */
+export const SUPERSEDED_RATE_LIMIT_ACTIONS = [
+  "ai.run",
+] as const satisfies readonly RateLimitAction[];
+
+/**
  * A typed throttle policy for one action: at most `limit` requests per
  * `windowSeconds` fixed window, per client bucket. `id` is a stable, content-free
  * label (it names the policy, never a caller) echoed in the decision so a monitor
@@ -186,6 +205,29 @@ export interface RateLimiterCore {
    * a provider that reports no usage must not take the ceiling down with it.
    */
   spend(
+    policy: RateLimitPolicy,
+    key: string,
+    nowMs: number,
+    cost: number,
+  ): void;
+  /**
+   * Give back `cost` previously recorded against `key` by {@link spend}.
+   *
+   * The inverse of a reservation whose work never happened — `POST /api/jobs`
+   * charges the character allowance before it asks the adapter to create the
+   * job, so a creation that fails must hand the charge back or the caller pays
+   * for a job that does not exist.
+   *
+   * Three properties, all load-bearing:
+   *  - it NEVER creates a window: with no live window there is nothing to give
+   *    back, and inventing one would start an accounting day at zero;
+   *  - it NEVER goes below zero, so a refund can only undo a charge, never
+   *    bank credit against a future one;
+   *  - it NEVER moves the window's reset time — a refund is not a new hit.
+   *
+   * A non-positive or non-finite `cost` records nothing.
+   */
+  refund(
     policy: RateLimitPolicy,
     key: string,
     nowMs: number,

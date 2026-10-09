@@ -1,9 +1,28 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Search } from "lucide-react";
 import { getPopularTools, toolCount } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { ToolIcon } from "@/components/ui/tool-icon";
 import { buttonVariants } from "@/components/ui/button";
+import { MissingPathSuggestion } from "@/components/layout/missing-path-suggestion";
+
+/**
+ * The 404's own identity. Next already sends a 404 status and its own
+ * `noindex` meta for this page, but everything else in the head came from the
+ * root layout — the home page's title, `index, follow`, and a canonical
+ * pointing at the home page — so a dead URL described itself as a duplicate of
+ * `/`. It declares its title and robots here, and deliberately NO canonical:
+ * there is no URL this page is the canonical copy of.
+ *
+ * `follow: true` on purpose — the body links to home, the catalogue and six
+ * popular tools, and those are exactly the links a crawler that hit a dead URL
+ * should keep walking.
+ */
+export const metadata: Metadata = {
+  title: "Page not found",
+  robots: { index: false, follow: true },
+};
 
 export default function NotFound() {
   const suggestions = getPopularTools(6);
@@ -24,6 +43,10 @@ export default function NotFound() {
             {toolCount} tools, or head back home.
           </p>
         </div>
+
+        {/* The address itself often names the tool: /merge-pdf, an old
+            link, a guessed slug. Nothing renders when it names none. */}
+        <MissingPathSuggestion />
 
         <div className="flex flex-col items-center gap-3 sm:flex-row">
           <Link

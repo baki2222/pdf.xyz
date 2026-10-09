@@ -86,7 +86,15 @@ import {
   emptyCapabilities,
   serializeHeartbeat,
 } from "@/lib/workers/heartbeat";
-import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
+import { toolFacts } from "./tool-facts";
+import {
+  pageContent,
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "./page-copy";
 
 /* ------------------------------------------------------------------ *
  *  The copy corpus — discovered from the catalogue, never listed.
@@ -110,18 +118,31 @@ function catalogueCopy(): CopyEntry[] {
     const at = (where: string, text: string) =>
       out.push({ slug: tool.slug, where, text });
     at("name", tool.name);
+    if (tool.seoTitle) at("seoTitle", tool.seoTitle);
     at("tagline", tool.tagline);
     at("description", tool.description);
     tool.keywords.forEach((k, i) => at(`keywords[${i}]`, k));
-    howToSteps(tool).forEach((s, i) => at(`how[${i}]`, s));
+    // Through `page-copy`, the accessors the page renders — since
+    // 2026-09-27 that is the authored content where a tool has it.
+    pageSteps(tool).forEach((s, i) => at(`how[${i}]`, stepText(s)));
     toolFacts(tool.slug).forEach((f, i) => {
       at(`facts[${i}].label`, f.label);
       at(`facts[${i}].value`, f.value);
     });
-    toolFaq(tool).forEach((f, i) => {
+    pageFaq(tool).forEach((f, i) => {
       at(`faq[${i}].question`, f.question);
       at(`faq[${i}].answer`, f.answer);
     });
+    pageIntro(tool).forEach((p, i) => at(`intro[${i}]`, p));
+    pageUseCases(tool).forEach((u, i) => {
+      at(`useCases[${i}].title`, u.title);
+      at(`useCases[${i}].body`, u.body);
+    });
+    const content = pageContent(tool);
+    if (content) {
+      at("seoTitle", content.seoTitle);
+      at("metaDescription", content.metaDescription);
+    }
   }
   // The guides catalogue, through its own accessors — the same idiom, added
   // with the /guides section (2026-09-17). Guide steps and FAQ ship as
@@ -226,6 +247,18 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
   deliveryCap: {
     subject: /\bdelivery cap\b|reservation paid|what its reservation/i,
     catalogueCopy: false,
+  },
+  aiReadCap: {
+    // The panels say "One run never counts more than N" — true whether or not
+    // this is proven, so it is not a hedge on it. The catalogue said nothing
+    // about per-run pricing, and this read `catalogueCopy: false` with "the
+    // day it does, this goes red on purpose". That day was the merge with
+    // L04: each AI tool's fact line and "Is it free?" answer ARE its panel
+    // note, one string, so the per-call sentence is catalogue copy on
+    // Summarize, Chat and Extract. Paired on purpose: it must now be found
+    // there, and — like every capability here — never be hedged.
+    subject: /\bread cap\b|one run never counts|reads no more of/i,
+    catalogueCopy: true,
   },
 };
 

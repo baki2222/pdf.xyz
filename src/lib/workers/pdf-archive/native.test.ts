@@ -1,17 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 import { join } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { GhostscriptRunError } from "./engine";
 import {
   createNativeGhostscriptPdfARunner,
   ghostscriptPdfAArgs,
   nativePdfArchiveDeps,
+  pdfaDefinition,
   probeGhostscriptFromConfig,
 } from "./native";
-import type { NativePdfArchiveConfig } from "./native-config";
+import {
+  DEFAULT_PDFA_ICC_PROFILE,
+  type NativePdfArchiveConfig,
+} from "./native-config";
 
 const config: NativePdfArchiveConfig = {
   enabled: true,
   binary: "gs",
   overridden: false,
+  iccProfile: DEFAULT_PDFA_ICC_PROFILE,
+  qpdfBinary: "qpdf",
   timeoutMs: 10_000,
   maxInputBytes: 1000,
   maxOutputBytes: 1000,
@@ -31,18 +40,31 @@ function fsStub(output = PDF) {
 }
 
 describe("Ghostscript PDF/A native runner", () => {
-  it("builds fixed PDF/A argv without a shell", () => {
-    expect(ghostscriptPdfAArgs("/in.pdf", "/out.pdf")).toEqual([
+  it("builds fixed PDF/A argv without a shell — the documented recipe", () => {
+    // INVERTED, not deleted. Until this change the expected argv here was
+    //
+    //   -dPDFA=2 -dBATCH -dNOPAUSE -dNOOUTERSAVE -dSAFER -dQUIET
+    //   -sProcessColorModel=DeviceRGB -sDEVICE=pdfwrite
+    //   -dPDFACompatibilityPolicy=1 -sOutputFile=/out.pdf /in.pdf
+    //
+    // i.e. this test PINNED the defect: no PDFA_def prefix, so no OutputIntent,
+    // and ProcessColorModel instead of ColorConversionStrategy. It went green on
+    // every build while the output carried a PDF/A claim validators reject.
+    expect(
+      ghostscriptPdfAArgs("/in.pdf", "/out.pdf", "/def.ps", "/icc/srgb.icc"),
+    ).toEqual([
       "-dPDFA=2",
       "-dBATCH",
       "-dNOPAUSE",
       "-dNOOUTERSAVE",
       "-dSAFER",
+      "--permit-file-read=/icc/srgb.icc",
       "-dQUIET",
-      "-sProcessColorModel=DeviceRGB",
+      "-sColorConversionStrategy=RGB",
       "-sDEVICE=pdfwrite",
       "-dPDFACompatibilityPolicy=1",
       "-sOutputFile=/out.pdf",
+      "/def.ps",
       "/in.pdf",
     ]);
   });
@@ -85,16 +107,319 @@ describe("Ghostscript PDF/A native runner", () => {
     ).rejects.toThrow(/usable PDF/i);
   });
 
-  it("probes config and returns deps only when Ghostscript is available", () => {
+  it("probes config and returns deps only when Ghostscript AND its ICC profile are available", () => {
+    const present = { resolveOnPath: () => true, fileExists: () => true };
+    expect(probeGhostscriptFromConfig(config, present)).toBe(true);
     expect(
-      probeGhostscriptFromConfig(config, { resolveOnPath: () => true }),
-    ).toBe(true);
-    expect(
-      nativePdfArchiveDeps({}, { resolveOnPath: () => false }).ghostscript,
+      nativePdfArchiveDeps({}, { ...present, resolveOnPath: () => false })
+        .ghostscript,
     ).toBeUndefined();
+    expect(nativePdfArchiveDeps({}, present).ghostscript).toBeDefined();
+  });
+
+  it("reports NOT available when the ICC profile is missing, whatever gs says", () => {
+    // Ghostscript on PATH is wiring, not the capability: without the profile
+    // the OutputIntent cannot be embedded and every output fails the PDF/A
+    // gate. `ready: true` there would refuse every job after the user uploaded.
+    const seen: string[] = [];
+    const fileExists = (p: string) => {
+      seen.push(p);
+      return p !== DEFAULT_PDFA_ICC_PROFILE;
+    };
     expect(
-      nativePdfArchiveDeps({}, { resolveOnPath: () => true }).ghostscript,
-    ).toBeDefined();
+      probeGhostscriptFromConfig(config, {
+        resolveOnPath: () => true,
+        fileExists,
+      }),
+    ).toBe(false);
+    // Health check: the probe asked about THE profile the argv will permit.
+    expect(seen).toContain(config.iccProfile);
+    expect(
+      nativePdfArchiveDeps({}, { resolveOnPath: () => true, fileExists })
+        .ghostscript,
+    ).toBeUndefined();
+  });
+});
+
+describe("the PDF/A prefix the runner hands Ghostscript", () => {
+  /** Run one conversion and capture exactly what Ghostscript would receive. */
+  async function capture() {
+    const fs = fsStub();
+    const exec = vi.fn(async (_command: string, _args: readonly string[]) => ({
+      code: 0,
+      timedOut: false,
+    }));
+    await createNativeGhostscriptPdfARunner(config, {
+      exec,
+      fs,
+    }).convertToPdfA(PDF, { standard: "PDF/A-2b" });
+    const argv = [...exec.mock.calls[0]![1]];
+    const written = new Map(
+      fs.writeFile.mock.calls.map((call) => {
+        const [file, data] = call as unknown as [string, Uint8Array];
+        return [file, new TextDecoder().decode(data)] as const;
+      }),
+    );
+    return { argv, written };
+  }
+
+  it("runs the prefix it WROTE, immediately before the input", async () => {
+    const { argv, written } = await capture();
+    const inputPath = argv.at(-1)!;
+    const defPath = argv.at(-2)!;
+    expect(inputPath).toBe(join("/tmp/pdfxyz-pdfa-1", "input.pdf"));
+    // The argument before the input is a file this run wrote, not a path the
+    // image is merely assumed to have.
+    expect(written.has(defPath)).toBe(true);
+    expect(defPath).not.toBe(inputPath);
+  });
+
+  it("embeds exactly the ICC path it permits, and permits exactly the configured one", async () => {
+    const { argv, written } = await capture();
+    const def = written.get(argv.at(-2)!)!;
+    const embedded = /\/ICCProfile \((.*)\) def/.exec(def)?.[1];
+    const permitted = argv
+      .find((a) => a.startsWith("--permit-file-read="))
+      ?.slice("--permit-file-read=".length);
+    expect(embedded).toBe(config.iccProfile);
+    expect(permitted).toBe(config.iccProfile);
+  });
+
+  it("declares the PDF/A OutputIntent, and does not overwrite the user's title", async () => {
+    const { argv, written } = await capture();
+    const def = written.get(argv.at(-2)!)!;
+    expect(def).toContain("/S /GTS_PDFA1");
+    expect(def).toContain("/DestOutputProfile {icc_PDFA}");
+    expect(def).toContain(
+      "[{Catalog} << /OutputIntents [ {OutputIntent_PDFA} ] >> /PUT pdfmark",
+    );
+    // The stock PDFA_def.ps sets /Title (Title); run as-is it would rename
+    // every user's document "Title".
+    expect(def).not.toContain("DOCINFO");
+  });
+
+  it("escapes a profile path so it cannot end the PostScript string early", () => {
+    expect(pdfaDefinition(String.raw`/a (b)\c.icc`)).toContain(
+      String.raw`/ICCProfile (/a \(b\)\\c.icc) def`,
+    );
+  });
+
+  it("redacts the prefix and profile paths from what the user is shown", async () => {
+    const exec = vi.fn(async (_c: string, args: readonly string[]) => ({
+      code: 0,
+      timedOut: false,
+      diagnostics: `could not read ${args.at(-2)} or ${config.iccProfile}`,
+    }));
+    const out = await createNativeGhostscriptPdfARunner(config, {
+      exec,
+      fs: fsStub(),
+    }).convertToPdfA(PDF, { standard: "PDF/A-2b" });
+    expect(out.notes.join(" ")).not.toContain(config.iccProfile);
+    expect(out.notes.join(" ")).not.toContain("pdfa-def.ps");
+  });
+});
+
+describe("why a conversion failed travels as a type, not a sentence", () => {
+  type ExecResult = { code: number; timedOut: boolean; spawnError?: string };
+  const withQpdf = { resolveOnPath: () => true, fileExists: () => true };
+
+  function runnerWith(
+    impl: (command: string) => Promise<ExecResult>,
+    fs = fsStub(),
+    seams: {
+      resolveOnPath?: () => boolean;
+      fileExists?: () => boolean;
+    } = withQpdf,
+  ) {
+    const exec = vi.fn(
+      async (
+        command: string,
+        _args: readonly string[],
+        _options: unknown,
+      ): Promise<ExecResult> => impl(command),
+    );
+    return {
+      exec,
+      run: () =>
+        createNativeGhostscriptPdfARunner(config, {
+          ...seams,
+          exec,
+          fs,
+        }).convertToPdfA(PDF, { standard: "PDF/A-2b" }),
+    };
+  }
+
+  async function reasonOf(promise: Promise<unknown>) {
+    const error = await promise.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(GhostscriptRunError);
+    return (error as GhostscriptRunError).reason;
+  }
+
+  const gsFails =
+    (qpdfExit: number) =>
+    async (command: string): Promise<ExecResult> =>
+      command === "qpdf"
+        ? { code: qpdfExit, timedOut: false }
+        : { code: 1, timedOut: false };
+
+  it("a non-zero exit on an unencrypted file is engine_exit", async () => {
+    const { run } = runnerWith(gsFails(2));
+    expect(await reasonOf(run())).toBe("engine_exit");
+  });
+
+  it("a timeout is timeout: the up-front probe ran, and no second probe follows", async () => {
+    // qpdf exit 2: not encrypted. Then Ghostscript times out.
+    const { run, exec } = runnerWith(async (cmd) =>
+      cmd === "qpdf"
+        ? { code: 2, timedOut: false }
+        : { code: -1, timedOut: true },
+    );
+    expect(await reasonOf(run())).toBe("timeout");
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf", "gs"]);
+  });
+
+  it("a process that never started is spawn", async () => {
+    const { run } = runnerWith(async () => ({
+      code: -1,
+      timedOut: false,
+      spawnError: "ENOENT",
+    }));
+    expect(await reasonOf(run())).toBe("spawn");
+  });
+
+  it("a temp dir that cannot be created is io", async () => {
+    const fs = fsStub();
+    fs.mkdtemp.mockRejectedValueOnce(new Error("EMFILE"));
+    const { run } = runnerWith(async () => ({ code: 0, timedOut: false }), fs);
+    expect(await reasonOf(run())).toBe("io");
+  });
+
+  it("exit 0 with no output file is bad_output", async () => {
+    const fs = fsStub();
+    fs.readFile.mockRejectedValueOnce(
+      Object.assign(new Error("missing"), { code: "ENOENT" }),
+    );
+    // qpdf: exit 2, not encrypted — so the missing output is the file's fault.
+    const { run } = runnerWith(
+      async (cmd) => ({ code: cmd === "qpdf" ? 2 : 0, timedOut: false }),
+      fs,
+    );
+    expect(await reasonOf(run())).toBe("bad_output");
+  });
+
+  it("gs fails AND qpdf says an open password is needed: password_required", async () => {
+    const { run, exec } = runnerWith(gsFails(0));
+    expect(await reasonOf(run())).toBe("password_required");
+    expect(exec).toHaveBeenLastCalledWith(
+      "qpdf",
+      ["--requires-password", join("/tmp/pdfxyz-pdfa-1", "input.pdf")],
+      expect.objectContaining({ windowsHide: true }),
+    );
+  });
+
+  it("gs exits 0 with nothing usable on an open-password PDF: still password_required", async () => {
+    // Whether Ghostscript exits non-zero on a file it cannot open or exits 0
+    // having written nothing is its choice; the user's fix is the same.
+    const { run } = runnerWith(
+      async (cmd) =>
+        cmd === "qpdf"
+          ? { code: 0, timedOut: false }
+          : { code: 0, timedOut: false },
+      fsStub(new TextEncoder().encode("")),
+    );
+    expect(await reasonOf(run())).toBe("password_required");
+  });
+
+  it("an owner-password-only PDF (qpdf exit 3: encrypted, openable) is NOT a password problem", async () => {
+    // `--is-encrypted` or an /Encrypt check would say "encrypted" here and turn
+    // away permission-restricted files Ghostscript converts today.
+    const { run } = runnerWith(gsFails(3));
+    expect(await reasonOf(run())).toBe("engine_exit");
+  });
+
+  it("without qpdf on the worker, a gs failure stays engine_exit and qpdf is never run", async () => {
+    const { run, exec } = runnerWith(gsFails(0), fsStub(), {
+      resolveOnPath: () => false,
+      fileExists: () => true,
+    });
+    expect(await reasonOf(run())).toBe("engine_exit");
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+   * INVERTED 2026-10-08. This was "the happy path never pays for the qpdf
+   * probe": it pinned asking about an open password ONLY after Ghostscript had
+   * failed. The image proof (`worker:pdfa-proof`, first run in CI that day)
+   * locked a PDF with an open password and the conversion came back ok —
+   * Ghostscript did not fail, so nothing asked. The probe now runs first.
+   */
+  it("the probe runs BEFORE Ghostscript: an open-password PDF is refused even if gs would 'succeed'", async () => {
+    // qpdf exit 0: needs a password. Ghostscript would exit 0 with a PDF.
+    const { run, exec } = runnerWith(async () => ({
+      code: 0,
+      timedOut: false,
+    }));
+    expect(await reasonOf(run())).toBe("password_required");
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf"]);
+  });
+
+  it("a Ghostscript failure after a DEFINITE probe answer does not ask qpdf again", async () => {
+    // Ultrareview, 2026-10-09: the answer about an unchanged input cannot
+    // change, so a second probe only doubled the failure path's latency.
+    const { run, exec } = runnerWith(gsFails(2));
+    expect(await reasonOf(run())).toBe("engine_exit");
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf", "gs"]);
+  });
+
+  it("an INCONCLUSIVE up-front probe is asked again after a failure, and can still say password", async () => {
+    let qpdfCalls = 0;
+    const { run, exec } = runnerWith(async (cmd) => {
+      if (cmd !== "qpdf") return { code: 1, timedOut: false };
+      qpdfCalls += 1;
+      return qpdfCalls === 1
+        ? { code: -1, timedOut: true }
+        : { code: 0, timedOut: false };
+    });
+    expect(await reasonOf(run())).toBe("password_required");
+    expect(exec.mock.calls.map((call) => call[0])).toEqual([
+      "qpdf",
+      "gs",
+      "qpdf",
+    ]);
+  });
+
+  it("the happy path pays exactly one probe, and it comes first", async () => {
+    const { run, exec } = runnerWith(async (cmd) => ({
+      code: cmd === "qpdf" ? 2 : 0,
+      timedOut: false,
+    }));
+    await run();
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["qpdf", "gs"]);
+  });
+
+  it("COMPOSED: the real exec seam reports a missing binary as spawn, not as the file's fault", async () => {
+    // No stubbed exec: Node's execFile really fails to start a binary that does
+    // not exist, and the default seam must say so in a way the runner types as
+    // retryable. Real temp dir too, under the OS temp root, removed after.
+    const realTmp = await mkdtemp(join(tmpdir(), "pdfxyz-pdfa-test-"));
+    try {
+      const runner = createNativeGhostscriptPdfARunner(
+        {
+          ...config,
+          binary: "pdfxyz-no-such-ghostscript-binary",
+          tmpDir: realTmp,
+        },
+        { resolveOnPath: () => false },
+      );
+      expect(
+        await reasonOf(runner.convertToPdfA(PDF, { standard: "PDF/A-2b" })),
+      ).toBe("spawn");
+    } finally {
+      await rm(realTmp, { recursive: true, force: true });
+    }
   });
 });
 

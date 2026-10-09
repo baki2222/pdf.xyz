@@ -198,7 +198,7 @@ describe("the TSV renderer is requested only where it can be read", () => {
       inputPath: "/tmp/j/input.png",
       workDir: "/tmp/j",
       languages: ["ben", "eng"],
-      skipTextPages: false,
+      redoOcr: false,
       wantPdf: true,
       wantText: false,
     });
@@ -217,7 +217,7 @@ describe("the TSV renderer is requested only where it can be read", () => {
       inputPath: "/tmp/j/input.pdf",
       workDir: "/tmp/j",
       languages: ["eng"],
-      skipTextPages: false,
+      redoOcr: false,
       wantPdf: true,
       wantText: true,
     });

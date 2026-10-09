@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { buildMetadata } from "@/lib/seo";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
-import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
+import { JOB_LIMITS } from "@/lib/jobs/types";
+import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 
 export const metadata: Metadata = buildMetadata({
@@ -16,12 +17,14 @@ export const metadata: Metadata = buildMetadata({
 const maxFileSize = `${Math.round(JOB_LIMITS.maxFileBytes / (1024 * 1024))} MB`;
 
 /**
- * Number and unit as ONE expression — split across a JSX line break the leading
- * space is eaten and the page renders "60minutes", which in a legal document
- * reads as carelessness. See the same note in the privacy page.
+ * The windows these terms state, each read from the code that enforces it —
+ * the same derivation the privacy policy uses (`src/lib/retention-windows.ts`).
+ * The licence below lasts as long as the file exists, so it is bounded by
+ * whatever actually deletes the file: the job's end, or the daily storage rule
+ * for an upload that never became a job. Not by the input TTL, which no code
+ * enforces for that upload.
  */
-const inputWindow = `${DEFAULT_RETENTION.inputTtlMinutes} minutes`;
-const outputWindow = `${DEFAULT_RETENTION.outputTtlMinutes} minutes`;
+const { outputLink: outputWindow, inputStorageRule } = RETENTION_WINDOWS;
 
 export default function TermsPage() {
   return (
@@ -81,8 +84,10 @@ export default function TermsPage() {
             and process that file solely to produce the output you requested,
             and only for as long as the file exists on our systems
           </strong>{" "}
-          — under our retention policy that is up to {inputWindow}. That licence
-          ends when the file is deleted.
+          — under our retention policy, until the job ends, or, for an upload
+          that never becomes a job, until a daily storage rule erases it some
+          time after it is {inputStorageRule} old. That licence ends when the
+          file is deleted.
         </p>
         <p>
           It does not permit us to publish your document, show it to anyone,

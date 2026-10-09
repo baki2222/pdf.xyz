@@ -11,9 +11,11 @@ import {
 } from "lucide-react";
 import {
   OVERLAY_FITS,
+  OVERLAY_LAYERS,
   overlayOutputName,
   overlayPdf,
   type OverlayFit,
+  type OverlayLayer,
   type OverlayPaging,
   type OverlayResult,
 } from "@/lib/pdf/overlay";
@@ -48,7 +50,7 @@ export function OverlayRunner() {
     <SinglePdfRunner
       hint="Your base PDF · a stamp or letterhead PDF is overlaid locally in your browser"
       handoffSlug="overlay-pdf"
-      toolName="Overlay / Stamp"
+      toolName="Overlay PDF"
     >
       {(pdf, reset) => <OverlayEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
@@ -70,6 +72,8 @@ function OverlayEditor({
   const [opacity, setOpacity] = useState(100);
   const [fit, setFit] = useState<OverlayFit>("fit");
   const [paging, setPaging] = useState<OverlayPaging>("repeat");
+  const [layer, setLayer] = useState<OverlayLayer>("front");
+  const layerOption = describeLayer(layer);
 
   const multiPageOverlay = (overlay?.pageCount ?? 0) > 1;
   // A single-page overlay can only repeat, so keep the submitted value honest
@@ -104,17 +108,26 @@ function OverlayEditor({
         opacity: opacity / 100,
         fit,
         paging: effectivePaging,
+        layer,
       }),
     );
   };
 
   if (result) {
+    const skipped = result.skippedBlankOverlayPages;
     return (
       <ResultPanel
         title="Overlay applied"
-        summary={`Stamped on all ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${describeFit(result.fit)} · ${result.opacity === 1 ? "opaque" : `${Math.round(result.opacity * 100)}% opacity`} · ${formatBytes(result.bytes.byteLength)}`}
+        summary={`${describeLayer(result.layer).done} ${describePages(result.overlaidPageCount, result.pageCount)} ·${describeFit(result.fit)} · ${result.opacity === 1 ? "opaque" : `${Math.round(result.opacity * 100)}% opacity`} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
       >
+        {skipped.length > 0 && (
+          <p className="text-muted text-sm">
+            {skipped.length === 1
+              ? `Overlay page ${skipped[0]} is blank, so it was skipped: the base pages it maps to are unchanged.`
+              : `Overlay pages ${skipped.join(", ")} are blank, so they were skipped: the base pages they map to are unchanged.`}
+          </p>
+        )}
         <button
           type="button"
           onClick={() =>
@@ -173,13 +186,29 @@ function OverlayEditor({
             multiple={false}
             compact
             title="Drop the overlay PDF here, or"
-            hint="The first page is stamped over every page of your base PDF"
+            hint="Its first page is applied to every page of your base PDF"
           />
         )}
         {overlayError && <ErrorNote message={overlayError} />}
       </RunnerSection>
 
       <RunnerSection title="Placement">
+        <div className="flex flex-col gap-2">
+          <span className="text-muted text-xs font-medium">Layer</span>
+          <SegmentedControl
+            label="Overlay layer"
+            value={layer}
+            onChange={setLayer}
+            options={OVERLAY_LAYERS.map((option) => ({
+              value: option.id,
+              label: option.label,
+              title: option.hint,
+            }))}
+          />
+          <p className="text-muted text-xs leading-relaxed">
+            {layerOption.hint}
+          </p>
+        </div>
         <div className="grid gap-5 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <span className="text-muted text-xs font-medium">Scale</span>
@@ -244,7 +273,7 @@ function OverlayEditor({
         <InfoTile
           icon={FileText}
           title="Sizes preserved"
-          body="Your base PDF keeps its exact page count and page sizes; only the overlay is added on top."
+          body="Your base PDF keeps its exact page count and page sizes; only the overlay is added."
         />
       </div>
 
@@ -274,6 +303,20 @@ function OverlayEditor({
 
 function describeFit(fit: OverlayFit): string {
   return OVERLAY_FITS.find((option) => option.id === fit)?.label ?? "Fit page";
+}
+
+function describeLayer(layer: OverlayLayer) {
+  return (
+    OVERLAY_LAYERS.find((option) => option.id === layer) ?? OVERLAY_LAYERS[0]!
+  );
+}
+
+/** "all 3 pages", "the page", or "2 of 3 pages" when some were skipped. */
+function describePages(overlaid: number, total: number): string {
+  if (overlaid === total) {
+    return total === 1 ? "the page" : `all ${total} pages`;
+  }
+  return `${overlaid} of ${total} pages`;
 }
 
 function InfoTile({

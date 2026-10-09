@@ -10,7 +10,10 @@
  * success, and failures are fixed/content-free (no filenames, paths, or qpdf text).
  */
 
+import { acceptsDamagedPdf } from "@/lib/jobs/damaged-input";
 import { looksLikePdf, looksRepairable } from "../compression/engine";
+import { isLinearized } from "@/lib/pdf/linearization";
+import { QpdfRefusedError } from "./errors";
 
 export const REPAIR_TOOL = "repair-pdf";
 export const OPTIMIZE_WEB_TOOL = "optimize-web";
@@ -69,7 +72,18 @@ export type PdfStructureRun =
   | { ok: true; output: Uint8Array; meta: PdfStructureResultMeta }
   | { ok: false; kind: "unsupported"; message: string }
   | { ok: false; kind: "invalid_pdf"; message: string }
+  /**
+   * optimize-web only: a PDF header, but no `%%EOF` trailer — a file cut off
+   * in transit. Final, and named apart from `invalid_pdf` because Repair PDF
+   * takes exactly this file, while bytes with no header go nowhere.
+   */
+  | { ok: false; kind: "damaged"; message: string }
   | { ok: false; kind: "too_large"; limitBytes: number; message: string }
+  /** qpdf needs a password to open it. Final: a retry gets the same answer. */
+  | { ok: false; kind: "password_protected"; message: string }
+  /** qpdf refused the document for any other reason. Final, likewise. */
+  | { ok: false; kind: "unreadable"; message: string }
+  /** The run did not finish (timeout, spawn/IO error, unusable output). */
   | { ok: false; kind: "failed"; message: string };
 
 const UNSUPPORTED_MESSAGE =
@@ -77,8 +91,42 @@ const UNSUPPORTED_MESSAGE =
 const TOO_LARGE_MESSAGE =
   "The input PDF exceeds the worker's size limit for this operation.";
 const INVALID_PDF_MESSAGE = "The input could not be read as a PDF.";
+const DAMAGED_MESSAGE =
+  "This PDF looks damaged or incomplete: its end is missing, so it may have been cut off. Repair PDF can often rebuild it; then optimize the repaired file.";
 const FAILED_MESSAGE =
   "The PDF structure engine could not process this file. No output was produced.";
+
+/**
+ * What a user reads when qpdf refuses the document, by operation. Fixed and
+ * content-free like every message here — no filename, no qpdf text. Repair
+ * does not point at itself: the file has just been through the repair.
+ */
+const REFUSAL_MESSAGES: Record<
+  "repair" | "linearize",
+  Record<"password_protected" | "unreadable", string>
+> = {
+  repair: {
+    password_protected:
+      "This PDF is password-protected. Remove the password with Unlock PDF, then repair it.",
+    unreadable:
+      "This file could not be rebuilt into a PDF. It may be too badly damaged to recover, or not be a PDF at all.",
+  },
+  linearize: {
+    password_protected:
+      "This PDF is password-protected. Remove the password with Unlock PDF, then optimize it.",
+    unreadable:
+      "This PDF could not be opened. It may be damaged; Repair PDF can often fix that.",
+  },
+};
+
+function refused(
+  error: QpdfRefusedError,
+  operation: "repair" | "linearize",
+): PdfStructureRun {
+  const kind =
+    error.reason === "password_protected" ? "password_protected" : "unreadable";
+  return { ok: false, kind, message: REFUSAL_MESSAGES[operation][kind] };
+}
 
 const unsupported = (): PdfStructureRun => ({
   ok: false,
@@ -93,19 +141,35 @@ const failed = (): PdfStructureRun => ({
 });
 
 /**
- * The INPUT floor, chosen by operation.
+ * The INPUT floors, by operation. What each one actually does:
  *
- * repair-pdf exists to accept damage, so it requires only a header
- * ({@link looksRepairable}). optimize-web promises fast web viewing, not
- * recovery — a damaged file there is honestly refused and the user is pointed at
- * repair, rather than silently handed a repair they did not ask for.
+ *  - Every operation needs a `%PDF-` header ({@link looksRepairable}). Without
+ *    one there is no document, and the answer is `invalid_pdf` — which names no
+ *    other tool, because Repair PDF refuses the same bytes.
+ *  - repair-pdf needs nothing more: it exists to accept damage.
+ *  - optimize-web also needs the `%%EOF` trailer ({@link looksLikePdf}). A file
+ *    with a header and no trailer was cut off; it is refused as `damaged`, and
+ *    that message and its error code send the user to Repair PDF.
+ *
+ * What this floor does NOT do is catch damage behind an intact trailer (a
+ * broken xref, bad offsets). Those files reach qpdf, which rebuilds them and
+ * says so with exit 3; the warnings travel on the result for BOTH operations,
+ * and the optimize panel shows them. Until 2026-09-27 this docblock said a
+ * damaged file on optimize-web "is honestly refused and the user is pointed at
+ * repair": the pointer did not exist, and a file qpdf reconstructed was
+ * delivered with its warnings dropped.
  *
  * Deliberately NOT `deps.validate`: that seam is the OUTPUT validator, and a
  * deployment tightening its output check must not thereby re-close the door on
  * the files repair exists for.
+ *
+ * Which tool takes damage is read from {@link acceptsDamagedPdf} — the same
+ * predicate the soundness gate and the tool page's pipeline copy read — so the
+ * floor, the gate and the sentence cannot drift apart.
  */
 function inputFloor(operation: "repair" | "linearize") {
-  return operation === "repair" ? looksRepairable : looksLikePdf;
+  const tool = operation === "repair" ? REPAIR_TOOL : OPTIMIZE_WEB_TOOL;
+  return acceptsDamagedPdf(tool) ? looksRepairable : looksLikePdf;
 }
 
 async function preflight(
@@ -128,10 +192,18 @@ async function preflight(
     };
   }
 
-  if (!inputFloor(operation)(input)) {
+  if (!looksRepairable(input)) {
     return {
       ok: false,
       run: { ok: false, kind: "invalid_pdf", message: INVALID_PDF_MESSAGE },
+    };
+  }
+  // A header with no trailer: cut off. Refused only by an operation whose tool
+  // does not exist to take damage (`inputFloor`, read from acceptsDamagedPdf).
+  if (!inputFloor(operation)(input)) {
+    return {
+      ok: false,
+      run: { ok: false, kind: "damaged", message: DAMAGED_MESSAGE },
     };
   }
 
@@ -157,11 +229,19 @@ async function runStructure(
       operation === "repair"
         ? await qpdf.repair(input)
         : await qpdf.linearize(input);
-  } catch {
+  } catch (error) {
+    // A classified refusal is a property of the document and must stay one.
+    // This was a bare `catch {}` mapping every throw to `failed` — the kind the
+    // processor retries — so a locked PDF was run three times.
+    if (error instanceof QpdfRefusedError) return refused(error, operation);
     return failed();
   }
 
   if (!(await validate(result.bytes))) return failed();
+  // Optimize for Web promises one property. A well-formed file without it is
+  // not a web-optimized PDF, whatever produced it, so it is not delivered —
+  // the check stands where the user's job is, not only in the operator's proof.
+  if (operation === "linearize" && !isLinearized(result.bytes)) return failed();
 
   return {
     ok: true,

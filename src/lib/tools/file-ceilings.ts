@@ -2,6 +2,10 @@ import { getToolInputKind } from "@/lib/jobs/capabilities";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
+import {
+  WORKER_ENGINE_FILE_CEILINGS,
+  workerFileCeilingBytes,
+} from "@/lib/workers/engine-file-ceilings";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import type { Tool } from "./types";
 
@@ -42,9 +46,23 @@ import type { Tool } from "./types";
  *  - `getToolInputKind(slug)` — the same function `parseCreateUploadSessionRequest`
  *    uses to refuse uploads for a URL tool. A tool with no file input has no
  *    per-file ceiling to state, and `null` here is that fact, not a default.
- *  - everything else is worker-tier, and `JOB_LIMITS.maxFileBytes` is not a
- *    fallback there: it is the constant `parseCreateUploadSessionRequest`,
- *    `evaluateIntake` and the worker store all compare an upload against.
+ *  - everything else is worker-tier, and there the ceiling is the TIGHTER of
+ *    two gates: `JOB_LIMITS.maxFileBytes`, which `evaluateIntake` and the
+ *    worker store compare every upload against, and the input limit of the
+ *    engine the worker routes the tool to — read through
+ *    `workerFileCeilingBytes`, the same function the upload API refuses a
+ *    session with. Until 2026-09-27 this branch returned the global cap alone,
+ *    so Word, Excel and PowerPoint to PDF promised 100 MB against LibreOffice's
+ *    50, and HTML to PDF 100 against Chromium's 20. The global cap is the
+ *    FIRST gate a file meets; a page has to state the tightest one it must
+ *    pass. The upload validator refuses above the same figure, so a file the
+ *    page says is too big never moves. `worker-engine-ceilings.test.ts` walks
+ *    the worker's own wiring to hold that for every engine, not only the two
+ *    that bind today, and `worker-engine-ceilings-declared.test.ts` walks every
+ *    `*native-config.ts` so an engine the daemon does not wire yet is seen too.
+ *    When the engine is the lower refusal the result also names it
+ *    ({@link ENGINE_INPUT_CEILINGS}), so a page can say which thing turns the
+ *    file away.
  */
 
 /**
@@ -86,8 +104,65 @@ export const RUNNER_FILE_CEILINGS: Record<RunnerKind, number> = {
   compare: MAX_PDF_BYTES,
 };
 
-/** What a worker-tier upload is refused above, at the API and in the store. */
+/**
+ * The worker's GLOBAL per-file cap: what any worker-tier upload is refused
+ * above, at the API and in the store. A tool whose engine refuses lower states
+ * that engine's number instead (see {@link toolFileCeiling}).
+ */
 export const WORKER_FILE_CEILING = JOB_LIMITS.maxFileBytes;
+
+/**
+ * The engine's display name for each worker processor that can refuse below
+ * the upload gate — keyed by `WORKER_ENGINE_FILE_CEILINGS`, so a processor
+ * added there cannot compile until it is named here.
+ */
+const ENGINE_NAMES: Readonly<
+  Record<keyof typeof WORKER_ENGINE_FILE_CEILINGS, string>
+> = {
+  "office-conversion": "LibreOffice",
+  "html-render": "Chromium",
+};
+
+/**
+ * Worker engines that refuse an input BELOW the upload gate, by tool: the
+ * engine's own default `maxInputBytes` and its name.
+ *
+ * Added 2026-09-27 after a review of the tool-page content. The Word, Excel,
+ * PowerPoint and HTML pages stated "Up to 100 MB per file" (this module's
+ * ceiling, then the upload gate alone) and, a few lines higher, "the converter
+ * refuses a Word file over 50 MB" — both in the FAQPage JSON-LD. The second was
+ * true; the first was the gate, not the ceiling. A guard class had been added
+ * that called the 50 MB and 20 MB "NOT the per-file ceiling of the file the
+ * reader picks", which is exactly what they are; it licensed the false figure
+ * and was removed in the same change as this table.
+ *
+ * DERIVED, not typed: the same defect was fixed in parallel by
+ * `@/lib/workers/engine-file-ceilings`, whose `workerFileCeilingBytes` the
+ * upload API refuses a session with. Two hand-kept tables of the same caps
+ * drift, so this one is read out of that one — each processor's own tool list
+ * and default — keeping only tools that take a file (a URL tool such as
+ * Webpage to PDF has no per-file ceiling to state). `file-ceilings.test.ts`
+ * holds it to every worker config whose default cap is below the gate, in both
+ * directions.
+ *
+ * These are DEFAULTS: the worker's env can RAISE each
+ * (`PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES`, `PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES`)
+ * but never lower it below the published figure.
+ */
+export const ENGINE_INPUT_CEILINGS: Readonly<
+  Record<string, { readonly engine: string; readonly bytes: number }>
+> = Object.fromEntries(
+  (
+    Object.entries(WORKER_ENGINE_FILE_CEILINGS) as [
+      keyof typeof WORKER_ENGINE_FILE_CEILINGS,
+      (typeof WORKER_ENGINE_FILE_CEILINGS)[keyof typeof WORKER_ENGINE_FILE_CEILINGS],
+    ][]
+  ).flatMap(([id, entry]) =>
+    entry.tools
+      .filter((slug) => getToolInputKind(slug) !== "url")
+      .map((slug) => [slug, { engine: ENGINE_NAMES[id], bytes: entry.bytes }]),
+  ),
+);
 
 /**
  * Where a tool's ceiling comes from. The tier is carried, not just the number,
@@ -100,7 +175,12 @@ export type ToolFileCeiling =
       readonly runner: RunnerKind;
       readonly bytes: number;
     }
-  | { readonly tier: "worker"; readonly bytes: number }
+  | {
+      readonly tier: "worker";
+      readonly bytes: number;
+      /** Set when the engine, not the upload gate, is the lower refusal. */
+      readonly engine?: string;
+    }
   | { readonly tier: "no-file-input"; readonly bytes: null };
 
 export function toolFileCeiling(tool: Tool): ToolFileCeiling {
@@ -113,7 +193,15 @@ export function toolFileCeiling(tool: Tool): ToolFileCeiling {
   if (runner) {
     return { tier: "in-browser", runner, bytes: RUNNER_FILE_CEILINGS[runner] };
   }
-  return { tier: "worker", bytes: WORKER_FILE_CEILING };
+  const bytes = workerFileCeilingBytes(tool.slug);
+  const engine = Object.hasOwn(ENGINE_INPUT_CEILINGS, tool.slug)
+    ? ENGINE_INPUT_CEILINGS[tool.slug]
+    : undefined;
+  // The engine is named only when it IS the refusal the figure states.
+  if (engine && engine.bytes === bytes && bytes < WORKER_FILE_CEILING) {
+    return { tier: "worker", bytes, engine: engine.engine };
+  }
+  return { tier: "worker", bytes };
 }
 
 /** The tool's ceiling in bytes, or `null` when it takes no file at all. */
@@ -123,12 +211,27 @@ export function toolFileCeilingBytes(tool: Tool): number | null {
 
 /**
  * The ceiling in whole megabytes — the unit every one of these surfaces states
- * it in. All three constants are exact multiples of a mebibyte today, so this
+ * it in. Every constant it can return is an exact multiple of a mebibyte today, so this
  * neither rounds a cap up (advertising bytes the gate refuses) nor down.
  */
 export function toolFileCeilingMb(tool: Tool): number | null {
   const bytes = toolFileCeilingBytes(tool);
   return bytes === null ? null : Math.round(bytes / (1024 * 1024));
+}
+
+/**
+ * What a panel says when a picked file is over the tool's ceiling, BEFORE it
+ * uploads anything — the same figure the page states, so the refusal can
+ * never disagree with the promise. `null` when the file fits (or the tool
+ * takes no file).
+ */
+export function fileOverCeilingMessage(
+  tool: Tool,
+  size: number,
+): string | null {
+  const bytes = toolFileCeilingBytes(tool);
+  if (bytes === null || size <= bytes) return null;
+  return `This file is larger than ${toolFileCeilingMb(tool)} MB, the most ${tool.name} accepts.`;
 }
 
 /**

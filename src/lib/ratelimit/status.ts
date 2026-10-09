@@ -20,7 +20,12 @@
  * registry, and pure types — safe to import anywhere.
  */
 
-import { RATE_LIMIT_ENV, isTrustForwardedFor, readKeySalt } from "./config";
+import {
+  RATE_LIMIT_ENV,
+  isTrustForwardedFor,
+  readClientIpHeader,
+  readKeySalt,
+} from "./config";
 import { resolveRateLimitBackend } from "./factory";
 import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import type { RateLimitDecision } from "./types";
@@ -100,7 +105,10 @@ export function resolveRateLimitStatus(
   // salt half matters most: it is the combination an operator reaches by
   // setting one variable and not the other, and it must land in a state the
   // posture names rather than silently keying per instance.
-  const perClient = isTrustForwardedFor(env) && readKeySalt(env) !== undefined;
+  const perClient =
+    isTrustForwardedFor(env) &&
+    readKeySalt(env) !== undefined &&
+    readClientIpHeader(env) !== undefined;
 
   switch (backend.kind) {
     case "disabled":
@@ -152,6 +160,7 @@ export function resolveRateLimitStatus(
                 ...REMOTE_ENV_VARS,
                 RATE_LIMIT_ENV.trustForwardedFor,
                 RATE_LIMIT_ENV.keySalt,
+                RATE_LIMIT_ENV.clientIpHeader,
               ],
               detail:
                 "A distributed rate-limit store is configured and enforcing, but every caller is counted in ONE shared bucket: client identity is not trusted, so the published per-policy budgets apply to all traffic combined rather than per visitor.",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,21 +13,19 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
-import { optimizeLossless } from "@/lib/pdf/analyze";
-import {
-  downloadBlob,
-  downloadBytes,
-  readFileBytes,
-  zipFiles,
-} from "@/lib/pdf/browser";
+import { optimizeLossless, type LosslessResult } from "@/lib/pdf/analyze";
+import { classifyPdfAccess, LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
+import { PdfEngineError } from "@/lib/pdf/engine";
+import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import type { NamedBytes } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import type { BatchItem } from "@/lib/batch";
 import { HandoffLoadedBadge } from "./handoff-notice";
-import { Spinner } from "./runner-kit";
+import { ErrorNote, Spinner } from "./runner-kit";
 import { useBatchRunner, type BatchUnit } from "./use-batch-runner";
+import { useZipDownload } from "./use-zip-download";
 
 /** Deterministic, on-device result of losslessly repacking one PDF. */
 export interface CompressResult {
@@ -36,6 +34,34 @@ export interface CompressResult {
   originalBytes: number;
   optimizedBytes: number;
   savedBytes: number;
+  /** Digital signatures in the input; the repacked bytes invalidate every one. */
+  signatureCount: number;
+}
+
+/**
+ * The repack, with an encrypted file's refusal told apart by what a reader can
+ * open — the same classification, and the same words, as the single-file path.
+ */
+async function repackOrExplain(bytes: Uint8Array): Promise<LosslessResult> {
+  try {
+    return await optimizeLossless(bytes);
+  } catch (err) {
+    if (err instanceof PdfEngineError && err.kind === "encrypted") {
+      const access = await classifyPdfAccess(bytes);
+      if (access.kind === "restricted") {
+        throw new PdfEngineError(
+          `${LOCKED_PDF_COPY.restricted} Compress it on its own to use the secure worker.`,
+          { kind: "encrypted" },
+        );
+      }
+      if (access.kind !== "unencrypted") {
+        throw new PdfEngineError(LOCKED_PDF_COPY[access.kind], {
+          kind: "encrypted",
+        });
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -68,13 +94,14 @@ export function CompressBatchRunner({
 
   const process = useCallback(async (file: File): Promise<CompressResult> => {
     const bytes = await readFileBytes(file);
-    const optimized = await optimizeLossless(bytes);
+    const { bytes: optimized, signatureCount } = await repackOrExplain(bytes);
     return {
       outputName: outputName(file.name, "optimized"),
       bytes: optimized,
       originalBytes: bytes.byteLength,
       optimizedBytes: optimized.byteLength,
       savedBytes: Math.max(0, bytes.byteLength - optimized.byteLength),
+      signatureCount,
     };
   }, []);
 
@@ -90,16 +117,30 @@ export function CompressBatchRunner({
     (item): item is BatchItem<CompressResult> & { result: CompressResult } =>
       item.status === "done" && !!item.result,
   );
+  // A signed file's repack invalidates its signatures, so it is left out of
+  // every download until the person opts it in, having been told why.
+  const [includeSigned, setIncludeSigned] = useState(false);
+  const includeSignedId = useId();
+  const signedCount = doneItems.filter(
+    (item) => item.result.signatureCount > 0,
+  ).length;
+  const downloadable = doneItems.filter(
+    (item) => includeSigned || item.result.signatureCount === 0,
+  );
 
+  const { zipping, zipError, downloadZip } = useZipDownload();
   const downloadAll = useCallback(async () => {
-    const named: NamedBytes[] = doneItems.map((item) => ({
+    const named: NamedBytes[] = downloadable.map((item) => ({
       name: item.result.outputName,
       bytes: item.result.bytes,
     }));
     if (named.length === 0) return;
-    const blob = await zipFiles(named);
-    downloadBlob(blob, "pdfxyz-compressed.zip");
-  }, [doneItems]);
+    await downloadZip(named, "pdfxyz-compressed.zip", {
+      // Every file in the ZIP has its own download button above: a signed
+      // one only once it is opted in, which is also when it joins the ZIP.
+      fallback: "If it keeps failing, download the files one at a time above.",
+    });
+  }, [downloadable, downloadZip]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -112,9 +153,11 @@ export function CompressBatchRunner({
         <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
         <p className="text-muted text-sm leading-relaxed">
           Batch <span className="text-fg">lossless compression</span> repacks
-          each PDF&apos;s structure in your browser — no quality loss, nothing
-          uploaded. It doesn&apos;t re-encode images; image-heavy files need the
-          secure worker (open a single file to see that path).
+          each PDF&apos;s structure in your browser — every page looks the same,
+          and nothing is uploaded. A digitally signed file is flagged, because
+          any rewrite makes its signatures show as invalid. It doesn&apos;t
+          re-encode images; image-heavy files need the secure worker (open a
+          single file to see that path).
         </p>
       </div>
 
@@ -163,9 +206,35 @@ export function CompressBatchRunner({
       {/* Per-item results */}
       <ul className="flex flex-col gap-2" aria-label="Files in this batch">
         {state.items.map((item) => (
-          <BatchRow key={item.id} item={item} />
+          <BatchRow
+            key={item.id}
+            item={item}
+            allowDownload={
+              includeSigned || (item.result?.signatureCount ?? 0) === 0
+            }
+          />
         ))}
       </ul>
+
+      {settled && signedCount > 0 && (
+        <label
+          htmlFor={includeSignedId}
+          className="border-warn/40 bg-warn/10 text-warn flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+        >
+          <input
+            id={includeSignedId}
+            type="checkbox"
+            checked={includeSigned}
+            onChange={(e) => setIncludeSigned(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Include {signedCount} signed file{signedCount === 1 ? "" : "s"} in
+            the download — {signedCount === 1 ? "its" : "their"} digital
+            signatures will show as invalid.
+          </span>
+        </label>
+      )}
 
       {/* Polite completion announcement for screen readers */}
       <p role="status" aria-live="polite" className="sr-only">
@@ -173,6 +242,8 @@ export function CompressBatchRunner({
           `Batch complete. ${progress.done} compressed, ${progress.error} failed.`}
         {state.phase === "canceled" && "Batch canceled."}
       </p>
+
+      {zipError && <ErrorNote message={zipError} />}
 
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -228,14 +299,26 @@ export function CompressBatchRunner({
               >
                 New files
               </button>
-              {doneItems.length > 0 && (
+              {downloadable.length > 0 && (
                 <button
                   type="button"
-                  onClick={downloadAll}
+                  // `aria-disabled`, not `disabled`, so zipping does not blur
+                  // the user out of the button they just pressed.
+                  onClick={() => {
+                    if (!zipping) void downloadAll();
+                  }}
+                  aria-disabled={zipping || undefined}
+                  aria-busy={zipping}
                   className={buttonVariants({ variant: "primary", size: "sm" })}
                 >
-                  <FileArchive className="size-4" aria-hidden />
-                  Download all ({doneItems.length})
+                  {zipping ? (
+                    <Spinner />
+                  ) : (
+                    <FileArchive className="size-4" aria-hidden />
+                  )}
+                  {zipping
+                    ? "Preparing ZIP…"
+                    : `Download all (${downloadable.length})`}
                 </button>
               )}
             </>
@@ -247,7 +330,14 @@ export function CompressBatchRunner({
 }
 
 /** One row in the batch list: status glyph, name, and per-item result/error. */
-function BatchRow({ item }: { item: BatchItem<CompressResult> }) {
+function BatchRow({
+  item,
+  allowDownload,
+}: {
+  item: BatchItem<CompressResult>;
+  /** False for a signed file the person has not opted into downloading. */
+  allowDownload: boolean;
+}) {
   return (
     <li className="bg-panel border-line flex items-center gap-3 rounded-[3px] border px-3 py-2.5">
       <StatusGlyph status={item.status} />
@@ -257,7 +347,7 @@ function BatchRow({ item }: { item: BatchItem<CompressResult> }) {
           <BatchDetail item={item} />
         </span>
       </span>
-      {item.status === "done" && item.result && (
+      {item.status === "done" && item.result && allowDownload && (
         <button
           type="button"
           onClick={() =>
@@ -292,13 +382,23 @@ function BatchDetail({ item }: { item: BatchItem<CompressResult> }) {
     case "done": {
       const r = item.result;
       if (!r) return null;
-      return r.savedBytes > 0 ? (
-        <span className="text-ok">
-          −{formatBytes(r.savedBytes)} ({pct(r.savedBytes, r.originalBytes)}%) ·{" "}
-          {formatBytes(r.optimizedBytes)}
-        </span>
-      ) : (
-        <>Already lean — no change</>
+      const size =
+        r.savedBytes > 0 ? (
+          <span className="text-ok">
+            {`−${formatBytes(r.savedBytes)} (${pct(r.savedBytes, r.originalBytes)}%) · ${formatBytes(r.optimizedBytes)}`}
+          </span>
+        ) : (
+          <>Already lean — no change</>
+        );
+      if (r.signatureCount === 0) return size;
+      return (
+        <>
+          {size} ·{" "}
+          <span className="text-warn">
+            {r.signatureCount} digital signature
+            {r.signatureCount === 1 ? "" : "s"} will show as invalid
+          </span>
+        </>
       );
     }
     default:

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { getToolBySlug } from "@/lib/tools";
 import {
   Download,
   Image as ImageIcon,
@@ -19,6 +21,7 @@ import {
 } from "lucide-react";
 import {
   checkEditImage,
+  checkEditTextFit,
   editPdf,
   editedOutputName,
   getEditPageSizes,
@@ -31,6 +34,7 @@ import {
   type EditResult,
   type PageSize,
 } from "@/lib/pdf/edit";
+import { EDIT_OP_LABEL, EDIT_OP_TYPES } from "@/lib/pdf/offered-kinds";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -118,16 +122,20 @@ const DEFAULT_DRAFT: Draft = {
   arrow: false,
 };
 
-const TYPE_OPTIONS: {
-  value: EditOpType;
-  label: string;
-  icon: typeof Square;
-}[] = [
-  { value: "text", label: "Text", icon: Type },
-  { value: "rect", label: "Box", icon: Square },
-  { value: "line", label: "Line", icon: PenLine },
-  { value: "image", label: "Image", icon: ImageIcon },
-];
+/** Per-kind icon. A `Record`, so a kind added to EDIT_OP_TYPES without one is a type error. */
+const TYPE_ICON: Record<EditOpType, typeof Square> = {
+  text: Type,
+  rect: Square,
+  line: PenLine,
+  image: ImageIcon,
+};
+
+/** The kinds offered — the same list the tool page counts (`offered-kinds`). */
+const TYPE_OPTIONS = EDIT_OP_TYPES.map((value) => ({
+  value,
+  label: EDIT_OP_LABEL[value],
+  icon: TYPE_ICON[value],
+}));
 
 /** A curated palette — dark ink first, then bright accents. */
 const PALETTE: { hex: string; label: string }[] = [
@@ -140,12 +148,7 @@ const PALETTE: { hex: string; label: string }[] = [
   { hex: "#a855f7", label: "Violet" },
 ];
 
-const TYPE_LABEL: Record<EditOpType, string> = {
-  text: "Text",
-  rect: "Box",
-  line: "Line",
-  image: "Image",
-};
+const TYPE_LABEL = EDIT_OP_LABEL;
 
 const MAX_IMAGE_MB = Math.round(MAX_EDIT_IMAGE_BYTES / (1024 * 1024));
 
@@ -299,9 +302,11 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   const [draft, setDraft] = useState<Draft>(DEFAULT_DRAFT);
   const [image, setImage] = useState<LoadedImage | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const idRef = useRef(0);
 
-  // Content-space page sizes back the preview and validation. The editor subtree
+  // Displayed page sizes (the visible CropBox, turned by any /Rotate) back the
+  // preview and validation — the same frame editPdf maps every op from. The editor subtree
   // is keyed by file, so this runs once per document.
   useEffect(() => {
     let alive = true;
@@ -351,8 +356,8 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     }
   };
 
-  const addEdit = () => {
-    if (!pageSizes) return;
+  const addEdit = async () => {
+    if (!pageSizes || adding) return;
     const op = buildOp(draft, image);
     if (!op) {
       setFormError("Choose a PNG or JPG image to insert first.");
@@ -362,6 +367,26 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     if (issues.length > 0) {
       setFormError(issues[0]!.message);
       return;
+    }
+    if (op.type === "text") {
+      // Measure with the font the export will use for the whole batch, so text
+      // that would be cut off at a page edge is caught here, not in the file.
+      setAdding(true);
+      try {
+        const batch = [...edits.map((edit) => edit.op), op];
+        const fit = await checkEditTextFit(batch, pageSizes);
+        if (fit.length > 0) {
+          setFormError(fit[0]!.message);
+          return;
+        }
+      } catch (err) {
+        setFormError(
+          err instanceof Error ? err.message : "That text can't be added.",
+        );
+        return;
+      } finally {
+        setAdding(false);
+      }
     }
     setFormError(null);
     setEdits((prev) => [...prev, { id: idRef.current++, op }]);
@@ -454,9 +479,12 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={addEdit}
+              onClick={() => void addEdit()}
               aria-disabled={
-                !pageSizes || (draft.type === "image" && !image) || undefined
+                !pageSizes ||
+                adding ||
+                (draft.type === "image" && !image) ||
+                undefined
               }
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
@@ -690,7 +718,7 @@ function TypeFields({
             label="Wrap (pt)"
             value={draft.wrapWidth}
             min={0}
-            max={maxW}
+            max={Math.max(0, maxW - draft.x)}
             onChange={(v) => setField("wrapWidth", v)}
           />
         </div>
@@ -708,7 +736,8 @@ function TypeFields({
           />
           <span className="text-muted text-[11px]">
             Y is the baseline of the first line; wrapped lines flow downward.
-            Wrap 0 = one line per line break.
+            Wrap 0 = one line per line break. Text that would run off the page
+            is refused rather than cut off — set a Wrap width for long lines.
           </span>
         </div>
         <RangeField
@@ -1024,8 +1053,27 @@ function PagePreview({
   );
 }
 
-/** The load-bearing honesty of this tool: added content, not true text editing. */
-function HonestScopeNote() {
+/**
+ * A link to the tool that does what this one cannot, named as the catalogue
+ * names it — a typed "Redact" stayed plain text on the page for months, and a
+ * reader told to go elsewhere was given no way to get there.
+ */
+function ToolLink({ slug }: { slug: string }) {
+  const tool = getToolBySlug(slug);
+  if (!tool) throw new Error(`edit-runner links unknown tool "${slug}"`);
+  return (
+    <Link href={`/tools/${tool.slug}`} className="font-semibold underline">
+      {tool.name}
+    </Link>
+  );
+}
+
+/**
+ * The load-bearing honesty of this tool: added content, not true text editing.
+ * Exported so `tool-page-content.test.ts` can render it and read the links a
+ * reader actually receives.
+ */
+export function HonestScopeNote() {
   return (
     <div className="border-info/40 bg-info/10 text-info flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
       <Info className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
@@ -1035,8 +1083,10 @@ function HonestScopeNote() {
         coordinates. It does <span className="font-semibold">not</span> edit,
         reflow, restyle, or delete the text and objects already in your PDF —
         there is no OCR text layer, no drag handles, and no click-to-place
-        canvas. To cover existing content, draw a filled box over it (that hides
-        but doesn&apos;t remove it — use Redact to delete data).
+        canvas. To rework the existing text, convert the file with{" "}
+        <ToolLink slug="pdf-to-word" />. To cover existing content, draw a
+        filled box over it (that hides but doesn&apos;t remove it — use{" "}
+        <ToolLink slug="redact-pdf" /> to delete data).
       </p>
     </div>
   );

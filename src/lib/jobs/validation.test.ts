@@ -1,4 +1,10 @@
+import { MUST_ALLOW, MUST_BLOCK } from "@/lib/net/public-address.corpus";
 import { describe, expect, it } from "vitest";
+import {
+  MAX_CONTENT_TYPE_LENGTH,
+  UPLOAD_FAMILIES,
+  normalizeContentType,
+} from "@/lib/uploads/intake/families";
 import {
   isSafePublicHttpUrl,
   parseCreateJobRequest,
@@ -162,5 +168,105 @@ describe("public URL SSRF guard", () => {
   it("allows normal public http(s) URLs", () => {
     expect(isSafePublicHttpUrl("https://example.com/invoice.html")).toBe(true);
     expect(isSafePublicHttpUrl("http://example.org/path?q=1")).toBe(true);
+  });
+
+  /*
+   * History: until 2026-09 this guard matched host STRINGS (`/^127\./`,
+   * `host === "[::1]"`) and every URL in the audit list below walked past it.
+   * The corpus is the classifier's own, spelled as URLs the way a user would
+   * type them, so the edge and the worker can never disagree about an address.
+   */
+  const asUrl = (addr: string) =>
+    addr.includes(":") ? `http://[${addr}]/` : `http://${addr}/`;
+
+  it.each([
+    "http://localhost./",
+    "http://LOCALHOST../admin",
+    "http://[::ffff:127.0.0.1]/",
+    "http://[::]/",
+    "http://[fd00::1]/",
+    "http://[fe80::1]/",
+    "http://100.100.100.200/",
+    "http://100.64.0.1/",
+    "http://0.0.0.1/",
+    "http://[::ffff:169.254.169.254]/",
+    "http://0x7f000001/", // WHATWG canonicalises to 127.0.0.1
+    "http://2130706433/",
+    "http://127.1/",
+    "http://metadata/computeMetadata/v1/",
+    "http://metadata.google.internal/",
+    "http://printer.local./",
+    "http://x.invalid/",
+    ...MUST_BLOCK.map(asUrl),
+  ])("blocks bypass %s", (url) => {
+    expect(isSafePublicHttpUrl(url)).toBe(false);
+  });
+
+  it.each(MUST_ALLOW.map(asUrl))(
+    "still allows public literal %s (positive control)",
+    (url) => {
+      expect(isSafePublicHttpUrl(url)).toBe(true);
+    },
+  );
+});
+
+/**
+ * The intake gate (`uploads/intake/families.ts`) and this validator each had a
+ * `MIME_SHAPE` and a `normalizeContentType`. The intake's docblock said it "mirrors the
+ * validator so the two never diverge"; nothing compared them, and they already
+ * differed: intake refused a type over 255 characters, the validator took it and
+ * echoed it back in a 300-plus-character "is not accepted by this tool" message.
+ *
+ * This asks the validator — through its public parser, the way a request reaches it —
+ * to classify a corpus DERIVED from every MIME the intake knows, and requires it to
+ * agree with the intake's normalizer on every value.
+ */
+describe("the validator reads a content type exactly as the intake does", () => {
+  const maxMime = MAX_CONTENT_TYPE_LENGTH;
+  const knownMimes = Object.values(UPLOAD_FAMILIES).flatMap((f) => f.mimes);
+  const corpus = [
+    ...knownMimes.flatMap((mime) => [
+      mime,
+      mime.toUpperCase(),
+      `${mime}; charset=utf-8`,
+      `  ${mime}  `,
+      // Longest shape both must accept, and one character past it.
+      mime + "x".repeat(maxMime - mime.length),
+      mime + "x".repeat(maxMime + 1 - mime.length),
+    ]),
+    "",
+    "not-a-mime",
+    "/etc/passwd",
+    "https://evil.example/x",
+  ];
+
+  it("has a corpus that exercises both answers", () => {
+    // Health checks: the derivation found the intake's MIMEs, and the corpus holds
+    // values the intake accepts AND values it refuses, or agreement proves nothing.
+    expect(knownMimes.length).toBeGreaterThanOrEqual(10);
+    const normalized = corpus.map((v) => normalizeContentType(v));
+    expect(normalized.some((n) => n === null)).toBe(true);
+    expect(normalized.some((n) => n !== null)).toBe(true);
+  });
+
+  it("refuses as malformed exactly what the intake refuses, and reads the rest the same", () => {
+    const disagreements: string[] = [];
+    for (const value of corpus) {
+      const intake = normalizeContentType(value);
+      const result = parseCreateUploadSessionRequest({
+        tool: "ocr-pdf",
+        files: [{ ...pdfFile, contentType: value }],
+      });
+      const message = result.ok ? "" : result.error.body.error.message;
+      const agrees =
+        intake === null
+          ? !result.ok && /must be a valid MIME type/.test(message)
+          : result.ok
+            ? result.value.files[0]?.contentType === intake
+            : message.includes(`"${intake}" is not accepted`);
+      if (!agrees)
+        disagreements.push(`${value.slice(0, 40)}… (${value.length})`);
+    }
+    expect(disagreements).toEqual([]);
   });
 });

@@ -31,6 +31,7 @@ import {
   type NewRadioField,
   type NewTextField,
 } from "@/lib/pdf/create-forms";
+import { FIELD_TYPE_BUTTON, NEW_FIELD_TYPES } from "@/lib/pdf/offered-kinds";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -245,13 +246,9 @@ function draftToSpec(d: FieldDraft): NewFormField {
   }
 }
 
-const TYPE_OPTIONS: { value: NewFieldType; label: string }[] = [
-  { value: "text", label: "Text" },
-  { value: "checkbox", label: "Checkbox" },
-  { value: "dropdown", label: "Dropdown" },
-  { value: "radio", label: "Radio" },
-  { value: "optionlist", label: "List" },
-];
+/** The kinds offered — the same list the tool page counts (`offered-kinds`). */
+const TYPE_OPTIONS: { value: NewFieldType; label: string }[] =
+  NEW_FIELD_TYPES.map((value) => ({ value, label: FIELD_TYPE_BUTTON[value] }));
 
 const MAX_COORD = 20000;
 
@@ -421,8 +418,8 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
         <span>
           Positions are <span className="text-fg">PDF points</span> (1 pt =
           1/72&quot;), measured from the{" "}
-          <span className="text-fg">bottom-left</span> corner of the page — X
-          goes right, Y goes up.
+          <span className="text-fg">bottom-left</span> corner of the page as
+          it&apos;s displayed — X goes right, Y goes up.
           {first
             ? ` Page 1 is ${Math.round(first.width)} × ${Math.round(first.height)} pt.`
             : ""}

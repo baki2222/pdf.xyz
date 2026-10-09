@@ -12,10 +12,7 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import {
-  parseSummarizeOptions,
-  summaryOutputName,
-} from "@/lib/jobs/summarize-pdf";
+import { summaryOutputName } from "@/lib/jobs/summarize-pdf";
 import {
   SUMMARIZE_TOOL,
   runSummarize,
@@ -31,6 +28,8 @@ import {
   type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
+import { perCallReadLimit } from "./read-cap-limit";
+import { AI_TOOL_OPTION_PARSERS } from "@/lib/jobs/ai-tool-options";
 
 type Failure = Extract<SummarizeRun, { ok: false }>;
 
@@ -55,6 +54,8 @@ function jobError(run: Failure): JobError {
         retryable: false,
       };
     case "no_text":
+    case "cannot_open":
+      // Both are facts about the file: retrying cannot change them.
       return {
         code: "unprocessable_entity",
         message: run.message,
@@ -135,7 +136,10 @@ export function createSummarizeProcessor(deps: SummarizeDeps): Processor {
           retryable: false,
         });
       }
-      const parsed = parseSummarizeOptions(input.options);
+      // The SAME parser the route ran before it charged the allowance
+      // (`@/lib/jobs/ai-tool-options`), kept here as the second line of
+      // defence for a job queued by anything but that route.
+      const parsed = AI_TOOL_OPTION_PARSERS[SUMMARIZE_TOOL](input.options);
       if (!parsed.ok) {
         return processorFail({
           code: parsed.error.body.error.code,
@@ -143,7 +147,19 @@ export function createSummarizeProcessor(deps: SummarizeDeps): Processor {
           retryable: false,
         });
       }
-      const run = await runSummarize(file.bytes, parsed.value, deps);
+      // The read bound this run was CHARGED for. The route prices a per-call
+      // run by the characters the browser declared, which is only true if
+      // no more than that is read — see `./read-cap-limit`. Absent leaves the
+      // engine's own limit untouched; malformed fails closed.
+      const readLimit = perCallReadLimit(
+        input.delivery,
+        deps.limits?.maxInputChars,
+      );
+      if (!readLimit.ok) return processorFail(readLimit.error);
+      const run = await runSummarize(file.bytes, parsed.value, {
+        ...deps,
+        limits: { ...deps.limits, maxInputChars: readLimit.maxInputChars },
+      });
       // A run that failed AFTER a provider call still owes the job record what
       // it spent — see `aiResultsFromFailure`. Absent when no call happened.
       if (!run.ok)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { FileText } from "lucide-react";
+import { FileText, ShieldAlert } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
 import { Dropzone, ErrorNote, Spinner } from "./runner-kit";
 import {
@@ -9,7 +9,7 @@ import {
   HandoffLoading,
   HandoffProblem,
 } from "./handoff-notice";
-import { useSinglePdf, type LoadedPdf } from "./use-single-pdf";
+import { useSinglePdf, type LoadedPdf, type PdfReader } from "./use-single-pdf";
 import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
 
 /**
@@ -22,6 +22,13 @@ import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
  * for that tool and pre-load its first PDF, or pass an already-claimed `handoff`
  * (when a parent decided single-vs-batch). Direct visits with no hand-off behave
  * exactly as before — a plain file picker.
+ *
+ * A file that already carries digital signatures gets a notice above the
+ * editor, before Run: every PDF a client tool saves is a full pdf-lib rewrite,
+ * so those signatures stop verifying in the copy. Tools whose output is not a
+ * PDF (text, images, Markdown) pass `writesPdf={false}` — there is no copy of
+ * the file for the warning to be about. `signed-input-notice.test.tsx` holds
+ * every runner to the catalog's own `outputs`.
  */
 export function SinglePdfRunner({
   hint,
@@ -29,6 +36,8 @@ export function SinglePdfRunner({
   handoffSlug,
   handoff: providedHandoff,
   toolName = "this tool",
+  writesPdf = true,
+  reader = "pdf-lib",
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -38,8 +47,19 @@ export function SinglePdfRunner({
   handoff?: ToolHandoff;
   /** Tool name for honest hand-off error copy. */
   toolName?: string;
+  /**
+   * Whether the tool saves a PDF made from this file. Defaults to true — the
+   * safe direction: a needless warning costs a sentence, a missing one costs
+   * someone's counterparty signature.
+   */
+  writesPdf?: boolean;
+  /**
+   * `"pdfjs"` only for tools that never hand the bytes to pdf-lib — see
+   * {@link PdfReader}.
+   */
+  reader?: PdfReader;
 }) {
-  const { pdf, loading, error, open, clear } = useSinglePdf();
+  const { pdf, loading, error, open, clear } = useSinglePdf({ reader });
   // Self-claim only when a parent hasn't already provided a claimed hand-off.
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);
   const handoff = providedHandoff ?? selfHandoff;
@@ -58,9 +78,19 @@ export function SinglePdfRunner({
   if (pdf) {
     const key = `${pdf.file.name}:${pdf.file.size}:${pdf.file.lastModified}`;
     return (
-      <div key={key} className="flex flex-col gap-4">
+      <div
+        key={key}
+        data-single-pdf-runner="loaded"
+        className="flex flex-col gap-4"
+      >
         {handoff.status === "ready" && (
           <HandoffLoadedBadge count={1} skipped={handoff.skipped} />
+        )}
+        {writesPdf && pdf.digitalSignatures > 0 && (
+          <SignedInputNotice
+            count={pdf.digitalSignatures}
+            toolName={toolName}
+          />
         )}
         {children(pdf, clear)}
       </div>
@@ -74,7 +104,7 @@ export function SinglePdfRunner({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div data-single-pdf-runner="empty" className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName={toolName} />
       {loading ? (
         <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
@@ -93,12 +123,45 @@ export function SinglePdfRunner({
   );
 }
 
+/**
+ * The file is already digitally signed, and the copy this tool saves will not
+ * keep those signatures valid. Shown before Run, not after: by the download it
+ * is too late to choose a different route for a signed contract.
+ */
+export function SignedInputNotice({
+  count,
+  toolName,
+}: {
+  count: number;
+  toolName: string;
+}) {
+  const one = count === 1;
+  return (
+    <div
+      role="note"
+      data-signed-input-notice
+      className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3 text-sm"
+    >
+      <ShieldAlert className="text-warn mt-0.5 size-4 shrink-0" aria-hidden />
+      <span>
+        This PDF is digitally signed — it carries {count} certificate signature
+        {one ? "" : "s"}. Saving from {toolName} writes a new copy of the file,
+        and in it {one ? "that signature" : "those signatures"} will no longer
+        verify: Acrobat and other readers show {one ? "it" : "them"} as invalid
+        or report the document as altered. Keep the signed original for anything
+        that relies on {one ? "it" : "them"}.
+      </span>
+    </div>
+  );
+}
+
 /** Consistent file header shown at the top of each single-file editor. */
 export function FileHeader({
   pdf,
   aside,
 }: {
-  pdf: LoadedPdf;
+  /** Only the name, size and page count are shown, so only they are required. */
+  pdf: Pick<LoadedPdf, "file" | "pageCount">;
   aside?: ReactNode;
 }) {
   return (

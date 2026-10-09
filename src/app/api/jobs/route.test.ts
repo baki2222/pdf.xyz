@@ -102,6 +102,7 @@ describe("POST /api/jobs — abuse guard", () => {
     resetRateLimitGuardForTests();
     delete process.env[RATE_LIMIT_ENV.provider];
     delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+    delete process.env[RATE_LIMIT_ENV.clientIpHeader];
   });
 
   const validJob = { tool: "ocr-pdf", inputs: ["f_1234567890"] };
@@ -131,9 +132,10 @@ describe("POST /api/jobs — abuse guard", () => {
 
   it("never leaks request identity in the 429 (hostile headers + body)", async () => {
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     const hostileHeaders = {
       "content-type": "application/json",
-      "x-forwarded-for": "203.0.113.42",
+      "cf-connecting-ip": "203.0.113.42",
       "user-agent": "EvilBot/9.9",
       cookie: "session=SUPERSECRET",
     };

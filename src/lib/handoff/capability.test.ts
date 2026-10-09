@@ -124,14 +124,20 @@ describe("eligibleFilesFor", () => {
     ).toEqual([markdown, markdownByExt, plainMarkdown]);
   });
 
-  it("keeps only matching images for image-to-pdf tools", () => {
+  it("keeps every PNG and JPEG for both image-to-pdf tools", () => {
     const jpg = { name: "photo.jpeg", type: "image/jpeg" };
     const jpgByExt = { name: "scan.JPG", type: "" };
-    expect(eligibleFilesFor("jpg-to-pdf", [pdf, jpg, jpgByExt, png])).toEqual([
+    const webp = { name: "pic.webp", type: "image/webp" };
+    // INVERTED. JPG to PDF used to keep only JPEGs and PNG to PDF only PNGs, so
+    // "Turn your 5 images into a PDF" handed a mixed set to a tool that
+    // silently dropped the other format. Both engines embed both now.
+    expect(
+      eligibleFilesFor("jpg-to-pdf", [pdf, jpg, jpgByExt, png, webp]),
+    ).toEqual([jpg, jpgByExt, png]);
+    expect(eligibleFilesFor("png-to-pdf", [pdf, jpg, png, webp])).toEqual([
       jpg,
-      jpgByExt,
+      png,
     ]);
-    expect(eligibleFilesFor("png-to-pdf", [pdf, jpg, png])).toEqual([png]);
   });
 
   it("returns nothing for an unsupported tool", () => {

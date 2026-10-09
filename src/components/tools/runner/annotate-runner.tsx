@@ -18,6 +18,7 @@ import {
 import {
   annotatePdf,
   annotatedOutputName,
+  findNoteOverflows,
   getAnnotatePageSizes,
   validateAnnotations,
   type Annotation,
@@ -25,7 +26,9 @@ import {
   type AnnotateResult,
   type PageSize,
 } from "@/lib/pdf/annotate";
+import { ANNOTATION_LABEL, ANNOTATION_TYPES } from "@/lib/pdf/offered-kinds";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { PdfEngineError } from "@/lib/pdf/engine";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -99,16 +102,20 @@ const DEFAULT_DRAFT: Draft = {
   arrow: true,
 };
 
-const TYPE_OPTIONS: {
-  value: AnnotationType;
-  label: string;
-  icon: typeof Square;
-}[] = [
-  { value: "highlight", label: "Highlight", icon: Highlighter },
-  { value: "rect", label: "Box", icon: Square },
-  { value: "note", label: "Note", icon: Type },
-  { value: "line", label: "Line", icon: PenLine },
-];
+/** Per-kind icon. A `Record`, so a kind added to ANNOTATION_TYPES without one is a type error. */
+const TYPE_ICON: Record<AnnotationType, typeof Square> = {
+  highlight: Highlighter,
+  rect: Square,
+  note: Type,
+  line: PenLine,
+};
+
+/** The kinds offered — the same list the tool page counts (`offered-kinds`). */
+const TYPE_OPTIONS = ANNOTATION_TYPES.map((value) => ({
+  value,
+  label: ANNOTATION_LABEL[value],
+  icon: TYPE_ICON[value],
+}));
 
 /** A curated markup palette — bright enough to read over page content. */
 const PALETTE: { hex: string; label: string }[] = [
@@ -173,12 +180,7 @@ function buildAnnotation(draft: Draft): Annotation {
   }
 }
 
-const TYPE_LABEL: Record<AnnotationType, string> = {
-  highlight: "Highlight",
-  rect: "Box",
-  note: "Note",
-  line: "Line",
-};
+const TYPE_LABEL = ANNOTATION_LABEL;
 
 /** A one-line summary of a placed markup for the list. */
 function describeMarkup(annotation: Annotation): string {
@@ -217,10 +219,13 @@ function AnnotateEditor({
   const [markups, setMarkups] = useState<Markup[]>([]);
   const [draft, setDraft] = useState<Draft>(DEFAULT_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
   const idRef = useRef(0);
 
-  // Content-space page sizes back the preview and validation. The editor subtree
-  // is keyed by file, so this runs once per document.
+  // Displayed page sizes — the page as a reader sees it, turned by any
+  // `/Rotate` — back the size label, the input bounds, validation, and the
+  // preview. The editor subtree is keyed by file, so this runs once per
+  // document.
   useEffect(() => {
     let alive = true;
     getAnnotatePageSizes(pdf.bytes)
@@ -248,13 +253,37 @@ function AnnotateEditor({
   const setField = <K extends keyof Draft>(field: K, value: Draft[K]) =>
     setDraft((prev) => ({ ...prev, [field]: value }));
 
-  const addMarkup = () => {
-    if (!pageSizes) return;
+  const addMarkup = async () => {
+    if (!pageSizes || checking) return;
     const annotation = buildAnnotation(draft);
     const issues = validateAnnotations([annotation], pageSizes);
     if (issues.length > 0) {
       setFormError(issues[0]!.message);
       return;
+    }
+    if (annotation.type === "note") {
+      // How far a note's words reach depends on the font, and the font on
+      // EVERY note — so measure the whole list with the same check Apply
+      // runs, and say so now rather than after the user has placed the rest.
+      setChecking(true);
+      try {
+        const list = [...markups.map((m) => m.annotation), annotation];
+        const overflows = await findNoteOverflows(list, pageSizes);
+        if (overflows.length > 0) {
+          setFormError(overflows[0]!.message);
+          return;
+        }
+      } catch (caught) {
+        // The font chooser's refusal is the user's answer; anything else (a
+        // font download that failed) is left for Apply, which runs the same
+        // check and reports through its own error path.
+        if (caught instanceof PdfEngineError) {
+          setFormError(caught.message);
+          return;
+        }
+      } finally {
+        setChecking(false);
+      }
     }
     setFormError(null);
     setMarkups((prev) => [...prev, { id: idRef.current++, annotation }]);
@@ -337,8 +366,8 @@ function AnnotateEditor({
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={addMarkup}
-              aria-disabled={!pageSizes || undefined}
+              onClick={() => void addMarkup()}
+              aria-disabled={!pageSizes || checking || undefined}
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
               <Plus className="size-4" aria-hidden />
@@ -746,7 +775,11 @@ function PagePreview({
     <div className="flex flex-col items-center gap-2">
       <div
         className="relative w-full max-w-[180px] overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-black/10"
-        style={{ aspectRatio: `${page.width} / ${page.height}` }}
+        style={{
+          aspectRatio: `${page.width} / ${page.height}`,
+          // Lets a note size itself in page-relative `cqw` units.
+          containerType: "inline-size",
+        }}
       >
         {markups.map(({ id, annotation }) => {
           if (annotation.type === "highlight") {
@@ -765,6 +798,9 @@ function PagePreview({
                   height: pct(annotation.height, page.height),
                   backgroundColor: annotation.color,
                   opacity: annotation.opacity ?? 0.4,
+                  // The export composites highlights with Multiply; so does
+                  // the schematic.
+                  mixBlendMode: "multiply",
                 }}
               />
             );
@@ -789,14 +825,32 @@ function PagePreview({
             );
           }
           if (annotation.type === "note") {
+            // Drawn to the page's scale — font size and wrap width as a share
+            // of the page width — with its line breaks, and never truncated,
+            // so the schematic shows how far the note reaches and where the
+            // page edge would cut it. (It used to be a one-line, 6 px,
+            // ellipsised label that hid every overflow.)
+            const size = annotation.size ?? 12;
+            const cq = (points: number) => `${(points / page.width) * 100}cqw`;
             return (
               <span
                 key={id}
                 aria-hidden
-                className="absolute max-w-[70%] truncate text-[6px] leading-none font-medium"
+                className="absolute font-medium break-words whitespace-pre-wrap"
                 style={{
                   left: pct(annotation.x, page.width),
-                  top: pct(page.height - annotation.y, page.height),
+                  // The anchor is the first BASELINE; step up by roughly one
+                  // ascent so the glyphs sit on it.
+                  top: pct(
+                    page.height - annotation.y - size * 0.8,
+                    page.height,
+                  ),
+                  width:
+                    annotation.maxWidth && annotation.maxWidth > 0
+                      ? cq(annotation.maxWidth)
+                      : "max-content",
+                  fontSize: cq(size),
+                  lineHeight: 1.18,
                   color: annotation.color,
                 }}
               >

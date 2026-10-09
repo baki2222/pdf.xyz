@@ -38,10 +38,14 @@ import {
 } from "../executor/s3-storage";
 import { parseS3Config } from "../storage/s3-config";
 import { createQueueProvider } from "../queue/factory";
+import { grantedLeaseMs, parseRedisQueueConfig } from "../queue/redis-config";
 import type { RedisQueueDeps } from "../queue/redis";
 import type { ClaimableQueue } from "../queue/claim";
 import type { QueueProvider } from "../queue/types";
-import { createProcessorRegistry } from "../processor";
+import {
+  createProcessorRegistry,
+  type SecureWorkerProcessorDeps,
+} from "../processor";
 import type { OcrProcessorDeps } from "../processor/ocr";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { ProcessorCapability } from "../processor/types";
@@ -165,6 +169,28 @@ export interface OcrRuntimeHealth {
   languages: readonly string[];
 }
 
+/** A requested lease and the shorter lease the queue will actually grant. */
+export interface LeaseClamp {
+  requestedMs: number;
+  grantedMs: number;
+}
+
+/**
+ * The {@link LeaseClamp} for `requestedMs` against the Redis queue `env` selects, or
+ * `undefined` when nothing is shortened: no request, a request within the ceiling, or
+ * a queue that is not Redis (the local-dev queue grants a lease as asked).
+ */
+export function resolveLeaseClamp(
+  env: EnvSource,
+  requestedMs: number | undefined,
+): LeaseClamp | undefined {
+  if (requestedMs === undefined) return undefined;
+  const parsed = parseRedisQueueConfig(env);
+  if (!parsed.ok) return undefined;
+  const grantedMs = grantedLeaseMs(requestedMs, parsed.config);
+  return grantedMs < requestedMs ? { requestedMs, grantedMs } : undefined;
+}
+
 /** The resolved runtime: readiness + processor capabilities, and an executor iff runnable. */
 export interface WorkerRuntime {
   /** Presence-only provider/daemon readiness for logging and `--dry-run-status`. */
@@ -219,6 +245,13 @@ export interface WorkerRuntime {
   ocr: OcrRuntimeHealth;
   /** Honest, presence-only capability of every registered processor. */
   processors: ProcessorCapability[];
+  /**
+   * Present iff a requested lease (`--lease-ms`) is longer than the Redis queue this
+   * environment builds will grant — the queue shortens it to its configured ceiling
+   * (`PDFXYZ_QUEUE_LEASE_SECONDS`). Computed by the queue's own clamp, so the CLI can
+   * say so once instead of the lease being shortened silently. Content-free numbers.
+   */
+  leaseClamp?: LeaseClamp;
   /** The executor to tick — present ONLY when the queue is drainable and storage is ready. */
   executor?: WorkerExecutor;
   /** Why `executor` is absent (content-free). Present iff `executor` is undefined. */
@@ -388,17 +421,21 @@ export function resolveExecutorStorage(
 }
 
 /**
- * Build the daemon runtime from an environment. Deterministic given its injected
- * deps; with none, it reads real provider config from `env` and probes the host
- * for native engines. Returns an executor only when the queue is drainable AND
- * storage is configured; otherwise `blocked` says honestly why not.
+ * The dependencies of every processor the worker wires, resolved from `env`
+ * exactly as {@link resolveWorkerRuntime} wires them — it calls this and nothing
+ * else to get them.
+ *
+ * It is its own function so the web tier can ask the WORKER'S question: a tool
+ * page states a per-file ceiling, and the engine this returns for that tool is
+ * what refuses above its own. `Required<>` is load-bearing: a processor added to
+ * {@link SecureWorkerProcessorDeps} cannot compile until it is resolved here, so
+ * a guard that walks the returned keys cannot miss it
+ * (`src/lib/tools/worker-engine-ceilings.test.ts`).
  */
-export function resolveWorkerRuntime(
+export function resolveProcessorDeps(
   env: EnvSource = process.env,
   deps: WorkerRuntimeDeps = {},
-): WorkerRuntime {
-  const readiness = resolveDaemonReadiness(env);
-
+): Required<SecureWorkerProcessorDeps> {
   // Resolve the compression dependencies ONCE so the wired processor and the
   // health readout can never disagree about which native engines are present.
   // The host PATH probe (`nativeCompressionDeps`) runs only when neither explicit
@@ -441,24 +478,39 @@ export function resolveWorkerRuntime(
   // opted in). With no provider the processor is registered but honestly not-ready and
   // fails as not_implemented — never a fabricated answer.
   const chatWithPdf = deps.chatWithPdf ?? chatWithPdfDeps(env);
-  const registry =
-    deps.registry ??
-    createProcessorRegistry({
-      compression: compressionDeps,
-      ocr: ocrDeps,
-      pdfSecurity: pdfSecurityDeps,
-      pdfStructure: pdfStructureDeps,
-      pdfArchive: pdfArchiveDeps,
-      htmlRender: htmlRenderDeps,
-      officeConversion: officeConversionDeps,
-      pdfOfficeExport,
-      tableExtract,
-      requestSignatures,
-      summarize,
-      translate,
-      aiExtract,
-      chatWithPdf,
-    });
+  return {
+    compression: compressionDeps,
+    ocr: ocrDeps,
+    pdfSecurity: pdfSecurityDeps,
+    pdfStructure: pdfStructureDeps,
+    pdfArchive: pdfArchiveDeps,
+    htmlRender: htmlRenderDeps,
+    officeConversion: officeConversionDeps,
+    pdfOfficeExport,
+    tableExtract,
+    requestSignatures,
+    summarize,
+    translate,
+    aiExtract,
+    chatWithPdf,
+  };
+}
+
+/**
+ * Build the daemon runtime from an environment. Deterministic given its injected
+ * deps; with none, it reads real provider config from `env` and probes the host
+ * for native engines. Returns an executor only when the queue is drainable AND
+ * storage is configured; otherwise `blocked` says honestly why not.
+ */
+export function resolveWorkerRuntime(
+  env: EnvSource = process.env,
+  deps: WorkerRuntimeDeps = {},
+): WorkerRuntime {
+  const readiness = resolveDaemonReadiness(env);
+
+  const processorDeps = resolveProcessorDeps(env, deps);
+  const compressionDeps = processorDeps.compression;
+  const registry = deps.registry ?? createProcessorRegistry(processorDeps);
   const processors = registry.capabilities();
   const compression = deriveCompressionHealth(compressionDeps.tools);
 
@@ -537,6 +589,10 @@ export function resolveWorkerRuntime(
 
   const drainable = isClaimableQueue(queue);
   const hasStorage = storage !== null;
+  // Only a queue built from `env` is the one the clamp describes; an injected queue
+  // applies its own rules.
+  const leaseClamp =
+    deps.queue === undefined ? resolveLeaseClamp(env, deps.leaseMs) : undefined;
 
   if (drainable && hasStorage) {
     // When a metrics sink is wired, observe storage at the exact seam that touches the
@@ -569,6 +625,7 @@ export function resolveWorkerRuntime(
       artifact: artifactCapability,
       ocr,
       processors,
+      ...(leaseClamp ? { leaseClamp } : {}),
       executor,
     };
   }
@@ -589,6 +646,7 @@ export function resolveWorkerRuntime(
     artifact: artifactCapability,
     ocr,
     processors,
+    ...(leaseClamp ? { leaseClamp } : {}),
     blocked,
   };
 }

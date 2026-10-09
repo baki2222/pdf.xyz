@@ -37,6 +37,8 @@ import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel"
 import { AiExtractWorkerPanel } from "@/components/tools/ai-extract-worker-panel";
 import { ChatWithPdfWorkerPanel } from "@/components/tools/chat-with-pdf-worker-panel";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
+import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
+import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import {
@@ -45,8 +47,17 @@ import {
   howToSchema,
   toolApplicationSchema,
 } from "@/lib/structured-data";
-import { howToSteps, toolFacts, toolFaq } from "@/lib/tools/tool-facts";
-import { guidesForTool } from "@/lib/guides";
+import { toolFacts } from "@/lib/tools/tool-facts";
+import {
+  pageDescription,
+  pageFaq,
+  pageGuides,
+  pageIntro,
+  pageSteps,
+  pageTitle,
+  pageUseCases,
+} from "@/lib/tools/page-copy";
+import { categoryHref } from "@/lib/tools/category-href";
 
 export function generateStaticParams() {
   return getAllToolSlugs().map((slug) => ({ slug }));
@@ -80,8 +91,12 @@ export async function generateMetadata({
     return buildMetadata({ title: "Tool not found", noIndex: true });
   }
   return buildMetadata({
-    title: tool.name,
-    description: tool.description,
+    // The authored, search-facing title and description
+    // (`@/lib/tools/content`), keyword-first and unique per tool; the
+    // catalogue's `seoTitle`, then the name, where a tool has none. The H1
+    // stays the tool's name, and the canonical is unchanged.
+    title: pageTitle(tool),
+    description: pageDescription(tool),
     path: `/tools/${tool.slug}`,
     keywords: tool.keywords,
     // Every tool gets its own share card, leading with where it actually runs.
@@ -102,14 +117,20 @@ export default async function ToolPage({
   const category = getCategory(tool.category);
   const processing = getProcessingMeta(tool.processing);
   const related = getRelatedTools(tool, 3);
-  // Every tool has steps now: the catalogue's own when authored, else the
-  // mode-true default (in-browser steps never claim an upload — guarded).
-  const steps = howToSteps(tool);
+  // Everything the page SAYS comes through `@/lib/tools/page-copy` — the same
+  // accessors the honesty guards read, so a guard cannot certify copy this
+  // page no longer renders. Authored content first; the derived copy (the
+  // catalogue's steps or the mode-true default, the derived FAQ) where a tool
+  // has none.
+  const intro = pageIntro(tool);
+  const useCases = pageUseCases(tool);
+  const steps = pageSteps(tool);
   const facts = toolFacts(tool.slug);
-  const faq = toolFaq(tool);
-  // Discovered from each guide's own `tools` field — the band cannot link a
-  // guide that does not claim this tool back, and there is no href list here.
-  const toolGuides = guidesForTool(tool.slug);
+  const faq = pageFaq(tool);
+  // `guidesForTool`'s band — discovered from each guide's own `tools` field,
+  // guides that teach this tool first, a reverse-direction guide left out —
+  // with the guides this tool's authored content names first in each role.
+  const toolGuides = pageGuides(tool);
   const runnerKind = getRunnerKind(tool.slug);
   /*
    * THIS TOOL's ceiling, not the worker's. The staging hint below interpolated
@@ -129,10 +150,42 @@ export default async function ToolPage({
   const breadcrumbs = [
     { name: "All tools", path: "/tools" },
     ...(category
-      ? [{ name: category.name, path: `/tools?category=${category.id}` }]
+      ? [{ name: category.name, path: categoryHref(category.id) }]
       : []),
     { name: tool.name, path: `/tools/${tool.slug}` },
   ];
+
+  const useCaseList =
+    useCases.length > 0 ? (
+      <ul className="flex flex-col gap-3">
+        {useCases.map((useCase) => (
+          <li key={useCase.title} className="flex flex-col gap-1">
+            <h3 className="text-fg text-sm font-semibold">{useCase.title}</h3>
+            <p className="text-muted text-sm leading-relaxed">{useCase.body}</p>
+          </li>
+        ))}
+      </ul>
+    ) : null;
+
+  const stepList = (
+    <ol className="flex flex-col gap-3">
+      {steps.map((step, i) => (
+        <li key={i} className="flex items-start gap-3">
+          {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
+              theme ground — 16.4:1 here, and correct inside any future scope. */}
+          <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
+            {i + 1}
+          </span>
+          <span className="text-muted text-sm leading-relaxed">
+            {step.title && (
+              <span className="text-fg font-semibold">{step.title}. </span>
+            )}
+            {step.text}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
 
   const formatChips = (
     <div className="flex flex-wrap items-center gap-2">
@@ -150,6 +203,12 @@ export default async function ToolPage({
 
   return (
     <div className="bg-canvas text-fg py-10 sm:py-14">
+      {/* Names this page's tool for run-outcome telemetry and sends
+          `tool_viewed`. Renders nothing. */}
+      <ToolTelemetry
+        toolSlug={tool.slug}
+        capability={capabilityForMode(tool.processing)}
+      />
       <JsonLd
         data={[
           toolApplicationSchema(tool),
@@ -175,7 +234,7 @@ export default async function ToolPage({
           <span aria-hidden>/</span>
           {category && (
             <Link
-              href={`/tools?category=${category.id}`}
+              href={categoryHref(category.id)}
               className="hover:text-fg transition-colors"
             >
               {category.name}
@@ -230,32 +289,25 @@ export default async function ToolPage({
                 <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                   About this tool
                 </h2>
-                <p className="text-fg text-sm leading-relaxed">
-                  {tool.description}
-                </p>
+                {intro.map((paragraph, i) => (
+                  <p
+                    key={i}
+                    className={`${i === 0 ? "text-fg" : "text-muted"} text-sm leading-relaxed`}
+                  >
+                    {paragraph}
+                  </p>
+                ))}
                 <p className="text-muted text-sm leading-relaxed">
                   {processing.description}
                 </p>
+                {useCaseList}
               </div>
               {steps.length > 0 && (
                 <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
                   <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                     How it works
                   </h2>
-                  <ol className="flex flex-col gap-3">
-                    {steps.map((step, i) => (
-                      <li key={step} className="flex items-start gap-3">
-                        {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
-                            theme ground — 16.4:1 here, and correct inside any future scope. */}
-                        <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
-                          {i + 1}
-                        </span>
-                        <span className="text-muted text-sm leading-relaxed">
-                          {step}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
+                  {stepList}
                 </div>
               )}
             </div>
@@ -281,9 +333,14 @@ export default async function ToolPage({
                 </div>
               </div>
 
-              <p className="text-fg text-base leading-relaxed text-pretty">
-                {tool.description}
-              </p>
+              {intro.map((paragraph, i) => (
+                <p
+                  key={i}
+                  className={`${i === 0 ? "text-fg text-base" : "text-muted text-sm"} leading-relaxed text-pretty`}
+                >
+                  {paragraph}
+                </p>
+              ))}
 
               {formatChips}
 
@@ -291,25 +348,21 @@ export default async function ToolPage({
                 {processing.description}
               </p>
 
+              {useCaseList && (
+                <div className="flex flex-col gap-4">
+                  <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
+                    When to use it
+                  </h2>
+                  {useCaseList}
+                </div>
+              )}
+
               {steps.length > 0 && (
                 <div className="flex flex-col gap-4">
                   <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
                     How it works
                   </h2>
-                  <ol className="flex flex-col gap-3">
-                    {steps.map((step, i) => (
-                      <li key={step} className="flex items-start gap-3">
-                        {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
-                            theme ground — 16.4:1 here, and correct inside any future scope. */}
-                        <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
-                          {i + 1}
-                        </span>
-                        <span className="text-muted text-sm leading-relaxed">
-                          {step}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
+                  {stepList}
                 </div>
               )}
             </div>
@@ -405,7 +458,7 @@ export default async function ToolPage({
               ) : tool.slug === "ai-extract" ? (
                 /* AI Data Extraction: selectable-text extraction turned into structured
                    JSON by a configured AI provider, packaged as a real extraction ZIP
-                   (extraction.json + extraction.md + manifest) on the worker. Fails
+                   (extraction.json + model-output.json + extraction.md + manifest) on the worker. Fails
                    honestly when no provider is configured or the reply isn't JSON — never faked. */
                 <ErrorBoundary boundary="ai-extract-worker-panel">
                   <AiExtractWorkerPanel tool={tool} />
@@ -511,12 +564,17 @@ export default async function ToolPage({
               </Link>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {toolGuides.map((guide) => (
+              {toolGuides.map(({ guide, role }) => (
                 <Link
                   key={guide.slug}
                   href={`/guides/${guide.slug}`}
                   className="border-line bg-panel hover:border-line-strong flex flex-col gap-2 rounded-[4px] border p-5 transition-colors"
                 >
+                  <span className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">
+                    {role === "primary"
+                      ? "Step-by-step guide"
+                      : "Related guide"}
+                  </span>
                   <h3 className="text-fg text-sm font-semibold text-balance">
                     {guide.title}
                   </h3>

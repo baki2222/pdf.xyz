@@ -18,7 +18,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
-import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
@@ -27,20 +28,30 @@ import { MAX_CONTEXT_TURNS } from "@/lib/jobs/chat-with-pdf";
 import type { AiProvider } from "@/lib/workers/ai/provider";
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
 import { resetTelemetry } from "@/lib/telemetry/track";
+import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
 
-const runWorkerChatWithPdf = vi.hoisted(() => vi.fn());
-
-vi.mock("@/lib/workers/chat-with-pdf-client", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@/lib/workers/chat-with-pdf-client")
-  >()),
-  runWorkerChatWithPdf,
-}));
-
-// Imported after the mock so the panel picks up the stubbed driver.
-const { ChatWithPdfWorkerPanel } = await import("./chat-with-pdf-worker-panel");
+// The job driver and the document measurement are handed to the panel as
+// props. They used to be swapped in with `vi.mock` on the client module, which
+// left the panel cached bound to these stubs for any later test file in the
+// same worker; the pick-refusal guard renders every worker panel, so it would
+// have been that file. Running the real pdfjs in jsdom on a three-byte file
+// would measure nothing, so the measurement is stubbed too — as a prop.
+const runWorkerChatWithPdf = vi.fn();
+const measureChatDocument = vi.fn();
+const MEASURED = { characters: 2_140, textPages: 3 };
 
 const chatTool = getToolBySlug("chat-with-pdf")!;
+
+/** The panel as the page mounts it, with only the two network-bound seams stubbed. */
+function Panel() {
+  return (
+    <ChatWithPdfWorkerPanel
+      tool={chatTool}
+      runChat={runWorkerChatWithPdf}
+      measureChat={measureChatDocument}
+    />
+  );
+}
 
 const providers = getProviderReadiness("remote-configured");
 
@@ -82,6 +93,7 @@ const READY: WorkerStatus = {
 };
 
 function stubStatus() {
+  measureChatDocument.mockResolvedValue({ kind: "counted", count: MEASURED });
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
@@ -172,6 +184,7 @@ async function ask(question: string) {
 afterEach(() => {
   resetTelemetry();
   runWorkerChatWithPdf.mockReset();
+  measureChatDocument.mockReset();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -189,7 +202,7 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
         workerSuccess(second, "It is due on 30 June 2026 [p.1]."),
       );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
 
     await ask(first);
@@ -216,7 +229,7 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       workerSuccess("Q one", "A one."),
     );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
     await ask("Q one");
 
@@ -239,7 +252,7 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       }))
       .mockImplementationOnce(() => workerSuccess("second", "Second answer."));
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
     await ask("What is the total?");
 
@@ -262,7 +275,7 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       workerSuccess("Q one", "A one."),
     );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
     await ask("Q one");
     expect(await screen.findByText("A one.")).toBeInTheDocument();
@@ -291,9 +304,15 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       return workerSuccess("Q about A", "A's answer.");
     });
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
     await ask("Q about A");
+    // The request must actually be IN FLIGHT before the swap — the shape this
+    // test is about. Since 2026-09-27 the panel measures the document before
+    // it sends anything, so a swap made immediately would land during the
+    // measurement, send nothing, and let the assertions below pass for a
+    // different reason than the one they were written for.
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
 
     // Swap the document while the request is still running.
     fireEvent.click(screen.getByRole("button", { name: /remove/i }));
@@ -319,7 +338,11 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     fireEvent.change(await screen.findByRole("textbox"), {
       target: { value: "Q about B" },
     });
-    const submit = screen.getByRole("button", {
+    // FOUND, not got: A's job is still settling here — the button reads
+    // "Answering…" until it does. The shared job hook (wave-1 L03, merged
+    // 2026-09-28) adds awaits between the answer and the end of the run, and
+    // under a full parallel run this query landed before them.
+    const submit = await screen.findByRole("button", {
       name: /ask the pdf|send follow-up/i,
     });
     await waitFor(() => expect(submit).not.toBeDisabled());
@@ -336,7 +359,7 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     const long = "y".repeat(6000);
     runWorkerChatWithPdf.mockImplementation(() => workerSuccess("Q one", long));
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
     await ask("Q one");
     await screen.findByText(/shortened/i);
@@ -362,7 +385,7 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
       workerSuccess(input.question, `Answer to ${input.question}.`),
     );
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
 
     const rounds = MAX_CONTEXT_TURNS / 2 + 2;
@@ -385,6 +408,106 @@ describe("ChatWithPdfWorkerPanel — follow-up questions", () => {
     expect(
       screen.getByText(/oldest exchanges are left out/i),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ChatWithPdfWorkerPanel — what each question declares", () => {
+  /**
+   * Until 2026-09-27 the panel declared nothing, so every question reserved a
+   * whole call's worth of the daily allowance — a third of the day for a
+   * question about one page, and three questions the whole day's chat. Each
+   * question now declares the document's characters, measured ONCE per file —
+   * the document does not change between questions. The declaration is read
+   * here off the request the DRIVER receives, which is what goes on the wire
+   * (`workers/chat-allowance.chain.test.ts` follows it from there through the
+   * real route and limiter).
+   *
+   * Two lanes wrote this block the same day with two measuring helpers; the
+   * panel keeps `measureChatDocument`, because only it tells a scan (upload
+   * nothing) from a file the browser could not read (send it undeclared).
+   */
+  it("declares the document it measured on every question, measuring it once per file", async () => {
+    stubStatus();
+    runWorkerChatWithPdf
+      .mockImplementationOnce(() => workerSuccess("Q one", "A one [p.1]."))
+      .mockImplementationOnce(() => workerSuccess("Q two", "A two [p.1]."));
+
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+    await screen.findByText("A one [p.1].");
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "Q two" },
+    });
+    const submit = screen.getByRole("button", { name: /send follow-up/i });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+
+    for (const index of [0, 1]) {
+      expect(
+        (requestAt(index) as { documentCharacters?: unknown })
+          .documentCharacters,
+        `question ${index + 1} went out without the document's count, so it ` +
+          "reserves a whole call's worth of the daily allowance",
+      ).toBe(MEASURED.characters);
+    }
+    // Once per FILE: a follow-up re-sends the same document, not a new one.
+    expect(
+      measureChatDocument,
+      "the same document was re-measured for a follow-up question",
+    ).toHaveBeenCalledTimes(1);
+  });
+
+  it("measures again after the document is swapped", async () => {
+    stubStatus();
+    runWorkerChatWithPdf.mockImplementation(() =>
+      workerSuccess("Q one", "A one [p.1]."),
+    );
+
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask("Q one");
+    expect(await screen.findByText("A one [p.1].")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /remove/i }));
+    measureChatDocument.mockResolvedValueOnce({
+      kind: "counted",
+      count: { characters: 99, textPages: 1 },
+    });
+    await ask("Q one");
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(2));
+    expect(
+      (requestAt(1) as { documentCharacters?: unknown }).documentCharacters,
+      "a new document was charged at the previous document's size",
+    ).toBe(99);
+    expect(measureChatDocument).toHaveBeenCalledTimes(2);
+  });
+
+  it("goes undeclared, not refused, when the browser cannot read the PDF", async () => {
+    stubStatus();
+    measureChatDocument.mockResolvedValue({ kind: "uncounted" });
+    runWorkerChatWithPdf.mockImplementationOnce(() =>
+      workerSuccess("Q", "A [p.1]."),
+    );
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask("Q");
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    expect(
+      (requestAt(0) as { documentCharacters?: unknown }).documentCharacters,
+    ).toBeNull();
+  });
+
+  it("uploads nothing, and says why, for a PDF with no selectable text", async () => {
+    stubStatus();
+    measureChatDocument.mockResolvedValue({ kind: "no-text" });
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask("Q");
+    expect(await screen.findByText(/no selectable text/i)).toBeInTheDocument();
+    expect(screen.getByText(/run OCR PDF first/i)).toBeInTheDocument();
+    expect(runWorkerChatWithPdf).not.toHaveBeenCalled();
   });
 });
 
@@ -423,7 +546,7 @@ describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
       };
     });
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
     await ask(question);
 
@@ -464,12 +587,96 @@ describe("ChatWithPdfWorkerPanel — the window the answer came from", () => {
       };
     });
 
-    render(<ChatWithPdfWorkerPanel tool={chatTool} />);
+    render(<Panel />);
     await screen.findByRole("textbox");
     await ask(question);
 
     expect(await screen.findByText(/The total is/)).toBeInTheDocument();
     // A caveat on a complete reading would be its own false claim.
     expect(screen.queryByText(/could be read/)).not.toBeInTheDocument();
+  });
+});
+
+describe("ChatWithPdfWorkerPanel — every answer carries its caveat", () => {
+  /**
+   * The chat bubble is the one surface every user reads, and the panel above
+   * it used to say the model "never invents an answer". The only safeguard is
+   * a prompt instruction, so each rendered answer carries a plain caveat —
+   * not conditional on citations, which an ungrounded answer does not have.
+   */
+  it("renders the caveat under each answer, one per answer", async () => {
+    const { AI_ANSWER_CAVEAT } = await import("./chat-with-pdf-worker-panel");
+    stubStatus();
+    runWorkerChatWithPdf
+      .mockImplementationOnce(() => workerSuccess("Q1?", "First [p.1]."))
+      .mockImplementationOnce(() => workerSuccess("Q2?", "Second [p.1]."));
+
+    render(<Panel />);
+    await screen.findByRole("textbox");
+    await ask("Q1?");
+    expect(await screen.findByText("First [p.1].")).toBeInTheDocument();
+    expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(1);
+
+    await ask("Q2?");
+    expect(await screen.findByText("Second [p.1].")).toBeInTheDocument();
+    expect(screen.getAllByText(AI_ANSWER_CAVEAT)).toHaveLength(2);
+    expect(AI_ANSWER_CAVEAT).toMatch(/AI-generated/);
+  });
+});
+
+describe("ChatWithPdfWorkerPanel — what the job declares", () => {
+  it("sends the extracted character count with its job, not nothing", async () => {
+    // Review of 2026-09-28: the only panel-level assertion checked that the
+    // key was PRESENT, and a present key holding `undefined` passed it — an
+    // undeclared chat-with-pdf job reserves a third of the day. A REAL
+    // pdf-lib PDF, counted by the real extractor, dropped into the panel; the
+    // driver must receive that count. (The driver is this file's stub; the
+    // MEASUREMENT is the panel's own default — `measureChatDocument` over the
+    // real `extractPdfText` — and the client → wire → route half is
+    // `per-call-declared.chain.test.ts`.)
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([612, 792]);
+    for (let l = 0; l < 8; l += 1) {
+      page.drawText(`Invoice 2026-0412, line ${l + 1}: total 1200.`, {
+        x: 20,
+        y: 760 - l * 18,
+        size: 10,
+        font,
+      });
+    }
+    const bytes = await doc.save();
+    const counted = (await extractPdfText(bytes)).characterCount;
+    // Health: a real count, so equality below means THIS document's count.
+    expect(counted).toBeGreaterThan(100);
+
+    stubStatus();
+    runWorkerChatWithPdf.mockResolvedValue({ ok: false, message: "stop" });
+    // No `measureChat`: the panel measures the dropped file itself.
+    render(
+      <ChatWithPdfWorkerPanel tool={chatTool} runChat={runWorkerChatWithPdf} />,
+    );
+    await screen.findByRole("textbox");
+    fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: {
+        files: [
+          new File([bytes.slice()], "invoice.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: { value: "What is the total?" },
+    });
+    const submit = screen.getByRole("button", { name: /ask the pdf/i });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(runWorkerChatWithPdf).toHaveBeenCalledTimes(1));
+    // Only the DOCUMENT is declared; the route measures the question itself.
+    expect(runWorkerChatWithPdf.mock.calls[0]![0].documentCharacters).toBe(
+      counted,
+    );
   });
 });

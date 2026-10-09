@@ -1,8 +1,9 @@
 /**
  * Pure parsers for poppler `pdftotext` output.
  *
- * The worker cannot use the pdfjs-backed extractors in `@/lib/pdf/text` and
- * `@/lib/pdf/layout`: those are browser modules — pdfjs touches `DOMMatrix` at
+ * The worker cannot use the pdfjs-backed extractor in `@/lib/pdf/text` (nor the
+ * pdfjs layout extractor that sat beside it until it was removed, unused, on
+ * 2026-09-27): those are browser modules — pdfjs touches `DOMMatrix` at
  * import time and resolves a worker bundle via a browser URL, so on Node they
  * throw before reading a single byte. Everything that depended on them
  * (`pdf-to-word`, `pdf-to-excel`, `pdf-to-powerpoint`, `extract-tables`)
@@ -25,7 +26,8 @@
  * The two are different programs, not two configurations of one. `-layout` (see
  * `pdfTextArgs`) reconstructs the page's horizontal arrangement by padding
  * between columns with spaces; the browser's `textItemsToPlainText` appends
- * `item.str` and a newline on `hasEOL`, so it structurally cannot emit a space
+ * `item.str` and a newline on `hasEOL` (plus one after the page's last line when
+ * reading order moves it off the end), so it structurally cannot emit a space
  * that is not inside a text item. Shared normalization cannot remove the
  * difference because it only strips TRAILING whitespace — inter-column padding
  * is interior.
@@ -193,5 +195,135 @@ export function parseBboxLayout(xhtml: string): PdfLayout {
     pages.push({ pageNumber: i + 1, width, height, items });
   }
 
+  return { pageCount: pages.length, pages };
+}
+
+/** One word of `-bbox-layout` output, in poppler's top-down page coordinates. */
+export interface FlowWord {
+  text: string;
+  xMin: number;
+  yMin: number;
+  xMax: number;
+  yMax: number;
+}
+
+/** One printed line: its words, left to right, as poppler grouped them. */
+export interface FlowLine {
+  words: FlowWord[];
+  xMin: number;
+  yMin: number;
+  xMax: number;
+  yMax: number;
+}
+
+/** One poppler text block — the unit it lays out as a paragraph. */
+export interface FlowBlock {
+  /** 0-based index of the `<flow>` this block belongs to, in reading order. */
+  flow: number;
+  lines: FlowLine[];
+}
+
+export interface FlowPage {
+  pageNumber: number;
+  /** Blocks in poppler's READING order — flow by flow, not top to bottom. */
+  blocks: FlowBlock[];
+}
+
+export interface PdfFlowLayout {
+  pageCount: number;
+  pages: FlowPage[];
+}
+
+const FLOW_TOKEN =
+  /<page\b[^>]*>|<flow\b[^>]*>|<block\b[^>]*>|<line\b[^>]*>|<word\b([^>]*)>([\s\S]*?)<\/word>/gi;
+
+/**
+ * Parse `pdftotext -bbox-layout` XHTML KEEPING its hierarchy —
+ * `<page>/<flow>/<block>/<line>/<word>` — which {@link parseBboxLayout} flattens
+ * to a bag of words because the table engine re-derives rows itself.
+ *
+ * The hierarchy is the point. `-layout` text is the page's VISUAL arrangement: a
+ * two-column page comes out as one line per printed row, the left column's line
+ * glued to the right column's by a run of spaces, so every paragraph built from
+ * it interleaves the columns. poppler's flows and blocks are its reading-order
+ * analysis of the same page — the left column's blocks, then the right's. The
+ * geometry stays attached so a caller can still recognise a TABLE, which the
+ * reading-order analysis splits into one block per column (measured, poppler
+ * 25.07: a 4×3 grid came out as four three-line blocks).
+ *
+ * Pages are counted from `<page>` tags, so a page with no text is still a page.
+ * Words with no visible text or no usable box are skipped rather than guessed.
+ */
+export function parseBboxFlow(xhtml: string): PdfFlowLayout {
+  const pages: FlowPage[] = [];
+  let page: FlowPage | null = null;
+  let flow = -1;
+  let block: FlowBlock | null = null;
+  let line: FlowLine | null = null;
+
+  const openBlock = (): FlowBlock => {
+    const next: FlowBlock = { flow: Math.max(flow, 0), lines: [] };
+    page!.blocks.push(next);
+    return next;
+  };
+  const openLine = (): FlowLine => {
+    const target = block ?? (block = openBlock());
+    const next: FlowLine = {
+      words: [],
+      xMin: Infinity,
+      yMin: Infinity,
+      xMax: -Infinity,
+      yMax: -Infinity,
+    };
+    target.lines.push(next);
+    return next;
+  };
+
+  FLOW_TOKEN.lastIndex = 0;
+  for (let m = FLOW_TOKEN.exec(xhtml); m !== null; m = FLOW_TOKEN.exec(xhtml)) {
+    const tag = m[0].slice(1, 5).toLowerCase();
+    if (tag === "page") {
+      page = { pageNumber: pages.length + 1, blocks: [] };
+      pages.push(page);
+      flow = -1;
+      block = null;
+      line = null;
+      continue;
+    }
+    if (!page) continue;
+    if (tag === "flow") {
+      flow += 1;
+      block = null;
+      line = null;
+    } else if (tag === "bloc") {
+      block = openBlock();
+      line = null;
+    } else if (tag === "line") {
+      line = openLine();
+    } else {
+      const text = decodeXmlEntities(m[2] ?? "").trim();
+      if (text.length === 0) continue;
+      const attrs = m[1] ?? "";
+      const xMin = attr(attrs, "xMin");
+      const yMin = attr(attrs, "yMin");
+      const xMax = attr(attrs, "xMax");
+      const yMax = attr(attrs, "yMax");
+      if (xMin === null || yMin === null || xMax === null || yMax === null)
+        continue;
+      const target = line ?? (line = openLine());
+      target.words.push({ text, xMin, yMin, xMax, yMax });
+      target.xMin = Math.min(target.xMin, xMin);
+      target.yMin = Math.min(target.yMin, yMin);
+      target.xMax = Math.max(target.xMax, xMax);
+      target.yMax = Math.max(target.yMax, yMax);
+    }
+  }
+
+  // Drop the empty shells a word-less line or block leaves behind, so an
+  // image-only page reads as a page with no blocks rather than blank ones.
+  for (const p of pages) {
+    for (const b of p.blocks) b.lines = b.lines.filter((l) => l.words.length);
+    p.blocks = p.blocks.filter((b) => b.lines.length > 0);
+  }
   return { pageCount: pages.length, pages };
 }

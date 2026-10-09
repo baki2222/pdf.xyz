@@ -126,6 +126,23 @@ export function describeWindow(
     else break;
   }
 
+  // …UNLESS the cut fell after that page's last character — on the page
+  // boundary, or in the separator after it. A cut made BY page (a declared page
+  // bound) lands exactly there, and "the text ends mid-page" about a page that
+  // is present in full would understate what the model holds by a page — a
+  // page number the user can check and find wrong.
+  const lastStarted = lastStartedIndex >= 0 ? starts[lastStartedIndex]! : null;
+  if (lastStarted && lastStarted.offset + lastStarted.length <= maxChars) {
+    return {
+      truncated: true,
+      charactersSent: maxChars,
+      charactersTotal: assembled.length,
+      totalPages,
+      lastCompletePage: lastStarted.pageNumber,
+      cutMidPage: false,
+    };
+  }
+
   const lastComplete =
     lastStartedIndex >= 1 ? starts[lastStartedIndex - 1]!.pageNumber : null;
 

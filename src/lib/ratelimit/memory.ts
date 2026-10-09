@@ -180,6 +180,22 @@ export function createMemoryRateLimiter(
       existing.count += cost;
     },
 
+    refund(
+      policy: RateLimitPolicy,
+      clientKey: string,
+      nowMs: number,
+      cost: number,
+    ): void {
+      if (!Number.isFinite(cost) || cost <= 0) return;
+      const existing = windows.get(bucketKey(policy.id, clientKey));
+      // No live window ⇒ the charge already expired with it. Nothing to give
+      // back, and creating a window here would start an accounting day.
+      if (!existing || nowMs >= existing.resetAtMs) return;
+      // Clamped at zero, and `resetAtMs` is left alone: a refund undoes a
+      // charge, it is neither credit nor a new hit.
+      existing.count = Math.max(0, existing.count - cost);
+    },
+
     size(): number {
       return windows.size;
     },

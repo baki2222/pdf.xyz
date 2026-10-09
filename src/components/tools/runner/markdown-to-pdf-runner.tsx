@@ -30,12 +30,16 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import { TextSourceNotes } from "./text-source-notes";
+import { decodeTextFile, describeDecoding } from "@/lib/text/decode-text-file";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
 
 interface MarkdownSource {
   name: string;
   text: string;
+  /** How the picked file was decoded, when that was a guess worth checking. */
+  readNote?: string | null;
 }
 
 export function MarkdownToPdfRunner() {
@@ -60,8 +64,13 @@ export function MarkdownToPdfRunner() {
       );
       return;
     }
-    const text = await file.text();
-    setSource({ name: file.name || "document.md", text });
+    // Not `file.text()`, which is UTF-8 or nothing — see decode-text-file.ts.
+    const decoded = await decodeTextFile(file);
+    setSource({
+      name: file.name || "document.md",
+      text: decoded.text,
+      readNote: describeDecoding(decoded),
+    });
     setLoadError(null);
   }, []);
 
@@ -88,6 +97,7 @@ export function MarkdownToPdfRunner() {
         onSource={setSource}
         onFile={(files) => files[0] && void readMarkdownFile(files[0])}
         loadError={loadError}
+        onClearError={() => setLoadError(null)}
       />
     </div>
   );
@@ -98,13 +108,15 @@ function MarkdownToPdfEditor({
   onSource,
   onFile,
   loadError,
+  onClearError,
 }: {
   source: MarkdownSource;
   onSource: (source: MarkdownSource) => void;
   onFile: (files: File[]) => void;
   loadError: string | null;
+  onClearError: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const characterCount = source.text.length;
   const byteCount = new TextEncoder().encode(source.text).byteLength;
   const filename = markdownPdfOutputName(source.name);
@@ -121,7 +133,11 @@ function MarkdownToPdfEditor({
       <ResultPanel
         title="PDF created"
         summary={`${formatBytes(result.byteLength)} · ${characterCount.toLocaleString()} Markdown characters converted locally`}
-        onReset={() => onSource({ ...source, text: "" })}
+        onReset={() => {
+          reset();
+          onSource({ name: "document.md", text: "" });
+          onClearError();
+        }}
       >
         <button
           type="button"
@@ -156,11 +172,12 @@ function MarkdownToPdfEditor({
         <textarea
           value={source.text}
           onChange={(event) =>
-            onSource({ name: source.name, text: event.target.value })
+            onSource({ ...source, text: event.target.value })
           }
           placeholder="# Title\n\nWrite or paste Markdown here…"
           className="border-line text-fg focus:border-accent focus:ring-accent/50 [min-height:18rem] w-full resize-y rounded-[4px] border bg-black/20 px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
         />
+        <TextSourceNotes readNote={source.readNote} text={source.text} />
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
             icon={ShieldCheck}
@@ -170,12 +187,12 @@ function MarkdownToPdfEditor({
           <InfoTile
             icon={Hash}
             title="Structured"
-            body="Headings, lists, blockquotes, links, and code fences are rendered into a readable PDF."
+            body="Headings, nested lists, tables, quotes, rules, and code blocks keep their structure in the PDF."
           />
           <InfoTile
             icon={ListChecks}
             title="Honest"
-            body="This is a clean document renderer, not a full HTML/CSS publishing engine."
+            body="Bold and italic print as plain text, links print as the label with its URL, and images as their alt text and URL. Not an HTML/CSS engine."
           />
         </div>
       </RunnerSection>

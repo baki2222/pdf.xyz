@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   GRAYSCALE_DPI_PRESETS,
+  GRAYSCALE_GREW_NOTE,
   grayscaleOutputName,
   grayscalePdf,
   grayscalePresetById,
@@ -43,7 +44,7 @@ export function GrayscaleRunner() {
   );
 }
 
-function GrayscaleEditor({
+export function GrayscaleEditor({
   pdf,
   onReset,
 }: {
@@ -71,6 +72,7 @@ function GrayscaleEditor({
     void run(async () => {
       const converted = await grayscalePdf(pdf.bytes, {
         dpi: preset.dpi,
+        sourceName: pdf.file.name,
         signal: controller.signal,
         onProgress: (done, total) => setProgress({ done, total }),
       });
@@ -84,9 +86,16 @@ function GrayscaleEditor({
     return (
       <ResultPanel
         title="Grayscale PDF ready"
-        summary={`${result.pageCount} page${result.pageCount === 1 ? "" : "s"} rasterized · ${formatBytes(result.bytes.byteLength)}`}
+        summary={`${result.pageCount} page${result.pageCount === 1 ? "" : "s"} rasterized · ${formatBytes(pdf.file.size)} → ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
       >
+        {/* Both sizes, and a reason when the second is bigger: a text PDF
+            grows by two orders of magnitude here (grayscale-runner-size.test.tsx). */}
+        {result.bytes.byteLength > pdf.file.size && (
+          <p className="text-muted text-sm leading-relaxed">
+            {GRAYSCALE_GREW_NOTE}
+          </p>
+        )}
         <UndecodedImagesNotice count={result.undecodedImages} />
         <button
           type="button"
@@ -122,7 +131,7 @@ function GrayscaleEditor({
         <InfoTile
           icon={Droplets}
           title="Grayscale pages"
-          body="Each page is rendered, converted to luminance grayscale, and placed back into a new PDF."
+          body="Each page is rendered and stored as a single-channel grayscale (DeviceGray) image — not colour pixels that merely look grey."
         />
         <InfoTile
           icon={ShieldCheck}
@@ -132,7 +141,7 @@ function GrayscaleEditor({
         <InfoTile
           icon={TriangleAlert}
           title="Raster output"
-          body="Text, vectors, forms, and annotations are flattened into page images; selectable text is not preserved."
+          body="Text, vectors, forms, and annotations are flattened into page images; selectable text, bookmarks, and links are not kept."
         />
       </div>
 

@@ -1,5 +1,6 @@
 /**
- * Copy the Noto TTFs the text tools embed into `public/`, so the browser
+ * Copy the TTFs the text tools embed (the Noto faces, and Geist Mono for the
+ * monospace pack) into `public/`, so the browser
  * fetches them from OUR origin.
  *
  * Runs before `next dev` and `next build`, next to `copy-pdfjs-wasm.ts` and for

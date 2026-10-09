@@ -29,10 +29,12 @@
  *     'nullopenjpeg_nowasm_fallback.js'
  *   Unable to decode image "img_p0_1": "JpxError: OpenJPEG failed to initialize".
  *
- * The consequence was not a broken thumbnail. `rasterizePdf` feeds pdf-to-jpg,
- * pdf-to-png, grayscale-pdf and redact-pdf, so a scanned document — scanners
- * being exactly where JBIG2 and JPEG2000 live — rendered blank into the file
- * the user downloaded, with the tool reporting success and nothing logged.
+ * The consequence was not a broken thumbnail. The page loop behind
+ * `rasterizePdf` (`capturePdfPages`, which grayscale-pdf calls directly) feeds
+ * pdf-to-jpg, pdf-to-png, grayscale-pdf and redact-pdf, so a scanned
+ * document — scanners being exactly where JBIG2 and JPEG2000 live — rendered
+ * blank into the file the user downloaded, with the tool reporting success and
+ * nothing logged.
  *
  * The assets are served from OUR origin. A CDN would put the rendering of the
  * user's document on someone else's host, which contradicts the promise every
@@ -46,7 +48,7 @@
  * when they drift, so a `pdfjs-dist` bump cannot silently point the browser at
  * a stale directory.
  */
-export const PDFJS_WASM_VERSION = "6.1.200";
+export const PDFJS_WASM_VERSION = "6.2.108";
 
 /** Directory pdfjs appends its filenames to. Must keep the trailing slash. */
 export const PDFJS_WASM_URL = `/pdfjs-wasm/${PDFJS_WASM_VERSION}/`;

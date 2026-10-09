@@ -5,10 +5,12 @@
  * `image-byte-offset.test.ts` proves that a valid JPEG at a non-zero
  * `byteOffset` embeds correctly through `embedRasterImage`. That proof covers
  * the code that goes through the helper and says nothing at all about a sixth
- * call site added next month — and two of the five product sites we have
- * (`grayscalePdf`, `redactPdf`) cannot be unit-tested at all here, because
- * their bytes come from a canvas rasterizer that needs a browser. For those,
- * this guard is the whole proof.
+ * call site added next month — and one of the product sites we have
+ * (`redactPdf`) cannot be unit-tested at all here, because its bytes come from
+ * a canvas rasterizer that needs a browser. For that one, this guard is the
+ * whole proof. (`grayscalePdf` was the second until it began encoding its own
+ * one-component page JPEGs; its embed now runs in Node, through
+ * `createGrayscaleBuilder` in grayscale-output.test.ts.)
  *
  * So the property is structural: **no module may reach `embedJpg`/`embedPng`
  * except the one that normalizes the offset first.** That is checkable without

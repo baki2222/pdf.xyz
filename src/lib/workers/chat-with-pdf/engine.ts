@@ -1,4 +1,6 @@
 import JSZip from "jszip";
+import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
   describeWindow,
@@ -8,14 +10,19 @@ import {
   type PageStart,
   type TruncationWindow,
 } from "../ai/truncation";
-import type { ChatOptions, ChatTurn } from "@/lib/jobs/chat-with-pdf";
+import {
+  CHAT_MAX_CHARACTERS_PER_QUESTION,
+  chatConversationCharacters,
+  chatDocumentBudget,
+  type ChatOptions,
+  type ChatTurn,
+} from "@/lib/jobs/chat-with-pdf";
 import {
   validateCompletionRequest,
   type AiCompletionResult,
   type AiMessage,
   type AiProvider,
 } from "../ai/provider";
-import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
 
 /**
@@ -63,8 +70,23 @@ export type PdfTextExtractor = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 export interface ChatWithPdfLimits {
   maxInputBytes?: number;
   maxOutputBytes?: number;
-  /** Max source characters sent to the model; longer input is truncated (never silently). */
+  /**
+   * Max DOCUMENT characters sent to the model; longer input is truncated (never
+   * silently). Defaults to {@link CHAT_MAX_CHARACTERS_PER_QUESTION}. The
+   * per-question ceiling — that same number, conversation included — applies
+   * on top of it ({@link chatDocumentBudget}).
+   */
   maxInputChars?: number;
+  /**
+   * The DOCUMENT read bound THIS job was charged for, as the route priced it
+   * (`aiReservationFor`). Per job, so it arrives here from the processor
+   * rather than from the worker's start-up wiring. It bounds the document
+   * alone — the conversation was charged separately — so it is never the
+   * number the conversation is taken out of ({@link chatDocumentBudget}).
+   * Absent means unbounded BY THE CAP — an undeclared or unproven run — and
+   * the per-question ceiling still applies.
+   */
+  delivery?: { readonly characters: number };
   /** Ceiling on the model's generated tokens; the default budget is clamped to it. */
   maxOutputTokens?: number;
 }
@@ -127,8 +149,11 @@ export interface ChatWithPdfMeta {
 
 export type ChatWithPdfFailureKind =
   | "unsupported"
+  | "conversation_too_long"
   | "ai_unconfigured"
   | "no_text"
+  /** The PDF needs a password, or is not a readable PDF: a fact about the file. */
+  | "cannot_open"
   | "too_large"
   | "rate_limited"
   | "content_filtered"
@@ -177,7 +202,13 @@ export type ChatWithPdfRun =
  * raise) is sufficient.
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 2000;
-const DEFAULT_MAX_INPUT_CHARS = AI_INPUT_LIMITS.maxInputCharacters;
+/**
+ * Chat's reading ceiling is its per-question charge ceiling — see
+ * {@link CHAT_MAX_CHARACTERS_PER_QUESTION} for why the read and the charge must
+ * be one number. It was the shared 500,000-character reading cap until
+ * 2026-09-27, read on a 41,032-character charge.
+ */
+const DEFAULT_MAX_INPUT_CHARS = CHAT_MAX_CHARACTERS_PER_QUESTION;
 
 /** Assemble the grounding text. When pages carry text, prefix each with a `[Page N]`
  * marker so the model can cite pages; otherwise fall back to the joined text (ungrounded). */
@@ -385,7 +416,12 @@ export async function runChatWithPdf(
   let extracted: ExtractedPdfText;
   try {
     extracted = await extract(input);
-  } catch {
+  } catch (err) {
+    // A file the extractor cannot OPEN (it needs a password, or is not a
+    // readable PDF) gets its own reason, never the generic failure. No model
+    // has been called yet, so this failure has spent nothing.
+    const open = pdfTextOpenFailure(err);
+    if (open) return { ok: false, ...open };
     return {
       ok: false,
       kind: "failed",
@@ -405,12 +441,33 @@ export async function runChatWithPdf(
       ok: false,
       kind: "no_text",
       retryable: false,
-      message:
-        "This PDF has no selectable text to answer from. It may be a scan or image-only PDF — run OCR PDF first, then chat with the result.",
+      // One string for both sides of the upload — see `@/lib/jobs/ai-no-text`.
+      message: NO_SELECTABLE_TEXT_MESSAGE["chat-with-pdf"],
     };
   }
 
-  const maxChars = deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
+  // What this question may read: the per-question ceiling with the
+  // conversation paid out of it, the job's document cap, and the engine's own
+  // document limit. The first two are one definition, shared with the test
+  // that holds every accepted conversation to it.
+  if (chatDocumentBudget(options) <= 0) {
+    // Before any provider call. Unreachable through the API today: the 8 KB
+    // options limit keeps every accepted conversation under the ceiling, and
+    // `chat-with-pdf.conversation-bound.test.ts` fails if that stops holding.
+    // The chat parser alone admits 50,000 characters, so a job that reached
+    // the worker some other way can still arrive here.
+    const conversation = chatConversationCharacters(options);
+    return {
+      ok: false,
+      kind: "conversation_too_long",
+      retryable: false,
+      message: `This question and its conversation are ${conversation.toLocaleString("en-US")} characters, which uses up all ${CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")} characters Chat with PDF reads for one question, so no document text could be sent with them. Nothing was sent to the AI model. Start a new conversation to ask about this PDF.`,
+    };
+  }
+  const maxChars = Math.min(
+    deps.limits?.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS,
+    chatDocumentBudget(options, deps.limits?.delivery),
+  );
   // One description of the window, shared by the prompt, the meta and the ZIP,
   // so the model and the user cannot be told different things about it.
   const window = describeWindow(
@@ -511,8 +568,8 @@ export async function runChatWithPdf(
       : {}),
     grounded,
     notice: grounded
-      ? "This answer was produced by an AI model from ONLY the SELECTABLE TEXT of the source PDF, with inline page-level citations ([p.N]). The model may still err — verify against the original before relying on it. Nothing was answered from outside the document."
-      : "This answer was produced by an AI model from ONLY the SELECTABLE TEXT of the source PDF. The extractor reported no page metadata, so the answer is grounded in the selectable text without page-level citations. The model may still err — verify against the original before relying on it. Nothing was answered from outside the document.",
+      ? "This answer was produced by an AI model instructed to use only the SELECTABLE TEXT of the source PDF, with inline page-level citations ([p.N]). The model may still err — verify against the original before relying on it. The model was instructed not to use outside knowledge."
+      : "This answer was produced by an AI model instructed to use only the SELECTABLE TEXT of the source PDF. The extractor reported no page metadata, so the answer comes without page-level citations. The model may still err — verify against the original before relying on it. The model was instructed not to use outside knowledge.",
   };
 
   const output = await buildPackage(options.question, answer, manifest);

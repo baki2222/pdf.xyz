@@ -8,7 +8,7 @@ import {
   RotateCcw,
   RotateCw,
 } from "lucide-react";
-import { normalizeAngle, organizePages } from "@/lib/pdf/engine";
+import { normalizeAngle, setPageRotations } from "@/lib/pdf/engine";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import type { Rotation } from "@/lib/pdf/types";
@@ -94,13 +94,9 @@ function RotateEditor({
     );
   };
 
-  const onRun = () =>
-    run(() =>
-      organizePages(
-        pdf.bytes,
-        rotations.map((rotation, i) => ({ sourceIndex: i, rotation })),
-      ),
-    );
+  // In place, never a rebuild: see `setPageRotations` for what a rebuild
+  // deleted from every file this tool touched.
+  const onRun = () => run(() => setPageRotations(pdf.bytes, rotations));
 
   if (result) {
     return (

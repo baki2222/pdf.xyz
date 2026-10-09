@@ -5,6 +5,7 @@ import {
   requestSignaturesOutputName,
 } from "./request-signatures";
 import type { PdfGeometry, PlacedField } from "../request-signatures/engine";
+import { PdfEngineError } from "@/lib/pdf/engine";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -117,6 +118,24 @@ describe("request-signatures processor", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("unprocessable_entity");
+  });
+
+  it("fails a password-protected PDF once, terminally, with the loader's reason", async () => {
+    const reason =
+      "This PDF is password-protected. Unlock it first, then try again.";
+    const result = await createRequestSignaturesProcessor({
+      ...readyDeps(),
+      inspect: vi.fn(async () => {
+        throw new PdfEngineError(reason);
+      }),
+    }).process(input(goodOptions));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({
+      code: "unprocessable_entity",
+      message: reason,
+      retryable: false,
+    });
   });
 
   it("surfaces the honest delivery-not-configured failure as not_implemented", async () => {

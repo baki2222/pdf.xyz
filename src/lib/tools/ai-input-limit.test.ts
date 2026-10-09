@@ -22,7 +22,16 @@ import {
   aiPagesAtSparsest,
 } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
-import { toolFaq } from "./tool-facts";
+import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
+import {
+  AI_READ_LIMITS,
+  aiReadLimitFor,
+  aiReadPagesAtDensest,
+  aiReadPagesAtSparsest,
+} from "@/lib/jobs/ai-read-limit";
+// The FAQ the page renders (authored + derived facts), not the derived one
+// alone: since 2026-09-27 the page reads `pageFaq`.
+import { pageFaq } from "./page-copy";
 import { getToolBySlug } from "./index";
 
 const ROOT = process.cwd();
@@ -35,17 +44,55 @@ const AI_TOOLS = [
   "chat-with-pdf",
 ] as const;
 
+/**
+ * The tools still on the SHARED reading cap.
+ *
+ * INVERTED 2026-09-27 for chat-with-pdf, history kept: until then this demanded
+ * that chat's engine and wiring read `AI_INPUT_LIMITS.maxInputCharacters` —
+ * 500,000 characters on every question, while the route charged each question
+ * a 41,032-character reservation and the chat processor never read the cap.
+ * This test held that door: bounding chat's read to what it is charged turned
+ * it red. Chat now has its own assertion below.
+ */
+const SHARED_CAP_TOOLS = AI_TOOLS.filter((tool) => tool !== "chat-with-pdf");
+
 describe("the stated AI input cap is the enforced one", () => {
-  it.each(AI_TOOLS)("%s derives its cap from the shared constant", (tool) => {
-    for (const file of [`${tool}/engine.ts`, `${tool}/native.ts`]) {
+  it.each(SHARED_CAP_TOOLS)(
+    "%s derives its cap from the shared constant",
+    (tool) => {
+      for (const file of [`${tool}/engine.ts`, `${tool}/native.ts`]) {
+        const source = readFileSync(
+          path.join(ROOT, "src", "lib", "workers", file),
+          "utf8",
+        );
+        expect(
+          source,
+          `${file} must derive its input cap from AI_INPUT_LIMITS, not restate it`,
+        ).toContain("AI_INPUT_LIMITS.maxInputCharacters");
+      }
+    },
+  );
+
+  it("chat-with-pdf reads to its per-question charge ceiling — and never the shared one", () => {
+    // The inversion of the pin above: the files that once had to say 500,000
+    // must now say the number chat is charged, and must not say the other.
+    expect(CHAT_MAX_CHARACTERS_PER_QUESTION).toBeLessThan(
+      AI_INPUT_LIMITS.maxInputCharacters,
+    );
+    for (const file of ["chat-with-pdf/engine.ts", "chat-with-pdf/native.ts"]) {
       const source = readFileSync(
         path.join(ROOT, "src", "lib", "workers", file),
         "utf8",
       );
       expect(
         source,
-        `${file} must derive its input cap from AI_INPUT_LIMITS, not restate it`,
-      ).toContain("AI_INPUT_LIMITS.maxInputCharacters");
+        `${file} must bound chat's read with CHAT_MAX_CHARACTERS_PER_QUESTION`,
+      ).toContain("CHAT_MAX_CHARACTERS_PER_QUESTION");
+      expect(
+        source,
+        `${file} reads chat to the shared 500,000 cap again — twelve times ` +
+          "what a question is charged",
+      ).not.toContain("AI_INPUT_LIMITS.maxInputCharacters");
     }
   });
 
@@ -88,6 +135,26 @@ describe("the page range in copy is derived, and survives being checked", () => 
     expect(aiPagesAtDensest).toBeLessThan(aiPagesAtSparsest);
   });
 
+  it("computes each per-call tool's floors from ITS per-run read, at the same densities", () => {
+    // The floors the pages state since 2026-10-06 divide what one run READS
+    // (`ai-read-limit`, derived from the route's pricing), not the engine
+    // window. Re-derived here, independently of the helpers.
+    const slugs = Object.keys(AI_READ_LIMITS);
+    expect(slugs.length).toBeGreaterThanOrEqual(3);
+    for (const slug of slugs) {
+      const read = aiReadLimitFor(slug);
+      expect(aiReadPagesAtDensest(slug), slug).toBe(
+        Math.floor(read / AI_INPUT_LIMITS.densestCharactersPerPage),
+      );
+      expect(aiReadPagesAtSparsest(slug), slug).toBe(
+        Math.floor(read / AI_INPUT_LIMITS.sparsestCharactersPerPage),
+      );
+      expect(aiReadPagesAtDensest(slug)).toBeLessThan(
+        aiReadPagesAtSparsest(slug),
+      );
+    }
+  });
+
   it("states the cap on every READ-bound AI tool page, before the upload", () => {
     // INVERTED 2026-08-21, history kept: until then this loop included
     // "translate-pdf" and demanded the SHARED figure on its page — this test
@@ -97,12 +164,39 @@ describe("the page range in copy is derived, and survives being checked", () => 
     // test agreed with the bug. Translate now has its own assertion below;
     // `ai-ceiling-surfaces.test.ts` derives the full page-vs-engine
     // relationship for every AI tool rather than naming slugs.
-    for (const slug of ["summarize-pdf", "ai-extract", "chat-with-pdf"]) {
+    //
+    // chat-with-pdf LEFT this loop 2026-09-27, for the same reason translate
+    // did: its engine no longer reads to the shared cap, so demanding the
+    // shared figure on its page would pin a false claim. It has its own
+    // assertion below, which demands ITS figure — not an exemption.
+    //
+    // NOT INVERTED 2026-10-06, and why, kept here: the re-review of
+    // wave1/l01-page-leak (2026-09-28) asked for this test to FORBID 500,000
+    // and require that lane's 30,774 "characters read per run", calling the
+    // shared figure the defect it pinned. That was true of the lane, which
+    // clamped every declaration to a day's allowance. It is false of the tree
+    // the lane merged into: `aiReservationFor` clamps the CHARGE at one run
+    // and hands the worker a READ bound of `declared × h`, so an honest long
+    // document is read to the engine window, under a proving worker and an
+    // unproven one alike (`ai-ceiling-surfaces.test.ts` runs both). Inverting
+    // this would have pinned a false figure. What changed instead is the
+    // SOURCE of the figure: the loop below is derived from the per-call
+    // pricing table (via `AI_READ_LIMITS`), and demands each page state
+    // `aiReadLimitFor(slug)` and its dense-page floor — the per-run read the
+    // route's pricing and the processor allow, whatever it becomes.
+    const readBound = Object.keys(AI_READ_LIMITS).filter(
+      (slug) => slug !== "chat-with-pdf",
+    );
+    // Positive control on the derivation: the two pages this test was
+    // written for are still in it.
+    expect(readBound).toContain("summarize-pdf");
+    expect(readBound).toContain("ai-extract");
+    for (const slug of readBound) {
       const tool = getToolBySlug(slug);
       expect(tool, `${slug} is missing from the catalogue`).toBeDefined();
-      const answers = toolFaq(tool!).map((entry) => entry.answer);
+      const answers = pageFaq(tool!).map((entry) => entry.answer);
       const stated = answers.filter((a) =>
-        a.includes(AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")),
+        a.includes(aiReadLimitFor(slug).toLocaleString("en-US")),
       );
       expect(
         stated.length,
@@ -110,7 +204,7 @@ describe("the page range in copy is derived, and survives being checked", () => 
       ).toBeGreaterThan(0);
       // And it names pages, not only characters — a character count is not
       // something a reader can hold their own document up against.
-      expect(stated.join(" ")).toContain(String(aiPagesAtDensest));
+      expect(stated.join(" ")).toContain(String(aiReadPagesAtDensest(slug)));
     }
   });
 
@@ -123,7 +217,7 @@ describe("the page range in copy is derived, and survives being checked", () => 
     // now refuses it.
     const tool = getToolBySlug("translate-pdf");
     expect(tool, "translate-pdf is missing from the catalogue").toBeDefined();
-    const answers = toolFaq(tool!).map((entry) => entry.answer);
+    const answers = pageFaq(tool!).map((entry) => entry.answer);
     const stated = answers.filter((a) =>
       a.includes(TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")),
     );
@@ -146,11 +240,41 @@ describe("the page range in copy is derived, and survives being checked", () => 
     ).not.toContain(AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US"));
   });
 
+  it("chat's page states ITS per-question ceiling — and never the shared one", () => {
+    // The PER-QUESTION tool: its engine reads at most what one question is
+    // charged, CHAT_MAX_CHARACTERS_PER_QUESTION, so that is the figure its FAQ
+    // (which ships as FAQPage JSON-LD) must give, with page floors from the
+    // same number. Page floors are derived HERE at the measured densities,
+    // independently of whatever the copy computes.
+    const tool = getToolBySlug("chat-with-pdf");
+    expect(tool, "chat-with-pdf is missing from the catalogue").toBeDefined();
+    const answers = pageFaq(tool!).map((entry) => entry.answer);
+    const stated = answers.filter((a) =>
+      a.includes(CHAT_MAX_CHARACTERS_PER_QUESTION.toLocaleString("en-US")),
+    );
+    expect(
+      stated.length,
+      "chat-with-pdf's page never states the per-question ceiling its engine reads to",
+    ).toBeGreaterThan(0);
+    const floors = [
+      AI_INPUT_LIMITS.densestCharactersPerPage,
+      AI_INPUT_LIMITS.sparsestCharactersPerPage,
+    ].map((perPage) =>
+      String(Math.floor(CHAT_MAX_CHARACTERS_PER_QUESTION / perPage)),
+    );
+    for (const floor of floors) expect(stated.join(" ")).toContain(floor);
+    expect(
+      answers.join(" "),
+      "chat-with-pdf's page states the shared 500,000 reading cap, but its " +
+        "engine reads at most one question's charge",
+    ).not.toContain(AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US"));
+  });
+
   it("does not state the cap on a tool that has none", () => {
     // A limit answer on merge-pdf would be a claim about a cap that does not
     // exist there — the same class of wrongness in the opposite direction.
     const merge = getToolBySlug("merge-pdf")!;
-    const answers = toolFaq(merge)
+    const answers = pageFaq(merge)
       .map((e) => e.answer)
       .join(" ");
     expect(answers).not.toContain(

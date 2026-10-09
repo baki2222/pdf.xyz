@@ -1,14 +1,16 @@
 import {
   countUndecodedImages,
+  rasterPageScale,
   renderDimensions,
   type Thumbnail,
 } from "./render-utils";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
+import { awaitPdfjsDocument, loadPdfjs } from "./pdfjs";
 import {
   DEFAULT_JPEG_QUALITY,
+  RASTER_MAX_DEVICE_PX,
   RASTER_MIME,
   clampJpegQuality,
-  rasterScaleForDpi,
   type RasterFormat,
 } from "./pdf-to-image";
 
@@ -32,21 +34,6 @@ import {
  *  - Each render can be cancelled promptly via an AbortSignal.
  */
 
-let workerConfigured = false;
-
-/** Lazily import pdfjs and point it at the locally-bundled worker (once). */
-async function loadPdfjs() {
-  const pdfjs = await import("pdfjs-dist");
-  if (!workerConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
-    workerConfigured = true;
-  }
-  return pdfjs;
-}
-
 export interface RenderPageOptions {
   /** Target CSS width in px for the thumbnail (device pixels are derived). */
   targetWidth?: number;
@@ -56,6 +43,12 @@ export interface RenderPageOptions {
   background?: string;
   /** Stop rendering promptly when this aborts. */
   signal?: AbortSignal;
+  /**
+   * `"base"` (default) renders the unrotated page for tiles that apply a
+   * rotation in CSS; `"displayed"` applies the page's own `/Rotate`, so the
+   * pixels are in the same frame as coordinates a reader would use.
+   */
+  orientation?: "base" | "displayed";
 }
 
 /**
@@ -92,7 +85,7 @@ export async function createThumbnailRenderer(
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
-  const doc = await loadingTask.promise;
+  const doc = await awaitPdfjsDocument(loadingTask);
   let destroyed = false;
 
   const renderPage = async (
@@ -118,14 +111,19 @@ export async function createThumbnailRenderer(
     if (signal) signal.addEventListener("abort", onAbort, { once: true });
 
     try {
-      const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
+      // Base orientation by default (the rotate/organize tiles turn it in CSS);
+      // "displayed" bakes the page's own /Rotate in, for overlays drawn in the
+      // frame a reader sees.
+      const orientation = options.orientation ?? base.orientation ?? "base";
+      const rotation = orientation === "displayed" ? page.rotate : 0;
+      const baseViewport = page.getViewport({ scale: 1, rotation });
       const dims = renderDimensions(
         baseViewport.width,
         baseViewport.height,
         options.targetWidth ?? base.targetWidth,
         options.pixelRatio ?? base.pixelRatio ?? 1,
       );
-      const viewport = page.getViewport({ scale: dims.scale, rotation: 0 });
+      const viewport = page.getViewport({ scale: dims.scale, rotation });
 
       const canvas = document.createElement("canvas");
       const width = Math.max(1, Math.floor(viewport.width));
@@ -263,13 +261,6 @@ export async function renderFirstPage(
  *  Full-page rasterization (PDF → PNG / JPG)
  * ------------------------------------------------------------------ */
 
-/**
- * Cap on either rendered dimension (px) for full-page rasterization. Higher
- * than the thumbnail cap so print-DPI output stays crisp, but still bounds peak
- * canvas memory (one page's bitmap is freed before the next renders).
- */
-const RASTER_MAX_DEVICE_PX = 5000;
-
 /** One rendered page: encoded image bytes plus its bitmap dimensions. */
 export interface RasterPage {
   /** 0-based index of the source page. */
@@ -284,6 +275,17 @@ export interface RasterPage {
   pageWidth: number;
   /** Source page height, in PDF points. */
   pageHeight: number;
+  /**
+   * Resolution this page was ACTUALLY rendered at, in DPI. Equal to the
+   * requested DPI unless {@link RasterPage.dpiCapped}.
+   */
+  dpi: number;
+  /**
+   * True when the requested DPI would have exceeded `RASTER_MAX_DEVICE_PX` on
+   * a side, so the page was rendered at the lower `dpi`. A tool that names a
+   * DPI to the user has to say so when this is set.
+   */
+  dpiCapped: boolean;
   /**
    * Images on this page that pdfjs could not decode, and which are therefore
    * MISSING from `bytes` — the engine's own verdict, counted so a tool can say
@@ -347,34 +349,101 @@ export interface RasterizeOptions {
  */
 export async function rasterizePdf(
   bytes: Uint8Array,
+  { format, quality, onPage, ...rest }: RasterizeOptions,
+): Promise<RasterPage[]> {
+  const mime = RASTER_MIME[format];
+  const encodeQuality =
+    format === "jpg"
+      ? clampJpegQuality(quality ?? DEFAULT_JPEG_QUALITY)
+      : undefined;
+  const toRasterPage = ({ data, ...page }: CapturedPage<Uint8Array>) => ({
+    ...page,
+    bytes: data,
+  });
+  const pages = await capturePdfPages(bytes, {
+    ...rest,
+    capture: (canvas) => canvasToImageBytes(canvas, mime, encodeQuality),
+    onPage: onPage && ((page) => onPage(toRasterPage(page))),
+  });
+  return pages.map(toRasterPage);
+}
+
+/** One rendered page, captured by {@link CapturePagesOptions.capture}. */
+export interface CapturedPage<T> extends RasterCanvasInfo {
+  /** Whatever the capture hook made of the rendered canvas. */
+  data: T;
+  /** See {@link RasterPage.dpi}. */
+  dpi: number;
+  /** See {@link RasterPage.dpiCapped}. */
+  dpiCapped: boolean;
+  /** See {@link RasterPage.undecodedImages}. */
+  undecodedImages: number;
+}
+
+export interface CapturePagesOptions<T> extends Omit<
+  RasterizeOptions,
+  "format" | "quality" | "onPage"
+> {
+  /**
+   * Turn each rendered canvas into the caller's own page payload — runs after
+   * the grayscale pass and `onCanvas`, and in place of the browser's image
+   * encoder. The canvas is released as soon as this settles, so a caller that
+   * needs the pixels in another form (a luminance plane, say) takes them here
+   * and keeps only what it produced: nothing page-sized is retained across the
+   * document. Returning `null` fails the page, exactly as a failed encode does.
+   */
+  capture: (
+    canvas: HTMLCanvasElement,
+    page: RasterCanvasInfo,
+  ) => Promise<T | null> | T | null;
+  /** Invoked as each page finishes, in page order. */
+  onPage?: (page: CapturedPage<T>) => void;
+  /** Invoked once, after the document parses and before any page renders. */
+  onDocument?: (info: RasterDocumentInfo) => void;
+}
+
+/** Document-level facts a capture caller may want to carry into its output. */
+export interface RasterDocumentInfo {
+  numPages: number;
+  /**
+   * The source's title — the Info dictionary's /Title, else XMP `dc:title` —
+   * or null when it has none (or its metadata cannot be read).
+   */
+  title: string | null;
+}
+
+/**
+ * The page loop behind {@link rasterizePdf}, with the encode step handed to the
+ * caller. Same guarantees: rejects on a page that fails to render or capture,
+ * resolves early (with the pages so far) on abort.
+ */
+export async function capturePdfPages<T>(
+  bytes: Uint8Array,
   {
-    format,
     dpi = 150,
-    quality,
     background = "#ffffff",
     grayscale = false,
     onCanvas,
+    capture,
     signal,
     onPage,
+    onDocument,
     onProgress,
-  }: RasterizeOptions,
-): Promise<RasterPage[]> {
+  }: CapturePagesOptions<T>,
+): Promise<CapturedPage<T>[]> {
   if (typeof document === "undefined") return [];
   const pdfjs = await loadPdfjs();
   // Hand pdfjs a private copy; it may detach the buffer it receives.
   const data = bytes.slice();
   const loadingTask = pdfjs.getDocument({ data, ...PDFJS_DOCUMENT_DEFAULTS });
-  const doc = await loadingTask.promise;
+  const doc = await awaitPdfjsDocument(loadingTask);
 
-  const mime = RASTER_MIME[format];
-  const scale = rasterScaleForDpi(dpi);
-  const encodeQuality =
-    format === "jpg"
-      ? clampJpegQuality(quality ?? DEFAULT_JPEG_QUALITY)
-      : undefined;
-  const pages: RasterPage[] = [];
+  const pages: CapturedPage<T>[] = [];
 
   try {
+    if (onDocument) {
+      onDocument({ numPages: doc.numPages, title: await documentTitle(doc) });
+    }
     const total = doc.numPages;
     onProgress?.(0, total);
     for (let i = 0; i < total; i++) {
@@ -389,14 +458,17 @@ export async function rasterizePdf(
         // Render at the page's embedded rotation (the default viewport rotation)
         // so the exported image matches the page as it is displayed.
         const base = page.getViewport({ scale: 1 });
-        const dims = renderDimensions(
+        // The scale AND the verdict on it: a page too large for `dpi` is
+        // rendered lower, and the page record below carries that fact out.
+        // The cap is passed, not left to the default, so the call names the
+        // figure the PDF to JPG/PNG pages quote.
+        const fit = rasterPageScale(
           base.width,
           base.height,
-          base.width * scale,
-          1,
+          dpi,
           RASTER_MAX_DEVICE_PX,
         );
-        const viewport = page.getViewport({ scale: dims.scale });
+        const viewport = page.getViewport({ scale: fit.scale });
 
         const canvas = document.createElement("canvas");
         const width = Math.max(1, Math.floor(viewport.width));
@@ -422,38 +494,31 @@ export async function rasterizePdf(
         }
 
         if (grayscale) grayscaleCanvas(canvas);
-        // Let the caller paint over the pixels (e.g. redaction boxes) before the
-        // image is encoded — this is what makes the covered content unrecoverable.
-        onCanvas?.(canvas, {
+        const info: RasterCanvasInfo = {
           index: i,
           width,
           height,
           pageWidth: base.width,
           pageHeight: base.height,
-        });
-        const imageBytes = await canvasToImageBytes(
-          canvas,
-          mime,
-          encodeQuality,
-        );
-        // Release the backing bitmap now that the image is encoded.
+        };
+        // Let the caller paint over the pixels (e.g. redaction boxes) before the
+        // image is encoded — this is what makes the covered content unrecoverable.
+        onCanvas?.(canvas, info);
+        const captured = await capture(canvas, info);
+        // Release the backing bitmap now that the page is captured.
         canvas.width = 0;
         canvas.height = 0;
 
         if (signal?.aborted) break;
-        if (!imageBytes) {
-          throw new Error(
-            `Page ${i + 1} could not be encoded as ${format.toUpperCase()}.`,
-          );
+        if (captured === null) {
+          throw new Error(`Page ${i + 1} could not be encoded.`);
         }
 
-        const rendered: RasterPage = {
-          index: i,
-          bytes: imageBytes,
-          width,
-          height,
-          pageWidth: base.width,
-          pageHeight: base.height,
+        const rendered: CapturedPage<T> = {
+          ...info,
+          data: captured,
+          dpi: fit.dpi,
+          dpiCapped: fit.dpiCapped,
           undecodedImages,
         };
         pages.push(rendered);
@@ -480,16 +545,54 @@ export async function rasterizePdf(
   return pages;
 }
 
+/** The document's own title, as a viewer would show it; null when absent. */
+async function documentTitle(doc: {
+  getMetadata(): Promise<{
+    info: object;
+    metadata: { get(name: string): unknown } | null;
+  }>;
+}): Promise<string | null> {
+  try {
+    const { info, metadata } = await doc.getMetadata();
+    const candidates = [
+      (info as { Title?: unknown }).Title,
+      metadata?.get("dc:title"),
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) return candidate;
+    }
+  } catch {
+    // Unreadable metadata is not a reason to fail a render.
+  }
+  return null;
+}
+
+/** Rec. 601 luma of one pixel — the single definition both helpers below use. */
+function luma(r: number, g: number, b: number): number {
+  return Math.round(r * 0.299 + g * 0.587 + b * 0.114);
+}
+
 /** Convert RGBA image data to luminance grayscale in-place. */
 export function grayscaleImageData(data: Uint8ClampedArray): void {
   for (let i = 0; i + 2 < data.length; i += 4) {
-    const gray = Math.round(
-      data[i]! * 0.299 + data[i + 1]! * 0.587 + data[i + 2]! * 0.114,
-    );
+    const gray = luma(data[i]!, data[i + 1]!, data[i + 2]!);
     data[i] = gray;
     data[i + 1] = gray;
     data[i + 2] = gray;
   }
+}
+
+/**
+ * The luminance plane of RGBA image data: one byte per pixel, row-major, the
+ * same value {@link grayscaleImageData} would write into each colour channel.
+ * This is what a genuinely single-channel (DeviceGray) image is made from.
+ */
+export function luminancePlane(data: Uint8ClampedArray): Uint8Array {
+  const plane = new Uint8Array(data.length >> 2);
+  for (let i = 0, p = 0; p < plane.length; i += 4, p++) {
+    plane[p] = luma(data[i]!, data[i + 1]!, data[i + 2]!);
+  }
+  return plane;
 }
 
 function grayscaleCanvas(canvas: HTMLCanvasElement): void {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { grayscaleImageData } from "./render";
+import { grayscaleImageData, luminancePlane } from "./render";
 import {
   grayscaleOutputName,
   grayscalePresetById,
@@ -15,6 +15,29 @@ describe("grayscaleImageData", () => {
     expect([...data]).toEqual([
       76, 76, 76, 255, 150, 150, 150, 128, 29, 29, 29, 0,
     ]);
+  });
+});
+
+describe("luminancePlane", () => {
+  it("is exactly the value grayscaleImageData writes, one byte per pixel", () => {
+    // The plane the grayscale tool embeds and the in-place pass the other
+    // raster paths use must not drift apart: compare them over every channel
+    // combination at a coarse step plus the extremes.
+    const values = [0, 1, 37, 64, 127, 128, 200, 254, 255];
+    const pixels: number[] = [];
+    for (const r of values)
+      for (const g of values) for (const b of values) pixels.push(r, g, b, 255);
+    const data = new Uint8ClampedArray(pixels);
+    const plane = luminancePlane(data);
+    const inPlace = new Uint8ClampedArray(data);
+    grayscaleImageData(inPlace);
+
+    expect(plane.length).toBe(values.length ** 3);
+    expect([...plane]).toEqual(
+      Array.from({ length: plane.length }, (_, p) => inPlace[p * 4]),
+    );
+    // And it is not trivially constant.
+    expect(new Set(plane).size).toBeGreaterThan(50);
   });
 });
 

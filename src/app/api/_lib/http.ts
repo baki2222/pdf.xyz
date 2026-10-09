@@ -14,6 +14,7 @@ import {
   type ParseResult,
 } from "@/lib/jobs";
 import { JOB_LIMITS } from "@/lib/jobs";
+import { formatByteLimit } from "@/lib/uploads/byte-limit";
 import {
   rateLimitErrorResult,
   rateLimitHeaders,
@@ -52,6 +53,54 @@ export function respondRateLimited(decision: RateLimitDecision): Response {
   return respond(rateLimitErrorResult(decision), rateLimitHeaders(decision));
 }
 
+/** `Sec-Fetch-Site` values that are not a cross-site browser request. */
+const SAFE_FETCH_SITES = new Set(["same-origin", "none"]);
+
+/**
+ * Refuse a state-changing request that a browser sent on behalf of ANOTHER
+ * site. Call it FIRST in every POST/PUT/PATCH/DELETE handler — before
+ * `enforceRateLimit`, because the rate-limit charge is exactly what a hostile
+ * page would be spending: its visitors' uploads, jobs and daily AI runs.
+ *
+ * Why this is needed at all: a page anywhere can make its visitor's browser
+ * send a CORS "simple" POST with no preflight (`mode: "no-cors"`, a safelisted
+ * Content-Type). `Sec-Fetch-Site` — set by the browser, not the page — says
+ * where it came from; `same-origin` and `none` (the user's own navigation)
+ * pass, everything else is refused. A browser too old to send it still sends
+ * `Origin` on a cross-origin POST, which must name this host. A request with
+ * neither header is not a browser acting for another site (the proof harness,
+ * curl, a server) and passes — this is CSRF protection, not authentication.
+ */
+export function rejectCrossSite(request: Request): Response | null {
+  const site = request.headers.get("sec-fetch-site");
+  if (site !== null)
+    return SAFE_FETCH_SITES.has(site.trim().toLowerCase())
+      ? null
+      : crossSiteRefusal();
+  const origin = request.headers.get("origin");
+  if (origin === null) return null;
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host.toLowerCase();
+  } catch {
+    // `Origin: null` — sandboxed or opaque.
+    return crossSiteRefusal();
+  }
+  const own = [
+    request.headers.get("host"),
+    request.headers.get("x-forwarded-host"),
+  ]
+    .filter((h): h is string => !!h)
+    .map((h) => h.split(",")[0]!.trim().toLowerCase());
+  return own.includes(originHost) ? null : crossSiteRefusal();
+}
+
+function crossSiteRefusal(): Response {
+  return respond(
+    apiError("forbidden", "Cross-site requests are not accepted."),
+  );
+}
+
 function errorResult(...args: Parameters<typeof apiError>): {
   ok: false;
   error: ApiResult<ApiError>;
@@ -67,8 +116,13 @@ function errorResult(...args: Parameters<typeof apiError>): {
 export async function readJsonBody(
   request: Request,
 ): Promise<ParseResult<unknown>> {
+  // The MIME ESSENCE, not a substring. `text/plain;application/json` contains
+  // the words and parses (Fetch spec) to `text/plain` — a CORS-safelisted type
+  // any page can send cross-site with no preflight. Until 2026-09 an
+  // `includes()` here accepted it.
   const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
+  const essence = contentType.split(";")[0]!.trim().toLowerCase();
+  if (essence !== "application/json") {
     return errorResult(
       "unsupported_media_type",
       "Content-Type must be application/json.",
@@ -82,7 +136,7 @@ export async function readJsonBody(
   ) {
     return errorResult(
       "payload_too_large",
-      `Request body exceeds the ${JOB_LIMITS.maxRequestBodyBytes}-byte limit.`,
+      `The request is larger than ${formatByteLimit(JOB_LIMITS.maxRequestBodyBytes)}, the most this endpoint accepts.`,
     );
   }
 
@@ -96,7 +150,7 @@ export async function readJsonBody(
   if (new TextEncoder().encode(text).length > JOB_LIMITS.maxRequestBodyBytes) {
     return errorResult(
       "payload_too_large",
-      `Request body exceeds the ${JOB_LIMITS.maxRequestBodyBytes}-byte limit.`,
+      `The request is larger than ${formatByteLimit(JOB_LIMITS.maxRequestBodyBytes)}, the most this endpoint accepts.`,
     );
   }
 

@@ -10,14 +10,16 @@
  * outside the walk must collapse loudly here, not sit silently unread by the
  * three guards that import this walk.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   copyFiles,
   definesAllowanceCopy,
   libSourceFiles,
+  toolContentFiles,
 } from "./copy-surface";
+import { getAllToolSlugs } from "./index";
 
 const rel = (f: string) => path.relative(process.cwd(), f).replace(/\\/g, "/");
 
@@ -46,12 +48,68 @@ describe("the copy surface reaches what the guards must read", () => {
       // before its first article was written. It ships HowTo + FAQPage JSON-LD,
       // the channel the pricing and retention lies once travelled.
       "src/lib/guides/catalog.ts",
+      // Added 2026-09-27: outside the walk until then, and each carries a
+      // claim a visitor reads — the social card's in-browser chip, the
+      // footer's "Privacy-first by architecture", the upload zone's caption.
+      "src/lib/og.tsx",
+      "src/components/layout/site-footer.tsx",
+      "src/components/upload/upload-zone.tsx",
     ]) {
       expect(
         files,
         `the walk no longer reaches ${expected} — the guards are blind to it`,
       ).toContain(expected);
     }
+  });
+
+  it("reaches EVERY component file, so a new component folder cannot fall outside", () => {
+    // Discovered, not listed: the walk used to take two of the component
+    // folders (sections, tools) and miss layout, upload, status, legal and ui.
+    const reached = new Set(copyFiles().map(rel));
+    const components: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
+          components.push(rel(full));
+      }
+    };
+    walk(path.join(process.cwd(), "src", "components"));
+    // Size floor: an empty directory read would make the check vacuous.
+    expect(components.length).toBeGreaterThanOrEqual(60);
+    // A member control: the drop zone's hand-off buttons, one of the files
+    // the old two-folder walk missed.
+    expect(components).toContain(
+      "src/components/upload/staged-file-actions.tsx",
+    );
+    expect(components.filter((f) => !reached.has(f))).toEqual([]);
+  });
+
+  it("reaches every tool page's content file — the set the page consumes", () => {
+    // The fifty authored content files (2026-09-27) sit under
+    // `src/lib/tools/content/` and reach the walk by recursion. That is
+    // asserted against the content INDEX, not the directory: the index is
+    // what `page-copy.ts` hands the page, so a content file is on a page if
+    // and only if it is in this set. The catalogue bounds its size, both ways.
+    const content = toolContentFiles();
+    expect([...content.keys()].sort()).toEqual(getAllToolSlugs().sort());
+    const walked = new Set(copyFiles());
+    expect(
+      [...content.values()].filter((f) => !walked.has(f)).map(rel),
+    ).toEqual([]);
+  });
+
+  it("positive control: the content derivation reads the index, not a guess", () => {
+    // A derivation that returned nothing would make the test above pass
+    // over an empty set; one that followed a type-only import would add a
+    // module no page renders.
+    const content = toolContentFiles();
+    expect(rel(content.get("merge-pdf")!)).toBe(
+      "src/lib/tools/content/merge-pdf.ts",
+    );
+    expect(content.has("types")).toBe(false);
+    expect(content.has("index")).toBe(false);
   });
 
   it("never walks test files into the copy surface", () => {

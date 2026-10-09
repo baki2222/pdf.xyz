@@ -89,10 +89,18 @@ import { validateImagePdfInputs } from "@/lib/pdf/image-to-pdf";
 import { validateMarkdownInput } from "@/lib/pdf/markdown-to-pdf";
 import { validatePlainTextInput } from "@/lib/pdf/text-to-pdf";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
+import { createProcessorRegistry } from "@/lib/workers/processor";
 import { getAllToolSlugs, tools } from "./index";
 import { withoutComments } from "./copy-surface";
+import { FONT_PACKS } from "@/lib/pdf/font-packs";
+import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
+import { MAX_PDF_PASSWORD_BYTES } from "@/lib/jobs/pdf-security";
+import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
+import { nativeHtmlRenderDeps } from "@/lib/workers/html-render/native";
+import type { Processor } from "@/lib/workers/processor/types";
 import { MAX_IMAGE_BYTES, MAX_SOURCE_BYTES } from "./limits";
 import {
+  ENGINE_INPUT_CEILINGS,
   RUNNER_FILE_CEILINGS,
   WORKER_FILE_CEILING,
   stagingHint,
@@ -318,13 +326,102 @@ const UNIT_MB: Readonly<Record<string, number>> = {
  * "PDF/A-2b", and this scan runs over the PDF/A page. `bytes` spelled out IS
  * matched, because that is the spelling the API errors use.
  */
+const SIZE_CLAIM = /(?<![\w-])(\d[\d,]*(?:\.\d+)?)\s*(bytes|KB|MB|GB|TB)\b/gi;
+
 function sizeClaimsMb(text: string): number[] {
   return [
-    ...text.matchAll(/(\d[\d,]*(?:\.\d+)?)\s*(bytes|KB|MB|GB|TB)\b/gi),
+    // Not preceded by a letter or hyphen: "UTF-8 bytes" is an encoding, and
+    // read as a size it made "8 bytes" a claim on two pages (2026-09-27).
+    ...text.matchAll(SIZE_CLAIM),
   ].map(
     (match) =>
       Number(match[1]!.replace(/,/g, "")) * UNIT_MB[match[2]!.toLowerCase()]!,
   );
+}
+
+/**
+ * Sizes a tool page states that are NOT the per-file ceiling of the file the
+ * reader picks — each gated TWICE, by value and by subject.
+ *
+ * Added 2026-09-27, when the authored content reached the pages: a font the
+ * browser downloads ("137.8 KB for Bengali"), a password's length ("up to 127
+ * bytes") and a picture inserted into the PDF ("up to 10 MB"). Every one is
+ * true, and this guard failed pages on them, because it asked "is there a
+ * size on the page?" while claiming to ask "what does the page say the tool
+ * accepts?".
+ *
+ * VALUE alone would license the defect: a page on a 2 MB tool saying "up to
+ * 10 MB" would pass as the picture cap. SUBJECT alone would too: "a PNG of up
+ * to 100 MB" on the 25 MB image tool mentions a picture. Both must hold — the
+ * figure equals a constant that owns this other quantity, AND the words
+ * around it name that quantity. `controls` keeps each class's shipped sentence
+ * exempt and a plain ceiling claim with the same value red.
+ *
+ * REMOVED THE SAME DAY: a fourth class, "the converting engine's own input
+ * cap", exempted LibreOffice's 50 MB and Chromium's 20 MB as "NOT the per-file
+ * ceiling of the file the reader picks". They are exactly that file's ceiling
+ * (a bigger one uploads and is then refused), and the exemption let the Word,
+ * Excel, PowerPoint and HTML pages state "Up to 100 MB per file", the upload
+ * gate, a few lines below "the converter refuses a Word file over 50 MB", both
+ * in the FAQPage JSON-LD, with this guard green. The fix was the ceiling, not
+ * the guard: `toolFileCeiling` now takes the lower of the gate and the
+ * engine's cap (`ENGINE_INPUT_CEILINGS`), and section 3b runs each engine at
+ * it. The control "an engine's input cap is a CEILING claim" keeps the class
+ * from coming back.
+ */
+const MB_OF = (bytes: number) => bytes / MB;
+const OTHER_SIZES: readonly {
+  what: string;
+  valuesMb: readonly number[];
+  near: RegExp;
+  window: number;
+  shipped: string;
+}[] = [
+  {
+    what: "a font the browser downloads",
+    valuesMb: FONT_PACKS.map((pack) => MB_OF(pack.bytes)),
+    near: /\b(?:font|typeface|Noto)\b/i,
+    window: 200,
+    shipped:
+      "a Noto typeface from the /fonts/ folder on this same site: 137.8 KB for Bengali up to 10.1 MB for Chinese",
+  },
+  {
+    what: "a password's length",
+    valuesMb: [MB_OF(MAX_PDF_PASSWORD_BYTES)],
+    near: /\bpassword\b|\bToo long\b/i,
+    // Wide: in the FAQPage JSON-LD the question ("…the password itself?")
+    // and the figure sit ~170 characters apart. The value gate is exact.
+    window: 240,
+    shipped:
+      "Enter it in the New password field. It can be up to 127 bytes long.",
+  },
+  {
+    what: "a picture inserted into the PDF",
+    valuesMb: [MB_OF(MAX_EDIT_IMAGE_BYTES)],
+    near: /\b(?:picture|image|photo|PNG|JPG)\b/i,
+    window: 80,
+    shipped: "Choose a PNG or JPG of up to 10 MB",
+  },
+];
+
+/** The per-file CEILING claims on a page: every size not in OTHER_SIZES. */
+function ceilingClaimsMb(text: string): number[] {
+  const out: number[] = [];
+  for (const match of text.matchAll(SIZE_CLAIM)) {
+    const mb =
+      Number(match[1]!.replace(/,/g, "")) * UNIT_MB[match[2]!.toLowerCase()]!;
+    const at = match.index ?? 0;
+    const other = OTHER_SIZES.some((kind) => {
+      if (!kind.valuesMb.some((v) => Math.abs(v - mb) / v < 0.01)) return false;
+      const around = text.slice(
+        Math.max(0, at - kind.window),
+        at + match[0].length + kind.window,
+      );
+      return kind.near.test(around);
+    });
+    if (!other) out.push(mb);
+  }
+  return out;
 }
 
 function textOf(markup: string): string {
@@ -448,6 +545,8 @@ const GATE_PROBES: readonly {
       const workerTool = tools.find(
         (tool) =>
           toolFileCeiling(tool).tier === "worker" &&
+          // The gate's own figure, not a lower engine cap behind it.
+          toolFileCeiling(tool).bytes === WORKER_FILE_CEILING &&
           tool.accept.includes("PDF"),
       );
       if (!workerTool) {
@@ -695,6 +794,292 @@ describe("every stated ceiling is one an engine really refuses above", () => {
 });
 
 /* ================================================================== *
+ *  3b. Behind the upload gate: engines that refuse LOWER.
+ *
+ *  A worker-tier file passes the upload gate and then meets the engine that
+ *  runs its tool. When that engine's input cap is below the gate, the cap is
+ *  the ceiling (`ENGINE_INPUT_CEILINGS`), and a page stating the gate states a
+ *  size the tool will not convert, which the Word, Excel, PowerPoint and HTML
+ *  pages did until 2026-09-27, with this file green. So the set of such
+ *  engines is DISCOVERED here, from every worker config module and every
+ *  literal cap in worker source, and each table entry is RUN through the
+ *  processor the production registry routes its tool to.
+ * ================================================================== */
+
+type LazyModules = Record<string, () => Promise<Record<string, unknown>>>;
+const CONFIG_MODULES = (
+  import.meta as unknown as { glob: (pattern: string[]) => LazyModules }
+).glob([
+  "/src/lib/workers/**/*native-config.ts",
+  "!/src/lib/workers/**/*.test.ts",
+]);
+const ENGINE_MODULES = (
+  import.meta as unknown as { glob: (pattern: string) => LazyModules }
+).glob("/src/lib/workers/*/engine.ts");
+
+interface EngineCap {
+  module: string;
+  resolver: string;
+  bytes: number;
+}
+
+/** Every worker config resolver, called with an empty env: the defaults. */
+async function discoverConfigCaps(): Promise<EngineCap[]> {
+  const caps: EngineCap[] = [];
+  for (const [module, load] of Object.entries(CONFIG_MODULES)) {
+    const mod = await load();
+    for (const [name, value] of Object.entries(mod)) {
+      if (!/^resolveNative\w+Config$/.test(name)) continue;
+      if (typeof value !== "function") continue;
+      const config = (value as (env: object) => { maxInputBytes?: unknown })(
+        {},
+      );
+      if (typeof config.maxInputBytes !== "number") {
+        throw new Error(`${module} ${name}({}) has no numeric maxInputBytes`);
+      }
+      caps.push({ module, resolver: name, bytes: config.maxInputBytes });
+    }
+  }
+  return caps;
+}
+
+/** Catalogue slugs an engine module exports, as constants or as lists. */
+async function engineTools(configModule: string): Promise<string[]> {
+  const engine = configModule.replace(/[^/]+$/, "engine.ts");
+  const load = ENGINE_MODULES[engine];
+  if (!load) {
+    throw new Error(
+      `${configModule} caps input below the upload gate and has no sibling ` +
+        "engine.ts to say which tools it runs, so the ceiling cannot be derived",
+    );
+  }
+  const known = new Set(getAllToolSlugs());
+  const slugs = new Set<string>();
+  for (const value of Object.values(await load())) {
+    const members: unknown[] = Array.isArray(value) ? value : [value];
+    for (const member of members)
+      if (typeof member === "string" && known.has(member)) slugs.add(member);
+  }
+  return [...slugs].sort();
+}
+
+/** `maxInputBytes: 100 * 1024 * 1024` written straight into worker source. */
+const LITERAL_CAP =
+  /\bmaxInputBytes:\s*(\d[\d_]*(?:\s*\*\s*\d[\d_]*)*)\s*[,}\n]/g;
+function literalCaps(source: string): number[] {
+  return [...source.matchAll(LITERAL_CAP)].map((match) =>
+    match[1]!
+      .split("*")
+      .map((factor) => Number(factor.trim().replace(/_/g, "")))
+      .reduce((product, factor) => product * factor, 1),
+  );
+}
+
+function trackedFiles(...pathspec: string[]): string[] {
+  return execFileSync("git", ["ls-files", ...pathspec], {
+    cwd: ROOT,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
+}
+
+const MIN_PDF = new TextEncoder().encode(
+  `%PDF-1.4\n${"x".repeat(64)}\n%%EOF\n`,
+);
+/** Every binary reported absent, so the factories contribute LIMITS only. */
+const NO_BINARIES = { resolveOnPath: () => false, fileExists: () => false };
+
+function routedProcessor(slug: string): Processor {
+  // The production composition: each native deps factory's own limits, and
+  // the registry that decides which processor a job's tool reaches. Only the
+  // binary is faked, and it returns a PDF for whatever it is handed.
+  const registry = createProcessorRegistry({
+    officeConversion: {
+      ...nativeOfficeConversionDeps({}, NO_BINARIES),
+      libreoffice: { convertToPdf: async () => MIN_PDF },
+    },
+    htmlRender: {
+      ...nativeHtmlRenderDeps({}, NO_BINARIES),
+      chromium: {
+        renderHtml: async () => MIN_PDF,
+        renderUrl: async () => MIN_PDF,
+      },
+    },
+  });
+  const processor = registry.resolve(slug);
+  if (!processor) throw new Error(`no processor is routed ${slug}`);
+  return processor;
+}
+
+async function runAt(slug: string, bytes: number) {
+  const tool = tools.find((candidate) => candidate.slug === slug)!;
+  const ext = tool.accept[0]!.toLowerCase();
+  return routedProcessor(slug).process({
+    tool: slug,
+    options: {},
+    inputs: [
+      {
+        fileId: "f1",
+        filename: `input.${ext}`,
+        contentType: "application/octet-stream",
+        bytes: new Uint8Array(bytes),
+      },
+    ],
+  });
+}
+
+/** A non-comment line that gives `name` a value (env file, compose, k8s). */
+function assigns(text: string, name: string): string[] {
+  const pattern = new RegExp(`(?<![\\w.])${name}\\s*[=:]\\s*["']?\\S`);
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line) && pattern.test(line));
+}
+
+describe("an engine that refuses below the upload gate sets the ceiling", () => {
+  it("every worker config whose default cap is below the gate is in the table, for exactly its tools", async () => {
+    const caps = await discoverConfigCaps();
+    // Vacuity bound: eight config modules today. A glob gone blind would make
+    // "nothing is below the gate" the strongest possible pass.
+    expect(
+      caps.length,
+      "the config discovery is implausibly small",
+    ).toBeGreaterThanOrEqual(8);
+    const derived = new Map<string, number>();
+    for (const cap of caps.filter((c) => c.bytes < WORKER_FILE_CEILING)) {
+      const slugs = await engineTools(cap.module);
+      expect(
+        slugs.length,
+        `${cap.module} names no catalogue tool`,
+      ).toBeGreaterThan(0);
+      for (const slug of slugs) {
+        const tool = tools.find((candidate) => candidate.slug === slug)!;
+        if (toolFileCeiling(tool).tier === "no-file-input") continue;
+        derived.set(slug, cap.bytes);
+      }
+    }
+    // Positive control: the two engines that motivated this are found.
+    expect(derived.size).toBeGreaterThanOrEqual(4);
+    const table = Object.fromEntries(
+      Object.entries(ENGINE_INPUT_CEILINGS).map(([slug, e]) => [slug, e.bytes]),
+    );
+    expect(
+      table,
+      "ENGINE_INPUT_CEILINGS must name exactly the file tools whose engine " +
+        "refuses below the upload gate, at that engine's default cap",
+    ).toEqual(Object.fromEntries([...derived].sort()));
+  });
+
+  it("no literal input cap in worker source sits below the gate unaccounted", () => {
+    const found: { file: string; bytes: number }[] = [];
+    for (const file of trackedFiles("src/lib/workers").filter(
+      (f) => f.endsWith(".ts") && !f.endsWith(".test.ts"),
+    ))
+      for (const bytes of literalCaps(read(path.join(ROOT, file))))
+        found.push({ file, bytes });
+    // The AI engines and request-signatures write 100 MB straight in.
+    expect(
+      found.length,
+      "the literal-cap scan found implausibly few",
+    ).toBeGreaterThanOrEqual(4);
+    const tableValues = new Set(
+      Object.values(ENGINE_INPUT_CEILINGS).map((e) => e.bytes),
+    );
+    const below = found.filter(
+      (cap) => cap.bytes < WORKER_FILE_CEILING && !tableValues.has(cap.bytes),
+    );
+    expect(
+      below.map((cap) => `${cap.file}: ${cap.bytes}`),
+      "a worker engine caps input below the upload gate outside any config " +
+        "module; its tools' ceiling is that cap, not the gate",
+    ).toEqual([]);
+  });
+
+  it("health check: the literal-cap extractor reads the shapes that ship", () => {
+    expect(literalCaps("maxInputBytes: 100 * 1024 * 1024,")).toEqual([
+      100 * MB,
+    ]);
+    expect(literalCaps("{ maxInputBytes: 52_428_800 }")).toEqual([50 * MB]);
+    expect(literalCaps("maxInputBytes: config.maxInputBytes,")).toEqual([]);
+  });
+
+  it.each(Object.keys(ENGINE_INPUT_CEILINGS).sort())(
+    "%s: the routed processor converts a file AT the ceiling and refuses one byte more",
+    async (slug) => {
+      const tool = tools.find((candidate) => candidate.slug === slug)!;
+      const ceiling = toolFileCeiling(tool);
+      expect(ceiling.tier).toBe("worker");
+      expect(ceiling.bytes).toBeLessThan(WORKER_FILE_CEILING);
+      const at = await runAt(slug, ceiling.bytes!);
+      expect(
+        at.ok,
+        `${slug} refused a file AT its stated ceiling: ${JSON.stringify(at)}`,
+      ).toBe(true);
+      const over = await runAt(slug, ceiling.bytes! + 1);
+      expect(
+        over.ok ? "converted" : over.error.code,
+        `${slug} did not refuse one byte over its stated ceiling as too large`,
+      ).toBe("payload_too_large");
+    },
+    60_000,
+  );
+
+  it("no deploy artifact in this repo overrides a cap the table states", async () => {
+    const caps = await discoverConfigCaps();
+    const names = new Set<string>();
+    for (const cap of caps.filter((c) => c.bytes < WORKER_FILE_CEILING)) {
+      const source = read(path.join(ROOT, cap.module.replace(/^\//, "")));
+      // `Math.max(` in front since wave1 made an override able only to RAISE
+      // the published default; the variable is the same one.
+      for (const match of source.matchAll(
+        /maxInputBytes:\s*(?:Math\.max\(\s*)?parsePositiveInt\(\s*env\.(\w+)/g,
+      ))
+        names.add(match[1]!);
+    }
+    // One override variable per below-gate engine, read from its own source.
+    expect([...names].sort()).toEqual([
+      "PDFXYZ_HTML_RENDER_MAX_INPUT_BYTES",
+      "PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES",
+    ]);
+    const files = trackedFiles().filter(
+      (file) =>
+        !file.startsWith("src/") &&
+        !/\.(?:png|jpe?g|gif|ico|woff2?|ttf|otf|pdf|zip|webp)$/i.test(file),
+    );
+    // Health: the worker's own deploy files are in the scanned set.
+    expect(files).toContain("docker-compose.worker.yml");
+    expect(files).toContain(".env.worker.example");
+    const setting: string[] = [];
+    for (const file of files) {
+      let text: string;
+      try {
+        text = read(path.join(ROOT, file));
+      } catch {
+        continue;
+      }
+      for (const name of names)
+        for (const line of assigns(text, name))
+          setting.push(`${file}: ${line.trim()}`);
+    }
+    expect(
+      setting,
+      "a deploy artifact overrides an engine input cap that tool pages state " +
+        "as the ceiling; those pages state the default",
+    ).toEqual([]);
+  });
+
+  it("positive control: the assignment scanner sees the spellings deploys use", () => {
+    const name = "PDFXYZ_OFFICE_CONVERSION_MAX_INPUT_BYTES";
+    expect(assigns(`${name}=104857600`, name)).toHaveLength(1);
+    expect(assigns(`  ${name}: "104857600"`, name)).toHaveLength(1);
+    expect(assigns(`      - ${name}=1`, name)).toHaveLength(1);
+    expect(assigns(`# ${name}=104857600`, name)).toEqual([]);
+    expect(assigns(`env.${name} is read`, name)).toEqual([]);
+  });
+});
+
+/* ================================================================== *
  *  4. THE POINT OF CONSUMPTION: the rendered page.
  * ================================================================== */
 
@@ -703,7 +1088,7 @@ describe("every size a tool page states is that tool's own ceiling", () => {
     "%s's rendered page states its ceiling, and no other size",
     (slug, tool) => {
       const ceiling = toolFileCeilingMb(tool);
-      const claims = sizeClaimsMb(pageText.get(slug)!);
+      const claims = ceilingClaimsMb(pageText.get(slug)!);
       if (ceiling === null) {
         expect(
           claims,
@@ -770,6 +1155,46 @@ describe("every size a tool page states is that tool's own ceiling", () => {
  * ================================================================== */
 
 describe("controls", () => {
+  it("the other-size classes are exercised both ways", () => {
+    for (const kind of OTHER_SIZES) {
+      // The sentence that needed the class is seen, and exempt...
+      expect(sizeClaimsMb(kind.shipped).length, kind.what).toBeGreaterThan(0);
+      expect(ceilingClaimsMb(kind.shipped), kind.what).toEqual([]);
+      // ...and the SAME value, stated as what a file may be, is still a claim.
+      for (const mb of kind.valuesMb) {
+        const plain = `Files of up to ${mb >= 1 ? `${mb} MB` : `${Math.round(mb * MB)} bytes`} are accepted.`;
+        expect(ceilingClaimsMb(plain).length, `${kind.what}: ${plain}`).toBe(1);
+      }
+    }
+    // The subject without the value is not enough either: a picture of up to
+    // 100 MB on a 25 MB image tool is a ceiling claim.
+    expect(ceilingClaimsMb("Choose a PNG or JPG of up to 100 MB")).toEqual([
+      100,
+    ]);
+  });
+
+  it("an engine's input cap is a CEILING claim, never an exempt size", () => {
+    // Inverted 2026-09-27. Until then an OTHER_SIZES class exempted this exact
+    // sentence as "the converting engine's own input cap", and the Word page
+    // shipped it beside the derived "Up to 100 MB per file." with this file
+    // green. Now it is read as the ceiling claim it is...
+    const shipped =
+      "the converter refuses a Word file over 50 MB before LibreOffice ever opens it";
+    expect(ceilingClaimsMb(shipped)).toEqual([50]);
+    // ...it agrees with the Word tool's ceiling...
+    const word = tools.find((candidate) => candidate.slug === "word-to-pdf")!;
+    expect(toolFileCeilingMb(word)).toBe(50);
+    // ...and the answer that shipped beside it no longer does.
+    const shippedFact = `Up to ${JOB_LIMITS.maxFileBytes / MB} MB per file.`;
+    expect(
+      ceilingClaimsMb(shippedFact).every(
+        (claim) => claim === toolFileCeilingMb(word),
+      ),
+    ).toBe(false);
+    for (const kind of OTHER_SIZES)
+      expect(kind.what).not.toMatch(/engine|converter|renderer/i);
+  });
+
   it("health check: the size extractor sees the spellings that ship", () => {
     // A blind extractor reports the strongest possible pass above. These are
     // the forms rendered today: `formatBytes` at one decimal, whole megabytes
@@ -781,6 +1206,8 @@ describe("controls", () => {
     expect(sizeClaimsMb("1.5 GB")).toEqual([1536]);
     expect(sizeClaimsMb("2,097,152 bytes")).toEqual([2]);
     expect(sizeClaimsMb("no sizes here")).toEqual([]);
+    // An encoding is not a size.
+    expect(sizeClaimsMb("counted in UTF-8 bytes, up to 2 MB")).toEqual([2]);
     // Why bare "B" is not a unit: this really renders, on the PDF/A page.
     expect(sizeClaimsMb("Converts to PDF/A-2b and PDF/A-3b")).toEqual([]);
   });

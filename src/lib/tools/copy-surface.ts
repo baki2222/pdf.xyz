@@ -15,7 +15,7 @@
  * wants the visitor-readable page surface imports it from here rather than
  * copying it.
  */
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = process.cwd();
@@ -65,11 +65,22 @@ const ROOT = process.cwd();
  * every file under `src/lib` that defines an allowance sentence and requires
  * the walk to reach it, so moving the constant again collapses loudly wherever
  * it lands.
+ *
+ * ALL of `src/components` since 2026-09-27, replacing the two component roots
+ * (`sections`, `tools`) — the eighth appearance. The docblock above promised
+ * "every user-facing source file", and the walk skipped the site footer
+ * ("Privacy-first by architecture, not by policy."), the upload zone, the
+ * status and legal components, and the shared social card. That card
+ * (`src/lib/og.tsx`, now listed) carried an unhedged "Runs in your browser"
+ * chip while roughly two in five tools upload to a worker, and every
+ * honesty guard was blind to it. A component folder is user-facing by
+ * construction, so the whole directory is walked; `copy-surface.test.ts`
+ * requires every component file to be reached, so a new folder cannot fall
+ * outside it.
  */
 export function copyFiles(): string[] {
   const roots = [
-    path.join(ROOT, "src", "components", "sections"),
-    path.join(ROOT, "src", "components", "tools"),
+    path.join(ROOT, "src", "components"),
     path.join(ROOT, "src", "app"),
     path.join(ROOT, "src", "lib", "tools"),
     // The guides catalogue: long-form instructional prose a visitor reads at
@@ -85,6 +96,9 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "faq.ts"),
     path.join(ROOT, "src", "lib", "site.ts"),
     path.join(ROOT, "src", "lib", "jobs", "ai-allowance.ts"),
+    // The shared social card, painted on every link to a page without its
+    // own image. Outside every walked root; listed for that reason.
+    path.join(ROOT, "src", "lib", "og.tsx"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -213,4 +227,27 @@ export function operatorDocs(): string[] {
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
     .map((entry) => path.join(dir, entry.name));
+}
+
+/**
+ * The tool-page content files — DERIVED from what the page consumes, not from
+ * a directory listing: every `./<slug>` module `src/lib/tools/content/index.ts`
+ * imports, keyed by slug. A file in that directory nobody imports is not on
+ * any page (and `content.test.ts` fails it); an import is on a page by
+ * construction, because the page reads the index through `page-copy.ts`.
+ *
+ * The honesty guards walk `src/lib/tools` recursively, so these files were in
+ * their corpus the day they landed. This is how each guard PROVES it, rather
+ * than trusting a recursive walk nobody asserted: a guard that asserts it
+ * reads every entry of this map cannot quietly lose a content file to a
+ * narrowed root, a renamed directory, or a list.
+ */
+export function toolContentFiles(): Map<string, string> {
+  const dir = path.join(ROOT, "src", "lib", "tools", "content");
+  const index = readFileSync(path.join(dir, "index.ts"), "utf8");
+  const out = new Map<string, string>();
+  for (const match of index.matchAll(/^import \w+ from "\.\/([^"]+)";$/gm)) {
+    out.set(match[1]!, path.join(dir, `${match[1]!}.ts`));
+  }
+  return out;
 }

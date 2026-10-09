@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canRunPdfArchive, runWorkerPdfToPdfA } from "./pdf-archive-client";
+import { resolveNativePdfArchiveConfig } from "./pdf-archive/native-config";
+import { PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS } from "./pdf-archive/contract";
 import type { WorkerStatus } from "./status";
 
 function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
@@ -157,5 +159,63 @@ describe("pdf-archive-client", () => {
     );
     expect(result.ok).toBe(true);
     expect(calls).toEqual(["/api/uploads", "/put", "/api/jobs", "/out"]);
+  });
+});
+
+describe("how long the browser waits for a PDF/A job", () => {
+  /** A worker that accepts the job and never finishes it; the sleeps are summed. */
+  async function waitedMs(options: { maxPollAttempts?: number } = {}) {
+    let waited = 0;
+    let polls = 0;
+    const ok = (body: unknown) => ({
+      ok: true,
+      status: 200,
+      json: async () => body,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+    const fetchImpl = async (input: string) => {
+      if (input === "/api/uploads")
+        return ok({
+          uploadId: "up",
+          slots: [{ fileId: "file", url: "/put", method: "PUT", headers: {} }],
+        });
+      if (input === "/put") return ok({});
+      if (input === "/api/jobs") return ok({ jobId: "job", status: "queued" });
+      if (input === "/api/jobs/job") {
+        polls += 1;
+        return ok({ jobId: "job", status: "running" });
+      }
+      throw new Error(String(input));
+    };
+    const result = await runWorkerPdfToPdfA(
+      { filename: "in.pdf", bytes: new Uint8Array([1]) },
+      {
+        fetchImpl,
+        sleep: async (ms) => {
+          waited += ms;
+        },
+        ...options,
+      },
+    );
+    return { waited, polls, result };
+  }
+
+  it("outlasts the worker's own worst case for the job before giving up", async () => {
+    // WAS 150 polls x 800 ms = 120,000 ms: exactly the Ghostscript timeout,
+    // with nothing for the queue, the upload, or the password probe that runs
+    // after a failure. The bound is the WORKER'S config, read independently.
+    const worker = resolveNativePdfArchiveConfig({});
+    const { waited, result } = await waitedMs();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toMatch(/may still finish/);
+    expect(waited).toBeGreaterThan(
+      worker.timeoutMs + PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS,
+    );
+  });
+
+  it("POSITIVE CONTROL: the measurement follows the ceiling it is given", async () => {
+    const { waited, polls } = await waitedMs({ maxPollAttempts: 2 });
+    expect(polls).toBe(2);
+    expect(waited).toBe(1600);
   });
 });

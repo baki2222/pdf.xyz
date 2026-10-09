@@ -23,10 +23,14 @@
  *  - the AI tools come from the catalogue (`processing: "ai"`);
  *  - each tool's engine is DISCOVERED by scanning `src/lib/workers/[asterisk]/engine.ts`
  *    for its exported `*_TOOL` slug — renaming a directory moves the guard;
- *  - each tool's honoured ceiling is CLASSIFIED from the enforcement source
+ *  - each tool's ENGINE ceiling is CLASSIFIED from the enforcement source
  *    (an engine that refuses via `translateMaxInputChars(...)` is bounded by
  *    output; one that truncates at `AI_INPUT_LIMITS.maxInputCharacters` is
  *    bounded by reading) — an unclassifiable engine FAILS, it is not skipped;
+ *  - a per-call tool's HONOURED ceiling is MEASURED above its engine: the tools
+ *    come from the route's pricing table (`AI_RUN_PRICING`), the pricing
+ *    function from the route's own call, the processors from the worker's
+ *    registry and wiring (see {@link measureReadCeiling});
  *  - each tool's panel comes from the real dispatch in
  *    `src/app/tools/[slug]/page.tsx` plus its own import table — the two
  *    artifacts rendering actually depends on.
@@ -38,13 +42,32 @@
  * exactly the ceiling must reach the provider. Loading a module is not running
  * a function, and a classification the engine never enforces is decoration.
  *
- * WHAT IS NOT PROVEN HERE, recorded rather than discovered: the three
- * read-bound engines are not run against their 500,000-character window —
- * their derivation from the shared constant is pinned by source scan here and
- * in `ai-input-limit.test.ts`, but no probe feeds them 500,001 characters and
- * watches the truncation land. If a read-bound engine ever gains a refusal
+ * INVERTED 2026-10-06, history kept: until then this read "WHAT IS NOT PROVEN
+ * HERE — the two engines still on the SHARED reading cap are not run against
+ * their 500,000-character window". Nor was anything ABOVE the engine. The read
+ * a per-call run gets is `min(engine window, the bound the route handed it)`
+ * (`processor/read-cap-limit.ts`), and the bound is whatever the route's
+ * pricing returns, so an engine-source classification certified the window
+ * whatever the pricing and the processor did to it. A lane that clamped the
+ * bound to a day's allowance stayed green here over pages stating 500,000; and
+ * its own replacement guard measured the lane's pricing function, not the one
+ * the route calls. Now every per-call tool's ceiling is MEASURED through the
+ * composed chain, see {@link measureReadCeiling}: the pricing function is
+ * DISCOVERED from `src/app/api/jobs/route.ts` (the call whose `.delivery`
+ * reaches the adapter), priced for an honest declaration under BOTH answers of
+ * the running worker's read-cap witness, and the real processor, wired with
+ * the worker's own limits, is run on a document longer than any window. What
+ * reaches the provider is the ceiling; the smaller of the two witness states
+ * is the one a page may state. If a read-bound engine ever gains a refusal
  * path, add its probe to {@link OUTPUT_BOUND_PROBES} — the completeness check
  * below will demand it by name.
+ *
+ * A THIRD CLASS, added 2026-09-27: PER-QUESTION. Chat with PDF read up to the
+ * shared 500,000 characters on a 41,032-character charge; its reading ceiling
+ * is now its charge ceiling, `CHAT_MAX_CHARACTERS_PER_QUESTION`, and it covers
+ * the document AND the conversation. That class IS run —
+ * {@link PER_QUESTION_PROBES} feeds the engine one character over and measures
+ * the document and the conversation in the request the provider receives.
  *
  * THE EXIT CONDITION names the property: an entry leaves this guard only when
  * the surface derives its figure from the same constant its engine enforces —
@@ -52,8 +75,21 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { createElement, type ComponentType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
+import {
+  AI_DELIVERY_LIMITS,
+  AI_RUN_PRICING,
+  aiReservationFor,
+  type AiReservation,
+} from "@/lib/jobs/delivery-cap";
+import { AI_READ_LIMITS, aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
+import { createProcessorRegistry } from "@/lib/workers/processor";
+import { summarizeDeps } from "@/lib/workers/summarize/native";
+import { aiExtractDeps } from "@/lib/workers/ai-extract/native";
+import { chatWithPdfDeps } from "@/lib/workers/chat-with-pdf/native";
 import type { TranslateOptions } from "@/lib/jobs/translate-pdf";
 import type {
   AiCompletionRequest,
@@ -69,12 +105,23 @@ import {
   runTranslate,
   type PdfTextExtractor,
 } from "@/lib/workers/translate/engine";
+import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
+import { CHAT_MAX_CHARACTERS_PER_QUESTION } from "@/lib/jobs/chat-with-pdf";
 import { tools } from "./index";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
-import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
+import { toolFacts } from "./tool-facts";
+import {
+  pageContent,
+  pageFaq,
+  pageIntro,
+  pageSteps,
+  pageUseCases,
+  stepText,
+} from "./page-copy";
 import {
   copyFiles,
   flattenForPhraseSearch,
+  toolContentFiles,
   withoutComments,
 } from "./copy-surface";
 import type { Tool } from "./types";
@@ -131,12 +178,52 @@ function discoverEngines(): Map<string, string> {
 const engines = discoverEngines();
 
 /**
- * The ceiling a tool's enforcement actually compares against, classified from
- * the engine's own refusal/truncation source. Throws on an engine this cannot
- * classify — a new AI engine with a third kind of bound must extend the
- * classification, loudly, not slide past it.
+ * The three kinds of bound an AI engine enforces, and the constant each one's
+ * surfaces must state it through. The constant NAMES are what the panel check
+ * below requires and forbids, so they live beside the classification that
+ * picks them rather than in a second table.
  */
-function honouredCeiling(slug: string): number {
+type BoundKind = "output" | "per-question" | "shared-read";
+const BOUND_CONSTANTS: Record<BoundKind, string> = {
+  output: "TRANSLATE_MAX_INPUT_CHARS",
+  "per-question": "CHAT_MAX_CHARACTERS_PER_QUESTION",
+  "shared-read": "AI_INPUT_LIMITS.maxInputCharacters",
+};
+
+/** Which kind of bound a tool's engine enforces — classified from its source. */
+function boundKind(slug: string): BoundKind {
+  const engineFile = engines.get(slug);
+  if (!engineFile) {
+    throw new Error(
+      `no engine exports a *_TOOL constant for "${slug}" under src/lib/workers/*/engine.ts`,
+    );
+  }
+  const source = read(engineFile);
+  if (/translateMaxInputChars\s*\(/.test(source)) return "output";
+  if (source.includes(BOUND_CONSTANTS["per-question"])) return "per-question";
+  if (source.includes(BOUND_CONSTANTS["shared-read"])) return "shared-read";
+  throw new Error(
+    `${relative(engineFile)} enforces none of ${Object.values(BOUND_CONSTANTS).join(", ")} — ` +
+      "classify its bound here before any page may state one",
+  );
+}
+
+/**
+ * The ceiling a tool's ENGINE compares against, classified from the engine's
+ * own refusal/truncation source. Throws on an engine this cannot classify — a
+ * new AI engine with a third kind of bound must extend the classification,
+ * loudly, not slide past it.
+ *
+ * For a per-call tool this is only the most the processor could pass on: what
+ * one run honours is MEASURED above the engine, see {@link honouredCeiling}.
+ */
+function engineCeiling(slug: string): number {
+  if (boundKind(slug) === "per-question") {
+    // A reading ceiling that is also the charge ceiling. The job's delivery
+    // cap can only LOWER it (the conversation is paid out of the same
+    // reservation), so this is the most any page may promise.
+    return CHAT_MAX_CHARACTERS_PER_QUESTION;
+  }
   const engineFile = engines.get(slug);
   if (!engineFile) {
     throw new Error(
@@ -166,6 +253,277 @@ function honouredCeiling(slug: string): number {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Set 2b — what a per-call run reads, MEASURED through the route's
+ *  pricing and the real processor.
+ * ------------------------------------------------------------------ */
+
+const ROUTE = path.join(ROOT, "src", "app", "api", "jobs", "route.ts");
+
+/** The tools the route prices per call — the ones whose read the processor bounds. */
+const PER_CALL_TOOLS = Object.entries(AI_RUN_PRICING)
+  .filter(([, pricing]) => pricing === "per-call")
+  .map(([slug]) => slug)
+  .sort();
+
+type RoutePricing = (
+  tool: string,
+  request: { readonly declaredCharacters?: number },
+  limits: {
+    readonly fallbackCharacters: number;
+    readonly headroom: number;
+    readonly readCapEnforced: () => Promise<boolean>;
+  },
+) => Promise<AiReservation>;
+
+/**
+ * The pricing function `POST /api/jobs` calls and the limits object it spreads
+ * into it, DISCOVERED from the route rather than named here: the call whose
+ * result's `.delivery` the route hands to `adapter.createJob`, resolved through
+ * the route's own import statements. A guard that names the function it trusts
+ * certifies that function, whatever the route has moved on to — the shape that
+ * let a lane's guard measure `deliveryCapFor` while the route it merged into
+ * priced through `aiReservationFor`. Every broken link is FATAL.
+ */
+async function discoverRoutePricing(): Promise<{
+  name: string;
+  specifier: string;
+  price: RoutePricing;
+  limitsName: string;
+  limits: { readonly fallbackCharacters: number; readonly headroom: number };
+}> {
+  const source = withoutComments(read(ROUTE));
+  const handed = /createJob\(\s*[\w.]+\s*,\s*(\w+)\??\.delivery\s*\)/.exec(
+    source,
+  );
+  if (!handed) {
+    throw new Error(
+      `${relative(ROUTE)} no longer hands a reservation's .delivery to createJob — ` +
+        "find what bounds a per-call run before any page states its read",
+    );
+  }
+  const priced = new RegExp(
+    `\\b${handed[1]}\\s*=\\s*await\\s+(\\w+)\\(\\s*tool\\.slug\\s*,\\s*[\\w.]+\\s*,\\s*\\{\\s*\\.\\.\\.(\\w+)`,
+  ).exec(source);
+  if (!priced) {
+    throw new Error(
+      `${relative(ROUTE)}: no "${handed[1]} = await <pricing>(tool.slug, …, { ...<limits>" call`,
+    );
+  }
+  const imports = new Map<string, string>();
+  for (const match of source.matchAll(
+    /import\s*\{([^}]+)\}\s*from\s*"([^"]+)"/g,
+  )) {
+    for (const name of match[1]!.split(",")) {
+      imports.set(name.replace(/^\s*type\s+/, "").trim(), match[2]!);
+    }
+  }
+  const [name, limitsName] = [priced[1]!, priced[2]!];
+  const specifier = imports.get(name);
+  const limitsSpecifier = imports.get(limitsName);
+  if (!specifier || !limitsSpecifier) {
+    throw new Error(
+      `${relative(ROUTE)} calls ${name} with ...${limitsName}, and does not import both`,
+    );
+  }
+  const pricingModule = (await import(/* @vite-ignore */ specifier)) as Record<
+    string,
+    unknown
+  >;
+  const limitsModule = (await import(
+    /* @vite-ignore */ limitsSpecifier
+  )) as Record<string, unknown>;
+  const price = pricingModule[name];
+  const limits = limitsModule[limitsName] as
+    { fallbackCharacters?: unknown; headroom?: unknown } | undefined;
+  if (
+    typeof price !== "function" ||
+    typeof limits?.fallbackCharacters !== "number" ||
+    typeof limits.headroom !== "number"
+  ) {
+    throw new Error(
+      `${specifier} exports no ${name} function, or ${limitsSpecifier}'s ${limitsName} is not a limits object`,
+    );
+  }
+  return {
+    name,
+    specifier,
+    price: price as RoutePricing,
+    limitsName,
+    limits: limits as { fallbackCharacters: number; headroom: number },
+  };
+}
+
+/**
+ * The document every measurement reads: longer than anything a page states,
+ * so a run that reads it all is one whose ceiling was not met. Health-checked
+ * below against every published figure.
+ */
+const LONG_DOCUMENT = 1_000_000;
+/** Document text, and nothing else: no prompt or option contains it. */
+const MARK = "░";
+
+/** The worker's production limits for each per-call processor, with the probe's extractor and provider. */
+function perCallRegistry(text: string, provider: AiProvider) {
+  const extract = vi.fn(async (): Promise<ExtractedPdfText> => ({
+    pageCount: 1,
+    // No page metadata, as `extractorFor` below: the document region the
+    // model receives is then the text and nothing else.
+    pages: [],
+    text,
+    characterCount: text.length,
+    hasText: true,
+  }));
+  // The worker's own wiring, so the limits the processors run under are the
+  // ones production passes — with no provider or extractor resolved from an
+  // environment this test does not have.
+  const wiring = { extract, provider };
+  return createProcessorRegistry({
+    summarize: { ...summarizeDeps({}), ...wiring },
+    aiExtract: { ...aiExtractDeps({}), ...wiring },
+    chatWithPdf: { ...chatWithPdfDeps({}), ...wiring },
+  });
+}
+
+/** The smallest body each per-call tool's contract accepts. */
+const MINIMAL_OPTIONS: Record<string, Record<string, unknown>> = {
+  "summarize-pdf": {},
+  "chat-with-pdf": { question: "What does it say?" },
+  "ai-extract": { mode: "prompt", prompt: "Extract the total." },
+};
+
+/**
+ * What one run of `slug` put in front of the model of a `LONG_DOCUMENT`
+ * document under `delivery`: the document characters, plus — for a
+ * per-question engine, whose ceiling covers both — the conversation sent with
+ * it. `null` when the run did not reach the provider.
+ */
+async function readByProcessor(
+  slug: string,
+  delivery: AiReservation["delivery"],
+  length = LONG_DOCUMENT,
+): Promise<number | null> {
+  const provider = recordingProvider('{"probe": "probe"}');
+  const processor = perCallRegistry(MARK.repeat(length), provider).resolve(
+    slug,
+  );
+  if (!processor) throw new Error(`no processor resolves ${slug}`);
+  const options = MINIMAL_OPTIONS[slug];
+  if (!options) throw new Error(`no minimal options for ${slug}`);
+  const result = await processor.process({
+    tool: slug,
+    options,
+    inputs: [
+      {
+        fileId: "f_ceilingprobe",
+        filename: "probe.pdf",
+        contentType: "application/pdf",
+        bytes: new Uint8Array([1, 2, 3]),
+      },
+    ],
+    ...(delivery ? { delivery } : {}),
+  });
+  if (!result.ok || provider.calls.length === 0) return null;
+  let read = 0;
+  for (const call of provider.calls) {
+    for (const part of [
+      call.system ?? "",
+      ...call.messages.map((m) => m.content),
+    ]) {
+      for (const ch of part) if (ch === MARK) read += 1;
+    }
+    if (boundKind(slug) === "per-question") {
+      read += call.messages.reduce((sum, m) => sum + m.content.length, 0);
+    }
+  }
+  return read;
+}
+
+/**
+ * What one run of a per-call tool reads, priced by the route's own function
+ * for the LEAST an honest browser declares of a `LONG_DOCUMENT` document (its
+ * count can under-run the worker's by the headroom factor, never more), then
+ * run through the real processor under the bound that pricing returned — once
+ * per answer of the running worker's read-cap witness.
+ */
+async function measureReadCeiling(slug: string): Promise<{
+  proven: number | null;
+  unproven: number | null;
+  deliveries: Record<"proven" | "unproven", AiReservation["delivery"]>;
+}> {
+  const route = await discoverRoutePricing();
+  const declared = Math.ceil(LONG_DOCUMENT / route.limits.headroom);
+  const deliveryWhen = async (enforced: boolean) =>
+    (
+      await route.price(
+        slug,
+        { declaredCharacters: declared },
+        { ...route.limits, readCapEnforced: async () => enforced },
+      )
+    ).delivery;
+  const deliveries = {
+    proven: await deliveryWhen(true),
+    unproven: await deliveryWhen(false),
+  };
+  return {
+    proven: await readByProcessor(slug, deliveries.proven),
+    unproven: await readByProcessor(slug, deliveries.unproven),
+    deliveries,
+  };
+}
+
+/** slug → what one run reads under each witness state; filled once, before any check. */
+const measuredReads = new Map<
+  string,
+  Awaited<ReturnType<typeof measureReadCeiling>>
+>();
+
+beforeAll(async () => {
+  for (const slug of PER_CALL_TOOLS) {
+    measuredReads.set(slug, await measureReadCeiling(slug));
+  }
+});
+
+/**
+ * The ceiling one run of `slug` honours — the figure every surface of its
+ * page must state.
+ *
+ * For a per-call tool, MEASURED (above): the smaller of the two witness
+ * states, because a visitor reads the page before anyone knows which worker
+ * image will run the job. A run that never reached the provider is not a
+ * ceiling, it is a broken probe, and throws. Otherwise the engine's own
+ * classified ceiling.
+ */
+function honouredCeiling(slug: string): number {
+  if (AI_RUN_PRICING[slug] !== "per-call") return engineCeiling(slug);
+  const measured = measuredReads.get(slug);
+  if (!measured || measured.proven === null || measured.unproven === null) {
+    throw new Error(
+      `${slug} is priced per call, and no run of it reached the provider under ` +
+        "both witness states — the read ceiling was not measured",
+    );
+  }
+  return Math.min(measured.proven, measured.unproven);
+}
+
+/**
+ * The constant a panel's Limit row must state its ceiling through. A per-call
+ * tool's figure is the one derived from the route's pricing
+ * (`@/lib/jobs/ai-read-limit`), never an engine constant on its own.
+ */
+const READ_LIMIT_FUNCTION = "aiReadLimitFor";
+function panelConstant(slug: string): string {
+  return AI_RUN_PRICING[slug] === "per-call"
+    ? READ_LIMIT_FUNCTION
+    : BOUND_CONSTANTS[boundKind(slug)];
+}
+/** Every name a panel could state an AI ceiling through. */
+const CEILING_NAMES: readonly string[] = [
+  ...Object.values(BOUND_CONSTANTS),
+  READ_LIMIT_FUNCTION,
+  "AI_READ_LIMITS",
+];
+
+/* ------------------------------------------------------------------ *
  *  Set 3 — each tool's panel, from the page dispatch + its import table.
  * ------------------------------------------------------------------ */
 
@@ -177,6 +535,12 @@ const PAGE = path.join(ROOT, "src", "app", "tools", "[slug]", "page.tsx");
  * page's own import statements. A typed slug→panel table here would be a list,
  * and a list cannot see the panel it does not name.
  */
+/** slug → the panel's module specifier and exported component, as the page imports it. */
+const panelComponents = new Map<
+  string,
+  { specifier: string; component: string }
+>();
+
 function panelsFromDispatch(): Map<string, string> {
   const source = withoutComments(read(PAGE));
   const imports = new Map<string, string>();
@@ -209,7 +573,13 @@ function panelsFromDispatch(): Map<string, string> {
       "src",
       moduleSpecifier.replace(/^@\//, "").replace(/\//g, path.sep) + ".tsx",
     );
-    for (const slug of pending) bySlug.set(slug, file);
+    for (const slug of pending) {
+      bySlug.set(slug, file);
+      panelComponents.set(slug, {
+        specifier: moduleSpecifier,
+        component: token[2]!,
+      });
+    }
     pending = [];
   }
   return bySlug;
@@ -222,7 +592,78 @@ const panels = panelsFromDispatch();
  * ------------------------------------------------------------------ */
 
 /** Every "N characters" figure in a rendered sentence, comma-tolerant. */
+/**
+ * Figures in characters that are NOT a statement of how much of the document
+ * a tool reads — each with the shipped sentence that needs it.
+ *
+ * Added 2026-09-27, when this guard moved from the derived FAQ to everything
+ * the page renders (`page-copy`). The authored content states other quantities
+ * in the same unit: what a run COSTS from the daily allowance, and how long a
+ * box the reader types into may be. Read as ceilings, a true page failed four
+ * times ("chat-with-pdf states 10,258 characters but its engine honours
+ * 500,000"); the checker was answering "is there a number before
+ * `characters`?" while claiming to answer "what does this page say the tool
+ * reads?".
+ *
+ * Classified by the words BESIDE the figure, never by its value: the published
+ * per-run charge is 10,258 — the same number as translate's ceiling, by
+ * construction — so a value exemption would license exactly the 49x defect
+ * this guard was built for ("Chat reads up to 10,258 characters"). The control
+ * below keeps that sentence red.
+ */
+const NOT_A_CEILING: readonly {
+  what: string;
+  /** Tested against ~48 characters either side of the figure. */
+  near: RegExp;
+  shipped: string;
+}[] = [
+  {
+    what: "a charge against the daily allowance",
+    near: /\b(?:allowance|pool|charged|costs?)\b/i,
+    // Until 2026-10-06 this was chat's "each question, follow-ups included,
+    // costs a flat 10,258 characters of that pool" — a flat charge true of an
+    // unproven worker only, rewritten that day; the corpus follows the page.
+    shipped:
+      "one question never costs more than 10,258 characters of that pool",
+  },
+  {
+    what: "the length of a box the reader types into",
+    near: /\b(?:box|field|focus|instructions?|a name of|type up to)\b/i,
+    shipped:
+      "Write it in the Your question box in plain language, up to 2,000 characters",
+  },
+];
+
+const CLAIM = /(\d[\d,]*)\s+characters\b/gi;
+
+/** Is the figure at `index` in `text` one of the NOT_A_CEILING quantities? */
+function notACeiling(text: string, index: number, length: number): boolean {
+  const window = text.slice(Math.max(0, index - 48), index + length + 48);
+  return NOT_A_CEILING.some((kind) => kind.near.test(window));
+}
+
+/**
+ * The CEILING claims in a rendered string: every "N characters" that is not
+ * one of the other quantities above, sentence by sentence so a neighbouring
+ * sentence cannot excuse one.
+ */
 function characterClaims(text: string): number[] {
+  const out: number[] = [];
+  for (const sentence of sentencesOf(text)) {
+    for (const m of sentence.matchAll(CLAIM)) {
+      if (notACeiling(sentence, m.index ?? 0, m[0].length)) continue;
+      out.push(Number(m[1]!.replace(/,/g, "")));
+    }
+  }
+  return out;
+}
+
+function sentencesOf(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+/);
+}
+
+/** Every "N characters" figure in a rendered sentence, comma-tolerant. */
+function rawCharacterClaims(text: string): number[] {
   return [...text.matchAll(/(\d[\d,]*)\s+characters\b/gi)].map((m) =>
     Number(m[1]!.replace(/,/g, "")),
   );
@@ -235,12 +676,23 @@ function allNumbers(text: string): number[] {
   );
 }
 
-/** The rendered strings a tool's page shows: facts, FAQ (→ JSON-LD), steps. */
+/**
+ * The rendered strings a tool's page shows — through `page-copy`, the same
+ * accessors the page renders: facts, the FAQ (→ FAQPage JSON-LD), the steps
+ * (→ HowTo JSON-LD), the intro and use cases, and the meta description.
+ * Until 2026-09-27 this read `toolFaq`/`howToSteps` directly; the page moved
+ * to authored content that day, and reading the old accessors would have
+ * certified strings the page no longer showed.
+ */
 function renderedStrings(tool: Tool): string[] {
+  const content = pageContent(tool);
   return [
     ...toolFacts(tool.slug).map((fact) => `${fact.label}: ${fact.value}`),
-    ...toolFaq(tool).map((entry) => `${entry.question} ${entry.answer}`),
-    ...howToSteps(tool),
+    ...pageFaq(tool).map((entry) => `${entry.question} ${entry.answer}`),
+    ...pageSteps(tool).map(stepText),
+    ...pageIntro(tool),
+    ...pageUseCases(tool).map((u) => `${u.title}. ${u.body}`),
+    ...(content ? [content.seoTitle, content.metaDescription] : []),
   ];
 }
 
@@ -253,11 +705,18 @@ interface ProbeResult {
   atCeiling: { reachedProvider: boolean };
 }
 
-function recordingProvider(): AiProvider & { calls: AiCompletionRequest[] } {
+/**
+ * A provider that answers at once and records every request. `text` defaults
+ * to a translation; the per-call measurement passes a JSON object, the one
+ * reply all three of its engines (a summary, an answer, an extraction) accept.
+ */
+function recordingProvider(
+  text = "texte traduit",
+): AiProvider & { calls: AiCompletionRequest[] } {
   const calls: AiCompletionRequest[] = [];
   const success: AiCompletionResult = {
     ok: true,
-    text: "texte traduit",
+    text,
     model: "claude-sonnet-5",
     usage: { inputTokens: 10, outputTokens: 5 },
   };
@@ -320,6 +779,76 @@ const OUTPUT_BOUND_PROBES: Record<
   },
 };
 
+/**
+ * Every per-question engine must have a probe here, keyed by slug. A probe RUNS
+ * the engine with NO job cap — its own ceiling, the one the page states — and
+ * measures, in the request the provider received, the document plus the
+ * conversation sent with it: the ceiling covers both ("conversation included"
+ * on the panel). Until 2026-09-27 (history kept) it measured the document
+ * alone, and the engine sent a full ceiling of document with the question on
+ * top whenever a job arrived without a cap — which, once chat was priced per
+ * call, is every undeclared question and every question until the worker
+ * proves its read cap. `sentAt` is a document that exactly fits beside the
+ * question, so "all of one that fits" still asks about a whole document.
+ */
+const PER_QUESTION_PROBES: Record<
+  string,
+  (ceiling: number) => Promise<{ sentOver: number; sentAt: number }>
+> = {
+  "chat-with-pdf": async (ceiling) => {
+    const START = "--- DOCUMENT START ---\n";
+    const END = "\n--- DOCUMENT END ---";
+    const QUESTION = "What does it say?";
+    /** Document plus conversation, read off the request — or -1 if absent. */
+    const readIn = (provider: { calls: AiCompletionRequest[] }) => {
+      const call = provider.calls[0];
+      const system = call?.system ?? "";
+      const start = system.indexOf(START);
+      const end = system.indexOf(END);
+      if (!call || start < 0 || end < 0) return -1;
+      const conversation = call.messages.reduce(
+        (sum, message) => sum + message.content.length,
+        0,
+      );
+      return end - (start + START.length) + conversation;
+    };
+    const over = recordingProvider();
+    await runChatWithPdf(
+      new Uint8Array([1, 2, 3]),
+      { question: QUESTION },
+      { extract: extractorFor("a".repeat(ceiling + 1)), provider: over },
+    );
+    const at = recordingProvider();
+    await runChatWithPdf(
+      new Uint8Array([1, 2, 3]),
+      { question: QUESTION },
+      {
+        extract: extractorFor("a".repeat(ceiling - QUESTION.length)),
+        provider: at,
+      },
+    );
+    return { sentOver: readIn(over), sentAt: readIn(at) };
+  },
+};
+
+/**
+ * NO EXEMPTIONS. Every AI tool in the catalogue goes through every per-tool
+ * check below, with no list of slugs to leave out.
+ *
+ * INVERTED 2026-09-27, history kept. For one commit this file carried a
+ * `PENDING_COPY` map that took chat-with-pdf out of both "states its own
+ * ceiling" checks, because chat's FAQ answer "How much of my PDF does Chat
+ * with PDF read?" is built in `tool-facts.ts` (owned by a separate copy
+ * change) and still said 500,000 characters after chat's engine began reading
+ * at most `CHAT_MAX_CHARACTERS_PER_QUESTION`. Each entry was asserted to be
+ * "still wrong", so it would go red when the copy was fixed. That did not make
+ * it safe: while the entry stood, the false answer shipped as FAQPage JSON-LD
+ * with every guard that could see it switched off for that page. A guard that
+ * exempts a defect lets it ship, and the exemption reads like an argument that
+ * it was fine. If a page's copy lags its engine, this file goes RED and the
+ * change waits for the copy. It does not carve the page out.
+ */
+
 /* ------------------------------------------------------------------ *
  *  The checks.
  * ------------------------------------------------------------------ */
@@ -359,6 +888,20 @@ describe("the derived sets are alive", () => {
     }
   });
 
+  it("every per-question engine has a behavioural probe, by name", () => {
+    const perQuestion = aiTools
+      .map((t) => t.slug)
+      .filter((slug) => boundKind(slug) === "per-question");
+    // Positive control on the classifier: chat IS per-question.
+    expect(perQuestion).toContain("chat-with-pdf");
+    for (const slug of perQuestion) {
+      expect(
+        PER_QUESTION_PROBES[slug],
+        `${slug} is classified per-question but has no probe`,
+      ).toBeDefined();
+    }
+  });
+
   it("every output-bound engine has a behavioural probe, by name", () => {
     const outputBound = aiTools
       .map((t) => t.slug)
@@ -374,6 +917,112 @@ describe("the derived sets are alive", () => {
           "classification the engine is never RUN against is decoration",
       ).toBeDefined();
     }
+  });
+});
+
+describe("a per-call run's read is measured through the route's own pricing", () => {
+  it("the route's pricing function is discovered, and is the one that prices per-call runs", async () => {
+    const route = await discoverRoutePricing();
+    // Positive control on the discovery: today the route calls
+    // aiReservationFor (through the `@/lib/jobs` barrel, so by identity, not
+    // by specifier) with the shared limits object. If it moves, this names
+    // where to — and every measurement below follows it without being edited.
+    expect(route.price, `${route.specifier}#${route.name}`).toBe(
+      aiReservationFor,
+    );
+    expect(route.limits).toBe(AI_DELIVERY_LIMITS);
+  });
+
+  it("the per-call set is alive, and every member is a catalogue AI tool with a measurement", () => {
+    // Vacuity bound: three per-call tools today. A filter that returned none
+    // would make every per-call check below pass over nothing.
+    expect(PER_CALL_TOOLS.length).toBeGreaterThanOrEqual(3);
+    for (const slug of PER_CALL_TOOLS) {
+      expect(aiTools.map((t) => t.slug)).toContain(slug);
+      expect(measuredReads.has(slug), `${slug} was not measured`).toBe(true);
+    }
+  });
+
+  it("health: the measured document is longer than every figure any page states", () => {
+    for (const slug of PER_CALL_TOOLS) {
+      expect(LONG_DOCUMENT).toBeGreaterThan(engineCeiling(slug));
+      expect(LONG_DOCUMENT).toBeGreaterThan(aiReadLimitFor(slug));
+    }
+  });
+
+  it("both witness states are really priced, and priced differently", () => {
+    // "the smaller of two states" is vacuous if the pricing never asks the
+    // witness: a proven worker is handed a bound, an unproven one none.
+    for (const slug of PER_CALL_TOOLS) {
+      const { deliveries } = measuredReads.get(slug)!;
+      expect(
+        deliveries.proven,
+        `${slug}: no bound under a proving worker`,
+      ).toBeDefined();
+      expect(
+        deliveries.unproven,
+        `${slug}: a bound under an unproven worker`,
+      ).toBeUndefined();
+    }
+  });
+
+  it.each(PER_CALL_TOOLS.map((slug) => [slug] as const))(
+    "%s: POSITIVE CONTROL — the measurement sees a bound the pricing hands down",
+    async (slug) => {
+      // Without this, a measurement that ignored `delivery` (a registry wired
+      // past the processor, a run that never reached the provider) would
+      // report the engine window as "what the pricing allows" forever.
+      const small = 400;
+      const read = await readByProcessor(slug, { characters: small });
+      expect(read, `${slug} did not reach the provider`).not.toBeNull();
+      const conversation =
+        boundKind(slug) === "per-question"
+          ? (MINIMAL_OPTIONS[slug]!.question as string).length
+          : 0;
+      expect(read).toBe(small + conversation);
+    },
+  );
+
+  it.each(PER_CALL_TOOLS.map((slug) => [slug] as const))(
+    "%s: the processor never reads past its engine, and the published figure IS what one run reads",
+    (slug) => {
+      const honoured = honouredCeiling(slug);
+      // The processor can only lower the engine's window, never raise it.
+      expect(honoured).toBeLessThanOrEqual(engineCeiling(slug));
+      expect(honoured).toBeGreaterThan(0);
+      // The figure every surface interpolates, derived from the pricing in
+      // `ai-read-limit.ts`, against what the route's pricing and the real
+      // processor actually let through. Two derivations, one number.
+      expect(
+        AI_READ_LIMITS[slug],
+        `ai-read-limit publishes ${AI_READ_LIMITS[slug]?.toLocaleString("en-US")} ` +
+          `characters for ${slug}, but one run reads ${honoured.toLocaleString("en-US")} ` +
+          "through the route's pricing and the processor",
+      ).toBe(honoured);
+    },
+  );
+
+  it.each(PER_CALL_TOOLS.map((slug) => [slug] as const))(
+    "%s: a proving worker and an unproven one read the same amount, so one figure is true of both",
+    (slug) => {
+      // The published figure is the smaller of the two (`ai-read-limit`), so
+      // it never promises a read some image will not give. But the pages also
+      // say a longer document "is read up to that point only": on an image that
+      // read MORE, that sentence is false in the other direction. If the two
+      // states ever part, the copy has to say which image reads what before
+      // this goes green again — not quietly state the smaller one.
+      const { proven, unproven } = measuredReads.get(slug)!;
+      expect(
+        proven,
+        `${slug} reads ${proven?.toLocaleString("en-US")} under a worker that ` +
+          `proves its read cap and ${unproven?.toLocaleString("en-US")} under one ` +
+          "that does not",
+      ).toBe(unproven);
+    },
+  );
+
+  it("ai-read-limit publishes a figure for exactly the per-call tools", () => {
+    expect(Object.keys(AI_READ_LIMITS).sort()).toEqual(PER_CALL_TOOLS);
   });
 });
 
@@ -401,6 +1050,25 @@ describe("the enforcement honours the classified ceiling (run, not read)", () =>
         `${slug} refused a document AT its published ceiling — the page ` +
           "under-promises what the engine honours",
       ).toBe(true);
+    },
+  );
+});
+
+describe("the per-question engine reads exactly its ceiling (run, not read)", () => {
+  it.each(Object.keys(PER_QUESTION_PROBES))(
+    "%s sends the model no more than its ceiling, conversation included, and all of a document that fits",
+    async (slug) => {
+      // The ENGINE's ceiling: this runs the engine with no job cap. What the
+      // route's pricing and the processor make of it is measured separately.
+      const ceiling = engineCeiling(slug);
+      const probe = await PER_QUESTION_PROBES[slug]!(ceiling);
+      expect(
+        probe.sentOver,
+        `${slug} sent ${probe.sentOver} characters of document and conversation ` +
+          `for a ${ceiling + 1}-character document — the ceiling the page ` +
+          "states is not the one it reads to",
+      ).toBe(ceiling);
+      expect(probe.sentAt).toBe(ceiling);
     },
   );
 });
@@ -440,9 +1108,14 @@ describe("every stated ceiling is the honoured one", () => {
         pagesAtDensest(honoured),
         pagesAtSparsest(honoured),
       ]);
-      const ceilingSentences = renderedStrings(tool).filter(
-        (text) => characterClaims(text).length > 0,
-      );
+      // Sentence by sentence: a FAQ answer can state the ceiling in one
+      // sentence and the allowance in the next, and only the first is held
+      // to the ceiling's page floors. File sizes (MB) are `file-ceilings`'
+      // subject, not this one's.
+      const ceilingSentences = renderedStrings(tool)
+        .flatMap(sentencesOf)
+        .filter((text) => characterClaims(text).length > 0)
+        .map((text) => text.replace(/\d[\d,]*\s*(?:MB|GB)\b/g, ""));
       expect(ceilingSentences.length).toBeGreaterThanOrEqual(1);
       for (const sentence of ceilingSentences) {
         for (const value of allNumbers(sentence)) {
@@ -461,27 +1134,77 @@ describe("every stated ceiling is the honoured one", () => {
   it.each(aiTools.map((tool) => [tool.slug] as const))(
     "%s's panel references the constant its engine enforces, and not the other",
     (slug) => {
-      const honoured = honouredCeiling(slug);
+      // A per-call tool's panel states the figure derived from the route's
+      // pricing (`aiReadLimitFor`), and no engine constant beside it: until
+      // 2026-10-06 the summarize and extract rows interpolated
+      // AI_INPUT_LIMITS.maxInputCharacters directly, true only while nothing
+      // between the engine and the run lowered it.
       const panel = withoutComments(read(panels.get(slug)!));
-      const readBound = honoured === AI_INPUT_LIMITS.maxInputCharacters;
-      const required = readBound
-        ? "AI_INPUT_LIMITS.maxInputCharacters"
-        : "TRANSLATE_MAX_INPUT_CHARS";
-      const forbidden = readBound
-        ? "TRANSLATE_MAX_INPUT_CHARS"
-        : "AI_INPUT_LIMITS";
+      const required = panelConstant(slug);
+      // USED, not merely imported: an import line satisfied this check while
+      // the row beside it hand-wrote the figure (mutation-checked 2026-10-06).
+      const body = panel.replace(/^import[\s\S]*?from\s*"[^"]+";$/gm, "");
       expect(
-        panel,
+        body,
         `${relative(panels.get(slug)!)} must state its limit via ${required}`,
       ).toContain(required);
+      // Every OTHER ceiling name is forbidden — by its root name, so
+      // "AI_INPUT_LIMITS" catches any field of it, not just the one we know.
+      for (const other of CEILING_NAMES) {
+        if (other === required) continue;
+        const forbidden = other.split(".")[0]!;
+        expect(
+          panel,
+          `${relative(panels.get(slug)!)} references ${forbidden}, which is ` +
+            "another bound's constant — translate's and the shared cap were " +
+            "49x apart on 2026-08-11, chat's and the shared cap 12x on 2026-09-27",
+        ).not.toContain(forbidden);
+      }
+    },
+  );
+
+  it.each(aiTools.map((tool) => [tool.slug, tool] as const))(
+    "%s's panel, AS RENDERED, states its own ceiling and no other",
+    async (slug, tool) => {
+      // The panel a visitor receives, not its source (wave1/l01-page-leak): a
+      // source scan for the constant's NAME is satisfied by any sentence that
+      // interpolates it, whatever else the rendered row says beside it.
+      const honoured = honouredCeiling(slug);
+      const text = await renderedPanelText(slug, tool);
+      const claims = characterClaims(text);
       expect(
-        panel,
-        `${relative(panels.get(slug)!)} references ${forbidden}, which is the ` +
-          "other bound's constant — the two numbers were 49x apart on 2026-08-11",
-      ).not.toContain(forbidden);
+        claims.length,
+        `${relative(panels.get(slug)!)} renders no character ceiling at all`,
+      ).toBeGreaterThanOrEqual(1);
+      for (const claim of claims) {
+        expect(
+          claim,
+          `${relative(panels.get(slug)!)} renders "${claim.toLocaleString("en-US")} ` +
+            `characters" but one run of ${slug} honours ` +
+            honoured.toLocaleString("en-US"),
+        ).toBe(honoured);
+      }
     },
   );
 });
+
+/** The panel as a visitor receives it: server-rendered, tags stripped. */
+async function renderedPanelText(slug: string, tool: Tool): Promise<string> {
+  const entry = panelComponents.get(slug);
+  if (!entry) throw new Error(`no dispatched panel component for ${slug}`);
+  const mod = (await import(/* @vite-ignore */ entry.specifier)) as Record<
+    string,
+    ComponentType<{ tool: Tool }>
+  >;
+  const Panel = mod[entry.component];
+  if (!Panel) {
+    throw new Error(`${entry.specifier} exports no ${entry.component}`);
+  }
+  return renderToStaticMarkup(createElement(Panel, { tool }))
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ");
+}
 
 describe("the third surface someone adds next month", () => {
   it("no copy file hand-writes a ceiling-scale character figure", () => {
@@ -502,7 +1225,7 @@ describe("the third surface someone adds next month", () => {
   });
 
   it("every copy file referencing a ceiling constant is an attributed surface", () => {
-    // A new component quoting AI_INPUT_LIMITS (or TRANSLATE_MAX_INPUT_CHARS)
+    // A new component quoting AI_INPUT_LIMITS, aiReadLimitFor or TRANSLATE_MAX_INPUT_CHARS
     // is a new ceiling surface. It must land in the attribution above — the
     // per-tool panel map or the rendered tool-facts strings — or this fails
     // and names it, instead of a third surface shipping unchecked.
@@ -512,6 +1235,14 @@ describe("the third surface someone adds next month", () => {
         .map(([, file]) => relative(file)),
     );
     attributed.add("src/lib/tools/tool-facts.ts");
+    // Each AI tool's authored content file: its strings reach the page through
+    // `page-copy`, which `renderedStrings` reads per tool — so the checks
+    // above hold them. Derived from the content index, not named.
+    const contentFiles = toolContentFiles();
+    for (const tool of aiTools) {
+      const file = contentFiles.get(tool.slug);
+      if (file) attributed.add(relative(file));
+    }
     // The allowance module derives the DAILY BUDGET from the per-call ceiling; it
     // does not state the ceiling itself. Its two sentences are attributed — and
     // checked in both directions — by `ratelimit/allowance-copy.test.ts`, whose
@@ -528,9 +1259,8 @@ describe("the third surface someone adds next month", () => {
     const offenders = copyFiles()
       .filter((file) => {
         const source = withoutComments(read(file));
-        return (
-          source.includes("AI_INPUT_LIMITS") ||
-          source.includes("TRANSLATE_MAX_INPUT_CHARS")
+        return CEILING_NAMES.some((constant) =>
+          source.includes(constant.split(".")[0]!),
         );
       })
       .map(relative)
@@ -557,7 +1287,7 @@ describe("the third surface someone adds next month", () => {
           "surface and must be attributed per-tool rather than excepted here",
       ).toBe(false);
       expect(
-        /TRANSLATE_MAX_INPUT_CHARSs*.s*toLocaleString/.test(source),
+        /TRANSLATE_MAX_INPUT_CHARS\s*\.\s*toLocaleString/.test(source),
         file + " renders the ceiling for a reader, so it IS a copy surface",
       ).toBe(false);
     }
@@ -578,6 +1308,37 @@ describe("controls", () => {
     const claims = characterClaims(shipped);
     expect(claims.length).toBeGreaterThanOrEqual(1);
     expect(claims.some((claim) => claim !== honoured)).toBe(true);
+  });
+
+  it("the not-a-ceiling classes are exercised both ways", () => {
+    // Every class exempts the sentence that needed it...
+    for (const kind of NOT_A_CEILING) {
+      expect(rawCharacterClaims(kind.shipped).length, kind.what).toBe(1);
+      expect(characterClaims(kind.shipped), kind.what).toEqual([]);
+    }
+    // ...and that sentence is one an AI page SERVES today. An exemption whose
+    // example the product no longer ships is a pattern nothing exercises.
+    const served = aiTools.flatMap(renderedStrings).join(" ");
+    for (const kind of NOT_A_CEILING) {
+      expect(
+        served.includes(kind.shipped),
+        `${kind.what}: "${kind.shipped}" is not on any AI page`,
+      ).toBe(true);
+    }
+    // ...and none exempts a ceiling, including one whose VALUE is the charge.
+    for (const ceiling of [
+      "Chat with PDF reads up to 10,258 characters of your document.",
+      "The model is sent at most 10,258 characters of the extracted text.",
+      "Up to 500,000 characters of selectable text — roughly 81 pages.",
+    ]) {
+      expect(characterClaims(ceiling).length, ceiling).toBe(1);
+    }
+    // A neighbouring sentence does not excuse a ceiling.
+    expect(
+      characterClaims(
+        "Each run costs a share of the allowance. It reads 10,258 characters.",
+      ),
+    ).toEqual([10_258]);
   });
 
   it("health check: the extractor sees numbers in known-good copy", () => {

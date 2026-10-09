@@ -2,16 +2,27 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { buildMetadata } from "@/lib/seo";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
-import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 import { AnalyticsChoices } from "@/components/analytics/analytics-choices";
 
+/**
+ * The windows this page states, each read from the code that enforces it —
+ * see `src/lib/retention-windows.ts` for which clock is whose, and why an
+ * upload's life is bounded by the storage rule and not by the input TTL.
+ */
+const {
+  outputLink: outputWindow,
+  inputStorageRule,
+  outputStorageRule,
+  jobRecord: jobRecordWindow,
+} = RETENTION_WINDOWS;
+
 export const metadata: Metadata = buildMetadata({
   title: "Privacy Policy",
-  description:
-    "What pdf.xyz does with your files. Most tools never upload anything; the rest process on a worker that deletes the upload when the job ends and stops serving the result after an hour. No accounts, no advertising, no sale of personal data.",
+  description: `What pdf.xyz does with your files. Most tools never upload anything; the rest process on a worker that deletes the upload when the job ends and stops serving the result after ${outputWindow}. No accounts, no advertising, no sale of personal data.`,
   path: "/privacy",
 });
 
@@ -20,7 +31,8 @@ export const metadata: Metadata = buildMetadata({
  * it, not written alongside it.
  *
  * The counts come from the catalogue's `processing` field, and the retention
- * windows from `DEFAULT_RETENTION` — the same constants the API enforces. A
+ * windows from `RETENTION_WINDOWS`, which reads each one from the code that
+ * enforces it — the API, the lifecycle generator, the queue. A
  * policy is the highest-stakes place in a product to state something that is not
  * true, and this repository has twice shipped a promise it did not keep: a
  * pipeline description claiming every file was malware-scanned when no scanner
@@ -43,17 +55,6 @@ const inBrowser = split.neverUploads.length;
 const onWorker = split.mayUpload.length;
 /** The browser-first tools, counted so the sentence below can name them. */
 const browserFirst = split.browserFirst.length;
-
-/**
- * Number and unit as ONE expression.
- *
- * Split across a JSX boundary — `{minutes} minutes` — the leading space is
- * eaten when the expression and the word fall either side of a line break, and
- * the page renders "60minutes". It reads as carelessness, which is the one
- * quality a policy cannot afford.
- */
-const inputWindow = `${DEFAULT_RETENTION.inputTtlMinutes} minutes`;
-const outputWindow = `${DEFAULT_RETENTION.outputTtlMinutes} minutes`;
 
 export default function PrivacyPage() {
   return (
@@ -134,7 +135,7 @@ export default function PrivacyPage() {
         {browserFirst > 0 && (
           <p>
             <strong className="text-fg font-semibold">
-              {/* One expression, for the reason recorded above `inputWindow`:
+              {/* One expression, for the reason recorded in retention-windows.ts:
                   split across a JSX line break the space is eaten and the page
                   renders "1of 21". And phrased about the GROUP rather than the
                   tool, so the sentence stays grammatical whatever its size. */}
@@ -172,24 +173,30 @@ export default function PrivacyPage() {
             <strong className="text-fg font-semibold">
               The uploaded file is actively deleted
             </strong>{" "}
-            as soon as the job reaches an end — success or failure — and in any
-            case within {inputWindow}. If a job hits a temporary error and is
-            retried, the file is kept for that retry rather than re-uploaded.
+            as soon as the job reaches an end — success or failure. If a job
+            hits a temporary error and is retried, the file is kept for that
+            retry rather than re-uploaded. An upload that never reaches a
+            job&apos;s end — you closed the tab, or the job was refused or
+            cancelled after the file arrived — has nothing to delete it
+            actively. It is erased instead by a storage rule that runs on a
+            daily cycle and removes uploads after they are {inputStorageRule}{" "}
+            old, so such a file can stay in storage for {inputStorageRule} or
+            longer.
           </li>
           <li>
             <strong className="text-fg font-semibold">
               The result stops being downloadable after {outputWindow}.
             </strong>{" "}
             After that the link returns an error and nobody can retrieve it,
-            including us. The stored copy is then erased by a storage rule that
-            runs on a daily cycle, so the bytes typically survive a few hours
-            longer than the link does. We would rather say that than round it to
-            a number that sounds better.
+            including us. The stored copy is erased by the same daily storage
+            rule, some time after it is {outputStorageRule} old — so the bytes
+            outlive the link until then, unreadable but present. We would rather
+            say that than round it to a number that sounds better.
           </li>
           <li>
             <strong className="text-fg font-semibold">
               A record of the job — including your file&apos;s name — is kept
-              for about 24 hours
+              for about {jobRecordWindow}
             </strong>{" "}
             so the system can report status, avoid duplicating work, and retry
             safely. It does not contain your document&apos;s contents.
@@ -209,9 +216,9 @@ export default function PrivacyPage() {
           </strong>{" "}
           If you use the tools that add or remove a PDF password, the password
           you type is part of the instruction sent to the worker, and it sits in
-          that job record for the same ~24 hours. It is never written to a log,
-          an error message, a filename, or a result. Still: if a password is one
-          you use elsewhere, change it, or use it only for the document.
+          that job record for the same {jobRecordWindow}. It is never written to
+          a log, an error message, a filename, or a result. Still: if a password
+          is one you use elsewhere, change it, or use it only for the document.
         </p>
         <p>
           Every tool page states which of these two applies <em>before</em> you
@@ -465,10 +472,15 @@ export default function PrivacyPage() {
           . We will not treat you differently for asking.
         </p>
         <p>
-          Please be aware of a practical limit: because we hold no accounts and
-          delete files within an hour, a request about a document you processed
-          is usually a request about data that no longer exists. We are also
-          often unable to connect a request to a specific past request without
+          Please be aware of a practical limit. We hold no accounts, and nothing
+          about a document you processed outlives the timetable in section 2:
+          the upload is deleted when its job ends (or by the daily storage rule
+          if it never ran), the result stops being downloadable after{" "}
+          {outputWindow} and its stored copy follows by the same rule, and the
+          job record — the filename included — expires after about{" "}
+          {jobRecordWindow}. So a request about a document you processed is
+          usually a request about data that no longer exists. We are also often
+          unable to connect a request to a specific past request without
           information that would identify you more than we currently do — we
           will not create a record of you in order to answer.
         </p>

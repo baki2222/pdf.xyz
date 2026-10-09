@@ -38,6 +38,13 @@ import { getToolBySlug, tools } from "./index";
 import { modeUploadsFiles } from "./processing-split";
 import { withoutComments } from "./copy-surface";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
+import { REQUEST_PACKAGE_FILES } from "@/lib/jobs/request-signatures";
+
+/**
+ * A call that hands the user an archive in the browser: `zipFiles(` itself, or
+ * the hook every runner now builds its ZIP through (`use-zip-download.ts`).
+ */
+const ARCHIVE_CALL = /\b(?:zipFiles|useZipDownload)\s*\(/;
 
 /** Tools whose downloadable artifact is a ZIP bundle, and the engine that writes it. */
 const BUNDLE_TOOLS: readonly { slug: string; engine: string }[] = [
@@ -60,14 +67,40 @@ const BUNDLE_TOOLS: readonly { slug: string; engine: string }[] = [
 function bundledFormats(engineFile: string): Set<string> {
   const source = readFileSync(path.join(process.cwd(), engineFile), "utf8");
   const formats = new Set<string>();
-  for (const match of source.matchAll(/zip\.file\(\s*[`"']([^`"']+)[`"']/g)) {
-    const name = match[1]!;
-    if (name.includes("/")) continue;
+  const add = (name: string) => {
+    if (name.includes("/")) return;
     const ext = name.split(".").pop();
     if (ext && ext !== name) formats.add(ext.toUpperCase());
+  };
+  // Every `zip.file(` call is accounted for: a literal name, or a member of a
+  // name record the engine shares with its tool page. An argument this can
+  // not read is FATAL rather than skipped — a skipped entry is a format this
+  // guard silently never sees, which is how a literal-only scan would have
+  // read request-signatures' package as writing nothing at all.
+  for (const match of source.matchAll(/zip\.file\(\s*([^,)]+)/g)) {
+    const arg = match[1]!.trim();
+    const literal = /^[`"']([^`"']+)[`"']$/.exec(arg);
+    if (literal) {
+      add(literal[1]!);
+      continue;
+    }
+    const member = /^([A-Z][A-Z0-9_]*)\.(\w+)$/.exec(arg);
+    const record = member ? ZIP_NAME_RECORDS[member[1]!] : undefined;
+    const name = member && record ? record[member[2]!] : undefined;
+    if (name === undefined) {
+      throw new Error(
+        `${engineFile}: cannot read the zip entry name \`${arg}\` — add its record to ZIP_NAME_RECORDS`,
+      );
+    }
+    add(name);
   }
   return formats;
 }
+
+/** Name records an engine may pass to `zip.file`, resolved to their values. */
+const ZIP_NAME_RECORDS: Readonly<
+  Record<string, Readonly<Record<string, string>>>
+> = { REQUEST_PACKAGE_FILES };
 
 describe("a tool's advertised outputs match what its engine writes", () => {
   it.each(BUNDLE_TOOLS)(
@@ -186,7 +219,13 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       } catch {
         return false;
       }
-      if (withoutComments(source).includes("zipFiles(")) return true;
+      // A ZIP is built by calling `zipFiles(` or — since 2026-09-27, when the
+      // four hand-written download paths became `useZipDownload()` so a failed
+      // build is shown to the user — by calling that hook. The refactor moved
+      // the call out of every runner, and this walk's positive control
+      // (compress-pdf, split-pdf) went red on it: the subject moved, so the
+      // predicate follows it. Still a CALL, never an import (ARCHIVE_CALL).
+      if (ARCHIVE_CALL.test(withoutComments(source))) return true;
       if (depth === 0) return false;
       for (const m of source.matchAll(
         /import\s+(?:type\s+)?\{[^}]*\}\s+from\s+"(\.\/[^"]+)"/g,
@@ -198,6 +237,19 @@ describe("a tool's advertised outputs match what its engine writes", () => {
       }
       return false;
     };
+
+    // `useZipDownload(` counts as a call because the hook is the ZIP: since the
+    // silent-failure fix every runner archive goes through it, and a walk that
+    // looked only for `zipFiles(` lost compress-pdf AND split-pdf the moment it
+    // landed (the positive controls below are what said so). That equivalence
+    // is checked here, not asserted: if the hook stops calling `zipFiles(`,
+    // counting its callers as archive tools is no longer licensed.
+    expect(
+      /\bzipFiles\s*\(/.test(
+        withoutComments(read(`${RUNNER_DIR}/use-zip-download.ts`)),
+      ),
+      "useZipDownload no longer calls zipFiles(",
+    ).toBe(true);
 
     // Health check FIRST: a walk that resolved nothing would make the
     // assertion below vacuously true, which is the strongest possible pass.
@@ -225,6 +277,7 @@ describe("a tool's advertised outputs match what its engine writes", () => {
     // reason the walk follows imports and reads the registry at all.
     expect([...archiveSlugs].sort()).toContain("compress-pdf"); // one level down
     expect([...archiveSlugs].sort()).toContain("split-pdf"); // in the component
+    expect([...archiveSlugs].sort()).toContain("pdf-to-png"); // through the hook
 
     const underDeclared = [...archiveSlugs]
       .filter((slug) => !getToolBySlug(slug)?.outputs.includes("ZIP"))

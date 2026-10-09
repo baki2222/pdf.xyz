@@ -11,8 +11,10 @@
  *    separators or traversal.
  */
 
+import { isInternalHostname } from "@/lib/net/public-address";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
+import { workerFileCeilingBytes } from "@/lib/workers/engine-file-ceilings";
 import {
   getToolInputKind,
   capabilityForMode,
@@ -20,6 +22,9 @@ import {
 } from "./capabilities";
 import { apiError, type ParseResult } from "./responses";
 import { sanitizeDisplayFilename } from "./filenames";
+// The intake gate's normalizer, not a copy: both layers must read a content type the
+// same way. Imported from the import-free leaf, not the intake barrel.
+import { normalizeContentType } from "@/lib/uploads/intake/families";
 import {
   JOB_LIMITS,
   type CreateJobRequest,
@@ -33,7 +38,6 @@ import {
 const FILE_ID = /^f_[A-Za-z0-9_-]{10,64}$/;
 const JOB_ID = /^job_[A-Za-z0-9_-]{10,64}$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,200}$/;
-const MIME_SHAPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 
 export function isValidJobId(id: string): boolean {
   return JOB_ID.test(id);
@@ -59,6 +63,7 @@ export function isValidFileId(id: string): boolean {
 // tool catalogue with it). Re-exported under the same name for existing callers.
 export { MIME_BY_FORMAT } from "./mime-by-format";
 import { MIME_BY_FORMAT } from "./mime-by-format";
+import { formatByteLimit } from "@/lib/uploads/byte-limit";
 
 function allowedMimeTypesForTool(tool: Tool): Set<string> {
   const set = new Set<string>();
@@ -96,23 +101,25 @@ function isValidFilename(name: unknown): name is string {
   return true;
 }
 
-function normalizeContentType(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  // Strip any parameters, e.g. "text/plain; charset=utf-8".
-  const base = value.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!MIME_SHAPE.test(base)) return null;
-  return base;
-}
-
 function byteLength(text: string): number {
   return new TextEncoder().encode(text).length;
 }
 
 /**
- * SSRF guard for URL-input tools. Blocks non-http(s), localhost, private and
- * link-local ranges, and internal TLDs at the edge. The worker's egress policy
- * is the real enforcement layer; this is defense in depth and keeps the contract
- * from ever accepting an arbitrary URL.
+ * Early SSRF rejection for URL-input tools, at the edge.
+ *
+ * This is NOT the enforcement layer and does not pretend to be: the edge cannot
+ * see what DNS will return at render time, nor where a redirect or a
+ * sub-resource will point. The enforcement is the worker renderer's request
+ * interceptor (`src/lib/workers/html-render/network.ts`), which applies the
+ * same classifier to every address DNS returns for every request Chromium
+ * makes, and dials the address it checked. This check exists so an obviously
+ * internal URL is refused with a clear message before a job is ever queued.
+ *
+ * History: until 2026-09 this matched host strings (`/^127\./`,
+ * `host === "[::1]"`) and `localhost.`, `[::ffff:127.0.0.1]`, `[fd00::1]`,
+ * `[::]` and CGNAT addresses all passed. It now classifies the address, not
+ * its spelling (`@/lib/net/public-address`).
  */
 export function isSafePublicHttpUrl(raw: string): boolean {
   let url: URL;
@@ -123,19 +130,9 @@ export function isSafePublicHttpUrl(raw: string): boolean {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   if (url.username || url.password) return false; // no embedded credentials
-
-  const host = url.hostname.toLowerCase();
-  if (host.length === 0) return false;
-  if (host === "localhost" || host.endsWith(".localhost")) return false;
-  if (host.endsWith(".local") || host.endsWith(".internal")) return false;
-  if (host === "::1" || host === "[::1]") return false;
-  if (host === "0.0.0.0") return false;
-  if (/^127\./.test(host)) return false; // loopback
-  if (/^10\./.test(host)) return false; // private
-  if (/^192\.168\./.test(host)) return false; // private
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false; // private
-  if (/^169\.254\./.test(host)) return false; // link-local / cloud metadata
-  return true;
+  // WHATWG URL has already canonicalised numeric IPv4 spellings
+  // (`0x7f000001`, `2130706433`, `127.1` → `127.0.0.1`) and compressed IPv6.
+  return !isInternalHostname(url.hostname);
 }
 
 // ─────────────────────────────── Error helpers ───────────────────────────────
@@ -200,6 +197,7 @@ function parseFileDescriptor(
   value: unknown,
   index: number,
   allowedMimes: Set<string>,
+  maxFileBytes: number,
 ): ParseResult<UploadFileDescriptor> {
   const field = `files[${index}]`;
   if (!isRecord(value)) {
@@ -231,9 +229,9 @@ function parseFileDescriptor(
       `${field}.bytes`,
     );
   }
-  if (bytes > JOB_LIMITS.maxFileBytes) {
+  if (bytes > maxFileBytes) {
     return tooLarge(
-      `${field}.bytes exceeds the ${JOB_LIMITS.maxFileBytes}-byte per-file limit.`,
+      `A file is larger than ${formatByteLimit(maxFileBytes)}, the most this tool accepts.`,
       `${field}.bytes`,
     );
   }
@@ -276,17 +274,22 @@ export function parseCreateUploadSessionRequest(
   }
 
   const allowedMimes = allowedMimeTypesForTool(tool);
+  // The tighter of the global cap and the ENGINE's: refusing here, before a
+  // slot is minted, is what keeps a file LibreOffice will refuse from being
+  // uploaded in full and malware-scanned first — and at the same figure the
+  // tool page states (`toolFileCeiling` reads this same function).
+  const maxFileBytes = workerFileCeilingBytes(tool.slug);
   const descriptors: UploadFileDescriptor[] = [];
   let totalBytes = 0;
   for (let i = 0; i < files.length; i++) {
-    const parsed = parseFileDescriptor(files[i], i, allowedMimes);
+    const parsed = parseFileDescriptor(files[i], i, allowedMimes, maxFileBytes);
     if (!parsed.ok) return parsed;
     totalBytes += parsed.value.bytes;
     descriptors.push(parsed.value);
   }
   if (totalBytes > JOB_LIMITS.maxTotalBytes) {
     return tooLarge(
-      `Combined size exceeds the ${JOB_LIMITS.maxTotalBytes}-byte session limit.`,
+      `These files add up to more than ${formatByteLimit(JOB_LIMITS.maxTotalBytes)}, the most one job can take.`,
       "files",
     );
   }
@@ -303,7 +306,7 @@ function parseOptions(value: unknown): ParseResult<Record<string, unknown>> {
   }
   if (byteLength(JSON.stringify(value)) > JOB_LIMITS.maxOptionsBytes) {
     return tooLarge(
-      `\`options\` exceeds the ${JOB_LIMITS.maxOptionsBytes}-byte limit.`,
+      `\`options\` is larger than ${formatByteLimit(JOB_LIMITS.maxOptionsBytes)}, the most a job's settings can be.`,
       "options",
     );
   }

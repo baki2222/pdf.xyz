@@ -174,6 +174,7 @@ describe("GET /api/worker/operations — daemon liveness heartbeat (Phase 30)", 
           atomicQueue: true,
           chunkedTranslate: true,
           deliveryCap: true,
+          aiReadCap: true,
         },
         at: Date.now() - 10 * 60 * 1000, // 10 minutes old ⇒ far past the fresh window
       }),
@@ -301,13 +302,15 @@ describe("GET /api/worker/operations — abuse guard", () => {
     resetRateLimitGuardForTests();
     delete process.env[RATE_LIMIT_ENV.provider];
     delete process.env[RATE_LIMIT_ENV.trustForwardedFor];
+    delete process.env[RATE_LIMIT_ENV.clientIpHeader];
   });
 
   it("still serves the content-free snapshot when a request is passed, without exposing identity", async () => {
     process.env[RATE_LIMIT_ENV.trustForwardedFor] = "on";
+    process.env[RATE_LIMIT_ENV.clientIpHeader] = "cf-connecting-ip";
     const res = await GET(
       new Request("http://localhost/api/worker/operations", {
-        headers: { "x-forwarded-for": "203.0.113.88" },
+        headers: { "cf-connecting-ip": "203.0.113.88" },
       }),
     );
     expect(res.status).toBe(200);
@@ -364,6 +367,7 @@ describe("GET /api/worker/operations — the rate-limit posture reaches the aler
     [RATE_LIMIT_REDIS_ENV.restUrl]: "https://example-store.upstash.io",
     [RATE_LIMIT_REDIS_ENV.restToken]: "A".repeat(48),
     [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+    [RATE_LIMIT_ENV.clientIpHeader]: "cf-connecting-ip",
     [RATE_LIMIT_ENV.keySalt]: "test-shared-salt",
   };
 

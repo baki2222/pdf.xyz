@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Download,
   MessageSquare,
@@ -9,37 +9,55 @@ import {
   Timer,
 } from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
-import {
-  AI_INPUT_LIMITS,
-  DEFAULT_RETENTION,
-  JOB_LIMITS,
-} from "@/lib/jobs/types";
+import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { MAX_QUESTION_CHARS } from "@/lib/jobs/chat-with-pdf";
+import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
-  AI_DAILY_ALLOWANCE_NOTE,
+  aiDailyAllowanceNote,
   aiToolUnavailableDetail,
 } from "@/lib/workers/ai-tool-availability";
 import {
   canRunChatWithPdf,
+  measureChatDocument,
   runWorkerChatWithPdf,
+  type ChatDocumentMeasurement,
+  chatWithPdfDeps,
+  type ChatWithPdfWorkerResult,
 } from "@/lib/workers/chat-with-pdf-client";
+import { extractPdfText } from "@/lib/pdf/text";
 import {
   buildChatContext,
   readAnswerFromPackage,
   type ChatExchange,
 } from "@/lib/workers/chat-with-pdf-conversation";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
-import { Dropzone, ErrorNote, WorkerRunButton } from "./runner/runner-kit";
+import { Dropzone, WorkerRunButton } from "./runner/runner-kit";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { TruncationNotice } from "./truncation-notice";
 import type { Job } from "@/lib/jobs/types";
 import { NotifyMe } from "./notify-me";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
+
+/**
+ * Shown under every answer. The only safeguard against a wrong answer is an
+ * instruction in the prompt; nothing checks the answer against the text, so
+ * the chat bubble — the one surface everyone reads — must not read as a
+ * guarantee. Exported for its test.
+ */
+export const AI_ANSWER_CAVEAT =
+  "AI-generated. Check it against your PDF before relying on it.";
 
 function badgeFor(
   phase: Phase,
@@ -54,44 +72,36 @@ function badgeFor(
     : { tone: "muted", label: "Not enabled", pulse: false };
 }
 
-export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
+/** The job driver. A prop, not a module mock, so a test can stub it without
+ * leaving this panel cached against a stub for the next test file (see
+ * src/tests/mock-isolation.test.ts). The page never passes it; the default
+ * calls through `chatWithPdfDeps`, the client module's own swappable seam. */
+type RunChat = typeof runWorkerChatWithPdf;
+const runThroughDeps: RunChat = (input, options) =>
+  chatWithPdfDeps.run(input, options);
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+/** How the panel counts a document before a question is sent; a prop for the
+ * same reason as `runChat`. The page never passes it. */
+type MeasureChat = (bytes: Uint8Array) => Promise<ChatDocumentMeasurement>;
+const measureWithPdfText: MeasureChat = (bytes) =>
+  measureChatDocument(bytes, extractPdfText);
+
+export function ChatWithPdfWorkerPanel({
+  tool,
+  runChat = runThroughDeps,
+  measureChat = measureWithPdfText,
+}: {
+  tool: Tool;
+  runChat?: RunChat;
+  measureChat?: MeasureChat;
+}) {
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunChatWithPdf(status);
-  const unavailableDetail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : aiToolUnavailableDetail(status);
+  // Read only once the status is known: the loading and error phases
+  // render <WorkerStatusPending>, which claims nothing about the tool.
+  const unavailableDetail = aiToolUnavailableDetail(status);
 
   return (
     <div className="">
@@ -116,21 +126,26 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
             configured AI model to answer your question using only that text —
             with inline page citations when the document has page-level text —
             then returns an answer package (the model&apos;s answer, a
-            plain-text copy, and a manifest recording the model and scope). It
-            never fabricates answers: with no AI model configured, a scanned PDF
-            with no selectable text, or an empty model reply, it fails honestly
-            instead of guessing.
+            plain-text copy, and a manifest recording the model and scope). With
+            no AI model configured, a scanned PDF with no selectable text, or an
+            empty model reply, the job fails instead of guessing. The model is
+            instructed to use only the document&apos;s text, but AI answers can
+            still be wrong, so check important answers against your PDF.
           </p>
         </div>
 
         {available && (
           <p className="text-muted text-xs leading-relaxed">
-            {AI_DAILY_ALLOWANCE_NOTE}
+            {aiDailyAllowanceNote(tool.slug)}
           </p>
         )}
         {available ? (
-          <ChatBuilder />
-        ) : (
+          <ChatBuilder
+            refuse={(file) => pickRefusal(tool, file)}
+            runChat={runChat}
+            measureChat={measureChat}
+          />
+        ) : phase === "ready" ? (
           <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
             <p className="text-muted text-sm leading-relaxed">
               {unavailableDetail}
@@ -139,8 +154,14 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
               No question box is shown until the worker is ready, so {tool.name}{" "}
               never pretends to answer from a document it cannot actually read.
             </p>
-            <NotifyMe toolName={tool.name} toolSlug={tool.slug} />
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={false}
+            />
           </div>
+        ) : (
+          <WorkerStatusPending phase={phase} onRetry={retry} />
         )}
 
         <div className="flex flex-col gap-3">
@@ -148,7 +169,7 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -187,13 +208,27 @@ export function ChatWithPdfWorkerPanel({ tool }: { tool: Tool }) {
           <SpecRow
             icon={ShieldCheck}
             label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${AI_INPUT_LIMITS.maxInputCharacters.toLocaleString("en-US")} characters read`}
+            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · up to ${aiReadLimitFor(tool.slug).toLocaleString("en-US")} characters per question, conversation included`}
           />
         </div>
       </div>
     </div>
   );
 }
+
+/**
+ * The outcome of a run that ended before anything was sent because the file
+ * was swapped. Never shown: the caller clears any outcome for a file that is
+ * no longer on screen.
+ */
+const NOT_SENT = {
+  ok: false as const,
+  message: "The document changed before the question was sent.",
+};
+
+/** Shown instead of uploading a PDF the browser found no text in. */
+const NO_TEXT_MESSAGE =
+  "This PDF has no selectable text to ask about. It may be a scan or an image-only PDF — run OCR PDF first, then chat with the result. Nothing was uploaded, and nothing was charged to the daily AI allowance.";
 
 function SpecRow({
   icon: Icon,
@@ -235,12 +270,57 @@ interface TranscriptEntry {
   job: Job;
 }
 
-function ChatBuilder() {
+function ChatBuilder({
+  refuse,
+  runChat,
+  measureChat,
+}: {
+  refuse: PickRefusal;
+  runChat: RunChat;
+  measureChat: MeasureChat;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [question, setQuestion] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  /** The question the job in flight (or left running) is answering. */
+  const asking = useRef<string | null>(null);
+
+  /** Add an answered job to the transcript. */
+  const record = useCallback(
+    async (result: ChatWithPdfWorkerResult, asked: string) => {
+      if (!result.ok) return;
+      const answer = await readAnswerFromPackage(result.output, asked);
+      setTranscript((prev) => [
+        ...prev,
+        {
+          id: prev.length,
+          question: asked,
+          answer,
+          filename: result.artifact.filename,
+          output: result.output,
+          job: result.job,
+        },
+      ]);
+    },
+    [],
+  );
+
+  const job = useWorkerJob<ChatWithPdfWorkerResult>({
+    tool: "chat-with-pdf",
+    // Picking up an answer the browser stopped waiting for. After a reload
+    // the question is no longer on screen, and the transcript says so rather
+    // than inventing it.
+    resume: async (id, controls) => {
+      const result = await resumeSecurityJob(id, {
+        ...controls,
+        tool: "chat-with-pdf",
+      });
+      await record(result, asking.current ?? "Your earlier question");
+      if (result.ok) setQuestion("");
+      return result;
+    },
+  });
+  const { busy, setOutcome, run } = job;
 
   const requestReady = question.trim().length > 0;
   const canRun = file != null && !busy && requestReady;
@@ -273,79 +353,108 @@ function ChatBuilder() {
    * panel displays it as if it belonged to the file on screen.
    */
   const fileToken = useRef(0);
+  /**
+   * The document's measurement, ONCE per file — keyed by the same token, so a
+   * swapped PDF is measured afresh and a follow-up does not re-parse it. A
+   * promise rather than a value, so two quick questions share one parse.
+   */
+  const measurement = useRef<{
+    token: number;
+    result: Promise<ChatDocumentMeasurement>;
+  } | null>(null);
 
-  const chooseFile = useCallback((next: File | null) => {
-    fileToken.current += 1;
-    setFile(next);
-    setTranscript([]);
-    setError(null);
-  }, []);
+  const chooseFile = useCallback(
+    (next: File | null) => {
+      fileToken.current += 1;
+      setFile(next);
+      setTranscript([]);
+      setOutcome(null);
+    },
+    [setOutcome],
+  );
 
   const start = useCallback(async () => {
     if (!file || !requestReady) return;
     const asked = question.trim();
     const startedFor = fileToken.current;
-    setBusy(true);
-    setError(null);
-    // Every exit from here — the two file-swap bail-outs, the happy path, and a
-    // rejected fetch — has to stop the spinner. A rejection used to escape this
-    // callback entirely, so `setBusy(false)` never ran and the button spun
-    // forever with no error, recoverable only by reloading the page.
-    try {
+    asking.current = asked;
+    const outcome = await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = await runWorkerChatWithPdf({
-        filename: file.name,
-        bytes,
-        question: asked,
-        ...(context.turns.length > 0 ? { context: context.turns } : {}),
-      });
-      // The document changed while this was running: the answer is about a file the user
-      // has already replaced, so it belongs to no transcript on screen. Drop it rather
-      // than showing it under the wrong PDF.
-      if (fileToken.current !== startedFor) {
-        return;
+      // MEASURED BEFORE ANYTHING IS SPENT, and declared with the job. Without
+      // the count every question reserved a whole call's worth — a third of
+      // the day for a question about one page.
+      if (measurement.current?.token !== startedFor) {
+        measurement.current = {
+          token: startedFor,
+          result: measureChat(bytes),
+        };
       }
+      const measured = await measurement.current.result;
+      // Nothing has been sent yet. A file swapped during the measurement ends
+      // the run here; the outcome is cleared below, as any other outcome for a
+      // file no longer on screen is.
+      if (fileToken.current !== startedFor) return NOT_SENT;
+      if (measured.kind === "no-text")
+        return { ok: false as const, message: NO_TEXT_MESSAGE };
+      const result = await runChat(
+        {
+          filename: file.name,
+          bytes,
+          question: asked,
+          ...(context.turns.length > 0 ? { context: context.turns } : {}),
+          // Only the DOCUMENT is declared: the route measures the question and
+          // the carried turns off the job's options and charges them itself.
+          documentCharacters:
+            measured.kind === "counted" ? measured.count.characters : null,
+        },
+        controls,
+      );
+      // The document changed while this was running: the answer is about a
+      // file the user has already replaced, so it belongs to no transcript on
+      // screen. Drop it rather than showing it under the wrong PDF.
+      if (fileToken.current !== startedFor) return result;
+      // Re-checked after the await: reading the package is itself asynchronous.
       if (result.ok) {
         const answer = await readAnswerFromPackage(result.output, asked);
-        // Re-checked after the await: reading the package is itself asynchronous.
-        if (fileToken.current !== startedFor) {
-          return;
+        if (fileToken.current === startedFor) {
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: prev.length,
+              question: asked,
+              answer,
+              filename: result.artifact.filename,
+              output: result.output,
+              job: result.job,
+            },
+          ]);
+          setQuestion("");
         }
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: prev.length,
-            question: asked,
-            answer,
-            filename: result.artifact.filename,
-            output: result.output,
-            job: result.job,
-          },
-        ]);
-        setQuestion("");
-      } else {
-        setError(result.message);
       }
-    } catch {
-      // No response to inspect: offline, DNS failure, a reset connection, or a
-      // file that could not be read. Say what is true and nothing more.
-      if (fileToken.current === startedFor) {
-        setError(
-          "Lost the connection before the answer came back. Check your network and try again.",
-        );
-      }
-    } finally {
-      setBusy(false);
-    }
-  }, [file, question, requestReady, context]);
+      return result;
+    });
+    // Whatever came back for a file that is no longer on screen — an answer
+    // or an error — is not about the document the user is looking at.
+    if (outcome && fileToken.current !== startedFor) setOutcome(null);
+  }, [
+    file,
+    question,
+    requestReady,
+    context,
+    run,
+    setOutcome,
+    runChat,
+    measureChat,
+  ]);
 
   return (
     <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker answers only
-        from the PDF&apos;s selectable text with a configured AI model — it does
-        not read scanned images (run OCR first) and never invents an answer.
+        Running this uses a private secure-worker job. The worker sends only the
+        PDF&apos;s selectable text to a configured AI model — it does not read
+        scanned images (run OCR first) — and the model is told to answer only
+        from that text. AI answers can still be wrong.
       </p>
 
       {file ? (
@@ -361,6 +470,7 @@ function ChatBuilder() {
         </div>
       ) : (
         <Dropzone
+          refuse={refuse}
           onFiles={(files) => chooseFile(files[0] ?? null)}
           accept="application/pdf,.pdf"
           multiple={false}
@@ -406,14 +516,14 @@ function ChatBuilder() {
         busy={busy}
         // `canRun` already folds in `!busy`; both go through one blocked branch.
         disabled={!canRun}
-        busyLabel="Answering…"
+        busyLabel={jobBusyLabel(job.phase, "Answering…")}
         icon={MessageSquare}
         tone="violet"
       >
         {transcript.length > 0 ? "Send follow-up" : "Ask the PDF"}
       </WorkerRunButton>
 
-      {error !== null && <ErrorNote message={error} />}
+      <WorkerJobStatus job={job} />
     </div>
   );
 }
@@ -440,9 +550,16 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
           {entry.answer !== null ? (
             // The model's answer verbatim, exactly as shipped in the package — never a
             // paraphrase, and never anything the panel composed itself.
-            <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">
-              {entry.answer}
-            </p>
+            <>
+              <p className="text-muted text-sm leading-relaxed whitespace-pre-wrap">
+                {entry.answer}
+              </p>
+              {/* Under EVERY answer, and not conditional on citations: an
+                  ungrounded answer has none to point at. */}
+              <p className="text-muted text-xs leading-relaxed">
+                {AI_ANSWER_CAVEAT}
+              </p>
+            </>
           ) : (
             <p className="text-warn text-sm leading-relaxed">
               The answer package came back, but its answer could not be read

@@ -58,6 +58,7 @@ const LIMITER: Record<string, Record<string, string>> = {
     PDFXYZ_RATE_LIMIT_REDIS_REST_URL: "https://example-store.upstash.io",
     PDFXYZ_RATE_LIMIT_REDIS_REST_TOKEN: "A".repeat(48),
     PDFXYZ_RATE_LIMIT_TRUST_PROXY: "true",
+    PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER: "cf-connecting-ip",
     PDFXYZ_RATE_LIMIT_KEY_SALT: "test-shared-salt",
   },
   "remote-configured-shared": {

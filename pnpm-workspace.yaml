@@ -2,3 +2,11 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+# Transitive build-tool advisories the direct bumps cannot reach (Next pins
+# them). Patch/minor lifts within the same major; `pnpm audit --prod` names
+# each one (GHSA advisories for nanoid <3.3.18, browserslist <4.28.7,
+# baseline-browser-mapping <2.11.0).
+overrides:
+  "nanoid@<3.3.18": "^3.3.18"
+  "browserslist@<4.28.7": "^4.28.7"
+  "baseline-browser-mapping@<2.11.0": "^2.11.0"

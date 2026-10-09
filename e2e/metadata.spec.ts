@@ -15,12 +15,54 @@ import { test, expect } from "@playwright/test";
  * generic title. Fetch the bytes; do not ask the DOM.
  */
 
+/**
+ * A tool page's title is its OWN when it is the title its metadata export
+ * declared, which the same export also serves as `og:title`, and when it
+ * names the tool the page's H1 names. These rows were the literals
+ * "Merge PDF — pdf.xyz" and "OCR PDF — pdf.xyz"; the seo/content merge gave
+ * every tool an authored search title, the served page became "Merge PDF
+ * Files Online — Combine in Your Browser — pdf.xyz", and the spec failed on
+ * wording while the property held. Importing the app's pageTitle() was tried
+ * and cannot load here: the copy modules reach pdf.js, which Playwright's
+ * loader cannot evaluate. So the expectation is read from the served bytes,
+ * as everything else in this file is.
+ */
+const OWN = "the page's own title" as const;
+
+function attr(html: string, property: string): string | undefined {
+  const tag = html.match(
+    new RegExp(`<meta[^>]*property="${property}"[^>]*>`),
+  )?.[0];
+  return tag?.match(/content="([^"]*)"/)?.[1];
+}
+
+function ownTitle(html: string, path: string): string {
+  const og = attr(html, "og:title");
+  const h1 = html
+    .match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1]
+    ?.replace(/<[^>]+>/g, "")
+    .trim();
+  // Health checks: without both, "equals og:title" could hold vacuously.
+  expect(og, `${path}: no og:title served`).toBeTruthy();
+  expect(h1, `${path}: no h1 served`).toBeTruthy();
+  expect(og, `${path}: og:title is the brand's, not the page's`).not.toBe(
+    "pdf.xyz — Every PDF tool. Private by design.",
+  );
+  expect(og, `${path}: the title does not name the page's H1`).toContain(h1);
+  return og!;
+}
+
 /** One route per distinct layout shape, so a regression anywhere is visible. */
 const ROUTES = [
   { path: "/", title: "pdf.xyz — Every PDF tool. Private by design." },
   { path: "/tools", title: "All PDF tools — pdf.xyz" },
-  { path: "/tools/merge-pdf", title: "Merge PDF — pdf.xyz" },
-  { path: "/tools/ocr-pdf", title: "OCR PDF — pdf.xyz" },
+  // A category landing page — the shape added with /tools/category/[category].
+  {
+    path: "/tools/category/ai",
+    title: "AI PDF tools: chat, summarize, translate — pdf.xyz",
+  },
+  { path: "/tools/merge-pdf", title: OWN },
+  { path: "/tools/ocr-pdf", title: OWN },
   { path: "/workspace", title: "Workspace — pdf.xyz" },
   // The guides section — two shapes: the index and an article.
   { path: "/guides", title: "PDF guides — pdf.xyz" },
@@ -45,7 +87,8 @@ test.describe("served document metadata", () => {
       const res = await request.get(route.path);
       expect(res.status()).toBe(200);
 
-      const titles = titlesIn(await res.text());
+      const html = await res.text();
+      const titles = titlesIn(html);
 
       // The HTML spec allows one title element in a head; more than one also
       // means something outside the `metadata` export is emitting document
@@ -54,7 +97,9 @@ test.describe("served document metadata", () => {
         titles,
         `expected a single <title>, got ${titles.length}: ${JSON.stringify(titles)}`,
       ).toHaveLength(1);
-      expect(titles[0]).toBe(route.title);
+      expect(titles[0]).toBe(
+        route.title === OWN ? ownTitle(html, route.path) : route.title,
+      );
     });
   }
 

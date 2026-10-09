@@ -3,11 +3,13 @@ import { loadPdfLib } from "./pdf-lib";
 import { outputName } from "./files";
 import { PdfEngineError } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
+import { TEXT_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
 
 const PRODUCER = "pdf.xyz";
-const PAGE_WIDTH = 612; // US Letter, points
-const PAGE_HEIGHT = 792;
-const MARGIN = 54;
+// The page geometry the tool page states — one value, see ./page-geometry.
+const PAGE_WIDTH = US_LETTER_PT.width;
+const PAGE_HEIGHT = US_LETTER_PT.height;
+const MARGIN = TEXT_PAGE_MARGIN_PT;
 const FONT_SIZE = 11;
 const LINE_HEIGHT = 16;
 // The cap the tool page advertises, so the gate and the promise are one value.

@@ -17,10 +17,13 @@ describe("event name allowlist", () => {
         "workspace_handoff_created",
         "worker_status_checked",
         "worker_operations_checked",
-        "worker_contract_hit",
         "gated_tool_interest",
       ].sort(),
     );
+    // `worker_contract_hit` was declared here until 2026-09-27 and sent by
+    // nothing; its fields duplicated `tool_completed`/`tool_failed`, which are
+    // now sent. `event-call-sites.test.ts` fails on any declared-but-unsent
+    // event, so a decorative one cannot come back.
   });
 
   it("recognizes every listed name", () => {

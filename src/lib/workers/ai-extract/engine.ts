@@ -1,4 +1,6 @@
 import JSZip from "jszip";
+import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
+import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import {
   PAGE_JOIN,
   pageTextChunks,
@@ -26,8 +28,9 @@ import type { AiUsageMeta } from "@/lib/jobs/ai-results";
  *   2. asks a configured {@link AiProvider} to extract structured data from ONLY that
  *      text, returning a single JSON object, then
  *   3. parses the model's JSON (never re-invents values) and packages it as a ZIP
- *      (extraction.json + extraction.md + manifest.json + README.txt) recording the
- *      provider, model, request mode/schema, and honest scope.
+ *      (extraction.json + model-output.json + extraction.md + manifest.json +
+ *      README.txt) recording the provider, model, request mode/schema, and honest
+ *      scope.
  *
  * HONESTY (load-bearing):
  *   - No provider ⇒ `ai_unconfigured` with operator requirements. The engine NEVER
@@ -35,8 +38,17 @@ import type { AiUsageMeta } from "@/lib/jobs/ai-results";
  *   - No selectable text ⇒ `no_text` (run OCR first). It never extracts from an
  *     empty/scanned document by guessing.
  *   - The system prompt constrains the model to the document text, demands JSON only,
- *     and requires `null` for values not present — the shipped extraction is exactly
- *     the model's JSON, parsed and re-serialized, unedited and unfabricated.
+ *     and requires `null` for values not present. No VALUE is ever edited or invented:
+ *     model-output.json is exactly the model's JSON, parsed and re-serialized.
+ *   - In SCHEMA mode extraction.json is that reply RECONCILED with the request: the
+ *     requested fields, in the requested order, each with the model's value — under
+ *     the requested name even when the model respelled it (`Invoice Number` →
+ *     `invoice_number`). A requested field the model did not return is `null` there
+ *     and is NAMED in manifest.json (`extraction.missingKeys`) and in extraction.md
+ *     as "not returned by the model" — never folded into "not found". Until
+ *     2026-09-28 a dropped field simply vanished: a request for 12 fields could ship
+ *     10 rows, and a consumer keyed on the requested names broke, while the manifest
+ *     said "absent values are null". A LIST reply in schema mode fails honestly.
  *   - If the model does not return valid JSON, the run fails honestly (`failed`)
  *     rather than shipping prose dressed up as structured data.
  *   - The text extractor and AI provider are injected, so this module stays node-free
@@ -116,6 +128,8 @@ export type AiExtractFailureKind =
   | "unsupported"
   | "ai_unconfigured"
   | "no_text"
+  /** The PDF needs a password, or is not a readable PDF: a fact about the file. */
+  | "cannot_open"
   | "too_large"
   | "rate_limited"
   | "content_filtered"
@@ -348,7 +362,12 @@ export async function runAiExtract(
   let extracted: ExtractedPdfText;
   try {
     extracted = await extract(input);
-  } catch {
+  } catch (err) {
+    // A file the extractor cannot OPEN (it needs a password, or is not a
+    // readable PDF) gets its own reason, never the generic failure. No model
+    // has been called yet, so this failure has spent nothing.
+    const open = pdfTextOpenFailure(err);
+    if (open) return { ok: false, ...open };
     return {
       ok: false,
       kind: "failed",
@@ -363,8 +382,8 @@ export async function runAiExtract(
       ok: false,
       kind: "no_text",
       retryable: false,
-      message:
-        "This PDF has no selectable text to extract from. It may be a scan or image-only PDF — run OCR PDF first, then extract from the result.",
+      // One string for both sides of the upload — see `@/lib/jobs/ai-no-text`.
+      message: NO_SELECTABLE_TEXT_MESSAGE["ai-extract"],
     };
   }
 
@@ -399,6 +418,23 @@ export async function runAiExtract(
   if (!completion.ok)
     return mapProviderFailure(completion, window, provider.model);
 
+  // The call is PAID from here on, so every failure below carries what it
+  // spent and what the model saw — the success arm is not the only one that
+  // costs money (CLAUDE.md rule 3). Until 2026-09-28 the non-JSON failure
+  // dropped both.
+  const spent = {
+    ...(completion.usage
+      ? {
+          usage: {
+            ...completion.usage,
+            calls: 1,
+            model: completion.model,
+          } satisfies AiUsageMeta,
+        }
+      : {}),
+    window,
+  };
+
   const data = parseModelJson(completion.text);
   if (data === null) {
     return {
@@ -407,12 +443,33 @@ export async function runAiExtract(
       retryable: true,
       message:
         "The AI provider did not return valid JSON, so no honest extraction could be produced. No data was fabricated. Retrying may succeed.",
+      ...spent,
     };
   }
 
-  const extractedKeys = Array.isArray(data)
-    ? data.length
-    : Object.keys(data).length;
+  // A schema asks for NAMED fields. A list has no names to match them against,
+  // so there is no honest way to say which requested field any item is.
+  if (options.mode === "schema" && Array.isArray(data)) {
+    return {
+      ok: false,
+      kind: "failed",
+      retryable: true,
+      message:
+        "The AI provider returned a list instead of the requested fields, so no honest extraction could be produced. No data was fabricated. Retrying may succeed.",
+      ...spent,
+    };
+  }
+
+  const reconciled =
+    options.mode === "schema" && !Array.isArray(data)
+      ? reconcileWithSchema(data, options.schema ?? [])
+      : null;
+
+  const extractedKeys = reconciled
+    ? reconciled.returned
+    : Array.isArray(data)
+      ? data.length
+      : Object.keys(data).length;
 
   const createdAt = now();
   const manifest: ExtractionManifest = {
@@ -432,12 +489,20 @@ export async function runAiExtract(
       truncatedToCharacters: truncated ? maxChars : null,
       truncationNotice: userTruncationNotice(window) || null,
     },
-    extraction: { keys: extractedKeys },
-    notice:
-      "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect and absent values are null — verify against the original before relying on it. No content was fabricated beyond the model's extraction of the provided text.",
+    extraction: reconciled
+      ? {
+          keys: extractedKeys,
+          missingKeys: reconciled.missingKeys,
+          renamedKeys: reconciled.renamedKeys,
+          extraKeys: reconciled.extraKeys,
+        }
+      : { keys: extractedKeys },
+    notice: reconciled
+      ? "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. A value of null means the model reported the field as not found; a requested field the model did not return at all is also null in extraction.json, and is listed in manifest.json under extraction.missingKeys. No content was fabricated beyond the model's extraction of the provided text."
+      : "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. No content was fabricated beyond the model's extraction of the provided text.",
   };
 
-  const output = await buildPackage(data, manifest);
+  const output = await buildPackage(data, reconciled, manifest);
   const maxOutput = deps.limits?.maxOutputBytes;
   if (maxOutput !== undefined && output.byteLength > maxOutput) {
     return {
@@ -517,8 +582,116 @@ interface ExtractionManifest {
     /** The page-named disclosure, or null when the whole document was read. */
     truncationNotice: string | null;
   };
-  extraction: { keys: number };
+  extraction: {
+    /**
+     * Schema mode: the requested fields the model RETURNED (exactly or respelled).
+     * Prompt mode: the top-level keys/items of the reply. Never the extra keys a
+     * schema did not ask for — counting those is how 2 requested fields and 3
+     * returned keys read as a complete extraction.
+     */
+    keys: number;
+    /** Schema mode: requested fields the model did not return (null in extraction.json). */
+    missingKeys?: string[];
+    /** Schema mode: requested name → the spelling the model returned it under. */
+    renamedKeys?: Record<string, string>;
+    /** Schema mode: keys the model returned that no requested field matches. */
+    extraKeys?: string[];
+  };
   notice: string;
+}
+
+/** A field or key name, safe inside a Markdown table cell. */
+function tableCell(text: string): string {
+  return text.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+/**
+ * A key as a model might respell a requested name: case, spaces, underscores,
+ * hyphens and dots ignored — `Invoice Number`, `invoice_number` and
+ * `invoice-number` are one field. Letters of every script are kept, so a
+ * field named in Bengali is not collapsed to the empty string.
+ */
+function looseKey(key: string): string {
+  return key
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s_\-.]+/g, "");
+}
+
+/** A schema-mode reply matched against the fields that were asked for. */
+interface SchemaReconciliation {
+  /** Requested name → the model's value, or null when it was not returned. */
+  values: Record<string, unknown>;
+  /** How many requested fields the model returned (exactly or respelled). */
+  returned: number;
+  missingKeys: string[];
+  renamedKeys: Record<string, string>;
+  extraKeys: string[];
+}
+
+/**
+ * Match a reply to the request. Exact names first, for EVERY field, so a
+ * respelling can never steal the key another field asked for verbatim; then one
+ * respelled key per remaining field, and only when exactly one key matches AND
+ * no other remaining field shares that respelling — an ambiguous respelling,
+ * in either direction, is reported missing rather than guessed.
+ */
+function reconcileWithSchema(
+  data: Record<string, unknown>,
+  schema: readonly ExtractionField[],
+): SchemaReconciliation {
+  const own = (key: string) => Object.prototype.hasOwnProperty.call(data, key);
+  const used = new Set<string>();
+  const chosen = new Map<string, string>();
+  for (const field of schema) {
+    if (own(field.name)) {
+      chosen.set(field.name, field.name);
+      used.add(field.name);
+    }
+  }
+  const renamedKeys: Record<string, string> = {};
+  // Ambiguity runs BOTH ways: two keys respelling one field, or one key
+  // respelling two fields (`invoice number` and `invoice_number` are distinct
+  // to the parser and one loose key to this matcher). Counted over the fields
+  // still unmatched, so an exact match above never makes a respelling look
+  // ambiguous.
+  const fieldsPerLooseKey = new Map<string, number>();
+  for (const field of schema) {
+    if (chosen.has(field.name)) continue;
+    const want = looseKey(field.name);
+    fieldsPerLooseKey.set(want, (fieldsPerLooseKey.get(want) ?? 0) + 1);
+  }
+  for (const field of schema) {
+    if (chosen.has(field.name)) continue;
+    const want = looseKey(field.name);
+    if (fieldsPerLooseKey.get(want) !== 1) continue;
+    const candidates = Object.keys(data).filter(
+      (key) => !used.has(key) && looseKey(key) === want,
+    );
+    if (candidates.length === 1) {
+      chosen.set(field.name, candidates[0]!);
+      used.add(candidates[0]!);
+      renamedKeys[field.name] = candidates[0]!;
+    }
+  }
+  const values: Record<string, unknown> = {};
+  const missingKeys: string[] = [];
+  for (const field of schema) {
+    const key = chosen.get(field.name);
+    if (key === undefined) {
+      missingKeys.push(field.name);
+      values[field.name] = null;
+    } else {
+      values[field.name] = data[key] ?? null;
+    }
+  }
+  return {
+    values,
+    returned: schema.length - missingKeys.length,
+    missingKeys,
+    renamedKeys,
+    extraKeys: Object.keys(data).filter((key) => !used.has(key)),
+  };
 }
 
 /** Render a single extracted value for the human-readable Markdown table. */
@@ -532,6 +705,7 @@ function renderValue(value: unknown): string {
 /** Render the extraction.md with a provenance header + a key/value rendering of the data. */
 function renderMarkdown(
   data: Record<string, unknown> | unknown[],
+  reconciled: SchemaReconciliation | null,
   manifest: ExtractionManifest,
 ): string {
   const lines: string[] = [];
@@ -553,7 +727,33 @@ function renderMarkdown(
     );
   }
   lines.push("");
-  if (Array.isArray(data)) {
+  if (reconciled) {
+    // EVERY requested field, in the order requested — a field the model left
+    // out is a row that says so, not a row that is missing.
+    lines.push("| Field | Value |");
+    lines.push("| --- | --- |");
+    const missing = new Set(reconciled.missingKeys);
+    for (const [key, value] of Object.entries(reconciled.values)) {
+      const respelled = reconciled.renamedKeys[key];
+      const cell = missing.has(key)
+        ? "_(not returned by the model)_"
+        : respelled !== undefined
+          ? `${renderValue(value)} _(returned as "${tableCell(respelled)}")_`
+          : renderValue(value);
+      lines.push(`| ${tableCell(key)} | ${cell} |`);
+    }
+    if (reconciled.extraKeys.length > 0) {
+      lines.push("");
+      lines.push("Other keys the model returned (not requested):");
+      lines.push("");
+      lines.push("| Key | Value |");
+      lines.push("| --- | --- |");
+      const raw = data as Record<string, unknown>;
+      for (const key of reconciled.extraKeys) {
+        lines.push(`| ${tableCell(key)} | ${renderValue(raw[key])} |`);
+      }
+    }
+  } else if (Array.isArray(data)) {
     data.forEach((item, i) => {
       lines.push(`${i + 1}. ${renderValue(item)}`);
     });
@@ -561,7 +761,7 @@ function renderMarkdown(
     lines.push("| Field | Value |");
     lines.push("| --- | --- |");
     for (const [key, value] of Object.entries(data)) {
-      lines.push(`| ${key.replace(/\|/g, "\\|")} | ${renderValue(value)} |`);
+      lines.push(`| ${tableCell(key)} | ${renderValue(value)} |`);
     }
   }
   lines.push("");
@@ -593,13 +793,18 @@ function renderReadme(manifest: ExtractionManifest): string {
   lines.push("");
   lines.push("Contents:");
   lines.push(
-    "  extraction.json  The AI-extracted structured data (exactly the model's JSON output).",
+    manifest.options.mode === "schema"
+      ? "  extraction.json    The requested fields, in the order requested, with the model's values. A field the model did not return is null here and listed in manifest.json (extraction.missingKeys)."
+      : "  extraction.json    The AI-extracted structured data (exactly the model's JSON output).",
   );
   lines.push(
-    "  extraction.md    A human-readable rendering with a provenance header.",
+    "  model-output.json  The model's JSON reply exactly as returned (parsed and re-serialized).",
   );
   lines.push(
-    "  manifest.json    A structured record of the request (provider, model, request, source stats).",
+    "  extraction.md      A human-readable rendering with a provenance header.",
+  );
+  lines.push(
+    "  manifest.json      A structured record of the request (provider, model, request, source stats).",
   );
   lines.push("");
   lines.push("HONEST SCOPE:");
@@ -610,11 +815,16 @@ function renderReadme(manifest: ExtractionManifest): string {
 /** Package the extraction data + manifest + README into a real ZIP. */
 async function buildPackage(
   data: Record<string, unknown> | unknown[],
+  reconciled: SchemaReconciliation | null,
   manifest: ExtractionManifest,
 ): Promise<Uint8Array> {
   const zip = new JSZip();
-  zip.file("extraction.json", JSON.stringify(data, null, 2));
-  zip.file("extraction.md", renderMarkdown(data, manifest));
+  zip.file(
+    "extraction.json",
+    JSON.stringify(reconciled ? reconciled.values : data, null, 2),
+  );
+  zip.file("model-output.json", JSON.stringify(data, null, 2));
+  zip.file("extraction.md", renderMarkdown(data, reconciled, manifest));
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
   zip.file("README.txt", renderReadme(manifest));
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));

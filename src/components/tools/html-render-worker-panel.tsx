@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, FileCode, Globe, ShieldCheck, Timer } from "lucide-react";
+import {
+  Download,
+  FileCode,
+  Globe,
+  Info,
+  ShieldCheck,
+  Timer,
+} from "lucide-react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -11,22 +18,33 @@ import {
   runWorkerWebpageToPdf,
   type HtmlRenderWorkerResult,
 } from "@/lib/workers/html-render-client";
+import {
+  findUnbundledAssetsInHtml,
+  unbundledAssetsNote,
+} from "@/lib/workers/html-render/unbundled-assets";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { track } from "@/lib/telemetry/track";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
+import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
-  ErrorNote,
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { NotifyMe } from "./notify-me";
+import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
+import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import { decodeTextFile } from "@/lib/text/decode-text-file";
+import {
+  useWorkerStatus,
+  WorkerStatusPending,
+  type WorkerPhase,
+} from "./worker-status";
 
-type Phase = "loading" | "error" | "ready";
+type Phase = WorkerPhase;
 type Mode = "html" | "url";
 
 function badgeFor(
@@ -68,34 +86,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "webpage-to-pdf" ? "url" : "html";
   const Icon = mode === "url" ? Globe : FileCode;
   const ceilingBytes = toolFileCeilingBytes(tool);
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { phase, status, retry } = useWorkerStatus();
 
   const badge = badgeFor(phase, status);
   const available = phase === "ready" && canRunHtmlRender(status);
@@ -127,9 +118,10 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {available ? (
-          <HtmlRenderRunArea mode={mode} />
+          <HtmlRenderRunArea mode={mode} tool={tool} />
         ) : (
           <HtmlRenderUnavailable
+            onRetry={retry}
             phase={phase}
             status={status}
             toolName={tool.name}
@@ -142,7 +134,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
             What happens
           </h3>
           <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status?.scan.active ?? false).map(
+            {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, index, all) => (
                 <li key={stage.id} className="flex items-start gap-3">
                   <div className="flex flex-col items-center self-stretch">
@@ -202,21 +194,25 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
 
 function HtmlRenderUnavailable({
   phase,
+  onRetry,
   status,
   toolName,
   toolSlug,
 }: {
   phase: Phase;
+  onRetry: () => void;
   status: WorkerStatus | null;
   toolName: string;
   toolSlug: string;
 }) {
+  // Until the status is KNOWN this box says nothing about the tool: the
+  // server renders the loading phase, and "Notify me when this ships" there
+  // told search engines that live tools had not shipped. A failed status
+  // check gets a retry, not a notify button.
+  if (phase !== "ready")
+    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
   const detail =
-    phase === "loading"
-      ? "Checking whether a secure worker is available…"
-      : phase === "error"
-        ? "The worker status endpoint could not be reached right now."
-        : (status?.daemon.detail ?? "The secure worker is not drainable here.");
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
 
   return (
     <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
@@ -225,44 +221,78 @@ function HtmlRenderUnavailable({
         No runner is shown until the worker is ready, so {toolName} never
         pretends to process input it cannot actually render.
       </p>
-      <NotifyMe toolName={toolName} toolSlug={toolSlug} />
+      <NotifyMe toolName={toolName} toolSlug={toolSlug} checking={false} />
     </div>
   );
 }
 
-function HtmlRenderRunArea({ mode }: { mode: Mode }) {
+/**
+ * The note for linked files this one-file upload will not carry, read from the
+ * chosen file on this machine — nothing is uploaded to work it out. The worker
+ * renders only the file itself, so a sibling `logo.png` or `style.css` comes
+ * out as a broken image or an unstyled page while the job still succeeds.
+ */
+function useUnbundledAssetsNote(file: File | null): string | null {
+  const [note, setNote] = useState<{ file: File; text: string | null } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!file) return;
+    let active = true;
+    // Decoded in the file's own encoding, as every read of a user's text file
+    // is (`decodeTextFile`): Blob.text() would turn a Windows-1252 page's
+    // accented link names into U+FFFD before they were looked for.
+    decodeTextFile(file)
+      .then(({ text: html }) => {
+        if (active)
+          setNote({
+            file,
+            text: unbundledAssetsNote(findUnbundledAssetsInHtml(html)),
+          });
+      })
+      .catch(() => {
+        // Unreadable here means unreadable for the upload too; the run
+        // reports that. A note we cannot compute is simply not shown.
+      });
+    return () => {
+      active = false;
+    };
+  }, [file]);
+  // A note belongs to the file it was computed for, never to the next one.
+  return note && note.file === file ? note.text : null;
+}
+
+function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("https://");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<HtmlRenderWorkerResult | null>(null);
+  const job = useWorkerJob<HtmlRenderWorkerResult>({
+    tool: mode === "url" ? "webpage-to-pdf" : "html-to-pdf",
+    resume: (id, controls) =>
+      resumeSecurityJob(id, {
+        ...controls,
+        tool: mode === "url" ? "webpage-to-pdf" : "html-to-pdf",
+      }),
+  });
+  const { busy, outcome, setOutcome, run } = job;
+  const assetsNote = useUnbundledAssetsNote(mode === "html" ? file : null);
 
   const start = useCallback(async () => {
-    setBusy(true);
-    try {
-      setOutcome(null);
+    await run(async (controls) => {
       const result =
         mode === "url"
-          ? await runWorkerWebpageToPdf(url.trim())
+          ? await runWorkerWebpageToPdf(url.trim(), controls)
           : file
-            ? await runWorkerHtmlToPdf({
-                filename: file.name,
-                bytes: new Uint8Array(await file.arrayBuffer()),
-              })
+            ? await runWorkerHtmlToPdf(
+                {
+                  filename: file.name,
+                  bytes: new Uint8Array(await file.arrayBuffer()),
+                },
+                controls,
+              )
             : { ok: false as const, message: "Choose an HTML file first." };
-      setOutcome(result);
-    } catch {
-      // A rejected fetch — offline, DNS failure, a reset connection, CORS — or a
-      // file that could not be read. None of these produce a response to inspect,
-      // so there is nothing honest to say beyond what happened.
-      setOutcome({
-        ok: false,
-        message:
-          "Lost the connection before the job finished. Check your network and try again.",
-      });
-    } finally {
-      setBusy(false);
-    }
-  }, [file, mode, url]);
+      return result;
+    });
+  }, [file, mode, url, run]);
 
   const disabled =
     busy || (mode === "html" ? !file : url.trim().length <= "https://".length);
@@ -274,7 +304,7 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
         Running this uses a private secure-worker job.{" "}
         {mode === "url"
           ? "Only public http(s) URLs are accepted; private/localhost targets are rejected."
-          : "The uploaded HTML is stored only for the short worker lifecycle and wiped after processing."}
+          : "The uploaded HTML is stored only for the short worker lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses."}
       </p>
 
       {mode === "url" ? (
@@ -288,22 +318,41 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
           placeholder="https://example.com"
         />
       ) : file ? (
-        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
-          <span className="truncate">{file.name}</span>
-          <button
-            type="button"
-            onClick={() => {
-              setFile(null);
-              setOutcome(null);
-            }}
-            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
-          >
-            Remove
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+            <span className="truncate">{file.name}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setFile(null);
+                setOutcome(null);
+              }}
+              className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
+            >
+              Remove
+            </button>
+          </div>
+          {/* Present, empty, from the moment a file is chosen: a live region
+              created together with its text is not announced by several
+              screen readers. The note arrives in it once the file is read. */}
+          <div role="status">
+            {assetsNote && (
+              <p className="text-muted flex items-start gap-1.5 text-xs leading-relaxed">
+                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span>{assetsNote}</span>
+              </p>
+            )}
+          </div>
         </div>
       ) : (
         <Dropzone
-          onFiles={(files) => setFile(files[0] ?? null)}
+          refuse={(file) => pickRefusal(tool, file)}
+          onFiles={(files) => {
+            // An over-ceiling or non-HTML file never gets here: `refuse`
+            // turned it away at the pick, before it was read or uploaded.
+            setOutcome(null);
+            setFile(files[0] ?? null);
+          }}
           accept="text/html,.html,.htm"
           multiple={false}
           compact
@@ -317,13 +366,13 @@ function HtmlRenderRunArea({ mode }: { mode: Mode }) {
         busy={busy}
         // `disabled` already folds in `busy`; both go through one blocked branch.
         disabled={disabled}
-        busyLabel="Rendering PDF…"
+        busyLabel={jobBusyLabel(job.phase, "Rendering PDF…")}
         icon={FileCode}
       >
         Render PDF
       </WorkerRunButton>
 
-      {outcome?.ok === false && <ErrorNote message={outcome.message} />}
+      <WorkerJobStatus job={job} />
       {outcome?.ok === true && (
         <ResultCard announce="Your PDF is ready.">
           <p className="text-ok text-sm">Your PDF is ready.</p>

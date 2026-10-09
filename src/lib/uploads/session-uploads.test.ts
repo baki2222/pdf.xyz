@@ -115,7 +115,7 @@ const DRIVERS: ReadonlyArray<{
           options: {
             languages: ["eng"],
             outputMode: "searchable-pdf",
-            skipTextPages: false,
+            redoOcr: false,
           },
         },
         { fetchImpl },

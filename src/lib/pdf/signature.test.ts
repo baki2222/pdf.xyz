@@ -80,7 +80,11 @@ describe("validateSignature", () => {
       validateSignature({ kind: "typed", text: "  ", style: "signature" }),
     ).toThrow(PdfEngineError);
     expect(() =>
-      validateSignature({ kind: "image", png: new Uint8Array() }),
+      validateSignature({
+        kind: "image",
+        bytes: new Uint8Array(),
+        format: "png",
+      }),
     ).toThrow(PdfEngineError);
   });
 });
@@ -102,7 +106,7 @@ describe("signPdf", () => {
   it("embeds a PNG signature image", async () => {
     const output = await signPdf(
       await blankPdf(1),
-      { kind: "image", png: PNG_1x1 },
+      { kind: "image", bytes: PNG_1x1, format: "png" },
       { pageIndex: 0, position: "bottom-left", width: 120 },
     );
     const doc = await PDFDocument.load(output);
@@ -123,7 +127,11 @@ describe("signPdf", () => {
     await expect(
       signPdf(
         await blankPdf(1),
-        { kind: "image", png: Uint8Array.from([1, 2, 3, 4]) },
+        {
+          kind: "image",
+          bytes: Uint8Array.from([1, 2, 3, 4]),
+          format: "png",
+        },
         { pageIndex: 0, position: "bottom-left", width: 120 },
       ),
     ).rejects.toThrow(PdfEngineError);

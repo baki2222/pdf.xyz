@@ -21,12 +21,31 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import { TextSourceNotes } from "./text-source-notes";
+import { decodeTextFile, describeDecoding } from "@/lib/text/decode-text-file";
+import { monospaceClaimSentence } from "@/lib/pdf/font-packs";
 
 /** One owner for the in-browser source cap: the check and the copy both derive. */
+
+/**
+ * The typography promise, derived from the face that keeps it.
+ *
+ * It used to read "readable monospace typography" unconditionally, and one
+ * arrow made it false. Then it read "Latin and Cyrillic text, arrows and box
+ * drawing", which was false for ⇒ and for pinyin ǐ: the face draws neither, so
+ * those documents still went to a proportional face. Every label now comes
+ * from MONOSPACE_CLAIMS, whose members are checked one by one, and the rendered
+ * sentence is checked for any category the face only partly draws
+ * (`text-to-pdf-claim.test.tsx`). The title — the file name — shares the body
+ * font, so it is named too.
+ */
+const MONOSPACE_CLAIM = `Paginated Letter-size PDF. ${monospaceClaimSentence()} Other characters, in the text or its file name, can move the whole document to a proportional Noto face.`;
 
 interface TextSource {
   name: string;
   text: string;
+  /** How the picked file was decoded, when that was a guess worth checking. */
+  readNote?: string | null;
 }
 
 export function TextToPdfRunner() {
@@ -51,8 +70,16 @@ export function TextToPdfRunner() {
       );
       return;
     }
-    const text = await file.text();
-    setSource({ name: file.name || "text.txt", text });
+    // Not `file.text()`: that is UTF-8 or nothing, and it turned a
+    // Windows-1252 note into "caf� �q�" and a Notepad "Unicode" save into
+    // U+FFFD and NULs — then reported "PDF created". The size gate above stays
+    // on bytes, so this is one decode of at most MAX_SOURCE_BYTES.
+    const decoded = await decodeTextFile(file);
+    setSource({
+      name: file.name || "text.txt",
+      text: decoded.text,
+      readNote: describeDecoding(decoded),
+    });
     setLoadError(null);
   }, []);
 
@@ -90,6 +117,7 @@ function TextToPdfEditor({
   onSource,
   onFile,
   loadError,
+  onClearError,
 }: {
   source: TextSource;
   onSource: (source: TextSource) => void;
@@ -97,7 +125,7 @@ function TextToPdfEditor({
   loadError: string | null;
   onClearError: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const characterCount = source.text.length;
   const byteCount = new TextEncoder().encode(source.text).byteLength;
   const filename = textPdfOutputName(source.name);
@@ -112,7 +140,13 @@ function TextToPdfEditor({
       <ResultPanel
         title="PDF created"
         summary={`${formatBytes(result.byteLength)} · ${characterCount.toLocaleString()} characters converted`}
-        onReset={() => onSource({ ...source, text: "" })}
+        onReset={() => {
+          // The result lives in THIS component's hook; emptying the text alone
+          // left the success panel up with "0 characters converted".
+          reset();
+          onSource({ name: "text.txt", text: "" });
+          onClearError();
+        }}
       >
         <button
           type="button"
@@ -147,22 +181,19 @@ function TextToPdfEditor({
         <textarea
           value={source.text}
           onChange={(event) =>
-            onSource({ name: source.name, text: event.target.value })
+            onSource({ ...source, text: event.target.value })
           }
           placeholder="Paste or type plain text here…"
           className="border-line text-fg focus:border-accent focus:ring-accent/50 [min-height:18rem] w-full resize-y rounded-[4px] border bg-black/20 px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
         />
+        <TextSourceNotes readNote={source.readNote} text={source.text} />
         <div className="grid gap-3 sm:grid-cols-3">
           <InfoTile
             icon={ShieldCheck}
             title="Private"
             body="The text never leaves your browser."
           />
-          <InfoTile
-            icon={Type}
-            title="Formatted"
-            body="Paginated Letter-size PDF with readable monospace typography."
-          />
+          <InfoTile icon={Type} title="Formatted" body={MONOSPACE_CLAIM} />
           <InfoTile
             icon={Keyboard}
             title="Flexible"

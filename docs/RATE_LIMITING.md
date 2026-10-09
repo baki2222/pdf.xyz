@@ -24,24 +24,41 @@ of this repository or its tooling reads, stores, or transmits them.
 
 ## What is already enforced the moment it is on
 
-| Policy              | Limit | Window     |
-| ------------------- | ----- | ---------- |
-| `uploads.create`    | 60    | per hour   |
-| `jobs.create`       | 60    | per hour   |
-| `jobs.delete`       | 60    | per hour   |
-| `jobs.status`       | 120   | per minute |
-| `artifacts.fetch`   | 120   | per minute |
-| `worker.status`     | 120   | per minute |
-| `worker.operations` | 120   | per minute |
-| `interest.note`     | 30    | per hour   |
-| `ai.run`            | 3     | per day    |
+| Policy              | Limit     | Window     |
+| ------------------- | --------- | ---------- |
+| `uploads.create`    | 60        | per hour   |
+| `jobs.create`       | 60        | per hour   |
+| `jobs.status`       | 120       | per minute |
+| `jobs.delete`       | 60        | per hour   |
+| `artifacts.fetch`   | 120       | per minute |
+| `worker.status`     | 120       | per minute |
+| `worker.operations` | 120       | per minute |
+| `interest.note`     | 30        | per hour   |
+| `ai.characters`     | 123,096   | per day    |
+| `ai.spend`          | 2,000,000 | per day    |
 
-**Read that table as a GLOBAL budget today, not a per-visitor one.** The
-limiter buckets by the token `deriveClientToken` returns, and that function
-returns the single shared token `"shared"` for every request unless
-`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is on (`src/lib/ratelimit/identity.ts:61`). So
-with the recommended configuration, `ai.run` is 3 runs per day for **everyone
-combined**, and `uploads.create` is 60 per hour in total — not 60 each.
+Every row counts requests except the last two. `ai.characters` is the free
+AI allowance, counted in **characters**: the limit is the bucket the limiter
+debits, in worker-extracted characters, which is larger than the figure a
+visitor is told they can translate — Step 5 gives both figures and how to
+probe the allowance without spending it. `ai.spend` counts provider
+**tokens**, and it is the only cost control here: it keys every AI job into
+ONE global bucket (`AI_SPEND_BUCKET`), whatever the identity settings below,
+so it is a daily ceiling for the whole product, never a per-visitor limit.
+
+Nothing generates this table, so a test checks it instead:
+`src/lib/ratelimit/rate-limiting-doc.test.ts` requires exactly the policies
+some call site enforces, at the limit and window the code uses. A policy that
+is defined but superseded does not belong here.
+
+**Read the other rows as a GLOBAL budget unless per-client keying is on.**
+The limiter buckets by the token `deriveClientToken`
+(`src/lib/ratelimit/identity.ts`) returns, and that function returns the
+single shared token `"shared"` for every request unless
+`PDFXYZ_RATE_LIMIT_TRUST_PROXY` is on, `PDFXYZ_RATE_LIMIT_KEY_SALT` is set
+AND `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER` names the one header the edge writes.
+Without all three, `uploads.create` is 60 per hour in total — not 60 each —
+and the character allowance is one allowance for everyone combined.
 
 A refused request gets `429` with a `Retry-After`, not a silent drop.
 
@@ -118,6 +135,32 @@ the same store, because it runs on a different host.
   currently global. The fix is not this flag; it is for identity to read the
   platform-set address. Until then, treat the numbers as a global budget.
 
+- `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER` — the ONE header the client address is
+  read from, e.g. `cf-connecting-ip` behind Cloudflare. No default and no
+  fallback list: unset (or not a header name) ⇒ the shared bucket, reported as
+  `remote-configured-shared`. Its whole value must be a single IP address; a
+  list (`a, b`) is refused rather than split, and an IPv6 client is keyed on
+  its /64. **History:** until 2026-09 identity walked `x-vercel-forwarded-for`
+  → `x-forwarded-for` → `x-real-ip` and took the leftmost hop. Nothing in
+  front of this site strips those, so any caller chose its own bucket —
+  measured on production, 130 requests with one spoofed value gave 120
+  responses of 400 and 10 of 429, and the next value got a fresh budget.
+
+  **Order, and it is not optional:** a header is only as trustworthy as the
+  edge that writes it. `cf-connecting-ip` is set by Cloudflare only for
+  requests that came through Cloudflare; if the origin answers a direct
+  connection, a caller can send it themselves. Lock the origin to Cloudflare
+  first (Authenticated Origin Pulls, a Tunnel, or a host firewall allowing only
+  Cloudflare's ranges), confirm from outside that a direct connection is
+  refused, THEN set this variable. `pnpm verify:rate-limit` checks both: it
+  exits 3 if a spoofed header escapes a spent bucket, and with
+  `ORIGIN_IP=<address>` it exits 4 if the origin answers directly. The knock
+  does not verify the origin's certificate (an Origin CA or self-signed cert
+  would otherwise make an answering origin look locked) and passes only on an
+  observed refusal: connection refused, reset or timed out, or a TLS alert
+  such as Authenticated Origin Pulls demanding a client certificate. Anything
+  else exits 2: nothing was proven either way.
+
 ---
 
 ## Step 3 — redeploy
@@ -182,11 +225,12 @@ curl -sS -w '\n%{http_code}\n' \
 **Read the body, not the status.** `POST /api/jobs` returns `429` for two
 unrelated reasons and they are told apart only by the message:
 
-| you get                                                                                     | it means                                                          |
-| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `429` + _"The 30,774 free characters of AI text for this connection are used up for today"_ | the **allowance** is spent                                        |
-| `429` + _"Too many requests. This endpoint is rate-limited…"_                               | you hit `jobs.create` (60/hour); the allowance is unknown         |
-| anything else (`503`, `404`)                                                                | the allowance had room, and you just spent **4** characters of it |
+| you get                                                                                                                                      | it means                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `429` + _"The free AI allowance for this connection is used up for today, or too little of it is left for this document. It covers 30,774…"_ | the **allowance** is spent                                        |
+| `429` + _"Too many requests. This endpoint is rate-limited…"_                                                                                | you hit `jobs.create` (60/hour); the allowance is unknown         |
+| `202`                                                                                                                                        | the allowance had room, and you just spent **4** characters of it |
+| anything else (`503`, `500`)                                                                                                                 | no job was created, so nothing was charged                        |
 
 ### Why it costs almost nothing, and why the obvious version does not work
 
@@ -194,16 +238,45 @@ unrelated reasons and they are told apart only by the message:
 The reservation is what the allowance is debited by, so a probe that declares
 one character pays four and no more.
 
+**Keep the tool `translate-pdf`.** Summarize, Chat and Extract are priced per
+call (`AI_RUN_PRICING` in `src/lib/jobs/delivery-cap.ts`): a declaration on them
+is honoured only while the running worker publishes `aiReadCap: true` on a fresh
+heartbeat — the proof that it reads no more of a document than was declared,
+and sends nothing else the charge does not count. Until then, and whenever the
+heartbeat is stale or absent, the same probe sent as `summarize-pdf` costs a
+whole run: 41,032 of the 123,096, a third of the day. Even with the proof, a
+per-call run also pays for its options (measured by the server from the body,
+never declared) and for the engine's own instructions
+(`AI_PER_CALL_INSTRUCTION_CHARACTERS`), so a one-character probe there is not
+the four-character question this section describes.
+
 **A refusal costs nothing at all.** The allowance guard peeks before it spends
-(`spendIfItFits` in `ratelimit/guard.ts`): when the budget cannot cover the
+(`allowanceRefusal` in `ratelimit/guard.ts`): when the budget cannot cover the
 reservation it refuses without recording anything, so asking "am I out?" while
 you are out does not push your reset further away. Asking twice returns the same
 `Retry-After`.
 
+**The upload route asks the same question for free.** `POST /api/uploads` for an
+AI tool peeks the allowance (`peekAiCharacterAllowance` in
+`ratelimit/guard.ts`) for the smallest reservation a job of THAT tool could
+make, priced as the job route prices it (`smallestAiReservation`: a per-call
+tool costs a whole run until the running worker proves its read cap), before a
+slot is minted, and answers the same `429` + allowance message when no job of
+it could be admitted. It never spends a character; it costs one of `uploads.create`'s 60
+an hour. The route exists to spare a user the upload of a file whose job was
+certain to be refused — pinned against the job route's own verdict by
+`src/app/api/uploads/ai-admission.chain.test.ts`.
+
+**A job that is not created costs nothing.** The allowance is reserved before
+the route asks the adapter to create the job, and a creation that fails (the
+queue or storage is not configured, or the broker errors) gives the reservation
+back — the caller never receives a job id, so could never receive a result.
+
 **The file id must be well-formed and may be imaginary.** `f_` plus ten or more
 `[A-Za-z0-9_-]` is all the contract checks — existence is the _worker's_
-problem, and the request never reaches a worker. Nothing is uploaded, no job is
-created, no AI provider is called.
+problem. Nothing is uploaded and no AI provider is called, but on a configured
+deployment a job IS queued (`202`): the worker later fails it because the file
+does not exist, and the **4** characters stay spent.
 
 **Do not use a malformed id.** _"Send an invalid file id, the guard refuses
 before validation"_ is the intuitive version and it answers the wrong question:
@@ -251,11 +324,11 @@ removing.
   They are not a defence against a distributed attack, which belongs at the
   edge/WAF layer.
 - **They are not per-visitor today.** See the note under the policy table:
-  every request shares one bucket unless the forwarding header is trusted, and
-  trusting that header is itself evadable. Neither setting gives honest
-  per-client accounting; that needs BOTH the forwarding header trusted AND
-  `PDFXYZ_RATE_LIMIT_KEY_SALT` set. Setting one without the other lands in the
-  shared bucket and says so.
+  every request shares one bucket unless client identity is trusted.
+  Per-client accounting needs ALL THREE of `PDFXYZ_RATE_LIMIT_TRUST_PROXY`,
+  `PDFXYZ_RATE_LIMIT_KEY_SALT` and `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER`, on an
+  origin only the edge can reach. Any one missing lands in the shared bucket
+  and says so.
 
 <!-- gap-while-absent: /sliding[- ]?window/i in src/lib/ratelimit -->
 <!-- The marker above pins "fixed windows": if a sliding-window implementation

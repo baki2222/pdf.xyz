@@ -1,3 +1,6 @@
+import { categories } from "@/lib/tools/categories";
+import { categoryHref } from "@/lib/tools/category-href";
+
 /**
  * Global site configuration. Single source of truth for brand metadata,
  * canonical URL, and primary navigation.
@@ -33,6 +36,13 @@ export const siteConfig = {
   // to sit in this slot were also emitted as schema.org `sameAs`, which asserts
   // to search engines that those accounts are officially ours. Add them back
   // only when the accounts exist and are actually controlled by us.
+  /**
+   * The X (Twitter) handle pdf.xyz CONTROLS, e.g. "@example". `null` while
+   * none is registered to us. It is the only source of `twitter:creator`
+   * (see `twitterAttribution` in `seo.ts`); every page used to name
+   * "@pdfxyz", an account nothing records as ours.
+   */
+  xHandle: null as string | null,
 } as const;
 
 export type NavItem = {
@@ -51,9 +61,34 @@ export type FooterNavItem = Omit<NavItem, "href"> & { href?: string };
 export const primaryNav: NavItem[] = [
   { label: "All tools", href: "/tools" },
   { label: "Workspace", href: "/workspace" },
-  { label: "AI tools", href: "/tools?category=ai" },
+  { label: "AI tools", href: categoryHref("ai") },
   { label: "Pricing", href: "/#pricing" },
 ];
+
+/**
+ * Which primary-nav entry the current path belongs to: the LONGEST href that
+ * is a path prefix of it, so `/tools/category/ai` lights "AI tools" and not
+ * also "All tools". A plain `startsWith` per item marked both, which was
+ * invisible while the AI link was a `?category=` URL no pathname can start
+ * with. In-page anchors (`/#pricing`) never mark a page as current.
+ */
+export function activeNavHref(
+  pathname: string,
+  items: readonly NavItem[] = primaryNav,
+): string | undefined {
+  let best: string | undefined;
+  for (const { href } of items) {
+    if (!href.startsWith("/") || href.includes("#")) continue;
+    const matches =
+      href === "/"
+        ? pathname === "/"
+        : pathname === href || pathname.startsWith(`${href}/`);
+    if (matches && (best === undefined || href.length > best.length)) {
+      best = href;
+    }
+  }
+  return best;
+}
 
 export const footerNav: { title: string; items: FooterNavItem[] }[] = [
   {
@@ -61,9 +96,18 @@ export const footerNav: { title: string; items: FooterNavItem[] }[] = [
     items: [
       { label: "All tools", href: "/tools" },
       { label: "Workspace", href: "/workspace" },
-      { label: "AI tools", href: "/tools?category=ai" },
       { label: "Pricing", href: "/#pricing" },
     ],
+  },
+  {
+    // Every category landing page, from `categories` — a ninth category is
+    // linked site-wide by existing, and this column cannot name one that does
+    // not. It replaces the single "AI tools" entry the Product column carried.
+    title: "Categories",
+    items: categories.map((category) => ({
+      label: category.name,
+      href: categoryHref(category.id),
+    })),
   },
   {
     title: "Company",

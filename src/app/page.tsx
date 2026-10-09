@@ -7,6 +7,7 @@ import { AiSection } from "@/components/sections/ai-section";
 import { SecuritySection } from "@/components/sections/security-section";
 import { PricingSection } from "@/components/sections/pricing-section";
 import { FaqSection } from "@/components/sections/faq-section";
+import { GuidesSection } from "@/components/sections/guides-section";
 import { AboutSection } from "@/components/sections/about-section";
 import { CtaSection } from "@/components/sections/cta-section";
 import { buildMetadata } from "@/lib/seo";
@@ -44,6 +45,7 @@ export default function HomePage() {
         <SecuritySection />
         <PricingSection />
         <FaqSection />
+        <GuidesSection />
         <AboutSection />
         <CtaSection />
       </div>

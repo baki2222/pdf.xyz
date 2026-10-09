@@ -20,11 +20,33 @@
  *   pnpm verify:rate-limit                      # against production
  *   BASE=http://127.0.0.1:3000 pnpm verify:rate-limit
  *
+ * THEN IT TRIES TO BUY A FRESH BUCKET. Once this client is refused, one more
+ * request goes out carrying every client-writable address header with a made-up
+ * value. It must be refused too. Until 2026-09 it was not: a spoofed
+ * `x-vercel-forwarded-for` (and `x-forwarded-for`) keyed a new bucket per value,
+ * so the 429 above proved enforcement while any caller could step around it.
+ * The first 429 is this check's positive control — a spoof probe against a
+ * limiter that never refuses anyone would pass vacuously.
+ *
+ * AND, WITH `ORIGIN_IP` SET, IT KNOCKS ON THE ORIGIN. The client address is
+ * only as trustworthy as the edge that writes it: if the origin answers a
+ * direct connection, a caller can skip Cloudflare and write
+ * `cf-connecting-ip` themselves. With `ORIGIN_IP=<address>` this connects to
+ * that address for the production hostname and expects NO HTTP answer. It
+ * does not verify the certificate — an Origin CA or self-signed cert must not
+ * make an answering origin look locked — and only an OBSERVED refusal passes
+ * (`src/lib/probes/origin-knock.ts`, held by its test against real servers).
+ *
  * EXIT CODES
- *   0  a 429 was observed — throttling is live
+ *   0  a 429 was observed, a spoofed address did not escape it (and, with
+ *      ORIGIN_IP, the origin refused a direct connection)
  *   1  the limit was never reached — throttling is NOT enforcing
- *   2  the run could not complete (network, unexpected status)
+ *   2  the run could not complete (network, unexpected status), or the origin
+ *      knock neither got an answer nor saw a refusal — nothing is proven
+ *   3  a client-written header bought a fresh bucket — identity is spoofable
+ *   4  the origin answered a direct connection — the edge can be bypassed
  */
+import { knockOnOrigin, knockVerdict } from "../src/lib/probes/origin-knock";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
 
@@ -50,10 +72,22 @@ interface Observation {
   retryAfter: string | null;
 }
 
-async function attempt(): Promise<Observation> {
+/** Every address header a client can write; values from TEST-NET-2. */
+const SPOOFED: Record<string, string> = {
+  "x-vercel-forwarded-for": "198.51.100.91",
+  "x-forwarded-for": "198.51.100.92",
+  "x-real-ip": "198.51.100.93",
+  "cf-connecting-ip": "198.51.100.94",
+  "true-client-ip": "198.51.100.95",
+  forwarded: "for=198.51.100.96",
+};
+
+async function attempt(
+  extraHeaders: Record<string, string> = {},
+): Promise<Observation> {
   const res = await fetch(`${BASE}/api/uploads`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...extraHeaders },
     body: BODY,
   });
   // Drain the body so the connection is released promptly.
@@ -118,6 +152,34 @@ async function main(): Promise<number> {
       (denied?.retryAfter ? ` (Retry-After: ${denied.retryAfter}s)` : "") +
       `.\nThat is a real refusal from the server, not a configuration flag.`,
   );
+
+  let spoofed: Observation;
+  try {
+    spoofed = await attempt(SPOOFED);
+  } catch (error) {
+    console.error(`the spoof probe failed to complete: ${String(error)}`);
+    return 2;
+  }
+  if (spoofed.status !== 429) {
+    console.log(
+      `\nSPOOFABLE — with this client's budget spent, a request carrying made-up\n` +
+        `address headers got ${spoofed.status}, not 429: a client-written header\n` +
+        `chose the bucket. Check PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER (docs/RATE_LIMITING.md).`,
+    );
+    return 3;
+  }
+  console.log(
+    "A request carrying spoofed address headers was refused too: same bucket.",
+  );
+
+  const originIp = process.env.ORIGIN_IP;
+  if (originIp) {
+    const hostname = new URL(BASE).hostname;
+    const outcome = await knockOnOrigin({ originIp, hostname });
+    const verdict = knockVerdict(originIp, hostname, outcome);
+    console.log(verdict.message);
+    if (verdict.exitCode !== 0) return verdict.exitCode;
+  }
   return 0;
 }
 

@@ -6,9 +6,10 @@
  * and `ai-extract.ts`: pure data plus a pure parser — no Next.js, no storage, no AI
  * SDK. It defines exactly what one chat request may ask for (a bounded QUESTION and
  * optional prior CONVERSATION CONTEXT) so the UI, the worker engine, and the docs
- * share one honest source of truth. It depends only on `./responses` and
- * `./filenames`, so a client component can import the validator without pulling a
- * Node built-in or the AI provider into the bundle.
+ * share one honest source of truth. It depends only on `./responses`,
+ * `./filenames` and the pure constants in `./translate-limits`, so a client
+ * component can import the validator without pulling a Node built-in or the AI
+ * provider into the bundle.
  *
  * HONEST SCOPE (load-bearing): this contract only *describes* a request. Producing an
  * answer requires a configured AI provider and selectable text in the PDF; the worker
@@ -31,6 +32,22 @@ import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
 } from "./filenames";
+import {
+  TRANSLATE_EXTRACTOR_HEADROOM,
+  TRANSLATE_MAX_INPUT_CHARS,
+} from "./translate-limits";
+
+/**
+ * The tool this contract describes. The worker engine's `CHAT_TOOL` is the same
+ * literal (kept literal there because `ai-ceiling-surfaces.test.ts` discovers
+ * engines by it); `chat-with-pdf.delivery.test.ts` pins the two together.
+ *
+ * Removed by L10 on 2026-09-27 when the route stopped comparing against it
+ * (per-call pricing keys chat by `AI_RUN_PRICING`); restored at the merge with
+ * L04/L07, whose copy branches on it — the chat FAQ's per-question ceiling in
+ * `tool-facts.ts` and chat's allowance sentence in `ai-allowance.ts`.
+ */
+export const CHAT_TOOL_SLUG = "chat-with-pdf" as const;
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -212,4 +229,84 @@ export function chatAnswerOutputName(originalName: unknown): string {
       .replace(/\.[^.]+$/, "")
       .trim() || FALLBACK_STEM;
   return `${stem.length > budget ? stem.slice(0, budget).trim() : stem}${tail}`;
+}
+
+/**
+ * The most one question may cost against the daily AI allowance — and the most
+ * text the worker will read for it, the document AND the conversation together.
+ * In WORKER-EXTRACTED characters, the unit the allowance bucket is kept in.
+ *
+ * ── IT IS THE UNDECLARED CHARGE, AND THAT IS THE WHOLE ARGUMENT ─────────────
+ *
+ * A per-call run that declares nothing, or whose worker has not proved its read
+ * cap, is charged `TRANSLATE_MAX_INPUT_CHARS × headroom` (`aiReservationFor`),
+ * and a declared one is clamped there. Chat's own ceiling is that same product,
+ * so:
+ *
+ *  - **no question costs more than a third of the day**, so three questions are
+ *    the floor for every document, and a small one gets many more once the
+ *    worker proves its cap.
+ *  - **the charge and the read are the same number at the clamp.** Until
+ *    2026-09-27 a chat question was charged this while the engine read up to
+ *    `AI_INPUT_LIMITS.maxInputCharacters` (500,000) — twelve times what was
+ *    paid for. A reservation nothing enforces looks enforced, which is worse
+ *    than none (`delivery-cap.ts`). The conversation is paid out of it
+ *    ({@link chatDocumentBudget}), so a question charged the clamp cannot read
+ *    the clamp of document AND send a conversation on top.
+ *
+ * DERIVED, never typed: if the per-call ceiling or the headroom moves, the
+ * fallback moves, and this moves with it.
+ */
+export const CHAT_MAX_CHARACTERS_PER_QUESTION = Math.ceil(
+  TRANSLATE_MAX_INPUT_CHARS * TRANSLATE_EXTRACTOR_HEADROOM,
+);
+
+/**
+ * The characters of conversation one question sends the model: the question
+ * itself plus every carried turn.
+ *
+ * It counts the VALIDATED options (trimmed by {@link parseChatOptions}), which
+ * is what the worker holds when it sends them. The route charges the same text
+ * off the raw body (`optionCharacters`), which can only count more.
+ */
+export function chatConversationCharacters(options: ChatOptions): number {
+  let total = options.question.length;
+  for (const turn of options.context ?? []) total += turn.content.length;
+  return total;
+}
+
+/**
+ * How much DOCUMENT text one question may send the model. ONE definition, used
+ * by the engine that sends it and by the test that holds every accepted
+ * conversation to leaving room for it.
+ *
+ * Two bounds, on two different things:
+ *
+ *  - the per-question CEILING, {@link CHAT_MAX_CHARACTERS_PER_QUESTION}, bounds
+ *    the document and the conversation together, so the conversation is paid
+ *    out of it and the document gets what is left. It applies to every
+ *    question, capped or not — an undeclared question, and every question while
+ *    the running worker has not proved its read cap, arrives with no cap at all.
+ *  - the job's CAP, when the route set one, bounds the document alone. It is
+ *    the read bound the route priced (`aiReservationFor`): the conversation was
+ *    charged separately, off the options, so it is NOT taken out of the cap.
+ *    Chat's first version of this bound (also 2026-09-27) made the cap include
+ *    the conversation and took it back out here; with the cap document-only,
+ *    that would refuse an honest one-page document carrying a long
+ *    conversation (a cap of 8,000 against 8,000 characters of turns) after
+ *    the route had charged it.
+ *
+ * The engine may also be configured with a lower DOCUMENT limit
+ * (`maxInputChars`), applied on top. Zero or less means the conversation alone
+ * fills the ceiling; the engine refuses such a question before any provider
+ * call. Every conversation the API accepts leaves room
+ * (`chat-with-pdf.conversation-bound.test.ts`).
+ */
+export function chatDocumentBudget(
+  options: ChatOptions,
+  cap?: { readonly characters: number },
+): number {
+  const room =
+    CHAT_MAX_CHARACTERS_PER_QUESTION - chatConversationCharacters(options);
+  return cap && room > 0 ? Math.min(room, Math.floor(cap.characters)) : room;
 }

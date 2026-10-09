@@ -24,8 +24,10 @@ import { describe, expect, it } from "vitest";
 import {
   copyFiles,
   flattenForPhraseSearch,
+  toolContentFiles,
   withoutComments,
 } from "./copy-surface";
+import { toolCount } from "./index";
 
 const ROOT = process.cwd();
 
@@ -190,6 +192,28 @@ describe("marketing copy does not promise what an engine disclaims", () => {
       ).toEqual([]);
     },
   );
+
+  it("reads every tool page's content file", () => {
+    // Derived from the content index — what the page consumes — and bounded
+    // by the catalogue, so the walk cannot quietly lose the fifty files.
+    const read = new Set(copyFiles());
+    const content = toolContentFiles();
+    expect(content.size).toBe(toolCount);
+    expect([...content.values()].filter((f) => !read.has(f))).toEqual([]);
+  });
+
+  it("positive control: the promise planted in real tool content is caught", () => {
+    // Translate's own content file, through the same flatten + classifier the
+    // corpus run uses: clean as shipped, caught with the homepage's promise.
+    const file = toolContentFiles().get("translate-pdf")!;
+    const { subject, promises } = DISCLAIMED[0];
+    const real = flattenForPhraseSearch(
+      withoutComments(readFileSync(file, "utf8")),
+    );
+    expect(promisesIn(real, subject, promises)).toEqual([]);
+    const planted = `seoTitle: "Translate a brochure while keeping its layout", ${real}`;
+    expect(promisesIn(planted, subject, promises).length).toBeGreaterThan(0);
+  });
 
   it.each(DISCLAIMED)(
     "the rule can still fire — a real promise in $capability copy is caught",

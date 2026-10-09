@@ -65,7 +65,13 @@ import type {
   RunningUpdate,
 } from "./claim";
 import type { RedisQueueConfig } from "./redis-config";
-import { redisQueueCapability } from "./redis-config";
+import {
+  hasSecretOptions,
+  openOptions,
+  sealOptions,
+  type OptionSealing,
+} from "./sealed-options";
+import { grantedLeaseMs, redisQueueCapability } from "./redis-config";
 import {
   createRedisClient,
   type RedisArg,
@@ -89,6 +95,12 @@ export interface RedisQueueDeps {
   now?: () => number;
   /** Transport for the default client; ignored when `client` is provided. */
   fetchImpl?: RedisFetch;
+  /**
+   * Seal keys for secret option fields (see `./sealed-options`). The web tier
+   * seals with the public key before a spec is written; the worker opens with
+   * the private key when it claims. Absent ⇒ options are stored as given.
+   */
+  sealing?: OptionSealing;
 }
 
 /** The executor-facing spec stored alongside a queued job. */
@@ -141,6 +153,7 @@ export function createRedisQueue(
   deps: RedisQueueDeps = {},
 ): ClaimableQueue {
   const now = deps.now ?? (() => Date.now());
+  const sealing: OptionSealing = deps.sealing ?? {};
   const client =
     deps.client ??
     createRedisClient({
@@ -305,6 +318,18 @@ export function createRedisQueue(
 
     async submit(submission: JobSubmission, idempotencyKey) {
       const { job } = submission;
+      let options = submission.options;
+      if (hasSecretOptions(options)) {
+        // A configured key that does not parse must not quietly degrade to
+        // storing the password in the clear: refuse, visibly.
+        if (sealing.misconfigured)
+          return queueFail(
+            "unavailable",
+            "Password-protected jobs are temporarily unavailable. Please retry later.",
+          );
+        if (sealing.publicKey)
+          options = sealOptions(options, sealing.publicKey);
+      }
       const commands: RedisArg[][] = [
         putJob(job),
         putSpec(job.jobId, {
@@ -312,7 +337,7 @@ export function createRedisQueue(
           ...(submission.inputNames
             ? { inputNames: submission.inputNames }
             : {}),
-          options: submission.options,
+          options,
           ...(submission.delivery ? { delivery: submission.delivery } : {}),
         }),
       ];
@@ -343,7 +368,7 @@ export function createRedisQueue(
 
     async claim(options: ClaimOptions) {
       const nowMs = now();
-      const effectiveLeaseMs = Math.min(options.leaseMs, config.leaseCeilingMs);
+      const effectiveLeaseMs = grantedLeaseMs(options.leaseMs, config);
 
       // 1. Redelivery sweep: return jobs whose lease expired to the ready list.
       // ZREM is the atomic hand-off — only the claimer whose ZREM removes the
@@ -438,6 +463,18 @@ export function createRedisQueue(
         return queueOk<ClaimedJob | null>(null);
       }
 
+      // Open sealed option fields HERE, on every claim — a redelivered or
+      // requeued attempt reads the same stored spec and needs them just as much.
+      const opened = openOptions(specRes.value.options, sealing.privateKey);
+      if (!opened.ok) {
+        await terminalFail(
+          jobId,
+          job,
+          "This job could not run: its password is encrypted for a worker key this worker does not hold.",
+        );
+        return queueOk<ClaimedJob | null>(null);
+      }
+
       const leaseRes = await loadLease(jobId);
       if (!leaseRes.ok) return leaseRes;
       const attempt = (leaseRes.value?.attempts ?? 0) + 1;
@@ -486,7 +523,7 @@ export function createRedisQueue(
         ...(specRes.value.inputNames
           ? { inputNames: specRes.value.inputNames }
           : {}),
-        options: specRes.value.options,
+        options: opened.options,
         ...(specRes.value.delivery ? { delivery: specRes.value.delivery } : {}),
         attempt,
         leaseExpiresAt,
@@ -499,7 +536,7 @@ export function createRedisQueue(
       // live lease + attempt ownership) and recomputes the lease server-side.
       const jobRes = await loadJob(jobId);
       if (!jobRes.ok) return jobRes;
-      const leaseExpiresAt = now() + Math.min(leaseMs, config.leaseCeilingMs);
+      const leaseExpiresAt = now() + grantedLeaseMs(leaseMs, config);
       const outcome = await runTransition(client, "heartbeat", keysFor(jobId), [
         String(leaseExpiresAt),
         attemptArg(expectedAttempt),

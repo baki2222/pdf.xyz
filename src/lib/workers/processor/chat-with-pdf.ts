@@ -13,10 +13,7 @@
  */
 
 import type { JobError } from "@/lib/jobs";
-import {
-  parseChatOptions,
-  chatAnswerOutputName,
-} from "@/lib/jobs/chat-with-pdf";
+import { chatAnswerOutputName } from "@/lib/jobs/chat-with-pdf";
 import {
   CHAT_TOOL,
   runChatWithPdf,
@@ -32,6 +29,8 @@ import {
   type ProcessorMeta,
   type ProcessorResult,
 } from "./types";
+import { perCallReadCap } from "./read-cap-limit";
+import { AI_TOOL_OPTION_PARSERS } from "@/lib/jobs/ai-tool-options";
 
 type Failure = Extract<ChatWithPdfRun, { ok: false }>;
 
@@ -55,7 +54,17 @@ function jobError(run: Failure): JobError {
         message: run.message,
         retryable: false,
       };
+    case "conversation_too_long":
+      // Not retryable and not a size error: the same conversation under the
+      // same ceiling is refused the same way, and the message names both numbers.
+      return {
+        code: "unprocessable_entity",
+        message: run.message,
+        retryable: false,
+      };
     case "no_text":
+    case "cannot_open":
+      // Both are facts about the file: retrying cannot change them.
       return {
         code: "unprocessable_entity",
         message: run.message,
@@ -148,7 +157,10 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
           retryable: false,
         });
       }
-      const parsed = parseChatOptions(input.options);
+      // The SAME parser the route ran before it charged the allowance
+      // (`@/lib/jobs/ai-tool-options`), kept here as the second line of
+      // defence for a job queued by anything but that route.
+      const parsed = AI_TOOL_OPTION_PARSERS[CHAT_TOOL](input.options);
       if (!parsed.ok) {
         return processorFail({
           code: parsed.error.body.error.code,
@@ -156,7 +168,31 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
           retryable: false,
         });
       }
-      const run = await runChatWithPdf(file.bytes, parsed.value, deps);
+      /**
+       * The delivery cap arrives on the INPUT, not on `deps`: `deps` is the
+       * worker's wiring, built once at start-up, and the cap is per job.
+       *
+       * RE-READ, NOT TRUSTED, and FAIL-CLOSED: it came back from the queue as
+       * `JSON.parse(raw) as T`. A malformed cap must not read as "no cap",
+       * because the convenient reading of a broken value is "deliver
+       * everything" — precisely what the cap exists to prevent.
+       *
+       * It is the DOCUMENT read bound the route charged for (`aiReservationFor`,
+       * see `./read-cap-limit`); the question and the turns were charged
+       * separately, off the options. So it goes to the engine as its own bound,
+       * NOT folded into `maxInputChars`: that is chat's per-question ceiling,
+       * which the conversation IS paid out of, and folding the two would take
+       * the conversation out of the document this job paid for.
+       */
+      const cap = perCallReadCap(input.delivery);
+      if (!cap.ok) return processorFail(cap.error);
+      const run = await runChatWithPdf(file.bytes, parsed.value, {
+        ...deps,
+        limits: {
+          ...deps.limits,
+          ...(cap.cap ? { delivery: cap.cap } : {}),
+        },
+      });
       // A run that failed AFTER a provider call still owes the job record what
       // it spent — see `aiResultsFromFailure`. Absent when no call happened.
       if (!run.ok)
