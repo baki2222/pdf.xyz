@@ -306,7 +306,8 @@ test.describe("fallback faces", () => {
       [],
     );
     expect(r.groups).toHaveLength(1);
-    expect(r.groups[0].fallback).toBe("Probe Wide");
-    expect(Math.abs(ratio(r.groups[0]) - 1)).toBeGreaterThan(TOLERANCE);
+    const [probe] = r.groups as [Group];
+    expect(probe.fallback).toBe("Probe Wide");
+    expect(Math.abs(ratio(probe) - 1)).toBeGreaterThan(TOLERANCE);
   });
 });
