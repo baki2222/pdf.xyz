@@ -4,6 +4,8 @@ import { categories } from "../src/lib/tools/categories";
 import { categoryHref } from "../src/lib/tools/category-href";
 import { getRunnerKind } from "../src/lib/pdf/registry";
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
  * The working surface above the fold on a phone (390×844, the `mobile`
  * project). Each number is a page-coordinate measured in a real browser
@@ -71,15 +73,25 @@ test("/: the toolbox section is at most 1,100px tall, and still links every tool
   expect(missing).toEqual([]);
 });
 
-test("/: on a phone each toolbox card shows its first three tools and a link to all of them", async ({
+/*
+ * WHAT THE TITLE CLAIMED AND THE TEST DID NOT (review of WP-06, 2026-10-10):
+ * this test was named "…and a link to all of them" and asserted only the
+ * heading's href. On a phone that heading is the card's sole way to the
+ * category, and it looks like plain text — no arrow, no underline, no accent,
+ * and touch has no hover — while "View all" is hidden below `sm`. So a card
+ * showing 3 of 7 tools gave no visible way to the other 4, with this test
+ * green. It now finds the link a reader sees, by its words, on screen.
+ */
+test("/: on a phone each toolbox card shows its first three tools and a visible link to all of them", async ({
   page,
 }) => {
   await page.goto("/");
   const toolbox = page.locator("section#tools");
   for (const category of categories) {
+    const count = getToolsByCategory(category.id).length;
     const heading = toolbox.getByRole("heading", {
       level: 3,
-      name: new RegExp(`^${category.name.replace(/[&]/g, "\\$&")}`),
+      name: new RegExp(`^${escapeRegExp(category.name)}`),
     });
     await expect(heading, category.id).toBeVisible();
     await expect(heading.getByRole("link"), category.id).toHaveAttribute(
@@ -96,9 +108,38 @@ test("/: on a phone each toolbox card shows its first three tools and a link to 
         (links) =>
           links.filter((a) => (a as HTMLElement).offsetParent !== null).length,
       );
-    expect(shown, category.id).toBe(
-      Math.min(3, getToolsByCategory(category.id).length),
+    expect(shown, category.id).toBe(Math.min(3, count));
+    // The way to the rest: a link a reader SEES, saying how many there are
+    // and naming the category, under the rows. Visible is the property: the
+    // heading's link alone passed every check here while reading as text.
+    const all = card
+      .getByRole("link", { name: new RegExp(`^All ${count} `) })
+      .filter({ visible: true });
+    await expect(all, category.id).toHaveCount(1);
+    await expect(all, category.id).toHaveAttribute(
+      "href",
+      categoryHref(category.id),
     );
+    expect(
+      (await all.textContent())?.toLowerCase(),
+      `${category.id}: the link does not name its category`,
+    ).toContain(category.name.toLowerCase());
+    const [rows, link] = await Promise.all([
+      card
+        .locator('a[href^="/tools/"]:not([href*="/category/"])')
+        .evaluateAll((links) =>
+          Math.max(
+            ...links
+              .filter((a) => (a as HTMLElement).offsetParent !== null)
+              .map((a) => a.getBoundingClientRect().bottom),
+          ),
+        ),
+      all.evaluate((a) => a.getBoundingClientRect().top),
+    ]);
+    expect(
+      link,
+      `${category.id}: the link is not under the rows`,
+    ).toBeGreaterThanOrEqual(rows - 1);
   }
 });
 

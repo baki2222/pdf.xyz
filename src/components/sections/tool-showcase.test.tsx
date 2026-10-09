@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { render, within } from "@testing-library/react";
-import { ToolShowcase } from "./tool-showcase";
+import { allToolsLabel, ToolShowcase } from "./tool-showcase";
 import { categories, getToolsByCategory, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
 
@@ -46,6 +46,60 @@ describe("ToolShowcase", () => {
       expect(link).toHaveAttribute("href", categoryHref(category.id));
       expect(link.closest("h3"), category.id).not.toBeNull();
     }
+  });
+
+  /*
+   * The phone card's way to the rest, as words a reader sees: "All 7
+   * Organize tools →". The WP-06 review (2026-10-10) found the cards had
+   * only their heading's link — plain-looking text on a phone, with "View
+   * all" hidden below `sm` — and the e2e test that claimed "a link to all
+   * of them" asserted that heading's href. Visibility is checked in a
+   * browser (`e2e/tool-layout.mobile.spec.ts`); this holds what jsdom can:
+   * one such link per card, in that card, after its rows, to its category.
+   */
+  it("each category card ends with a link to all its tools, saying how many and naming the category", () => {
+    const { container } = render(<ToolShowcase />);
+    const section = container.querySelector("section#tools") as HTMLElement;
+    for (const category of categories) {
+      const count = getToolsByCategory(category.id).length;
+      const links = within(section).getAllByRole("link", {
+        name: new RegExp(`^All ${count} .*\\btools$`),
+      });
+      const heading = within(section)
+        .getByRole("heading", {
+          level: 3,
+          name: new RegExp(`^${escape(category.name)}`),
+        })
+        .closest("h3")!;
+      const card = heading.parentElement!.parentElement!;
+      const mine = links.filter((a) => card.contains(a));
+      expect(mine, category.id).toHaveLength(1);
+      const link = mine[0]!;
+      expect(link).toHaveAttribute("href", categoryHref(category.id));
+      expect(link.textContent?.toLowerCase(), category.id).toContain(
+        category.name.toLowerCase().replace(/\s+tools$/, ""),
+      );
+      // After every row in the card, so it reads as the way to the rest.
+      const rows = [
+        ...card.querySelectorAll(
+          'a[href^="/tools/"]:not([href*="/category/"])',
+        ),
+      ];
+      expect(rows.length, category.id).toBe(count);
+      expect(
+        rows.every(
+          (row) =>
+            row.compareDocumentPosition(link) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+        category.id,
+      ).toBe(true);
+    }
+  });
+
+  it('a category named with "Tools" is not said twice', () => {
+    expect(allToolsLabel("AI Tools", 4)).toBe("All 4 AI tools");
+    expect(allToolsLabel("Organize", 7)).toBe("All 7 Organize tools");
   });
 
   it("keeps a way to every category's full list beside its index, on wide screens", () => {

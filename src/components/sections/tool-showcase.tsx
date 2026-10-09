@@ -15,6 +15,15 @@ import { cn } from "@/lib/utils";
 const PHONE_ROWS = 3;
 
 /**
+ * "All 7 Organize tools", "All 4 AI tools": a category's way to all of its
+ * tools, named with the count and the category. A category whose name
+ * already ends in "Tools" does not say it twice.
+ */
+export function allToolsLabel(name: string, count: number): string {
+  return `All ${count} ${name.replace(/\s+tools$/i, "")} tools`;
+}
+
+/**
  * One tool in a category's list: the name, a dot leader, and where it runs.
  * Deliberately names-only: a `title` attribute was tried and rejected — it
  * asserts the tagline is available while withholding it from screen readers
@@ -71,11 +80,17 @@ function IndexRow({ tool, phoneHidden }: { tool: Tool; phoneHidden: boolean }) {
  *
  * ON A PHONE: that index was 3,678px tall (measured 2026-10-10), a third of
  * the home page. It is now a two-column grid of category cards: the
- * category, linked, with its count; its first {@link PHONE_ROWS} tools. The
+ * category, linked, with its count; its first {@link PHONE_ROWS} tools; and
+ * under them "All 7 Organize tools →", the visible way to the rest. The
  * other rows stay in the HTML, hidden, so every tool is still linked from
  * the home page (`internal-links.test.ts`); the height is held at 1,100px by
  * `e2e/tool-layout.mobile.spec.ts`. One list serves both layouts, so no tool
  * is linked twice.
+ *
+ * The card's link is its own element, not the heading's: the WP-06 review
+ * (2026-10-10) found the heading was the cards' only way to their category,
+ * and on a phone it reads as plain text — no arrow, no underline, no accent,
+ * and touch has no hover — while "View all" is hidden below `sm`.
  */
 export function ToolShowcase() {
   const groups = getToolsGroupedByCategory();
@@ -87,6 +102,11 @@ export function ToolShowcase() {
           eyebrow="The toolbox"
           title="Everything you can do with a PDF"
           description="A complete, categorized toolkit — from everyday merges and conversions to redaction, e-signatures, and AI. Every tool tells you exactly where it runs."
+          // Below `sm` the cards say it: each names its category, its count
+          // and its tools' shapes. Hidden, not removed — it stays in the
+          // HTML — so the section fits its 1,100px with each card's "All N
+          // … tools →" link (1,267px with both, measured at 390).
+          descriptionClassName="max-sm:hidden"
         />
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-1 sm:gap-12">
@@ -132,6 +152,17 @@ export function ToolShowcase() {
                   />
                 ))}
               </div>
+
+              <Link
+                href={categoryHref(category.id)}
+                className="text-accent mt-auto inline-flex items-baseline gap-1 text-xs leading-4 font-medium underline-offset-4 hover:underline sm:hidden"
+              >
+                {allToolsLabel(category.name, categoryTools.length)}
+                <ArrowRight
+                  className="size-3 shrink-0 self-center"
+                  aria-hidden
+                />
+              </Link>
             </div>
           ))}
         </div>
