@@ -111,9 +111,21 @@ describe("a suggestion is a link that carries the files", () => {
     // The evidence is the link's DESCRIPTION: an aria-label replaces the
     // content as the name, so without it a screen reader hears no reason.
     await waitFor(() =>
-      expect(merge).toHaveAccessibleDescription(/2 PDFs · 3 pages.*In-browser/),
+      expect(merge).toHaveAccessibleDescription(
+        /2 PDFs\s·\s3 pages.*In-browser/,
+      ),
     );
     await waitFor(() => expect(merge.textContent).toMatch(/3 pages/));
+    // Every dot between facts is held to the word before it, in the row and
+    // in the staged list, so a wrapped line never STARTS with one (the 390px
+    // screenshot had "· 3 pages" opening a line). Read off the rendered text:
+    // an ordinary space before a dot is the defect, a no-break one the fix.
+    const staged = screen.getByRole("list", { name: "Staged files" });
+    await waitFor(() => expect(staged.textContent).toMatch(/2 pages/));
+    for (const text of [merge.textContent, staged.textContent]) {
+      expect(text).toMatch(/\u00a0·/); // positive control: dots are there
+      expect(text).not.toMatch(/\u0020·/);
+    }
 
     fireEvent.click(merge);
     await waitFor(() => expect(pushed).toHaveLength(1));

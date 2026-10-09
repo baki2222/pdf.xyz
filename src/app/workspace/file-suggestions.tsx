@@ -25,6 +25,7 @@ import type { ProcessingMode } from "@/lib/tools/types";
 import { cn } from "@/lib/utils";
 import type { WorkspaceFile } from "@/lib/workspace";
 import { suggestTools } from "@/lib/workspace/suggestions";
+import { FACT_SEP } from "./fact-separator";
 import type { WorkspaceToolSummary } from "./summary";
 
 type Row = Suggestion<WorkspaceToolSummary>;
@@ -148,20 +149,21 @@ function SuggestionRow({
             id={`${describedBy}-facts`}
             className="text-muted text-xs leading-relaxed"
           >
-            {facts.join(" · ")}
+            {facts.join(FACT_SEP)}
           </span>
         )}
         <span
           id={`${describedBy}-where`}
-          className="text-faint flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-relaxed"
+          className="text-faint text-[11px] leading-relaxed"
         >
-          <ModeShape mode={row.tool.processing} />
+          <ModeShape
+            mode={row.tool.processing}
+            className="mr-1.5 inline-block align-[-0.5px]"
+          />
           <span className="font-mono font-medium tracking-wide uppercase">
             {meta.short}
           </span>
-          {terms.map((term) => (
-            <span key={term}>· {term}</span>
-          ))}
+          {terms.length > 0 && `${FACT_SEP}${terms.join(FACT_SEP)}`}
         </span>
       </span>
       {launching ? (

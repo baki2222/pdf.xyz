@@ -38,6 +38,7 @@ import {
   type WorkspaceFile,
 } from "@/lib/workspace";
 import { BatchPanel } from "./batch-panel";
+import { FACT_SEP } from "./fact-separator";
 import type { WorkspaceToolSummary } from "./summary";
 import { SuggestedTools } from "./suggested-tools";
 import { useWorkspace, type WorkspaceArrival } from "./use-workspace";
@@ -331,20 +332,21 @@ export function WorkspaceClient({
                         <span className="border-line bg-wash text-muted rounded border px-1 py-px text-[10px] font-semibold tracking-wide uppercase">
                           {file.kind}
                         </span>
-                        <span className="figure truncate">
+                        {/* One inline run, so a wrap breaks after a dot. */}
+                        <span className="figure min-w-0">
                           {formatBytes(file.size)}
                           {typeof file.pageCount === "number"
-                            ? ` · ${file.pageCount} ${file.pageCount === 1 ? "page" : "pages"}`
+                            ? `${FACT_SEP}${file.pageCount} ${file.pageCount === 1 ? "page" : "pages"}`
                             : ""}
+                          {chips.map((chip) => (
+                            <span
+                              key={chip.text}
+                              className={CHIP_TONE[chip.tone]}
+                            >
+                              {`${FACT_SEP}${chip.text}`}
+                            </span>
+                          ))}
                         </span>
-                        {chips.map((chip) => (
-                          <span
-                            key={chip.text}
-                            className={CHIP_TONE[chip.tone]}
-                          >
-                            · {chip.text}
-                          </span>
-                        ))}
                       </span>
                     </span>
                     <button
