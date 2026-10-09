@@ -152,6 +152,7 @@ async function read(probeSelector: string | null): Promise<PageReading> {
     const real = stack[0];
     // A stack that starts with a platform font has no swap to measure.
     if (
+      real === undefined ||
       ![...document.fonts].some((f) => f.family.replace(/["']/g, "") === real)
     )
       continue;
@@ -288,8 +289,7 @@ test.describe("fallback faces", () => {
         '@font-face{font-family:"Probe Wide";src:local("Arial"),local("ArialMT"),local("Liberation Sans"),local("LiberationSans"),local("Arimo");size-adjust:108%}',
     });
     const real = await page.evaluate(() =>
-      getComputedStyle(document.body)
-        .fontFamily.split(",")[0]
+      (getComputedStyle(document.body).fontFamily.split(",")[0] ?? "")
         .replace(/["']/g, "")
         .trim(),
     );
