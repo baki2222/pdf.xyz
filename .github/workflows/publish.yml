@@ -54,6 +54,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The runner's DISK, not the build, is the limit. On 2026-10-09 publish
+      # died loading the worker image ("no space left on device") once the
+      # worker gained the Carlito/Caladea/Liberation/Noto fonts its Office
+      # conversions draw in; the PR's identical build had just fit. Both images
+      # are loaded side by side for the smokes, so the toolchains ubuntu-latest
+      # preinstalls and no step here uses are removed first.
+      # src/deploy/ci-workflow.test.ts requires this before any loaded build.
+      - name: Free runner disk for two loaded images
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force > /dev/null
+          df -h /
+
       # Fail LOUDLY before spending build minutes: an empty value would bake a
       # CSP without the storage origin, and nothing else fails until a real
       # visitor's upload is refused by their own browser.
