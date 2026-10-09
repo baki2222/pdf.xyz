@@ -96,8 +96,16 @@ export const PENDING_COPY_ROOTS: Record<string, string> = {
  * suggestions are sentences a visitor reads beside their files, and the folder
  * was the one copy-holding lib directory outside the walk. The same day the
  * walk stopped being the only proof: `copy-surface.test.ts` now DISCOVERS
- * every `src/lib` module that exports words (copy reach) and every `.tsx` with
- * JSX text, and requires each to be walked or recorded with a reason.
+ * every `src/lib` module that holds words for a reader (copy reach) and every
+ * `.tsx` with JSX text, and requires each to be walked or recorded with a
+ * reason.
+ *
+ * Eight page-copy modules joined the same day — the tenth appearance, and the
+ * first found by the discovery rather than by a defect. Copy reach first found
+ * its modules by the NAME of an export (…Message, …Label), and the Crop
+ * disclosure, the capability summaries, three option tables, the JSON-LD
+ * prose and the panels' error reader were named otherwise, so it could not see them. It now discovers by
+ * content: any sentence, in any literal, whatever it is called.
  */
 export function copyFiles(): string[] {
   const roots = [
@@ -124,6 +132,21 @@ export function copyFiles(): string[] {
     // The shared social card, painted on every link to a page without its
     // own image. Outside every walked root; listed for that reason.
     path.join(ROOT, "src", "lib", "og.tsx"),
+    // Page copy that lives beside engine code, found 2026-10-09 when copy
+    // reach began discovering by CONTENT (see the docblock above): option
+    // tables a tool page renders, the Crop disclosure, the capability
+    // summaries, the JSON-LD prose every tool page ships, and the reader
+    // that turns a worker's error into the sentence a panel shows. Each is
+    // listed singly — their folders hold engine code — and none carries a
+    // trailing `//` comment.
+    path.join(ROOT, "src", "lib", "structured-data.ts"),
+    path.join(ROOT, "src", "lib", "jobs", "capabilities.ts"),
+    path.join(ROOT, "src", "lib", "jobs", "ocr.ts"),
+    path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "crop-disclosure.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
+    path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
