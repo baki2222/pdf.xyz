@@ -62,6 +62,38 @@ export async function writeTempFormPdf(name: string): Promise<string> {
   return path;
 }
 
+/** A 1×1 opaque PNG: the whole of a generated scan's page. */
+const PNG_1PX = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+/**
+ * What a scanner produces: each page one full-bleed image, and no text
+ * operator anywhere — so no text layer to select.
+ */
+export async function makeScanPdfBytes(pageCount = 1): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const image = await doc.embedPng(PNG_1PX);
+  for (let i = 0; i < pageCount; i++) {
+    doc
+      .addPage([612, 792])
+      .drawImage(image, { x: 0, y: 0, width: 612, height: 792 });
+  }
+  return doc.save();
+}
+
+/** Write a generated scan to a temp file and return its path. */
+export async function writeTempScanPdf(
+  name: string,
+  pages = 1,
+): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), "pdfxyz-e2e-"));
+  const path = join(dir, name);
+  writeFileSync(path, await makeScanPdfBytes(pages));
+  return path;
+}
+
 /** The runner/workspace file picker — every upload flow goes through this. */
 export function fileInput(page: Page): Locator {
   return page.locator('input[type="file"]').first();

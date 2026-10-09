@@ -5,6 +5,7 @@ import {
   uploadFiles,
   waitForHydration,
   writeTempPdf,
+  writeTempScanPdf,
 } from "./helpers";
 
 /**
@@ -190,4 +191,56 @@ test("remembers recent activity across navigation (local only)", async ({
   await expect(activity.getByText(/opened rotate pdf/i)).toBeVisible();
 
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+});
+
+test("a scan staged in the workspace is offered OCR PDF, with the measured reason", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/workspace");
+  await uploadFiles(page, await writeTempScanPdf("scan.pdf"));
+
+  // Measured in this tab: the probe found no text layer on the page.
+  const suggested = page.getByRole("region", {
+    name: /suggested for your files/i,
+  });
+  const ocr = suggested.getByRole("link", { name: /^open ocr pdf/i });
+  await expect(ocr).toBeVisible();
+  await expect(ocr).toContainText(/no selectable text on page 1/i);
+  // Where the file goes, at the moment it would move.
+  await expect(ocr).toContainText(/uploads only when you start it/i);
+  await expect(ocr).toHaveAttribute("href", "/tools/ocr-pdf");
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+test("the Merge PDF suggestion is a link that carries both files into Merge PDF", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/workspace");
+  await uploadFiles(page, [
+    await writeTempPdf("a.pdf"),
+    await writeTempPdf("b.pdf"),
+  ]);
+
+  // The suggestion LINK — the batch panel's button of the same name is
+  // covered above; this is the row in "Suggested for your files".
+  const merge = page
+    .getByRole("region", { name: /suggested for your files/i })
+    .getByRole("link", { name: /open merge pdf with 2 files/i });
+  await expect(merge).toHaveAttribute("href", "/tools/merge-pdf");
+  await merge.click();
+
+  await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
+  await expect(page.getByText("a.pdf")).toBeVisible();
+  await expect(page.getByText("b.pdf")).toBeVisible();
+  await expect(page.getByText(/loaded .* from your workspace/i)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /merge 2 pdfs/i }),
+  ).toBeEnabled();
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
