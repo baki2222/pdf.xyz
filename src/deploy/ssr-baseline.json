@@ -3665,7 +3665,7 @@
     },
     "tools/pdf-to-powerpoint.html": {
       "title": "PDF to PowerPoint (PPTX): Text Export by Page — pdf.xyz",
-      "description": "Export a PDF's selectable text to .pptx, one slide per page. PowerPoint for Windows currently rejects the file as corrupted; read why before you convert.",
+      "description": "Export a PDF's selectable text to a .pptx: one slide per page, each holding that page's lines as plain paragraphs. Images, fonts and layout are not kept.",
       "canonical": "https://pdf.xyz/tools/pdf-to-powerpoint",
       "robots": "index, follow",
       "h1": ["PDF to PowerPoint"],
