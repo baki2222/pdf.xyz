@@ -301,6 +301,158 @@ test.describe("at 390px", () => {
   });
 });
 
+/**
+ * FOUND IN REVIEW (2026-10-09, after the fix above): the page still scrolled
+ * sideways at 390px, from the SUGGESTIONS this time. With
+ * `Scanned_Contract_ACME_Corporation_2026_10_09.pdf` and one other PDF
+ * staged, the scan's row says "No selectable text on page 1 of <name>", and
+ * an underscore is no break opportunity: the name ran out of its 210px
+ * column and the page was 411px wide (632 with an 84-character name, and
+ * 1209 against 1024 on a desktop). The test above could not reach it — one
+ * file, so no row names it, and a hyphenated name, which breaks.
+ *
+ * So: a scan (its facts name the file only when another file is staged), a
+ * name that is ordinary but has no break opportunity, the phone's inline list
+ * (at 390, and at 360 where the rows are narrowest) and the aside at its
+ * narrowest (1024), and every line of text in the suggestions held inside its
+ * row, not only the page's width.
+ */
+const UNBROKEN_NAME = "Scanned_Contract_ACME_Corporation_2026_10_09.pdf";
+
+for (const width of [360, 390, 1024]) {
+  test.describe(`at ${width}px, a long name with no break opportunity`, () => {
+    // No mobile emulation, as above: a phone browser zooms a too-wide page
+    // out, which would hide the overflow this measures.
+    test.use({ viewport: { width, height: 844 } });
+
+    test("breaks inside the suggestion that names it, and the page never scrolls sideways", async ({
+      page,
+    }) => {
+      const guard = attachConsoleGuard(page);
+      expect(UNBROKEN_NAME.length).toBeGreaterThanOrEqual(40);
+      // Underscores only: no space or hyphen for a line to break at.
+      expect(UNBROKEN_NAME).not.toMatch(/[\s-]/);
+      await page.goto("/workspace");
+      await uploadFiles(page, [
+        await writeTempScanPdf(UNBROKEN_NAME),
+        await writeTempPdf("notes.pdf", 1),
+      ]);
+
+      // The measured facts are in, and the row on screen names the scan.
+      const ocr = page
+        .getByRole("link", { name: /^open ocr pdf/i })
+        .filter({ visible: true });
+      await expect(ocr).toContainText(
+        `No selectable text on page 1 of ${UNBROKEN_NAME}`,
+        { timeout: 15_000 },
+      );
+      // "More for these files" open too: its rows name the file the same
+      // way ("takes one file — <name>"), one click from the visitor.
+      const more = page
+        .locator("[data-slot=suggestions] details")
+        .filter({ visible: true });
+      await more.locator("summary").click();
+      await expect(more).toHaveAttribute("open", "");
+
+      const m = await page.evaluate((name) => {
+        const visible = (el: Element) => el.getClientRects().length > 0;
+        const slot = [
+          ...document.querySelectorAll("[data-slot=suggestions]"),
+        ].find(visible);
+        const escapes: string[] = [];
+        let lines = 0;
+        let named = 0;
+        if (slot) {
+          // Every rendered line of text, against the row it is in (or the
+          // panel, for text outside the rows). `checkVisibility`, not a
+          // rect: a closed <details> still lays out its content, so its
+          // text has rects nobody can see.
+          const walker = document.createTreeWalker(slot, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            const text = n.textContent ?? "";
+            if (!text.trim() || !n.parentElement?.checkVisibility()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(n);
+            const rects = [...range.getClientRects()].filter(
+              (r) => r.width > 0,
+            );
+            if (rects.length === 0) continue;
+            const box = (
+              n.parentElement.closest("a[data-suggestion]") ?? slot
+            ).getBoundingClientRect();
+            lines += rects.length;
+            if (text.includes(name)) named += 1;
+            for (const r of rects)
+              if (r.right > box.right + 0.5 || r.left < box.left - 0.5)
+                escapes.push(
+                  `"${text.slice(0, 70)}" spans ${Math.round(r.left)}-${Math.round(r.right)}, its box ${Math.round(box.left)}-${Math.round(box.right)}`,
+                );
+          }
+        }
+        const root = document.documentElement;
+        return {
+          innerWidth: window.innerWidth,
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          rows: [
+            ...(slot?.querySelectorAll("a[data-suggestion]") ?? []),
+          ].filter((a) => a.checkVisibility()).length,
+          lines,
+          named,
+          escapes,
+          // Where each tool runs and when a file uploads: every word shown,
+          // none cut by a clamp (the facts line may clamp; this one may not).
+          where: [
+            ...(slot?.querySelectorAll('a[data-suggestion] [id$="-where"]') ??
+              []),
+          ]
+            .filter((el) => el.checkVisibility())
+            .map((el) => ({
+              text: el.textContent ?? "",
+              hidden: el.scrollHeight > el.clientHeight + 1,
+            })),
+        };
+      }, UNBROKEN_NAME);
+
+      // Health: the width asked for painted, and the walk reached the rows
+      // and the text that names the file — an empty walk escapes nothing.
+      expect(m.innerWidth).toBe(width);
+      // Three suggestions and the open "More" list.
+      expect(m.rows, "the open list shows too few rows").toBeGreaterThan(3);
+      expect(m.lines, "no text measured in the suggestions").toBeGreaterThan(
+        m.rows,
+      );
+      expect(
+        m.named,
+        "no line of the suggestions names the file",
+      ).toBeGreaterThan(0);
+
+      expect(
+        m.scrollWidth,
+        `the page is ${m.scrollWidth}px wide in a ${m.clientWidth}px viewport`,
+      ).toBeLessThanOrEqual(m.clientWidth);
+      expect(m.escapes, "text in the suggestions runs out of its row").toEqual(
+        [],
+      );
+      // Health: the longest where-line a row shows (a secure-worker tool's)
+      // is among those read — at 360 it needs a third line.
+      expect(
+        m.where.some((w) => /uploads only when you start it/.test(w.text)),
+        "no row says when its file uploads",
+      ).toBe(true);
+      expect(
+        m.where.filter((w) => w.hidden).map((w) => w.text),
+        "a row's where-it-runs line is cut short",
+      ).toEqual([]);
+
+      expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual(
+        [],
+      );
+      expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+    });
+  });
+}
+
 test("the Merge PDF suggestion is a link that carries both files into Merge PDF", async ({
   page,
 }) => {

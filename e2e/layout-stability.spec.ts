@@ -76,7 +76,13 @@ interface ShiftRecord {
   /** ms since navigation, and whether every web font had loaded by then. */
   at: number;
   fonts: string;
-  sources: { selector: string; reserved: boolean; move: string }[];
+  sources: {
+    selector: string;
+    reserved: boolean;
+    /** The `data-slot` it is in (or is), if any. */
+    slot: string | null;
+    move: string;
+  }[];
 }
 
 interface LcpRecord {
@@ -198,6 +204,10 @@ function observe(reserved: string) {
         sources: (entry.sources ?? []).map((s) => ({
           selector: describe(s.node),
           reserved: elementOf(s.node)?.closest(reserved) != null,
+          slot:
+            elementOf(s.node)
+              ?.closest("[data-slot]")
+              ?.getAttribute("data-slot") ?? null,
           move: `${Math.round(s.currentRect.x - s.previousRect.x)},${Math.round(s.currentRect.y - s.previousRect.y)} ${Math.round(s.previousRect.width)}->${Math.round(s.currentRect.width)}w`,
         })),
       });
@@ -670,14 +680,52 @@ test.describe("layout stability through load, hydration and scroll", () => {
  * jumped twice; measured facts then reordered the list and grew the staged
  * rows. Nothing measured /workspace, so it shipped green.
  *
- * TWO WINDOWS. The drop itself adds content — the staged rows, the file-type
- * chips — and what it adds pushes what is under it; that is the visitor's
- * own action, measured and reported but not what a reserved slot promises.
- * Everything AFTER that first frame is the slots filling in: the
- * placeholder giving way to the list, and the measured facts landing. In
- * that window nothing inside a `[data-slot]` may move, and the window is
- * proved to contain the swap (the placeholder is up and the facts are still
- * "measuring…" when it opens).
+ * AND WHAT THE FIRST REPAIR LEFT, WITH THIS SPEC GREEN (review, later the
+ * same day): the tools panel and the placeholder were one box, the list was
+ * not — real rows wrap their facts and "SECURE WORKER · you'll add the
+ * files…" to a second line, so the slot went 381 → 381 → 399 at 1280 and
+ * 381 → 381 → 419 at 390, and the batch queue, Recent activity and the
+ * privacy note moved. Every part of the old guard was built not to see it:
+ * the box was compared before the list existed (its comment exempted the
+ * list, "measured as CLS"); the CLS bound skipped the phone; the desktop was
+ * measured at the top, where all that moved was under the fold; and the
+ * window for the slots opened two frames AFTER the drop, while the drop
+ * itself pushed the phone's pre-reserved slot 54px.
+ *
+ * So, for every case in {@link STAGING_CASES}:
+ *  - the suggestions slot's height is recorded EVERY FRAME from before the
+ *    drop until the list has settled, the recording must have seen the tools
+ *    panel, the placeholder and the list in that order, and every frame must
+ *    be the tools panel's height;
+ *  - CLS from the drop on is held to {@link MAX_CLS} — the phone and a
+ *    desktop scrolled so the aside's Recent activity is on screen included;
+ *  - a shift sourced in the suggestions slot counts from the drop's own
+ *    frame. A shift in the staged-files slot counts from the second window
+ *    only: the drop adds the rows the visitor dropped, and the window is
+ *    proved to open before the swap (the placeholder is up and the facts
+ *    still "measuring…").
+ *
+ * NOT GATED, and why: the staged list's own height, where it is in view.
+ * The drop replaces the empty state with one row per file, and what is under
+ * it moves by the difference. Measured 2026-10-09 on this build: the phone
+ * with the drop zone at the top read CLS 0.0103 (the suggestions slot 25px
+ * down in the drop's frame), and the desktop case below 0.0173 with one file
+ * and 0.0187 with three — two files come within 6px of the empty state,
+ * which is why that case passes, at 0.0012. Holding that still would take a
+ * staging tray of fixed height; the build before this redesign moved the
+ * same way. Scrolled past the drop zone on a phone (the two phone cases)
+ * nothing on screen moves for any number of files — three read CLS 0: the
+ * summary under the list keeps its height (its chips line is held from the
+ * start, and Clear all keeps its place), so the browser's scroll anchoring
+ * absorbs the list.
+ *
+ * NOR the 360px phone, where the slot is not one box: the placeholder's and
+ * the list's heading wraps beside its link (+16px against "POPULAR TOOLS"),
+ * and a secure-worker row says where its file goes on a third line rather
+ * than cut "uploads only when you start it" short (+18px) — tools 493 →
+ * placeholder 509 → list 527, measured 2026-10-09 (see
+ * src/app/workspace/row-lines.ts). What it pushes is the batch queue, below
+ * the fold there; the CLS read 0.
  *
  * Chunks requested after the page has settled are held back
  * {@link LATE_CHUNK_MS}, as on a slow phone: the placeholder then paints for
@@ -685,63 +733,97 @@ test.describe("layout stability through load, hydration and scroll", () => {
  * every run rather than when the machine happens to be slow.
  */
 const LATE_CHUNK_MS = 400;
-const STAGING_DEVICES = [
+const DESKTOP = { viewport: { width: 1280, height: 720 } };
+const PHONE = {
+  viewport: { width: 390, height: 844 },
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 3,
+};
+
+/** Where the page is scrolled when the files land. */
+type StagingScroll = "top" | "recent-activity" | "empty-state" | "add-files";
+
+const STAGING_CASES = [
+  // The aside's slot is in view at the top of the page; what it would push
+  // (Recent activity, the privacy note) is under the fold.
+  { name: "desktop, at the top", use: DESKTOP, scroll: "top" },
+  // So also scrolled until Recent activity is mid-screen, the privacy note
+  // under it: a slot that changes height moves both (+18px under the first
+  // repair, which read CLS 0 at the top).
   {
-    name: "desktop",
-    use: { viewport: { width: 1280, height: 720 } },
-    // The aside's slot is in view at the top of the page.
-    scrolled: false,
+    name: "desktop, Recent activity on screen",
+    use: DESKTOP,
+    scroll: "recent-activity",
   },
+  // At the top the inline slot is below the fold, where no shift is reported
+  // at all; scrolled, the staged files and the slot under them are both on
+  // screen. Two positions, two different scroll anchors.
   {
-    name: "phone",
-    use: {
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-      deviceScaleFactor: 3,
-    },
-    // At the top the inline slot is below the fold, where no shift is
-    // reported at all; scrolled, the staged files and the slot under them
-    // are both on screen.
-    scrolled: true,
+    name: "phone, the empty state at the top",
+    use: PHONE,
+    scroll: "empty-state",
   },
-] as const;
+  { name: "phone, Add files at the top", use: PHONE, scroll: "add-files" },
+] as const satisfies readonly {
+  name: string;
+  use: object;
+  scroll: StagingScroll;
+}[];
+
+/** The suggestions slot on screen, one frame: what it held and how tall. */
+interface SlotFrame {
+  kind: "tools" | "placeholder" | "list" | "none";
+  h: number;
+}
+
+declare global {
+  interface Window {
+    __slotFrames?: SlotFrame[];
+    __slotStop?: boolean;
+  }
+}
 
 interface StagingMeasurement {
   innerWidth: number;
   /** Every shift from the drop on, and their sum. */
   cls: number;
   counted: ShiftRecord[];
-  /** Shifts after the drop's first frame that moved something in a slot. */
+  /**
+   * Shifts that moved something in a slot: in the suggestions slot from the
+   * drop's frame on, in any other slot after it.
+   */
   inReserved: ShiftRecord[];
+  /** Shifts before the second window opened: the drop's own frames. */
+  dropFrames: ShiftRecord[];
   /** `[data-slot]` elements on screen once the facts were in. */
   slots: string[];
-  /**
-   * The visible suggestions slot's height before the drop (the tools panel)
-   * and while the files are read (the placeholder): the box the first file
-   * must not change. The list after them may differ — its rows wrap with
-   * their words — and that is measured as CLS, not here.
-   */
-  box: { before: number; filling: number };
+  /** The suggestions slot, each frame its content or height changed. */
+  frames: SlotFrame[];
+  /** Whether the element scrolled to was on screen when the files landed. */
+  target: { inView: boolean; scrollY: number };
 }
 
-/** The height of the suggestions slot on screen, in CSS px. */
-const slotHeight = (page: Page) =>
-  page.evaluate(
-    () =>
-      [...document.querySelectorAll("[data-slot=suggestions]")]
-        .map((el) => el.getBoundingClientRect().height)
-        .find((h) => h > 0) ?? -1,
-  );
+/** The slot's frames as `kind height`, for a failure message. */
+const describeFrames = (frames: SlotFrame[]) =>
+  frames.map((f) => `${f.kind} ${f.h}`).join(" → ");
+
+/** The kinds in the order they appeared, repeats collapsed. */
+const kindsSeen = (frames: SlotFrame[]) =>
+  frames.map((f) => f.kind).filter((k, i, all) => i === 0 || all[i - 1] !== k);
+
+/** The largest height difference from the first frame. */
+const maxDrift = (frames: SlotFrame[]) =>
+  Math.max(0, ...frames.map((f) => Math.abs(f.h - (frames[0]?.h ?? f.h))));
 
 /**
- * Load /workspace with fonts cached, optionally scroll the staging area to
- * the top, drop a text PDF and a scan on the drop zone, and wait until the
- * suggestions show what the probe measured.
+ * Load /workspace with fonts cached, scroll as asked, drop a text PDF and a
+ * scan on the drop zone, record the suggestions slot every frame, and wait
+ * until the suggestions show what the probe measured.
  */
 async function measureStaging(
   page: Page,
-  scrolled: boolean,
+  scroll: StagingScroll,
 ): Promise<StagingMeasurement> {
   const files = [
     { name: "text.pdf", bytes: await makePdfBytes("text.pdf", 2) },
@@ -763,25 +845,68 @@ async function measureStaging(
       await route.continue();
     },
   );
-  if (scrolled)
-    await page
-      .getByText(/no files staged yet/i)
-      // The box the staged files replace, at the top. Instant: the page
-      // scrolls smoothly by default, and a scroll still under way when the
-      // files land moves everything for the wrong reason.
-      .evaluate((el) =>
-        el.parentElement!.scrollIntoView({
-          block: "start",
-          behavior: "instant",
-        }),
-      );
+  // Instant: the page scrolls smoothly by default, and a scroll still under
+  // way when the files land moves everything for the wrong reason.
+  const target =
+    scroll === "empty-state"
+      ? // The box the staged files replace, at the top.
+        page.getByText(/no files staged yet/i).locator("xpath=..")
+      : scroll === "add-files"
+        ? page.getByRole("button", { name: "Add files" })
+        : scroll === "recent-activity"
+          ? page.getByRole("region", { name: /recent activity/i })
+          : page.locator("main");
+  if (scroll !== "top")
+    await target.evaluate(
+      (el, block) => {
+        el.scrollIntoView({ block, behavior: "instant" });
+      },
+      scroll === "recent-activity" ? ("center" as const) : ("start" as const),
+    );
   await page.waitForTimeout(300);
+  // Health: the element scrolled to is wholly on screen (at the top, the
+  // page is not scrolled at all).
+  const placed = await target.evaluate((el, atTop) => {
+    const r = el.getBoundingClientRect();
+    return {
+      inView: atTop
+        ? window.scrollY === 0
+        : r.top >= -1 && r.bottom <= window.innerHeight + 1,
+      scrollY: window.scrollY,
+    };
+  }, scroll === "top");
 
-  const before = await slotHeight(page);
   const dropped = await page.evaluate(() => window.__shifts?.length ?? -1);
   expect(dropped, "the shift recorder is not installed").toBeGreaterThanOrEqual(
     0,
   );
+  // Every frame from here: what the slot on screen holds, and its height.
+  await page.evaluate(() => {
+    const frames: SlotFrame[] = [];
+    window.__slotFrames = frames;
+    window.__slotStop = false;
+    const tick = () => {
+      const slot = [
+        ...document.querySelectorAll("[data-slot=suggestions]"),
+      ].find((el) => el.getClientRects().length > 0);
+      const panel = slot?.firstElementChild;
+      const kind: SlotFrame["kind"] = !panel
+        ? "none"
+        : panel.getAttribute("aria-busy") === "true"
+          ? "placeholder"
+          : /suggested for your files/i.test(
+                panel.querySelector("h2")?.textContent ?? "",
+              )
+            ? "list"
+            : "tools";
+      const h = Math.round((slot?.getBoundingClientRect().height ?? -1) * 10);
+      const last = frames[frames.length - 1];
+      if (!last || last.kind !== kind || last.h !== h / 10)
+        frames.push({ kind, h: h / 10 });
+      if (!window.__slotStop) requestAnimationFrame(tick);
+    };
+    tick();
+  });
   const dataTransfer = await page.evaluateHandle((list) => {
     const dt = new DataTransfer();
     for (const { name, b64 } of list) {
@@ -827,7 +952,6 @@ async function measureStaging(
     filling,
     "the placeholder was not up while the facts were still measuring",
   ).toMatchObject({ placeholder: true, measuring: true });
-  const box = { before, filling: await slotHeight(page) };
 
   // The facts are in: the staged list counted both files' pages, and the
   // suggestions on screen show what the probe found in the scan.
@@ -842,9 +966,11 @@ async function measureStaging(
   await page.waitForTimeout(600);
 
   const read = await page.evaluate((from) => {
+    window.__slotStop = true;
     const visible = (el: Element) => el.getClientRects().length > 0;
     return {
       shifts: (window.__shifts ?? []).slice(from),
+      frames: window.__slotFrames ?? [],
       innerWidth: window.innerWidth,
       slots: [...document.querySelectorAll("[data-slot]")]
         .filter(visible)
@@ -852,15 +978,20 @@ async function measureStaging(
     };
   }, dropped);
   const counted = read.shifts.filter((s) => !s.hadRecentInput);
+  const windowOpens = filling.at - dropped;
   return {
     innerWidth: read.innerWidth,
     cls: counted.reduce((sum, s) => sum + s.value, 0),
     counted,
-    inReserved: read.shifts
-      .slice(filling.at - dropped)
-      .filter((s) => s.sources.some((x) => x.reserved)),
+    inReserved: read.shifts.filter((s, i) =>
+      s.sources.some(
+        (x) => x.reserved && (x.slot === "suggestions" || i >= windowOpens),
+      ),
+    ),
+    dropFrames: read.shifts.slice(0, windowOpens),
     slots: read.slots,
-    box,
+    frames: read.frames,
+    target: placed,
   };
 }
 
@@ -869,54 +1000,63 @@ test.describe("the workspace as files arrive", () => {
     await page.addInitScript(observe, RESERVED);
   });
 
-  for (const device of STAGING_DEVICES) {
-    test.describe(device.name, () => {
-      test.use(device.use);
+  for (const c of STAGING_CASES) {
+    test.describe(c.name, () => {
+      test.use(c.use);
 
-      test(`staging a text PDF and a scan at ${device.use.viewport.width}px: nothing inside a slot moves as it fills${device.scrolled ? "" : `, and CLS ≤ ${MAX_CLS}`}`, async ({
+      test(`staging a text PDF and a scan at ${c.use.viewport.width}px: the suggestions slot keeps one height through tools, placeholder and list, nothing inside a slot moves, and CLS ≤ ${MAX_CLS}`, async ({
         page,
       }, testInfo) => {
-        const m = await measureStaging(page, device.scrolled);
-        testInfo.annotations.push({
-          type: "cls",
-          description: m.cls.toFixed(4),
-        });
+        const m = await measureStaging(page, c.scroll);
+        testInfo.annotations.push(
+          { type: "cls", description: m.cls.toFixed(4) },
+          { type: "slot", description: describeFrames(m.frames) },
+        );
         if (m.counted.length > 0)
           testInfo.annotations.push({
             type: "shifts",
             description: report(m.counted),
           });
-        // Health: the width asked for painted, and the slots this measures
-        // were on screen — a page without them would move nothing in them.
+        // Health: the width asked for painted, the page was where the case
+        // says, and the slots this measures were on screen — a page without
+        // them would move nothing in them.
         expect(m.innerWidth, "the viewport did not apply").toBe(
-          device.use.viewport.width,
+          c.use.viewport.width,
         );
+        expect(m.target.inView, `${c.scroll} was not on screen`).toBe(true);
+        if (c.scroll !== "top")
+          expect(m.target.scrollY, "the page did not scroll").toBeGreaterThan(
+            0,
+          );
         expect([...new Set(m.slots)].sort()).toEqual([
           "staged-files",
           "suggestions",
         ]);
+        // Health: the recording saw the whole swap, in order — a recorder
+        // that missed the list would hold every height it saw.
+        expect(kindsSeen(m.frames), describeFrames(m.frames)).toEqual([
+          "tools",
+          "placeholder",
+          "list",
+        ]);
+        expect(m.frames[0]!.h, "no suggestions slot on screen").toBeGreaterThan(
+          100,
+        );
+
+        // One box: the tools panel, the placeholder and the list, every
+        // frame. WAS 381 → 381 → 399 at 1280 and → 419 at 390.
+        expect(
+          maxDrift(m.frames),
+          `the suggestions slot changed height: ${describeFrames(m.frames)}`,
+        ).toBeLessThanOrEqual(1);
         expect(
           m.inReserved.length,
           `a slot moved while it filled in:\n${report(m.inReserved)}`,
         ).toBe(0);
-        // The first file swaps the tools panel for the placeholder in one
-        // box. WAS ~570px of popular tools against a ~380px list: the aside
-        // under it moved ~190px.
-        expect(m.box.before, "no suggestions slot on screen").toBeGreaterThan(
-          100,
-        );
         expect(
-          Math.abs(m.box.filling - m.box.before),
-          `the slot was ${m.box.before}px, then ${m.box.filling}px`,
-        ).toBeLessThanOrEqual(1);
-        // On a phone the drop pushes the page under the staged files, and a
-        // suggestion whose words wrap makes the list taller than its
-        // placeholder (both reported above, neither inside a slot).
-        if (!device.scrolled)
-          expect(
-            m.cls,
-            `staging CLS ${m.cls.toFixed(4)} over ${m.counted.length} shift(s):\n${report(m.counted)}`,
-          ).toBeLessThanOrEqual(MAX_CLS);
+          m.cls,
+          `staging CLS ${m.cls.toFixed(4)} over ${m.counted.length} shift(s):\n${report(m.counted)}`,
+        ).toBeLessThanOrEqual(MAX_CLS);
       });
     });
   }
@@ -944,7 +1084,7 @@ test.describe("the workspace as files arrive", () => {
       expect(page.locator("style[data-probe]")).toHaveCount(1);
 
     test.describe("desktop", () => {
-      test.use(STAGING_DEVICES[0].use);
+      test.use(DESKTOP);
 
       // The placeholder cut back to its heading — the 90px box that shipped —
       // so the panel shrinks when the files arrive and grows when the list
@@ -954,27 +1094,72 @@ test.describe("the workspace as files arrive", () => {
           page,
           'section[aria-busy="true"] > :not(:first-child){display:none !important}',
         );
-        const m = await measureStaging(page, false);
+        const m = await measureStaging(page, "top");
         await landed(page);
         expect(m.cls, report(m.counted)).toBeGreaterThan(MAX_CLS);
-        expect(m.box.before - m.box.filling).toBeGreaterThan(100);
+        expect(maxDrift(m.frames), describeFrames(m.frames)).toBeGreaterThan(
+          100,
+        );
+      });
+
+      // The defect the first repair shipped, at its size: one row of the
+      // list 18px taller than the placeholder's (a line that wrapped), at
+      // the position that sees the aside. CLS barely registers 18px at 1280
+      // (the review measured +0.0022 a staging), so it is the per-frame box
+      // that turns the real test red; the shift record shows this position
+      // sees what moved under the slot at all — the top of the page read
+      // CLS 0 with the slot 18px taller.
+      test("a list taller than its placeholder", async ({ page }) => {
+        await inject(
+          page,
+          "ol > li:first-child > a[data-suggestion]{padding-bottom:calc(0.625rem + 18px) !important}",
+        );
+        const m = await measureStaging(page, "recent-activity");
+        await landed(page);
+        expect(kindsSeen(m.frames)).toEqual(["tools", "placeholder", "list"]);
+        const placeholder = m.frames.find((f) => f.kind === "placeholder")!;
+        const list = m.frames.filter((f) => f.kind === "list").at(-1)!;
+        expect(
+          list.h - placeholder.h,
+          describeFrames(m.frames),
+        ).toBeGreaterThanOrEqual(17);
+        // What the real test asserts, red.
+        expect(maxDrift(m.frames)).toBeGreaterThan(1);
+        // Recent activity and the privacy note moved, on screen.
+        expect(report(m.counted)).toMatch(/aside\.flex > section/);
       });
     });
 
     test.describe("phone", () => {
-      test.use(STAGING_DEVICES[1].use);
+      test.use(PHONE);
 
       // The staged row's facts line without its reserved second line: the
-      // measured chips wrap, the row grows, and the suggestions slot under
-      // the staged files moves down.
+      // measured chips wrap, the row grows, and what is under it — or, with
+      // the growth absorbed by scroll anchoring, the rows themselves — moves.
       test("a staged row whose facts change its height", async ({ page }) => {
         await inject(page, "[data-facts]{min-height:0 !important}");
-        const m = await measureStaging(page, true);
+        const m = await measureStaging(page, "empty-state");
         await landed(page);
         expect(
           m.inReserved.flatMap((s) => s.sources.map((x) => x.selector)),
           report(m.counted),
         ).not.toEqual([]);
+      });
+
+      // The summary without its held chips line: the drop grows it, the
+      // browser's anchor on it cannot absorb that, and the drop's own frame
+      // pushes the pre-reserved slot down — the shift the first repair's
+      // window opened too late to see (CLS 0.04 measured).
+      test("a drop that pushes the suggestions slot", async ({ page }) => {
+        await inject(page, "span[data-chips]{display:none !important}");
+        const m = await measureStaging(page, "empty-state");
+        await landed(page);
+        const inSlot = (s: ShiftRecord) =>
+          s.sources.some((x) => x.slot === "suggestions");
+        // In the drop's own frames, and counted as a slot that moved.
+        expect(m.dropFrames.filter(inSlot), report(m.counted)).not.toEqual([]);
+        expect(m.inReserved.filter(inSlot), report(m.counted)).not.toEqual([]);
+        expect(m.cls, report(m.counted)).toBeGreaterThan(MAX_CLS);
       });
     });
   });
