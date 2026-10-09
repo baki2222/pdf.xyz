@@ -247,3 +247,52 @@ describe("a status endpoint that cannot be reached", () => {
     },
   );
 });
+
+/**
+ * Every panel's status-dependent part is ONE reserved slot, at every
+ * breakpoint, from the first HTML.
+ *
+ * WHY (WP-06 review, 2026-10-10): the tool page puts the panel straight
+ * under the tool's name, so on a phone this part is in the first screen,
+ * and it changed height when the status answered — CLS 0.0582 on Protect PDF
+ * at 390. Each panel now renders it inside `WorkerStatusSlot` with a
+ * measured min-height per breakpoint. The heights themselves are checked in
+ * a browser (`e2e/tool-layout.mobile.spec.ts` holds every slug's slot to
+ * one box at 360 and 390; `e2e/layout-stability.spec.ts` holds CLS); jsdom
+ * has no layout. What this holds is the declaration the browser tests
+ * cannot see at widths they do not visit: every panel, discovered from the
+ * registry, puts its checking state in the slot and reserves a height for
+ * phones, `sm` and `lg`.
+ */
+describe("the status-dependent part of every panel is a reserved slot", () => {
+  it.each(SUBJECTS.map((s) => [s.slug, s] as const))(
+    "%s",
+    async (slug, subject) => {
+      const Panel = await componentOf(subject);
+      const doc = new DOMParser().parseFromString(
+        renderToString(createElement(Panel, { tool: toolOf(slug) })),
+        "text/html",
+      );
+      const slots = doc.querySelectorAll('[data-slot="worker-status"]');
+      expect(slots).toHaveLength(1);
+      const slot = slots[0]!;
+      expect(slot.getAttribute("data-state")).toBe("loading");
+      // The checking state is IN the slot, not beside it.
+      expect(slot.textContent).toMatch(/Checking the secure worker/);
+      const classes = (slot.getAttribute("class") ?? "").split(/\s+/);
+      for (const prefix of ["min-h-[", "sm:min-h-[", "lg:min-h-["])
+        expect(
+          classes.some((c) => c.startsWith(prefix)),
+          `${slug}: no ${prefix}…] reserve`,
+        ).toBe(true);
+    },
+  );
+
+  it("names each state by what the panel knows", async () => {
+    const { workerSlotState } = await import("./worker-status");
+    expect(workerSlotState("loading", false)).toBe("loading");
+    expect(workerSlotState("error", false)).toBe("error");
+    expect(workerSlotState("ready", false)).toBe("off");
+    expect(workerSlotState("ready", true)).toBe("run");
+  });
+});

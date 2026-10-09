@@ -36,10 +36,20 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
 import { RepairOutcome, repairDoneSentence } from "./repair-warnings";
 import { OptimizeOutcome, optimizeDoneSentence } from "./optimize-outcome";
 import { OfficeExportNextStep } from "./office-export-notices";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 399px, `sm` at 640px 269px, `lg` at 1024px
+ * 272.3px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[25.5rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
 
 type Phase = WorkerPhase;
 type Mode = "repair" | "optimize";
@@ -138,21 +148,26 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
           <p className="text-muted text-sm leading-relaxed">{copy.blurb}</p>
         </div>
 
-        {available && status ? (
-          <StructureRunArea
-            mode={mode}
-            localDevOnly={status.localDevOnly}
-            refuse={(file) => pickRefusal(tool, file)}
-          />
-        ) : (
-          <StructureUnavailable
-            onRetry={retry}
-            phase={phase}
-            status={status}
-            toolName={tool.name}
-            toolSlug={tool.slug}
-          />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available && status !== null)}
+          reserve={STATUS_SLOT}
+        >
+          {available && status ? (
+            <StructureRunArea
+              mode={mode}
+              localDevOnly={status.localDevOnly}
+              refuse={(file) => pickRefusal(tool, file)}
+            />
+          ) : (
+            <StructureUnavailable
+              onRetry={retry}
+              phase={phase}
+              status={status}
+              toolName={tool.name}
+              toolSlug={tool.slug}
+            />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens to your file</h3>

@@ -42,7 +42,17 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 366.5px, `sm` at 640px 288.5px, `lg` at 1024px
+ * 308px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[18.5rem] lg:min-h-[19.5rem]";
 
 type Phase = WorkerPhase;
 type Mode = "html" | "url";
@@ -117,17 +127,22 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
-        {available ? (
-          <HtmlRenderRunArea mode={mode} tool={tool} />
-        ) : (
-          <HtmlRenderUnavailable
-            onRetry={retry}
-            phase={phase}
-            status={status}
-            toolName={tool.name}
-            toolSlug={tool.slug}
-          />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available)}
+          reserve={STATUS_SLOT}
+        >
+          {available ? (
+            <HtmlRenderRunArea mode={mode} tool={tool} />
+          ) : (
+            <HtmlRenderUnavailable
+              onRetry={retry}
+              phase={phase}
+              status={status}
+              toolName={tool.name}
+              toolSlug={tool.slug}
+            />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens</h3>

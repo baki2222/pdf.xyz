@@ -46,7 +46,17 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 619px, `sm` at 640px 501.5px, `lg` at 1024px
+ * 521px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[39rem] sm:min-h-[32rem] lg:min-h-[33rem]";
 
 type Phase = WorkerPhase;
 type Mode = "protect" | "unlock";
@@ -193,21 +203,26 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {/* Status-dependent action area */}
-        {available && status ? (
-          <SecurityRunArea
-            mode={mode}
-            localDevOnly={status.localDevOnly}
-            refuse={(file) => pickRefusal(tool, file)}
-          />
-        ) : (
-          <SecurityUnavailable
-            onRetry={retry}
-            phase={phase}
-            status={status}
-            toolName={tool.name}
-            toolSlug={tool.slug}
-          />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available && status !== null)}
+          reserve={STATUS_SLOT}
+        >
+          {available && status ? (
+            <SecurityRunArea
+              mode={mode}
+              localDevOnly={status.localDevOnly}
+              refuse={(file) => pickRefusal(tool, file)}
+            />
+          ) : (
+            <SecurityUnavailable
+              onRetry={retry}
+              phase={phase}
+              status={status}
+              toolName={tool.name}
+              toolSlug={tool.slug}
+            />
+          )}
+        </WorkerStatusSlot>
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">

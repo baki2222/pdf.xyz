@@ -58,7 +58,17 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 717.5px, `sm` at 640px 530.5px, `lg` at 1024px
+ * 530.5px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[45.5rem] sm:min-h-[33.5rem] lg:min-h-[33.5rem]";
 
 type Phase = WorkerPhase;
 
@@ -233,26 +243,31 @@ export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
-        {available ? (
-          <RequestBuilder refuse={(file) => pickRefusal(tool, file)} />
-        ) : phase === "ready" ? (
-          <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-            <p className="text-muted text-sm leading-relaxed">
-              {unavailableDetail}
-            </p>
-            <p className="text-muted text-xs leading-relaxed">
-              No builder is shown until the worker is ready, so {tool.name}{" "}
-              never pretends to prepare a request it cannot actually package.
-            </p>
-            <NotifyMe
-              toolName={tool.name}
-              toolSlug={tool.slug}
-              checking={false}
-            />
-          </div>
-        ) : (
-          <WorkerStatusPending phase={phase} onRetry={retry} />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available)}
+          reserve={STATUS_SLOT}
+        >
+          {available ? (
+            <RequestBuilder refuse={(file) => pickRefusal(tool, file)} />
+          ) : phase === "ready" ? (
+            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
+              <p className="text-muted text-sm leading-relaxed">
+                {unavailableDetail}
+              </p>
+              <p className="text-muted text-xs leading-relaxed">
+                No builder is shown until the worker is ready, so {tool.name}{" "}
+                never pretends to prepare a request it cannot actually package.
+              </p>
+              <NotifyMe
+                toolName={tool.name}
+                toolSlug={tool.slug}
+                checking={false}
+              />
+            </div>
+          ) : (
+            <WorkerStatusPending phase={phase} onRetry={retry} />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens</h3>

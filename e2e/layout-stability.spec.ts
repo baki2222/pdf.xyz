@@ -1,5 +1,7 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { makePdfBytes, makeScanPdfBytes, waitForHydration } from "./helpers";
+import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
+import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 
 /**
  * Layout stability, measured in a real browser through load, hydration and a
@@ -345,6 +347,13 @@ interface Route {
   url: (page: Page) => Promise<string>;
   status: number;
   /**
+   * What `/api/worker/status` answers: this server's own (a build with no
+   * worker: "not enabled", the state CI serves), or a ready deployment's,
+   * held back {@link WORKER_STATUS_DELAY_MS} so it lands after first paint
+   * as it does on a real connection. Unset: the page does not care.
+   */
+  worker?: WorkerAnswer;
+  /**
    * Health check, run when the measurement ends: the state the URL asks for
    * is the one on screen. A page that IGNORES its query measures perfectly
    * stable — `/tools?accepts=docx` read CLS 0.0000 on the build before WP-03
@@ -422,6 +431,137 @@ const ROUTES: Route[] = [
 ];
 
 /**
+ * "local": this server's own answer. "ready": a ready deployment's, after
+ * {@link WORKER_STATUS_DELAY_MS}. "held": a ready deployment's, sent only
+ * when the test calls `releaseWorkerStatus` — for a reading that must be
+ * taken before the answer, however slow the machine is.
+ */
+type WorkerAnswer = "local" | "ready" | "held";
+const WORKER_STATUS_DELAY_MS = 500;
+
+declare global {
+  interface Window {
+    __workerStatusAnswers?: number;
+    __releaseWorkerStatus?: () => void;
+  }
+}
+
+/** Send a "held" answer. */
+const releaseWorkerStatus = (page: Page) =>
+  page.evaluate(() => window.__releaseWorkerStatus?.());
+
+/**
+ * Answer `/api/worker/status` as {@link Route.worker} says. "local" leaves
+ * this server's own answer alone; "ready" is a deployment whose storage,
+ * queue, daemon, OCR, qpdf and AI provider are all ready
+ * (`READY_WORKER_STATUS`, the fixture every panel test stubs with), held
+ * back so it lands after first paint. Returns a reading of how many answers
+ * the page has received.
+ *
+ * IN THE PAGE, NOT `page.route`: routing turns the browser's HTTP cache off,
+ * so the "warm" visit cached nothing and every measured load repainted its
+ * web fonts — the first version of this read Word to PDF at CLS 0.19, all of
+ * it the display face swapping into the H1 at 53-60 ms, none of it the
+ * status. A `fetch` wrapped before the page's own code changes nothing else.
+ */
+async function answerWorkerStatus(
+  page: Page,
+  answer: WorkerAnswer,
+): Promise<() => Promise<number>> {
+  await page.addInitScript(
+    ({ answer, body, delay }) => {
+      window.__workerStatusAnswers = 0;
+      const released = new Promise<void>((resolve) => {
+        window.__releaseWorkerStatus = resolve;
+      });
+      const real = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = new URL(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url,
+          location.href,
+        );
+        if (url.pathname !== "/api/worker/status") return real(input, init);
+        if (answer === "local") {
+          const res = await real(input, init);
+          window.__workerStatusAnswers!++;
+          return res;
+        }
+        if (answer === "held") await released;
+        else await new Promise((resolve) => setTimeout(resolve, delay));
+        window.__workerStatusAnswers!++;
+        return new Response(body, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      };
+    },
+    {
+      answer,
+      body: JSON.stringify(READY_WORKER_STATUS),
+      delay: WORKER_STATUS_DELAY_MS,
+    },
+  );
+  return () => page.evaluate(() => window.__workerStatusAnswers ?? -1);
+}
+
+/**
+ * One tool per worker panel, read from the registry the tool page indexes
+ * (`panelDispatchArms`, the parse the panel guards share), never typed: a
+ * new panel is measured without this file changing. Its first slug, which
+ * for the three this was found on — Protect PDF, Word to PDF, OCR PDF — is
+ * the tool named in the review.
+ */
+const WORKER_ARMS = panelDispatchArms();
+const WORKER_SLUGS = WORKER_ARMS.map((arm) => arm.slugs[0]!);
+
+/**
+ * A worker tool page on a phone, as `/api/worker/status` answers.
+ *
+ * WHAT SHIPPED (review of WP-06, 2026-10-10): WP-06 put the panel straight
+ * under the tool's name (D.5), so on a phone its status-dependent part is
+ * in the first screen — and its height changed when the status answered:
+ * the "Checking the secure worker…" box was a bare `min-h-32`, the run area
+ * that replaced it several times taller. Measured at 390x844, fonts warm:
+ * Protect PDF CLS 0.0001 on the build before → 0.0202 with this server's
+ * answer and 0.0587 with a ready one; Word to PDF a new +0.0324 shift at the
+ * answer. Before WP-06 the panel sat ~2,200px down, out of the screen, so
+ * its growth moved nothing a reader could see. This spec checked one worker
+ * page, at 1280 only, against the answer CI serves — where the extra shift
+ * read 0.0036 — and nothing measured a phone.
+ */
+function workerPhoneRoutes(): Route[] {
+  return WORKER_SLUGS.flatMap((slug) =>
+    (["local", "ready"] as const).map((worker) => ({
+      name: `/tools/${slug}, worker status ${worker}`,
+      url: async () => `/tools/${slug}`,
+      status: 200,
+      worker,
+      applied: async (page: Page) => {
+        const panel = page.locator("[data-tool-panel]");
+        // The answer arrived and replaced the "checking" box…
+        await expect(panel).not.toContainText("Checking the secure worker");
+        await expect(panel).not.toContainText("couldn't reach the worker");
+        // …with the state it asked for: a ready deployment shows the run
+        // area, this server's answer the not-enabled state.
+        const notify = panel.getByRole("button", {
+          name: /notify me when this ships/i,
+        });
+        if (worker === "ready") await expect(notify).toHaveCount(0);
+        else await expect(notify).toHaveCount(1);
+        await expect(
+          panel.locator('[data-slot="worker-status"]'),
+          "the status-dependent part is not a reserved slot",
+        ).toHaveAttribute("data-state", worker === "ready" ? "run" : "off");
+      },
+    })),
+  );
+}
+
+/**
  * Where the home LCP is held: the project's desktop, the phone every layout
  * is drawn at (390, as the `mobile` project emulates it), and the narrowest
  * common phone (360).
@@ -466,9 +606,17 @@ const LCP_DEVICES = [
 
 /** One route's warm measurement, held to the bound. */
 async function expectStable(page: Page, route: Route, testInfo: TestInfo) {
+  const served = route.worker
+    ? await answerWorkerStatus(page, route.worker)
+    : null;
   const url = await route.url(page);
   const m = await measure(page, url, "warm");
   expect(m.status).toBe(route.status);
+  if (served)
+    expect(
+      await served(),
+      "the worker status was never answered",
+    ).toBeGreaterThan(0);
   await route.applied?.(page);
   testInfo.annotations.push({ type: "cls", description: m.cls.toFixed(4) });
   if (m.counted.length > 0)
@@ -519,6 +667,28 @@ test.describe("layout stability through load, hydration and scroll", () => {
     });
   }
 
+  // Worker tool pages on a phone, with this server's answer and a ready one.
+  test.describe("phone, worker tool pages", () => {
+    const phone = LCP_DEVICES.find((d) => d.name === "phone")!;
+    test.use(phone.use);
+    test("health: every worker panel is measured, and the three the review named are among them", () => {
+      expect(WORKER_SLUGS.length).toBeGreaterThanOrEqual(13);
+      expect(WORKER_SLUGS).toEqual(
+        expect.arrayContaining(["protect-pdf", "word-to-pdf", "ocr-pdf"]),
+      );
+    });
+    for (const route of workerPhoneRoutes()) {
+      test(`${route.name} at ${phone.use.viewport.width}px: CLS ≤ ${MAX_CLS} as the status answers, nothing inside a reserved slot moves`, async ({
+        page,
+      }, testInfo) => {
+        const m = await expectStable(page, route, testInfo);
+        expect(m.innerWidth, "the viewport did not apply").toBe(
+          phone.use.viewport.width,
+        );
+      });
+    }
+  });
+
   for (const device of LCP_DEVICES) {
     test.describe(device.name, () => {
       test.use(device.use);
@@ -560,6 +730,40 @@ test.describe("layout stability through load, hydration and scroll", () => {
   }
 
   test.describe("positive controls: each defect, injected, is measured", () => {
+    // The worker status slot without its reservation: what WP-06 shipped on
+    // a phone. Read through the same measurement as the real pages.
+    test.describe("phone", () => {
+      test.use(LCP_DEVICES.find((d) => d.name === "phone")!.use);
+      test("a worker panel whose status part is not reserved", async ({
+        page,
+      }, testInfo) => {
+        await page.addInitScript(() => {
+          const add = () => {
+            const style = document.createElement("style");
+            style.dataset.probe = "";
+            style.textContent =
+              '[data-slot="worker-status"]{min-height:0 !important}';
+            document.head.append(style);
+          };
+          if (document.head) add();
+          else document.addEventListener("DOMContentLoaded", add);
+        });
+        const route = workerPhoneRoutes().find(
+          (r) => r.name === "/tools/protect-pdf, worker status ready",
+        )!;
+        const served = await answerWorkerStatus(page, "ready");
+        const m = await measure(page, await route.url(page), "warm");
+        await expect(page.locator("style[data-probe]")).toHaveCount(1);
+        expect(await served()).toBeGreaterThan(0);
+        await route.applied!(page);
+        testInfo.annotations.push({
+          type: "cls",
+          description: m.cls.toFixed(4),
+        });
+        expect(m.cls, report(m.counted)).toBeGreaterThan(MAX_CLS);
+      });
+    });
+
     test("a late block above the content, and a reserved slot whose child moves", async ({
       page,
     }) => {
@@ -663,6 +867,134 @@ test.describe("layout stability through load, hydration and scroll", () => {
         "a probe was still running when read — it no longer tests the recorder",
       ).toEqual([]);
     });
+  });
+});
+
+/**
+ * A worker tool page from `lg`: the head (name, tagline, facts) and the
+ * details in the left column, the panel spanning both rows on the right.
+ *
+ * WHAT SHIPPED (review of WP-06, 2026-10-10): the grid had two AUTO rows,
+ * and a panel taller than the head and the details together shares its
+ * extra height into BOTH — so row 1 grew past the head and opened a gap
+ * between the head and the details, a gap that grew again when the status
+ * answered and the panel grew: at 1440, OCR PDF 40px with this server's
+ * answer and 94px with a ready one; Protect PDF 24px → 69px; the details
+ * moved 45-57px after the answer. CLS at 1280 with a ready answer: Protect
+ * PDF 0.0305 on the build before → 0.1028. The fix is `auto 1fr`: row 1 is
+ * the head's own height, and only row 2 takes what the panel adds.
+ *
+ * The property: the details start one row gap under the head, before the
+ * answer and after it. Health: some page's panel IS taller than the head
+ * and the details together, so the case the defect needed is in the set.
+ */
+interface GapReading {
+  gap: number;
+  rowGap: number;
+  panelTaller: boolean;
+  innerWidth: number;
+}
+
+async function readGap(page: Page): Promise<GapReading> {
+  return page.locator("[data-tool-panel]").evaluate((panel) => {
+    const head = panel.previousElementSibling!;
+    const details = panel.nextElementSibling!;
+    const rowGap = parseFloat(getComputedStyle(panel.parentElement!).rowGap);
+    const h = head.getBoundingClientRect();
+    const d = details.getBoundingClientRect();
+    const p = panel.getBoundingClientRect();
+    return {
+      gap: Math.round((d.top - h.bottom) * 10) / 10,
+      rowGap,
+      panelTaller: p.height > h.height + rowGap + d.height,
+      innerWidth: window.innerWidth,
+    };
+  });
+}
+
+/** Load a worker page with a ready answer held back; read before and after. */
+async function gapAcrossTheAnswer(
+  page: Page,
+  slug: string,
+): Promise<{ before: GapReading; after: GapReading }> {
+  const served = await answerWorkerStatus(page, "held");
+  await page.goto(`/tools/${slug}`, { waitUntil: "load" });
+  await waitForHydration(page.locator("[data-tool-panel]"));
+  // The answer is held back: this is the panel as first painted.
+  await expect(page.locator("[data-tool-panel]")).toContainText(
+    "Checking the secure worker",
+  );
+  expect(await served(), "the status answered before the first reading").toBe(
+    0,
+  );
+  const before = await readGap(page);
+  await releaseWorkerStatus(page);
+  await expect
+    .poll(served, { message: "the worker status was never answered" })
+    .toBeGreaterThan(0);
+  await expect(page.locator("[data-tool-panel]")).not.toContainText(
+    "Checking the secure worker",
+  );
+  // A frame for the run area to lay out.
+  await page.evaluate(
+    () =>
+      new Promise((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(done)),
+      ),
+  );
+  return { before, after: await readGap(page) };
+}
+
+test.describe("worker tool pages from lg: the details sit one row gap under the head", () => {
+  test.use({ viewport: { width: 1280, height: 720 } });
+
+  for (const slug of WORKER_SLUGS) {
+    test(`/tools/${slug} at 1280px: head-to-details is the row gap, before and after a ready status answers`, async ({
+      page,
+    }) => {
+      const { before, after } = await gapAcrossTheAnswer(page, slug);
+      expect(after.innerWidth, "the viewport did not apply").toBe(1280);
+      expect(
+        before.gap,
+        `before the answer: ${JSON.stringify(before)}`,
+      ).toBeCloseTo(before.rowGap, 0);
+      expect(
+        after.gap,
+        `after the answer: ${JSON.stringify(after)}`,
+      ).toBeCloseTo(after.rowGap, 0);
+    });
+  }
+
+  test("health: a ready panel is taller than the head and the details on some page, so the gap had room to open", async ({
+    page,
+  }) => {
+    // Its own reading, not the cases' (each runs in its own worker).
+    const found: string[] = [];
+    for (const slug of ["ocr-pdf", "protect-pdf"]) {
+      const { after } = await gapAcrossTheAnswer(page, slug);
+      if (after.panelTaller) found.push(slug);
+    }
+    expect(found).not.toEqual([]);
+  });
+
+  test("positive control: two auto rows, injected, open the gap", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const add = () => {
+        const style = document.createElement("style");
+        style.dataset.probe = "";
+        style.textContent =
+          "div:has(> [data-tool-panel]){grid-template-rows:none !important}";
+        document.head.append(style);
+      };
+      if (document.head) add();
+      else document.addEventListener("DOMContentLoaded", add);
+    });
+    const { after } = await gapAcrossTheAnswer(page, "protect-pdf");
+    await expect(page.locator("style[data-probe]")).toHaveCount(1);
+    expect(after.panelTaller).toBe(true);
+    expect(after.gap - after.rowGap).toBeGreaterThan(10);
   });
 });
 

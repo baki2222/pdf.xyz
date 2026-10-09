@@ -58,7 +58,17 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 300px, `sm` at 640px 261px, `lg` at 1024px
+ * 261px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[19rem] sm:min-h-[17rem] lg:min-h-[17rem]";
 
 type Phase = WorkerPhase;
 
@@ -381,22 +391,27 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {/* Status-dependent action area */}
-        {available && status ? (
-          <OcrRunArea
-            request={request}
-            localDevOnly={status.localDevOnly}
-            refuse={(file) => pickRefusal(tool, file)}
-            runnable={runnable}
-          />
-        ) : (
-          <OcrUnavailable
-            onRetry={retry}
-            phase={phase}
-            status={status}
-            toolName={tool.name}
-            toolSlug={tool.slug}
-          />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available && status !== null)}
+          reserve={STATUS_SLOT}
+        >
+          {available && status ? (
+            <OcrRunArea
+              request={request}
+              localDevOnly={status.localDevOnly}
+              refuse={(file) => pickRefusal(tool, file)}
+              runnable={runnable}
+            />
+          ) : (
+            <OcrUnavailable
+              onRetry={retry}
+              phase={phase}
+              status={status}
+              toolName={tool.name}
+              toolSlug={tool.slug}
+            />
+          )}
+        </WorkerStatusSlot>
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">

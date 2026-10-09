@@ -6,6 +6,8 @@ import { getRunnerKind } from "../src/lib/pdf/registry";
 import { processingSplit } from "../src/lib/tools/processing-split";
 import { whereItRuns } from "../src/lib/tools/where-it-runs";
 import { waitForHydration } from "./helpers";
+import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
+import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -337,3 +339,129 @@ test("every tool page fits a phone: its facts row never scrolls and the page nev
   }
   expect(overflowing).toEqual([]);
 });
+
+/**
+ * Every worker tool's status slot is ONE box on a phone: the same height
+ * while it checks, when the check fails, when the worker is not enabled, and
+ * when it is ready — so the answer moves nothing under it.
+ *
+ * Each panel reserves that height with a measured constant
+ * (`STATUS_SLOT` in its module, per breakpoint — see `WorkerStatusSlot`). A
+ * constant has no relationship to keep it right, so this is its second,
+ * independent bound: every slug the registry routes (not one per panel —
+ * Protect and Unlock share a panel and differ by a strength picker), at the
+ * width each phone reserve was measured for (360) and the one every layout
+ * is drawn at (390). A run area that outgrows its reserve fails here by
+ * name, with the four heights.
+ *
+ * WHAT SHIPPED (review of WP-06, 2026-10-10): the checking box was a bare
+ * `min-h-32` (128px) and the run area up to 718px, directly under the tool's
+ * name on a phone; CLS 0.0582 on Protect PDF at 390 with a ready answer.
+ */
+const WORKER_SLUGS = panelDispatchArms().flatMap((arm) => arm.slugs);
+
+declare global {
+  interface Window {
+    __releaseStatus?: () => void;
+  }
+}
+
+type StatusStep = "hold-then-fail" | "local" | "ready";
+
+/** Answer `/api/worker/status` by plan, in the page (no `page.route`). */
+async function planStatus(page: Page, plan: StatusStep[]): Promise<void> {
+  await page.addInitScript(
+    ({ plan, ready }) => {
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      window.__releaseStatus = () => release();
+      let asked = 0;
+      const real = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = new URL(
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.href
+              : input.url,
+          location.href,
+        );
+        if (url.pathname !== "/api/worker/status") return real(input, init);
+        const step = plan[Math.min(asked++, plan.length - 1)];
+        if (step === "hold-then-fail") {
+          await held;
+          throw new TypeError("Failed to fetch");
+        }
+        if (step === "ready")
+          return new Response(ready, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        return real(input, init);
+      };
+    },
+    { plan, ready: JSON.stringify(READY_WORKER_STATUS) },
+  );
+}
+
+const slotHeight = (page: Page) =>
+  page
+    .locator('[data-slot="worker-status"]')
+    .evaluate((el) => Math.round(el.getBoundingClientRect().height * 10) / 10);
+
+for (const width of [360, 390]) {
+  test.describe(`${width}px`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    test(`health: every routed worker slug is in the set (${WORKER_SLUGS.length})`, () => {
+      expect(WORKER_SLUGS.length).toBe(
+        getAllToolSlugs().filter((slug) => !getRunnerKind(slug)).length,
+      );
+    });
+
+    for (const slug of WORKER_SLUGS) {
+      test(`/tools/${slug} at ${width}px: the worker status slot is one box — checking, failed, not enabled, ready`, async ({
+        page,
+      }) => {
+        const slot = page.locator('[data-slot="worker-status"]');
+        // Checking → failed → (Check again) → this server's answer.
+        await planStatus(page, ["hold-then-fail", "local"]);
+        await page.goto(`/tools/${slug}`);
+        await waitForHydration(slot);
+        await expect(slot).toHaveAttribute("data-state", "loading");
+        const loading = await slotHeight(page);
+        await page.evaluate(() => window.__releaseStatus?.());
+        await expect(slot).toHaveAttribute("data-state", "error");
+        const failed = await slotHeight(page);
+        await slot.getByRole("button", { name: /check again/i }).click();
+        await expect(slot).toHaveAttribute("data-state", "off");
+        const off = await slotHeight(page);
+        // A ready deployment, on a fresh page.
+        const ready = await page.context().newPage();
+        await planStatus(ready, ["ready"]);
+        await ready.goto(`/tools/${slug}`);
+        await expect(
+          ready.locator('[data-slot="worker-status"]'),
+        ).toHaveAttribute("data-state", "run");
+        const run = await slotHeight(ready);
+        const widths = await ready.evaluate(() => ({
+          inner: window.innerWidth,
+          page: document.documentElement.scrollWidth,
+        }));
+        await ready.close();
+        // Health: the width asked for, and a ready run area that fits it
+        // (AI Extract's did not: 473px at 390, until this package).
+        expect(widths).toEqual({ inner: width, page: width });
+        const heights = { loading, failed, off, run };
+        expect(loading, "no slot on screen").toBeGreaterThan(100);
+        expect(
+          Math.max(loading, failed, off, run) -
+            Math.min(loading, failed, off, run),
+          `${slug} at ${width}px: ${JSON.stringify(heights)} — re-measure this panel's STATUS_SLOT`,
+        ).toBeLessThanOrEqual(1);
+      });
+    }
+  });
+}

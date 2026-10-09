@@ -313,8 +313,19 @@ export default async function ToolPage({
            * before. Placed by column and row, not `grid-template-areas`: an
            * areas value needs quotes, and a quoted arbitrary class broke the
            * stylesheet scanner the motion guards read (fixed there too).
+           *
+           * Rows `auto 1fr`, never two auto rows: a spanning panel taller
+           * than the head and the details shares its extra height into every
+           * auto row it spans, so row 1 grew past the head, a gap opened
+           * above the details, and it grew again when the worker status
+           * answered and the panel grew — the details moved 45-57px after
+           * the answer at 1440, CLS 0.1028 on Protect PDF at 1280 (WP-06
+           * review, 2026-10-10). With a flexible row 2 the panel's extra
+           * height goes there alone, so the details sit one row gap under
+           * the head whatever the panel does (`e2e/layout-stability.spec.ts`
+           * measures it on every worker panel, before and after the answer).
            */
-          <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-y-6">
+          <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:grid-rows-[auto_1fr] lg:items-start lg:gap-y-6">
             <div className="lg:col-start-1 lg:row-start-1">{head}</div>
 
             <div

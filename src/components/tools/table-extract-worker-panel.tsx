@@ -28,8 +28,18 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
 import { OfficeExportNextStep } from "./office-export-notices";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 327.5px, `sm` at 640px 269px, `lg` at 1024px
+ * 288.5px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[21rem] sm:min-h-[17.5rem] lg:min-h-[18.5rem]";
 
 type Phase = WorkerPhase;
 
@@ -82,26 +92,31 @@ export function TableExtractWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
-        {available ? (
-          <TableExtractRunArea refuse={(file) => pickRefusal(tool, file)} />
-        ) : phase === "ready" ? (
-          <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-            <p className="text-muted text-sm leading-relaxed">
-              {unavailableDetail}
-            </p>
-            <p className="text-muted text-xs leading-relaxed">
-              No runner is shown until the worker is ready, so {tool.name} never
-              pretends to detect tables it cannot actually extract.
-            </p>
-            <NotifyMe
-              toolName={tool.name}
-              toolSlug={tool.slug}
-              checking={false}
-            />
-          </div>
-        ) : (
-          <WorkerStatusPending phase={phase} onRetry={retry} />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available)}
+          reserve={STATUS_SLOT}
+        >
+          {available ? (
+            <TableExtractRunArea refuse={(file) => pickRefusal(tool, file)} />
+          ) : phase === "ready" ? (
+            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
+              <p className="text-muted text-sm leading-relaxed">
+                {unavailableDetail}
+              </p>
+              <p className="text-muted text-xs leading-relaxed">
+                No runner is shown until the worker is ready, so {tool.name}{" "}
+                never pretends to detect tables it cannot actually extract.
+              </p>
+              <NotifyMe
+                toolName={tool.name}
+                toolSlug={tool.slug}
+                checking={false}
+              />
+            </div>
+          ) : (
+            <WorkerStatusPending phase={phase} onRetry={retry} />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens</h3>

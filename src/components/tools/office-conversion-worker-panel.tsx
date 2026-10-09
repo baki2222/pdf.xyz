@@ -29,7 +29,17 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 308px, `sm` at 640px 269px, `lg` at 1024px
+ * 288.5px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[19.5rem] sm:min-h-[17.5rem] lg:min-h-[18.5rem]";
 
 type OfficeTool = "word-to-pdf" | "excel-to-pdf" | "powerpoint-to-pdf";
 type Phase = WorkerPhase;
@@ -105,30 +115,35 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
-        {available ? (
-          <OfficeRunArea
-            tool={officeTool}
-            catalogTool={tool}
-            accept={acceptFor(officeTool)}
-          />
-        ) : phase === "ready" ? (
-          <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-            <p className="text-muted text-sm leading-relaxed">
-              {unavailableDetail}
-            </p>
-            <p className="text-muted text-xs leading-relaxed">
-              No runner is shown until the worker is ready, so {tool.name} never
-              pretends to process input it cannot actually convert.
-            </p>
-            <NotifyMe
-              toolName={tool.name}
-              toolSlug={tool.slug}
-              checking={false}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available)}
+          reserve={STATUS_SLOT}
+        >
+          {available ? (
+            <OfficeRunArea
+              tool={officeTool}
+              catalogTool={tool}
+              accept={acceptFor(officeTool)}
             />
-          </div>
-        ) : (
-          <WorkerStatusPending phase={phase} onRetry={retry} />
-        )}
+          ) : phase === "ready" ? (
+            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
+              <p className="text-muted text-sm leading-relaxed">
+                {unavailableDetail}
+              </p>
+              <p className="text-muted text-xs leading-relaxed">
+                No runner is shown until the worker is ready, so {tool.name}{" "}
+                never pretends to process input it cannot actually convert.
+              </p>
+              <NotifyMe
+                toolName={tool.name}
+                toolSlug={tool.slug}
+                checking={false}
+              />
+            </div>
+          ) : (
+            <WorkerStatusPending phase={phase} onRetry={retry} />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens</h3>
