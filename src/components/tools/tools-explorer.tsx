@@ -3,13 +3,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Search, SlidersHorizontal, X } from "lucide-react";
-import {
-  categories,
-  getCategoryCounts,
-  searchTools,
-  toolCount,
-  tools,
-} from "@/lib/tools";
+import { categories, getCategoryCounts, toolCount, tools } from "@/lib/tools";
+import { searchTools } from "@/lib/tools/search-tools";
 import type { Tool } from "@/lib/tools/types";
 import { categoryHref } from "@/lib/tools/category-href";
 import {

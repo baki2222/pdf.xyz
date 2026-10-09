@@ -1,4 +1,5 @@
-import { getToolBySlug, searchTools } from "./index";
+import { getToolBySlug } from "./index";
+import { searchTools } from "./search-tools";
 import type { Tool } from "./types";
 
 /**
