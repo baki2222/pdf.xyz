@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
-import { getAllToolSlugs } from "../src/lib/tools";
+import { getAllToolSlugs, getToolsByCategory } from "../src/lib/tools";
+import { categories } from "../src/lib/tools/categories";
+import { categoryHref } from "../src/lib/tools/category-href";
 import { getRunnerKind } from "../src/lib/pdf/registry";
 
 /**
@@ -67,6 +69,37 @@ test("/: the toolbox section is at most 1,100px tall, and still links every tool
     (slug) => !linked.has(`/tools/${slug}`),
   );
   expect(missing).toEqual([]);
+});
+
+test("/: on a phone each toolbox card shows its first three tools and a link to all of them", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const toolbox = page.locator("section#tools");
+  for (const category of categories) {
+    const heading = toolbox.getByRole("heading", {
+      level: 3,
+      name: new RegExp(`^${category.name.replace(/[&]/g, "\\$&")}`),
+    });
+    await expect(heading, category.id).toBeVisible();
+    await expect(heading.getByRole("link"), category.id).toHaveAttribute(
+      "href",
+      categoryHref(category.id),
+    );
+    // The card is the heading's nearest ancestor that also holds the rows.
+    const card = heading.locator(
+      "xpath=ancestor::*[.//a[starts-with(@href, '/tools/') and not(contains(@href, '/category/'))]][1]",
+    );
+    const shown = await card
+      .locator('a[href^="/tools/"]:not([href*="/category/"])')
+      .evaluateAll(
+        (links) =>
+          links.filter((a) => (a as HTMLElement).offsetParent !== null).length,
+      );
+    expect(shown, category.id).toBe(
+      Math.min(3, getToolsByCategory(category.id).length),
+    );
+  }
 });
 
 for (const slug of ["merge-pdf", "word-to-pdf", "ocr-pdf"]) {
