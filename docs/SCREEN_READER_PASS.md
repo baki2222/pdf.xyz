@@ -137,7 +137,15 @@ _"All, radio button, checked, 1 of 5"_. Press the right arrow once.
 
 **Must hear:** _"Never uploads 29, radio button, checked, 2 of 5"_ (the number
 is however many tools never upload today), then after the pause, once: _"29
-tools work without uploading"_. Arrow down into the grid to the first card.
+tools always keep your files on your device"_. Arrow down into the grid to the
+first card.
+
+(It said _"29 tools work without uploading"_ until 2026-10-10: true of 30 tools,
+because Compress PDF works without uploading too and only its optional worker
+step uploads. With **Never uploads** still chosen, type `compress` and pause.
+**Must hear:** _"No tools for “compress” always keep your files on your device.
+The filter hides 2 matches"_ — never that no tool for "compress" works without
+uploading, which denied Compress PDF what it does.)
 
 **Must hear:** the tool's name, its description, _"Takes PDF; makes PDF."_ and
 where it runs — the formats said as a sentence, never _"right arrow"_.

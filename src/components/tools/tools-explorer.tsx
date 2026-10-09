@@ -112,9 +112,11 @@ function categoryName(id: ToolsFilter): string | undefined {
 }
 
 /**
- * The filters, said as what the tools they leave DO: "take DOCX", "work
- * without uploading". One tool or many, so a sentence can agree with its
- * count. The category is not a verb; callers add " in Organize".
+ * The filters, said as what the tools they leave DO: "take DOCX", "always
+ * keep your files on your device". One tool or many, so a sentence can
+ * agree with its count. The category is not a verb; callers add " in
+ * Organize". A denial says the same words of the tools a filter HID, so each
+ * must be false of every tool outside its filter (see `RUNS_COPY`).
  */
 function filterVerbs(
   n: number,
@@ -153,8 +155,8 @@ export function hiddenMatches(
  * ever named. An empty list now says which filter emptied it and how many
  * matches it hid; a query that matches nothing at all says so plainly.
  * "Where it runs" is said the same way, as a verb beside "take DOCX": "29
- * tools work without uploading", "No tools run on a secure worker in AI
- * Tools".
+ * tools always keep your files on your device", "No tools run on a secure
+ * worker in AI Tools".
  */
 export function resultAnnouncement(
   count: number,

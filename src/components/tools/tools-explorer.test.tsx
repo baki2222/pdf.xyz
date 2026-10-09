@@ -658,8 +658,13 @@ describe("ToolsExplorer: Where it runs", () => {
       vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
     });
     expect(status().textContent).toBe(
-      `${never.tools.length} tools work without uploading`,
+      `${never.tools.length} tools always keep your files on your device`,
     );
+    // INVERTED (review of WP-06, 2026-10-10): this pinned "29 tools work
+    // without uploading" — words true of 30 tools (Compress PDF works without
+    // uploading too; only its optional worker step uploads) said of the 29
+    // that never upload.
+    expect(status().textContent).not.toMatch(/without uploading/);
     fireEvent.click(radio(/^All$/));
     expect(toolLinks()).toHaveLength(tools.length);
     expect(window.location.search).toBe("");
@@ -694,12 +699,13 @@ describe("ToolsExplorer: Where it runs", () => {
       "/tools?category=ai&runs=never-uploads",
     );
     render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
-    // Health: no AI tool works without uploading, so this IS empty.
+    // Health: no AI tool never uploads, so this IS empty.
     expect(options[0]!.tools.filter((t) => t.category === "ai")).toEqual([]);
+    // WAS "No tools work without uploading in AI Tools" (see RUNS_COPY).
     expect(
       screen.getByRole("heading", {
         level: 2,
-        name: "No tools work without uploading in AI Tools",
+        name: "No tools always keep your files on your device in AI Tools",
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /reset filters/i }));
@@ -729,13 +735,26 @@ describe("ToolsExplorer: Where it runs", () => {
 
 describe("resultAnnouncement: where it runs", () => {
   it("names the place as a verb, beside the other filters", () => {
+    // INVERTED, history kept: these read "work without uploading" until the
+    // WP-06 review (2026-10-10) — true of every tool with an in-browser
+    // path, Compress PDF among them, so "29 tools work without uploading"
+    // undercounted what it named, and a denial ("No tools for “compress”
+    // work without uploading") was false of the tool the filter hid. The
+    // choice's sentence now states the property only its own tools have.
     expect(
       resultAnnouncement(29, {
         category: "all",
         query: "",
         runs: "never-uploads",
       }),
-    ).toBe("29 tools work without uploading");
+    ).toBe("29 tools always keep your files on your device");
+    expect(
+      resultAnnouncement(29, {
+        category: "all",
+        query: "",
+        runs: "never-uploads",
+      }),
+    ).not.toBe("29 tools work without uploading");
     expect(
       resultAnnouncement(1, {
         category: "all",
@@ -750,7 +769,9 @@ describe("resultAnnouncement: where it runs", () => {
         accepts: "PDF",
         runs: "never-uploads",
       }),
-    ).toBe("3 tools take PDF and work without uploading in Organize");
+    ).toBe(
+      "3 tools take PDF and always keep your files on your device in Organize",
+    );
     expect(
       resultAnnouncement(0, {
         category: "ai",

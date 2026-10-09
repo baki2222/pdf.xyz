@@ -46,22 +46,46 @@ export type RunsFilter = RunsId | "all";
 export interface RunsCopy {
   /** The radio's words: "Never uploads", "Secure worker". */
   readonly label: string;
-  /** "1 tool works without uploading". */
+  /** "1 tool always keeps your files on your device". */
   readonly one: string;
-  /** "29 tools work without uploading", "No tools … work without uploading". */
+  /**
+   * "29 tools always keep your files on your device", and in a denial, "No
+   * tools … always keep your files on your device".
+   */
   readonly many: string;
 }
 
 /**
- * The words for each choice. The verb for "Never uploads" is said
- * positively — "work without uploading" — so an empty result never reads
- * "No tools never upload".
+ * The words for each choice.
+ *
+ * A choice's sentence must state the property its members OWN, and that
+ * property must be false of every tool outside it: the sentences are said of
+ * the tools a filter leaves AND, in a denial ("No tools for “compress” …"),
+ * of the tools it hid.
+ *
+ * WAS "work(s) without uploading" for "Never uploads" (WP-06, reviewed
+ * 2026-10-10). That is true of 30 tools, not 29: Compress PDF is
+ * browser-first, its analysis and lossless repack always run in the browser,
+ * and only its optional worker step uploads — so it works without uploading
+ * too. The capability (`hasBrowserPath`, 30) was worded onto the privacy set
+ * (`neverUploads`, 29) — the split `browser-count-surfaces.test.tsx` exists
+ * for, inverted — and `/tools?runs=never-uploads&q=compress` served two
+ * false sentences: "No tools for “compress” work without uploading. The
+ * filter hides 2 matches" and "Nothing that works without uploading matches
+ * “compress”", each denying Compress PDF what it does. "29 tools work
+ * without uploading" undercounted the property it named.
+ *
+ * "Always keeps your files on your device" is false of Compress PDF (its
+ * worker step can upload) and of every worker and AI tool, and still said
+ * positively, so a denial never reads "No tools never upload".
+ * `browser-count-surfaces.test.tsx` reads every sentence /tools serves for
+ * each choice, and fails a denial that uses words true of a tool it hid.
  */
 export const RUNS_COPY: Readonly<Record<RunsId, RunsCopy>> = {
   "never-uploads": {
     label: "Never uploads",
-    one: "works without uploading",
-    many: "work without uploading",
+    one: "always keeps your files on your device",
+    many: "always keep your files on your device",
   },
   "browser-first": {
     label: processingMeta.hybrid.label,
