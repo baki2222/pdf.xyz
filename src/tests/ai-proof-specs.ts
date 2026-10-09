@@ -75,8 +75,9 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
     name: "report.pdf",
     options: { length: "brief", format: "paragraphs" },
     want: "summary ZIP",
-    // A summary OF THE MEMO: not empty, not the memo echoed, naming what it
-    // is about. A ZIP alone passed this spec until 2026-10-09.
+    // A summary OF THE MEMO: not empty, not the memo echoed, naming its
+    // subject AND something only its body says — the title, or a kestrel,
+    // names the subject too. A ZIP alone passed this spec until 2026-10-09.
     verify: (bytes) => verifySummaryProof(bytes),
   },
   {
@@ -88,8 +89,9 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
       sourceLanguage: "auto",
     },
     want: "translation ZIP",
-    // Spanish, of the memo: not empty, not the memo echoed, not its English,
-    // keeping its names. A ZIP alone passed this spec until 2026-10-09.
+    // Spanish, of the memo: not empty, not the memo echoed, not its English
+    // and not Italian, Portuguese, Catalan or French, keeping a name only its
+    // body carries. A ZIP alone passed this spec until 2026-10-09.
     verify: (bytes) => verifyTranslationProof(bytes),
   },
   {
@@ -122,7 +124,8 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
     want: "answer ZIP",
     // Pins the OPENING turn as context-free — without it the follow-up below
     // could pass while every request silently carried the same context — and
-    // its answer as THE NOTES' answer to THIS question.
+    // its answer as THE NOTES' answer to THIS question, naming that team and
+    // none of the others the notes name.
     verify: (bytes) =>
       verifyChatProof(bytes, { ...CHAT_PROOF_OPENING, contextTurns: 0 }),
     keepArtifactAs: "chat-answer-1",
@@ -131,9 +134,13 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
   // before anything produced any, so the tool shipped unable to hold a conversation
   // while every readiness surface said it was fine. The spec above cannot catch that:
   // it sends no context, so it passes identically whether or not the worker supports
-  // any. This one sends a real follow-up built from the previous answer and asserts
-  // the worker received both turns — a claim that is false if context is dropped
-  // anywhere between the API, the queue, the engine and the provider.
+  // any. This one sends a real follow-up built from the previous answer. The
+  // manifest's `contextTurns` says the worker's ENGINE was given both turns — false
+  // if they are dropped between the API, the queue and the engine. It is counted
+  // from the engine's options, not from the provider's prompt, so it cannot see the
+  // last hop; until 2026-10-09 this comment said it could. Past the engine only the
+  // answer speaks, and only as far as `CHAT_PROOF_FOLLOW_UP` says: the notes name
+  // several teams, so "that team" is settled by the opening exchange or by a guess.
   //
   // It also carries the only measurement of the prompt-caching bet. Caching the
   // document is justified in the engine by follow-ups re-sending it verbatim, and
@@ -171,8 +178,9 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
       },
     },
     want: "answer ZIP",
-    // Both turns reached the worker, and "that team" was answered from the
-    // notes: the channel only that team's line names.
+    // Both turns reached the engine (`contextTurns`), and the answer names
+    // that team's channel and no other team's — which the notes alone do not
+    // settle (`CHAT_PROOF_FOLLOW_UP` says how far that goes).
     verify: (bytes) =>
       verifyChatProof(bytes, { ...CHAT_PROOF_FOLLOW_UP, contextTurns: 2 }),
   },

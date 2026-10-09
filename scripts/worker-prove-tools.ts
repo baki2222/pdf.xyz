@@ -539,10 +539,13 @@ interface ProofSpec {
    *
    * `expect` can only see the envelope — every AI tool returns a ZIP, so it answers
    * "a ZIP came back", which stays true even if the feature under test did nothing.
-   * A conversation proof needs the stronger claim that the worker actually received
-   * and used the prior turns, and that lives in the manifest inside the ZIP. The
-   * returned detail is printed on success, so a measurement (rather than a mere
-   * pass) reaches the operator.
+   * What is inside says more: for a conversation, the manifest's turn count says
+   * the worker's engine was given the prior turns, and the answer says how far they
+   * reached the model — `@/lib/probes/ai-proof-content` states how far that is,
+   * which is not all the way. (Until 2026-10-09 this said the manifest showed the
+   * worker "received and used" them; it counts the turns the engine was handed.)
+   * The returned detail is printed on success, so a measurement (rather than a
+   * mere pass) reaches the operator.
    *
    * `job` is the completed job record exactly as GET /api/jobs/:id served it,
    * for a claim that lives on the record rather than in the bytes — what

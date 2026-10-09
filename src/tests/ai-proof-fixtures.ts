@@ -53,8 +53,9 @@ export async function memoProofPdf(): Promise<Uint8Array> {
  */
 export async function chatProofPdf(): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  // The notes, with the two facts the chat proof asks about planted on page
-  // 2, are one definition in `@/lib/probes/ai-proof-content`.
+  // The notes, with the two facts the chat proof asks about and the other
+  // teams' facts planted on page 2, are one definition in
+  // `@/lib/probes/ai-proof-content`.
   const font = await embedDrawingFont(
     doc,
     CHAT_PROOF_PAGES.flatMap((p) => p.lines),
