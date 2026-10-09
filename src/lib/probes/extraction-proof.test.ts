@@ -30,6 +30,8 @@ import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { runAiExtract } from "@/lib/workers/ai-extract/engine";
 import type { AiProvider } from "@/lib/workers/ai/provider";
 import { literalExtractionModel } from "@/tests/literal-extraction-model";
+import { AI_PROOF_SPECS } from "@/tests/ai-proof-specs";
+import { proofTablePdf } from "@/tests/extraction-proof-fixtures";
 import {
   PROOF_EXTRACTION_COLUMNS,
   PROOF_EXTRACTION_SCHEMA,
@@ -268,17 +270,33 @@ describe("verifyExtractionProof", () => {
     );
   });
 
-  it("the harness draws THIS table and runs THIS check for ai-extract", () => {
-    // A correct verifier nothing calls is worth nothing. Read the harness.
-    const harness = readFileSync("scripts/worker-prove-tools.ts", "utf8");
-    const spec = harness.slice(harness.indexOf('tool: "ai-extract"'));
-    const block = spec.slice(0, spec.indexOf("\n  },"));
-    expect(block, "the ai-extract proof spec is gone").toMatch(
-      /make: async \(\) => Buffer\.from\(await proofTablePdf\(\)\)/,
+  it("the harness draws THIS table and runs THIS check for ai-extract", async () => {
+    // A correct verifier nothing calls is worth nothing. Since 2026-10-09 the
+    // harness runs its AI proofs from `AI_PROOF_SPECS` and writes none itself
+    // (`ai-proof-declaration.test.tsx` reads the script for that), so the
+    // spec is read as a VALUE: its fixture, its request, and what its check
+    // does to a right and a wrong package — not the words in its source.
+    const specs = AI_PROOF_SPECS.filter((s) => s.tool === "ai-extract");
+    expect(specs, "the ai-extract proof spec is gone").toHaveLength(1);
+    const spec = specs[0]!;
+    expect(spec.make).toBe(proofTablePdf);
+    expect(spec.options).toEqual({
+      mode: "schema",
+      schema: PROOF_EXTRACTION_SCHEMA.map((field) => ({ ...field })),
+    });
+    expect(spec.verify, "the ai-extract proof checks nothing").toBeDefined();
+    expect(await spec.verify!(await packageFor(JSON.stringify(WHOLE)))).toEqual(
+      await verifyExtractionProof(await packageFor(JSON.stringify(WHOLE))),
     );
-    expect(block).toContain("verifyExtractionProof");
-    expect(block).toContain("PROOF_EXTRACTION_SCHEMA");
+    expect(
+      (
+        await spec.verify!(
+          await packageFor(JSON.stringify({ region: null, q1: null })),
+        )
+      ).ok,
+    ).toBe(false);
     // The fixture is drawn in ONE place, beside the rows the verifier reads.
+    const harness = readFileSync("scripts/worker-prove-tools.ts", "utf8");
     expect(harness).not.toMatch(/async function tablePdf/);
   });
 });

@@ -29,9 +29,16 @@
  * a false alarm costs one investigation while a false "not evidence" is the
  * convenient defect that ships.
  *
- * One connection's free AI allowance cannot cover the five AI proof runs in
- * one day, and this harness never routes around the limiter — a probe that
- * dodges the cost control stops proving what users actually hit. Coverage is
+ * Each AI proof declares what the browser declares for its file
+ * (`@/lib/probes/ai-proof-declaration`), so it is charged what a user's run
+ * of that file is charged. Until 2026-10-09 none declared anything, each
+ * reserved a whole run, and one connection's free allowance could not cover
+ * the five in a day; declared, one run of all five fits in a day on a worker
+ * that proves its read cap (`ai-proof-declaration.test.tsx` prices it with
+ * the route's own function). On a worker that does not, the route ignores a
+ * per-call declaration and they still cannot all fit. This harness never
+ * routes around the limiter — a probe that dodges the cost control stops
+ * proving what users actually hit. Coverage is
  * spread over runs instead: AI tools are attempted least-recently-proven
  * first, ordered by a per-deployment ledger (`.worker-prove-tools-ledger.json`
  * at the repo root, gitignored, local to the operator's machine) that records
@@ -95,11 +102,11 @@ import {
 } from "@/tests/repair-proof-fixtures";
 import type { JobResults } from "@/lib/jobs/results";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
+import { AI_PROOF_SPECS } from "@/tests/ai-proof-specs";
 import {
-  PROOF_EXTRACTION_SCHEMA,
-  verifyExtractionProof,
-} from "@/lib/probes/extraction-proof";
-import { proofTablePdf } from "@/tests/extraction-proof-fixtures";
+  browserAiDeclaration,
+  type AiJobDeclaration,
+} from "@/lib/probes/ai-proof-declaration";
 import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
 import { printChromeLeaks } from "@/lib/workers/html-render/print-chrome";
 import {
@@ -196,62 +203,6 @@ async function damagedXrefPdf(): Promise<Buffer> {
   return Buffer.from(
     spliceStartxrefPastEnd(await doc.save({ useObjectStreams: false })),
   );
-}
-
-/**
- * A deliberately LONG text PDF, used only by the chat conversation proof.
- *
- * Size is the point. Providers cache a long prompt prefix automatically and only
- * above a minimum length (OpenAI's is documented at 1024 tokens), so a follow-up
- * question about a three-line fixture can never report a cache read no matter how
- * well caching works. Measured against production on 2026-08-04, the short
- * `textPdf` produced `input=216, cachedInput=0` — a zero that says nothing, and
- * which reads as "the caching bet is not paying" to anyone who does not know the
- * prompt was too small to be cacheable in the first place.
- *
- * This fixture carries a few thousand tokens of real prose so the document prefix
- * clears any plausible threshold, and `cachedInput` on the follow-up becomes an
- * actual measurement of the bet rather than a foregone zero.
- */
-async function chatDocPdf(): Promise<Buffer> {
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  // Distinct, factual sentences rather than one repeated line: a provider may
-  // collapse trivially repetitive text, and the follow-up question ("which document
-  // were you just asked about?") should have a real document to be about.
-  const topics = [
-    "retention",
-    "encryption",
-    "signed uploads",
-    "queue draining",
-    "artifact expiry",
-    "malware scanning",
-    "structural preflight",
-    "sandbox isolation",
-    "egress policy",
-    "language packs",
-    "confidence scoring",
-    "prompt caching",
-  ];
-  for (let p = 0; p < 6; p++) {
-    const page = doc.addPage([595, 842]);
-    page.drawText(`pdf.xyz platform notes — section ${p + 1}`, {
-      x: 60,
-      y: 790,
-      size: 14,
-      font: bold,
-    });
-    for (let line = 0; line < 34; line++) {
-      const topic = topics[(p * 34 + line) % topics.length];
-      page.drawText(
-        `Section ${p + 1} paragraph ${line + 1} records how ${topic} behaves on the ` +
-          `secure worker, and why it is reported rather than assumed.`,
-        { x: 60, y: 760 - line * 21, size: 9, font },
-      );
-    }
-  }
-  return Buffer.from(await doc.save());
 }
 
 /** A PDF carrying an embedded raster, so deep compression has real image work. */
@@ -556,59 +507,13 @@ async function xlsxFile(): Promise<Buffer> {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
-// ─────────────────────────── chat conversation proof ─────────────────────────
-
-/**
- * The slice of `chat-with-pdf`'s `manifest.json` this proof reads. Counts only —
- * the harness never prints the answer text.
- */
-interface ChatProofManifest {
-  question?: string;
-  contextTurns?: number;
-  usage?: { input?: number; output?: number; cachedInput?: number };
-}
-
-/** Read `manifest.json` + `answer.txt` out of a chat answer ZIP. */
-async function readChatAnswer(
-  zipBytes: Buffer,
-): Promise<{ manifest: ChatProofManifest; answer: string }> {
-  const zip = await JSZip.loadAsync(zipBytes);
-  const manifestFile = zip.file("manifest.json");
-  const answerFile = zip.file("answer.txt");
-  if (!manifestFile || !answerFile) {
-    throw new Error("the answer ZIP is missing manifest.json or answer.txt");
-  }
-  const manifest = JSON.parse(
-    await manifestFile.async("string"),
-  ) as ChatProofManifest;
-  return { manifest, answer: (await answerFile.async("string")).trim() };
-}
-
-/**
- * The contract caps one turn at `MAX_TURN_CHARS` (4000) and `POST /api/jobs` caps the
- * whole options object at 8 KB of UTF-8, so a long answer has to be shortened before
- * it can travel back as context — exactly what the browser-side builder does. Kept
- * well under both so this proof fails on the worker's behaviour, never on a bound.
- */
-const PROOF_TURN_CHARS = 1500;
-
-/** Report token accounting without ever printing text. */
-function usageNote(m: ChatProofManifest): string {
-  if (!m.usage) return "usage not reported";
-  const cached = m.usage.cachedInput;
-  return (
-    `input=${m.usage.input ?? "?"} output=${m.usage.output ?? "?"} ` +
-    `cachedInput=${cached ?? 0}${cached ? "" : " (no cache read)"}`
-  );
-}
-
 // ────────────────────────────────── specs ────────────────────────────────────
 
 interface ProofSpec {
   tool: string;
   /** Distinguishes two specs for the same tool (e.g. xlsx vs csv input). */
   label?: string;
-  make?: () => Promise<Buffer> | Buffer;
+  make?: () => Promise<Uint8Array> | Uint8Array;
   /** Reuse a previous spec's artifact as this one's input (protect → unlock). */
   from?: string;
   name?: string;
@@ -1147,127 +1052,14 @@ const SPECS: ProofSpec[] = [
     want: "signature-request ZIP",
   },
 
-  // The AI tools. They run only when an operator has configured a provider; with
-  // none they fail honestly as not-configured, which is correct behaviour rather
-  // than a proof — so a run against an AI-less deployment reports them as failures
-  // and that is the honest answer, not a bug in this harness.
-  {
-    tool: "summarize-pdf",
-    make: textPdf,
-    name: "report.pdf",
+  // The AI tools, as values a test can run (`@/tests/ai-proof-specs`): what
+  // each uploads, asks and accepts. Here they gain only the container check;
+  // what each DECLARES is the browser's, added in `runSpec`.
+  ...AI_PROOF_SPECS.map((spec): ProofSpec => ({
+    ...spec,
     type: PDF_MIME,
-    options: { length: "brief", format: "paragraphs" },
     expect: isZipContainer,
-    want: "summary ZIP",
-  },
-  {
-    tool: "translate-pdf",
-    make: textPdf,
-    name: "letter.pdf",
-    type: PDF_MIME,
-    options: { targetLanguage: "es", sourceLanguage: "auto" },
-    expect: isZipContainer,
-    want: "translation ZIP",
-  },
-  {
-    tool: "ai-extract",
-    // The fixture, the request and the expected answer are one definition
-    // (`@/lib/probes/extraction-proof`). Until 2026-10-09 the request asked
-    // for ONE region and ONE Q1 figure of a four-row table — no single right
-    // answer, so the model answered null as the engine instructs — and the
-    // verifier accepted any one row. It now asks for each column as a list
-    // and accepts the whole column, top to bottom, and nothing less.
-    make: async () => Buffer.from(await proofTablePdf()),
-    name: "table.pdf",
-    type: PDF_MIME,
-    options: {
-      mode: "schema",
-      schema: PROOF_EXTRACTION_SCHEMA.map((field) => ({ ...field })),
-    },
-    expect: isZipContainer,
-    want: "extraction ZIP",
-    // The VALUES, not the container: a ZIP whose extraction.json was `{}`
-    // passed this spec until 2026-09-28 (`@/lib/probes/extraction-proof`).
-    verify: (bytes) => verifyExtractionProof(bytes),
-  },
-  {
-    tool: "chat-with-pdf",
-    make: chatDocPdf,
-    name: "doc.pdf",
-    type: PDF_MIME,
-    options: { question: "In one sentence, what is this document for?" },
-    expect: isZipContainer,
-    want: "answer ZIP",
-    // Pins the OPENING turn as context-free. Without this the follow-up below could
-    // pass while every request silently carried the same context, and neither spec
-    // would notice.
-    verify: async (bytes) => {
-      const { manifest } = await readChatAnswer(bytes);
-      const turns = manifest.contextTurns ?? -1;
-      return turns === 0
-        ? {
-            ok: true,
-            detail: `contextTurns=0 (opening turn), ${usageNote(manifest)}`,
-          }
-        : {
-            ok: false,
-            detail: `opening turn reported contextTurns=${turns}, wanted 0`,
-          };
-    },
-    keepArtifactAs: "chat-answer-1",
-  },
-  // The conversation itself. `chat-with-pdf` accepted prior turns on the wire long
-  // before anything produced any, so the tool shipped unable to hold a conversation
-  // while every readiness surface said it was fine. The spec above cannot catch that:
-  // it sends no context, so it passes identically whether or not the worker supports
-  // any. This one sends a real follow-up built from the previous answer and asserts
-  // the worker received both turns — a claim that is false if context is dropped
-  // anywhere between the API, the queue, the engine and the provider.
-  //
-  // It also carries the only measurement of the prompt-caching bet. Caching the
-  // document is justified in the engine by follow-ups re-sending it verbatim, and
-  // `cachedInput` is the number that decides whether that pays. Nothing else in this
-  // repo ever issues a request carrying prior turns, so without this spec the bet
-  // stays unfalsifiable no matter how long the deployment runs.
-  {
-    tool: "chat-with-pdf",
-    label: "chat-with-pdf (follow-up)",
-    // The SAME document as the opening turn: the cached span is the document inside
-    // the system prompt, so a different fixture here would guarantee a miss.
-    make: chatDocPdf,
-    name: "doc.pdf",
-    type: PDF_MIME,
-    optionsFrom: {
-      artifact: "chat-answer-1",
-      build: async (bytes) => {
-        const { manifest, answer } = await readChatAnswer(bytes);
-        const asked =
-          manifest.question ?? "In one sentence, what is this document for?";
-        return {
-          question: "Which document were you just asked about?",
-          context: [
-            { role: "user", content: asked.slice(0, PROOF_TURN_CHARS) },
-            { role: "assistant", content: answer.slice(0, PROOF_TURN_CHARS) },
-          ],
-        };
-      },
-    },
-    expect: isZipContainer,
-    want: "answer ZIP",
-    verify: async (bytes) => {
-      const { manifest } = await readChatAnswer(bytes);
-      const turns = manifest.contextTurns ?? -1;
-      return turns === 2
-        ? {
-            ok: true,
-            detail: `contextTurns=2 (conversation held), ${usageNote(manifest)}`,
-          }
-        : {
-            ok: false,
-            detail: `follow-up reported contextTurns=${turns}, wanted 2 — prior turns did not reach the worker`,
-          };
-    },
-  },
+  })),
 ];
 
 /** Worker-backed tools with no spec above — a new tool must arrive with a proof. */
@@ -1413,6 +1205,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   const seconds = () => Math.round((Date.now() - started) / 1000);
   let inputs: string[] = [];
   let inputNames: string[] | undefined;
+  let aiDeclaration: AiJobDeclaration = {};
 
   if (!spec.url) {
     const bytes = spec.from
@@ -1420,6 +1213,30 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       : Buffer.from(await spec.make!());
     if (!bytes) {
       return missingDependency(label, spec.from!, "input", seconds());
+    }
+    // Declare the characters (and, for translate, the text PAGES) the BROWSER
+    // declares for this file, counted by its panel's own function
+    // (`@/lib/probes/ai-proof-declaration`). Until 2026-10-09 every AI proof
+    // went undeclared, so each reserved a whole run of the daily allowance
+    // whatever its fixture held: one run of the AI proofs spent the day, and
+    // the chat proofs were refused for it. Counted BEFORE the upload, as the
+    // panel counts — a fixture the browser would refuse, or could not count,
+    // is a defect in this proof, reported before anything is sent or charged.
+    if (isAiSpec(spec)) {
+      const verdict = await browserAiDeclaration(spec.tool, bytes);
+      if (verdict.kind !== "declared") {
+        return {
+          label,
+          outcome: "failed",
+          stage: "declare",
+          seconds: seconds(),
+          detail:
+            verdict.kind === "refused"
+              ? `the browser would refuse this fixture before upload: ${verdict.reason}`
+              : `${verdict.reason}, so it would go undeclared and reserve a whole run — fix the fixture; nothing was sent`,
+        };
+      }
+      aiDeclaration = verdict.declaration;
     }
     // Declare what the BROWSER declares, not what this spec believes the type
     // to be. Until 2026-09-27 this sent `spec.type`, hand-typed per fixture,
@@ -1479,6 +1296,7 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     tool: spec.tool,
     inputs,
     ...(inputNames ? { inputNames } : {}),
+    ...aiDeclaration,
   };
   if (spec.url) request.options = { url: spec.url };
   else if (spec.optionsFrom) {
