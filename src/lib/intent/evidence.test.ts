@@ -69,7 +69,7 @@ const EVIDENCE: readonly Evidence[] = [
   { kind: "unreadable", name: "broken.pdf" },
   { kind: "after", tool: "Unlock PDF" },
   { kind: "after", tool: "Repair PDF" },
-  { kind: "first-file", name: "contract.pdf" },
+  { kind: "one-file", name: "contract.pdf" },
   { kind: "partial", opens: 2, total: 5 },
   { kind: "uploads" },
   { kind: "add-there", count: 1 },

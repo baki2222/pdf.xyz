@@ -299,14 +299,53 @@ describe("the carry property, over every mix", () => {
     expect(notCarrying).toBeGreaterThan(0);
   });
 
-  it("a one-file tool offered several files says it opens the first", () => {
+  it("a one-file tool offered several files says which one it takes", () => {
     const [a, b] = [pdf("first.pdf"), pdf("second.pdf")];
     const sign = rankForFiles([a, b], index)
       .top.concat(rankForFiles([a, b], index).more)
       .find((s) => s.slug === "sign-pdf")!;
     expect(sign.carry.ids).toEqual([a.id]);
     expect(sign.evidence.map(renderEvidence)).toContain(
-      "opens the first file, first.pdf",
+      "takes one file — first.pdf",
+    );
+  });
+
+  /**
+   * FOUND IN THE VISUAL PASS (2026-10-09): with contract.pdf and a form,
+   * annex.pdf, staged in that order, Fill forms said "annex.pdf has 4 form
+   * fields" and its launch carried contract.pdf — a one-file tool takes the
+   * first file it opens, and the file that justified it was second. The file
+   * a boost names goes first, so the row carries what it says.
+   */
+  it("a boosted one-file tool carries the file its evidence names", () => {
+    const contract = pdf("contract.pdf", { pages: 12 });
+    const annex = pdf("annex.pdf", { pages: 3, formFields: 4 });
+    const all = (r: ReturnType<typeof rankForFiles>) => [...r.top, ...r.more];
+    const fill = all(rankForFiles([contract, annex], index)).find(
+      (s) => s.slug === "fill-forms",
+    )!;
+    expect(fill.evidence.map(renderEvidence)[0]).toBe(
+      "annex.pdf has 4 form fields",
+    );
+    expect(fill.carry.ids).toEqual([annex.id]);
+    expect(fill.evidence.map(renderEvidence)).toContain(
+      "takes one file — annex.pdf",
+    );
+    // Control: with no boost, the first file it opens is the one it takes.
+    const split = all(rankForFiles([contract, annex], index)).find(
+      (s) => s.slug === "split-pdf",
+    )!;
+    expect(split.carry.ids).toEqual([contract.id]);
+  });
+
+  it("a file no tool opens has its own note, and does not count against every tool", () => {
+    const merge = rankForFiles(
+      [pdf("a.pdf"), pdf("b.pdf"), file("photo.heic")],
+      index,
+    ).top[0]!;
+    expect(merge.slug).toBe("merge-pdf");
+    expect(merge.evidence.map(renderEvidence).join(" ")).not.toMatch(
+      /opens \d+ of your/,
     );
   });
 
