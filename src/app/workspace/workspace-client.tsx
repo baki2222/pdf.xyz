@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
-import { HANDOFF_LIFETIME } from "@/lib/browser-storage";
+import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
 import { originPhrase } from "@/lib/handoff/origin";
 import { imageOnlyRange } from "@/lib/pdf/probe-result";
 import { cn, formatBytes } from "@/lib/utils";

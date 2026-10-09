@@ -10,41 +10,21 @@
  */
 
 import type { HandoffBackend } from "./backend";
+import { HANDOFF_DB_NAME, HANDOFF_STORE } from "./db-name";
+import { defaultFactory, finished, promisifyRequest } from "./idb-requests";
 import type { HandoffRecord } from "./types";
 
 /**
- * The database's name — registered in `src/lib/browser-storage.ts`, which
- * `/privacy` renders and `browser-storage.test.ts` holds to every place the
- * code opens it.
+ * The database's name lives in `./db-name` — registered in
+ * `src/lib/browser-storage.ts`, which `/privacy` renders and
+ * `browser-storage.test.ts` holds to every place the code opens it.
  */
-export const HANDOFF_DB_NAME = "pdfxyz-handoff";
+export { HANDOFF_DB_NAME };
 const DB_VERSION = 1;
-const STORE = "handoffs";
-
-/** The browser's IndexedDB, or null where it is absent or refused. */
-function defaultFactory(): IDBFactory | null {
-  try {
-    return typeof indexedDB !== "undefined" && indexedDB !== null
-      ? indexedDB
-      : null;
-  } catch {
-    // Accessing `indexedDB` can throw in sandboxed/partitioned contexts.
-    return null;
-  }
-}
 
 /** True when this runtime exposes a usable IndexedDB. */
 export function isIndexedDbAvailable(): boolean {
   return defaultFactory() !== null;
-}
-
-/** Promisify an IDBRequest. */
-function promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(request.error ?? new Error("IndexedDB request failed"));
-  });
 }
 
 /** One open connection per factory (the page has one; tests make many). */
@@ -64,8 +44,8 @@ function openDb(factory: IDBFactory): Promise<IDBDatabase> {
     }
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(HANDOFF_STORE)) {
+        db.createObjectStore(HANDOFF_STORE, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -81,17 +61,6 @@ function openDb(factory: IDBFactory): Promise<IDBDatabase> {
   return opening;
 }
 
-/** Wait for a transaction to finish, or fail. */
-function finished(tx: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () =>
-      reject(tx.error ?? new Error("IndexedDB transaction failed"));
-    tx.onabort = () =>
-      reject(tx.error ?? new Error("IndexedDB transaction aborted"));
-  });
-}
-
 /** Run `fn` inside a transaction on the handoff store and await completion. */
 async function withStore<T>(
   factory: IDBFactory,
@@ -99,9 +68,9 @@ async function withStore<T>(
   fn: (store: IDBObjectStore) => Promise<T> | T,
 ): Promise<T> {
   const db = await openDb(factory);
-  const tx = db.transaction(STORE, mode);
+  const tx = db.transaction(HANDOFF_STORE, mode);
   const done = finished(tx);
-  const result = await fn(tx.objectStore(STORE));
+  const result = await fn(tx.objectStore(HANDOFF_STORE));
   await done;
   return result;
 }
@@ -149,72 +118,5 @@ export class IndexedDbHandoffBackend implements HandoffBackend {
 
   async clear(): Promise<void> {
     await this.store("readwrite", (store) => promisifyRequest(store.clear()));
-  }
-}
-
-/**
- * Open the database only if it already exists. Opening a database that does
- * not exist CREATES it; aborting the upgrade that creation needs deletes it
- * again before anything is stored, so the browser is left as it was.
- */
-function openIfPresent(factory: IDBFactory): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
-    let request: IDBOpenDBRequest;
-    try {
-      request = factory.open(HANDOFF_DB_NAME);
-    } catch {
-      resolve(null);
-      return;
-    }
-    request.onupgradeneeded = (event) => {
-      if (event.oldVersion === 0) request.transaction?.abort();
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = (event) => {
-      // An aborted creation is the expected outcome here, not an error.
-      event.preventDefault?.();
-      resolve(null);
-    };
-    request.onblocked = () => resolve(null);
-  });
-}
-
-/**
- * Delete every expired hand-off — or one with no expiry at all — and return
- * how many went. Run on every page (`HandoffSweep` in the root layout), which
- * is what makes `/privacy` true: an unopened hand-off is deleted from this
- * browser the next time a pdf.xyz page opens. It never creates the database,
- * so a visitor who never handed a file anywhere has nothing stored. Never
- * throws.
- */
-export async function purgeExpiredIfPresent(
-  now: number = Date.now(),
-  factory: IDBFactory | null = defaultFactory(),
-): Promise<number> {
-  if (!factory) return 0;
-  const db = await openIfPresent(factory);
-  if (!db) return 0;
-  try {
-    if (!db.objectStoreNames.contains(STORE)) return 0;
-    const tx = db.transaction(STORE, "readwrite");
-    const done = finished(tx);
-    const store = tx.objectStore(STORE);
-    const records = await promisifyRequest<Partial<HandoffRecord>[]>(
-      store.getAll(),
-    );
-    let removed = 0;
-    for (const record of records) {
-      const expiry = record.expiresAt;
-      if (typeof expiry === "number" && now < expiry) continue;
-      if (typeof record.id !== "string") continue;
-      store.delete(record.id);
-      removed += 1;
-    }
-    await done;
-    return removed;
-  } catch {
-    return 0;
-  } finally {
-    db.close();
   }
 }

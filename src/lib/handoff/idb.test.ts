@@ -16,11 +16,8 @@
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
 import { makeHandoffRecord } from "./record";
-import {
-  HANDOFF_DB_NAME,
-  IndexedDbHandoffBackend,
-  purgeExpiredIfPresent,
-} from "./idb";
+import { HANDOFF_DB_NAME, IndexedDbHandoffBackend } from "./idb";
+import { purgeExpiredIfPresent } from "./sweep";
 
 const record = (id: string, now: number, ttlMs: number) =>
   makeHandoffRecord({

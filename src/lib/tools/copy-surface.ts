@@ -157,6 +157,9 @@ export function copyFiles(): string[] {
     // What the site keeps in a visitor's browser and for how long, rendered
     // by /privacy §5 (WP-04, addendum #76). Outside every walked root.
     path.join(ROOT, "src", "lib", "browser-storage.ts"),
+    // The hand-off lifetime sentence those pages say (a leaf, so a page can
+    // say it without loading the registry).
+    path.join(ROOT, "src", "lib", "handoff", "lifetime.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

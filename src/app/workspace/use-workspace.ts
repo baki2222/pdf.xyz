@@ -17,6 +17,7 @@ import {
   readHandoffId,
   type HandoffOrigin,
 } from "@/lib/handoff";
+import { claimFromUrl } from "@/lib/handoff/claim";
 import type { FileFacts } from "@/lib/intent/facts";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import {
@@ -51,19 +52,18 @@ export const MAX_FILE_MB = Math.round(MAX_FILE_BYTES / (1024 * 1024));
 const WORKSPACE_PROBES = 10;
 
 /**
- * The launch (`launchWithFiles`) and the claim (`claimFromUrl`) are reached
- * through `import()`, never statically: both are shared with every tool page,
- * and a module group shared between the workspace and the tool pages is split
- * by the bundler into chunks of its own — measured 2026-10-09 at +3.5 KB gz on
- * every tool page from the per-chunk compression alone. The launch is warmed
- * with the first staged file, so a click never waits for it; the claim loads
- * only when the address bar names a hand-off.
+ * The launch (`launchWithFiles`) is reached through `import()`: the
+ * workspace needs it only on a click, and it is warmed with the first staged
+ * file so a click never waits for it.
+ *
+ * The claim (`claimFromUrl`) is imported STATICALLY, on purpose. It is
+ * shared with every tool page, and the bundler treats the two kinds of share
+ * differently: a module both pages load up front joins the chunk the two
+ * already share, while one the workspace loads LAZILY becomes a chunk of its
+ * own that every tool page then fetches. Measured on 2026-10-09: the lazy
+ * claim added a chunk to every tool page; the static one adds none.
  */
 const loadLaunch = () => import("@/lib/intent/launch");
-const loadClaim = () =>
-  import("@/components/tools/runner/use-tool-handoff").then(
-    (m) => m.claimFromUrl,
-  );
 
 /** A file the workspace declined to stage, with a user-facing reason. */
 export interface RejectedFile {
@@ -346,12 +346,14 @@ export function useWorkspace(
       return;
     }
     if (!readHandoffId(search)) return;
-    void loadClaim()
-      .then((claimFromUrl) =>
-        claimFromUrl(HANDOFF_TARGET_WORKSPACE, (entries) => entries, router),
-      )
+    const claim = claimFromUrl(
+      HANDOFF_TARGET_WORKSPACE,
+      (entries) => entries,
+      router,
+    );
+    if (!claim) return;
+    void claim
       .then((result) => {
-        if (!result) return;
         if (!aliveRef.current) return;
         if (result.status === "ready") {
           const count = addFiles(result.files);

@@ -15,8 +15,8 @@
  * it.
  */
 import { CONSENT_STORAGE_KEY } from "@/lib/analytics/consent-key";
-import { HANDOFF_DB_NAME } from "@/lib/handoff/idb";
-import { DEFAULT_HANDOFF_TTL_MS } from "@/lib/handoff/record";
+import { HANDOFF_DB_NAME } from "@/lib/handoff/db-name";
+import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace/storage";
@@ -35,14 +35,7 @@ export interface BrowserStore {
   readonly lasts: string;
 }
 
-const HANDOFF_MINUTES = DEFAULT_HANDOFF_TTL_MS / 60_000;
-
-/**
- * How long a file passed from one page to a tool stays in the browser. True
- * because claiming a hand-off deletes it (`HandoffStore.claim`), and because
- * the root layout's `HandoffSweep` deletes expired ones on every page.
- */
-export const HANDOFF_LIFETIME = `Files you pass to a tool are deleted when that tool opens them. An unopened hand-off expires after ${HANDOFF_MINUTES} minutes and is deleted from this browser the next time a pdf.xyz page opens.`;
+export { HANDOFF_LIFETIME };
 
 export const BROWSER_STORAGE: readonly BrowserStore[] = [
   {

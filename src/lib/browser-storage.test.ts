@@ -46,7 +46,14 @@ function sources(dir = SRC): string[] {
   });
 }
 
-const TOUCHES = /\b(?:localStorage|sessionStorage|indexedDB)\b/;
+/**
+ * A writer touches a storage API by name — or opens a database through an
+ * injected `IDBFactory`. The second shape was added on 2026-10-09, the day
+ * the hand-off store and the sweep began taking their factory as a parameter
+ * (so tests can hand them a real IndexedDB): neither spelled `indexedDB` any
+ * more, and the health check below caught both leaving the set.
+ */
+const TOUCHES = /\b(?:localStorage|sessionStorage|indexedDB|IDBFactory)\b/;
 const parse = (file: string, text: string) =>
   ts.createSourceFile(
     file,
@@ -182,6 +189,7 @@ describe("the browser-storage registry is what the code writes", () => {
       "src/lib/analytics/consent.ts",
       "src/lib/workspace/storage.ts",
       "src/lib/handoff/idb.ts",
+      "src/lib/handoff/sweep.ts",
       "src/components/tools/worker-job.tsx",
     ])
       expect(writers).toContain(expected);

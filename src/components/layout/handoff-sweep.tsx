@@ -20,7 +20,7 @@ export function HandoffSweep() {
     let cancelled = false;
     const sweep = () => {
       if (cancelled) return;
-      void import("@/lib/handoff/idb")
+      void import("@/lib/handoff/sweep")
         .then(({ purgeExpiredIfPresent }) => purgeExpiredIfPresent())
         .catch(() => {
           // Best effort: the next page load tries again.
