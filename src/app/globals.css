@@ -87,6 +87,8 @@
   --text-display-2: clamp(2rem, 1.55rem + 1.8vw, 3rem);
   --text-display-2--line-height: 1.06;
   --text-display-2--letter-spacing: -0.015em;
+  /* The mono kicker's tracking, read by the `kicker` utility below. */
+  --tracking-kicker: 0.18em;
 
   /* Motion curves: entrances, state changes (marks, toggles), drawn lines. */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -131,6 +133,26 @@
   --color-scrim: var(--sf-scrim);
   --shadow-sheet: var(--sf-shadow-sheet);
   --shadow-lift: var(--sf-shadow-lift);
+}
+
+/* Type roles that are more than a size. A kicker is the mono label that
+   opens a section, a panel or a list; a figure is a measured number. Each
+   is ONE utility so the role cannot drift one call site at a time — the
+   kicker had been spelled out longhand in dozens of places, at three
+   different trackings. `type-roles.test.tsx` fails the longhand. */
+@utility kicker {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: var(--tracking-kicker);
+  text-transform: uppercase;
+}
+
+@utility figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 /* ------------------------------------------------------------------ *

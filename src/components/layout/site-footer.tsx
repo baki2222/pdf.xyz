@@ -40,9 +40,7 @@ export function SiteFooter() {
           >
             {footerNav.map((column) => (
               <div key={column.title} className="flex flex-col gap-3">
-                <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                  {column.title}
-                </h3>
+                <h3 className="text-faint kicker">{column.title}</h3>
                 <ul className="flex flex-col gap-2.5">
                   {column.items.map((item) => (
                     <li key={item.label}>

@@ -155,9 +155,7 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            What happens to your file
-          </h3>
+          <h3 className="text-faint kicker">What happens to your file</h3>
           <ol className="flex flex-col gap-1">
             {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, i, all) => (

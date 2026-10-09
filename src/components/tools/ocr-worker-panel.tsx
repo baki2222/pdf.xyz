@@ -242,9 +242,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Recognition settings */}
         <div className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-4 sm:p-5">
-          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            Recognition settings
-          </h3>
+          <h3 className="text-faint kicker">Recognition settings</h3>
 
           {/* Languages */}
           <div className="flex flex-col gap-2">
@@ -399,9 +397,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">
-          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            What happens to your file
-          </h3>
+          <h3 className="text-faint kicker">What happens to your file</h3>
           <ol className="flex flex-col gap-1">
             {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, i, all) => (
@@ -700,9 +696,7 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
 
   return (
     <div className="border-line bg-wash mt-1 flex flex-col gap-1 rounded-[3px] border p-3">
-      <h4 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-        Recognition summary
-      </h4>
+      <h4 className="text-faint kicker">Recognition summary</h4>
       <dl className="divide-y divide-white/5">
         {rows.map((row) => (
           <div

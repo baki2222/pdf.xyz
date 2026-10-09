@@ -88,9 +88,7 @@ export default function StatusPage() {
         <div className="bg-line h-px w-full" role="presentation" />
 
         <section className="flex flex-col gap-4">
-          <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            What runs where
-          </h2>
+          <h2 className="text-faint kicker">What runs where</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             {CAPABILITY_ORDER.map((id) => {
               const descriptor = CAPABILITY_DESCRIPTORS[id];

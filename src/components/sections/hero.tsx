@@ -30,11 +30,11 @@ export function Hero() {
     <section className="border-line border-b">
       <Container className="grid gap-14 pt-10 pb-16 sm:pt-14 lg:grid-cols-12 lg:gap-10 lg:pt-16 lg:pb-20">
         <div className="flex flex-col items-start lg:col-span-7 lg:pr-6">
-          <p className="text-muted font-mono text-xs font-medium tracking-[0.14em] uppercase sm:tracking-[0.2em]">
+          <p className="text-muted kicker">
             Privacy-first PDF platform · {toolCount} tools
           </p>
 
-          <h1 className="font-display text-fg mt-6 text-5xl leading-[1.02] font-bold tracking-[-0.02em] text-balance sm:text-6xl lg:text-[4.25rem]">
+          <h1 className="font-display text-fg text-display-1 mt-6 font-bold text-balance">
             Every PDF tool.{" "}
             <span className="mark-sweep">Private by design.</span>
           </h1>
@@ -98,9 +98,7 @@ export function Hero() {
           </div>
 
           <div className="mt-8">
-            <p className="text-faint font-mono text-xs font-medium tracking-[0.2em] uppercase">
-              Popular right now
-            </p>
+            <p className="text-faint kicker">Popular right now</p>
             <ul className="border-line mt-3 grid grid-cols-2 gap-x-6 border-t">
               {popular.map((tool) => (
                 <li key={tool.slug} className="border-line border-b">
