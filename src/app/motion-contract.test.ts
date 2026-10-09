@@ -226,6 +226,26 @@ describe("the reduced-motion reset is complete", () => {
     }`;
     expect(resetCoverage(noDelay).missing).toEqual(["animation-delay"]);
   });
+
+  it("an escaped quote in a selector is part of the selector, not a string", () => {
+    // Found 2026-10-10 by WP-06's first build. Tailwind emits an arbitrary
+    // value with quotes as an escaped selector, and the scanner opened a
+    // string at the escaped quote, lost its place, and reported the WHOLE
+    // reset missing from a stylesheet that shipped it — a loud answer, and a
+    // wrong one. The selector is verbatim from that build's CSS.
+    const complete = `@media (prefers-reduced-motion:reduce){
+      *,:after,:before{animation-duration:.001ms!important;animation-iteration-count:1!important;animation-delay:0s!important;animation-timeline:auto!important;transition-duration:.001ms!important;transition-delay:0s!important;scroll-behavior:auto!important}
+      ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
+    }`;
+    const quoted = String.raw`.\[grid-template-areas\:\'head\'_\'panel\'_\'details\'\]{grid-template-areas:"head""panel""details"}`;
+    // Health: the reset alone is whole, so a miss below is the selector's.
+    expect(resetCoverage(complete).missing).toEqual([]);
+    expect(resetCoverage(quoted + complete).missing).toEqual([]);
+    // Control: a real string with a brace in it still cannot open a block.
+    expect(resetCoverage(`.a::before{content:"{"}` + complete).missing).toEqual(
+      [],
+    );
+  });
 });
 
 describe("stylesheet motion is opt-in", () => {
