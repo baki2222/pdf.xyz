@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -21,12 +22,9 @@ import { categories, getCategoryCounts, toolCount, tools } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import { categoryHref } from "@/lib/tools/category-href";
 import { toolAcceptsFormat, type Format } from "@/lib/intent/formats";
-import { nearest, search, type SearchMode } from "@/lib/intent/search";
-import {
-  unsupportedAnswer,
-  type UnsupportedAnswer,
-} from "@/lib/intent/unsupported";
-import { toolSearchIndex } from "@/lib/tools/search-tools";
+import type { SearchMode } from "@/lib/intent/search";
+import type { UnsupportedAnswer } from "@/lib/intent/unsupported";
+import type { ToolRanking } from "@/lib/tools/search-tools";
 import {
   parseToolsQuery,
   toolsSearch,
@@ -42,6 +40,19 @@ const counts = getCategoryCounts();
 export const ANNOUNCE_DELAY_MS = 400;
 
 const noSubscription = () => () => {};
+
+/** What the explorer needs from the search engine chunk. */
+export interface SearchEngine {
+  readonly rankTools: (query: string) => ToolRanking;
+  readonly SEARCH_ENGINE_CHUNK: string;
+}
+
+/**
+ * The ranked search, fetched when it is first needed — a query in the URL, a
+ * pointer or focus on the search field, a keystroke — never with the page.
+ */
+const loadSearchEngine = (): Promise<SearchEngine> =>
+  import("@/lib/tools/search-tools");
 
 /** What the search made of the query, beyond the count. */
 export interface ResultOutcome {
@@ -113,7 +124,12 @@ export function resultAnnouncement(
  * list under its own `<h2>`. Either way every card's `<h3>` sits under an
  * `<h2>` — the page used to jump from its `<h1>` straight to fifty `<h3>`s.
  */
-export function ToolsExplorer() {
+export function ToolsExplorer({
+  loadEngine = loadSearchEngine,
+}: {
+  /** The engine loader; a test seam for a chunk that fails to load. */
+  loadEngine?: () => Promise<SearchEngine>;
+} = {}) {
   // The server snapshot is "" — the prerendered, unfiltered grid. On the
   // client React re-renders once with the real query string after hydration.
   const location = useSyncExternalStore(
@@ -143,44 +159,39 @@ export function ToolsExplorer() {
     window.history.replaceState(null, "", `${window.location.pathname}${qs}`);
   }, [chosen]);
 
+  // The engine arrives on demand. Until it does, a query shows the grid as
+  // served (not a guess at a ranking), and nothing is announced.
+  const [engine, setEngine] = useState<SearchEngine | null>(null);
+  const [engineFailed, setEngineFailed] = useState(false);
+  const requested = useRef(false);
+  const requestEngine = useCallback(() => {
+    if (requested.current) return;
+    requested.current = true;
+    loadEngine().then(setEngine, () => setEngineFailed(true));
+  }, [loadEngine]);
+
   const trimmed = query.trim();
-  const outcome = useMemo(() => {
-    if (!trimmed) {
-      return { ranked: tools, mode: "all" as SearchMode, unsupported: null };
-    }
-    const found = search(toolSearchIndex(), trimmed);
-    return {
-      ranked: found.results.map((doc) => doc.tool),
-      mode: found.mode,
-      unsupported: found.unsupported,
-    };
-  }, [trimmed]);
+  useEffect(() => {
+    if (trimmed) requestEngine();
+  }, [trimmed, requestEngine]);
+
+  const ranking = useMemo(
+    () => (trimmed && engine ? engine.rankTools(trimmed) : null),
+    [trimmed, engine],
+  );
+  const pending = Boolean(trimmed) && !ranking && !engineFailed;
+  const mode: SearchMode = ranking?.mode ?? "all";
+  const answer = ranking?.answer ?? null;
+  const near = ranking?.near ?? [];
 
   const results = useMemo(
     () =>
-      outcome.ranked.filter(
+      (ranking?.ranked ?? tools).filter(
         (tool) =>
           (active === "all" || tool.category === active) &&
           (accepts === null || toolAcceptsFormat(tool.accept, accepts)),
       ),
-    [outcome, active, accepts],
-  );
-
-  const answer = useMemo(
-    () =>
-      outcome.unsupported
-        ? unsupportedAnswer(outcome.unsupported, tools)
-        : null,
-    [outcome.unsupported],
-  );
-
-  // "Did you mean": only when the query itself found nothing at all.
-  const near = useMemo(
-    () =>
-      trimmed && outcome.mode === "empty" && !answer
-        ? nearest(toolSearchIndex(), trimmed).map((doc) => doc.tool)
-        : [],
-    [trimmed, outcome.mode, answer],
+    [ranking, active, accepts],
   );
 
   // One always-mounted live region, debounced so typing "compress" is not
@@ -188,15 +199,25 @@ export function ToolsExplorer() {
   // by announcing "50 tools".
   const [announcement, setAnnouncement] = useState("");
   useEffect(() => {
-    if (!chosen) return;
+    if (!chosen || pending) return;
     const text = resultAnnouncement(
       results.length,
-      { category: active, query: trimmed, accepts },
-      { mode: outcome.mode, unsupported: answer?.headline ?? null },
+      { category: active, query: ranking ? trimmed : "", accepts },
+      { mode, unsupported: answer?.headline ?? null },
     );
     const timer = setTimeout(() => setAnnouncement(text), ANNOUNCE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [chosen, results.length, active, trimmed, accepts, outcome.mode, answer]);
+  }, [
+    chosen,
+    pending,
+    results.length,
+    active,
+    trimmed,
+    ranking,
+    accepts,
+    mode,
+    answer,
+  ]);
 
   const groups = useMemo(
     () =>
@@ -243,6 +264,8 @@ export function ToolsExplorer() {
             type="search"
             value={query}
             onChange={(e) => update({ query: e.target.value })}
+            onFocus={requestEngine}
+            onPointerEnter={requestEngine}
             placeholder={`Search ${toolCount} tools — merge, compress, sign…`}
             aria-label="Search tools"
             className="bg-panel border-line placeholder:text-faint focus:border-accent/40 focus-visible:ring-accent/50 text-fg h-12 w-full rounded-[3px] border pr-11 pl-11 text-sm transition outline-none focus-visible:ring-2"
@@ -321,10 +344,20 @@ export function ToolsExplorer() {
         />
       )}
 
+      {engineFailed && trimmed && (
+        <p
+          role="note"
+          className="border-line bg-wash text-muted rounded-panel border px-4 py-3 text-sm"
+        >
+          Search could not load. Reload the page to search, or browse every tool
+          below.
+        </p>
+      )}
+
       {results.length === 0 ? (
         answer ? null : (
           <EmptyState
-            query={trimmed}
+            query={ranking ? trimmed : ""}
             accepts={accepts}
             category={
               active === "all"
@@ -335,9 +368,10 @@ export function ToolsExplorer() {
             onReset={reset}
           />
         )
-      ) : trimmed ? (
+      ) : ranking && engine ? (
         <section
           aria-labelledby={resultsHeading}
+          data-chunk={engine.SEARCH_ENGINE_CHUNK}
           className="flex flex-col gap-3"
         >
           <div className="flex flex-col gap-1">
@@ -345,9 +379,9 @@ export function ToolsExplorer() {
               id={resultsHeading}
               className="font-display text-fg text-2xl font-medium tracking-tight"
             >
-              {`${outcome.mode === "closest" ? "Closest" : "Best"} matches for “${trimmed}”`}
+              {`${mode === "closest" ? "Closest" : "Best"} matches for “${trimmed}”`}
             </h2>
-            {outcome.mode === "closest" && (
+            {mode === "closest" && (
               <p className="text-muted text-sm leading-relaxed">
                 No tool matches every word, so these match some of them.
               </p>
@@ -356,7 +390,7 @@ export function ToolsExplorer() {
           <ToolGrid tools={results} />
         </section>
       ) : (
-        <div className="flex flex-col gap-12">
+        <div className="flex flex-col gap-12" aria-busy={pending || undefined}>
           {groups.map(({ category, tools: groupTools }) => (
             <section
               key={category.id}
