@@ -61,8 +61,14 @@
  *  resets, letting the rotation below prove the tools yesterday's run could
  * not reach.
  *
- * ROTATION. One connection's daily allowance cannot cover all the AI proof
- * runs in one day (five runs across four tools, three runs a day), and the
+ * ROTATION. One connection's daily allowance may not cover all the AI proof
+ * runs in one day. Until 2026-10-09 it never could: every proof went
+ * undeclared and reserved a whole run (five runs across four tools, three
+ * runs a day). Each now declares what the browser declares
+ * (`./ai-proof-declaration`), and one run of all five fits in a day only on
+ * a worker that proves its read cap; on one that does not, the route ignores
+ * a per-call declaration and they still cannot — `ai-proof-declaration.test.tsx`
+ * prices both with the route's own function. And the
  * harness must not route around the limiter — the limiter is a real cost
  * control, and a probe that dodges it stops proving what users actually hit.
  * So coverage is spread over runs: AI tools are attempted least-recently-

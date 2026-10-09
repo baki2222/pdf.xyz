@@ -147,6 +147,10 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
+    // What a null means in AI Extract's answer, and the sentences the panel,
+    // the page and the download each say about one. Engine-adjacent, so
+    // listed singly, like the modules above.
+    path.join(ROOT, "src", "lib", "jobs", "ai-extract-null-meaning.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
