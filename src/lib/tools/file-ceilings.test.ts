@@ -43,7 +43,9 @@
  *  - each tool's runner comes from `getRunnerKind` — the same registry the tool
  *    page dispatches on to decide whether a runner mounts at all;
  *  - each runner's COMPONENT comes from the real `switch` in
- *    `runner/tool-runner.tsx`, resolved through that file's own import table;
+ *    `runner/tool-runner.tsx`, resolved through that file's own bindings
+ *    (static imports, and since 2026-10-09 the `next/dynamic` loaders) to the
+ *    module that defines it;
  *  - each runner's GATE is classified from that component's own source: the
  *    `validatePdfFile` / `partitionPdfFiles` call it admits files through, or
  *    the `.size > CONSTANT` comparison it makes. An unclassifiable runner
@@ -108,13 +110,13 @@ import {
   toolFileCeilingMb,
 } from "./file-ceilings";
 import type { Tool } from "./types";
+import { runnerArms } from "@/tests/tool-panel-modules";
 
 const ROOT = process.cwd();
 const read = (file: string) => readFileSync(file, "utf8");
 const rel = (file: string) => path.relative(ROOT, file).replace(/\\/g, "/");
 const MB = 1024 * 1024;
 
-const DISPATCH = path.join(ROOT, "src/components/tools/runner/tool-runner.tsx");
 const CEILINGS_MODULE = path.join(ROOT, "src/lib/tools/file-ceilings.ts");
 const PDF_FILES_MODULE = path.join(ROOT, "src/lib/pdf/files.ts");
 const TOOL_PAGE = path.join(ROOT, "src/app/tools/[slug]/page.tsx");
@@ -176,32 +178,17 @@ function closure(entry: string, relativeOnly: boolean): string[] {
  *  Set: runner kind → the component the page really mounts.
  * ------------------------------------------------------------------ */
 
+/**
+ * Read by the shared AST reader (`@/tests/tool-panel-modules`), which follows
+ * each `case`'s component through the dispatcher's bindings — static imports,
+ * and the `next/dynamic` loaders every runner has been since 2026-10-09 — to
+ * the module that defines it. The import-statement table this replaced went
+ * blind to the loaders and found no component for any kind.
+ */
 function runnersFromDispatch(): Map<string, string> {
-  const source = withoutComments(read(DISPATCH));
-  const imports = new Map<string, string>();
-  for (const match of source.matchAll(
-    /import\s*\{([^}]+)\}\s*from\s*"([^"]+)"/g,
-  )) {
-    for (const name of match[1]!.split(","))
-      imports.set(name.trim(), match[2]!);
-  }
   const byKind = new Map<string, string>();
-  let pending: string | null = null;
-  for (const token of source.matchAll(
-    /case "([\w-]+)":|<([A-Z][A-Za-z0-9]*)/g,
-  )) {
-    if (token[1]) {
-      pending = token[1];
-      continue;
-    }
-    if (!pending) continue;
-    const spec = imports.get(token[2]!);
-    if (!spec) continue;
-    const file = resolveSpec(DISPATCH, spec);
-    if (!file) continue;
-    byKind.set(pending, file);
-    pending = null;
-  }
+  for (const arm of runnerArms())
+    for (const kind of arm.keys) byKind.set(kind, arm.resolved.file);
   return byKind;
 }
 

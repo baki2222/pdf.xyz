@@ -65,6 +65,7 @@ import {
   runPdfOfficeExport,
 } from "@/lib/workers/pdf-office-export/engine";
 import type { ExtractedPdfLines } from "@/lib/pdf/text";
+import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const RUNNER_DIR = "src/components/tools/runner";
 const read = (rel: string) =>
@@ -78,10 +79,10 @@ function runnerFileForSlug(slug: string): string | undefined {
     `case\\s+"${kind}":[\\s\\S]{0,200}?<([A-Z][A-Za-z]*)`,
   ).exec(dispatch)?.[1];
   if (!component) return undefined;
-  const from = new RegExp(
-    `import\\s+\\{[^}]*\\b${component}\\b[^}]*\\}\\s+from\\s+"\\./([^"]+)"`,
-  ).exec(dispatch)?.[1];
-  return from ? `${RUNNER_DIR}/${from}.tsx` : undefined;
+  // Through the dispatcher's own bindings — a static import, or the
+  // `next/dynamic` loader every runner has been since 2026-10-09 — to the
+  // module that defines it. (An import regex here went blind to the loaders.)
+  return runnerModuleOf(component);
 }
 
 describe("grayscale-pdf: steps and facts carry the presets the runner renders", () => {

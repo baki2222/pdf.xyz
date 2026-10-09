@@ -52,6 +52,7 @@ import {
   stepText,
 } from "./page-copy";
 import { getRunnerKind } from "@/lib/pdf/registry";
+import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const ROOT = process.cwd();
 const RUNNER_DIR = "src/components/tools/runner";
@@ -67,11 +68,10 @@ function runnerFile(slug: string): string | null {
     `case\\s+"${kind}":[\\s\\S]{0,200}?<([A-Z][A-Za-z]*)`,
   ).exec(dispatch);
   if (!arm) throw new Error(`no dispatcher arm renders kind "${kind}"`);
-  const imp = new RegExp(
-    `import\\s+\\{[^}]*\\b${arm[1]}\\b[^}]*\\}\\s+from\\s+"\\./([^"]+)"`,
-  ).exec(dispatch);
-  if (!imp) throw new Error(`no import resolves ${arm[1]}`);
-  return `${RUNNER_DIR}/${imp[1]}.tsx`;
+  // Through the dispatcher's own bindings — a static import, or the
+  // `next/dynamic` loader every runner has been since 2026-10-09 — to the
+  // module that defines it. Throws when it cannot.
+  return runnerModuleOf(arm[1]!);
 }
 
 /**

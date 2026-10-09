@@ -9,48 +9,41 @@
  * shipped.
  *
  * A broken link is FATAL rather than a smaller corpus: every slug comparison
- * in the page must land in an arm, and every arm's component must be imported
- * and exported where the page says.
+ * in the page must land in an arm, and every arm's component must resolve to
+ * the module that defines it.
+ *
+ * SINCE 2026-10-09 the page does not import the panels itself: it imports
+ * them from `@/components/tools/worker-panels`, which re-exports each as a
+ * `next/dynamic` loader so a tool page's first load carries only its own
+ * panel. This used to be a regex over single-name `import { X } from "…"`
+ * lines, which that change would have turned into "X is dispatched but not
+ * imported" for all 13 panels. The arms are now read by the shared AST reader
+ * (`./tool-panel-modules`), which follows each component through static
+ * imports AND dynamic loaders to the module that defines it — the module a
+ * test must render, because the loader renders nothing until it resolves.
  */
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { ComponentType } from "react";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
+import { TOOL_PAGE, specifierOf, workerPanelArms } from "./tool-panel-modules";
 
-export const TOOL_PAGE = path.resolve("src/app/tools/[slug]/page.tsx");
+export { TOOL_PAGE };
 
 export interface PanelArm {
   slugs: string[];
+  /** The component's name in the module that defines it. */
   component: string;
+  /** That module, as an `@/` specifier. */
   specifier: string;
 }
 
 export function panelDispatchArms(): PanelArm[] {
-  const source = readFileSync(TOOL_PAGE, "utf8");
-  const imports = new Map<string, string>();
-  for (const m of source.matchAll(
-    /import \{ (\w+) \} from "(@\/components\/tools\/[^"]+)";/g,
-  ))
-    imports.set(m[1]!, m[2]!);
-  const arms: PanelArm[] = [];
-  for (const m of source.matchAll(
-    /((?:tool\.slug === "[^"]+"\s*(?:\|\|\s*)?)+)\?\s*\(([\s\S]*?)<(\w+) tool=\{tool\} \/>/g,
-  )) {
-    const slugs = [...m[1]!.matchAll(/"([^"]+)"/g)].map((s) => s[1]!);
-    const component = m[3]!;
-    const specifier = imports.get(component);
-    if (!specifier)
-      throw new Error(`${component} is dispatched but not imported`);
-    arms.push({ slugs, component, specifier });
-  }
-  const compared = [...source.matchAll(/tool\.slug === "/g)].length;
-  const parsed = arms.reduce((n, arm) => n + arm.slugs.length, 0);
-  if (compared !== parsed)
-    throw new Error(
-      `page.tsx compares ${compared} slugs; the dispatch parse found ${parsed}`,
-    );
-  return arms;
+  return workerPanelArms().map((arm) => ({
+    slugs: arm.keys,
+    component: arm.resolved.name,
+    specifier: specifierOf(arm.resolved.file),
+  }));
 }
 
 export async function panelComponent(

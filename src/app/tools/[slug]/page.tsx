@@ -23,19 +23,21 @@ import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { UploadZone } from "@/components/upload/upload-zone";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { WorkerPreview } from "@/components/tools/worker-preview";
-import { OcrWorkerPanel } from "@/components/tools/ocr-worker-panel";
-import { PdfSecurityWorkerPanel } from "@/components/tools/pdf-security-worker-panel";
-import { PdfStructureWorkerPanel } from "@/components/tools/pdf-structure-worker-panel";
-import { PdfArchiveWorkerPanel } from "@/components/tools/pdf-archive-worker-panel";
-import { HtmlRenderWorkerPanel } from "@/components/tools/html-render-worker-panel";
-import { OfficeConversionWorkerPanel } from "@/components/tools/office-conversion-worker-panel";
-import { PdfOfficeExportWorkerPanel } from "@/components/tools/pdf-office-export-worker-panel";
-import { TableExtractWorkerPanel } from "@/components/tools/table-extract-worker-panel";
-import { RequestSignaturesWorkerPanel } from "@/components/tools/request-signatures-worker-panel";
-import { SummarizeWorkerPanel } from "@/components/tools/summarize-worker-panel";
-import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel";
-import { AiExtractWorkerPanel } from "@/components/tools/ai-extract-worker-panel";
-import { ChatWithPdfWorkerPanel } from "@/components/tools/chat-with-pdf-worker-panel";
+import {
+  OcrWorkerPanel,
+  PdfSecurityWorkerPanel,
+  PdfStructureWorkerPanel,
+  PdfArchiveWorkerPanel,
+  HtmlRenderWorkerPanel,
+  OfficeConversionWorkerPanel,
+  PdfOfficeExportWorkerPanel,
+  TableExtractWorkerPanel,
+  RequestSignaturesWorkerPanel,
+  SummarizeWorkerPanel,
+  TranslateWorkerPanel,
+  AiExtractWorkerPanel,
+  ChatWithPdfWorkerPanel,
+} from "@/components/tools/worker-panels";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
