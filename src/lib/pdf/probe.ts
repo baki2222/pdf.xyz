@@ -2,6 +2,7 @@ import type { PDFDict, PDFDocument, PDFPage } from "pdf-lib";
 import { isFormStream, isImageStream } from "./image-stream";
 import { pageCountFromDoc } from "./page-count";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
+import type { PageContent, PdfProbe } from "./probe-result";
 
 /**
  * What a PDF holds, read in this tab, so a suggestion can show the fact that
@@ -33,23 +34,12 @@ import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
  * Never throws. Byte-free: nothing here holds or returns the file's content.
  */
 
-/** Which lock a PDF carries, as a viewer meets it. */
-export type PdfLock = "none" | "restricted" | "password-required" | "unknown";
-
-/** What a sampled page draws. */
-export type PageContent = "text" | "image-only" | "blank" | "unknown";
-
-export interface PdfProbe {
-  /** Whether the bytes were read: over the caller's ceiling, or not a PDF. */
-  readonly read: "ok" | "too-large" | "unreadable";
-  readonly lock: PdfLock;
-  /** Page count, or null when it could not be established. */
-  readonly pages: number | null;
-  /** AcroForm fields, or null when they could not be read (or it is locked). */
-  readonly formFields: number | null;
-  /** Pages 1…min(samplePages, pages), in order; empty when none were read. */
-  readonly sample: readonly PageContent[];
-}
+export {
+  imageOnlyRange,
+  type PageContent,
+  type PdfLock,
+  type PdfProbe,
+} from "./probe-result";
 
 export interface ProbeOptions {
   /** The caller's parse ceiling: pdf-lib holds the whole file in memory. */
@@ -72,19 +62,6 @@ const NOTHING: Omit<PdfProbe, "read"> = {
   formFields: null,
   sample: [],
 };
-
-/**
- * The pages the claim may name: every sampled page image-only, so "No
- * selectable text on pages 1–3" — or null, when any page is anything else.
- */
-export function imageOnlyRange(
-  probe: Pick<PdfProbe, "sample">,
-): { from: number; to: number } | null {
-  if (probe.sample.length === 0) return null;
-  return probe.sample.every((page) => page === "image-only")
-    ? { from: 1, to: probe.sample.length }
-    : null;
-}
 
 /** Let the event loop breathe between sampled pages. */
 const yieldToMain = () => new Promise<void>((r) => setTimeout(r, 0));

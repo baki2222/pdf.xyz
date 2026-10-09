@@ -15,6 +15,10 @@ import { handoffCapabilityFor } from "@/lib/handoff/capability";
 import { opensRestrictedPdfs } from "@/lib/pdf/registry";
 import { tools } from "@/lib/tools";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
+import {
+  modeHasBrowserPath,
+  modeUploadsFiles,
+} from "@/lib/tools/processing-split";
 import { buildToolIndex } from "./tool-index";
 
 describe("buildToolIndex", () => {
@@ -53,6 +57,12 @@ describe("buildToolIndex", () => {
       }
       if (entry.opensRestricted !== opensRestrictedPdfs(entry.slug)) {
         out.push(`${entry.slug} opensRestricted`);
+      }
+      if (entry.mayUpload !== modeUploadsFiles(tool.processing)) {
+        out.push(`${entry.slug} mayUpload`);
+      }
+      if (entry.hasBrowserPath !== modeHasBrowserPath(tool.processing)) {
+        out.push(`${entry.slug} hasBrowserPath`);
       }
       return out;
     });

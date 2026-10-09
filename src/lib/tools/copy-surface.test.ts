@@ -367,7 +367,8 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
       { shape: /sentences?$/i },
       { shape: /answers?$/i },
       { shape: /phrases?$/i },
-      { shape: /evidence$/i, forward: "WP-04 renderEvidence()" },
+      // Forward until WP-04 shipped renderEvidence() (2026-10-09).
+      { shape: /evidence$/i },
       { shape: /remed(?:y|ies)$/i, forward: "WP-08 remedy labels" },
       {
         shape: /^(?:hint|remedy|label|phrase)For(?:[A-Z]\w*)?$/,

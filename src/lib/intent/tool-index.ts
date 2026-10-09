@@ -2,7 +2,7 @@
  * The catalogue as the ranking reads it: one entry per tool, every field
  * either copied from the catalogue or read from the module that decides it.
  *
- * Two fields are not the catalogue's to state. Whether a tool can receive
+ * Several fields are not the catalogue's to state. Whether a tool can receive
  * files from another page, and in what shape, is the hand-off capability's
  * (`handoffCapabilityFor`); how large a file it takes is the figure its own
  * page states (`toolFileCeilingBytes`). Both are read here, never restated,
@@ -20,8 +20,13 @@ import {
   handoffCapabilityFor,
   type HandoffMode,
 } from "@/lib/handoff/capability";
+import { opensRestrictedPdfs } from "@/lib/pdf/registry";
 import { tools } from "@/lib/tools";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
+import {
+  modeHasBrowserPath,
+  modeUploadsFiles,
+} from "@/lib/tools/processing-split";
 import type { ProcessingMode, ToolCategoryId } from "@/lib/tools/types";
 
 export interface ToolIndexEntry {
@@ -38,6 +43,14 @@ export interface ToolIndexEntry {
   readonly handoffMode: HandoffMode;
   /** The largest file this tool takes, or null when it takes no file. */
   readonly ceilingBytes: number | null;
+  /**
+   * Whether its in-browser runner opens a PDF whose author restricted editing
+   * (it reads with pdf.js alone) — read from the runner registry.
+   */
+  readonly opensRestricted: boolean;
+  /** The one rule's answers for its mode (`processing-split.ts`), not a copy. */
+  readonly mayUpload: boolean;
+  readonly hasBrowserPath: boolean;
 }
 
 /** Every tool, in catalogue order. */
@@ -54,5 +67,8 @@ export function buildToolIndex(): ToolIndexEntry[] {
     related: tool.related ?? [],
     handoffMode: handoffCapabilityFor(tool.slug).mode,
     ceilingBytes: toolFileCeilingBytes(tool),
+    opensRestricted: opensRestrictedPdfs(tool.slug),
+    mayUpload: modeUploadsFiles(tool.processing),
+    hasBrowserPath: modeHasBrowserPath(tool.processing),
   }));
 }

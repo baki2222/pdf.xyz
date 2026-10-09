@@ -28,7 +28,7 @@ import type { PdfProbe } from "@/lib/pdf/probe";
 import { quickFacts, type FileFacts } from "./facts";
 import { renderEvidence } from "./evidence";
 import { buildToolIndex } from "./tool-index";
-import { rankForFiles, type RankContext } from "./rank";
+import { holdOrder, RANK_SLUGS, rankForFiles, type RankContext } from "./rank";
 
 const MB = 1024 * 1024;
 const index = buildToolIndex();
@@ -329,9 +329,13 @@ describe("evidence: each boost shows the fact behind it", () => {
       .evidence.map(renderEvidence);
   };
 
-  it("a scan: OCR PDF shows which pages have no selectable text, and that it uploads when started", () => {
+  it("a scan: OCR PDF shows which pages have no selectable text, and when the file moves", () => {
+    // OCR PDF runs on a worker: it cannot receive the file yet (WP-10's
+    // stage mode), so its row says the file is added there, and when it
+    // moves.
     expect(say([scan("scan.pdf")], "ocr-pdf")).toEqual([
       "No selectable text on page 1",
+      "you'll add the file there",
       "uploads only when you start it",
     ]);
     expect(say([scan("scan.pdf", 5)], "ocr-pdf")[0]).toBe(
@@ -387,10 +391,10 @@ describe("locks: two verdicts, read from the probe", () => {
     ] as const) {
       const first = rankForFiles([locked(lock)], index).top[0]!;
       expect(first.slug, lock).toBe("unlock-pdf");
-      const words = first.evidence.map(renderEvidence).join(" ");
+      const words = first.evidence.map(renderEvidence);
       if (lock === "password-required")
-        expect(words).toBe("contract.pdf needs a password to open");
-      else expect(words, lock).not.toMatch(/password/i);
+        expect(words[0]).toBe("contract.pdf needs a password to open");
+      else expect(words.join(" "), lock).not.toMatch(/password/i);
     }
   });
 
@@ -488,5 +492,34 @@ describe("context", () => {
   it("is deterministic", () => {
     const facts = [file("report.docx"), pdf("a.pdf"), scan("b.pdf")];
     expect(rankForFiles(facts, index)).toEqual(rankForFiles(facts, index));
+  });
+});
+
+describe("the model's own names", () => {
+  it("every slug it names is a catalogue tool (both tables and the pins)", () => {
+    const slugs = new Set(index.map((t) => t.slug));
+    expect(RANK_SLUGS.length).toBeGreaterThanOrEqual(15);
+    expect(RANK_SLUGS.filter((slug) => !slugs.has(slug))).toEqual([]);
+  });
+});
+
+describe("holdOrder: rows stay where a person last saw them", () => {
+  const rows = (...slugs: string[]) => slugs.map((slug) => ({ slug }));
+
+  it("keeps the shown order for rows already shown, new rows after in rank order", () => {
+    expect(
+      holdOrder(["b", "a"], rows("a", "c", "b")).map((r) => r.slug),
+    ).toEqual(["b", "a", "c"]);
+  });
+
+  it("drops rows that left, and with nothing shown yet it is the ranking", () => {
+    expect(holdOrder(["x", "a"], rows("a", "b")).map((r) => r.slug)).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(holdOrder([], rows("a", "b")).map((r) => r.slug)).toEqual([
+      "a",
+      "b",
+    ]);
   });
 });

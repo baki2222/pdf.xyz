@@ -24,7 +24,7 @@ async function measured(
   const blobs = new Map<string, Blob>();
   const facts = files.map((f, i) => {
     const id = `f${i}`;
-    blobs.set(id, new Blob([f.bytes]));
+    blobs.set(id, new Blob([f.bytes as Uint8Array<ArrayBuffer>]));
     return quickFacts(meta(f.name, f.size ?? f.bytes.byteLength, f.type), id);
   });
   const updates: FileFacts[] = [];
@@ -128,7 +128,7 @@ describe("measureFacts: the bytes, then the probe", () => {
     const controller = new AbortController();
     const blobs = new Map<string, Blob>();
     const facts = ["a.pdf", "b.pdf"].map((name, i) => {
-      blobs.set(`f${i}`, new Blob([PNG_1PX]));
+      blobs.set(`f${i}`, new Blob([PNG_1PX as Uint8Array<ArrayBuffer>]));
       return quickFacts(meta(name, PNG_1PX.byteLength), `f${i}`);
     });
     const seen: string[] = [];
