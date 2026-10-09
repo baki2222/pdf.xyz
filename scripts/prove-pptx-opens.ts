@@ -46,11 +46,17 @@
  *
  * Exit codes follow `worker-prove-tools.ts`: 0 = proven; 1 = evidence of a
  * defect (a subject was refused or read back wrong); 2 = could not conclude (not
- * Windows, no PowerPoint, no `pdftotext`, or a control failed). Red is kept for
- * evidence so that red keeps meaning defect.
+ * Windows, no PowerPoint, no `pdftotext`, a control failed, or the run did not
+ * leave PowerPoint's alerts as it found them). Red is kept for evidence so that
+ * red keeps meaning defect.
  *
  * It closes PowerPoint afterwards only if PowerPoint had no presentation open
- * when it started, so it never closes a deck someone is working on.
+ * when it started, so it never closes a deck someone is working on. And it
+ * puts DisplayAlerts back as it found it: until 2026-10-09 it switched alerts
+ * off on whatever instance COM attached to and left them off, so a person
+ * working in that PowerPoint lost its warnings (measured: ppAlertsAll before
+ * a run, ppAlertsNone after). The value is read back after the restore and
+ * printed, and a run that did not put it back cannot conclude.
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -79,6 +85,8 @@ interface PowerPointReport {
   build: string;
   control: Opened;
   subjects: Opened[];
+  /** PowerPoint's DisplayAlerts before the run and after it was put back. */
+  alerts: { before: number; after: number };
 }
 
 const OPEN_IN_POWERPOINT = String.raw`
@@ -87,7 +95,11 @@ $ErrorActionPreference = 'Stop'
 $msoTrue = -1; $msoFalse = 0
 $app = New-Object -ComObject PowerPoint.Application
 $preexisting = $app.Presentations.Count
+# DisplayAlerts belongs to whichever PowerPoint COM attached to, which may be
+# one someone is working in; it is put back in the finally below.
+$alertsBefore = $app.DisplayAlerts
 $app.DisplayAlerts = 1 # ppAlertsNone
+try {
 function Read-Deck($p) {
   $slides = @()
   foreach ($s in $p.Slides) {
@@ -120,6 +132,11 @@ $result.control = Open-One $ControlPath
 # [string]: Get-Content's lines carry PSPath/PSProvider notes, and ConvertTo-Json
 # would serialise that whole object graph (94 MB on the first run).
 $result.subjects = @(Get-Content -LiteralPath $ListPath -Encoding UTF8 | Where-Object { $_ } | ForEach-Object { Open-One ([string]$_) })
+} finally {
+  $app.DisplayAlerts = $alertsBefore
+}
+# Read back, not assumed: the run is checked against it below.
+$result.alerts = @{ before = [int]$alertsBefore; after = [int]$app.DisplayAlerts }
 if ($preexisting -eq 0 -and $app.Presentations.Count -eq 0) { $app.Quit() }
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($app) | Out-Null
 $result | ConvertTo-Json -Depth 8 -Compress
@@ -279,12 +296,24 @@ async function main(): Promise<void> {
       `  FILE     ${path.basename(other.path)}: ${ok ? `opened, ${other.slideCount} slides` : `REFUSED: ${other.error ?? "no slides"} ${other.hresult ?? ""}`}`,
     );
   }
+  // The instrument must leave PowerPoint as it found it. A run that did not is
+  // not a defect in the .pptx, so it is not red: evidence of a defect still
+  // wins, and otherwise the run cannot conclude.
+  const { before: alertsBefore, after: alertsAfter } = report.alerts;
+  const alertsRestored = alertsAfter === alertsBefore;
   console.log(
-    failed
-      ? "FAIL"
-      : "PASS — PowerPoint opened it. Not covered: whether a double-click shows a repair prompt (see the docblock).",
+    `  ALERTS   PowerPoint's DisplayAlerts ${alertsBefore} before the run, ${alertsAfter} after${alertsRestored ? "" : " — NOT PUT BACK, set it by hand"}`,
   );
-  process.exit(failed ? EXIT_DEFECT : 0);
+  if (failed) {
+    console.log("FAIL");
+    process.exit(EXIT_DEFECT);
+  }
+  if (!alertsRestored)
+    incomplete("the run did not leave PowerPoint's alerts as it found them.");
+  console.log(
+    "PASS — PowerPoint opened it. Not covered: whether a double-click shows a repair prompt (see the docblock).",
+  );
+  process.exit(0);
 }
 
 void main();
