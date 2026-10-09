@@ -29,6 +29,7 @@
  * of the user's own file size is information about the document — and never a
  * message, which can echo a filename.
  */
+import { recordCompletion } from "@/lib/intent/recents";
 import type { ToolCapability } from "@/lib/jobs/types";
 import { toolCompletedEvent, toolFailedEvent, track } from "./track";
 
@@ -56,12 +57,23 @@ function toolFor(toolSlug: string | undefined): PageTool | null {
   return pageTool;
 }
 
-/** A run on this page produced its output. */
+/**
+ * A run on this page produced its output.
+ *
+ * Also where this browser REMEMBERS that the tool finished a job
+ * (`recordCompletion`: the slug and the time, kept locally, never sent), so
+ * the home desk's "Recent" row offers it again. Here and not on a result
+ * panel's mount (the redesign planned that, E.8) because this is the one
+ * point every run path is PROVEN to reach — `run-outcome-coverage.test.ts`
+ * discovers the paths — while results render through several components.
+ * It does not wait for analytics consent: nothing leaves the device.
+ */
 export function reportToolCompleted(
   input: { toolSlug?: string; elapsedMs?: number } = {},
 ): void {
   const tool = toolFor(input.toolSlug);
   if (tool === null) return;
+  recordCompletion(tool.toolSlug);
   track(
     toolCompletedEvent({
       toolSlug: tool.toolSlug,

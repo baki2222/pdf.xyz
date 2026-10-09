@@ -29,7 +29,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
 import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
 import { originPhrase } from "@/lib/handoff/origin";
-import { imageOnlyRange } from "@/lib/pdf/probe-result";
+import { factWords, type FactWord } from "@/lib/intent/fact-words";
 import { cn, formatBytes } from "@/lib/utils";
 import {
   FILE_FAMILIES,
@@ -104,10 +104,7 @@ function activityIcon(kind: WorkspaceAction["kind"]) {
   return FolderOpen;
 }
 
-interface FactChip {
-  text: string;
-  tone: "faint" | "muted" | "warn";
-}
+type FactChip = FactWord;
 
 interface MetaFact extends FactChip {
   /** A measurement, set in the figure face: size and page count. */
@@ -129,46 +126,12 @@ function metaFacts(file: WorkspaceFile, chips: FactChip[]): MetaFact[] {
 }
 
 /**
- * What this tab found in a staged file, as short chips beside its size:
- * measured facts only — a PDF still being read says so, and one past the
- * probe limit says it was not checked rather than implying it was.
+ * What this tab found in a staged file, as short chips beside its size. The
+ * words are `factWords`'s (`@/lib/intent/fact-words`), shared with the home
+ * page's ticket so the two never describe one file two ways.
  */
 function factChips(file: WorkspaceFile): FactChip[] {
-  const facts = file.facts;
-  if (!facts) return [];
-  if (facts.contradicted) {
-    return [
-      {
-        text: facts.bytes
-          ? `really ${facts.bytes === "PDF" ? "a PDF" : `${facts.bytes}`}`
-          : "not what its name says",
-        tone: "warn",
-      },
-    ];
-  }
-  const pdf = facts.pdf;
-  if (!pdf) return [];
-  if (pdf.state === "pending") return [{ text: "measuring…", tone: "faint" }];
-  if (pdf.state === "not-checked")
-    return [{ text: "not checked", tone: "faint" }];
-  const { probe } = pdf;
-  if (probe.read === "unreadable")
-    return [{ text: "couldn't be read here", tone: "warn" }];
-  const chips: FactChip[] = [];
-  if (probe.lock === "password-required")
-    chips.push({ text: "needs a password", tone: "warn" });
-  else if (probe.lock === "restricted")
-    chips.push({ text: "editing restricted", tone: "warn" });
-  else if (probe.lock === "unknown")
-    chips.push({ text: "encrypted", tone: "warn" });
-  if ((probe.formFields ?? 0) > 0)
-    chips.push({
-      text: `${probe.formFields} form field${probe.formFields === 1 ? "" : "s"}`,
-      tone: "muted",
-    });
-  if (imageOnlyRange(probe))
-    chips.push({ text: "no selectable text", tone: "muted" });
-  return chips;
+  return factWords(file.facts ?? null);
 }
 
 /** A file-type chip in the summary: "PDF · 2". */

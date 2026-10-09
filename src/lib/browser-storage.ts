@@ -17,6 +17,7 @@
 import { CONSENT_STORAGE_KEY } from "@/lib/analytics/consent-key";
 import { HANDOFF_DB_NAME } from "@/lib/handoff/db-name";
 import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
+import { RECENTS_STORAGE_KEY } from "@/lib/intent/recents";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace/storage";
@@ -54,6 +55,15 @@ export const BROWSER_STORAGE: readonly BrowserStore[] = [
       "The tools you chose in the workspace and a short log of what you opened there. Never a file, a file name or a file size.",
     lasts:
       "Until you press Clear session in the workspace or clear this site's data.",
+  },
+  {
+    key: RECENTS_STORAGE_KEY,
+    perTool: false,
+    area: "localStorage",
+    holds:
+      "Which tools recently finished a job in this browser, and when, so the home page can offer them again. Never a file, a file name or anything a file holds.",
+    lasts:
+      "Until you clear this site's data. Only the most recent few are kept.",
   },
   {
     key: HANDOFF_DB_NAME,

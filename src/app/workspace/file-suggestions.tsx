@@ -19,6 +19,7 @@ import {
   renderNote,
   type Evidence,
 } from "@/lib/intent/evidence";
+import { isPlainClick, toolHref } from "@/lib/intent/links";
 import { holdOrder, type Suggestion } from "@/lib/intent/rank";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import type { ProcessingMode } from "@/lib/tools/types";
@@ -121,15 +122,7 @@ function SuggestionRow({
   const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
     // A modifier-click (new tab, new window, download) is the browser's: it
     // opens the plain tool page, as a link does without JavaScript.
-    if (
-      event.defaultPrevented ||
-      event.button !== 0 ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.altKey
-    )
-      return;
+    if (!isPlainClick(event)) return;
     event.preventDefault();
     if (disabled) return;
     onLaunch(row, rank);
@@ -137,7 +130,7 @@ function SuggestionRow({
 
   return (
     <Link
-      href={`/tools/${row.slug}`}
+      href={toolHref(row.slug)}
       onClick={onClick}
       aria-label={rowName(row, nameOf)}
       aria-describedby={

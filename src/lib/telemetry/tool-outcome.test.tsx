@@ -41,6 +41,11 @@ import {
 import { runWorkerCompression } from "@/lib/workers/client";
 import { runWorkerWebpageToPdf } from "@/lib/workers/html-render-client";
 import { CompressRunner } from "@/components/tools/runner/compress-runner";
+import {
+  clearRecents,
+  readRecents,
+  resetRecentsForTests,
+} from "@/lib/intent/recents";
 
 const SECRET = "clientlist-2026.pdf could not be read";
 
@@ -188,6 +193,53 @@ describe("browser runners — useAsyncRun reports the outcome", () => {
       render(<Runner task={async () => 1} />);
     });
     expect(seen.filter((e) => e.name.startsWith("tool_"))).toEqual([]);
+  });
+});
+
+/**
+ * The home desk's "Recent" row is fed by the same reporter: a run that
+ * produced its output is remembered in this browser (slug and time only),
+ * whether or not analytics may be sent — the chain read at the store, through
+ * the real hook and the real page component.
+ */
+describe("a completed run is remembered for the home page's Recent row", () => {
+  afterEach(() => {
+    clearRecents();
+    resetRecentsForTests();
+  });
+
+  it("a success is remembered, with no analytics sink at all", async () => {
+    clearRecents();
+    await act(async () => {
+      render(
+        <>
+          <ToolTelemetry toolSlug="rotate-pdf" capability="in-browser" />
+          <Runner task={async () => new Uint8Array([1])} />
+        </>,
+      );
+    });
+    expect(readRecents().map((r) => r.slug)).toEqual(["rotate-pdf"]);
+  });
+
+  it("a failure is not, and neither is a run with no tool page", async () => {
+    clearRecents();
+    await act(async () => {
+      render(
+        <>
+          <ToolTelemetry toolSlug="rotate-pdf" capability="in-browser" />
+          <Runner
+            task={async () => {
+              throw new Error("kaboom");
+            }}
+          />
+        </>,
+      );
+    });
+    cleanup();
+    await act(async () => {
+      render(<Runner task={async () => 1} />);
+    });
+    expect(readRecents()).toEqual([]);
   });
 });
 
