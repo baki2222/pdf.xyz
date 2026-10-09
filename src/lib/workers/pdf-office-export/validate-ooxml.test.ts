@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
+import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { pptxProofVerdict, readPptx, xmlProblems } from "./validate-ooxml";
 
 /**
@@ -40,6 +41,40 @@ describe("readPptx — the checker itself", () => {
     // Health check: presentation, slide, layout, master, theme.
     expect(deck.reached).toHaveLength(5);
     expect(deck.slides).toEqual([["PowerPoint to PDF — pdf.xyz proof"]]);
+  });
+
+  // The two controls below came with the package inspector (`./pptx-inspect`),
+  // which was written on another branch against the same refusal. Each reader
+  // now answers to both branches' evidence: the deck PowerPoint saved itself,
+  // and the deck it refused.
+  it("POSITIVE CONTROL: passes the deck PowerPoint saved itself", async () => {
+    const deck = await readPptx(
+      new Uint8Array(
+        readFileSync(
+          new URL("./fixtures/powerpoint-authored.pptx", import.meta.url),
+        ),
+      ),
+    );
+    expect(deck.problems).toEqual([]);
+    expect(deck.reached).toHaveLength(5);
+    expect(deck.slides).toEqual([["Saved by Microsoft PowerPoint"]]);
+  });
+
+  it("NEGATIVE CONTROL: fails the package PowerPoint refused, as it was written", async () => {
+    const { problems } = await readPptx(
+      await pptxBefore20260927([
+        { pageNumber: 1, text: "One", characterCount: 3 },
+        { pageNumber: 2, text: "", characterCount: 0 },
+      ]),
+    );
+    expect(problems).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/no p:sldMasterIdLst/),
+        expect.stringMatching(/no p:sldSz/),
+        expect.stringMatching(/slide1\.xml: 0 slideLayout relationships/),
+        expect.stringMatching(/slide2\.xml: a txBody holds no a:p/),
+      ]),
+    );
   });
 
   it.each([

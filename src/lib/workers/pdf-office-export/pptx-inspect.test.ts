@@ -29,6 +29,7 @@ import {
   type PptxCheck,
 } from "./pptx-inspect";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
+import { handBuiltPptx } from "@/tests/pptx-fixture";
 import { xmlWellFormedness } from "@/tests/xml-well-formed";
 
 const POWERPOINT_AUTHORED = new Uint8Array(
@@ -318,6 +319,22 @@ describe("inspectPptxPackage", () => {
       "slide-layout-count",
     ]);
     expect(inspection.counts).toMatchObject({ masters: 0, slides: 2 });
+  });
+
+  it("POSITIVE CONTROL: passes the hand-built deck `./validate-ooxml` is calibrated on", async () => {
+    // The other branch's control for the same refusal: built part by part,
+    // independent of both the writer and this module, opened by PowerPoint
+    // (COM, 2026-09-27) and converted by LibreOffice on every proof run.
+    const inspection = await inspect(await handBuiltPptx());
+    expect(inspection.problems).toEqual([]);
+    expect(inspection.counts).toEqual({
+      parts: 11,
+      reached: 11,
+      masters: 1,
+      layouts: 1,
+      themes: 1,
+      slides: 1,
+    });
   });
 
   it("passes the engine's package, so the mutations below start from green", async () => {
