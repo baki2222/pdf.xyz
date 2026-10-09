@@ -35,10 +35,10 @@ import {
   converterToPdf,
   formatForToken,
   formatOf,
-  sniffFormat,
   toolAcceptsFormat,
   type FileFormat,
 } from "./formats";
+import { formatFromBytes, sniffFormat } from "./sniff";
 
 const bytes = (...parts: (string | number[])[]): Uint8Array =>
   Uint8Array.from(
@@ -310,29 +310,34 @@ describe("the bytes win when there are bytes", () => {
 
   it("records the name a renamed file was wearing", () => {
     expect(
-      formatOf({ name: "report.pdf", type: "application/pdf" }, HEADS.png),
+      formatFromBytes(
+        { name: "report.pdf", type: "application/pdf" },
+        HEADS.png,
+      ),
     ).toEqual({
       format: "PNG",
       renamedFrom: "PDF",
       by: "bytes",
     });
     expect(
-      formatOf({ name: "notes.txt", type: "text/plain" }, HEADS.binary),
+      formatFromBytes({ name: "notes.txt", type: "text/plain" }, HEADS.binary),
     ).toEqual({
       format: null,
       renamedFrom: "TXT",
       by: "bytes",
     });
     // Agreement is not a rename.
-    expect(formatOf({ name: "report.pdf", type: "" }, HEADS.pdf)).toEqual({
+    expect(
+      formatFromBytes({ name: "report.pdf", type: "" }, HEADS.pdf),
+    ).toEqual({
       format: "PDF",
       renamedFrom: null,
       by: "bytes",
     });
     // Bytes with no signature cannot overrule a name that has none to show.
-    expect(formatOf({ name: "letter.docx", type: "" }, HEADS.text).format).toBe(
-      "DOCX",
-    );
+    expect(
+      formatFromBytes({ name: "letter.docx", type: "" }, HEADS.text).format,
+    ).toBe("DOCX");
   });
 
   it("agrees with the image engine about PNG and JPEG bytes", () => {
