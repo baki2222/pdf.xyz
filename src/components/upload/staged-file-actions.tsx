@@ -162,7 +162,11 @@ export default function StagedFileActions({ files }: { files: File[] }) {
                     "aria-disabled:cursor-wait aria-disabled:opacity-70",
                   )}
                 >
-                  <span className="flex min-w-0 flex-col gap-0.5">
+                  {/* w-0 + flex-1: the reason below is `truncate` and may
+                      name a file; its nowrap text would otherwise set this
+                      row's min-content and widen the host page (see the
+                      file row in ./upload-zone). */}
+                  <span className="flex w-0 min-w-0 flex-1 flex-col gap-0.5">
                     <span className="text-fg group-hover:text-accent text-sm font-medium transition-colors">
                       {pending === choice.slug
                         ? `Opening ${choice.name}…`

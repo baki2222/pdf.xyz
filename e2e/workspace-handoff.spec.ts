@@ -2,7 +2,12 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, expect } from "@playwright/test";
-import { attachConsoleGuard, uploadFiles, writeTempPdf } from "./helpers";
+import {
+  attachConsoleGuard,
+  uploadFiles,
+  writeTempPdf,
+  writeTempScanPdf,
+} from "./helpers";
 
 /**
  * The Phase 9 promise: files staged in `/workspace` can be handed off to a live
@@ -258,3 +263,105 @@ test("the same holds for a tool that takes several: two of three files reach Mer
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
+
+/**
+ * FOUND IN THE WP-04 GATE (2026-10-10): the home page scrolled sideways at
+ * 390px with `quarterly-report-final-version-2026.pdf` added to its drop
+ * zone — scrollWidth 429 against 390, the hero's headline, copy and trust
+ * line all running off the right edge. The same defect /workspace had fixed
+ * the day before (workspace.spec.ts, "at 390px"), in the other host of a
+ * staged file's name: the drop zone's row is `truncate`, and nowrap text
+ * still counts toward min-content, so every `min-width: auto` ancestor up to
+ * the hero's one implicit grid column widened to fit it. Every home fixture
+ * before this one had a short name.
+ *
+ * Two names: an ordinary hyphenated one (the measured case), and a scan with
+ * no break opportunity beside another PDF, so a suggestion's reason that
+ * names the file is on screen too. At 390 and at 360, without mobile
+ * emulation (a phone browser zooms a too-wide page out, hiding the overflow
+ * from the scrollWidth check).
+ */
+const HOME_LONG_NAMES = [
+  "quarterly-report-final-version-2026.pdf",
+  "Scanned_Contract_ACME_Corporation_2026_10_09.pdf",
+];
+
+for (const width of [360, 390]) {
+  test.describe(`home at ${width}px with long file names`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    test("the drop zone keeps its names inside its panel, and the page never scrolls sideways", async ({
+      page,
+    }) => {
+      const guard = attachConsoleGuard(page);
+      const [long, scan] = HOME_LONG_NAMES as [string, string];
+      await page.goto("/");
+      await uploadFiles(page, [
+        await writeTempPdf(long, 1),
+        await writeTempScanPdf(scan, 1),
+      ]);
+      // The zone's suggestions have arrived, so the panel is at its final
+      // width: the list and its continue button are both there.
+      await expect(
+        page.getByRole("button", { name: /open in workspace/i }),
+      ).toBeVisible();
+      await expect(page.getByText(/continue with your files/i)).toBeVisible();
+
+      const m = await page.evaluate((names) => {
+        const root = document.documentElement;
+        const zone = document
+          .querySelector('input[type="file"]')
+          ?.closest(".crop-marks");
+        const zoneBox = zone?.getBoundingClientRect();
+        const spans = names.map((n) =>
+          [...document.querySelectorAll("span")].find(
+            (s) => s.textContent === n,
+          ),
+        );
+        const escaped = zone
+          ? [...zone.querySelectorAll("*")]
+              .filter((el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.right > zoneBox!.right + 0.5;
+              })
+              .map(
+                (el) =>
+                  `<${el.tagName.toLowerCase()}> "${(el.textContent ?? "").trim().slice(0, 60)}"`,
+              )
+          : null;
+        return {
+          innerWidth: window.innerWidth,
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          zoneRight: zoneBox?.right ?? null,
+          found: spans.map((s) => !!s),
+          cut: spans.map((s) => (s ? s.scrollWidth > s.clientWidth : null)),
+          escaped,
+        };
+      }, HOME_LONG_NAMES);
+
+      // Health: the width asked for is the width that painted, and the
+      // probe found the panel and both names' rows.
+      expect(m.innerWidth).toBe(width);
+      expect(m.zoneRight, "no drop panel found").not.toBeNull();
+      expect(m.found, "a staged name's row was not found").toEqual([
+        true,
+        true,
+      ]);
+
+      expect(
+        m.scrollWidth,
+        `the page is ${m.scrollWidth}px wide in a ${m.clientWidth}px viewport`,
+      ).toBeLessThanOrEqual(m.clientWidth);
+      expect(m.zoneRight!).toBeLessThanOrEqual(m.clientWidth);
+      expect(m.escaped, "these run out of the drop panel").toEqual([]);
+      // The names are cut short in their rows, not laid out in full.
+      expect(m.cut).toEqual([true, true]);
+
+      expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual(
+        [],
+      );
+      expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+    });
+  });
+}

@@ -160,7 +160,14 @@ export function UploadZone({
                 strokeWidth={1.5}
                 aria-hidden
               />
-              <span className="text-fg min-w-0 flex-1 truncate text-sm">
+              {/* w-0 + flex-1, not min-w-0 alone: `truncate` is nowrap, and
+                  nowrap text still counts toward min-content, so a long name
+                  widened every min-width:auto ancestor up to the host's grid
+                  column — the home page measured 429px at 390 (WP-04 gate,
+                  2026-10-10; e2e/workspace-handoff.spec.ts, "long file
+                  names"). A zero basis contributes nothing; flex-1 grows it
+                  back to the row's free space. */}
+              <span className="text-fg w-0 min-w-0 flex-1 truncate text-sm">
                 {file.name}
               </span>
               <span className="text-muted shrink-0 font-mono text-xs tabular-nums">
