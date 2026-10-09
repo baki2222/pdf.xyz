@@ -202,5 +202,8 @@ describe("pdf-lib raster embedder boundary", () => {
       .filter((h) => h.file !== BOUNDARY && !optedOut.includes(h.file))
       .map((h) => `${h.file}:${h.line} calls ${h.name}`);
     expect(outside).toEqual([]);
-  });
+    // An AST walk over every TypeScript file: it outgrew vitest's 5 s default
+    // once the design work added ~9,000 lines (timed out in a loaded serial run
+    // on 2026-10-09, 3/3 green alone) — the same class as cef34d5.
+  }, 30_000);
 });
