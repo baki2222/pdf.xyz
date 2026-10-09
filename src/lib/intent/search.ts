@@ -17,8 +17,10 @@
  *    A multi-word synonym ("remove password", "black and white") collapses to
  *    its group's head word first.
  *  - Match: every remaining token must match some field of a document, by the
- *    best of — the word itself (1.0); a word of the same synonym group (0.9);
- *    a word it begins (0.8), unless the token is under 3 letters and not the
+ *    best of — the word itself (1.0); a word of the same synonym group (0.9),
+ *    in a name, alias or keyword only (a description that says "turn plain
+ *    text into a PDF" is not about rotating); a word it begins (0.8), unless
+ *    the token is under 3 letters and not the
  *    last, or names a file format, so "webp" never reaches "webpage" and
  *    "doc" never reaches "docx"; one edit away (0.6), for tokens and words of
  *    5 letters or more, counting a swap of two letters as one edit ("mrege").
@@ -306,31 +308,55 @@ export interface SearchOptions {
   readonly limit?: number;
 }
 
+/**
+ * The fields a synonym may match in. A synonym maps the words people use to
+ * the words a tool is NAMED and KEYWORDED by; matched in a tagline or a
+ * description it mostly finds prose that happens to use the word ("Turn
+ * plain .txt files into a PDF" is not about rotating anything).
+ */
+const SYNONYM_FIELDS: ReadonlySet<Field> = new Set<Field>([
+  "name",
+  "aliases",
+  "keywords",
+]);
+
+interface TokenMatches {
+  /** The word itself, a word it begins, or one edit away: any text field. */
+  readonly general: Map<string, number>;
+  /** A word of the same synonym group: SYNONYM_FIELDS only. */
+  readonly synonym: Map<string, number>;
+  /** The same format, any spelling: the formats field only. */
+  readonly format: Map<string, number>;
+}
+
 /** How well `token` matches each word of the vocabulary that it matches. */
 function tokenMatches(
   index: SearchIndex<SearchDoc>,
   token: string,
   isLast: boolean,
-): { general: Map<string, number>; format: Map<string, number> } {
+): TokenMatches {
   const peers = index.synonyms.peers.get(token);
   const isFormat = formatForToken(token) !== null;
   const prefixOk = !isFormat && (token.length >= 3 || isLast);
   const fuzzyOk = !isFormat && token.length >= 5;
   const asFormat = formatWord(token);
   const general = new Map<string, number>();
+  const synonym = new Map<string, number>();
   const format = new Map<string, number>();
   for (const word of index.vocabulary.keys()) {
     let q = 0;
     if (word === token) q = QUALITY.exact;
-    else if (peers?.has(word)) q = QUALITY.synonym;
     else if (prefixOk && word.startsWith(token)) q = QUALITY.prefix;
     else if (fuzzyOk && word.length >= 5 && editDistance(token, word, 1) <= 1) {
       q = QUALITY.fuzzy;
     }
     if (q > 0) general.set(word, q);
+    if (word !== token && peers?.has(word)) {
+      synonym.set(word, QUALITY.synonym);
+    }
     if (word === asFormat) format.set(word, QUALITY.exact);
   }
-  return { general, format };
+  return { general, synonym, format };
 }
 
 /** Search `index` for `query`. Pure; the index is never mutated. */
@@ -372,22 +398,32 @@ export function search<D extends SearchDoc>(
     tokenMatches(index, token, token === lastToken),
   );
   const best = new Map<number, number[]>();
-  matches.forEach(({ general, format }, t) => {
-    const visit = (word: string, q: number, formatsOnly: boolean) => {
-      for (const posting of index.vocabulary.get(word) ?? []) {
-        if ((posting.field === "formats") !== formatsOnly) continue;
-        const scores = best.get(posting.entry) ?? tokens.map(() => 0);
-        scores[t] = Math.max(scores[t]!, FIELD_WEIGHTS[posting.field] * q);
-        best.set(posting.entry, scores);
+  matches.forEach(({ general, synonym, format }, t) => {
+    const visit = (
+      words: Map<string, number>,
+      inField: (field: Field) => boolean,
+    ) => {
+      for (const [word, q] of words) {
+        for (const posting of index.vocabulary.get(word) ?? []) {
+          if (!inField(posting.field)) continue;
+          const scores = best.get(posting.entry) ?? tokens.map(() => 0);
+          scores[t] = Math.max(scores[t]!, FIELD_WEIGHTS[posting.field] * q);
+          best.set(posting.entry, scores);
+        }
       }
     };
-    for (const [word, q] of general) visit(word, q, false);
-    for (const [word, q] of format) visit(word, q, true);
+    visit(general, (field) => field !== "formats");
+    visit(synonym, (field) => SYNONYM_FIELDS.has(field));
+    visit(format, (field) => field === "formats");
   });
 
   const inPool = new Set(pool.map((entry) => entry.order));
+  // How well token t matches a NAME word (names take synonyms too).
   const quality = (t: number, word: string) =>
-    matches[t]!.general.get(word) ?? 0;
+    Math.max(
+      matches[t]!.general.get(word) ?? 0,
+      matches[t]!.synonym.get(word) ?? 0,
+    );
   const exact = all.join(" ");
   const queryTo = all.indexOf("to");
   const side = (words: readonly string[]) => {
