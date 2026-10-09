@@ -294,6 +294,27 @@ for (const scheme of ["light", "dark"] as const) {
             .join("\n"),
         ).toEqual([]);
       });
+
+      // The format chip a deep link adds ("Takes PDF ×") drew the same
+      // half-strength ring; it sits in the search row, not a scrolling one.
+      test(`/tools?accepts=pdf at ${width.use.viewport.width}px, ${scheme}: the format chip shows a focus indicator of 3:1 or more, never clipped`, async ({
+        page,
+      }) => {
+        await page.goto("/tools?accepts=pdf");
+        const chip = page.getByRole("button", { name: /^Takes PDF/ });
+        await waitForHydration(chip);
+        await page.getByRole("searchbox", { name: /search tools/i }).focus();
+        await page.keyboard.press("Tab");
+        await expect(chip).toBeFocused();
+        await chip.evaluate((el) =>
+          Promise.all(
+            el.getAnimations().map((a) => a.finished.catch(() => undefined)),
+          ),
+        );
+        const reading = await page.evaluate(readFocus);
+        expect(reading.name).toMatch(/^Takes PDF/);
+        expect(failures([reading], false), JSON.stringify(reading)).toEqual([]);
+      });
     });
   }
 }
