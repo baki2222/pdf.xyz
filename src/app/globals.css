@@ -63,28 +63,35 @@
     var(--font-display-face), var(--font-geist-sans), ui-sans-serif, system-ui,
     sans-serif;
 
-  /* Radii. The system is near-square: controls use --radius-ctl, panels
-     use --radius-panel.
+  /* Radius vocabulary. Re-anchored 2026-10-09 to what ships: the previous
+     values (ctl 6px, panel 0px) had ZERO call sites and never rendered,
+     while the tree hard-codes 4px panels and cards, 3px controls and 2px
+     tags. A sheet — a surface that IS a page — is square; controls and UI
+     containers are lightly handled. `design-tokens.test.ts` fails a
+     non-zero radius token that no shipped source renders. The call sites
+     still spell the literals (rounded-[4px] and friends); moving them onto
+     these names is the last package of the redesign, and until then the
+     names are vocabulary, not a description of every corner. */
+  --radius-tag: 2px; /* badges, chips, kbd, step numbers */
+  --radius-ctl: 3px; /* buttons, inputs, selects, toggles */
+  --radius-panel: 4px; /* UI containers: panels, cards, dialogs, notes */
+  --radius-sheet: 0px; /* drop sheets, the desk, proofs, thumbnail frames */
 
-     NOT YET ADOPTED, AND THAT IS A MEASUREMENT, NOT A GUESS. As of
-     2026-09-20 there are ZERO `rounded-ctl` / `rounded-panel` call sites in
-     src/; the tree hard-codes its corners instead — rounded-[4px] x181,
-     [3px] x67, [2px] x13, [1px] x2. So these two values reach only the hero
-     panel this redesign edits by hand, and the site ships a square hero
-     beside 4px guide cards, tool cards and workspace panels. The tokens are
-     the vocabulary for a later sweep, not a description of what renders
-     today; do not read them as one, and do not quote them as evidence that
-     the site is square-cornered.
+  /* Display type. Two steps, fluid between the two widths every layout is
+     drawn at (390px and 1440px); `design-tokens.test.ts` computes both
+     endpoints of each clamp rather than trusting a number written here.
+     display-1 is the home H1; display-2 is every section h2. */
+  --text-display-1: clamp(2.5rem, 1.75rem + 2.9vw, 4.25rem);
+  --text-display-1--line-height: 1.02;
+  --text-display-1--letter-spacing: -0.02em;
+  --text-display-2: clamp(2rem, 1.55rem + 1.8vw, 3rem);
+  --text-display-2--line-height: 1.06;
+  --text-display-2--letter-spacing: -0.015em;
 
-     The larger legacy steps retired with the legacy
-     routes; Tailwind's own rounded-* scale still exists for one-offs. */
-  /* A sheet has square corners; an instrument is handled. Panels are the
-     sheet (0); controls are the instrument (6px). The contrast is the point. */
-  --radius-ctl: 6px;
-  --radius-panel: 0px;
-
-  /* Motion */
+  /* Motion curves: entrances, state changes (marks, toggles), drawn lines. */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snap: cubic-bezier(0.2, 0, 0, 1);
+  --ease-draw: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 /* Semantic utilities. `inline` is load-bearing: it makes each utility carry
@@ -113,6 +120,17 @@
   --color-warn: var(--sf-warn);
   --color-err: var(--sf-err);
   --color-info: var(--sf-info);
+
+  /* Surfaces the interactive layer draws on. `select` is the active row in
+     a list a person is choosing from (a tint of the accent over the panel,
+     AA for every text role on it); `scrim` is the veil laid over the whole
+     page while a file is dragged; the two shadows are the page's only
+     elevation — `sheet` for the one working object on a screen, `lift` for
+     what floats above the page (dialogs, the docked run bar). */
+  --color-select: var(--sf-select);
+  --color-scrim: var(--sf-scrim);
+  --shadow-sheet: var(--sf-shadow-sheet);
+  --shadow-lift: var(--sf-shadow-lift);
 }
 
 /* ------------------------------------------------------------------ *
@@ -139,6 +157,10 @@
   --sf-warn: #8a4a0b;
   --sf-err: #bb1d2c;
   --sf-info: #245bc4;
+  --sf-select: #e6eef2;
+  --sf-scrim: rgb(244 246 248 / 0.92);
+  --sf-shadow-sheet: 0 28px 48px -32px rgb(12 18 26 / 0.45);
+  --sf-shadow-lift: 0 18px 40px -24px rgb(12 18 26 / 0.35);
 }
 
 .theme-ink {
@@ -161,12 +183,20 @@
   --sf-warn: #fbbf24;
   --sf-err: #f87171;
   --sf-info: #7ca5f5;
+  --sf-select: #1d2e39;
+  --sf-scrim: rgb(16 21 26 / 0.92);
+  --sf-shadow-sheet:
+    0 28px 48px -28px rgb(0 0 0 / 0.8), 0 0 0 1px var(--sf-line);
+  --sf-shadow-lift: 0 18px 40px -20px rgb(0 0 0 / 0.7);
 }
 
-/* Dark scheme, by system preference. Paper becomes a warm charcoal — the
-   same warmth, inverted, never the legacy navy — and the colophon keeps its
+/* Dark scheme, by system preference. Paper becomes a cool graphite — the
+   unlit light table, never the legacy navy — and the colophon keeps its
    DEFINITION ("the one band on the opposite ground") by flipping to paper.
-   Placed after the light blocks so equal specificity resolves dark-last. */
+   Placed after the light blocks so equal specificity resolves dark-last.
+   This is the stylesheet's FIRST dark-scheme block, and two guards locate
+   the dark palette by that first occurrence: a new token goes inside the
+   four scope blocks, never into a new block of this kind above here. */
 @media (prefers-color-scheme: dark) {
   :root,
   .theme-paper {
@@ -189,6 +219,11 @@
     --sf-warn: #fbbf24;
     --sf-err: #f87171;
     --sf-info: #7ca5f5;
+    --sf-select: #192a35;
+    --sf-scrim: rgb(12 16 20 / 0.92);
+    --sf-shadow-sheet:
+      0 28px 48px -28px rgb(0 0 0 / 0.8), 0 0 0 1px var(--sf-line);
+    --sf-shadow-lift: 0 18px 40px -20px rgb(0 0 0 / 0.7);
   }
 
   .theme-ink {
@@ -211,6 +246,10 @@
     --sf-warn: #8a4a0b;
     --sf-err: #bb1d2c;
     --sf-info: #245bc4;
+    --sf-select: #e6eef2;
+    --sf-scrim: rgb(244 246 248 / 0.92);
+    --sf-shadow-sheet: 0 28px 48px -32px rgb(12 18 26 / 0.45);
+    --sf-shadow-lift: 0 18px 40px -24px rgb(12 18 26 / 0.35);
   }
 }
 
@@ -326,6 +365,20 @@
     animation: none !important;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Motion (continued)
+ *
+ *  Every transition and keyframe animation the interactive layer adds
+ *  lands in THIS region, below the reduced-motion reset, inside a
+ *  `no-preference` media block — and a scroll-driven one inside an
+ *  `@supports` that tests `animation-timeline` as well.
+ *  `motion-contract.test.ts` holds all of that, and fails a keyframe that
+ *  nothing plays. That last rule is why the region starts empty: the
+ *  planned motion vocabulary (the land, rise, draw-x and sweep keyframes
+ *  and the duration scale) arrives with the first component that plays
+ *  it, not ahead of it.
+ * ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ *
  *  Prepress signature

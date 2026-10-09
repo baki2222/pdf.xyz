@@ -8,9 +8,9 @@ import { SectionHeading } from "@/components/ui/section-heading";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
 
 /**
- * The catalogue as a table of contents: serif category name in the left
- * rail, single-line entries with dot leaders on the right — the way a
- * document indexes itself. Round 1 gave every tool a two-line card at equal
+ * The catalogue as a table of contents: the category name, set in the
+ * display grotesque, in the left rail; single-line entries with dot leaders
+ * on the right — the way a document indexes itself. Round 1 gave every tool a two-line card at equal
  * weight and the section ate a third of the page saying nothing about where
  * to start; here a popular tool is marked (accent square) and every entry
  * keeps its processing fact. Deliberately names-only: a `title` attribute
