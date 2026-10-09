@@ -94,12 +94,17 @@ describe("ticketSummary", () => {
     expect(words).toEqual(["2 PDFs", "15 pages", "2.0 MB"]);
   });
 
-  it("says the pages are being measured until every PDF is counted", () => {
-    const words = ticketSummary([
-      row(pdf(probe({ pages: 12 }), "a.pdf")),
-      row(pdf("pending", "b.pdf")),
-    ]);
-    expect(words[1]).toEqual({ text: MEASURING, tone: "faint", pending: true });
+  it("grows only at its end: measuring, then the count, then pages and size", () => {
+    const measuring = { text: MEASURING, tone: "faint", pending: true };
+    // Nothing read yet: one placeholder.
+    expect(ticketSummary([row(null), row(null)])).toEqual([measuring]);
+    // A PDF still being read: the count, and the placeholder after it.
+    expect(
+      ticketSummary([
+        row(pdf(probe({ pages: 12 }), "a.pdf")),
+        row(pdf("pending", "b.pdf")),
+      ]),
+    ).toEqual([{ text: "2 PDFs", tone: "muted" }, measuring]);
   });
 
   it("never totals pages over some of the files", () => {
@@ -116,8 +121,9 @@ describe("ticketSummary", () => {
     expect(ticketSummary([row(jpg), row(jpg)])[0]!.text).toBe("2 images");
     expect(ticketSummary([row(docx)])[0]!.text).toBe("1 DOCX file");
     expect(ticketSummary([row(docx), row(jpg)])[0]!.text).toBe("2 files");
-    // Before the facts module has read a name: still a count.
-    expect(ticketSummary([row(null)])[0]!.text).toBe("1 file");
+    // An unrecognised name: still a count.
+    const odd = quickFacts({ name: "notes.weird", size: 1, type: "" }, "o");
+    expect(ticketSummary([row(odd)])[0]!.text).toBe("1 file");
   });
 
   it("every number it prints is a field of the files", () => {

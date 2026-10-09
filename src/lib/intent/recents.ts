@@ -12,8 +12,9 @@
  * so a module-level single slot would leak between files.
  */
 import { useSyncExternalStore } from "react";
+import { RECENTS_STORAGE_KEY } from "./recents-key";
 
-export const RECENTS_STORAGE_KEY = "pdfxyz.recents.v1";
+export { RECENTS_STORAGE_KEY };
 /** The most a browser remembers; older ones fall off. */
 export const MAX_RECENTS = 8;
 

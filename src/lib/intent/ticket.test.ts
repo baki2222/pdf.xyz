@@ -77,16 +77,16 @@ describe("arrival", () => {
     expect(ticketFiles(s).map((f) => f.name)).toEqual(names);
   });
 
-  it("a sample made in this tab is marked as such", () => {
+  it("the site's sample is marked as such", () => {
     const s = run([
       {
         type: "add",
         via: "pick",
-        files: [{ id: "s", file: file("pdfxyz-sample.pdf"), made: true }],
+        files: [{ id: "s", file: file("pdfxyz-sample.pdf"), sample: true }],
       },
     ]);
-    expect(s.entries[0]!.made).toBe(true);
-    expect(run([add(["a.pdf"])]).entries[0]!.made).toBe(false);
+    expect(s.entries[0]!.sample).toBe(true);
+    expect(run([add(["a.pdf"])]).entries[0]!.sample).toBe(false);
   });
 });
 

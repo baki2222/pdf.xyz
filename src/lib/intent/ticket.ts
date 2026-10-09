@@ -36,8 +36,8 @@ export interface TicketEntry {
   readonly file: File;
   /** What this tab knows of it; null until the facts module has read it. */
   readonly facts: FileFacts | null;
-  /** Built in this tab (the sample PDF), not brought by the visitor. */
-  readonly made: boolean;
+  /** pdf.xyz's sample PDF, not a file the visitor brought. */
+  readonly sample: boolean;
 }
 
 export interface TicketState {
@@ -63,7 +63,7 @@ export type TicketAction =
       readonly files: readonly {
         readonly id: string;
         readonly file: File;
-        readonly made?: boolean;
+        readonly sample?: boolean;
       }[];
       readonly via: TicketVia;
     }
@@ -115,7 +115,7 @@ export function ticketReducer(
         id: f.id,
         file: f.file,
         facts: null,
-        made: f.made === true,
+        sample: f.sample === true,
       }));
       return {
         ...state,

@@ -29,7 +29,6 @@
  * of the user's own file size is information about the document — and never a
  * message, which can echo a filename.
  */
-import { recordCompletion } from "@/lib/intent/recents";
 import type { ToolCapability } from "@/lib/jobs/types";
 import { toolCompletedEvent, toolFailedEvent, track } from "./track";
 
@@ -66,14 +65,21 @@ function toolFor(toolSlug: string | undefined): PageTool | null {
  * panel's mount (the redesign planned that, E.8) because this is the one
  * point every run path is PROVEN to reach — `run-outcome-coverage.test.ts`
  * discovers the paths — while results render through several components.
- * It does not wait for analytics consent: nothing leaves the device.
+ * It does not wait for analytics consent: nothing leaves the device. The
+ * store is fetched when a run finishes, not with the page: a tool page that
+ * never completes a run never loads it.
  */
 export function reportToolCompleted(
   input: { toolSlug?: string; elapsedMs?: number } = {},
 ): void {
   const tool = toolFor(input.toolSlug);
   if (tool === null) return;
-  recordCompletion(tool.toolSlug);
+  void import("@/lib/intent/recents")
+    .then(({ recordCompletion }) => recordCompletion(tool.toolSlug))
+    .catch(() => {
+      // Not remembered: the run still finished, and nothing else depends on
+      // the recents being there.
+    });
   track(
     toolCompletedEvent({
       toolSlug: tool.toolSlug,

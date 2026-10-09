@@ -4,15 +4,26 @@
  * pages, text a reader can select, and a form with two fields — read back
  * through the same probe and ranking the desk uses, so "Fill forms first,
  * for its two fields" is measured, not asserted by whoever built it.
+ *
+ * And the bytes the app ships are EXACTLY what the generator builds today
+ * (`scripts/build-sample-pdf.ts`, pdf-lib through the font chooser): a shipped
+ * blob nobody can rebuild is a claim with nothing behind it.
  */
 import { describe, expect, it } from "vitest";
 import { inspectFormFields } from "@/lib/pdf/forms";
 import { probePdf } from "@/lib/pdf/probe";
 import { extractPdfText } from "@/lib/pdf/text";
+import { buildSamplePdfBytes } from "../../../scripts/build-sample-pdf";
 import { renderEvidence } from "./evidence";
 import { quickFacts, type FileFacts } from "./facts";
 import { rankForFiles } from "./rank";
-import { buildSamplePdf, SAMPLE_FIELDS, SAMPLE_PDF_NAME } from "./sample-pdf";
+import {
+  SAMPLE_FIELDS,
+  SAMPLE_PAGES,
+  SAMPLE_PDF_NAME,
+  samplePdfBytes,
+  samplePdfFile,
+} from "./sample-pdf";
 import { buildToolIndex } from "./tool-index";
 
 const NO_CEILING = { maxBytes: Number.MAX_SAFE_INTEGER };
@@ -23,9 +34,18 @@ const legacy = async () =>
     "getDocument"
   >;
 
-describe("buildSamplePdf", () => {
+describe("the shipped sample", () => {
+  it("is exactly what the generator builds — rerun it if this fails", async () => {
+    const shipped = samplePdfBytes();
+    // Health: a real PDF, not an empty placeholder.
+    expect(shipped.byteLength).toBeGreaterThan(1000);
+    expect(Buffer.from(await buildSamplePdfBytes())).toEqual(
+      Buffer.from(shipped),
+    );
+  });
+
   it("is a named PDF file", async () => {
-    const file = await buildSamplePdf();
+    const file = samplePdfFile();
     expect(file.name).toBe(SAMPLE_PDF_NAME);
     expect(file.type).toBe("application/pdf");
     const head = new TextDecoder().decode(
@@ -35,12 +55,12 @@ describe("buildSamplePdf", () => {
   });
 
   it("measures as three pages of text with two form fields", async () => {
-    const bytes = new Uint8Array(await (await buildSamplePdf()).arrayBuffer());
+    const bytes = samplePdfBytes();
     const probe = await probePdf(bytes, NO_CEILING);
     expect(probe).toMatchObject({
       read: "ok",
       lock: "none",
-      pages: 3,
+      pages: SAMPLE_PAGES,
       formFields: SAMPLE_FIELDS.length,
     });
     expect(probe.sample).toEqual(["text", "text", "text"]);
@@ -52,20 +72,21 @@ describe("buildSamplePdf", () => {
   });
 
   it("its words are selectable text, read back by the text extractor", async () => {
-    const bytes = new Uint8Array(await (await buildSamplePdf()).arrayBuffer());
-    const { pageCount, pages } = await extractPdfText(bytes, legacy);
-    expect(pageCount).toBe(3);
+    const { pageCount, pages } = await extractPdfText(samplePdfBytes(), legacy);
+    expect(pageCount).toBe(SAMPLE_PAGES);
     expect(pages[0]!.text).toContain("A sample document");
     expect(pages[1]!.text).toContain("A second page of text");
   });
 
   it("the desk ranks Fill forms first for it, on its two fields", async () => {
-    const file = await buildSamplePdf();
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    const file = samplePdfFile();
     const facts: FileFacts = {
       ...quickFacts(file, "s"),
       bytes: "PDF",
-      pdf: { state: "checked", probe: await probePdf(bytes, NO_CEILING) },
+      pdf: {
+        state: "checked",
+        probe: await probePdf(samplePdfBytes(), NO_CEILING),
+      },
     };
     const { top } = rankForFiles([facts], buildToolIndex());
     expect(top[0]!.slug).toBe("fill-forms");

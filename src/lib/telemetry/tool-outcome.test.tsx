@@ -218,7 +218,9 @@ describe("a completed run is remembered for the home page's Recent row", () => {
         </>,
       );
     });
-    expect(readRecents().map((r) => r.slug)).toEqual(["rotate-pdf"]);
+    await waitFor(() =>
+      expect(readRecents().map((r) => r.slug)).toEqual(["rotate-pdf"]),
+    );
   });
 
   it("a failure is not, and neither is a run with no tool page", async () => {
@@ -239,6 +241,10 @@ describe("a completed run is remembered for the home page's Recent row", () => {
     await act(async () => {
       render(<Runner task={async () => 1} />);
     });
+    // The store is fetched on completion; give a write that should not
+    // happen the time one that should would take.
+    await import("@/lib/intent/recents");
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(readRecents()).toEqual([]);
   });
 });

@@ -21,6 +21,7 @@ import {
 } from "@/lib/intent/evidence";
 import { isPlainClick, toolHref } from "@/lib/intent/links";
 import { holdOrder, type Suggestion } from "@/lib/intent/rank";
+import { suggestionName } from "@/lib/intent/suggestion-name";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import type { ProcessingMode } from "@/lib/tools/types";
 import { cn } from "@/lib/utils";
@@ -68,26 +69,6 @@ function reading(file: WorkspaceFile): boolean {
   );
 }
 
-/** What a row's link is called: the tool, and what opening it carries. */
-function rowName(row: Row, nameOf: (id: string) => string): string {
-  const { tool, carry, blocked, evidence } = row;
-  if (blocked) {
-    const after = evidence.find((e) => e.kind === "after");
-    return after
-      ? `Open ${tool.name} — it opens these ${renderEvidence(after)}`
-      : `Open ${tool.name}`;
-  }
-  if (carry.ids.length === 0) {
-    return `Open ${tool.name} — ${renderEvidence({
-      kind: "add-there",
-      count: row.opens.length,
-    })}`;
-  }
-  return carry.ids.length === 1
-    ? `Open ${tool.name} with ${nameOf(carry.ids[0]!)}`
-    : `Open ${tool.name} with ${carry.ids.length} files`;
-}
-
 function SuggestionRow({
   row,
   rank,
@@ -132,7 +113,7 @@ function SuggestionRow({
     <Link
       href={toolHref(row.slug)}
       onClick={onClick}
-      aria-label={rowName(row, nameOf)}
+      aria-label={suggestionName(row, nameOf)}
       aria-describedby={
         facts.length > 0
           ? `${describedBy}-facts ${describedBy}-where`

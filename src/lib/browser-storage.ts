@@ -17,7 +17,7 @@
 import { CONSENT_STORAGE_KEY } from "@/lib/analytics/consent-key";
 import { HANDOFF_DB_NAME } from "@/lib/handoff/db-name";
 import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
-import { RECENTS_STORAGE_KEY } from "@/lib/intent/recents";
+import { RECENTS_STORAGE_KEY } from "@/lib/intent/recents-key";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace/storage";
