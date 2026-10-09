@@ -304,10 +304,30 @@ describe("client bundle budget", () => {
   // page, which needs the catalogue, is the positive control.
   it("ships the tool catalogue only on pages that need it", () => {
     if (!built) return;
-    const firstLoad = (html: string) =>
-      chunkFiles(NEXT_DIR, html)
-        .map((file) => readFileSync(file, "utf8"))
-        .join("\n");
+    // Each page's first load is read ONCE, and each chunk file once across
+    // all pages (most are shared). Until 2026-10-09 `carrying()` called
+    // firstLoad() inside the marker filter — ~50 markers x ~89 pages, every
+    // chunk re-read per marker, twice over for the stale check — and the test
+    // ran 8.7-17.5 s against vitest's 5 s timeout. Same set, same reads, done
+    // once.
+    const chunkText = new Map<string, string>();
+    const readChunk = (file: string) => {
+      let text = chunkText.get(file);
+      if (text === undefined) {
+        text = readFileSync(file, "utf8");
+        chunkText.set(file, text);
+      }
+      return text;
+    };
+    const pageText = new Map<string, string>();
+    const firstLoad = (html: string) => {
+      let text = pageText.get(html);
+      if (text === undefined) {
+        text = chunkFiles(NEXT_DIR, html).map(readChunk).join("\n");
+        pageText.set(html, text);
+      }
+      return text;
+    };
     const control = firstLoad("tools/rotate-pdf.html");
     const markers = tools
       .map((t) => t.tagline)
@@ -338,8 +358,10 @@ describe("client bundle budget", () => {
     // is a plausibility bound, not a measurement.
     expect(pages.length).toBeGreaterThanOrEqual(60);
     expect(pages.length).toBeLessThanOrEqual(200);
-    const carrying = (html: string) =>
-      markers.filter((m) => firstLoad(html).includes(m)).length;
+    const carrying = (html: string) => {
+      const text = firstLoad(html);
+      return markers.filter((m) => text.includes(m)).length;
+    };
     const leaks = pages
       .filter((html) => !isToolPage(html) && !(html in NEEDS_CATALOGUE))
       .map((html) => ({ html, taglines: carrying(html) }))
