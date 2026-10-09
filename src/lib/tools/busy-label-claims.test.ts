@@ -34,6 +34,7 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { tools } from "./catalog";
 import type { Tool } from "./types";
@@ -315,5 +316,118 @@ describe("a page that says the browser stops waiting names Keep waiting", () => 
     expect([...STILL_RUNNING_STALE].filter((slug) => !found.has(slug))).toEqual(
       [],
     );
+  });
+});
+
+/*
+ * Two more rules over the same labels, added 2026-10-09.
+ *
+ * 1. A CONVERTER'S LABEL SAYS WHICH WAY. Word, Excel and PowerPoint to PDF
+ *    showed "Converting PDF…" while they worked — which reads as converting a
+ *    PDF, the opposite of the job. A working label that says "Converting"
+ *    names its direction ("Converting to PDF…").
+ *
+ * 2. A PAGE QUOTES ONLY WHAT THE INTERFACE CAN SHOW. The pages quote button
+ *    labels in quotation marks ("Uploading your file…"); 44 such quotes served
+ *    on 2026-10-09, every one of them text some component renders. Rename a
+ *    label and its quotes go stale in silence: the rule above looks only for
+ *    CURRENT labels, so a quote of a retired one is invisible to it. This
+ *    reads every quoted phrase ending in "…" from what each page serves and
+ *    requires the interface to contain it — as a string, as JSX text, or as a
+ *    template whose `${…}` parts match it.
+ */
+const SEP = String.fromCharCode(0);
+
+/** Every piece of text the interface can render: literals, JSX text, templates. */
+function interfaceText(): string[] {
+  const out: string[] = [];
+  const content = path.join("src", "lib", "tools", "content");
+  for (const root of ["src/components", "src/lib", "src/app"]) {
+    for (const file of sourceFiles(root)) {
+      if (path.normalize(file).startsWith(content)) continue;
+      const sf = ts.createSourceFile(
+        file,
+        readFileSync(path.join(ROOT, file), "utf8"),
+        ts.ScriptTarget.Latest,
+        false,
+        file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      );
+      const visit = (node: ts.Node) => {
+        if (
+          ts.isStringLiteral(node) ||
+          ts.isNoSubstitutionTemplateLiteral(node)
+        )
+          out.push(node.text);
+        else if (ts.isTemplateExpression(node))
+          out.push(
+            [
+              node.head.text,
+              ...node.templateSpans.map((s) => s.literal.text),
+            ].join(SEP),
+          );
+        else if (ts.isJsxText(node)) out.push(node.text);
+        ts.forEachChild(node, visit);
+      };
+      visit(sf);
+    }
+  }
+  return out;
+}
+
+/** Can this text show the quoted phrase? */
+function shows(texts: readonly string[], quoted: string): boolean {
+  return texts.some((t) => {
+    if (!t.includes(SEP)) return t.includes(quoted);
+    const parts = t.split(SEP);
+    if (parts.some((part) => part.includes(quoted))) return true;
+    // A template that is nearly all `${…}` (`${label}…`) would match ANY
+    // quote ending in "…" and blind the rule; its literal words must carry
+    // the match, so it needs a few letters of its own.
+    if (parts.join("").replace(/[^A-Za-z]/g, "").length < 4) return false;
+    return new RegExp(`^${parts.map(escape).join(".+")}$`).test(quoted);
+  });
+}
+
+/** Every phrase a served field puts in quotation marks and ends with "…". */
+function quotedLabels(field: string): string[] {
+  return [...field.matchAll(/["“]([^"”]{2,60}…)["”]/g)].map((m) => m[1]!);
+}
+
+describe("a converter's busy label says which way it converts", () => {
+  it("every working label that says 'Converting' names what it converts to", () => {
+    const converting = WORKING.map((l) => l.source).filter((s) =>
+      /^Converting\b/.test(s),
+    );
+    // Health check: the Office converters' label is in the discovered set.
+    expect(converting.length).toBeGreaterThanOrEqual(1);
+    expect(converting.filter((s) => !/\bto\b/.test(s))).toEqual([]);
+  });
+});
+
+describe("a page quotes only labels the interface can show", () => {
+  const texts = interfaceText();
+
+  it("health check: the interface text and the quoted labels are both found", () => {
+    expect(texts.length).toBeGreaterThan(5_000);
+    const quoted = tools.flatMap((t) => servedFields(t).flatMap(quotedLabels));
+    // 44 on 2026-10-09; a reader that lost the quotes would find none.
+    expect(quoted.length).toBeGreaterThanOrEqual(30);
+  });
+
+  it("positive control: a retired label is not shown, a current one is", () => {
+    expect(shows(texts, QUEUED)).toBe(true);
+    expect(shows(texts, "Converting the fax machine…")).toBe(false);
+    // A template's `${…}` parts match a quote that filled them in.
+    expect(shows([`Exporting ${SEP}…`], "Exporting PPTX…")).toBe(true);
+  });
+
+  it("every quoted label a page serves is text the interface renders", () => {
+    const stale = tools.flatMap((tool) =>
+      servedFields(tool)
+        .flatMap(quotedLabels)
+        .filter((q) => !shows(texts, q))
+        .map((q) => `${tool.slug}: "${q}"`),
+    );
+    expect([...new Set(stale)]).toEqual([]);
   });
 });
