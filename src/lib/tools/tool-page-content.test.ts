@@ -90,6 +90,7 @@ import {
   TOKENS,
 } from "@/components/tools/runner/header-footer-runner";
 import { HonestScopeNote } from "@/components/tools/runner/edit-runner";
+import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -310,11 +311,10 @@ function runnerFileForKind(kind: string): string {
     `case\\s+"${kind}":[\\s\\S]{0,200}?<([A-Z][A-Za-z]*)`,
   ).exec(dispatch)?.[1];
   if (!component) throw new Error(`tool-runner has no case for "${kind}"`);
-  const from = new RegExp(
-    `import\\s+\\{[^}]*\\b${component}\\b[^}]*\\}\\s+from\\s+"\\./([^"]+)"`,
-  ).exec(dispatch)?.[1];
-  if (!from) throw new Error(`no import for ${component}`);
-  return `${RUNNER_DIR}/${from}.tsx`;
+  // Through the dispatcher's own bindings — a static import, or the
+  // `next/dynamic` loader every runner has been since 2026-10-09 — to the
+  // module that defines it. (An import regex here went blind to the loaders.)
+  return runnerModuleOf(component);
 }
 
 /**

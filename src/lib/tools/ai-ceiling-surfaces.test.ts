@@ -125,6 +125,7 @@ import {
   withoutComments,
 } from "./copy-surface";
 import type { Tool } from "./types";
+import { specifierOf, workerPanelArms } from "@/tests/tool-panel-modules";
 
 const ROOT = process.cwd();
 const read = (file: string) => readFileSync(file, "utf8");
@@ -527,60 +528,36 @@ const CEILING_NAMES: readonly string[] = [
  *  Set 3 — each tool's panel, from the page dispatch + its import table.
  * ------------------------------------------------------------------ */
 
-const PAGE = path.join(ROOT, "src", "app", "tools", "[slug]", "page.tsx");
-
 /**
  * slug → panel source file, read off the REAL dispatch: the chained
  * `tool.slug === "..."` ternaries in the page template, resolved through the
- * page's own import statements. A typed slug→panel table here would be a list,
- * and a list cannot see the panel it does not name.
+ * page's own bindings to the defining module. A typed slug→panel table here
+ * would be a list, and a list cannot see the panel it does not name.
  */
-/** slug → the panel's module specifier and exported component, as the page imports it. */
+/** slug → the module that defines the slug's panel, and its export there. */
 const panelComponents = new Map<
   string,
   { specifier: string; component: string }
 >();
 
+/**
+ * Read by the shared AST reader (`@/tests/tool-panel-modules`): each
+ * `tool.slug === "…"` arm's panel, followed through the page's bindings to the
+ * module that DEFINES it. Since 2026-10-09 the page imports its panels from
+ * `@/components/tools/worker-panels`, where each is a `next/dynamic` loader;
+ * the import-table walk this replaced resolved every slug to that file of
+ * loaders, read none of the panels' copy, and rendered empty loaders.
+ */
 function panelsFromDispatch(): Map<string, string> {
-  const source = withoutComments(read(PAGE));
-  const imports = new Map<string, string>();
-  for (const match of source.matchAll(
-    /import\s*\{([^}]+)\}\s*from\s*"([^"]+)"/g,
-  )) {
-    for (const name of match[1]!.split(",")) {
-      imports.set(name.trim(), match[2]!);
-    }
-  }
   const bySlug = new Map<string, string>();
-  let pending: string[] = [];
-  for (const token of source.matchAll(
-    /tool\.slug === "([\w-]+)"|<([A-Z][A-Za-z0-9]*)/g,
-  )) {
-    if (token[1]) {
-      pending.push(token[1]);
-      continue;
-    }
-    if (pending.length === 0) continue;
-    // `moduleSpecifier`, not `module`: eslint's no-assign-module-variable
-    // forbids the shorter name. Rename only — the dispatch walk is unchanged.
-    const moduleSpecifier = imports.get(token[2]!);
-    // The first component in a slug branch that the page imports from the
-    // tools components tree is that branch's panel (ErrorBoundary and shared
-    // UI live elsewhere).
-    if (!moduleSpecifier?.startsWith("@/components/tools/")) continue;
-    const file = path.join(
-      ROOT,
-      "src",
-      moduleSpecifier.replace(/^@\//, "").replace(/\//g, path.sep) + ".tsx",
-    );
-    for (const slug of pending) {
-      bySlug.set(slug, file);
+  for (const arm of workerPanelArms()) {
+    for (const slug of arm.keys) {
+      bySlug.set(slug, arm.resolved.file);
       panelComponents.set(slug, {
-        specifier: moduleSpecifier,
-        component: token[2]!,
+        specifier: specifierOf(arm.resolved.file),
+        component: arm.resolved.name,
       });
     }
-    pending = [];
   }
   return bySlug;
 }

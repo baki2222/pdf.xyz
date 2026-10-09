@@ -16,6 +16,7 @@ import {
   readDocumentStructure,
 } from "@/tests/fixtures-structured-pdf";
 import { ToolRunner } from "./tool-runner";
+import { runnerMounted } from "@/tests/runner-mounted";
 
 /**
  * The rotate tool, driven the way a visitor drives it, with the verdict read
@@ -96,6 +97,7 @@ async function rotateThroughTheUi(bytes: Uint8Array): Promise<Uint8Array> {
       <ToolRunner kind={kind!} slug={SLUG} />
     </Router>,
   );
+  await runnerMounted(container);
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input, "the dropzone file input").not.toBeNull();
   const file = new File([bytes.slice()], "report.pdf", {

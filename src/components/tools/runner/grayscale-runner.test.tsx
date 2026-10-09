@@ -14,6 +14,7 @@ import { PDFDocument, PDFName, PDFRawStream, rgb } from "pdf-lib";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { grayscaleTitle } from "@/lib/pdf/grayscale";
 import { ToolRunner } from "./tool-runner";
+import { runnerMounted } from "@/tests/runner-mounted";
 
 /**
  * The Grayscale PDF tool, driven the way a visitor drives it, with the Title
@@ -207,6 +208,7 @@ async function convertThroughTheUi(
       <ToolRunner kind={kind!} slug={SLUG} />
     </Router>,
   );
+  await runnerMounted(container);
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input, "the dropzone file input").not.toBeNull();
   const file = new File([bytes.slice()], fileName, {

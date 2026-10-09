@@ -88,6 +88,7 @@ import {
   renderToolPages,
   type RenderedToolPage,
 } from "@/tests/rendered-tool-pages";
+import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -127,11 +128,10 @@ function runnerSource(slug: string): string {
   ).exec(dispatch);
   if (!arm) throw new Error(`no dispatcher arm renders kind "${kind}"`);
   const component = arm[1]!;
-  const imp = new RegExp(
-    `import\\s+\\{[^}]*\\b${component}\\b[^}]*\\}\\s+from\\s+"\\./([^"]+)"`,
-  ).exec(dispatch);
-  if (!imp) throw new Error(`no import resolves ${component}`);
-  const main = read(`${RUNNER_DIR}/${imp[1]}.tsx`);
+  // Through the dispatcher's own bindings — a static import, or the
+  // `next/dynamic` loader every runner has been since 2026-10-09 — to the
+  // module that defines it. Throws when it cannot.
+  const main = read(runnerModuleOf(component));
   const nested = [
     ...main.matchAll(/import\s+\{[^}]*\}\s+from\s+"\.\/([^"]+)"/g),
   ].flatMap((m) => {

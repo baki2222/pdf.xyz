@@ -47,6 +47,7 @@ import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { getRelatedTools, getToolBySlug, tools } from "./index";
 import { withoutComments } from "./copy-surface";
 import type { Tool } from "./types";
+import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const ROOT = process.cwd();
 const RUNNER_DIR = "src/components/tools/runner";
@@ -118,22 +119,16 @@ function runnerModules(): Map<string, string> {
     if (m[1] && m[2] && !kindToComponent.has(m[1]))
       kindToComponent.set(m[1], m[2]);
   }
-  const componentToFile = new Map<string, string>();
-  for (const m of dispatch.matchAll(
-    /import\s+(type\s+)?\{([^}]+)\}\s+from\s+"(\.\/[^"]+)"/g,
-  )) {
-    if (m[1]) continue;
-    for (const name of (m[2] ?? "").split(",").map((n) => n.trim())) {
-      if (/^[A-Z]/.test(name))
-        componentToFile.set(name, `${RUNNER_DIR}/${(m[3] ?? "").slice(2)}.tsx`);
-    }
-  }
+  // component → module, through the dispatcher's own bindings: a static
+  // import, or the `next/dynamic` loader every runner has been since
+  // 2026-10-09. An import-statement table here went blind to the loaders and
+  // the walk resolved 0 of 30 (the health check below caught it); this throws
+  // on a component it cannot follow instead of dropping it.
   const out = new Map<string, string>();
   for (const slug of supportedToolSlugs) {
     const kind = getRunnerKind(slug);
     const component = kind ? kindToComponent.get(kind) : undefined;
-    const file = component ? componentToFile.get(component) : undefined;
-    if (file) out.set(slug, file);
+    if (component) out.set(slug, runnerModuleOf(component));
   }
   return out;
 }

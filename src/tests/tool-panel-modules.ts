@@ -394,6 +394,26 @@ export function runnerArms(): DispatchArm[] {
   return arms;
 }
 
+/**
+ * The module a component the runner dispatcher mounts is defined in,
+ * repo-relative (`src/components/tools/runner/merge-runner.tsx`) — followed
+ * through the dispatcher's own bindings, static or `next/dynamic`. For the
+ * guards that read a runner's SOURCE: what the dispatcher renders is a loader,
+ * and what the reader gets is the module it loads.
+ */
+export function runnerModuleOf(component: string): string {
+  return rel(resolveComponent(runnerDispatcher().file, component).file);
+}
+
+/** A module file as the `@/…` specifier a test can `import()`. */
+export function specifierOf(file: string): string {
+  return `@/${path
+    .relative(SRC, file)
+    .split(path.sep)
+    .join("/")
+    .replace(/\.tsx?$/, "")}`;
+}
+
 /** `tool.slug === "x"` — the literal, or null. */
 function slugComparison(n: TS.Node): string | null {
   if (

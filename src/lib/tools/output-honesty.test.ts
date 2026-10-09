@@ -39,6 +39,7 @@ import { modeUploadsFiles } from "./processing-split";
 import { withoutComments } from "./copy-surface";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { REQUEST_PACKAGE_FILES } from "@/lib/jobs/request-signatures";
+import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 /**
  * A call that hands the user an archive in the browser: `zipFiles(` itself, or
@@ -198,19 +199,16 @@ describe("a tool's advertised outputs match what its engine writes", () => {
         kindToComponent.set(kind, component);
     }
 
-    // component name → module path, from that file's own value imports.
-    const componentToFile = new Map<string, string>();
-    for (const m of dispatch.matchAll(
-      /import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+"(\.\/[^"]+)"/g,
-    )) {
-      if (/import\s+type/.test(m[0])) continue;
-      const named = m[1] ?? "";
-      const from = m[2] ?? "";
-      for (const name of named.split(",").map((n) => n.trim())) {
-        if (/^[A-Z]/.test(name))
-          componentToFile.set(name, `${RUNNER_DIR}/${from.slice(2)}.tsx`);
-      }
-    }
+    // component name → module path, through that file's own bindings: a
+    // static value import, or the `next/dynamic` loader every runner has been
+    // since 2026-10-09 (an import-statement table went blind to the loaders,
+    // and "no runner modules resolved" below caught it).
+    const componentToFile = new Map<string, string>(
+      [...new Set(kindToComponent.values())].map((component) => [
+        component,
+        runnerModuleOf(component),
+      ]),
+    );
 
     const callsZip = (rel: string, depth: number): boolean => {
       let source: string;
