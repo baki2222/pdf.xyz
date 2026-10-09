@@ -28,6 +28,17 @@
  * must warn that a value that is not null may still be one of several. Its
  * sentences are a second corpus below, each caught.
  *
+ * THAT GUARD READ "different values" ANYWHERE IN THE SENTENCE (re-review,
+ * 2026-10-09). The warning it asked for — "a value that is not null may
+ * still be one of several different values" — sits in the same sentence as
+ * the reasons on the page, so it licensed any reason clause beside it: the
+ * intro rewritten to "…or when it matches more than once; …", the FAQ to
+ * "…or when the same value is printed more than once; …", and the second
+ * reason dropped altogether all passed every check here. A clause
+ * that ties null to "not found", or to "more than one" or "several", must now
+ * say "different values" ITSELF; the three mutations are positive controls
+ * below, made to the page as served.
+ *
  * THE GUARD. Its subjects are DISCOVERED, at the point of consumption:
  *  - the package a user downloads — every file in it — built by the real
  *    engine from a reply with a null, in schema and prompt mode, with a cut
@@ -36,7 +47,7 @@
  *    a fresh process (`@/tests/rendered-tool-pages`);
  *  - the panel the page dispatches for `ai-extract`, found by the page's own
  *    dispatch (`@/tests/worker-panel-dispatch`), read without comments.
- * A sentence that says null means ABSENT ({@link ABSENCE}) must also name the
+ * A clause that says null means ABSENT ({@link ABSENCE}) must also name the
  * other reason ({@link AMBIGUITY}). Each surface must contribute at least one
  * such sentence — a surface that stopped explaining null would otherwise pass
  * by saying nothing (`[] ⊆ X`).
@@ -148,9 +159,15 @@ const FIRST_REWORDING_CERTAIN: readonly string[] = [
 ];
 
 const saysAbsent = (sentence: string) => ABSENCE.some((p) => p.test(sentence));
-/** A sentence that says null means absent and stops there. */
+/**
+ * A sentence that says null means absent and stops there: some CLAUSE of it
+ * says "not found" without "different values" in that clause. Read per
+ * sentence until 2026-10-09 (re-review), the page's own warning clause — "a
+ * value that is not null may still be one of several different values" —
+ * licensed any reason clause beside it, "not found" alone included.
+ */
 const falseMeaning = (sentence: string) =>
-  saysAbsent(sentence) && !AMBIGUITY.test(sentence);
+  clauses(sentence).some((c) => saysAbsent(c) && !AMBIGUITY.test(c));
 /**
  * A sentence that says several values make a null, as a rule: it speaks of
  * more than one value, and some clause of it says null comes back with no
@@ -160,11 +177,26 @@ const falseMeaning = (sentence: string) =>
 const certainNull = (sentence: string) =>
   (PLURAL.test(sentence) || AMBIGUITY.test(sentence)) &&
   clauses(sentence).some((c) => NULL_PREDICATE.test(c) && !HEDGE.test(c));
-/** A sentence that ties a null to "more than one" without saying the values differ. */
+/**
+ * A sentence about null with a clause that says "more than one" or "several"
+ * without saying, in that clause, that the values differ. The null may sit
+ * in another clause — "a field may hold several values, so it can come back
+ * null" — but the "different" must sit with the plural: read per sentence,
+ * "…or when it matches more than once; a value that is not null may still be
+ * one of several different values" passed on the second clause's words
+ * (re-review, 2026-10-09).
+ */
 const repeatsAsReason = (sentence: string) =>
   /\bnull\b/i.test(sentence) &&
-  PLURAL.test(sentence) &&
-  !AMBIGUITY.test(sentence);
+  clauses(sentence).some((c) => PLURAL.test(c) && !AMBIGUITY.test(c));
+
+/** Refused by any check above. */
+const flagged = (sentence: string) =>
+  falseMeaning(sentence) || certainNull(sentence) || repeatsAsReason(sentence);
+
+/** The live page's second reason, as its intro and its FAQ word it. */
+const SECOND_REASON =
+  ", or when the text holds several different values for it";
 
 /** Sentences, as a reader meets them: by line, by table cell, by full stop. */
 function sentences(text: string): string[] {
@@ -280,7 +312,9 @@ beforeAll(async () => {
         { name: "q1", type: "number" },
       ],
     },
-    // One region of two is a guess, so null — the instruction followed.
+    // Two regions on the page and one asked for: a model MAY answer null
+    // here, though the prompt asks for null only when a value is absent —
+    // what the package says about that null is what is checked.
     { region: null, q1: 1200 },
   );
   const promptPackage = await packageText(
@@ -442,6 +476,66 @@ describe("every surface says what a null means truly", () => {
         falseMeaning,
       ),
     ).toEqual(["_(not found)_"]);
+  });
+
+  it("no live sentence, on any surface, is refused by any check", () => {
+    // Health: each surface is read whole — 66 to 168 sentences each on
+    // 2026-10-09 — so a reader that lost most of one cannot pass vacuously.
+    for (const [name, list] of Object.entries(surfaces))
+      expect(list.length, name).toBeGreaterThan(40);
+    expect(
+      Object.entries(surfaces).flatMap(([name, list]) =>
+        list.filter(flagged).map((s) => `${name}: ${s}`),
+      ),
+    ).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: a reason clause that is not 'different values' is refused, though the warning clause beside it says 'different values'", () => {
+    // The re-review's mutations (2026-10-09), made to the page AS SERVED and
+    // read back through its own splitter. All three stayed green while
+    // AMBIGUITY was read anywhere in the sentence: the warning clause ("a
+    // value that is not null may still be one of several different values")
+    // licensed whatever reason clause sat beside it.
+    const intro = sentences(page.text).filter(
+      (s) => s.includes(SECOND_REASON) && /\bask for a list\b/.test(s),
+    );
+    const faq = page.faq.filter((q) =>
+      sentences(q.answer).some(
+        (s) => s.includes(SECOND_REASON) && !/\bask for a list\b/.test(s),
+      ),
+    );
+    // Health: each mutation starts from ONE live sentence.
+    expect(intro, "the intro's null sentence").toHaveLength(1);
+    expect(faq, "the FAQ answer with the null sentence").toHaveLength(1);
+    const mutations = [
+      {
+        name: "intro: 'or when it matches more than once'",
+        text: page.text,
+        from: intro[0]!,
+        to: ", or when it matches more than once",
+      },
+      {
+        name: "FAQ: 'or when the same value is printed more than once'",
+        text: faq[0]!.answer,
+        from: sentences(faq[0]!.answer).find((s) => s.includes(SECOND_REASON))!,
+        to: ", or when the same value is printed more than once",
+      },
+      {
+        name: "intro: the second reason dropped",
+        text: page.text,
+        from: intro[0]!,
+        to: "",
+      },
+    ];
+    for (const { name, text, from, to } of mutations) {
+      const mutated = from.replace(SECOND_REASON, to);
+      const served = text.replace(from, mutated);
+      // Health: the mutation landed, in the sentence and in the served text.
+      expect(mutated, name).not.toBe(from);
+      expect(served, name).not.toBe(text);
+      expect(sentences(text).filter(flagged), `${name}: before`).toEqual([]);
+      expect(sentences(served).filter(flagged), name).toEqual([mutated]);
+    }
   });
 
   it("POSITIVE CONTROL: the page sentences the review named are refused as the page splits them", () => {

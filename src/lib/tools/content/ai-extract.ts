@@ -144,7 +144,7 @@ const content: ToolContent = {
     },
     {
       title: "Check whether a clause is there at all",
-      body: "A boolean field such as auto_renewal puts a yes-or-no question to the text. Because the model is told to answer null rather than guess, a null means the pages it saw did not settle it: the answer may not be there, or the text may give different answers. Either is weaker than a confirmed no.",
+      body: "A boolean field such as auto_renewal puts a yes-or-no question to the text. The model is told to answer null rather than guess, so a null can mean the text it read does not answer the question, or that the text gives different answers. Neither a null nor a false is a confirmed no: each is the model's reading of the pages it saw, so check the contract itself before you rely on either.",
     },
     {
       title: "Collect a list from a long report",

@@ -339,9 +339,10 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
         <div className="flex flex-col gap-2">
           <span className="text-muted text-xs">Fields to extract</span>
           <p className="text-muted text-xs">
-            The model is told to answer null rather than guess, so a field whose
-            text holds several different values can come back null, or as just
-            one of them. Give it the array type to get every value.
+            The model is told to answer null rather than guess. Where the text
+            holds several different values for a field, that field can come back
+            null, or as just one of them; give it the array type to get every
+            value.
           </p>
           {fields.map((field, i) => {
             const earlier = duplicates.get(i);

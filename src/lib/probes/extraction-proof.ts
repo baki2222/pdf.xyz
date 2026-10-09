@@ -16,7 +16,11 @@
  * value is null". The proof asked for ONE `region` (string) and ONE `q1`
  * (number) from a table of FOUR regions, and the engine tells the model "When
  * a requested value is not present in the text, use null — never a guess".
- * Four candidates is not one value, so null was the instruction followed. The
+ * Four candidates is not one value. The prompt asks for null only when a value
+ * is not present — it does not say what to do with several — and "never a
+ * guess" leaves a model free to answer null rather than pick one, which
+ * production's did; another may pick. (Until 2026-10-09 this said null was
+ * "the instruction followed"; nothing instructs it.) The
  * request had no single right answer, and the verifier — which accepted any one
  * row — was written against a reply its author typed, never one a model gave:
  * the only earlier "pass" (2026-09-17) predates any check of the values.
@@ -24,9 +28,10 @@
  * Measured, not assumed: the composed chain (route → queue → executor →
  * processor → engine) hands the model every cell of the table, for a job that
  * declares its characters and for one that does not
- * (`workers/ai-extract-read.chain.test.ts`); and a model that follows the
- * engine's prompt to the letter, shown that whole table, answers the old
- * request with exactly the production failure (`./extraction-proof.test.ts`).
+ * (`workers/ai-extract-read.chain.test.ts`); and a stand-in model that reads
+ * "never a guess" as forbidding a pick among several, shown that whole table,
+ * answers the old request with exactly the production failure
+ * (`./extraction-proof.test.ts`).
  *
  * So the proof now asks for each column AS A LIST — a request with one right
  * answer — and accepts that whole answer and nothing less. That is also the

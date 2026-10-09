@@ -14,8 +14,11 @@
  * null". The composed chain handed the model the whole table, declared and
  * undeclared (`workers/ai-extract-read.chain.test.ts`); what the proof asked of
  * it was ONE `region` (string) and ONE `q1` (number) from a table of FOUR
- * regions, under an engine instruction to answer null rather than guess. Null
- * is that instruction followed. Every test here fed the engine a reply its
+ * regions, under an engine prompt that asks for null when a value is not
+ * present, "never a guess". It says nothing of several values; a model may
+ * answer null rather than pick one, and production's did — the prompt allows
+ * that null, it does not instruct it (until 2026-10-09 this said "Null is
+ * that instruction followed"). Every test here fed the engine a reply its
  * author typed — `{"region":"North","q1":1200}` — so the suite agreed with the
  * request instead of asking whether the text supported it, and the verifier
  * accepted any ONE row, so a document cut after its first row would have
@@ -99,7 +102,7 @@ const WHOLE = Object.fromEntries(
 );
 
 describe("the proof's request", () => {
-  it("health: the table has several data rows, so ONE value per field is a guess", () => {
+  it("health: the table has several data rows, so ONE value per field has several candidates", () => {
     expect(DATA_ROWS).toBeGreaterThan(1);
     for (const header of PROOF_EXTRACTION_COLUMNS) {
       expect(proofColumn(header)).toHaveLength(DATA_ROWS);
@@ -108,7 +111,8 @@ describe("the proof's request", () => {
 
   it("asks for each column as a list, because the table holds a value per row", () => {
     // The relation, not a string: a field over a column of N>1 values has N
-    // candidates, and the engine instructs "use null — never a guess".
+    // candidates, and the prompt's "never a guess" lets a model answer null
+    // rather than pick one — or pick one. Neither is the whole column.
     expect(PROOF_EXTRACTION_SCHEMA).toHaveLength(
       PROOF_EXTRACTION_COLUMNS.length,
     );

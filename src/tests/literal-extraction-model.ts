@@ -10,13 +10,17 @@
  * (`workers/ai-extract-read.chain.test.ts`). The proof asked for ONE `region`
  * and ONE `q1` from a table of four regions, and the engine tells the model
  * "When a requested value is not present in the text, use null — never a
- * guess". Four candidates is not one value: any single answer is a guess, and
- * null is the instruction followed. Every fake provider before this one
+ * guess". Four candidates is not one value. The prompt asks for null only
+ * when a value is not present; it says nothing of several, so answering null
+ * rather than picking one is a READING of "never a guess" — the one
+ * production's model took — not an instruction followed. (Until 2026-10-09
+ * this said it was.) Every fake provider before this one
  * answered with whatever reply its test author typed — `{"region":"North",
  * "q1":1200}` — so the tests agreed with the request instead of asking whether
  * it had an answer.
  *
- * This model answers what the prompt asks of the text it was given:
+ * This model answers what the prompt asks of the text it was given, taking
+ * that reading where the prompt is silent:
  *
  *  - it reads the requested fields from the system prompt's own field lines
  *    (`- "name" (type) — description`), so it asks what the engine asked;
@@ -26,12 +30,14 @@
  *    case; its values are the rows below the header with the header's width;
  *  - an `array` field is answered with every value in the column, in order;
  *    any other field with the column's value only when the column holds
- *    exactly ONE — several candidates for one value is a guess, so null;
+ *    exactly ONE — given several, it takes picking one for a guess and
+ *    answers null, as production's model did (a model may pick instead);
  *  - a field with no matching column is null ("not present in the text").
  *
- * It is a model of the INSTRUCTION, not of any vendor's model. It cannot say
- * what a real model returns; it can say whether a request has one right answer
- * that the text supports, which is the property a proof's request needs.
+ * It is a model of the INSTRUCTION as read above, not of any vendor's model.
+ * It cannot say what a real model returns; it can say whether a request has
+ * one right answer that the text supports, which is the property a proof's
+ * request needs.
  */
 import type {
   AiCompletionRequest,
@@ -117,7 +123,8 @@ export function literalExtraction(
       reply[field.name] = typed(values);
     } else {
       // "When a requested value is not present in the text, use null — never
-      // a guess." One value asked of a column holding several is a guess.
+      // a guess." The prompt is silent on several values; this model reads a
+      // pick among them as a guess, and answers null.
       reply[field.name] = values.length === 1 ? typed(values)[0] : null;
     }
   }
