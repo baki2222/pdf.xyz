@@ -35,6 +35,7 @@ const BEAT: WorkerHeartbeat = {
     chunkedTranslate: true,
     deliveryCap: true,
     aiReadCap: true,
+    pptxPresentationChain: true,
   },
   at: 1_700_000_000_000,
 };

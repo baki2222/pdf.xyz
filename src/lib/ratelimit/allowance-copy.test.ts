@@ -61,6 +61,7 @@ import { capabilityForMode } from "@/lib/jobs/capabilities";
 import { readWorkerError } from "@/lib/workers/read-error";
 import { rateLimitHeaders, rateLimitErrorResult } from "./response";
 import { AI_ALLOWANCE_ACTION } from "@/lib/jobs/ai-allowance";
+import { PERSONAL_CONDUCT_CLAIMS } from "@/tests/identity-claims";
 import type { RateLimitDecision } from "./types";
 
 /**
@@ -127,34 +128,15 @@ const COPY: { where: string; text: string }[] = [
 ];
 
 /**
- * Claims the limiter cannot support, as SHAPES.
+ * Claims the limiter cannot support, as SHAPES — `PERSONAL_CONDUCT_CLAIMS`,
+ * imported from `src/tests/identity-claims.ts` since 2026-10-09 so the AI
+ * ceiling message's test and the copy-reach check run the same list (one
+ * definition, no second copy).
  *
  * Each is a form of "this counter knows who you are". It does not: it knows an
  * address. Every entry is exercised by {@link SHIPPED_CLAIMS} below, so none of
  * them is decoration.
  */
-const PERSONAL_CONDUCT_CLAIMS: { name: string; pattern: RegExp }[] = [
-  {
-    name: "an accounting unit smaller than the address",
-    pattern: /\bper\s+(?:device|user|person|visitor|browser)\b/i,
-  },
-  {
-    // The intervening words are bounded by COUNT and by PUNCTUATION: `[A-Za-z']+`
-    // cannot cross a comma or a full stop, so the subject stays inside one
-    // clause. The bound started at two and the corpus below immediately failed
-    // on "You may have already used them" — which is the corpus doing its job,
-    // and the reason a ban list without one is a list of words someone thought of.
-    name: "second person plus a spend verb — a claim about the reader's conduct",
-    pattern:
-      /\byou\b(?:'ve|\s+have|\s+had)?(?:\s+[A-Za-z']+){0,4}\s+(?:used|spent|consumed|exhausted|reached|hit|run)\b/i,
-  },
-  {
-    name: "a possessive over the allowance itself — whose runs these are",
-    pattern:
-      /\byour\s+(?:own\s+)?(?:\d[\d,]*\s+)?(?:free\s+)?(?:daily\s+)?(?:ai\s+)?(?:runs?|allowance)\b/i,
-  },
-];
-
 const offendingPatterns = (text: string) =>
   PERSONAL_CONDUCT_CLAIMS.filter(({ pattern }) => pattern.test(text));
 

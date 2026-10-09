@@ -299,18 +299,31 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Standard reduced-motion reset: neutralize animations/transitions and any
-     movement while preserving final states, so nothing jumps or parallaxes. */
+  /* Reduced-motion reset: every animation and transition lands on its end
+     state at once. Zeroing DURATIONS alone was not that (it was, until
+     2026-10-09): a staggered entrance still held its `from` frame — invisible
+     text — for the length of its delay; a scroll-driven animation still
+     followed the scrollbar; and view transitions animate pseudo-elements
+     that `*` never matches. `src/app/motion-contract.test.ts` requires every
+     line below. */
   *,
   *::before,
   *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    animation-timeline: auto !important;
     transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
   html {
     scroll-behavior: auto;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }
 

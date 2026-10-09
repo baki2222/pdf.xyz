@@ -15,10 +15,23 @@
  * wants the visitor-readable page surface imports it from here rather than
  * copying it.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = process.cwd();
+
+/**
+ * Walked roots that do not exist YET, each with the package that creates it.
+ * A pending root is walked from its first file, so the phrase code planned
+ * for it is under the copy guards the day it lands — nobody has to remember
+ * to add it. Once the folder exists `copy-surface.test.ts` fails until the
+ * root is moved into `copyFiles()`'s own root list and its entry here is
+ * deleted, so a typo'd root cannot hide here.
+ */
+export const PENDING_COPY_ROOTS: Record<string, string> = {
+  "src/lib/intent":
+    "the redesign's intent layer (WP-03 creates it: formats, search, and later evidence, hints and the ticket) — user-facing phrase modules by design",
+};
 
 /**
  * Every user-facing source file whose text a visitor can read.
@@ -77,6 +90,22 @@ const ROOT = process.cwd();
  * construction, so the whole directory is walked; `copy-surface.test.ts`
  * requires every component file to be reached, so a new folder cannot fall
  * outside it.
+ *
+ * `src/lib/workspace` joined on 2026-10-09 — the ninth appearance, found by
+ * the redesign's survey rather than by a defect: the workspace's tool
+ * suggestions are sentences a visitor reads beside their files, and the folder
+ * was the one copy-holding lib directory outside the walk. The same day the
+ * walk stopped being the only proof: `copy-surface.test.ts` now DISCOVERS
+ * every `src/lib` module that holds words for a reader (copy reach) and every
+ * `.tsx` with JSX text, and requires each to be walked or recorded with a
+ * reason.
+ *
+ * Eight page-copy modules joined the same day — the tenth appearance, and the
+ * first found by the discovery rather than by a defect. Copy reach first found
+ * its modules by the NAME of an export (…Message, …Label), and the Crop
+ * disclosure, the capability summaries, three option tables, the JSON-LD
+ * prose and the panels' error reader were named otherwise, so it could not see them. It now discovers by
+ * content: any sentence, in any literal, whatever it is called.
  */
 export function copyFiles(): string[] {
   const roots = [
@@ -91,6 +120,10 @@ export function copyFiles(): string[] {
     // trailing unit comments (`// 100 MB`): only full-line comments are
     // stripped, by design — see withoutComments.
     path.join(ROOT, "src", "lib", "guides"),
+    // The workspace's suggestions and file classification (see above). Same
+    // rule: no trailing unit comments in its files.
+    path.join(ROOT, "src", "lib", "workspace"),
+    ...Object.keys(PENDING_COPY_ROOTS).map((root) => path.join(ROOT, root)),
   ];
   const out: string[] = [
     path.join(ROOT, "src", "lib", "faq.ts"),
@@ -99,6 +132,21 @@ export function copyFiles(): string[] {
     // The shared social card, painted on every link to a page without its
     // own image. Outside every walked root; listed for that reason.
     path.join(ROOT, "src", "lib", "og.tsx"),
+    // Page copy that lives beside engine code, found 2026-10-09 when copy
+    // reach began discovering by CONTENT (see the docblock above): option
+    // tables a tool page renders, the Crop disclosure, the capability
+    // summaries, the JSON-LD prose every tool page ships, and the reader
+    // that turns a worker's error into the sentence a panel shows. Each is
+    // listed singly — their folders hold engine code — and none carries a
+    // trailing `//` comment.
+    path.join(ROOT, "src", "lib", "structured-data.ts"),
+    path.join(ROOT, "src", "lib", "jobs", "capabilities.ts"),
+    path.join(ROOT, "src", "lib", "jobs", "ocr.ts"),
+    path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "crop-disclosure.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
+    path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -108,7 +156,15 @@ export function copyFiles(): string[] {
         out.push(full);
     }
   };
-  for (const dir of roots) if (statSync(dir).isDirectory()) walk(dir);
+  for (const dir of roots) {
+    // Only a PENDING root may be absent; any other missing root throws here,
+    // so a renamed folder cannot quietly empty the walk.
+    const pending = Object.keys(PENDING_COPY_ROOTS).some(
+      (root) => path.join(ROOT, root) === dir,
+    );
+    if (pending && !existsSync(dir)) continue;
+    if (statSync(dir).isDirectory()) walk(dir);
+  }
   return out.filter((file) => {
     try {
       return statSync(file).isFile();

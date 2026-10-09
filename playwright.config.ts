@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { visualRequested } from "./e2e/visual-request";
 import { resolvePnpmInvocation } from "./src/lib/workers/exec-pnpm";
 import { shellQuote } from "./src/lib/workers/shell-quote";
 
@@ -43,7 +44,46 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // Three projects, chosen by FILE NAME so a spec cannot run under the wrong
+  // device by accident:
+  //  - `chromium`: every spec, desktop. The screenshot run (visual.spec.ts)
+  //    joins it only when asked (`VISUAL=1` or `pnpm test:visual`): 28
+  //    full-page captures (consent banner closed) and 2 of the banner itself
+  //    are an instrument for a reviewer, not a gate.
+  //  - `mobile`: specs whose name ends in `.mobile` before the spec suffix
+  //    (see its testMatch), on a 390x844 touch phone at 3x.
+  //  - `reduced-motion`: specs whose name ends in `.rm` the same way, with
+  //    `prefers-reduced-motion: reduce`.
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: [
+        /\.mobile\.spec\.ts$/,
+        /\.rm\.spec\.ts$/,
+        ...(visualRequested() ? [] : [/visual\.spec\.ts$/]),
+      ],
+    },
+    {
+      name: "mobile",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 390, height: 844 },
+        isMobile: true,
+        hasTouch: true,
+        deviceScaleFactor: 3,
+      },
+      testMatch: /\.mobile\.spec\.ts$/,
+    },
+    {
+      name: "reduced-motion",
+      use: {
+        ...devices["Desktop Chrome"],
+        contextOptions: { reducedMotion: "reduce" },
+      },
+      testMatch: /\.rm\.spec\.ts$/,
+    },
+  ],
   webServer: {
     command: `${clearNextLock} && ${pnpm} start --port ${PORT}`,
     url: baseURL,

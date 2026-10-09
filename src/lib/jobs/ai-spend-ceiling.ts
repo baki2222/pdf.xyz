@@ -135,9 +135,18 @@ export function aiSpendTokens(usage: {
  *
  * It says what is true, whose problem it is, and that it is temporary. The shape
  * is the worker-not-ready path's: a real reason, no blame, no invented ETA.
+ *
+ * WHOSE ALLOWANCE, TWICE WRONG. It said "not on your file or your account" — on
+ * a product with no accounts. The fix (2026-10-09) said "not a problem with your
+ * file or your own allowance", the shape the allowance guard bans: the limiter
+ * counts a connection, not a person, so "your own" claims what it cannot know.
+ * Neither was seen, because this module is outside the copy walk. The
+ * allowance is now attributed to the connection, and
+ * `ai-spend-ceiling.test.ts` runs both identity ban lists over this string,
+ * with each earlier wording as a positive control.
  */
 export const AI_CEILING_REACHED_MESSAGE =
-  "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side, not on your file or your account. Please try again tomorrow; every other PDF tool is unaffected.";
+  "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side — not a problem with your file, and not the daily AI allowance for your connection. Please try again tomorrow; every other PDF tool is unaffected.";
 
 /* ------------------------------------------------------------------ *
  *  The OTHER ceiling — the one outside this system.

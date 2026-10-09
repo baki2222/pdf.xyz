@@ -1,0 +1,169 @@
+// @vitest-environment node
+/**
+ * The heavy libraries stay behind their dynamic boundaries — read from what
+ * each page actually loads, not from how the code is written.
+ *
+ * A size budget cannot say WHAT rides along, only how much, and the margin on
+ * a tool page is ~40 KB raw while pdf-lib alone is ~436 KB: a static import
+ * would trip the budget, but the budget would then say "something got heavier"
+ * and never "pdf-lib is back". On a page with a looser budget (the status page
+ * is in none) the library can ride along with nothing saying so at all, and
+ * one does today. So this file reads the CONTENT of every page's first-load
+ * chunks for a string only that library's own code carries.
+ *
+ * THE PAGE SET IS DERIVED: every page the build prerendered
+ * (`prerenderedPages()`), minus a per-library allowlist where each entry says
+ * why that page may load the library up front. An entry whose page stopped
+ * loading it fails, so an allowlist can only shrink toward the truth — the
+ * same idiom as the catalogue test in bundle-budget, which this file does NOT
+ * duplicate (the catalogue's markers are derived from the catalogue itself
+ * there, and that check stays where it is).
+ *
+ * Runs under `pnpm test:bundle` (it needs `.next`), never `pnpm test`.
+ */
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
+
+const ROOT = process.cwd();
+const NEXT_DIR = path.join(ROOT, ".next");
+const CHUNKS_DIR = path.join(NEXT_DIR, "static", "chunks");
+
+interface LazyLibrary {
+  what: string;
+  /**
+   * A string the library's own code carries and ours does not (checked below):
+   * an error message or identity string minification cannot rename.
+   */
+  marker: string;
+  /** Why it must not load with the page. */
+  why: string;
+  /** Pages that may load it up front, each with its reason. Derived pages minus these are checked. */
+  allowedAtLoad: Record<string, string>;
+}
+
+const LAZY: LazyLibrary[] = [
+  {
+    what: "pdf-lib",
+    // pdf-lib's default Producer/Creator metadata string.
+    marker: "pdf-lib (https://github.com/Hopding/pdf-lib)",
+    why: "every op takes it through loadPdfLib() at call time, and the Dropzone warms it when files arrive (2026-08-09: -411 KB on every tool page)",
+    allowedAtLoad: {
+      "status.html":
+        "KNOWN DEFECT, not a need: the operations dashboard reaches pdf-lib through a static import chain nobody has traced (redesign spec, appendix 1, audit track). When it is fixed this entry fails as stale; delete it then.",
+    },
+  },
+  {
+    what: "pdfjs",
+    // pdf.js's own error when its worker cannot start.
+    marker: "Setting up fake worker failed",
+    why: "rendering and text extraction import pdfjs-dist on first use; it is the largest library the site ships",
+    allowedAtLoad: {},
+  },
+];
+
+function walkJs(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return walkJs(full);
+    return entry.name.endsWith(".js") ? [full] : [];
+  });
+}
+
+function ourSources(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // Test fixtures quote pdf-lib output verbatim and never ship.
+        if (entry.name !== "tests") walk(full);
+      } else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
+        out.push(full);
+    }
+  };
+  walk(path.join(ROOT, "src"));
+  return out;
+}
+
+const textCache = new Map<string, string>();
+function read(file: string): string {
+  let text = textCache.get(file);
+  if (text === undefined) {
+    text = readFileSync(file, "utf8");
+    textCache.set(file, text);
+  }
+  return text;
+}
+
+/** Does the page load a chunk carrying the marker, up front? */
+function carriesAtLoad(html: string, marker: string): boolean {
+  return chunkFiles(NEXT_DIR, html).some((file) => read(file).includes(marker));
+}
+
+describe("heavy libraries are not first-load on any page", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("has a build to measure", () => {
+    // Skipping when `.next` is absent would read green in exactly the case
+    // where nothing was checked.
+    expect(built, "no .next — run `pnpm build` first (CI does)").toBe(true);
+  });
+
+  it("health check: a real table over a real build", () => {
+    if (!built) return;
+    // The table grows as the redesign adds lazy chunks of its own (the ticket,
+    // the palette); two is pdf-lib and pdfjs.
+    expect(LAZY.length).toBeGreaterThanOrEqual(2);
+    expect(walkJs(CHUNKS_DIR).length).toBeGreaterThanOrEqual(1);
+    const pages = prerenderedPages(NEXT_DIR);
+    expect(pages.length).toBeGreaterThanOrEqual(60);
+    expect(pages.length).toBeLessThanOrEqual(200);
+  });
+
+  it.each(LAZY)(
+    "positive control: the build ships $what, and the marker is the library's own",
+    ({ marker }) => {
+      if (!built) return;
+      // Present somewhere in the build. Without this, a library upgrade that
+      // reworded the marker would turn every absence below into a vacuous pass.
+      const carrying = walkJs(CHUNKS_DIR).filter((f) =>
+        read(f).includes(marker),
+      );
+      expect(carrying.length).toBeGreaterThanOrEqual(1);
+      // …in a library-sized chunk (pdf-lib ~436 KB, pdfjs ~420 KB raw), so a
+      // stub of ours that happened to quote it cannot stand in for the library.
+      expect(
+        Math.max(...carrying.map((f) => statSync(f).size)),
+      ).toBeGreaterThan(100 * 1024);
+      // …and never in our source, where it would make a page "carry the
+      // library" without loading it, or keep the control above green after
+      // the library chunk lost the string.
+      const quoting = ourSources().filter((f) => read(f).includes(marker));
+      expect(quoting.map((f) => path.relative(ROOT, f))).toEqual([]);
+    },
+  );
+
+  it.each(LAZY)(
+    "no page loads $what up front, except the reasoned allowlist",
+    ({ what, marker, why, allowedAtLoad }) => {
+      if (!built) return;
+      const pages = prerenderedPages(NEXT_DIR);
+      const leaks = pages
+        .filter((html) => !(html in allowedAtLoad))
+        .filter((html) => carriesAtLoad(html, marker));
+      expect(
+        leaks,
+        `these pages load ${what} with the page (${why}). A component they render imports it statically, or imports a module that does.`,
+      ).toEqual([]);
+      const stale = Object.keys(allowedAtLoad).filter(
+        (html) => !pages.includes(html) || !carriesAtLoad(html, marker),
+      );
+      expect(
+        stale,
+        `the allowlist names a page that no longer loads ${what} up front — delete the entry`,
+      ).toEqual([]);
+    },
+  );
+});

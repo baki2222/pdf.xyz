@@ -57,37 +57,39 @@
  * good; it stops it getting worse without someone noticing, which is the thing
  * that was missing.
  *
- * Sizes are UNCOMPRESSED bytes on disk — roughly 3x transfer size. Fine for a
- * regression budget, wrong as a user-facing figure. Do not quote them as page
- * weight. The chunk list comes from the prerendered HTML `next build` writes,
- * i.e. exactly what a browser would fetch; verified against `curl` on the
- * running server, which reported the same 18 and 12 chunks.
+ * TWO UNITS since 2026-10-09. `kb` is UNCOMPRESSED bytes on disk — roughly 3x
+ * transfer size, fine for a regression budget, wrong as a user-facing figure;
+ * do not quote it as page weight. `gzKb` is gzip -9 of each unique chunk,
+ * summed — close to what a browser transfers, and the unit the redesign's
+ * growth allowances are written in. Both come from the one weigher
+ * (scripts/page-weight.ts), whose gz figure `page-weight.test.ts` holds to a
+ * sum it computes itself. The chunk list comes from the prerendered HTML
+ * `next build` writes, i.e. exactly what a browser would fetch; verified
+ * against `curl` on the running server, which reported the same 18 and 12
+ * chunks.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
-import { chunkUrls, weighPage } from "../../scripts/page-weight";
+import {
+  chunkFiles,
+  chunkUrls,
+  prerenderedPages,
+  weighPage,
+} from "../../scripts/page-weight";
 
 const NEXT_DIR = path.join(process.cwd(), ".next");
 const APP_DIR = path.join(NEXT_DIR, "server", "app");
 
-/** The unique chunk URLs a prerendered page references. */
-function chunkList(htmlRelPath: string): string[] {
-  return chunkUrls(NEXT_DIR, htmlRelPath);
-}
-
-/**
- * Unique chunks a prerendered page references, and their total size on disk.
- * The weigher lives in scripts/page-weight.ts, shared with `pnpm weigh:pages`
- * (the table a budget change is argued from); see the last test below. Its
- * history: the percent-encoded `[slug]` chunk that once weighed zero, and the
- * miss that is now fatal, are documented there.
- */
-function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
-  return weighPage(NEXT_DIR, htmlRelPath);
-}
+// The weigher, the chunk reader and the page walk all live in
+// scripts/page-weight.ts, shared with `pnpm weigh:pages` (the table a budget
+// change is argued from; see the last test below) and with the lazy-chunk
+// guard. Its history — the percent-encoded `[slug]` chunk that once weighed
+// zero, and the miss that is now fatal — is documented there.
+const weigh = (html: string) => weighPage(NEXT_DIR, html);
+const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
 
 /**
  * Budgets sit just above what the current build produces, so they fail on a real
@@ -108,12 +110,37 @@ function weigh(htmlRelPath: string): { chunks: number; kb: number } | null {
  * able to say so. The new figure is the true measurement plus the same small
  * margin the old one had. A future raise is still a decision that must name
  * what grew -- this one names an instrument that was wrong.
+ *
+ * GZ CEILINGS ADDED 2026-10-09, re-anchored to a measurement rather than to the
+ * plan. The redesign spec (G.1) budgeted in gzip — home 191.6 -> 200.0, tool
+ * pages 302.4 -> 312.5 — from a one-off measurement nothing could re-run.
+ * Weighed with the shared weigher on the build of 6337f4ed (the redesign's
+ * branch point), every one of its baselines was stale:
+ *
+ *     page            planned gz   measured gz   ceiling = measured + allowance
+ *     homepage           191.6        202.6         210.6  (+8)
+ *     tool pages         302.4        371.2         381.2  (+10)
+ *     guide              188.3        198.5         203.5  (+5)
+ *     404                191.6        202.6         206.6  (+4)
+ *     /tools               --         214.2         219.2  (+5)
+ *     /workspace           --         234.0         238.0  (+4)
+ *
+ * The allowance is the redesign's whole growth programme for that page, not
+ * per change; each package prints `pnpm weigh:pages` before and after and
+ * names what grew. The plan's ceilings would have failed the day they landed
+ * (371.2 > 312.5), and loosening them to fit would have been a budget chosen
+ * to pass. The raw ceilings did NOT move: 675 / 1,280 / 665 already sit about
+ * 40 KB over measured, and resetting them to the plan's 700 / 1,100 / 700
+ * would fail the tool pages and re-open the margin the 40 KB catalogue leak
+ * hid in. The 404, /tools and /workspace are new rows (raw: measured + ~40):
+ * the 404 was in no budget, and /tools and /workspace were wrongly believed
+ * not to be prerendered.
  */
 const BUDGETS = [
   // TIGHTENED 700 -> 675 on 2026-10-08: the homepage weighs 635 KB once the
   // catalogue left it (b9ccf092). Same +40 KB margin as the tool pages; under
   // 700 the 40 KB catalogue leak fitted unnoticed, under 675 it cannot.
-  { name: "homepage", html: "index.html", kb: 675 },
+  { name: "homepage", html: "index.html", kb: 675, gzKb: 210.6 },
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
   // every page via the static import in src/lib/pdf/browser.ts, now fetched
@@ -160,14 +187,44 @@ const BUDGETS = [
   // WORSE (see the top of this file). Re-measuring that trade at today's
   // weight is the open lever; this raise does not claim the weight is good.
   // The margin (+39 KB) is the same as the old 1060 -> 1100 one.
-  { name: "a client-side tool page", html: "tools/rotate-pdf.html", kb: 1280 },
-  { name: "a worker tool page", html: "tools/ocr-pdf.html", kb: 1280 },
-  { name: "an AI tool page", html: "tools/summarize-pdf.html", kb: 1280 },
+  {
+    name: "a client-side tool page",
+    html: "tools/rotate-pdf.html",
+    kb: 1280,
+    gzKb: 381.2,
+  },
+  {
+    name: "a worker tool page",
+    html: "tools/ocr-pdf.html",
+    kb: 1280,
+    gzKb: 381.2,
+  },
+  {
+    name: "an AI tool page",
+    html: "tools/summarize-pdf.html",
+    kb: 1280,
+    gzKb: 381.2,
+  },
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
   // runner into a route whose job is prose.
   // TIGHTENED 700 -> 665 on 2026-10-08 (625 KB measured), for the same reason.
-  { name: "a guide page", html: "guides/how-to-merge-pdf-files.html", kb: 665 },
+  {
+    name: "a guide page",
+    html: "guides/how-to-merge-pdf-files.html",
+    kb: 665,
+    gzKb: 203.5,
+  },
+  // NEW 2026-10-09. The root 404 ships with EVERY route, which is why the
+  // catalogue riding it reached every page (b9ccf092); it had no budget of its
+  // own. Measured 635 KB / 202.6 gz, the same chunk set as the homepage.
+  { name: "the 404 page", html: "_not-found.html", kb: 675, gzKb: 206.6 },
+  // NEW 2026-10-09. Both are prerendered (they read nothing from the request;
+  // pages-static.test.ts holds them to that), so they are weighed here like
+  // every other page rather than in a browser. Measured 675 / 214.2 and
+  // 732 / 234.0; both legitimately carry the catalogue (see NEEDS_CATALOGUE).
+  { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 219.2 },
+  { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 238.0 },
 ] as const;
 
 describe("client bundle budget", () => {
@@ -182,15 +239,22 @@ describe("client bundle budget", () => {
     ).toBe(true);
   });
 
-  it.each(BUDGETS)("$name stays under $kb KB", ({ html, kb }) => {
-    if (!built) return;
-    const weight = weigh(html);
-    expect(weight, `${html} is not in the build output`).not.toBeNull();
-    expect(
-      weight!.kb,
-      `${html} references ${weight!.chunks} chunks totalling ${weight!.kb} KB against a ${kb} KB budget. Check what was added: a new dependency pulled into a client component reaches every tool page. If the growth is deliberate, raise the budget here and say what grew.`,
-    ).toBeLessThanOrEqual(kb);
-  });
+  it.each(BUDGETS)(
+    "$name stays under $kb KB raw and $gzKb KB gz",
+    ({ html, kb, gzKb }) => {
+      if (!built) return;
+      const weight = weigh(html);
+      expect(weight, `${html} is not in the build output`).not.toBeNull();
+      expect(
+        weight!.kb,
+        `${html} references ${weight!.chunks} chunks totalling ${weight!.kb} KB against a ${kb} KB budget. Check what was added: a new dependency pulled into a client component reaches every tool page. If the growth is deliberate, raise the budget here and say what grew.`,
+      ).toBeLessThanOrEqual(kb);
+      expect(
+        weight!.gzKb,
+        `${html} transfers ${weight!.gzKb} KB gz against a ${gzKb} KB gz ceiling (measured baseline + the redesign's allowance for this page). Print pnpm weigh:pages before and after, and name what grew.`,
+      ).toBeLessThanOrEqual(gzKb);
+    },
+  );
 
   it("keeps the homepage clear of the tool pages' weight", () => {
     if (!built) return;
@@ -240,15 +304,30 @@ describe("client bundle budget", () => {
   // page, which needs the catalogue, is the positive control.
   it("ships the tool catalogue only on pages that need it", () => {
     if (!built) return;
-    const firstLoad = (html: string) =>
-      chunkList(html)
-        .map((url) =>
-          readFileSync(
-            path.join(NEXT_DIR, decodeURIComponent(url.replace("/_next/", ""))),
-            "utf8",
-          ),
-        )
-        .join("\n");
+    // Each page's first load is read ONCE, and each chunk file once across
+    // all pages (most are shared). Until 2026-10-09 `carrying()` called
+    // firstLoad() inside the marker filter — ~50 markers x ~89 pages, every
+    // chunk re-read per marker, twice over for the stale check — and the test
+    // ran 8.7-17.5 s against vitest's 5 s timeout. Same set, same reads, done
+    // once.
+    const chunkText = new Map<string, string>();
+    const readChunk = (file: string) => {
+      let text = chunkText.get(file);
+      if (text === undefined) {
+        text = readFileSync(file, "utf8");
+        chunkText.set(file, text);
+      }
+      return text;
+    };
+    const pageText = new Map<string, string>();
+    const firstLoad = (html: string) => {
+      let text = pageText.get(html);
+      if (text === undefined) {
+        text = chunkFiles(NEXT_DIR, html).map(readChunk).join("\n");
+        pageText.set(html, text);
+      }
+      return text;
+    };
     const control = firstLoad("tools/rotate-pdf.html");
     const markers = tools
       .map((t) => t.tagline)
@@ -272,24 +351,17 @@ describe("client bundle budget", () => {
     };
     const isToolPage = (html: string) =>
       tools.some((t) => html === `tools/${t.slug}.html`);
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
-        entry.isDirectory()
-          ? walk(path.join(dir, entry.name))
-          : entry.name.endsWith(".html")
-            ? [
-                path
-                  .relative(APP_DIR, path.join(dir, entry.name))
-                  .split(path.sep)
-                  .join("/"),
-              ]
-            : [],
-      );
-    const pages = walk(APP_DIR);
-    // Health check: the walk sees the whole site (89 pages on 2026-10-08).
+    const pages = prerenderedPages(NEXT_DIR);
+    // Health check, both ways: the walk sees the whole site (89 pages counted
+    // on 2026-10-09: 50 tools, 22 guides, 8 categories and 9 others, one of
+    // them _global-error), and has not swallowed a second build. The ceiling
+    // is a plausibility bound, not a measurement.
     expect(pages.length).toBeGreaterThanOrEqual(60);
-    const carrying = (html: string) =>
-      markers.filter((m) => firstLoad(html).includes(m)).length;
+    expect(pages.length).toBeLessThanOrEqual(200);
+    const carrying = (html: string) => {
+      const text = firstLoad(html);
+      return markers.filter((m) => text.includes(m)).length;
+    };
     const leaks = pages
       .filter((html) => !isToolPage(html) && !(html in NEEDS_CATALOGUE))
       .map((html) => ({ html, taglines: carrying(html) }))
@@ -323,13 +395,25 @@ describe("client bundle budget", () => {
       ],
       { encoding: "utf8" },
     );
-    const rows = JSON.parse(out) as { html: string; kb: number }[];
-    // Health check: a script that printed nothing would agree vacuously.
-    expect(rows.length).toBeGreaterThanOrEqual(BUDGETS.length);
-    const tool = rows.find((r) => r.html === "tools/rotate-pdf.html");
-    expect(tool, "weigh:pages no longer prints a tool page").toBeDefined();
+    const rows = JSON.parse(out) as {
+      html: string;
+      kb: number;
+      gzKb: number;
+    }[];
+    // A relationship, not a count: every page this suite budgets is a row the
+    // table prints, so a budget change is argued from a figure the script
+    // showed. (A count, "at least as many rows as budgets", was satisfied by a
+    // table that printed seven tool pages and no guide.)
+    const printed = rows.map((r) => r.html);
+    for (const budget of BUDGETS) {
+      expect(printed, `weigh:pages does not print ${budget.html}`).toContain(
+        budget.html,
+      );
+    }
     for (const row of rows) {
-      expect(row.kb, row.html).toBe(weigh(row.html)!.kb);
+      const w = weigh(row.html)!;
+      expect(row.kb, row.html).toBe(w.kb);
+      expect(row.gzKb, row.html).toBe(w.gzKb);
     }
   });
 });

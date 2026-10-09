@@ -19,7 +19,8 @@ import {
 } from "../ooxml/sheet-cells";
 import { classifyPdfTextFailure } from "./encryption";
 import { layoutGrid } from "./layout-grid";
-import { pptxPackage } from "./pptx-package";
+import { inspectPptxPackage } from "./pptx-inspect";
+import { pptxPackage, type PptxSlide } from "./pptx-package";
 
 export const PDF_TO_WORD_TOOL = "pdf-to-word";
 export const PDF_TO_EXCEL_TOOL = "pdf-to-excel";
@@ -58,6 +59,11 @@ export interface PdfOfficeExportDeps {
    * the extractor refused to open it. Defaults to a pdf-lib parse.
    */
   isEncrypted?: (bytes: Uint8Array) => Promise<boolean>;
+  /**
+   * The PowerPoint writer. Defaults to `./pptx-package`; injectable so a test
+   * can hand the engine a writer that regressed and see what it delivers.
+   */
+  writePptx?: (slides: readonly PptxSlide[]) => Promise<Uint8Array>;
   limits?: { maxInputBytes?: number; maxOutputBytes?: number };
 }
 export interface PdfOfficeExportMeta {
@@ -76,6 +82,11 @@ export type PdfOfficeExportFailureKind =
   | "password_protected"
   /** Refused by the extractor and not encrypted: damaged, or not a PDF. */
   | "unreadable"
+  /**
+   * The file this engine wrote failed its own inspection before delivery.
+   * Our defect, not the PDF's, and the same on every attempt.
+   */
+  | "incomplete_output"
   /** Anything that might not happen again: a timeout, a spawn failure. */
   | "failed";
 export type PdfOfficeExportRun =
@@ -184,10 +195,14 @@ async function xlsx(pages: ExtractedPdfText["pages"]): Promise<Uint8Array> {
 /**
  * The PPTX: one slide per page, the page's non-blank `-layout` lines as
  * paragraphs — a textless page still gets its slide, so slide N is page N.
- * The package itself, and why every part in it is there, is `./pptx-package`.
+ * The package itself, and why every part in it is there, is `./pptx-package`;
+ * what it must pass before anyone downloads it is `undeliverablePptx` below.
  */
-function pptx(pages: ExtractedPdfText["pages"]): Promise<Uint8Array> {
-  return pptxPackage(
+function pptx(
+  pages: ExtractedPdfText["pages"],
+  write: NonNullable<PdfOfficeExportDeps["writePptx"]> = pptxPackage,
+): Promise<Uint8Array> {
+  return write(
     pages.map((page) => ({
       name: `Page ${page.pageNumber}`,
       lines: lines(page.text),
@@ -287,11 +302,41 @@ async function renderWord(
   };
 }
 
+/**
+ * The deck, inspected before anyone downloads it.
+ *
+ * Every deck this tool shipped until 2026-09-27 was refused by PowerPoint, and
+ * both checks that passed it ran somewhere other than here: a unit test on
+ * `main` and a deployment proof after the fact. This runs `./pptx-inspect` —
+ * the same inspector the worker's start-up probe runs, which needs nothing the
+ * image lacks — over the bytes about to be delivered, and requires one slide
+ * per page. A pass is necessary, not sufficient: PowerPoint itself is the only
+ * instrument for "it opens" (`scripts/prove-pptx-opens.ts`).
+ */
+async function undeliverablePptx(
+  output: Uint8Array,
+  slides: number,
+): Promise<Failure | null> {
+  const { problems, counts } = await inspectPptxPackage(output);
+  if (problems.length === 0 && counts.slides === slides) return null;
+  const failed = [...new Set(problems.map((p) => p.check))];
+  return {
+    ok: false,
+    kind: "incomplete_output",
+    message: `The PowerPoint file came out incomplete, so it was not delivered. This is a fault in pdf.xyz, not in your PDF. (${
+      failed.length > 0
+        ? `failed: ${failed.slice(0, 4).join(", ")}`
+        : `${counts.slides} of ${slides} slides`
+    })`,
+  };
+}
+
 async function renderLayout(
   tool: typeof PDF_TO_EXCEL_TOOL | typeof PDF_TO_POWERPOINT_TOOL,
   input: Uint8Array,
   extract: PdfTextExtractor,
-): Promise<Rendered | null> {
+  writePptx: PdfOfficeExportDeps["writePptx"],
+): Promise<Rendered | Failure | null> {
   const extracted = await extract(input);
   if (!extracted.hasText || extracted.text.trim().length === 0) return null;
   const base = {
@@ -307,9 +352,12 @@ async function renderLayout(
       contentType:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     };
+  const output = await pptx(extracted.pages, writePptx);
+  const refused = await undeliverablePptx(output, extracted.pages.length);
+  if (refused) return refused;
   return {
     ...base,
-    output: await pptx(extracted.pages),
+    output,
     filenameExt: "pptx",
     contentType:
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -335,8 +383,9 @@ export async function runPdfOfficeExport(
     const rendered =
       tool === PDF_TO_WORD_TOOL
         ? await renderWord(input, extractFlow!)
-        : await renderLayout(tool, input, extract!);
+        : await renderLayout(tool, input, extract!, deps.writePptx);
     if (!rendered) return NO_TEXT;
+    if ("ok" in rendered) return rendered;
     const maxOutput = deps.limits?.maxOutputBytes;
     if (maxOutput !== undefined && rendered.output.byteLength > maxOutput)
       // Deterministic: the same PDF renders the same file on every attempt,
