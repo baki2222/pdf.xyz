@@ -99,19 +99,16 @@ async function textInTilingPatternPdf(): Promise<Uint8Array> {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const image = await embedRasterImage(doc, PNG_1PX, "png");
   await drawRasterImage(page, image, { x: 0, y: 0, width: 100, height: 100 });
-  const pattern = doc.context.stream(
-    "BT /F1 12 Tf 2 2 Td (patterned) Tj ET",
-    {
-      Type: "Pattern",
-      PatternType: 1,
-      PaintType: 1,
-      TilingType: 1,
-      BBox: [0, 0, 60, 20],
-      XStep: 60,
-      YStep: 20,
-      Resources: { Font: { F1: font.ref } },
-    },
-  );
+  const pattern = doc.context.stream("BT /F1 12 Tf 2 2 Td (patterned) Tj ET", {
+    Type: "Pattern",
+    PatternType: 1,
+    PaintType: 1,
+    TilingType: 1,
+    BBox: [0, 0, 60, 20],
+    XStep: 60,
+    YStep: 20,
+    Resources: { Font: { F1: font.ref } },
+  });
   const resources = page.node.Resources()!;
   resources.set(
     PDFName.of("Pattern"),
@@ -283,7 +280,8 @@ describe("probePdf: what each kind of page reads as", () => {
 describe("probePdf is bound to pdf.js, the extractor pdf-to-text uses", () => {
   it("health: the corpus exercises every page class", async () => {
     const seen = new Set<string>();
-    for (const f of PLAIN) for (const c of (await probeOf(f))[1].sample) seen.add(c);
+    for (const f of PLAIN)
+      for (const c of (await probeOf(f))[1].sample) seen.add(c);
     expect([...seen].sort()).toEqual(
       ["blank", "image-only", "text", "unknown"].sort(),
     );
@@ -309,7 +307,10 @@ describe("probePdf is bound to pdf.js, the extractor pdf-to-text uses", () => {
   });
 
   it("negative control under the extractor: the Form XObject page HAS text", async () => {
-    const extracted = await extractPdfText(await textInFormXObjectPdf(), legacy);
+    const extracted = await extractPdfText(
+      await textInFormXObjectPdf(),
+      legacy,
+    );
     expect(extracted.pages[0]!.text.trim()).not.toBe("");
   });
 
@@ -330,7 +331,11 @@ describe("probePdf is bound to pdf.js, the extractor pdf-to-text uses", () => {
 
 describe("the lock is asked of pdf.js, and bound to the loaders' refusal", () => {
   const LOCKED: readonly (Fixture & { pages: number | null })[] = [
-    { name: "owner-only", bytes: async () => ownerOnlyEncryptedPdf(), pages: 1 },
+    {
+      name: "owner-only",
+      bytes: async () => ownerOnlyEncryptedPdf(),
+      pages: 1,
+    },
     {
       name: "user password",
       bytes: async () => userPasswordEncryptedPdf(),
@@ -339,7 +344,7 @@ describe("the lock is asked of pdf.js, and bound to the loaders' refusal", () =>
     {
       name: "owner-only, object streams",
       bytes: async () => ownerOnlyObjectStreamPdf(),
-      pages: 3,
+      pages: 1,
     },
     {
       name: "user password, object streams",

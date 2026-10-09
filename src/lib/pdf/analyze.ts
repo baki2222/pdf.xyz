@@ -1,5 +1,5 @@
-import type { PDFRawStream } from "pdf-lib";
-import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
+import { isImageStream } from "./image-stream";
+import { loadPdfLib } from "./pdf-lib";
 import { loadPdf } from "./engine";
 import { countSignatures } from "./signed";
 
@@ -65,11 +65,13 @@ export interface OptimizationSummary {
   recommendation: OptimizeRecommendation;
 }
 
-function isImageStream(lib: PdfLibModule, obj: unknown): obj is PDFRawStream {
-  if (!(obj instanceof lib.PDFRawStream)) return false;
-  const subtype = obj.dict.get(lib.PDFName.of("Subtype"));
-  return subtype instanceof lib.PDFName && subtype.asString() === "/Image";
-}
+/**
+ * The image predicate is shared with the file probe (`./probe`), which counts
+ * drawn images to decide whether a page is a scan. It lives in a leaf
+ * (`./image-stream`) so the probe does not import this module — and with it
+ * the editing engine — just to ask what an XObject is.
+ */
+export { isImageStream };
 
 /** The batch path's result: the repacked bytes, and what they cost. */
 export interface LosslessResult {

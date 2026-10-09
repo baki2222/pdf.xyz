@@ -56,18 +56,35 @@ export async function countPdfPagesDetailed(
       updateMetadata: false,
       ignoreEncryption: true,
     });
-    const count = doc.getPageCount();
-    if (!Number.isInteger(count) || count < 0) {
-      return { ok: false, unknown: "unparseable" };
-    }
-    // A document that parses and reports no pages is a FACT, not a failure to
-    // measure. It is still not a number a comparison can use, so it is reported
-    // as its own kind of unknown rather than as `0`.
-    if (count === 0) return { ok: false, unknown: "zero-pages" };
-    return { ok: true, count };
+    return pageCountFromDoc(doc);
   } catch {
     return { ok: false, unknown: "unparseable" };
   }
+}
+
+/**
+ * The count of an ALREADY-PARSED document, with the same reasons as above —
+ * the one behaviour, shared by every reader that has a `PDFDocument` in hand
+ * (the file probe parses once for pages, fields and its text sample, and must
+ * not count pages a second way). Never throws.
+ */
+export function pageCountFromDoc(doc: {
+  getPageCount(): number;
+}): PageCountResult {
+  let count: number;
+  try {
+    count = doc.getPageCount();
+  } catch {
+    return { ok: false, unknown: "unparseable" };
+  }
+  if (!Number.isInteger(count) || count < 0) {
+    return { ok: false, unknown: "unparseable" };
+  }
+  // A document that parses and reports no pages is a FACT, not a failure to
+  // measure. It is still not a number a comparison can use, so it is reported
+  // as its own kind of unknown rather than as `0`.
+  if (count === 0) return { ok: false, unknown: "zero-pages" };
+  return { ok: true, count };
 }
 
 /**
