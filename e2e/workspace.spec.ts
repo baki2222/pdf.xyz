@@ -215,6 +215,83 @@ test("a scan staged in the workspace is offered OCR PDF, with the measured reaso
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
 
+/**
+ * FOUND IN REVIEW (2026-10-09): with an ordinary long name staged —
+ * `quarterly-report-final-version-2026.pdf` — /workspace scrolled sideways at
+ * 390px (scrollWidth 428 against 390): the drop panel's border, the remove
+ * buttons and every card below ran off the right edge. The page grid's one
+ * implicit column kept `min-width: auto`, so the name's nowrap text (it is
+ * `truncate`, which still counts toward min-content) widened the column.
+ * Every fixture before this one had a short name, so nothing measured it.
+ */
+test.describe("at 390px", () => {
+  // No mobile emulation: a phone browser zooms a too-wide page out to fit
+  // (measured: innerWidth 512 at 390), which would hide the overflow from
+  // the scrollWidth check behind a viewport that no longer measures 390.
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("a long file name is truncated in its row, and the page never scrolls sideways", async ({
+    page,
+  }) => {
+    const guard = attachConsoleGuard(page);
+    const name = "quarterly-report-final-version-2026-signed-copy.pdf";
+    expect(name.length).toBeGreaterThanOrEqual(40);
+    await page.goto("/workspace");
+    await uploadFiles(page, await writeTempPdf(name, 1));
+
+    const staged = page.getByRole("list", { name: /staged files/i });
+    const label = staged.getByText(name, { exact: true });
+    await expect(label).toBeVisible();
+    // Measured facts are in, so the row is at its final width.
+    await expect(staged.getByText(/1 page(?!s)/)).toBeVisible();
+
+    const m = await page.evaluate((fileName) => {
+      const root = document.documentElement;
+      const row = [...document.querySelectorAll("li")].find((li) =>
+        li.textContent?.includes(fileName),
+      );
+      const text = [...(row?.querySelectorAll("span") ?? [])].find(
+        (s) => s.textContent === fileName,
+      );
+      const remove = row?.querySelector("button");
+      const panel = row?.closest("ul")?.parentElement;
+      const box = (el: Element | null | undefined) =>
+        el ? el.getBoundingClientRect().toJSON() : null;
+      return {
+        innerWidth: window.innerWidth,
+        scrollWidth: root.scrollWidth,
+        clientWidth: root.clientWidth,
+        nameScroll: text?.scrollWidth ?? -1,
+        nameClient: text?.clientWidth ?? -1,
+        remove: box(remove),
+        panel: box(panel),
+      };
+    }, name);
+
+    // Health: the width asked for is the width that painted, and the probe
+    // found the row, its name and its button.
+    expect(m.innerWidth).toBe(390);
+    expect(m.remove, "no remove button found in the row").not.toBeNull();
+    expect(m.panel, "no panel found around the staged list").not.toBeNull();
+
+    expect(
+      m.scrollWidth,
+      `the page is ${m.scrollWidth}px wide in a ${m.clientWidth}px viewport`,
+    ).toBeLessThanOrEqual(m.clientWidth);
+    // The name is cut short in its row (ellipsis), not laid out in full.
+    expect(m.nameScroll).toBeGreaterThan(m.nameClient);
+    // Its remove button is inside the panel, and the panel inside the page.
+    expect(m.remove!.right).toBeLessThanOrEqual(m.panel!.right);
+    expect(m.panel!.right).toBeLessThanOrEqual(m.clientWidth);
+    await expect(
+      page.getByRole("button", { name: `Remove ${name}` }),
+    ).toBeInViewport({ ratio: 1 });
+
+    expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+    expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+  });
+});
+
 test("the Merge PDF suggestion is a link that carries both files into Merge PDF", async ({
   page,
 }) => {

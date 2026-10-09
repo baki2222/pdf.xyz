@@ -244,8 +244,12 @@ export function WorkspaceClient({
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1.35fr_1fr] lg:items-start">
-      {/* ── Staging + batch column ── */}
-      <div className="flex flex-col gap-6">
+      {/* ── Staging + batch column ──
+          min-w-0 on both grid children: a grid item's min-width is auto, so
+          a staged file's long name (nowrap, even when truncated) would widen
+          the column past the screen — 428px of page at 390 (review,
+          2026-10-09). */}
+      <div className="flex min-w-0 flex-col gap-6">
         <div className="border-line bg-panel rounded-panel flex flex-col gap-5 border p-5 sm:p-7">
           {/* Dropzone */}
           <label
@@ -476,7 +480,7 @@ export function WorkspaceClient({
       </div>
 
       {/* ── Tools + activity column ── */}
-      <aside className="flex flex-col gap-6">
+      <aside className="flex min-w-0 flex-col gap-6">
         {hasFiles ? (
           <Suspense fallback={<SuggestionsLoading className="max-lg:hidden" />}>
             <FileSuggestions
