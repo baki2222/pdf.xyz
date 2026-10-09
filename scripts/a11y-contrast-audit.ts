@@ -138,6 +138,17 @@ const DEFAULT_ROUTES = [
   "/tools/ocr-pdf",
   "/tools/summarize-pdf",
   "/tools/protect-pdf",
+  // The /tools explorer's query states (WP-03, 2026-10-09). They render only
+  // after hydration — the page is static and ranks the query in the browser,
+  // and the ranking chunk loads on demand — which the networkidle wait below
+  // covers: the "No tool here opens…" answer with its card, the "Closest
+  // matches" note, the empty state with its "Did you mean", and the "Takes …"
+  // filter chip on the selection tint. None is in the served HTML, so the
+  // bare "/tools" entry above cannot see them.
+  "/tools?q=heic",
+  "/tools?q=merge%20zzqx",
+  "/tools?q=mregee",
+  "/tools?accepts=docx",
 ];
 
 const VIEWPORTS = [
