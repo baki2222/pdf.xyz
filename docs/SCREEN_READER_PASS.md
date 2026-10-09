@@ -131,16 +131,56 @@ drops focus to the document.
 
 ---
 
+## 7. Suggestions for staged files, and files that arrive
+
+<https://pdf.xyz/workspace> — add two PDFs with **Add files**, then wait a
+moment without moving.
+
+**Must hear:** once, after a short pause, _"3 suggestions for your files. Best
+match: Merge PDF."_ Not before the files are listed, and not again when the
+pages are counted.
+
+Arrow to the list under **Suggested for your files**.
+
+**Must hear:** the first link as _"Open Merge PDF with 2 files"_, then its
+description: **2 PDFs**, the page count, and where it runs (**In-browser**).
+Press `Enter` on it.
+
+**Must hear:** Merge PDF's page, and near the top _"Loaded 2 files from your
+workspace. Still in this browser; nothing was uploaded."_
+
+Back in the workspace, clear the files and add a scanned PDF (pages that are
+pictures). Find **OCR PDF** in the list.
+
+**Must hear:** _"Open OCR PDF — you'll add the file there"_, then _"No
+selectable text on page 1"_ and _"uploads only when you start it"_.
+
+Then go to <https://pdf.xyz>, add two PDFs to the drop zone and press **Open in
+workspace**.
+
+**Must hear:** the workspace, and _"Loaded the 2 files you added. Still in this
+browser; nothing was uploaded."_ — never _"from your workspace"_ for files that
+came from the home page.
+
+**Fails if:** the suggestion count is read more than once for the same files;
+a link's name does not say what it carries; a worker tool's link implies the
+file goes with it; or files from the home page are said to come from the
+workspace.
+
+---
+
 ## Recording the result
 
-Note the browser, screen reader, and version, and for each of the six: heard /
+Note the browser, screen reader, and version, and for each of the seven: heard /
 not heard / heard but wrong. A partial pass is a finding, not a failure — write
 down what was actually said, because the wording is the deliverable.
 
 If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `src/components/tools/runner/runner-kit.tsx`, and `LiveRegion` in
 `src/components/a11y/live-region.tsx` — for check 6, `ToolsExplorer` and its
-`resultAnnouncement` in `src/components/tools/tools-explorer.tsx`. Each carries
+`resultAnnouncement` in `src/components/tools/tools-explorer.tsx`; for check 7,
+`FileSuggestions` in `src/app/workspace/file-suggestions.tsx` and
+`HandoffLoadedBadge` in `src/components/tools/runner/handoff-notice.tsx`. Each carries
 a docblock explaining what it is protecting against, which is usually faster
 than reading the logic.
 

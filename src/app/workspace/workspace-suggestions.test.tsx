@@ -108,6 +108,11 @@ describe("a suggestion is a link that carries the files", () => {
     // Visible: the fact behind it, and where it runs.
     await waitFor(() => expect(merge.textContent).toMatch(/2 PDFs/));
     expect(within(merge).getByText(/in-browser/i)).toBeTruthy();
+    // The evidence is the link's DESCRIPTION: an aria-label replaces the
+    // content as the name, so without it a screen reader hears no reason.
+    await waitFor(() =>
+      expect(merge).toHaveAccessibleDescription(/2 PDFs · 3 pages.*In-browser/),
+    );
     await waitFor(() => expect(merge.textContent).toMatch(/3 pages/));
 
     fireEvent.click(merge);

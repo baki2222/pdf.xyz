@@ -33,27 +33,52 @@ Every tool declares one of these, shown on its card and page:
 Page rendering/thumbnails use `pdfjs-dist` locally; the pdfjs worker is bundled
 (no third-party CDN request).
 
-## Browser-local workspace handoff
+## Browser-local hand-off (workspace, home page, tool to tool)
 
-The workspace-to-tool handoff is also local-only:
+Carrying files from one page to a tool is local-only:
 
-- Staged files live in browser memory while the workspace tab is open.
-- Launching a supported in-browser tool writes the selected `File`/`Blob` objects
-  to origin-private IndexedDB under an opaque, unguessable handoff id.
-- The tool opens as `/tools/<slug>?handoff=<id>`, claims the record once, filters
-  incompatible files, reconstructs `File` objects in the browser, and removes the
-  token from the address bar.
-- Handoffs expire automatically, are swept on both workspace open and tool
-  mount, and can be wiped on demand with the workspace **Clear session** control
-  (which also clears staged files and remembered preferences); a missing,
-  expired, or incompatible handoff falls back to the normal file picker with
-  honest copy.
+- Staged files live in browser memory while their page is open: the
+  workspace, or the home page's drop zone.
+- Launching a tool that can receive files (`launchWithFiles`,
+  `src/lib/intent/launch.ts`) writes the selected `File`/`Blob` objects to
+  origin-private IndexedDB (`pdfxyz-handoff`) under an opaque, unguessable
+  hand-off id. A tool that cannot receive files opens plainly; a write that
+  fails does **not** navigate — the page says the files did not travel and
+  offers a plain link.
+- The tool opens as `/tools/<slug>?handoff=<id>`, claims the record once
+  (`claimFromUrl`, `src/lib/handoff/claim.ts`), filters incompatible files,
+  reconstructs `File` objects in the browser, and removes the token from the
+  address bar. A file with no declared type takes its name's type from the
+  server's own table, or none — never an invented `application/pdf`.
+- `/workspace?handoff=<id>` claims a record addressed to the reserved target
+  `workspace` the same way ("Open in workspace" on the home page). A second
+  reserved target, `parked`, will hold files set aside while another step runs
+  first (WP-08). Neither is a tool slug (`origin.test.ts`).
+- **Provenance travels with the bytes, and is the only metadata added.** Each
+  record carries an `origin` (`workspace`, `drop` with the surface,
+  `result` or `remedy` with the slug of the tool it came from), and may carry
+  a `trail` (the slugs of the tools the job has been through, at most six)
+  and a `pending` step (a tool slug, and the id of a parked record or null).
+  All of them are slugs, enums and an opaque id: no file name, size or content
+  beyond the file entries themselves. A claim reads them through validators
+  (`readOrigin`, `readTrail`, `readPending`, `src/lib/handoff/origin.ts`);
+  a record without an origin, or with a malformed one, reads as the workspace.
+- Hand-offs are single-use and expire after `DEFAULT_HANDOFF_TTL_MS`. They are
+  swept on workspace open, on tool mount, and on **every page** on idle
+  (`HandoffSweep` in the root layout, `src/lib/handoff/sweep.ts`). The sweep
+  opens the database only if it already exists — it aborts the creation a
+  missing one would need — so a visitor who never handed a file anywhere has
+  nothing stored. The workspace **Clear session** control wipes every hand-off
+  on demand; a missing, expired, or incompatible hand-off falls back to the
+  normal file picker with honest copy.
 - Reading a token strips it from the address bar reliably — the `handoff`
   parameter is removed while any sibling query params and the path are preserved
   (`src/lib/handoff/url.ts`, unit-tested) — so a token never lingers in a
   shareable, reloadable, or logged URL.
 - The token never points to server storage, and the server never receives file
-  contents for in-browser tools.
+  contents for in-browser tools. Every key this site keeps in the browser is
+  listed on `/privacy` from `src/lib/browser-storage.ts`, which
+  `browser-storage.test.ts` holds to every storage call in the code.
 
 ## Client telemetry (privacy-safe, off by default)
 

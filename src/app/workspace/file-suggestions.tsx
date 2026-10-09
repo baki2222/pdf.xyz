@@ -89,6 +89,10 @@ function SuggestionRow({
   onLaunch: (row: Row, rank: number) => void;
 }) {
   const meta = getProcessingMeta(row.tool.processing);
+  // The link's NAME says what it carries; its DESCRIPTION is the fact behind
+  // it and where it runs — an aria-label replaces the content as the name, so
+  // without this a screen reader would never hear the evidence.
+  const describedBy = useId();
   const facts = row.evidence
     .filter((e) => !TERMS.has(e.kind))
     .map(renderEvidence);
@@ -118,6 +122,11 @@ function SuggestionRow({
       href={`/tools/${row.slug}`}
       onClick={onClick}
       aria-label={rowName(row, nameOf)}
+      aria-describedby={
+        facts.length > 0
+          ? `${describedBy}-facts ${describedBy}-where`
+          : `${describedBy}-where`
+      }
       aria-busy={launching || undefined}
       aria-disabled={disabled || undefined}
       data-suggestion={row.slug}
@@ -135,11 +144,17 @@ function SuggestionRow({
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-fg text-sm font-medium">{row.tool.name}</span>
         {facts.length > 0 && (
-          <span className="text-muted text-xs leading-relaxed">
+          <span
+            id={`${describedBy}-facts`}
+            className="text-muted text-xs leading-relaxed"
+          >
             {facts.join(" · ")}
           </span>
         )}
-        <span className="text-faint flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-relaxed">
+        <span
+          id={`${describedBy}-where`}
+          className="text-faint flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-relaxed"
+        >
           <ModeShape mode={row.tool.processing} />
           <span className="font-mono font-medium tracking-wide uppercase">
             {meta.short}
