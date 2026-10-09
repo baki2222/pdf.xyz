@@ -47,7 +47,9 @@
  * it. Instead each side answers to something else: this module must pass a
  * deck saved by PowerPoint itself (`pptx-inspect.test.ts`, the positive
  * control), which pins its vocabulary to the consumer's, and the writer's
- * output must pass this module.
+ * output must pass this module: before every delivery (`./engine` refuses a
+ * deck that fails, as `incomplete_output`) and at worker start-up
+ * (`./capability`, published as `pptxPresentationChain`).
  *
  * `./validate-ooxml` is a second reader of the same files, deeper (shape trees,
  * theme schemes, a real namespace-aware parser) and built on jsdom, which the

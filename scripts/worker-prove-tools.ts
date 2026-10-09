@@ -1099,8 +1099,9 @@ const SPECS: ProofSpec[] = [
     // unreadable": no master, layout or theme, no slide size, empty shape
     // properties. Walk the package the way PowerPoint does — the same two
     // readers the unit tests run on `main` (readPptx, and the package
-    // inspector the worker's capability probe runs), here run on the bytes
-    // the deployment returned — then read the fixture's text off a slide.
+    // inspector the worker runs before delivery and in its capability probe),
+    // here run on the bytes the deployment returned — then read the
+    // fixture's text off a slide.
     // Keep a copy with PROOF_ARTIFACT_DIR and open it in PowerPoint with
     // `pnpm prove:pptx-opens --file`.
     verify: (bytes) => pptxProofVerdict(bytes, "pdf.xyz deployment proof"),

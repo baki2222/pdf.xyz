@@ -18,6 +18,9 @@
  * once meant an empty `a:txBody`), then `inspectPptxPackage` over the bytes it
  * returned. It reads the engine's OUTPUT, not the generator's source, so an
  * engine that stopped writing a part fails here however its code is arranged.
+ * Since 2026-10-09 the engine also runs that inspector itself and refuses to
+ * deliver a deck that fails it, so `false` here means the same thing whether
+ * the probe or the engine saw the problem first.
  *
  * ── WHAT A PASS DOES AND DOES NOT MEAN ──────────────────────────────────────
  *

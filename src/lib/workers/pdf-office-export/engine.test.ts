@@ -36,6 +36,8 @@ import {
   type PdfTextExtractor,
 } from "./engine";
 import { inspectPptxPackage } from "./pptx-inspect";
+import { pptxPackage } from "./pptx-package";
+import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { parseXml, xmlWellFormedness } from "@/tests/xml-well-formed";
 
 const PDF = new TextEncoder().encode(
@@ -760,5 +762,54 @@ describe("pdf-to-powerpoint package", () => {
       [],
       ['Next steps "quoted"', "Thanks"],
     ]);
+  });
+});
+
+/**
+ * ── THE DECK IS INSPECTED BEFORE IT IS DELIVERED ────────────────────────────
+ *
+ * Both checks that certified the refused deck ran somewhere else: a unit test
+ * on `main`, a deployment proof after the fact. The engine handed every user
+ * whatever the writer returned. It now runs `./pptx-inspect` — the inspector
+ * the worker's start-up probe also runs, which needs nothing the image lacks —
+ * over its own output, and a deck that fails is a failure, not a download.
+ */
+describe("pdf-to-powerpoint is inspected before it is delivered", () => {
+  const pages = [
+    { pageNumber: 1, text: "First page", characterCount: 10 },
+    { pageNumber: 2, text: "Second page", characterCount: 11 },
+  ];
+  const twoPages: PdfTextExtractor = async () => ({
+    pageCount: 2,
+    pages,
+    text: "First page\n\nSecond page",
+    characterCount: 21,
+    hasText: true,
+  });
+
+  it("refuses to deliver the deck PowerPoint refused, from a writer that regressed to it", async () => {
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
+      extract: twoPages,
+      writePptx: () => pptxBefore20260927(pages),
+    });
+    expect(run).toMatchObject({ ok: false, kind: "incomplete_output" });
+    if (!run.ok) expect(run.message).toMatch(/not delivered/);
+  });
+
+  it("refuses a complete deck that is a slide short of the PDF", async () => {
+    // Structurally whole, so only the count can see it: one slide per page is
+    // the promise, and a writer that dropped a page keeps every other check.
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
+      extract: twoPages,
+      writePptx: (slides) => pptxPackage(slides.slice(1)),
+    });
+    expect(run).toMatchObject({ ok: false, kind: "incomplete_output" });
+  });
+
+  it("POSITIVE CONTROL: delivers what the real writer writes", async () => {
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
+      extract: twoPages,
+    });
+    expect(run).toMatchObject({ ok: true, filenameExt: "pptx" });
   });
 });
