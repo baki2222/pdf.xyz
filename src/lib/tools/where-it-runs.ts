@@ -16,6 +16,14 @@ import type { ProcessingMode, Tool } from "./types";
  * upload. Together they cover the catalogue exactly once
  * (`where-it-runs.test.ts`).
  *
+ * WHY TWO WORDS FOR ONE SET. Each tool card, and the category pages' "where
+ * these run" counts, say the MODE in its own words ("In-browser", "Runs in
+ * your browser"); this filter says "Never uploads". Both are true of the
+ * same tools today, and they answer different questions: where a tool runs,
+ * and whether your file can leave the device. The filter takes the second
+ * because that is what a reader filters by, and the mode's shape (●) beside
+ * it ties the two together on screen.
+ *
  * Catalogue-free and partition-free on purpose: this module is imported by
  * the client explorer (for the ids, the words and the sentences), while the
  * MEMBERSHIP is computed on the server by {@link whereItRuns} and handed to
