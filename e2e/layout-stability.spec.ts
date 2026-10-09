@@ -1523,3 +1523,118 @@ test.describe("first visit: fonts arrive after first paint (FONTS_LATE=1)", () =
     });
   }
 });
+
+/**
+ * The home desk as files arrive (WP-05): the same box from the empty desk to
+ * the ticket, at a fixed size, so the swap, the rows landing, the facts
+ * filling in and the suggestions appearing move NOTHING — inside the desk
+ * (`[data-desk]` is a reserved slot) or below it.
+ *
+ * The files arrive by a synthetic drop, which carries no input flag: every
+ * shift it causes counts, as it would for a visitor's real drop. The ticket's
+ * chunk is held back {@link LATE_CHUNK_MS} if it has not arrived, so the
+ * stand-in shows first on every run, not only on a slow machine.
+ */
+test.describe("the home desk as files arrive", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(observe, RESERVED);
+  });
+
+  for (const c of [
+    { name: "desktop", use: DESKTOP },
+    { name: "phone", use: PHONE },
+  ] as const) {
+    test.describe(c.name, () => {
+      test.use(c.use);
+
+      test("drop two PDFs: nothing inside or below the desk moves, from the drop to the settled ticket", async ({
+        page,
+      }) => {
+        const files = await Promise.all(
+          [
+            ["contract.pdf", 3],
+            ["annex.pdf", 1],
+          ].map(async ([name, pages]) => ({
+            name: name as string,
+            b64: Buffer.from(
+              await makePdfBytes(name as string, pages as number),
+            ).toString("base64"),
+          })),
+        );
+        await page.goto("/", { waitUntil: "load" });
+        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        await page.goto("/", { waitUntil: "load" });
+        const desk = page.locator("[data-desk]");
+        await waitForHydration(desk);
+        await page.waitForLoadState("networkidle");
+        await page.route(
+          /\/_next\/static\/chunks\/.+\.js(?:\?.*)?$/,
+          async (route) => {
+            await new Promise((resolve) => setTimeout(resolve, LATE_CHUNK_MS));
+            await route.continue();
+          },
+        );
+        // The desk and what is under it are on screen when the files land.
+        await desk.evaluate((el) =>
+          el.scrollIntoView({ block: "start", behavior: "instant" }),
+        );
+        await page.waitForTimeout(300);
+        const before = await page.evaluate(() => ({
+          shifts: window.__shifts?.length ?? -1,
+          box: document.querySelector("[data-desk]")!.getBoundingClientRect()
+            .height,
+        }));
+        expect(
+          before.shifts,
+          "the recorder is not installed",
+        ).toBeGreaterThanOrEqual(0);
+
+        const dataTransfer = await page.evaluateHandle((list) => {
+          const dt = new DataTransfer();
+          for (const { name, b64 } of list) {
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            dt.items.add(new File([bytes], name, { type: "application/pdf" }));
+          }
+          return dt;
+        }, files);
+        await desk.dispatchEvent("dragenter", { dataTransfer });
+        await desk.dispatchEvent("drop", { dataTransfer });
+
+        const ticket = page.getByRole("region", {
+          name: "What you can do with these files",
+        });
+        await expect(ticket).toContainText(/2 PDFs\s·\s4 pages/, {
+          timeout: 15_000,
+        });
+        await expect(
+          ticket.locator('[data-slot="suggestions"] ol > li'),
+        ).toHaveCount(3);
+        await page.waitForTimeout(600);
+
+        const after = await page.evaluate((from) => {
+          const shifts = (window.__shifts ?? []).slice(from);
+          return {
+            shifts,
+            box: document.querySelector("[data-desk]")!.getBoundingClientRect()
+              .height,
+          };
+        }, before.shifts);
+        const counted = after.shifts.filter((s) => !s.hadRecentInput);
+        const inDesk = after.shifts.filter((s) =>
+          s.sources.some((x) => x.reserved),
+        );
+        expect(after.box, "the desk changed height").toBe(before.box);
+        expect(
+          inDesk.length,
+          `something inside the desk moved:\n${report(inDesk)}`,
+        ).toBe(0);
+        expect(
+          counted.reduce((sum, s) => sum + s.value, 0),
+          `the page moved as the files arrived:\n${report(counted)}`,
+        ).toBeLessThanOrEqual(MAX_CLS);
+      });
+    });
+  }
+});

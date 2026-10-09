@@ -181,8 +181,8 @@ pictures). Find **OCR PDF** in the list.
 **Must hear:** _"Open OCR PDF — you'll add the file there"_, then _"No
 selectable text on page 1"_ and _"uploads only when you start it"_.
 
-Then go to <https://pdf.xyz>, add two PDFs to the drop zone and press **Open in
-workspace**.
+Then go to <https://pdf.xyz>, add two PDFs on the desk and press **Open in
+workspace** on the ticket.
 
 **Must hear:** the workspace, and _"Loaded 2 files you added. Still in this
 browser; nothing was uploaded."_ — never _"from your workspace"_ for files that
@@ -195,9 +195,59 @@ workspace.
 
 ---
 
+## 8. The home desk, and the job ticket
+
+<https://pdf.xyz> — `Tab` from the top of the page.
+
+**Must hear:** after the header and the headline, _"Choose files, button"_ (or
+_"file upload"_), described by what it takes: _"PDF up to 100 MB · Word,
+Excel, PowerPoint up to 50 MB…"_. Keep tabbing.
+
+**Must hear:** **Try a sample PDF**, then the six tasks as links, each saying
+where its tool runs — _"Make a PDF smaller, Hybrid"_, _"Make a scan
+searchable, Secure worker"_ (on a phone the word is read even though only its
+shape is drawn).
+
+Go back to **Choose files**, press `Space`, pick two PDFs.
+
+**Must hear:** focus land on the ticket — _"What you can do with these files,
+region"_ — and then, once, after the pages are counted, _"Checked 2 files. 3
+suggestions. Best match: Merge PDF."_ Not before the files are listed, and not
+again when nothing has changed.
+
+Arrow through the ticket.
+
+**Must hear:** the files' line (_"2 PDFs · 15 pages · …"_), each file with its
+size and pages, then the first suggestion as _"Open Merge PDF with 2 files"_
+and its description (_"2 PDFs · 15 pages · In-browser"_). A worker tool in
+**More for these files** says _"you'll add the file there"_ and _"uploads only
+when you start it"_. Press **Clear**.
+
+**Must hear:** focus back on **Choose files**. The empty desk was never read
+twice: while the ticket is up, the desk under it is not announced at all.
+
+Press **Try a sample PDF**.
+
+**Must hear:** the ticket, with **pdfxyz-sample.pdf** marked _"pdf.xyz's
+sample"_ and **Fill Forms** first, because _"pdfxyz-sample.pdf has 2 form
+fields"_.
+
+Finally, drag a PDF from your file manager onto the page and drop it outside
+the desk (on the headline, say).
+
+**Must hear:** the same _"Checked 1 file…"_ announcement, and focus NOT moved —
+a drop announces; only a pick moves focus.
+
+**Fails if:** the desk's picker has no name or no description; a task link does
+not say where its tool runs; the ticket is announced twice for one set of
+files; the empty desk is read while the ticket covers it; a drop moves focus;
+or the browser opens the dropped PDF in the tab.
+
+---
+
 ## Recording the result
 
-Note the browser, screen reader, and version, and for each of the seven: heard /
+Note the browser, screen reader, and version, and for each of the eight: heard /
 not heard / heard but wrong. A partial pass is a finding, not a failure — write
 down what was actually said, because the wording is the deliverable.
 
@@ -207,7 +257,10 @@ If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `resultAnnouncement` in `src/components/tools/tools-explorer.tsx`, and
 `FormatsLine` in `src/components/tools/formats-line.tsx`; for check 7,
 `FileSuggestions` in `src/app/workspace/file-suggestions.tsx` and
-`HandoffLoadedBadge` in `src/components/tools/runner/handoff-notice.tsx`. Each carries
+`HandoffLoadedBadge` in `src/components/tools/runner/handoff-notice.tsx`; for check
+8, `HeroDesk` in `src/components/intent/hero-desk.tsx`, `TicketView` in
+`src/components/intent/ticket-view.tsx` and `DropSheet` in
+`src/components/upload/drop-sheet.tsx`. Each carries
 a docblock explaining what it is protecting against, which is usually faster
 than reading the logic.
 

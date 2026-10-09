@@ -233,7 +233,7 @@ test("a HEIC photo: the ticket says no tool opens it, and what to do instead", a
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
 
-test("Try a sample PDF: made in this tab, measured, and Fill forms first for its two fields", async ({
+test("Try a sample PDF: marked as the site's, measured, and Fill forms first for its two fields", async ({
   page,
 }) => {
   const guard = attachConsoleGuard(page);
@@ -245,10 +245,11 @@ test("Try a sample PDF: made in this tab, measured, and Fill forms first for its
 
   const ticket = ticketOf(page);
   await expect(ticket.getByText("pdfxyz-sample.pdf")).toBeVisible();
-  await expect(ticket).toContainText(/made in this tab/);
+  // Marked as pdf.xyz's own, never mistaken for a file of the visitor's.
+  await expect(ticket).toContainText(/pdf\.xyz's sample/);
   const first = ticket.getByRole("listitem").first().getByRole("link");
   await expect(first).toHaveAccessibleName(
-    /^Open Fill forms with pdfxyz-sample\.pdf$/,
+    /^Open Fill forms with pdfxyz-sample\.pdf$/i,
   );
   await expect(ticket).toContainText(/pdfxyz-sample\.pdf has 2 form fields/);
 
@@ -278,4 +279,38 @@ test("the first file input on the page is the desk's, inside main", async ({
     .first()
     .evaluate((el) => !!el.closest("main") && !!el.closest("[data-desk]"));
   expect(inMain).toBe(true);
+});
+
+/**
+ * G.7, "Home: compress one PDF": counted, not estimated. The plan's target
+ * was 3 actions and 1 pick (drop → Compress PDF → Download); WP-04's
+ * re-measure put the zone it replaced at about 4. Compress analyses the file
+ * on arrival and offers the optimized copy itself, so there is no Run step.
+ */
+test("one PDF, compressed from the home page: pick, Compress PDF, download — three actions", async ({
+  page,
+}) => {
+  let actions = 0;
+  await page.goto("/");
+  await uploadFiles(page, await writeTempPdf("big-report.pdf", 6));
+  actions++;
+  const ticket = ticketOf(page);
+  const compress = ticket.getByRole("link", {
+    name: /^Open Compress PDF with big-report\.pdf$/,
+  });
+  await expect(compress).toBeVisible();
+  // Ranked first: the ticket's primary row.
+  await expect(
+    ticket.locator('[data-slot="suggestions"] ol > li').first(),
+  ).toContainText("Compress PDF");
+  await compress.click();
+  actions++;
+  await expect(page).toHaveURL(/\/tools\/compress-pdf$/);
+  const optimized = await captureDownload(
+    page,
+    page.getByRole("button", { name: /download optimized pdf/i }),
+  );
+  actions++;
+  expect(await pdfPageCount(optimized)).toBe(6);
+  expect(actions).toBe(3);
 });

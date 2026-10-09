@@ -36,6 +36,7 @@
  *   pnpm a11y:contrast --all-guides             # every /guides/<slug> too
  *   BASE=http://127.0.0.1:3100 pnpm a11y:contrast --json report.json
  *   A11Y_SCHEME=dark pnpm a11y:contrast         # audit the dark colour scheme
+ *   pnpm a11y:contrast --states                 # also the states in scripts/a11y-states.ts
  *
  * NOTE: this script does NOT build or serve. It measures whatever already
  * answers on BASE — so serve the build you mean to audit yourself, and prove
@@ -69,6 +70,7 @@ import { getAllToolSlugs } from "../src/lib/tools";
 import { getAllGuideSlugs } from "../src/lib/guides";
 import { categories } from "../src/lib/tools/categories";
 import { categoryHref } from "../src/lib/tools/category-href";
+import { A11Y_STATES } from "./a11y-states";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:3100";
 
@@ -432,6 +434,8 @@ async function auditRoute(
   page: Page,
   route: string,
   viewport: string,
+  /** Bring a state about after the page has loaded (`--states`). */
+  prepare?: (page: Page) => Promise<void>,
 ): Promise<{
   findings: Finding[];
   measured: number;
@@ -445,6 +449,7 @@ async function auditRoute(
     .waitForLoadState("networkidle", { timeout: 8_000 })
     .catch(() => {});
   await page.evaluate(() => document.fonts.ready);
+  if (prepare) await prepare(page);
 
   const candidates = await tagCandidates(page);
   await hideText(page);
@@ -566,6 +571,14 @@ async function main(): Promise<number> {
     ];
   }
 
+  // `--states`: the registry in scripts/a11y-states.ts. Health check: a flag
+  // that measured no state would report the strongest possible pass.
+  const states = flag("states") ? A11Y_STATES : [];
+  if (flag("states") && states.length < 1) {
+    console.error("--states: the state registry is empty");
+    return 2;
+  }
+
   const browser = await chromium.launch();
   const findings: Finding[] = [];
   const unresolved = new Set<string>();
@@ -611,6 +624,23 @@ async function main(): Promise<number> {
         const failed = result.findings.length;
         console.log(
           `${viewport.name.padEnd(7)} ${route.padEnd(28)} measured=${String(result.measured).padStart(4)} fail=${String(failed).padStart(3)}`,
+        );
+      }
+      // States a route cannot reach (`scripts/a11y-states.ts`): measured
+      // after the steps that bring each one about.
+      for (const state of states) {
+        const result = await auditRoute(
+          page,
+          state.route,
+          viewport.name,
+          state.prepare,
+        );
+        findings.push(...result.findings);
+        measured += result.measured;
+        skipped += result.skipped;
+        for (const color of result.unresolved) unresolved.add(color);
+        console.log(
+          `${viewport.name.padEnd(7)} [state] ${state.name.padEnd(48)} measured=${String(result.measured).padStart(4)} fail=${String(result.findings.length).padStart(3)}`,
         );
       }
       await context.close();

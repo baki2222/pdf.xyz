@@ -47,3 +47,21 @@ test("the workspace adopts files picked before hydration", async ({ page }) => {
 
   await expect(page.getByText("staged.pdf")).toBeVisible();
 });
+
+test("the home desk adopts files picked before hydration", async ({ page }) => {
+  await stallScripts(page);
+  const source = await writeTempPdf("early-home.pdf", 2);
+
+  await page.goto("/", { waitUntil: "commit" });
+  // The desk's own picker: the page's first file input, server-rendered.
+  await page.locator('input[type="file"]').first().setInputFiles(source);
+
+  // Adopted on mount, measured, and listed on the ticket.
+  const ticket = page.getByRole("region", {
+    name: "What you can do with these files",
+  });
+  await expect(ticket.getByText("early-home.pdf")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(ticket).toContainText(/1 PDF\s·\s2 pages/);
+});

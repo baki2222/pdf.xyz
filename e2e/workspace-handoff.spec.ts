@@ -165,7 +165,11 @@ test("files added on the home page arrive in Merge PDF saying where they came fr
     await writeTempPdf("second.pdf", 2),
   ]);
 
-  await page.getByRole("button", { name: /merge pdf/i }).click();
+  // WAS a button named /merge pdf/; the desk's offers are links named for
+  // what they carry (WP-05).
+  await page
+    .getByRole("link", { name: /^open merge pdf with 2 files$/i })
+    .click();
   await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
   await expect(page.getByText("first.pdf")).toBeVisible();
   await expect(page.getByText("second.pdf")).toBeVisible();
@@ -222,7 +226,7 @@ test("three PDFs added on the home page and sent to a one-file tool: the badge c
     await writeTempPdf("three.pdf", 1),
   ]);
 
-  await page.getByRole("button", { name: /sign pdf/i }).click();
+  await page.getByRole("link", { name: /^open sign pdf with /i }).click();
   await expect(page).toHaveURL(/\/tools\/sign-pdf$/);
 
   // Health: the badge is there and is the drop's — a missing badge would
@@ -250,7 +254,9 @@ test("the same holds for a tool that takes several: two of three files reach Mer
     docx,
   ]);
 
-  await page.getByRole("button", { name: /merge pdf/i }).click();
+  await page
+    .getByRole("link", { name: /^open merge pdf with 2 files$/i })
+    .click();
   await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
   await expect(page.getByText("first.pdf")).toBeVisible();
   await expect(page.getByText("second.pdf")).toBeVisible();
@@ -300,12 +306,18 @@ for (const width of [360, 390]) {
         await writeTempPdf(long, 1),
         await writeTempScanPdf(scan, 1),
       ]);
-      // The zone's suggestions have arrived, so the panel is at its final
-      // width: the list and its continue button are both there.
+      // The ticket's suggestions have arrived, so the desk is at its final
+      // width: the rows and Open in workspace are both there. (WAS the drop
+      // zone's "Continue with your files" list; the desk replaced it, WP-05.)
+      const ticket = page.getByRole("region", {
+        name: "What you can do with these files",
+      });
       await expect(
-        page.getByRole("button", { name: /open in workspace/i }),
+        ticket.getByRole("button", { name: /open in workspace/i }),
       ).toBeVisible();
-      await expect(page.getByText(/continue with your files/i)).toBeVisible();
+      await expect(
+        ticket.locator('[data-slot="suggestions"] ol > li').first(),
+      ).toBeVisible();
 
       const m = await page.evaluate((names) => {
         const root = document.documentElement;
@@ -313,16 +325,41 @@ for (const width of [360, 390]) {
           .querySelector('input[type="file"]')
           ?.closest(".crop-marks");
         const zoneBox = zone?.getBoundingClientRect();
+        // A staged name's row: the ticket lists each file as a <dt>.
         const spans = names.map((n) =>
-          [...document.querySelectorAll("span")].find(
+          [...document.querySelectorAll("dt, span")].find(
             (s) => s.textContent === n,
           ),
         );
+        // Where an element can be SEEN: its box, cut by every ancestor up to
+        // the panel that clips what overflows it. Refined 2026-10-10 (WP-05):
+        // the ticket's lines are cut short (`truncate`), and the words past
+        // the cut — still boxes, never painted — read as "running out" to the
+        // bare box check, which was written when every cut-short line was a
+        // single span. A line whose clip FAILED is still caught: its words
+        // are then painted past the panel and this reports them.
+        const visibleRight = (el: Element) => {
+          let right = el.getBoundingClientRect().right;
+          for (
+            let up = el.parentElement;
+            up && up !== zone;
+            up = up.parentElement
+          ) {
+            const overflow = getComputedStyle(up).overflowX;
+            if (overflow !== "visible")
+              right = Math.min(right, up.getBoundingClientRect().right);
+          }
+          return right;
+        };
         const escaped = zone
           ? [...zone.querySelectorAll("*")]
               .filter((el) => {
                 const r = el.getBoundingClientRect();
-                return r.width > 0 && r.right > zoneBox!.right + 0.5;
+                return (
+                  r.width > 0 &&
+                  getComputedStyle(el).visibility !== "hidden" &&
+                  visibleRight(el) > zoneBox!.right + 0.5
+                );
               })
               .map(
                 (el) =>
@@ -337,8 +374,26 @@ for (const width of [360, 390]) {
           found: spans.map((s) => !!s),
           cut: spans.map((s) => (s ? s.scrollWidth > s.clientWidth : null)),
           escaped,
+          // Positive control for the clip-aware check: the scan's facts line
+          // (long enough to be cut short) with its clip removed must be
+          // reported as running out of the panel.
+          control: (() => {
+            const facts = spans[1]?.nextElementSibling as HTMLElement | null;
+            if (!facts || !zone) return null;
+            const was = facts.style.overflow;
+            facts.style.overflow = "visible";
+            const out = [...facts.querySelectorAll("*")].some(
+              (el) => visibleRight(el) > zoneBox!.right + 0.5,
+            );
+            facts.style.overflow = was;
+            return out;
+          })(),
         };
       }, HOME_LONG_NAMES);
+      expect(
+        m.control,
+        "the clip-aware check cannot see a line that escapes",
+      ).toBe(true);
 
       // Health: the width asked for is the width that painted, and the
       // probe found the panel and both names' rows.
