@@ -104,6 +104,13 @@ async function render(
   const served = new Set(
     tapped
       .filter((u) => new URL(u).host === SERVED_HOST)
+      // Chromium asks for the origin's /favicon.ico ON ITS OWN, and only
+      // sometimes before printing ends: CI on 2026-10-09 saw it in one run of
+      // three, failing "nothing else was asked for" and "behind a public
+      // <base> nothing is served". It is no asset the document names (no
+      // corpus here references that path), so the scan rightly never reports
+      // it. Exactly that path is set aside; anything else still fails.
+      .filter((u) => new URL(u).pathname !== "/favicon.ico")
       .map((u) => withoutHash(u)),
   );
   return { served: [...served], fetched: [...fetched] };
