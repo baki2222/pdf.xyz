@@ -91,6 +91,7 @@ function mount(
       onFiles={() => {}}
       onRemove={() => {}}
       onClearRejections={() => {}}
+      onClear={() => {}}
       extract={reader}
     />,
   );

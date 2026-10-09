@@ -53,7 +53,12 @@ interface Rejection {
   reason: string;
 }
 
-export function ComparePdfRunner() {
+export function ComparePdfRunner({
+  extract,
+}: {
+  /** Reads each PDF's text. Only a test passes this; see `ComparePdfEditor`. */
+  extract?: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+} = {}) {
   const [items, setItems] = useState<CompareItem[]>([]);
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [loading, setLoading] = useState(0);
@@ -134,6 +139,11 @@ export function ComparePdfRunner() {
           setItems((prev) => prev.filter((item) => item.id !== id))
         }
         onClearRejections={() => setRejections([])}
+        onClear={() => {
+          setItems([]);
+          setRejections([]);
+        }}
+        extract={extract}
       />
     </div>
   );
@@ -180,6 +190,7 @@ export function ComparePdfEditor({
   onFiles,
   onRemove,
   onClearRejections,
+  onClear,
   extract = extractPdfText,
 }: {
   items: CompareItem[];
@@ -188,10 +199,15 @@ export function ComparePdfEditor({
   onFiles: (files: File[]) => void;
   onRemove: (id: string) => void;
   onClearRejections: () => void;
+  /**
+   * Empties both file slots, so "Start over" lands on the empty runner. It
+   * used to reload the page instead (start-over.test.ts).
+   */
+  onClear: () => void;
   /** Reads each PDF's text. Only a test passes this; see `extractPdfText`. */
   extract?: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 }) {
-  const { busy, error, result, run } = useAsyncRun<PdfCompareResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<PdfCompareResult>();
   const canCompare = items.length === 2;
   const onRun = () =>
     run(async () => {
@@ -243,7 +259,10 @@ export function ComparePdfEditor({
             </>
           )
         }
-        onReset={() => window.location.reload()}
+        onReset={() => {
+          reset();
+          onClear();
+        }}
       >
         <div className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-3">
