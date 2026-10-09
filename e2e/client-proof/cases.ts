@@ -25,6 +25,7 @@ import {
   makeBlankImageInPage,
   makeFormPdf,
   makeImageBearingPdf,
+  makeImagePagesPdf,
   makeJpegFixtureInPage,
   makeNeutralInkJpegInPage,
   makePngFixture,
@@ -48,6 +49,7 @@ import {
   pdfFormSnapshot,
   pdfImages,
   pdfPageCount,
+  pdfPageImages,
   pdfPageTexts,
   pdfRotations,
   zipEntries,
@@ -360,6 +362,11 @@ function expectRasterSize(
 /* ------------------------------------------------------------------ *
  *  The cases
  * ------------------------------------------------------------------ */
+
+/** Why a mixed JPG + PNG proof rejects an artifact, shared with its controls. */
+const MIXED_IMAGES_PAGES = "one page per image: the JPG and the PNG";
+const MIXED_IMAGES_FIRST = "page 1 is the JPEG, DCT-coded";
+const MIXED_IMAGES_SECOND = "page 2 is the PNG, Flate-coded";
 
 export const CASES: Record<string, ToolCase> = {
   "merge-pdf": {
@@ -741,16 +748,29 @@ export const CASES: Record<string, ToolCase> = {
   "jpg-to-pdf": {
     kind: "image-to-pdf",
     artifact: "pdf",
+    // A JPG and a PNG in ONE upload, because that is the defect this case
+    // was widened for (2026-10-09): until 2026-10-08 JPG to PDF kept only
+    // JPEGs, so a mixed pair came back as a 1-page PDF and the PNG was
+    // dropped without a word. The PNG is a different size from the JPEG, so
+    // a page holding the wrong image cannot pass on its dimensions.
     run: async (ctx) => {
       const jpeg = await makeJpegFixtureInPage(ctx.page, "photo.jpg");
+      const png = makePngFixture("art.png", 240, 160);
       ctx.data["photo.jpg"] = jpeg.bytes;
-      ctx.data.imageWidth = jpeg.width;
-      ctx.data.imageHeight = jpeg.height;
+      ctx.data["art.png"] = png.bytes;
+      ctx.data.jpgWidth = jpeg.width;
+      ctx.data.jpgHeight = jpeg.height;
+      ctx.data.pngWidth = png.width;
+      ctx.data.pngHeight = png.height;
       await uploadPayloads(ctx.page, [
         { name: "photo.jpg", mimeType: "image/jpeg", buffer: jpeg.bytes },
+        { name: "art.png", mimeType: "image/png", buffer: png.bytes },
       ]);
       await expect(
         ctx.page.getByText("photo.jpg", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        ctx.page.getByText("art.png", { exact: true }),
       ).toBeVisible();
       return runAndDownload(
         ctx,
@@ -760,22 +780,41 @@ export const CASES: Record<string, ToolCase> = {
       );
     },
     assert: async (buf, ctx) => {
-      expect(await pdfPageCount(buf)).toBe(1);
-      const images = await pdfImages(buf);
-      expect(images.length).toBeGreaterThanOrEqual(1);
-      const embedded = images[0]!;
-      // The engine embeds the actual JPEG stream: DCT-coded, at native size.
-      expect(embedded.filter).toContain("DCTDecode");
-      expect(embedded.width).toBe(Number(ctx.data.imageWidth));
-      expect(embedded.height).toBe(Number(ctx.data.imageHeight));
+      const pages = await pdfPageImages(buf);
+      expect(pages.length, MIXED_IMAGES_PAGES).toBe(2);
+      const [first, second] = pages.map((images) => images[0]);
+      // Page 1: the JPEG stream itself, DCT-coded, at its native size.
+      expect(first?.filter, MIXED_IMAGES_FIRST).toContain("DCTDecode");
+      expect(first?.width).toBe(Number(ctx.data.jpgWidth));
+      expect(first?.height).toBe(Number(ctx.data.jpgHeight));
+      // Page 2: the PNG, Flate-coded (not re-encoded as a JPEG), native size.
+      expect(second?.filter, MIXED_IMAGES_SECOND).toContain("FlateDecode");
+      expect(second?.width).toBe(Number(ctx.data.pngWidth));
+      expect(second?.height).toBe(Number(ctx.data.pngHeight));
     },
-    // Two PDFs that are NOT the source JPEG converted: one with no image at
-    // all, one carrying a different image (96x64, Flate-coded) at the wrong
-    // size. Handing this assertion the source JPEG would let the PDF magic
-    // check do all the work and prove nothing about what was embedded.
-    control: async () => [
-      Buffer.from(await makeTextPdf("no-image.pdf")),
-      Buffer.from((await makeImageBearingPdf("other-image.pdf")).pdf),
+    // Three near misses, each differing from the true artifact in ONE way:
+    //  1. the old defect — the PNG dropped, one page holding the JPEG;
+    //  2. both pages DCT — the PNG re-encoded as a JPEG on the way in;
+    //  3. the right images in the wrong order.
+    control: async (ctx) => {
+      const jpg = {
+        bytes: ctx.data["photo.jpg"] as Buffer,
+        format: "jpg" as const,
+      };
+      const png = {
+        bytes: ctx.data["art.png"] as Buffer,
+        format: "png" as const,
+      };
+      return [
+        Buffer.from(await makeImagePagesPdf([jpg])),
+        Buffer.from(await makeImagePagesPdf([jpg, jpg])),
+        Buffer.from(await makeImagePagesPdf([png, jpg])),
+      ];
+    },
+    rejectsBecause: [
+      MIXED_IMAGES_PAGES,
+      MIXED_IMAGES_SECOND,
+      MIXED_IMAGES_FIRST,
     ],
   },
 

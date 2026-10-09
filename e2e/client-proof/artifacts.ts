@@ -178,6 +178,42 @@ export async function pdfImages(buf: Buffer): Promise<PdfImageInfo[]> {
 }
 
 /**
+ * The raster images each page's resources hold, page by page — so a proof
+ * can say WHICH page carries which image, not only that the file holds them.
+ * (`pdfImages` walks every object in the file, in object order.)
+ */
+export async function pdfPageImages(
+  buf: Buffer,
+): Promise<Omit<PdfImageInfo, "bytes">[][]> {
+  const doc = await loadPdf(buf);
+  return doc.getPages().map((page) => {
+    const xobjects = page.node
+      .Resources()
+      ?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+    if (!xobjects) return [];
+    return [...xobjects.entries()].flatMap(([, ref]) => {
+      const obj = doc.context.lookup(ref);
+      if (!(obj instanceof PDFRawStream)) return [];
+      const dict = obj.dict;
+      if (dict.get(PDFName.of("Subtype"))?.toString() !== "/Image") return [];
+      const num = (key: string): number => {
+        const v = dict.get(PDFName.of(key));
+        return v ? Number(v.toString()) : NaN;
+      };
+      return [
+        {
+          width: num("Width"),
+          height: num("Height"),
+          filter: dict.get(PDFName.of("Filter"))?.toString(),
+          colorSpace: dict.get(PDFName.of("ColorSpace"))?.toString(),
+          bitsPerComponent: num("BitsPerComponent"),
+        },
+      ];
+    });
+  });
+}
+
+/**
  * Decode the JPEG page images a rasterizing tool embedded, and report their
  * pixel statistics.
  *
