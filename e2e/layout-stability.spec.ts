@@ -716,7 +716,23 @@ interface StagingMeasurement {
   inReserved: ShiftRecord[];
   /** `[data-slot]` elements on screen once the facts were in. */
   slots: string[];
+  /**
+   * The visible suggestions slot's height before the drop (the tools panel)
+   * and while the files are read (the placeholder): the box the first file
+   * must not change. The list after them may differ — its rows wrap with
+   * their words — and that is measured as CLS, not here.
+   */
+  box: { before: number; filling: number };
 }
+
+/** The height of the suggestions slot on screen, in CSS px. */
+const slotHeight = (page: Page) =>
+  page.evaluate(
+    () =>
+      [...document.querySelectorAll("[data-slot=suggestions]")]
+        .map((el) => el.getBoundingClientRect().height)
+        .find((h) => h > 0) ?? -1,
+  );
 
 /**
  * Load /workspace with fonts cached, optionally scroll the staging area to
@@ -761,6 +777,7 @@ async function measureStaging(
       );
   await page.waitForTimeout(300);
 
+  const before = await slotHeight(page);
   const dropped = await page.evaluate(() => window.__shifts?.length ?? -1);
   expect(dropped, "the shift recorder is not installed").toBeGreaterThanOrEqual(
     0,
@@ -802,10 +819,15 @@ async function measureStaging(
     ].some((el) => el.getClientRects().length > 0),
     measuring: document.body.textContent?.includes("measuring…") ?? false,
   }));
+  // Red here means one of two things, both fatal to what follows: the list
+  // did not wait for the facts (no placeholder while they were measured —
+  // measured 2026-10-09 by removing the wait: this fired, and without it a
+  // shift inside the slot did), or the window opened after the swap.
   expect(
-    filling.placeholder && filling.measuring,
-    "the second window opened after the swap it exists to measure",
-  ).toBe(true);
+    filling,
+    "the placeholder was not up while the facts were still measuring",
+  ).toMatchObject({ placeholder: true, measuring: true });
+  const box = { before, filling: await slotHeight(page) };
 
   // The facts are in: the staged list counted both files' pages, and the
   // suggestions on screen show what the probe found in the scan.
@@ -838,6 +860,7 @@ async function measureStaging(
       .slice(filling.at - dropped)
       .filter((s) => s.sources.some((x) => x.reserved)),
     slots: read.slots,
+    box,
   };
 }
 
@@ -876,6 +899,16 @@ test.describe("the workspace as files arrive", () => {
           m.inReserved.length,
           `a slot moved while it filled in:\n${report(m.inReserved)}`,
         ).toBe(0);
+        // The first file swaps the tools panel for the placeholder in one
+        // box. WAS ~570px of popular tools against a ~380px list: the aside
+        // under it moved ~190px.
+        expect(m.box.before, "no suggestions slot on screen").toBeGreaterThan(
+          100,
+        );
+        expect(
+          Math.abs(m.box.filling - m.box.before),
+          `the slot was ${m.box.before}px, then ${m.box.filling}px`,
+        ).toBeLessThanOrEqual(1);
         // On a phone the drop pushes the page under the staged files, and a
         // suggestion whose words wrap makes the list taller than its
         // placeholder (both reported above, neither inside a slot).
@@ -924,6 +957,7 @@ test.describe("the workspace as files arrive", () => {
         const m = await measureStaging(page, false);
         await landed(page);
         expect(m.cls, report(m.counted)).toBeGreaterThan(MAX_CLS);
+        expect(m.box.before - m.box.filling).toBeGreaterThan(100);
       });
     });
 
