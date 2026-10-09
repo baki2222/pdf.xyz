@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Four sentences the site shipped that nothing in the product backs.
+ * Five sentences the site shipped that nothing in the product backs.
  *
  *  1. A QUANTITY THE CATALOGUE OWNS, UNDERSTATED. The FAQ said "a handful of
  *     heavy or AI-powered tools use encrypted, auto-deleting workers" and the
@@ -34,6 +34,21 @@
  *     the words were plain text, not even a link. They now link the privacy
  *     policy's section on files, which says what those sentences promised.
  *     EXIT CONDITION: the sentence is a link to a published page of docs.
+ *
+ *  5. A START OVER THAT RELOADS THE PAGE. Compare PDF's How it works said
+ *     "Start over reloads the page, which clears both slots for a new pair".
+ *     It was true while the result panel's reset was
+ *     `window.location.reload()`; on 2026-10-09 the reset began clearing the
+ *     result and both slots in place, and the fix made the sentence on its
+ *     own page false — served as HowTo JSON-LD as well as visible copy. The
+ *     quoted-label guard could not see it (no curly quotes), so only this
+ *     corpus does.
+ *     EXIT CONDITION: pressing Start over reloads the page. That is the
+ *     property `start-over.test.ts` (its Reloads control) and
+ *     `compare-pdf-runner.test.tsx` (driven through the runner, URL
+ *     unchanged) now hold false, so this rule has no automatic exit: a
+ *     change that brings a reload back inverts those two and lifts this in
+ *     the same commit.
  *
  * THE CORPUS is every file the copy walk reaches (`copyFiles()`), comments
  * removed and JSX flattened to the text a reader sees — so a phrase broken by
@@ -102,6 +117,18 @@ const RULES: readonly Rule[] = [
       "See the worker architecture and security docs for how uploads, scanning, isolation, and auto-delete work.",
     ],
   },
+  {
+    name: "a Start over that reloads the page",
+    // Either verb, any tense, with the label quoted or not, up to a clause
+    // away: "Start over reloads", "“Start over” refreshes the page",
+    // "Start over, which reloads". Bounded by the sentence.
+    patterns: [
+      /\bstart\s+over\b[^.]{0,40}?\b(?:re-?load(?:s|ed|ing)?|refresh(?:es|ed|ing)?)\b/i,
+    ],
+    shipped: [
+      "Download comparison report saves the whole report as a text file named after both PDFs, for example draft-vs-final-comparison.txt. Start over reloads the page, which clears both slots for a new pair.",
+    ],
+  },
 ];
 
 /** Source as a reader sees it: no comments, no tags, no `{" "}`, one line. */
@@ -155,6 +182,8 @@ describe("each rule's corpus, both ways", () => {
       "src/components/sections/hero.tsx",
       "src/components/tools/ocr-worker-panel.tsx",
       "src/app/status/page.tsx",
+      // Rule 5's sentence lived in a tool page's content file.
+      "src/lib/tools/content/compare-pdf.ts",
     ])
       expect(files).toContain(f);
   });
