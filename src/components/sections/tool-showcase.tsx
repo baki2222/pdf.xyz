@@ -155,11 +155,13 @@ export function ToolShowcase() {
 
               <Link
                 href={categoryHref(category.id)}
-                className="text-accent mt-auto inline-flex items-baseline gap-1 text-xs leading-4 font-medium underline-offset-4 hover:underline sm:hidden"
+                // Inline, not flex: a wrapped name keeps its arrow after
+                // the last word instead of beside the whole block.
+                className="text-accent mt-auto text-xs leading-4 font-medium underline-offset-4 hover:underline sm:hidden"
               >
                 {allToolsLabel(category.name, categoryTools.length)}
                 <ArrowRight
-                  className="size-3 shrink-0 self-center"
+                  className="ml-1 inline size-3 align-middle"
                   aria-hidden
                 />
               </Link>
