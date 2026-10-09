@@ -140,3 +140,55 @@ test("clear session wipes staged files, remembered activity, and hand-offs", asy
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
+
+/**
+ * Hand-off v2, end to end: files dropped on the HOME page arrive saying they
+ * came from there — the badge used to say "from your workspace" for every
+ * arrival — and "Open in workspace" carries them into the workspace, which
+ * claims a hand-off addressed to it.
+ */
+test("files added on the home page arrive in Merge PDF saying where they came from", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("first.pdf", 1),
+    await writeTempPdf("second.pdf", 2),
+  ]);
+
+  await page.getByRole("button", { name: /merge pdf/i }).click();
+  await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
+  await expect(page.getByText("first.pdf")).toBeVisible();
+  await expect(page.getByText("second.pdf")).toBeVisible();
+  await expect(page.getByText(/loaded the 2 files you added/i)).toBeVisible();
+  // Control: the old wording, false for these files, is gone.
+  await expect(page.getByText(/from your workspace/i)).toHaveCount(0);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+test("Open in workspace carries the home page's files into the workspace", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("one.pdf", 1),
+    await writeTempPdf("two.pdf", 3),
+  ]);
+
+  await page.getByRole("button", { name: /open in workspace/i }).click();
+  await expect(page).toHaveURL(/\/workspace$/);
+
+  const staged = page.getByRole("list", { name: /staged files/i });
+  await expect(staged.getByText("one.pdf")).toBeVisible();
+  await expect(staged.getByText("two.pdf")).toBeVisible();
+  // Measured in this tab once they land: two.pdf has three pages.
+  await expect(staged.getByText(/3 pages/)).toBeVisible();
+  await expect(page.getByText(/loaded the 2 files you added/i)).toBeVisible();
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
