@@ -330,7 +330,7 @@ export const tools: Tool[] = [
     // say "pick your file" (tool-page-content.test.ts discovers multi-file
     // runners and requires their own steps).
     how: [
-      "Pick one or more JPG or JPEG photos — they stay on your device.",
+      "Pick one or more JPG or PNG images — they stay on your device.",
       "Put them in page order with each image's “Move up” and “Move down” buttons.",
       `Click “Create PDF” — each image is centered on its own ${US_LETTER_LABEL} portrait page, assembled in your browser.`,
       "Click “Download PDF” to save it.",
@@ -349,7 +349,7 @@ export const tools: Tool[] = [
     keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],
     how: [
-      "Pick one or more PNG images — they stay on your device.",
+      "Pick one or more PNG or JPG images — they stay on your device.",
       "Put them in page order with each image's “Move up” and “Move down” buttons.",
       "Click “Create PDF” — each image goes on its own page, assembled in your browser.",
       "Click “Download PDF” to save it.",
