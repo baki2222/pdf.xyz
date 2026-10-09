@@ -15,7 +15,15 @@
  *     than `auto` sits inside BOTH an `@supports` that tests
  *     `animation-timeline` and `@media (prefers-reduced-motion:
  *     no-preference)`. A source file may not set one at all (an arbitrary
- *     `[animation-timeline:…]` class or an inline style escapes both gates).
+ *     arbitrary-property class or an inline style escapes both gates).
+ *
+ * NOT A LITERAL ANYWHERE IN THIS FILE OR ITS TEST: the bracketed class this
+ * rule forbids. Tailwind scans every file in the repository, comments and
+ * tests included, and on 2026-10-09 this module's own docblock and its test's
+ * fixture each SHIPPED one — two ungated timeline utilities in the built
+ * stylesheet, the exact defect, invisible to a check that read the source.
+ * The fixtures now assemble it from parts, and `shipped-motion.test.ts` holds
+ * the BUILT stylesheet to this contract.
  *  3. THE REDUCED-MOTION RESET IS COMPLETE. Zeroing durations is not enough:
  *     a staggered entrance holds its `from` frame for the length of its
  *     DELAY, a scroll-linked animation follows the scrollbar whatever its
@@ -187,7 +195,7 @@ const namesIn = (value: string, name: string) =>
  *  - an `@theme` token `--animate-x: <name> …` whose `animate-x` class is used;
  *  - an `@utility animate-x { animation: <name> … }` whose class is used;
  *  - a style rule `animation(-name): <name>` whose selector can match;
- *  - a source using an arbitrary `animate-[<name>_…]` class or an inline
+ *  - a source using an arbitrary-value animate class that names it, or an inline
  *    `animation: "<name> …"` style.
  * A keyframe mapped to `[]` has no live consumer.
  */
@@ -336,9 +344,15 @@ export const RESET_REQUIREMENTS = [
 
 /**
  * The requirements a stylesheet's `@media (prefers-reduced-motion: reduce)`
- * blocks do NOT meet, by name. Two parts: a universal rule covering `*`,
- * `*::before` and `*::after` with every entry in {@link RESET_REQUIREMENTS},
- * and a rule stopping the three view-transition pseudo-elements.
+ * blocks do NOT meet, by name: every entry in {@link RESET_REQUIREMENTS} for
+ * each of `*`, `::before` and `::after`, and `animation: none` for each of
+ * the three view-transition pseudo-elements.
+ *
+ * Reads the authored stylesheet AND the minified one the build ships, which
+ * spells the same reset differently: `*::before` becomes `:before`, the
+ * space before `!important` goes, `0.001ms` becomes `.001ms`, and one rule
+ * for three view-transition selectors becomes three rules. So targets are
+ * matched per selector and values are normalised before they are compared.
  */
 export function resetCoverage(css: string): { missing: string[] } {
   const reduce = [...blocks(parseCss(css))].filter((b) => REDUCE(b.prelude));
@@ -346,31 +360,42 @@ export function resetCoverage(css: string): { missing: string[] } {
   const missing: string[] = [];
   if (reduce.length === 0)
     missing.push("@media (prefers-reduced-motion: reduce)");
-  const universal = rules.filter((r) => {
-    const parts = r.prelude.split(",").map((s) => s.trim());
-    return ["*", "*::before", "*::after"].every((p) => parts.includes(p));
-  });
-  if (universal.length === 0) missing.push("a rule for *, *::before, *::after");
+  /** `*::before`, `*:before` and `:before` all name `::before`. */
+  const target = (part: string) =>
+    part
+      .trim()
+      .replace(/^\*(?=:)/, "")
+      .replace(/^:(?=(?:before|after)$)/, "::");
+  const value = (v: string) =>
+    v
+      .replace(/\s*!\s*important\s*$/i, " !important")
+      .replace(/\s+/g, " ")
+      .trim();
+  const declares = (t: string, property: string, ok: (v: string) => boolean) =>
+    rules.some(
+      (r) =>
+        r.prelude.split(",").map(target).includes(t) &&
+        r.declarations.some(
+          (d) => d.property === property && ok(value(d.value)),
+        ),
+    );
   for (const req of RESET_REQUIREMENTS) {
-    const met = universal.some((r) =>
-      r.declarations.some(
-        (d) => d.property === req.property && req.value.test(d.value),
-      ),
-    );
-    if (!met) missing.push(req.property);
-  }
-  const vt = rules.some((r) => {
-    const parts = r.prelude.split(",").map((s) => s.trim());
-    return (
-      ["group", "old", "new"].every((p) =>
-        parts.includes(`::view-transition-${p}(*)`),
-      ) &&
-      r.declarations.some(
-        (d) => d.property === "animation" && d.value === "none !important",
+    if (
+      !["*", "::before", "::after"].every((t) =>
+        declares(t, req.property, (v) => req.value.test(v)),
       )
-    );
-  });
-  if (!vt)
+    )
+      missing.push(req.property);
+  }
+  if (
+    !["group", "old", "new"].every((p) =>
+      declares(
+        `::view-transition-${p}(*)`,
+        "animation",
+        (v) => v === "none !important",
+      ),
+    )
+  )
     missing.push("::view-transition-group/old/new(*) { animation: none }");
   return { missing };
 }

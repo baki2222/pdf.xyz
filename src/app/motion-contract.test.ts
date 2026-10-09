@@ -174,9 +174,13 @@ describe("scroll-driven motion sits behind @supports AND no-preference", () => {
       @supports (animation-timeline: view()) { .b { animation-timeline: scroll(root); } }
       @supports (animation-timeline: view()) { @media (prefers-reduced-motion: no-preference) { .c { animation-timeline: view(); } } }
       @media (prefers-reduced-motion: reduce) { * { animation-timeline: auto !important; } }`;
+    // Assembled, never written out: Tailwind scans this file too, and the
+    // literal bracketed class SHIPPED an ungated timeline utility until
+    // 2026-10-09 (see the contract's docblock).
+    const arbitraryTimelineClass = `[${["animation", "timeline"].join("-")}:view()]`;
     expect(
       timelineViolations(fixture, [
-        { file: "x.tsx", text: "[animation-timeline:view()]" },
+        { file: "x.tsx", text: arbitraryTimelineClass },
       ]).map((v) => `${v.where}: ${v.missing.join(" + ")}`),
     ).toEqual([
       "line 1: @supports (animation-timeline) + no-preference",

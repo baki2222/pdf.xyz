@@ -146,19 +146,23 @@ describe("a processing mode's hue is defined once", () => {
   });
 
   it("positive control: a pasted hue map is caught as an object or a switch, in any colour spelling", () => {
+    // Class names are ASSEMBLED, never written out: Tailwind scans test files
+    // too, and a literal here would ship four unused colour utilities in the
+    // site's stylesheet (it did, until 2026-10-09).
+    const cls = (...parts: string[]) => parts.join("-");
     const pasted = `
-      export const DOTS = { client: "bg-emerald-500", server: "bg-blue-500", hybrid: "bg-cyan-500", ai: "bg-violet-500" };
+      export const DOTS = { client: "${cls("bg", "emerald", "500")}", server: "${cls("bg", "blue", "500")}", hybrid: "${cls("bg", "cyan", "500")}", ai: "${cls("bg", "violet", "500")}" };
       export const CARD = { "client": "#6ee7b7", "server": "#93c5fd", "hybrid": "#67e8f9", "ai": "#c4b5fd" };
       export function ink(mode: string) {
         switch (mode) {
-          case "client": return "text-ok";
-          case "server": return "text-info";
-          case "hybrid": return "text-accent";
-          case "ai": return "text-mark/80";
+          case "client": return "${cls("text", "ok")}";
+          case "server": return "${cls("text", "info")}";
+          case "hybrid": return "${cls("text", "accent")}";
+          case "ai": return "${cls("text", "mark")}/80";
         }
       }
       export const LABELS = { client: "In-browser", server: "Secure worker", hybrid: "Hybrid", ai: "AI" };
-      export const THREE = { client: "bg-emerald-500", server: "bg-blue-500", ai: "bg-violet-500" };`;
+      export const THREE = { client: "${cls("bg", "emerald", "500")}", server: "${cls("bg", "blue", "500")}", ai: "${cls("bg", "violet", "500")}" };`;
     expect(
       modeMaps("scratch.tsx", pasted).map((m) => `${m.kind}:${m.coloured}`),
     ).toEqual([
