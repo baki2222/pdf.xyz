@@ -279,6 +279,12 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "a summary, answer or extraction is charged for everything it sends the model: no more of the document than was declared, plus the question, prompt or focus the server measured",
     proves: provenByFlag,
   },
+  pptxPresentationChain: {
+    label: "PowerPoint package structure",
+    promise:
+      "PDF to PowerPoint turns each page into an editable slide in a complete presentation (slide master, layout and theme), not the slides-only package PowerPoint for Windows refuses as corrupted",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

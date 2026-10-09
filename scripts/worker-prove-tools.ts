@@ -14,6 +14,8 @@
  *
  *   BASE=https://pdf.xyz pnpm worker:prove-tools            # every tool
  *   BASE=https://pdf.xyz pnpm worker:prove-tools ocr-pdf    # just these
+ *   PROOF_ARTIFACT_DIR=out pnpm worker:prove-tools pdf-to-powerpoint
+ *                                         # …and keep each download in out/
  *
  * Privacy: it prints status codes, byte counts, and generated filenames only —
  * never a signed URL, token, or password. Every fixture is generated here; no user
@@ -61,7 +63,7 @@ import JSZip from "jszip";
 import { declaredContentTypeFor } from "../src/lib/jobs/mime-by-format";
 import { proveDeclaredPdfA } from "@/lib/workers/pdf-archive/pdfa-markers";
 import { deflateSync } from "node:zlib";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
@@ -127,6 +129,8 @@ import {
 import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
+/** When set, every downloaded artifact is also written here (see its use). */
+const ARTIFACT_DIR = process.env.PROOF_ARTIFACT_DIR;
 const ONLY = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const JOB_TIMEOUT_MS = 240_000;
 
@@ -1641,6 +1645,20 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
       stage: "artifact download",
       detail: `HTTP ${download.status}`,
     };
+  }
+  // Opt-in: keep what a user would download, for instruments this harness
+  // cannot run — e.g. `pnpm prove:pptx-opens --file <dir>/pdf-to-powerpoint.pptx`
+  // opens the production .pptx in PowerPoint on Windows. Generated fixtures
+  // only, so nothing kept here is a user's document.
+  if (ARTIFACT_DIR) {
+    mkdirSync(ARTIFACT_DIR, { recursive: true });
+    writeFileSync(
+      path.join(
+        ARTIFACT_DIR,
+        `${label.replace(/[^\w.-]+/g, "-")}${path.extname(artifact.filename)}`,
+      ),
+      buf,
+    );
   }
   if (!spec.expect(buf)) {
     return {

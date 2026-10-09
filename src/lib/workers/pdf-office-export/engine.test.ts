@@ -35,6 +35,8 @@ import {
   type PdfOfficeExportDeps,
   type PdfTextExtractor,
 } from "./engine";
+import { inspectPptxPackage } from "./pptx-inspect";
+import { parseXml, xmlWellFormedness } from "@/tests/xml-well-formed";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -134,6 +136,43 @@ describe("pdf-office-export engine", () => {
     // theme, no slide size, empty shape properties). It now asks PowerPoint's
     // question; the deck-level cases are in the pdf-to-powerpoint block below.
     if (pptx.ok) expect((await readPptx(pptx.output)).problems).toEqual([]);
+    if (pptx.ok)
+      expect((await inspectPptxPackage(pptx.output)).problems).toEqual([]);
+  });
+
+  it("writes well-formed XML in every Office export, even from text XML cannot carry", async () => {
+    // pdftotext passes through whatever a font's ToUnicode map says, including
+    // C0 controls and non-characters. XML 1.0 forbids them, and one such
+    // character makes the whole part unparseable, and the file with it.
+    const hostile = "Total\u0001 due\u000B now\uFFFF ok \uD800x";
+    const hostileExtract: PdfTextExtractor = async () => ({
+      pageCount: 1,
+      pages: [{ pageNumber: 1, text: hostile, characterCount: hostile.length }],
+      text: hostile,
+      characterCount: hostile.length,
+      hasText: true,
+    });
+    for (const tool of PDF_OFFICE_EXPORT_TOOLS) {
+      // Both extractors, as production wires them: PDF to Word reads only the
+      // flow one, and without it answers `unsupported` without writing a file.
+      const run = await runPdfOfficeExport(tool, PDF, {
+        extract: hostileExtract,
+        extractFlow: flowPages([hostile]),
+      });
+      expect(run.ok, tool).toBe(true);
+      if (!run.ok) continue;
+      const zip = await JSZip.loadAsync(run.output);
+      const parts = Object.keys(zip.files).filter((n) =>
+        /\.(xml|rels)$/.test(n),
+      );
+      // Health check: the loop below must have something to assert over.
+      expect(parts.length, tool).toBeGreaterThanOrEqual(3);
+      for (const part of parts)
+        expect(
+          xmlWellFormedness(await zip.file(part)!.async("string")),
+          `${tool}: ${part}`,
+        ).toBeNull();
+    }
   });
 
   it("rejects image-only PDFs and oversized inputs", async () => {
@@ -625,5 +664,101 @@ describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
         expect.stringMatching(/slide1\.xml: 0 slideLayout relationships/),
       ]),
     );
+  });
+});
+
+/**
+ * ── PDF TO POWERPOINT MUST WRITE A FILE POWERPOINT OPENS ─────────────────────
+ *
+ * Until 2026-09-27 pptx() wrote presentation.xml and one slide per page, and no
+ * slide master, slide layout or theme. PowerPoint 16.0 for Windows refused
+ * every such file through COM `Presentations.Open` with "The file or directory
+ * is corrupted and unreadable" (0x80070570), while a deck PowerPoint saved
+ * itself reopened in the same run. The test above stayed green throughout.
+ *
+ * These read the file the way a consumer does: from the package root, through
+ * the relationship chain, with a real XML parser, never by guessing a filename.
+ * `scripts/prove-pptx-opens.ts` is the check against PowerPoint itself; this is
+ * the part of it CI can run.
+ */
+describe("pdf-to-powerpoint package", () => {
+  const PAGES = [
+    { pageNumber: 1, text: "Quarterly review\nRevenue & costs <draft>" },
+    { pageNumber: 2, text: "" },
+    { pageNumber: 3, text: '  Next steps "quoted"  \n\nThanks  ' },
+  ];
+  const threePages: PdfTextExtractor = async () => ({
+    pageCount: PAGES.length,
+    pages: PAGES.map((p) => ({ ...p, characterCount: p.text.length })),
+    text: PAGES.map((p) => p.text).join("\n\n"),
+    characterCount: PAGES.reduce((n, p) => n + p.text.length, 0),
+    hasText: true,
+  });
+
+  async function exportDeck(): Promise<Uint8Array> {
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
+      extract: threePages,
+    });
+    if (!run.ok) throw new Error(`export failed: ${run.message}`);
+    return run.output;
+  }
+
+  it("carries the slide master → layout → theme chain, every relationship resolving", async () => {
+    const inspection = await inspectPptxPackage(await exportDeck(), {
+      wellFormed: xmlWellFormedness,
+    });
+    expect(inspection.problems).toEqual([]);
+    // `problems: []` is only a pass next to counts that could not be zero: a
+    // walk that reached nothing has nothing to complain about.
+    expect(inspection.counts).toMatchObject({
+      masters: 1,
+      themes: 1,
+      slides: PAGES.length,
+    });
+    expect(inspection.counts.layouts).toBeGreaterThanOrEqual(1);
+    expect(inspection.counts.reached).toBe(inspection.counts.parts);
+  });
+
+  it("puts each page's lines on its own slide, in presentation order", async () => {
+    const zip = await JSZip.loadAsync(await exportDeck());
+    const P = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    const A = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    const R =
+      "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const xml = async (name: string) =>
+      parseXml(await zip.file(name)!.async("string"));
+
+    // Follow the chain a reader follows: sldIdLst order → rels → part.
+    const presentation = await xml("ppt/presentation.xml");
+    const rels = await xml("ppt/_rels/presentation.xml.rels");
+    const targetOf = new Map(
+      [...rels.getElementsByTagName("Relationship")].map((r) => [
+        r.getAttribute("Id"),
+        r.getAttribute("Target"),
+      ]),
+    );
+    const slideParts = [...presentation.getElementsByTagNameNS(P, "sldId")].map(
+      (s) => `ppt/${targetOf.get(s.getAttributeNS(R, "id"))}`,
+    );
+    expect(slideParts).toHaveLength(PAGES.length);
+
+    const slideTexts: string[][] = [];
+    for (const part of slideParts) {
+      const slide = await xml(part);
+      slideTexts.push(
+        [...slide.getElementsByTagNameNS(A, "p")]
+          .map((p) =>
+            [...p.getElementsByTagNameNS(A, "t")]
+              .map((t) => t.textContent)
+              .join(""),
+          )
+          .filter((line) => line.length > 0),
+      );
+    }
+    expect(slideTexts).toEqual([
+      ["Quarterly review", "Revenue & costs <draft>"],
+      [],
+      ['Next steps "quoted"', "Thanks"],
+    ]);
   });
 });

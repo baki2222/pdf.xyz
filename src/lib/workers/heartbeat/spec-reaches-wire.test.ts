@@ -69,6 +69,10 @@ const SPEC = {
     atomicQueue: true,
     chunkedTranslate: true,
     deliveryCap: true,
+    // Set, not inherited: `emptyCapabilities()` says `false`, and a publisher
+    // that wrote a constant `false` matched that and stayed green here.
+    aiReadCap: true,
+    pptxPresentationChain: true,
   },
   release: "7.9.3",
   fingerprint: "9a5db1338ee3",
@@ -87,9 +91,16 @@ const EXPECTED: Record<
   (published: Record<string, unknown>) => boolean
 > = {
   mode: (p) => p.mode === "loop",
+  // EVERY capability in the spec, derived from it rather than named. This
+  // used to check `chunkedTranslate` and `deliveryCap` only — two of seven —
+  // so a publisher that dropped any other capability stayed green here. The
+  // spec sets each one to the opposite of its default, or a dropped value and
+  // a defaulted one would read the same.
   capabilities: (p) => {
     const caps = p.capabilities as Record<string, unknown> | undefined;
-    return Boolean(caps?.chunkedTranslate) && Boolean(caps?.deliveryCap);
+    return Object.entries(SPEC.capabilities).every(
+      ([key, value]) => JSON.stringify(caps?.[key]) === JSON.stringify(value),
+    );
   },
   release: (p) => p.release === "7.9",
   fingerprint: (p) => p.fingerprint === "9a5db1338ee3",
@@ -178,6 +189,21 @@ describe("the publish spec reaches the wire", () => {
     expect(published.v).toBe(1);
     expect(published.role).toBe("secure-worker");
     expect(typeof published.at).toBe("number");
+  });
+
+  it("HEALTH CHECK: every capability in the spec is set away from its default", () => {
+    // A capability left at `emptyCapabilities()`'s value cannot tell a
+    // publisher that carried it from one that wrote the default — `aiReadCap`
+    // sat at `false` here, and a serializer hard-coding `false` stayed green.
+    // Derived from the defaults, so a capability added later is held to it.
+    const defaults = emptyCapabilities() as unknown as Record<string, unknown>;
+    const spec = SPEC.capabilities as unknown as Record<string, unknown>;
+    const keys = Object.keys(defaults);
+    expect(keys.length).toBeGreaterThanOrEqual(9);
+    const unset = keys.filter(
+      (key) => JSON.stringify(spec[key]) === JSON.stringify(defaults[key]),
+    );
+    expect(unset, "set these in SPEC to a non-default value").toEqual([]);
   });
 
   it("CONTROL: a field the daemon does NOT supply is absent, not invented", async () => {

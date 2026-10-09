@@ -260,6 +260,28 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
     subject: /\bread cap\b|one run never counts|reads no more of/i,
     catalogueCopy: true,
   },
+  pptxPresentationChain: {
+    // The EXPORT to PowerPoint, not PowerPoint to PDF: the catalogue's names
+    // for it, AND any sentence saying the .pptx opens (or is refused) in
+    // PowerPoint or is a complete presentation — the sentences a hedge about
+    // this capability would actually sit in.
+    //
+    // The first version had only the names. It was measured on main's
+    // catalogue (15 sentences about PowerPoint, slides or PPTX), matched all 7
+    // of pdf-to-powerpoint's and none of powerpoint-to-pdf's, and was blind to
+    // "Not at the moment. Opened in PowerPoint's Windows desktop app, it is
+    // refused…" — a sentence written for this tool's page that same day. A
+    // right pattern over the wrong set. Re-measured 2026-09-27 on both sets:
+    // main 7/7 export sentences, 0/8 powerpoint-to-pdf; with the authored page
+    // content (seo/content) 11/18 export sentences, 0/22 powerpoint-to-pdf, 0
+    // from any other tool. Re-measured 2026-10-09 on the integration branch it
+    // merged into (seo/content and the 2026-10-08 copy in): 15/23 of
+    // pdf-to-powerpoint's entries that name PowerPoint, PPTX or slides,
+    // 0/26 of powerpoint-to-pdf's, 0 from any other tool or guide.
+    subject:
+      /PDF to PowerPoint|pdf to (?:pptx|slides)|editable (?:PowerPoint )?slides?|\.pptx\b[^.?!]{0,40}\bopen|\bopen(?:s|ed)?\b[^.?!]{0,40}\bPowerPoint\b|\bPowerPoint\b[^.?!]{0,40}\b(?:open|refuses?|rejects?)\b|slide master|complete presentation/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

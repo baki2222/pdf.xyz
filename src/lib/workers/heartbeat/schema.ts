@@ -149,6 +149,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     chunkedTranslate: boolOf(src.chunkedTranslate),
     deliveryCap: boolOf(src.deliveryCap),
     aiReadCap: boolOf(src.aiReadCap),
+    pptxPresentationChain: boolOf(src.pptxPresentationChain),
   };
 }
 
@@ -200,6 +201,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       chunkedTranslate: hb.capabilities.chunkedTranslate,
       deliveryCap: hb.capabilities.deliveryCap,
       aiReadCap: hb.capabilities.aiReadCap,
+      pptxPresentationChain: hb.capabilities.pptxPresentationChain,
     },
     at: hb.at,
   });
