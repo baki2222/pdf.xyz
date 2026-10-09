@@ -138,8 +138,11 @@ describe("components name a role, never a hue", () => {
         "bg-panel text-muted ring-line-strong divide-line shadow-sheet bg-ok/10 border-err/30 text-xs shadow-lg",
       ),
     ).toEqual([]);
-    // A class quoted in a comment is not read as a class.
-    expect(literals("x.tsx", "// bg-black/20\nconst a = 1;")).toEqual([]);
+    // A class quoted in a comment is not read as a class. (Restored from "·"
+    // at runtime, like every retired class in this file.)
+    expect(
+      literals("x.tsx", "// bg·black/20\nconst a = 1;".replaceAll("·", "-")),
+    ).toEqual([]);
   });
 
   it("no raw colour outside a reasoned allowance", () => {
