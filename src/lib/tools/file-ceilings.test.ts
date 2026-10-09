@@ -81,7 +81,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { UploadZone } from "@/components/upload/upload-zone";
+import { DropSheet } from "@/components/upload/drop-sheet";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { parseCreateUploadSessionRequest } from "@/lib/jobs/validation";
 import { MAX_PDF_BYTES, validatePdfFile } from "@/lib/pdf/files";
@@ -462,10 +462,21 @@ function renderAllPages(): Record<string, string> {
   return JSON.parse(stdout) as Record<string, string>;
 }
 
+/**
+ * The staging sentence, rendered through the one drop primitive the tool
+ * pages' drop zones are built on (`DropSheet`). WAS rendered through
+ * `UploadZone`, the home page's old drop zone, deleted when the desk
+ * replaced it (WP-05, 2026-10-10); the property is the sentence's, not the
+ * zone's, so it moved to the component that will show it.
+ */
 function renderStagingZone(tool: Tool): string {
   return textOf(
     renderToStaticMarkup(
-      createElement(UploadZone, { hint: stagingHint(tool) }),
+      createElement(DropSheet, {
+        accept: tool.accept.map((f) => `.${f.toLowerCase()}`).join(","),
+        hint: stagingHint(tool),
+        onFiles: () => {},
+      }),
     ),
   );
 }
@@ -1121,11 +1132,11 @@ describe("every size a tool page states is that tool's own ceiling", () => {
     (slug, tool) => {
       // The tool page's branch that mounted this zone rendered for no tool
       // (29 client tools, 20 runner-less tools, 0 in both) and was removed in
-      // WP-06; the zone itself still stages files on the home page, and
-      // `stagingHint` is the sentence the next drop zones are built on. So
-      // the sentence is rendered here through the real component instead of
-      // waiting for a page that shows it. A check that waited would be
-      // checking nothing.
+      // WP-06, and the zone itself left the home page in WP-05; `stagingHint`
+      // is the sentence the next drop zones are built on. So the sentence is
+      // rendered here through the drop primitive they use instead of waiting
+      // for a page that shows it. A check that waited would be checking
+      // nothing.
       const ceiling = toolFileCeilingMb(tool);
       const claims = sizeClaimsMb(renderStagingZone(tool));
       if (ceiling === null) {

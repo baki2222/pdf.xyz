@@ -67,7 +67,8 @@ export interface Task {
 
 /**
  * The glyph a hero task is drawn with. Named here so the task and its
- * picture travel together; nothing renders them yet.
+ * picture travel together; `TaskGlyph` (src/components/intent/task-glyph.tsx)
+ * draws each one, in the home desk's task list.
  */
 export type TaskGlyphName =
   "compress" | "merge" | "sign" | "photos" | "to-word" | "ocr";

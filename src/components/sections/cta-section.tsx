@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { FilePlus } from "lucide-react";
 import { toolCount } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
 import { UPLOAD_ANCHOR } from "@/components/sections/hero";
+import { ChooseFilesLink } from "@/components/intent/choose-files-link";
 
 /**
  * The colophon: the page's one full-bleed ink band, closing the paper page
@@ -52,14 +53,17 @@ export function CtaSection() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:col-span-4 lg:justify-end lg:pb-2">
-          {/* To the homepage drop zone, not the empty workspace; see hero.tsx. */}
-          <a
-            href={`#${UPLOAD_ANCHOR}`}
+          {/* To the home page's desk, and its picker — not the empty
+              workspace. WAS "Start for free", which only scrolled there; the
+              desk's own first action is "Choose files", so this one says the
+              same and does it (see ChooseFilesLink). */}
+          <ChooseFilesLink
+            target={UPLOAD_ANCHOR}
             className={buttonVariants({ variant: "primary", size: "lg" })}
           >
-            Start for free
-            <ArrowRight className="size-4" aria-hidden />
-          </a>
+            <FilePlus className="size-4" aria-hidden />
+            Choose files
+          </ChooseFilesLink>
           <Link
             href="/tools"
             className="text-fg decoration-line-strong hover:decoration-accent inline-flex items-center gap-1.5 text-[15px] font-medium underline decoration-1 underline-offset-[6px] transition-colors"

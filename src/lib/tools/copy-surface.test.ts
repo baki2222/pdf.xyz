@@ -63,9 +63,13 @@ describe("the copy surface reaches what the guards must read", () => {
       // Added 2026-09-27: outside the walk until then, and each carries a
       // claim a visitor reads — the social card's in-browser chip, the
       // footer's "Privacy-first by architecture", the upload zone's caption.
+      // The zone (`upload-zone.tsx`) became the home desk on 2026-10-10
+      // (WP-05): its caption is generated in `accepted-kinds.ts` and shown
+      // by the desk beside the desk's own promise about where files stay.
       "src/lib/og.tsx",
       "src/components/layout/site-footer.tsx",
-      "src/components/upload/upload-zone.tsx",
+      "src/components/upload/accepted-kinds.ts",
+      "src/components/intent/hero-desk.tsx",
       // Added 2026-10-09: the workspace's tool suggestions ("JPG to PDF
       // handles both") are sentences a visitor reads beside their files, and
       // `src/lib/workspace` was the one copy-holding lib folder outside the
@@ -112,11 +116,10 @@ describe("the copy surface reaches what the guards must read", () => {
     walk(path.join(process.cwd(), "src", "components"));
     // Size floor: an empty directory read would make the check vacuous.
     expect(components.length).toBeGreaterThanOrEqual(60);
-    // A member control: the drop zone's hand-off buttons, one of the files
-    // the old two-folder walk missed.
-    expect(components).toContain(
-      "src/components/upload/staged-file-actions.tsx",
-    );
+    // A member control: the drop primitive, in a folder the old two-folder
+    // walk missed (WAS the drop zone's hand-off buttons,
+    // `staged-file-actions.tsx`, which the desk's ticket replaced in WP-05).
+    expect(components).toContain("src/components/upload/drop-sheet.tsx");
     expect(components.filter((f) => !reached.has(f))).toEqual([]);
   });
 

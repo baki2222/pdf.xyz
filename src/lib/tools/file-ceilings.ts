@@ -243,11 +243,11 @@ export function fileOverCeilingMessage(
  * is about exactly one tool, so the formats come from `tool.accept` and the cap
  * from that tool's own gate rather than from the widest kind on the homepage.
  *
- * It lives here, not inline in the page, so it can be RENDERED through
- * `UploadZone` by a test for all fifty tools. The page branch that mounts that
- * zone is reached only by a tool that is `processing: "client"` AND has no
- * runner, and no tool is both today — so a check that waited for the page to
- * render it would be checking nothing at all.
+ * It lives here, not inline in a page, so it can be RENDERED through the drop
+ * primitive (`DropSheet`) by a test for all fifty tools. No page shows it
+ * today — the tool page's staging branch rendered for no tool and was
+ * removed (WP-06), and the home page's zone became the desk (WP-05) — so a
+ * check that waited for a page to render it would be checking nothing at all.
  */
 export function stagingHint(tool: Tool): string {
   const formats = tool.accept.join(", ");

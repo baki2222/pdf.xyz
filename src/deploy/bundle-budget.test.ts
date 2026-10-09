@@ -72,6 +72,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { DESK_ISLAND_MARKER } from "@/components/intent/desk-island-chunk";
 import { tools } from "@/lib/tools";
 import {
   chunkFiles,
@@ -282,13 +283,27 @@ describe("client bundle budget", () => {
     const toolChunks = new Set(
       chunkList("tools/rotate-pdf.html").filter(nonRoute),
     );
+    // ONE exception, found by content, never by name: the home desk's own
+    // chunk (WP-05). It is the home page's route code, split out on purpose
+    // — the build files `next/link`'s client chunks under the home page's
+    // chunk group, so /workspace and the 404 load whatever the home route
+    // chunk holds (see hero-desk-island.tsx) — and it carries
+    // DESK_ISLAND_MARKER, so nothing else can pass for it.
+    const isDeskIsland = (url: string) =>
+      readFileSync(
+        path.join(NEXT_DIR, url.replace("/_next/", "")),
+        "utf8",
+      ).includes(DESK_ISLAND_MARKER);
     const extras = chunkList("index.html")
       .filter(nonRoute)
       .filter((c) => !toolChunks.has(c));
     expect(
-      extras,
+      extras.filter((c) => !isDeskIsland(c)),
       `the homepage references shared chunks no tool page carries — landing-page-only machinery appeared:\n  ${extras.join("\n  ")}`,
     ).toEqual([]);
+    // The exception is live, and exactly one chunk takes it: a stale
+    // exemption (the desk folded back into the route chunk) fails here.
+    expect(extras.filter(isDeskIsland)).toHaveLength(1);
   });
 
   // A size budget cannot see WHAT rides along, only how much. On 2026-10-08

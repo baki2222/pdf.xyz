@@ -24,6 +24,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
+import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
 
@@ -191,6 +193,16 @@ const OUR_LAZY: LazyLibrary[] = [
     why: "the /tools explorer fetches it for a query, or as the search field is approached; the 404 fetches it for its Did you mean",
     allowedAtLoad: {},
   },
+  // WP-05 (2026-10-10): the job ticket — its view, the ranking, the facts
+  // measuring, the hand-off launch. The home desk fetches it as a file
+  // approaches (a drag entering, the pointer or focus reaching the desk) or
+  // arrives, and for the names of recent tools; no page loads it up front.
+  {
+    what: "the job ticket",
+    marker: TICKET_CHUNK_MARKER,
+    why: "the home desk fetches it when a file approaches or arrives; a visitor who never brings one never downloads it",
+    allowedAtLoad: {},
+  },
 ];
 
 describe("our on-demand modules are not first-load on any page", () => {
@@ -233,4 +245,47 @@ describe("our on-demand modules are not first-load on any page", () => {
       expect(stale).toEqual([]);
     },
   );
+});
+
+/**
+ * One catalogue, however many on-demand surfaces read it (addendum WP-05 #13,
+ * "a check, not a sentence"). The /tools explorer loads the catalogue with
+ * the page; the ticket fetches it on demand; a second copy inside the
+ * ticket's chunk would cost every desk visitor the catalogue twice over and
+ * no budget would say so, because no page loads the ticket up front. So the
+ * chunks are found by CONTENT — the tools' own taglines — and exactly one
+ * may carry them. (The palette joins this rule when it exists, WP-09.)
+ */
+describe("the catalogue ships in one chunk, shared by every surface that reads it", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("exactly one chunk carries the catalogue, and /tools loads it up front", () => {
+    if (!built) return;
+    const taglines = tools.map((t) => t.tagline);
+    // Health: the markers are real and plenty.
+    expect(taglines.length).toBeGreaterThanOrEqual(40);
+    const carrying = walkJs(CHUNKS_DIR).filter((f) => {
+      const text = read(f);
+      return (
+        taglines.filter((tagline) => text.includes(tagline)).length >=
+        taglines.length - 5
+      );
+    });
+    expect(carrying.map((f) => path.relative(NEXT_DIR, f))).toHaveLength(1);
+    // Positive control: the explorer's first load is that chunk.
+    expect(
+      chunkFiles(NEXT_DIR, "tools.html").map((f) => path.resolve(f)),
+    ).toContain(path.resolve(carrying[0]!));
+  });
+
+  it("the ticket's chunk does not carry its own copy", () => {
+    if (!built) return;
+    const ticket = walkJs(CHUNKS_DIR).filter((f) =>
+      read(f).includes(TICKET_CHUNK_MARKER),
+    );
+    expect(ticket.length).toBe(1);
+    const taglines = tools.map((t) => t.tagline);
+    const text = read(ticket[0]!);
+    expect(taglines.filter((tagline) => text.includes(tagline))).toEqual([]);
+  });
 });

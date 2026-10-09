@@ -50,7 +50,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ACCEPTED_KINDS } from "@/components/upload/accepted-kinds";
-import { UploadZone } from "@/components/upload/upload-zone";
+import { Hero } from "@/components/sections/hero";
 import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
 import { parseCreateUploadSessionRequest } from "@/lib/jobs/validation";
 import { resolveProcessorDeps } from "@/lib/workers/daemon/runtime";
@@ -539,12 +539,31 @@ function kindFormats(kind: (typeof ACCEPTED_KINDS)[number]): Set<string> {
 }
 
 describe("the general drop zone never promises a kind more than a tool taking it accepts", () => {
-  // Rendered: the caption a visitor reads above the homepage picker, before
+  // Rendered: the caption a visitor reads under the homepage picker, before
   // they have chosen a tool. It stated "Word, Excel, PowerPoint up to 100 MB"
   // while the only tools taking those files refuse above 50.
-  const caption = renderToStaticMarkup(createElement(UploadZone, {}))
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&middot;|&#183;/g, "·");
+  //
+  // RETARGETED 2026-10-10 (WP-05): the picker is the home desk's now, and the
+  // caption is found as it is announced — the element the picker's
+  // `aria-describedby` names — in the hero as the server renders it (the
+  // zone this read before was deleted when the desk replaced it).
+  const html = renderToStaticMarkup(createElement(Hero));
+  const describedBy =
+    /<input[^>]*type="file"[^>]*aria-describedby="([^"]+)"/.exec(html)?.[1];
+  // The element carrying that id, read as text up to its first inner tag.
+  const caption = describedBy
+    ? (
+        html
+          .split(`id="${describedBy}"`)[1]
+          ?.replace(/^[^>]*>/, "")
+          .split("<")[0] ?? ""
+      ).replace(/&middot;|&#183;/g, "·")
+    : "";
+
+  it("the caption is the picker's description, found in the hero (health check)", () => {
+    expect(describedBy, "the home picker names no description").toBeTruthy();
+    expect(caption).toMatch(/MB/);
+  });
 
   function statedMb(label: string): number | undefined {
     const clause = caption.split("·").find((part) => part.includes(label));

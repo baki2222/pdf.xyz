@@ -152,5 +152,9 @@ async function read(file: File) {
     ).toEqual([]);
     // The rule is exercised by the code it governs, not vacuously true.
     expect(decoders).toBeGreaterThanOrEqual(2);
-  });
+    // A parse of every client module: ~0.45 s alone, and it outgrew vitest's
+    // 5 s default under a loaded full run once the home desk added its client
+    // modules (timed out once on 2026-10-10, 2/2 green alone) — the same class
+    // as 2b20baa7 (raster-boundary).
+  }, 30_000);
 });

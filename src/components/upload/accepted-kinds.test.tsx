@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
   formatForToken,
@@ -9,11 +9,12 @@ import {
 } from "@/lib/intent/formats";
 import { tools } from "@/lib/tools";
 import { ACCEPTED_KINDS, acceptAttribute, acceptHint } from "./accepted-kinds";
-import { UploadZone } from "./upload-zone";
+import { Hero, UPLOAD_ANCHOR } from "@/components/sections/hero";
 
 /**
  * The defect this file exists for did not live in either string. It lived in
- * the RELATIONSHIP between them: `UploadZone` shipped
+ * the RELATIONSHIP between them: `UploadZone` (the home drop zone, since
+ * replaced by the desk) shipped
  * `accept = "application/pdf"` four lines above a hint reading "PDF, images,
  * Word, and more", and the homepage rendered both. Each was defensible alone,
  * so no assertion about either could fail.
@@ -64,7 +65,7 @@ describe("the picker and the caption cannot disagree", () => {
       // cannot borrow a neighbour's larger number the way "Max 100 MB per
       // file" once covered a 2 MB text ceiling.
       const clause = hint
-        .split(" · ")
+        .split(/\s·\s/)
         .find((part) => part.includes(kind.label));
       expect(clause, `no clause names ${kind.label}`).toBeDefined();
       expect(clause).toContain(`${mb} MB`);
@@ -72,40 +73,54 @@ describe("the picker and the caption cannot disagree", () => {
   });
 });
 
-describe("the zone a visitor actually receives", () => {
+describe("the desk a visitor actually receives", () => {
   /**
    * Rendered, not imported. `acceptAttribute()` being correct proves nothing
    * about the component: the original bug WAS a correct helper's worth of
    * information sitting next to a literal default that ignored it.
+   *
+   * RETARGETED 2026-10-10 (WP-05), the property kept: this rendered
+   * `UploadZone`, the home page's drop zone, which the desk replaced (the
+   * zone had no other consumer and was deleted). The desk is rendered
+   * through the hero that feeds it — the server computes the picker's
+   * `accept` and its caption from ACCEPTED_KINDS and passes both — so the
+   * chain under test is the one the home page ships. The caption is found
+   * the way assistive technology finds it: as the picker's description.
    */
+  function desk() {
+    const { container } = render(<Hero />);
+    const input = container.querySelector<HTMLInputElement>(
+      `#${UPLOAD_ANCHOR} input[type="file"]:not([hidden])`,
+    );
+    expect(input, "the desk renders no picker").not.toBeNull();
+    const described = input!.getAttribute("aria-describedby") ?? "";
+    const caption = described ? document.getElementById(described) : null;
+    expect(caption, "the picker has no caption describing it").not.toBeNull();
+    return {
+      accept: input!.getAttribute("accept") ?? "",
+      caption: caption!.textContent ?? "",
+    };
+  }
+
   it("renders a file input that admits a Word document", () => {
-    const { container } = render(<UploadZone />);
-    const input = container.querySelector('input[type="file"]');
-    expect(input).not.toBeNull();
-    const accept = input?.getAttribute("accept") ?? "";
+    const { accept } = desk();
     expect(accept).toContain(".docx");
     expect(accept).toContain(".png");
     expect(accept).toContain("application/pdf");
   });
 
-  it("shows a caption naming only kinds that same input admits", () => {
-    const { container } = render(<UploadZone />);
-    const accept = new Set(
-      (
-        container.querySelector('input[type="file"]')?.getAttribute("accept") ??
-        ""
-      ).split(","),
-    );
-    for (const kind of ACCEPTED_KINDS) {
-      const named = screen.queryAllByText(
-        (_, node) => node?.textContent?.includes(kind.label) ?? false,
-      );
-      if (named.length === 0) continue;
+  it("is captioned by the generated hint, naming only kinds that same input admits", () => {
+    const { accept, caption } = desk();
+    expect(caption).toBe(acceptHint());
+    const tokens = new Set(accept.split(","));
+    const named = ACCEPTED_KINDS.filter((kind) => caption.includes(kind.label));
+    // Health: the caption names kinds at all.
+    expect(named.length).toBeGreaterThanOrEqual(3);
+    for (const kind of named)
       expect(
-        kind.accept.some((token) => accept.has(token)),
+        kind.accept.some((token) => tokens.has(token)),
         `caption names "${kind.label}" but the input admits none of ${kind.accept.join(",")}`,
       ).toBe(true);
-    }
   });
 });
 
