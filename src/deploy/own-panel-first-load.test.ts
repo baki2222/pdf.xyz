@@ -93,6 +93,25 @@ const isTest = (name: string) => /\.(test|spec)\.tsx?$/.test(name);
 /** Every non-test source file under src/ — the uniqueness corpus for markers. */
 const sources = () => walk(SRC, (n) => /\.tsx?$/.test(n) && !isTest(n));
 
+/**
+ * A source file with every whitespace run collapsed to one space — the form
+ * its JSX text compiles to. Uniqueness is checked against THIS, not the raw
+ * file: on the first split build a marker from the Office panel ("isolated
+ * worker. It produces a PDF artifact or fails honestly — no") turned up in
+ * the HTML-render panel's chunk, because that panel breaks the same sentence
+ * at a different word and a raw substring search cannot see across a line
+ * wrap. The all-or-nothing check below caught it; this closes it.
+ */
+const flatCache = new Map<string, string>();
+function flat(file: string): string {
+  let text = flatCache.get(file);
+  if (text === undefined) {
+    text = read(file).replace(/\s+/g, " ");
+    flatCache.set(file, text);
+  }
+  return text;
+}
+
 const MARKER_MIN = 9;
 const MARKERS_PER_MODULE = 6;
 /**
@@ -177,7 +196,7 @@ function getCorpus(): Corpus {
     const found = [...new Set(ownStrings(mod.file))]
       .filter((t) => t.length >= MARKER_MIN && plain(t))
       // in no other source file — other panel modules and shared bases included
-      .filter((t) => others.every((f) => !read(f).includes(t)))
+      .filter((t) => others.every((f) => !flat(f).includes(t)))
       // and the client build still carries it
       .filter((t) => allChunks.some((c) => read(c).includes(t)))
       .sort((a, b) => b.length - a.length || a.localeCompare(b))
