@@ -16,8 +16,10 @@ import {
 } from "@/lib/pdf/compare-pdf";
 import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
 import { getToolBySlug } from "@/lib/tools";
+import { withAppRouter } from "@/tests/app-router";
 import {
   ComparePdfEditor,
+  ComparePdfRunner,
   OCR_TOOL_HREF,
   type CompareItem,
 } from "./compare-pdf-runner";
@@ -270,5 +272,53 @@ describe("Compare PDF runner — documents too large to diff", () => {
     const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
     expect(alert).toHaveTextContent(/too many places to compare/i);
     expect(screen.queryByRole("group")).toBeNull();
+  });
+});
+
+/**
+ * "Start over" leaves the result without leaving the page.
+ *
+ * WHAT SHIPPED: Compare's result panel reset with `window.location.reload()`.
+ * It did clear the result — by throwing the page away: a full reload of the
+ * document and its chunks, a second trip through any hand-off, and focus
+ * dropped to the top of the page. Every other runner clears its own state.
+ * Driven through the whole runner, as a user does: two PDFs into the drop
+ * zone, Compare, Start over — and the runner must be back at its empty
+ * state with both slots free, on the same page.
+ */
+describe("Compare PDF runner — Start over", () => {
+  it("returns to two empty slots without reloading the page", async () => {
+    const left = await textPdf(CLAUSES);
+    const right = await textPdf([...CLAUSES, "Clause 3 added later"]);
+    const before = window.location.href;
+
+    render(withAppRouter(<ComparePdfRunner extract={extract} />));
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([left as BlobPart], "v1.pdf", { type: "application/pdf" }),
+          new File([right as BlobPart], "v2.pdf", { type: "application/pdf" }),
+        ],
+      },
+    });
+    await screen.findByText("2/2 selected", undefined, { timeout: 5_000 });
+    fireEvent.click(screen.getByRole("button", { name: /compare pdfs/i }));
+    await screen.findByRole(
+      "group",
+      { name: /differences found/i },
+      { timeout: 5_000 },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /start over/i }));
+
+    expect(
+      screen.queryByRole("group", { name: /differences found/i }),
+    ).toBeNull();
+    expect(screen.getByText("0/2 selected")).toBeInTheDocument();
+    expect(screen.getByText("PDF 1")).toBeInTheDocument();
+    expect(screen.getByText("PDF 2")).toBeInTheDocument();
+    expect(window.location.href).toBe(before);
   });
 });
