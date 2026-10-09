@@ -59,9 +59,20 @@ const NO_ICONS: ToolIcons = {};
  * One filter row: a single sideways-scrolling line on a phone (the chips
  * snap, and the ends fade inside the gutter so the first chip is never
  * dimmed), a label column beside wrapping chips from `sm`.
+ *
+ * A row that scrolls also CLIPS, at its padding box. It used to be exactly
+ * as tall as a chip, so a focused chip's indicator — drawn outside it — lost
+ * its top and bottom and showed as two faint vertical edges (WP-06 review,
+ * 2026-10-10). On a phone the row now has 6px above and below its chips,
+ * taken back by a negative margin so nothing under it moves; the site's
+ * focus outline reaches 4px. Its scroll-padding is 1.5rem, the 1.25rem fade
+ * plus that outline, so a chip scrolled to by {@link revealInRow} — or by
+ * the browser — stops clear of the fade, its outline whole; its end padding
+ * is 1.5rem too, or the last chip could never be scrolled that far in.
+ * `e2e/tools-filter-focus.spec.ts` measures both, at 390 and 1440.
  */
 const FILTER_ROW =
-  "-mx-5 flex snap-x snap-proximity scroll-px-5 items-center gap-2 overflow-x-auto px-5 [scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:grid sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start sm:gap-x-4 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
+  "-mx-5 flex snap-x snap-proximity scroll-px-6 items-center gap-2 overflow-x-auto pr-6 pl-5 [scrollbar-width:none] max-sm:-my-1.5 max-sm:py-1.5 max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:grid sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start sm:gap-x-4 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
 /**
  * The row's label. A snap point too: otherwise a phone snaps the row to its
  * first chip on load and the label starts scrolled out of view.
@@ -70,13 +81,86 @@ const FILTER_LABEL =
   "text-faint kicker shrink-0 snap-start pr-1 whitespace-nowrap sm:pt-2";
 /** The chips: flex items of the scrolling row on a phone, a wrap from `sm`. */
 const FILTER_CHIPS = "contents sm:flex sm:flex-wrap sm:gap-2";
+/**
+ * A chip. It draws NO focus style of its own: a category chip is a button
+ * and takes the site's `:focus-visible` outline (2px solid accent, 2px out:
+ * 7.40:1 on the light canvas, 9.30:1 on the dark), and a radio's label
+ * draws the same outline when its hidden input has focus ({@link
+ * RADIO_FOCUS}). WAS a half-strength ring, `ring-accent/50` — 2.41:1 on the
+ * light canvas, under WCAG 1.4.11's 3:1, and 3.13:1 on the dark.
+ */
 const CHIP =
-  "rounded-tag ring-accent/50 inline-flex h-8 shrink-0 snap-start items-center gap-1.5 border px-3 text-sm font-medium whitespace-nowrap transition-colors";
+  "rounded-tag inline-flex h-8 shrink-0 snap-start items-center gap-1.5 border px-3 text-sm font-medium whitespace-nowrap transition-colors";
+/** The site's focus outline, on a radio's label while its input has focus. */
+const RADIO_FOCUS =
+  "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2";
 const CHIP_ON = "bg-invert text-fg-invert border-transparent";
 const CHIP_OFF =
   "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg";
 const chipCount = (on: boolean) =>
   cn("text-xs tabular-nums", on ? "text-fg-invert/70" : "text-faint");
+
+/**
+ * Scroll a filter row SIDEWAYS so `control` is wholly in view, clear of the
+ * row's inset (its scroll-padding). Never vertically: the row's own
+ * `scrollLeft` is set, so the page stays where the reader left it.
+ *
+ * Nearest, and home when it can be: a control already in view leaves the row
+ * alone; one out of view that would be in view with the row unscrolled sends
+ * the row back to its start, so the label shows again; any other is brought
+ * just far enough in. A row that does not scroll (from `sm`, it wraps) is
+ * left alone.
+ *
+ * WHY (WP-06 review, 2026-10-10): before WP-06 the chips wrapped, so the
+ * pressed one was always on screen. As one sideways line, a deep link's
+ * choice sat off a 390px screen — `?runs=ai` at x=680, `?category=ai` at
+ * 884 — while "All" and "All tools" looked unselected over a filtered grid;
+ * and a chip reached by Tab near the edge stayed half off it, under the
+ * fade ("To PDF" at x=321..406). `e2e/tool-layout.mobile.spec.ts` holds the
+ * first for every choice, `e2e/tools-filter-focus.spec.ts` the second.
+ */
+export function revealInRow(control: Element | null): void {
+  const row = control?.closest<HTMLElement>("[data-filter-row]");
+  if (!control || !row || row.scrollWidth <= row.clientWidth) return;
+  const style = getComputedStyle(row);
+  const insetStart = parseFloat(style.scrollPaddingLeft) || 0;
+  const insetEnd = parseFloat(style.scrollPaddingRight) || 0;
+  const rowBox = row.getBoundingClientRect();
+  /** An element's extent in the row's scroll coordinates. */
+  const extent = (el: Element) => {
+    const box = el.getBoundingClientRect();
+    const start = box.left - rowBox.left - row.clientLeft + row.scrollLeft;
+    return { start, end: start + box.width };
+  };
+  const { start, end } = extent(control);
+  const max = row.scrollWidth - row.clientWidth;
+  const fits = (scrollLeft: number) =>
+    start - scrollLeft >= insetStart - 0.5 &&
+    end - scrollLeft <= row.clientWidth - insetEnd + 0.5;
+  if (fits(row.scrollLeft)) return;
+  if (fits(0)) {
+    row.scrollLeft = 0;
+    return;
+  }
+  // Land ON a snap position: the row snaps (proximity), so a position
+  // between two would be moved after the scroll — measured, by up to 12px,
+  // back under the edge. The snap positions are each snapping child's start
+  // at the inset, and the row's two ends; the nearest one that shows the
+  // control whole wins.
+  const positions = [0, max];
+  for (const el of row.querySelectorAll(":scope > *, :scope > * > *"))
+    if (getComputedStyle(el).scrollSnapAlign !== "none")
+      positions.push(Math.min(max, Math.max(0, extent(el).start - insetStart)));
+  const showing = positions.filter(fits);
+  const next = showing.length
+    ? showing.reduce((best, p) =>
+        Math.abs(p - row.scrollLeft) < Math.abs(best - row.scrollLeft)
+          ? p
+          : best,
+      )
+    : Math.min(Math.max(0, end - (row.clientWidth - insetEnd)), max);
+  row.scrollLeft = next;
+}
 
 /** What the explorer needs from the search engine chunk. */
 export interface SearchEngine {
@@ -414,6 +498,21 @@ export function ToolsExplorer({
     })),
   ];
 
+  // The active choice in each filter row, brought on screen: after
+  // hydration (a deep link's choice applies then) and whenever it changes.
+  const runsRow = useRef<HTMLDivElement>(null);
+  const categoryRow = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    revealInRow(
+      runsRow.current?.querySelector("input:checked")?.closest("label") ?? null,
+    );
+  }, [runs]);
+  useEffect(() => {
+    revealInRow(
+      categoryRow.current?.querySelector('[aria-pressed="true"]') ?? null,
+    );
+  }, [active]);
+
   const resultsHeading = useId();
   const pendingHeading = useId();
   const runsLabel = useId();
@@ -533,7 +632,9 @@ export function ToolsExplorer({
               type="button"
               onClick={() => updateAndRefocus({ ...state, accepts: null })}
               aria-label={`Takes ${accepts}, remove this filter`}
-              className="border-line-strong bg-select text-fg hover:border-accent/60 focus-visible:ring-accent/50 rounded-tag inline-flex h-8 items-center gap-1.5 border pr-2 pl-3 text-sm font-medium transition-colors outline-none focus-visible:ring-2"
+              // The site's focus outline, as on the filter chips: this drew
+              // the same half-strength ring (2.41:1) until the WP-06 review.
+              className="border-line-strong bg-select text-fg hover:border-accent/60 rounded-tag inline-flex h-8 items-center gap-1.5 border pr-2 pl-3 text-sm font-medium transition-colors"
             >
               Takes {accepts}
               <X className="text-muted size-3.5" aria-hidden />
@@ -546,12 +647,16 @@ export function ToolsExplorer({
           (its label scrolls with it), so the first tool stays near the top
           of the screen; from `sm` the label takes a column and the chips
           wrap beside it. Every chip is focusable, so a keyboard reaches the
-          ones off-screen and the browser scrolls them in. */}
+          ones off-screen, and each one focused is scrolled wholly into view
+          (`revealInRow`) — the browser's own scroll left a chip half under
+          the fade. */}
       <div className="flex flex-col gap-2 sm:gap-3">
         {runsChoices.length > 0 && (
           <div
+            ref={runsRow}
             role="radiogroup"
             aria-labelledby={runsLabel}
+            data-filter-row
             className={FILTER_ROW}
           >
             <span id={runsLabel} className={FILTER_LABEL}>
@@ -566,7 +671,8 @@ export function ToolsExplorer({
                     className={cn(
                       CHIP,
                       checked ? CHIP_ON : CHIP_OFF,
-                      "relative cursor-pointer has-[:focus-visible]:ring-2",
+                      "relative cursor-pointer",
+                      RADIO_FOCUS,
                     )}
                   >
                     {/* `relative` on the label keeps this input inside the
@@ -578,6 +684,9 @@ export function ToolsExplorer({
                       value={choice.id}
                       checked={checked}
                       onChange={() => update({ runs: choice.id })}
+                      onFocus={(e) =>
+                        revealInRow(e.currentTarget.closest("label"))
+                      }
                       className="sr-only"
                     />
                     {"mode" in choice ? (
@@ -599,8 +708,10 @@ export function ToolsExplorer({
         )}
 
         <div
+          ref={categoryRow}
           role="group"
           aria-label="Filter by category"
+          data-filter-row
           className={FILTER_ROW}
         >
           <span aria-hidden className={FILTER_LABEL}>
@@ -615,11 +726,8 @@ export function ToolsExplorer({
                   type="button"
                   aria-pressed={selected}
                   onClick={() => update({ category: filter.id })}
-                  className={cn(
-                    CHIP,
-                    selected ? CHIP_ON : CHIP_OFF,
-                    "outline-none focus-visible:ring-2",
-                  )}
+                  onFocus={(e) => revealInRow(e.currentTarget)}
+                  className={cn(CHIP, selected ? CHIP_ON : CHIP_OFF)}
                 >
                   {filter.label}
                   <span className={chipCount(selected)}>{filter.count}</span>

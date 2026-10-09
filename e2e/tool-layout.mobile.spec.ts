@@ -3,6 +3,9 @@ import { getAllToolSlugs, getToolsByCategory } from "../src/lib/tools";
 import { categories } from "../src/lib/tools/categories";
 import { categoryHref } from "../src/lib/tools/category-href";
 import { getRunnerKind } from "../src/lib/pdf/registry";
+import { processingSplit } from "../src/lib/tools/processing-split";
+import { whereItRuns } from "../src/lib/tools/where-it-runs";
+import { waitForHydration } from "./helpers";
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -140,6 +143,161 @@ test("/: on a phone each toolbox card shows its first three tools and a visible 
       link,
       `${category.id}: the link is not under the rows`,
     ).toBeGreaterThanOrEqual(rows - 1);
+  }
+});
+
+/**
+ * The /tools filter rows on a phone are single lines that scroll sideways.
+ * A deep link's choice must be ON SCREEN once the page has applied it.
+ *
+ * WHAT SHIPPED (review of WP-06, 2026-10-10, 390x844, production build):
+ * before WP-06 the chips wrapped, so the pressed one was always in view.
+ * WP-06 made each row one sideways-scrolling line and nothing brought the
+ * active chip into view: `?runs=ai` left the checked "AI 4" radio at
+ * x=680, `?runs=secure-worker` at 516, `?category=ai` the "AI" chip at 884,
+ * `?category=security` at 675 — all past the 390px screen. The reader saw
+ * "All" and "All tools" looking unselected over a filtered grid.
+ *
+ * Every choice is a case, derived from the partition and the categories,
+ * never typed. A choice that is on screen with the row unscrolled must leave
+ * the row unscrolled, so its label stays in view (the control: `?category=
+ * organize`, `?runs=never-uploads`); one that is not must be scrolled to,
+ * sideways only, clear of the row's edge fade. The health check below proves
+ * both kinds are in the set, so neither half passes for want of a case.
+ */
+const RUNS_OPTIONS = whereItRuns(processingSplit());
+const FILTER_LINKS = [
+  ...RUNS_OPTIONS.map((option) => ({
+    query: `?runs=${option.id}`,
+    group: () => ({ role: "radiogroup" as const, name: "Where it runs" }),
+    active: "label:has(input:checked)",
+  })),
+  ...categories.map((category) => ({
+    query: `?category=${category.id}`,
+    group: () => ({ role: "group" as const, name: "Filter by category" }),
+    active: 'button[aria-pressed="true"]',
+  })),
+];
+
+/** Where the active control sits in its row, read in the browser. */
+interface RowReading {
+  /** Its edges in the viewport. */
+  left: number;
+  right: number;
+  /** Its start and end in the row's scroll coordinates. */
+  start: number;
+  end: number;
+  scrollLeft: number;
+  clientWidth: number;
+  /** The row's own inset: its scroll-padding. */
+  padLeft: number;
+  padRight: number;
+  innerWidth: number;
+  scrollY: number;
+  /** The row's label, in the viewport. */
+  label: { left: number; right: number } | null;
+}
+
+for (const link of FILTER_LINKS) {
+  test(`/tools${link.query}: the chosen filter is on screen, and the row scrolls only when it must`, async ({
+    page,
+  }) => {
+    await page.goto(`/tools${link.query}`);
+    const { role, name } = link.group();
+    const row = page.getByRole(role, { name });
+    // Applied: the deep link's choice is the active control.
+    await expect(row.locator(link.active)).toHaveCount(1);
+    await waitForHydration(row.locator(link.active));
+    const read = () =>
+      row.evaluate((el, selector): RowReading => {
+        const active = el.querySelector(selector)!;
+        const box = active.getBoundingClientRect();
+        const rowBox = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        const label = el.firstElementChild?.getBoundingClientRect();
+        return {
+          left: box.left,
+          right: box.right,
+          start: box.left - rowBox.left + el.scrollLeft,
+          end: box.right - rowBox.left + el.scrollLeft,
+          scrollLeft: el.scrollLeft,
+          clientWidth: el.clientWidth,
+          padLeft: parseFloat(style.scrollPaddingLeft) || 0,
+          padRight: parseFloat(style.scrollPaddingRight) || 0,
+          innerWidth: window.innerWidth,
+          scrollY: window.scrollY,
+          label: label ? { left: label.left, right: label.right } : null,
+        };
+      }, link.active);
+    // The reveal runs after hydration; give it a frame or two to land.
+    await expect
+      .poll(async () => {
+        const r = await read();
+        return r.left >= 0 && r.right <= r.innerWidth;
+      })
+      .toBe(true);
+    const r = await read();
+    expect(r.innerWidth, "the phone viewport did not apply").toBe(390);
+    const fitsUnscrolled = r.end <= r.clientWidth - r.padRight;
+    // Never a vertical scroll: revealing a chip must not move the page.
+    expect(r.scrollY, "the page scrolled vertically").toBe(0);
+    if (fitsUnscrolled) {
+      // On screen as served: the row stays put and its label stays in view.
+      expect(r.scrollLeft, "a choice already in view scrolled the row").toBe(0);
+      expect(r.label, "the row has no label").not.toBeNull();
+      expect(r.label!.left).toBeGreaterThanOrEqual(0);
+      expect(r.label!.right).toBeLessThanOrEqual(r.innerWidth);
+    } else {
+      // Scrolled to, wholly, and clear of the fade at either end.
+      expect(r.left, "under the row's left edge").toBeGreaterThanOrEqual(
+        r.padLeft - 1,
+      );
+      expect(r.right, "under the row's right edge").toBeLessThanOrEqual(
+        r.clientWidth - r.padRight + 1,
+      );
+    }
+  });
+}
+
+test("health: the filter deep links include choices on screen as served and choices that need the row scrolled", async ({
+  page,
+}) => {
+  // Measured here rather than read from the cases above (each runs in its own
+  // worker): where every choice sits with the row unscrolled. Both kinds must
+  // exist, or one half of the test above is checked over nothing.
+  await page.goto("/tools");
+  const positions = await page.evaluate(() =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[role="radiogroup"] label, [role="group"][aria-label="Filter by category"] button',
+      ),
+    ].map((el) => {
+      const row = el.closest<HTMLElement>(
+        '[role="radiogroup"], [role="group"]',
+      )!;
+      return {
+        row: row.getAttribute("role"),
+        text: el.textContent?.trim() ?? "",
+        right: el.getBoundingClientRect().right,
+        width: row.clientWidth,
+      };
+    }),
+  );
+  expect(positions.length).toBe(
+    RUNS_OPTIONS.length + 1 + categories.length + 1,
+  );
+  const offScreen = positions.filter((p) => p.right > p.width);
+  const onScreen = positions.filter((p) => p.right <= p.width);
+  // The reviewer's cases: AI, last in each row, starts off screen in both.
+  for (const role of ["radiogroup", "group"]) {
+    expect(
+      offScreen.filter((p) => p.row === role).map((p) => p.text),
+      role,
+    ).toContainEqual(expect.stringMatching(/^AI/));
+    expect(
+      onScreen.filter((p) => p.row === role),
+      role,
+    ).not.toEqual([]);
   }
 });
 
