@@ -528,8 +528,12 @@ describe("PDF to PowerPoint: the deck is the page's sentence", () => {
    * Served at f4829880, written when pptx() packed slides and nothing else.
    * pptx-package.ts (8920ee1b) writes the master, layout and theme chain, so
    * both said the file lacks parts the engine puts in it. The "PowerPoint
-   * rejects it" sentences beside them are NOT this ban's business: they wait
-   * on a real job's file opening in PowerPoint (the content file's exit).
+   * rejects it" sentences beside them were never this ban's business. They
+   * left the page on 2026-10-09, when a real job's file opened through
+   * PowerPoint's COM interface, and capability-hedges.test.ts keeps all six
+   * as fixtures. The page now claims neither "refuses" nor "opens"; the
+   * content file's exit for an "opens" claim is a production download opening
+   * on a double-click with no repair prompt.
    */
   const SHIPPED_MISSING_MASTER = [
     "The package holds the slides and their text but none of the slide master, slide layout and theme parts that a presentation normally contains.",

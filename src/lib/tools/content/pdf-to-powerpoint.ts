@@ -45,35 +45,64 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    line with no markers, so the copy does NOT promise page-by-page pasting
  *    from it.
  *
- * ⚠️ THE FILE DOES NOT OPEN IN MICROSOFT POWERPOINT, and the copy says so.
- * Measured 2026-09-27, not inferred, twice independently: the real engine's
- * output (runPdfOfficeExport + parseLayoutText, 3-page and 1-page documents,
- * then again with a 3-page document whose middle page is empty) was opened
- * through PowerPoint's COM `Presentations.Open` (PowerPoint 16.0, Windows
- * desktop) and refused with "The file or directory is corrupted and
- * unreadable" (0x80070570). Positive control in the same run: a deck created
- * and saved by PowerPoint itself reopened with its slide count. AT THAT
- * MEASUREMENT (history, kept) pptx() wrote no slideMaster, slideLayout or
- * theme parts (scripts/worker-prove-tools.ts itself notes "PresentationML
- * needs the whole master/layout/theme chain to open"), no
- * <p:sldSz>/<p:notesSz>, and empty nvSpPr/nvGrpSpPr; WHICH of those PowerPoint
- * objected to was not isolated, and a production job's download was not
- * opened.
+ * ── DOES IT OPEN IN POWERPOINT? What the copy may say, and why ──────────────
  *
- * SINCE 8920ee1b (on this branch, not yet in a worker image): pptx() packs
- * through pptx-package.ts, which DOES write ppt/slideMasters/slideMaster1.xml,
- * ppt/slideLayouts/slideLayout1.xml, ppt/theme/theme1.xml and <p:sldSz>. The
- * sentences that said the file lacks those parts were deleted 2026-10-08 —
- * that is true of the code whether or not the worker has been rebuilt. The
- * "PowerPoint rejects it" sentences stay until the open check below passes.
+ * HISTORY (kept). Measured 2026-09-27, not inferred, twice independently: the
+ * engine's output of that day (runPdfOfficeExport + parseLayoutText, 3-page
+ * and 1-page documents, then a 3-page document whose middle page is empty)
+ * was opened through PowerPoint's COM `Presentations.Open` (PowerPoint 16.0,
+ * Windows desktop) and refused with "The file or directory is corrupted and
+ * unreadable" (0x80070570), while a deck PowerPoint saved itself reopened in
+ * the same run. That pptx() wrote no slideMaster, slideLayout or theme parts,
+ * no <p:sldSz>/<p:notesSz>, and empty nvSpPr/nvGrpSpPr. From then until
+ * 2026-10-09 this page said PowerPoint refuses the file, in six places (the
+ * meta description, intro[1], both of the first two use cases, step 4 and the
+ * first FAQ answer), and that was true of every worker image production ran.
  *
- * EXIT CONDITION for the "PowerPoint rejects it" sentences — the PROPERTY, not
- * the mechanism: remove them when a file PRODUCED BY THE ENGINE opens in
- * Microsoft PowerPoint. Adding a slideMaster part is the mechanism and does not
- * by itself license the removal; open a real job's output in real PowerPoint.
- * Only the Windows desktop app was tested; PowerPoint for Mac and the web,
- * Google Slides, Keynote and LibreOffice Impress were not, and the copy says
- * that rather than implying they work or fail.
+ * WHAT CHANGED. 8920ee1b (reached main with #167) packs through
+ * pptx-package.ts, which writes ppt/slideMasters/slideMaster1.xml,
+ * ppt/slideLayouts/slideLayout1.xml, ppt/theme/theme1.xml and <p:sldSz>; since
+ * a85ba73e the engine also runs pptx-inspect.ts over its own package and
+ * refuses to deliver one that fails. On 2026-10-09 `pnpm prove:pptx-opens`
+ * ran a real job through the worker's processor (a generated 3-page PDF, the
+ * middle page blank; the extractor on that Windows host was Xpdf 4.00's
+ * pdftotext, not the worker's poppler) and PowerPoint 16.0 build 20430 opened
+ * the 14,253-byte result through COM with 3 slides and 1 master, and read
+ * every page's text back. In the same run a deck PowerPoint saved reopened
+ * and the pre-2026-09-27 package was refused (0x80070570). Measured on
+ * 9f2a2efb by its author, reproduced on it by the reviewer, and run once more
+ * on it before this copy was rewritten, with the same figures each time.
+ *
+ * WHY THE COPY SAYS NEITHER "refuses" NOR "opens". `publish.yml` deploys both
+ * tiers from main on every push, so the six "refuses" sentences would turn
+ * false with the first successful publish that carries 8920ee1b. "Opens"
+ * would claim more than was measured: COM is not a double-click, and
+ * scripts/prove-pptx-opens.ts records damaged files that "opened" through COM
+ * with no alert, so it cannot see a silent repair or a repair prompt. The copy
+ * states the COM measurement, dated, says the double-click has not been
+ * checked, and names the apps nobody tried (PowerPoint for Mac and the web,
+ * Google Slides, Keynote, LibreOffice Impress) rather than implying they work
+ * or fail.
+ *
+ * WHICH IMAGE IT IS TRUE OF. The measurement is of the engine on main. An
+ * image older than 8920ee1b still serves the package PowerPoint refused, and
+ * merging is not shipping: production's last successful publish before this
+ * rewrite was #165's, and #167's failed on 2026-10-09. The live answer is the
+ * heartbeat's `pptxPresentationChain` (absent or false on an older image), and
+ * a static string cannot read it, so the copy adjudicates nothing in either
+ * direction. capability-hedges.test.ts holds every sentence about this
+ * capability to "no deferral", with the six old sentences as its fixtures.
+ *
+ * EXIT CONDITION for an "opens in PowerPoint" claim — the PROPERTY, not the
+ * mechanism: a file a user DOWNLOADS FROM PRODUCTION opens on a double-click
+ * in PowerPoint for Windows with no repair prompt. That is the owner's check,
+ * made in PowerPoint's own window. None of these licenses the claim: a slide
+ * master in the package, the inspector passing, `pptxPresentationChain: true`
+ * on the production heartbeat, a COM `Presentations.Open` succeeding on a real
+ * job. Three of the four have already happened, and the fourth arrives with
+ * the first successful publish that carries the probe, which is exactly why
+ * none of them can be the exit. Until the owner has made that check, the copy
+ * keeps to the dated measurement.
  *
  * The upload ceiling below is WORKER_FILE_CEILING (JOB_LIMITS.maxFileBytes).
  * The extractor has its own env-configurable cap
@@ -92,22 +121,22 @@ const content: ToolContent = {
   seoTitle: "PDF to PowerPoint (PPTX): Text Export by Page",
 
   metaDescription:
-    "Export a PDF's selectable text to .pptx, one slide per page. PowerPoint for Windows currently rejects the file as corrupted; read why before you convert.",
+    "Export a PDF's selectable text to a .pptx: one slide per page, each holding that page's lines as plain paragraphs. Images, fonts and layout are not kept.",
 
   intro: [
     "PDF to PowerPoint reads the words you can select in a PDF and packs them into a .pptx file, page by page: the first page's text goes on slide one, the second page's on slide two, and so on. Each slide holds a single text box, with one paragraph for every line of text found on that page. Pictures, charts, logos, colours, fonts, sizes and the position of each block stay behind, and a sentence the PDF wrapped over two lines arrives as two paragraphs.",
-    "Read this before relying on it: the Windows desktop version of Microsoft PowerPoint refuses to open the file this tool currently writes, reporting it as corrupted and unreadable. PowerPoint for Mac and the web, Google Slides, Keynote and LibreOffice Impress have not been tested, so pdf.xyz cannot tell you whether they accept it. Until that is fixed, PDF to Text is the working route to a PDF's words; it runs in your browser, and nothing is uploaded.",
+    "What has been tested is narrow, so here it is in full. On 9 October 2026, a .pptx built by this tool's export code from a three-page test PDF was opened through the automation interface of PowerPoint for Windows, which found one slide per page and read every page's text back. Whether a downloaded file opens on a double-click without PowerPoint offering to repair it has not been checked, and PowerPoint for Mac and the web, Google Slides, Keynote and LibreOffice Impress have not been tried. If all you need is the words, PDF to Text copies them out in your browser, and nothing is uploaded.",
     `A PDF made only of scanned images holds pictures of lettering rather than characters, so the export stops and points you to OCR as the first step. The reading is done by poppler's pdftotext on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure worker, where your input is deleted as each job finishes. The worker keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
   ],
 
   useCases: [
     {
       title: "Recover a deck when only the PDF survived",
-      body: "The export is built to put each page's wording back on a slide of its own. While PowerPoint refuses that file, take the text from PDF to Text instead and paste it into your template; pages there are divided only by a blank line, so keep the PDF open to see where each one ends.",
+      body: "Each page's wording comes back on a slide of its own, in page order, as plain paragraphs in a single text box, so none of it has to be retyped. The look stays behind: rebuild the layout, pictures and styling yourself, with the PDF open beside you for reference.",
     },
     {
       title: "Turn a report into talking points",
-      body: "Because one page becomes one slide, a report's page order becomes a talk's running order. Until the .pptx opens, copy the report's words out with PDF to Text and trim them down to what you will actually say.",
+      body: "Because one page becomes one slide, a report's page order becomes a talk's running order, and each slide starts out holding every line its page did. What remains is cutting those lines down to what you will actually say.",
     },
     {
       title: "Bring a scanned handout's words out",
@@ -130,14 +159,14 @@ const content: ToolContent = {
     },
     {
       title: "Save the .pptx",
-      body: `"Your PPTX file is ready." appears with a Download button labelled with the output's name: your PDF's name, ending in .pptx. The page has already pulled the file into the tab, so that button saves it from there; the worker's own copy becomes unreachable after ${OUTPUT_TTL} minutes. Remember that PowerPoint will not open it yet.`,
+      body: `"Your PPTX file is ready." appears with a Download button labelled with the output's name: your PDF's name, ending in .pptx. The page has already pulled the file into the tab, so that button saves it from there; the worker's own copy becomes unreachable after ${OUTPUT_TTL} minutes.`,
     },
   ],
 
   faqs: [
     {
       q: "Will the .pptx open in PowerPoint?",
-      a: "Not at the moment. Opened in PowerPoint's Windows desktop app, it is refused as corrupted and unreadable. No other presentation app has been checked. Meanwhile, copy the words out with PDF to Text and paste them onto your slides.",
+      a: "Only one route has been checked. On 9 October 2026, PowerPoint 16.0 for Windows opened a .pptx this tool made from a three-page test PDF through its automation interface, counted three slides and read each page's text back. That interface cannot show a repair prompt, and a download has not been opened with a double-click, so pdf.xyz does not promise that PowerPoint opens it without asking to repair it. No other presentation app has been tried.",
     },
     {
       q: "Will the design, images and fonts of my PDF be kept?",

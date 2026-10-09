@@ -3,10 +3,13 @@
  *
  * ── WHY THIS EXISTS ─────────────────────────────────────────────────────────
  *
- * The web tier auto-deploys from `main`; the worker image is built by hand.
+ * When this was written (2026-09-27) the web tier auto-deployed from `main`
+ * and the worker image was built by hand. `publish.yml` now deploys both tiers
+ * on every push to main, but merging is still not shipping: a publish can
+ * fail (#167's did, on 2026-10-09) and leave production's worker behind main.
  * The fix that gave PDF to PowerPoint its slide master, layout and theme
- * (2026-09-27) changes nothing a user downloads until an image carrying it is
- * running, and nothing on the web tier could tell whether one is. The catalogue
+ * changes nothing a user downloads until an image carrying it is running, and
+ * nothing on the web tier could tell whether one is. The catalogue
  * has promised "an editable PowerPoint slide" per page all along, so the
  * question is the 2026-08-21 one again (`translate/capability.ts`): does the
  * running image do what the copy says?
