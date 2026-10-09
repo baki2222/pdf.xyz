@@ -28,7 +28,7 @@ function IndexRow({ tool, phoneHidden }: { tool: Tool; phoneHidden: boolean }) {
     <Link
       href={`/tools/${tool.slug}`}
       className={cn(
-        "group flex items-baseline gap-3 py-1 text-sm sm:py-[7px]",
+        "group flex items-baseline gap-2 py-1 text-sm sm:gap-3 sm:py-[7px]",
         phoneHidden && "max-sm:hidden",
       )}
     >
@@ -39,7 +39,9 @@ function IndexRow({ tool, phoneHidden }: { tool: Tool; phoneHidden: boolean }) {
             className="bg-accent size-1.5 shrink-0 self-center max-sm:hidden"
           />
         )}
-        <span className="text-fg group-hover:text-accent truncate font-medium transition-colors">
+        {/* Never cut short on a phone, where the name is all a row says:
+            it wraps instead ("PowerPoint to P…" was the first cut). */}
+        <span className="text-fg group-hover:text-accent font-medium transition-colors sm:truncate">
           {tool.name}
         </span>
       </span>
