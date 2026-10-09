@@ -9,16 +9,15 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { claimFromUrl } from "@/components/tools/runner/use-tool-handoff";
 import {
   clearHandoffs,
   HANDOFF_TARGET_WORKSPACE,
   handoffPayload,
   purgeExpiredHandoffs,
+  readHandoffId,
   type HandoffOrigin,
 } from "@/lib/handoff";
 import type { FileFacts } from "@/lib/intent/facts";
-import { launchWithFiles } from "@/lib/intent/launch";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import {
   clearPersisted,
@@ -50,6 +49,21 @@ export const MAX_FILE_MB = Math.round(MAX_FILE_BYTES / (1024 * 1024));
  * staged files starts a new session.
  */
 const WORKSPACE_PROBES = 10;
+
+/**
+ * The launch (`launchWithFiles`) and the claim (`claimFromUrl`) are reached
+ * through `import()`, never statically: both are shared with every tool page,
+ * and a module group shared between the workspace and the tool pages is split
+ * by the bundler into chunks of its own — measured 2026-10-09 at +3.5 KB gz on
+ * every tool page from the per-chunk compression alone. The launch is warmed
+ * with the first staged file, so a click never waits for it; the claim loads
+ * only when the address bar names a hand-off.
+ */
+const loadLaunch = () => import("@/lib/intent/launch");
+const loadClaim = () =>
+  import("@/components/tools/runner/use-tool-handoff").then(
+    (m) => m.claimFromUrl,
+  );
 
 /** A file the workspace declined to stage, with a user-facing reason. */
 export interface RejectedFile {
@@ -237,6 +251,8 @@ export function useWorkspace(
     const { signal } = session.current;
     measuring.current = measuring.current.then(async () => {
       if (signal.aborted || !aliveRef.current) return;
+      // Warm the launch now: whoever stages a file is about to open a tool.
+      void loadLaunch().catch(() => {});
       try {
         const { measureFacts, quickFacts } = await import("@/lib/intent/facts");
         const quick: FileFacts[] = entries.map(({ id, file }) =>
@@ -323,22 +339,31 @@ export function useWorkspace(
   useEffect(() => {
     if (claimed.current) return;
     claimed.current = true;
-    const claim = claimFromUrl(
-      HANDOFF_TARGET_WORKSPACE,
-      (entries) => entries,
-      router,
-    );
-    if (!claim) return;
-    void claim.then((result) => {
-      if (!aliveRef.current) return;
-      if (result.status === "ready") {
-        const count = addFiles(result.files);
-        if (count > 0)
-          setArrival({ kind: "loaded", origin: result.origin, count });
-      } else if (result.status === "expired") {
-        setArrival({ kind: "expired" });
-      }
-    });
+    let search = "";
+    try {
+      search = window.location.search;
+    } catch {
+      return;
+    }
+    if (!readHandoffId(search)) return;
+    void loadClaim()
+      .then((claimFromUrl) =>
+        claimFromUrl(HANDOFF_TARGET_WORKSPACE, (entries) => entries, router),
+      )
+      .then((result) => {
+        if (!result) return;
+        if (!aliveRef.current) return;
+        if (result.status === "ready") {
+          const count = addFiles(result.files);
+          if (count > 0)
+            setArrival({ kind: "loaded", origin: result.origin, count });
+        } else if (result.status === "expired") {
+          setArrival({ kind: "expired" });
+        }
+      })
+      .catch(() => {
+        // The claim could not load: the page stays the plain workspace.
+      });
   }, [addFiles, router]);
 
   const dismissArrival = useCallback(() => setArrival(null), []);
@@ -489,16 +514,21 @@ export function useWorkspace(
 
       setLaunchFailedSlug(null);
       setLaunchingSlug(tool.slug);
-      void launchWithFiles({
-        toolSlug: tool.slug,
-        files: ordered,
-        origin: { kind: "workspace" },
-        router,
-      }).then((result) => {
-        if (result === "carried" || result === "plain") return;
-        setLaunchingSlug(null);
-        if (result === "failed") setLaunchFailedSlug(tool.slug);
-      });
+      void loadLaunch()
+        .then(({ launchWithFiles }) =>
+          launchWithFiles({
+            toolSlug: tool.slug,
+            files: ordered,
+            origin: { kind: "workspace" },
+            router,
+          }),
+        )
+        .catch(() => "failed" as const)
+        .then((result) => {
+          if (result === "carried" || result === "plain") return;
+          setLaunchingSlug(null);
+          if (result === "failed") setLaunchFailedSlug(tool.slug);
+        });
     },
     [handlesFor, launchBatch, router],
   );
@@ -508,26 +538,31 @@ export function useWorkspace(
       const files = handlesFor(ids);
       setLaunchFailedSlug(null);
       setLaunchingSlug(tool.slug);
-      void launchWithFiles({
-        toolSlug: tool.slug,
-        files,
-        origin: { kind: "workspace" },
-        suggestion: { source: "workspace", rank },
-        router,
-      }).then((result) => {
-        if (result === "carried" || result === "plain") {
-          // Recorded once the tool really opens: name-free, like every entry.
-          openTool(
-            tool,
-            result === "carried"
-              ? handoffPayload(tool.slug, files).length
-              : undefined,
-          );
-          return;
-        }
-        setLaunchingSlug(null);
-        if (result === "failed") setLaunchFailedSlug(tool.slug);
-      });
+      void loadLaunch()
+        .then(({ launchWithFiles }) =>
+          launchWithFiles({
+            toolSlug: tool.slug,
+            files,
+            origin: { kind: "workspace" },
+            suggestion: { source: "workspace", rank },
+            router,
+          }),
+        )
+        .catch(() => "failed" as const)
+        .then((result) => {
+          if (result === "carried" || result === "plain") {
+            // Recorded once the tool really opens: name-free, like every entry.
+            openTool(
+              tool,
+              result === "carried"
+                ? handoffPayload(tool.slug, files).length
+                : undefined,
+            );
+            return;
+          }
+          setLaunchingSlug(null);
+          if (result === "failed") setLaunchFailedSlug(tool.slug);
+        });
     },
     [handlesFor, openTool, router],
   );
