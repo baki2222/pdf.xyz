@@ -1,3 +1,4 @@
+import { FORMATS, formatForToken, type Format } from "@/lib/intent/formats";
 import { categories } from "./categories";
 import type { ToolCategoryId } from "./types";
 
@@ -6,12 +7,27 @@ export type ToolsFilter = ToolCategoryId | "all";
 export interface ToolsQuery {
   readonly category: ToolsFilter;
   readonly query: string;
+  /** Only tools that take this format (`?accepts=pdf`); null for any. */
+  readonly accepts: Format | null;
 }
 
 const CATEGORY_IDS = new Set<string>(categories.map((c) => c.id));
 
 /**
- * Read `/tools?category=…&q=…` into explorer state.
+ * `?accepts=` as a format some tool takes, in any spelling ("jpeg", "JPG"),
+ * or null — an unknown value, or a format nothing here opens, filters
+ * nothing rather than emptying the grid.
+ */
+function acceptsFormat(value: string | null): Format | null {
+  if (value === null) return null;
+  const format = formatForToken(value);
+  return format !== null && (FORMATS as readonly string[]).includes(format)
+    ? (format as Format)
+    : null;
+}
+
+/**
+ * Read `/tools?category=…&q=…&accepts=…` into explorer state.
  *
  * This used to happen on the SERVER: `tools/page.tsx` awaited `searchParams`,
  * which made `/tools` dynamic — `Cache-Control: private, no-store`, a server
@@ -19,9 +35,11 @@ const CATEGORY_IDS = new Set<string>(categories.map((c) => c.id));
  * that links all fifty tools (measured on production). The route is
  * now prerendered with the full grid in its HTML, and the explorer applies
  * this after hydration, so old shared filter URLs and the WebSite
- * SearchAction's `/tools?q=` template keep working.
+ * SearchAction's `/tools?q=` template keep working. `?accepts=` is read the
+ * same way and never by the page, so it cannot make the route dynamic again.
  *
- * An unknown category is `"all"`, never an empty grid.
+ * An unknown category is `"all"`, never an empty grid; so is an unknown
+ * format.
  */
 export function parseToolsQuery(search: string): ToolsQuery {
   const params = new URLSearchParams(search);
@@ -32,6 +50,7 @@ export function parseToolsQuery(search: string): ToolsQuery {
         ? (category as ToolCategoryId)
         : "all",
     query: params.get("q") ?? "",
+    accepts: acceptsFormat(params.get("accepts")),
   };
 }
 
@@ -47,6 +66,8 @@ export function toolsSearch(current: string, state: ToolsQuery): string {
   const q = state.query.trim();
   if (q) params.set("q", q);
   else params.delete("q");
+  if (state.accepts === null) params.delete("accepts");
+  else params.set("accepts", state.accepts.toLowerCase());
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }
