@@ -75,23 +75,3 @@ export function unsupportedAnswer<T extends AnswerTool>(
   }
   return { format, headline, how: data.how, alternative };
 }
-
-/**
- * The whole answer as one sentence run, for a live region or a note:
- * "No tool here opens HEIC photos. Save a JPG copy first. JPG to PDF takes
- * JPG and PNG."
- */
-export function answerText<T extends AnswerTool>(
-  answer: UnsupportedAnswer<T>,
-): string {
-  const parts = [answer.headline];
-  if (answer.how) parts.push(answer.how);
-  const alt = answer.alternative;
-  if (alt?.kind === "tool") parts.push(`${alt.tool.name} takes ${alt.takes}.`);
-  if (alt?.kind === "accepts") {
-    parts.push(
-      `${alt.count} ${alt.count === 1 ? "tool takes" : "tools take"} ${alt.format}.`,
-    );
-  }
-  return parts.join(" ");
-}

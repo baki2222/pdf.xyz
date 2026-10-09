@@ -1,4 +1,9 @@
-import { test, expect, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 import { attachConsoleGuard, waitForHydration } from "./helpers";
 
 /**
@@ -20,6 +25,62 @@ async function toolLinks(page: Page): Promise<string[]> {
     .locator('a[href^="/tools/"]')
     .evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""));
   return hrefs.filter((href) => /^\/tools\/[a-z0-9-]+$/.test(href));
+}
+
+/**
+ * The marker only the search engine's chunk carries (`SEARCH_ENGINE_CHUNK`
+ * in `src/lib/tools/search-tools.ts`). Typed here, and checked by
+ * {@link holdSearchEngine}'s count: if it ever stops matching, nothing is
+ * held and the test that holds it fails on that count, not on the state.
+ */
+const SEARCH_ENGINE_MARKER = "pdfxyz:lazy:search-engine";
+
+/**
+ * Hold back exactly the search engine's chunk — recognised by its content,
+ * since its file name is a hash — until `release()`, so the state a reader
+ * sees while it is on its way can be looked at in a real browser.
+ */
+async function holdSearchEngine(page: Page) {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let held = 0;
+  await page.route(
+    /\/_next\/static\/chunks\/.+\.js(?:\?.*)?$/,
+    async (route) => {
+      try {
+        const response = await route.fetch();
+        const body = await response.text();
+        if (body.includes(SEARCH_ENGINE_MARKER)) {
+          held += 1;
+          await released;
+        }
+        await route.fulfill({ response, body });
+      } catch {
+        // The page closed with a chunk in flight ("Response has been
+        // disposed"). A chunk that failed mid-test would fail the test's
+        // own assertions; this only keeps teardown from failing it again.
+      }
+    },
+  );
+  return {
+    held: () => held,
+    /** Let the chunk through, and stop intercepting. */
+    release: async () => {
+      release();
+      // A chunk still in flight when the test ends would otherwise throw
+      // from its handler ("Response has been disposed") and fail the test.
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+    },
+  };
+}
+
+/** How many distinct tool pages the served `/tools` links: the catalogue. */
+async function servedToolCount(request: APIRequestContext): Promise<number> {
+  const html = await (await request.get("/tools")).text();
+  const slugs = new Set(
+    [...html.matchAll(/href="(\/tools\/[a-z0-9-]+)"/g)].map((m) => m[1]),
+  );
+  return slugs.size;
 }
 
 test.describe("the /tools search, after hydration", () => {
@@ -75,6 +136,45 @@ test.describe("the /tools search, after hydration", () => {
     expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
   });
 
+  test("while the engine is on its way, ?q=heic says it is searching and claims no count — then answers", async ({
+    page,
+    request,
+  }) => {
+    // WAS: the box read "heic", the count beside it "50 tools", and the
+    // whole catalogue sat below under its category headings — the served
+    // grid presented as the answer, until the chunk landed (review of WP-03,
+    // the chunk delayed 4 s on the production build).
+    const catalogue = await servedToolCount(request);
+    expect(catalogue).toBeGreaterThan(40);
+    const hold = await holdSearchEngine(page);
+    // Not "load": a chunk held back before the load event holds the event.
+    await page.goto("/tools?q=heic", { waitUntil: "domcontentloaded" });
+    const box = page.getByRole("searchbox", { name: /search tools/i });
+    await waitForHydration(box);
+    // Health: the engine is what is being held, and it was asked for.
+    await expect.poll(() => hold.held()).toBe(1);
+    await expect(box).toHaveValue("heic");
+
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Searching for “heic”…" }),
+    ).toBeVisible();
+    const count = page.locator("[data-result-count]");
+    await expect(count).toBeVisible();
+    await expect(count).not.toHaveText(/\d/);
+    // Every tool link is still on the page while it waits.
+    expect(new Set(await toolLinks(page)).size).toBe(catalogue);
+
+    // Positive control: released, the same page answers.
+    await hold.release();
+    await expect(
+      page.getByRole("region", { name: "No tool here opens HEIC photos." }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /^Searching for/ }),
+    ).toHaveCount(0);
+    await expect(count).toHaveText("0 tools");
+  });
+
   test("typing ranks as you go, and a format filter survives a category click", async ({
     page,
   }) => {
@@ -93,4 +193,65 @@ test.describe("the /tools search, after hydration", () => {
     await expect(page).toHaveURL(/accepts=pdf/);
     await expect(page).toHaveURL(/q=flip/);
   });
+});
+
+/**
+ * A pasted filename, echoed in a heading, at the narrowest common phone.
+ *
+ * WAS: "Closest matches for “Quarterly_Report_2026_final_v3_signed.pdf”" made
+ * `document.documentElement.scrollWidth` 523 at a 360px viewport — the
+ * headings that echo the query could not break a long token, so the whole
+ * page scrolled sideways (review of WP-03). Each heading that echoes the
+ * query is reached here: the empty state, the closest list, and the pending
+ * line while the engine is held back.
+ */
+test.describe("at 360px, a long unbroken query never widens the page", () => {
+  // A plain 360px viewport, not phone emulation: with `isMobile` an
+  // overflowing page widens the layout viewport to fit (innerWidth read 391,
+  // 523 and 537 on the build before this fix), so the width check below
+  // could not tell "the viewport did not apply" from the defect itself.
+  test.use({ viewport: { width: 360, height: 780 } });
+
+  /** 40 characters with no break opportunity in them. */
+  const TOKEN = "QuarterlyReport2026FinalV3SignedCopyAAAA";
+  const FILENAME = "Quarterly_Report_2026_final_v3_signed.pdf";
+
+  const CASES: { q: string; heading: string; hold?: true }[] = [
+    { q: TOKEN, heading: `Nothing matches “${TOKEN}”` },
+    { q: `merge ${TOKEN}`, heading: `Closest matches for “merge ${TOKEN}”` },
+    { q: FILENAME, heading: `Closest matches for “${FILENAME}”` },
+    { q: TOKEN, heading: `Searching for “${TOKEN}”…`, hold: true },
+  ];
+
+  for (const { q, heading, hold } of CASES) {
+    test(`“${heading}” wraps inside the viewport`, async ({ page }) => {
+      expect(TOKEN).toHaveLength(40);
+      const held = hold ? await holdSearchEngine(page) : null;
+      await page.goto(`/tools?q=${encodeURIComponent(q)}`, {
+        // A chunk held back before the load event holds the event.
+        waitUntil: held ? "domcontentloaded" : "load",
+      });
+      await waitForHydration(
+        page.getByRole("searchbox", { name: /search tools/i }),
+      );
+      // Health: the heading under test is the one on screen, echoing the
+      // whole token — a state that never rendered cannot overflow. For the
+      // pending line, the engine is first seen held: the line shows from
+      // hydration, before the chunk is even asked for.
+      if (held) await expect.poll(() => held.held()).toBe(1);
+      await expect(
+        page.getByRole("heading", { level: 2, name: heading }),
+      ).toBeVisible();
+      const { scrollWidth, innerWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        innerWidth: window.innerWidth,
+      }));
+      expect(innerWidth, "the viewport did not apply").toBe(360);
+      expect(
+        scrollWidth,
+        `the page scrolls sideways at ${innerWidth}px`,
+      ).toBeLessThanOrEqual(innerWidth);
+      await held?.release();
+    });
+  }
 });

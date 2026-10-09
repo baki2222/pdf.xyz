@@ -149,6 +149,9 @@ const DEFAULT_ROUTES = [
   "/tools?q=merge%20zzqx",
   "/tools?q=mregee",
   "/tools?accepts=docx",
+  // A query whose only match a filter removed: the empty state's "The filter
+  // hides 1 match." and its "Show the match" button (WP-03 review fix).
+  "/tools?q=merge&accepts=docx",
 ];
 
 const VIEWPORTS = [

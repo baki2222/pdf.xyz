@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { waitForHydration } from "./helpers";
 
 /**
@@ -330,18 +330,65 @@ function report(records: ShiftRecord[]): string {
     .join("\n");
 }
 
-/**
- * The home page, the explorer, a client and a worker tool page, a guide — the
- * first one the guides index links, so the route follows the catalogue rather
- * than a typed slug — and the 404.
- */
-const ROUTES: {
+interface Route {
   name: string;
   url: (page: Page) => Promise<string>;
   status: number;
-}[] = [
+  /**
+   * Health check, run when the measurement ends: the state the URL asks for
+   * is the one on screen. A page that IGNORES its query measures perfectly
+   * stable — `/tools?accepts=docx` read CLS 0.0000 on the build before WP-03
+   * precisely because nothing applied `?accepts=` — so a route that exists to
+   * hold a client-filled state must prove the state was filled.
+   */
+  applied?: (page: Page) => Promise<void>;
+}
+
+/**
+ * The /tools explorer as a deep link fills it: the server sends the whole
+ * catalogue, and the browser replaces it with the answer after hydration
+ * (`?accepts=`) and after an on-demand chunk (`?q=`). Measured on the WP-03
+ * build before this bound held them: `?accepts=docx` 0.2699 here (0.367 at
+ * 390px), `?q=merge` 0.0546 — the surviving server-rendered cards moved up
+ * as the sections above them went, the guides aside and the footer rose
+ * into view, and the "Takes DOCX" chip pushed the count row sideways.
+ */
+const EXPLORER_DEEP_LINKS: Route[] = [
+  {
+    name: "tools explorer, ?accepts=docx",
+    url: async () => "/tools?accepts=docx",
+    status: 200,
+    applied: async (page) => {
+      await expect(
+        page.getByRole("button", { name: /^Takes DOCX/ }),
+      ).toBeVisible();
+    },
+  },
+  {
+    name: "tools explorer, ?q=merge",
+    url: async () => "/tools?q=merge",
+    status: 200,
+    applied: async (page) => {
+      await expect(
+        page.getByRole("heading", {
+          level: 2,
+          name: "Best matches for “merge”",
+        }),
+      ).toBeVisible();
+    },
+  },
+];
+
+/**
+ * The home page, the explorer (served, and as two deep links fill it), a
+ * client and a worker tool page, a guide — the first one the guides index
+ * links, so the route follows the catalogue rather than a typed slug — and
+ * the 404.
+ */
+const ROUTES: Route[] = [
   { name: "home", url: async () => "/", status: 200 },
   { name: "tools explorer", url: async () => "/tools", status: 200 },
+  ...EXPLORER_DEEP_LINKS,
   {
     name: "client tool page",
     url: async () => "/tools/merge-pdf",
@@ -407,6 +454,29 @@ const LCP_DEVICES = [
   },
 ] as const;
 
+/** One route's warm measurement, held to the bound. */
+async function expectStable(page: Page, route: Route, testInfo: TestInfo) {
+  const url = await route.url(page);
+  const m = await measure(page, url, "warm");
+  expect(m.status).toBe(route.status);
+  await route.applied?.(page);
+  testInfo.annotations.push({ type: "cls", description: m.cls.toFixed(4) });
+  if (m.counted.length > 0)
+    testInfo.annotations.push({
+      type: "shifts",
+      description: report(m.counted),
+    });
+  expect(
+    m.cls,
+    `${url} at ${m.innerWidth}px: CLS ${m.cls.toFixed(4)} over ${m.counted.length} shift(s):\n${report(m.counted)}`,
+  ).toBeLessThanOrEqual(MAX_CLS);
+  expect(
+    m.inReserved.length,
+    `${url}: a reserved slot moved — reserve its height before it fills:\n${report(m.inReserved)}`,
+  ).toBe(0);
+  return m;
+}
+
 test.describe("layout stability through load, hydration and scroll", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(observe, RESERVED);
@@ -416,23 +486,26 @@ test.describe("layout stability through load, hydration and scroll", () => {
     test(`${route.name}: CLS ≤ ${MAX_CLS} with fonts cached, and no shift inside a reserved slot`, async ({
       page,
     }, testInfo) => {
-      const url = await route.url(page);
-      const m = await measure(page, url, "warm");
-      expect(m.status).toBe(route.status);
-      testInfo.annotations.push({ type: "cls", description: m.cls.toFixed(4) });
-      if (m.counted.length > 0)
-        testInfo.annotations.push({
-          type: "shifts",
-          description: report(m.counted),
+      await expectStable(page, route, testInfo);
+    });
+  }
+
+  // The explorer's deep links at the phone widths too: there the toolbar
+  // stacks, the category chips wrap to several rows, and a chip arriving in
+  // the count row moved every one of them down.
+  for (const device of LCP_DEVICES.filter((d) => d.name !== "desktop")) {
+    test.describe(device.name, () => {
+      test.use(device.use);
+      for (const route of EXPLORER_DEEP_LINKS) {
+        test(`${route.name} at ${device.use.viewport.width}px: CLS ≤ ${MAX_CLS} with fonts cached`, async ({
+          page,
+        }, testInfo) => {
+          const m = await expectStable(page, route, testInfo);
+          expect(m.innerWidth, "the viewport did not apply").toBe(
+            device.use.viewport.width,
+          );
         });
-      expect(
-        m.cls,
-        `${url}: CLS ${m.cls.toFixed(4)} over ${m.counted.length} shift(s):\n${report(m.counted)}`,
-      ).toBeLessThanOrEqual(MAX_CLS);
-      expect(
-        m.inReserved.length,
-        `${url}: a reserved slot moved — reserve its height before it fills:\n${report(m.inReserved)}`,
-      ).toBe(0);
+      }
     });
   }
 

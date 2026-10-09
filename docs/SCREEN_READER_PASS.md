@@ -111,15 +111,23 @@ Then clear the field and type `heic`.
 **Must hear:** _"No tool here opens HEIC photos. …"_ at the start of the
 announcement, and a heading with those words above a **JPG to PDF** link.
 
-Then open <https://pdf.xyz/tools?accepts=docx>. `Tab` to the button **Takes
-DOCX, remove this filter** and press `Enter`.
+Then open <https://pdf.xyz/tools?accepts=docx>, type `merge` in the search
+field and pause.
+
+**Must hear:** _"No tools for “merge” take DOCX. The filter hides 1 match"_ —
+the filter named, never a bare _"No tools match “merge”"_, because Merge PDF
+does match. The heading above **Show the match** says the same.
+
+Clear the field. `Tab` to the button **Takes DOCX, remove this filter** and
+press `Enter`.
 
 **Must hear:** the grid's new count. **Focus must land in the search field**,
 not at the top of the page — the button you pressed is gone.
 
 **Fails if:** the count is read while you are still typing; a "Closest matches"
-list is announced as if it matched every word; the HEIC answer is not read; or
-removing the filter drops focus to the document.
+list is announced as if it matched every word; the HEIC answer is not read; an
+empty list blames the query when a filter emptied it; or removing the filter
+drops focus to the document.
 
 ---
 

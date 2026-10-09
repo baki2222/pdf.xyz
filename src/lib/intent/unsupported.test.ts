@@ -1,29 +1,34 @@
 // @vitest-environment node
 /**
- * "No tool here opens HEIC photos." — rendered for every unsupported format,
+ * "No tool here opens HEIC photos." — built for every unsupported format,
  * and held to the catalogue it reads.
  *
  * The headline is a claim about the whole catalogue, so it is checked
  * against the whole catalogue: no tool's `accept` row may take the format.
  * The alternative is derived, so it is checked to exist and to take what the
- * answer says to save the file as. The rendered words are read for a
- * deferral, because "yet" would be a promise nobody made.
+ * answer says to save the file as.
+ *
+ * The WORDS are checked where the reader receives them, not here:
+ * `src/components/tools/tools-explorer.test.tsx` renders the explorer at
+ * `/tools?q=<format>` for every unsupported format, reads the answer region's
+ * text for a deferral, and holds the HEIC answer word for word. Until
+ * 2026-10-09 those two checks ran in this file over `answerText()`, a
+ * sentence builder nothing rendered — the explorer composed its own — so a
+ * deferral in the rendered answer passed both (review of WP-03). The function
+ * is deleted rather than kept beside the real sentences.
  */
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
 import { UNSUPPORTED_ANSWERS } from "@/lib/tools/intents";
 import { UNSUPPORTED_FORMATS, toolAcceptsFormat } from "./formats";
-import { answerText, unsupportedAnswer } from "./unsupported";
+import { unsupportedAnswer } from "./unsupported";
 
 const answers = UNSUPPORTED_FORMATS.map((format) =>
   unsupportedAnswer(format, tools),
 );
 
-/** Words that defer a capability to an unstated future. */
-const DEFERRAL = /\b(?:yet|soon|coming|planned|eventually)\b/i;
-
 describe("the answer to a format nothing opens", () => {
-  it("renders for every unsupported format (health)", () => {
+  it("is built for every unsupported format (health)", () => {
     expect(answers.length).toBe(UNSUPPORTED_FORMATS.length);
     expect(answers.length).toBeGreaterThanOrEqual(10);
   });
@@ -57,23 +62,5 @@ describe("the answer to a format nothing opens", () => {
         );
       }
     }
-  });
-
-  it("reads as the HEIC answer the explorer shows", () => {
-    expect(answerText(unsupportedAnswer("HEIC", tools))).toBe(
-      "No tool here opens HEIC photos. Save a JPG copy first. JPG to PDF takes JPG and PNG.",
-    );
-    expect(answerText(unsupportedAnswer("EPUB", tools))).toBe(
-      "No tool here opens EPUB e-books.",
-    );
-  });
-
-  it("never defers to a future nobody promised", () => {
-    const deferring = answers
-      .map((answer) => answerText(answer))
-      .filter((text) => DEFERRAL.test(text));
-    expect(deferring).toEqual([]);
-    // Positive control: the spec's own wording would have been caught.
-    expect(DEFERRAL.test("No tool here takes HEIC files yet.")).toBe(true);
   });
 });

@@ -222,7 +222,7 @@ describe("the build keeps every piece of server-rendered content the baseline re
     expect(missing.map((c) => c.name)).toEqual([]);
     expect(
       page.h2.filter((h) =>
-        /^(?:Best matches|Closest matches|Nothing matches|No tool here opens|Search results)/.test(
+        /^(?:Best matches|Closest matches|Nothing matches|Nothing that|Nothing in|No tool here opens|Searching for|Search results)/.test(
           h,
         ),
       ),

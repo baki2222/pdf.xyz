@@ -59,14 +59,45 @@ export interface ResultOutcome {
   readonly mode?: SearchMode;
   /** The unsupported-format answer's headline, when there is one. */
   readonly unsupported?: string | null;
+  /**
+   * How many of the query's matches the filters removed. `0` says the query
+   * matches nothing at all, so no filter is to blame and none is named; left
+   * out, it is unknown, and every filter that is on gets named.
+   */
+  readonly hidden?: number;
+  /** The search engine never arrived: the grid is not an answer to the query. */
+  readonly searchFailed?: boolean;
+}
+
+/** The category filter's name, or undefined for every category. */
+function categoryName(id: ToolsFilter): string | undefined {
+  return id === "all" ? undefined : categories.find((c) => c.id === id)?.name;
+}
+
+/** "The filter hides 1 match", "The filters hide 3 closest matches". */
+export function hiddenMatches(
+  hidden: number,
+  filters: number,
+  mode?: SearchMode,
+): string {
+  const what = `${hidden} ${mode === "closest" ? "closest " : ""}${hidden === 1 ? "match" : "matches"}`;
+  return filters === 1
+    ? `The filter hides ${what}`
+    : `The filters hide ${what}`;
 }
 
 /**
  * The words a screen reader hears after the grid changes. One sentence for
  * every state, including the empty one — "No tools found" used to be a plain
  * div that mounted silently (WCAG 4.1.3) — and it says which KIND of answer
- * this is: the best matches, only the closest ones, or the tools that take a
- * format.
+ * this is: the best matches, only the closest ones, the tools that take a
+ * format, or no answer at all because search could not load.
+ *
+ * It names a filter wherever the filter shaped the answer. "No tools match
+ * “merge”" used to be read out with Takes DOCX on, while Merge PDF matched
+ * every word — the filter had removed it, and only the category filter was
+ * ever named. An empty list now says which filter emptied it and how many
+ * matches it hid; a query that matches nothing at all says so plainly.
  */
 export function resultAnnouncement(
   count: number,
@@ -77,24 +108,37 @@ export function resultAnnouncement(
 ): string {
   const q = state.query.trim();
   const accepts = state.accepts ?? null;
-  const category =
-    state.category === "all"
-      ? undefined
-      : categories.find((c) => c.id === state.category)?.name;
+  const category = categoryName(state.category);
   const inCategory = category ? ` in ${category}` : "";
+  const filters = (accepts ? 1 : 0) + (category ? 1 : 0);
+  const takes = (n: number) =>
+    accepts ? ` that ${n === 1 ? "takes" : "take"} ${accepts}` : "";
   const prefix = outcome.unsupported ? `${outcome.unsupported} ` : "";
   const noun = count === 1 ? "tool" : "tools";
+  if (q && outcome.searchFailed) {
+    return `Search could not load. Showing ${filters ? "" : "all "}${count} ${noun}${takes(count)}${inCategory}`;
+  }
   if (count === 0) {
-    if (q) return `${prefix}No tools match “${q}”${inCategory}`;
+    if (q) {
+      if (filters === 0 || outcome.hidden === 0) {
+        return `${prefix}No tools match “${q}”`;
+      }
+      const none = accepts
+        ? `No tools for “${q}” take ${accepts}${inCategory}`
+        : `No tools match “${q}”${inCategory}`;
+      return outcome.hidden
+        ? `${prefix}${none}. ${hiddenMatches(outcome.hidden, filters, outcome.mode)}`
+        : `${prefix}${none}`;
+    }
     return accepts
       ? `${prefix}No tools take ${accepts}${inCategory}`
       : `${prefix}No tools found`;
   }
   if (q && outcome.mode === "closest") {
-    return `${prefix}No tool matches every word of “${q}”. ${count} closest ${count === 1 ? "match" : "matches"}${inCategory}`;
+    return `${prefix}No tool matches every word of “${q}”. ${count} closest ${count === 1 ? "match" : "matches"}${takes(count)}${inCategory}`;
   }
   if (q) {
-    return `${prefix}${count} ${noun} for “${q}”${accepts ? ` that take ${accepts}` : ""}${inCategory}`;
+    return `${prefix}${count} ${noun} for “${q}”${takes(count)}${inCategory}`;
   }
   if (accepts) {
     return `${prefix}${count} ${noun} ${count === 1 ? "takes" : "take"} ${accepts}${inCategory}`;
@@ -123,6 +167,27 @@ export function resultAnnouncement(
  * category's landing page) when there is no query; a query shows one ranked
  * list under its own `<h2>`. Either way every card's `<h3>` sits under an
  * `<h2>` — the page used to jump from its `<h1>` straight to fifty `<h3>`s.
+ * A heading that echoes the query can break anywhere, so a pasted filename
+ * wraps instead of widening the page (`e2e/tools-search.spec.ts`, at 360px).
+ *
+ * WHILE THE ENGINE LOADS. A query that arrives before the search chunk — a
+ * shared `/tools?q=heic`, or a keystroke on a slow connection — shows the
+ * served grid dimmed under "Searching for “heic”…", and the count claims no
+ * number. It used to show the whole catalogue under its category headings
+ * with "50 tools" beside the query: the unfiltered grid, presented as the
+ * answer to "heic".
+ *
+ * NOTHING THE SERVER PAINTED MOVES. A deep link replaces the served
+ * catalogue after hydration, so the results region is keyed on what it shows
+ * (the filters and the phase): a new answer mounts as a new tree instead of
+ * dragging the server's surviving cards up the page, and the region keeps at
+ * least a viewport of height, so the guides and the footer below never rise
+ * into view as fifty tools become one. The count leads its row, and on a
+ * wide screen the row runs from the far edge, so the count holds its place
+ * and the "Takes DOCX" chip lands beside it in a row whose height is already
+ * reserved. `e2e/layout-stability.spec.ts` holds `?accepts=docx` and
+ * `?q=merge` to its CLS bound at desktop and phone widths; before this they
+ * measured 0.2699 (0.3669 at 390px) and 0.0546.
  */
 export function ToolsExplorer({
   loadEngine = loadSearchEngine,
@@ -160,7 +225,9 @@ export function ToolsExplorer({
   }, [chosen]);
 
   // The engine arrives on demand. Until it does, a query shows the grid as
-  // served (not a guess at a ranking), and nothing is announced.
+  // served under a line that says the search is running — not a guess at a
+  // ranking, and not the grid as if it were the answer — and nothing is
+  // announced.
   const [engine, setEngine] = useState<SearchEngine | null>(null);
   const [engineFailed, setEngineFailed] = useState(false);
   const requested = useRef(false);
@@ -179,7 +246,15 @@ export function ToolsExplorer({
     () => (trimmed && engine ? engine.rankTools(trimmed) : null),
     [trimmed, engine],
   );
-  const pending = Boolean(trimmed) && !ranking && !engineFailed;
+  /** What the results region is showing for the query. */
+  const phase = !trimmed
+    ? "browse"
+    : ranking
+      ? "ranked"
+      : engineFailed
+        ? "failed"
+        : "pending";
+  const pending = phase === "pending";
   const mode: SearchMode = ranking?.mode ?? "all";
   const answer = ranking?.answer ?? null;
   const near = ranking?.near ?? [];
@@ -193,6 +268,8 @@ export function ToolsExplorer({
       ),
     [ranking, active, accepts],
   );
+  // Matches the filters removed: only ever non-zero when they removed all.
+  const hidden = ranking && results.length === 0 ? ranking.ranked.length : 0;
 
   // One always-mounted live region, debounced so typing "compress" is not
   // read out letter by letter, and silent on load so the page does not open
@@ -202,8 +279,13 @@ export function ToolsExplorer({
     if (!chosen || pending) return;
     const text = resultAnnouncement(
       results.length,
-      { category: active, query: ranking ? trimmed : "", accepts },
-      { mode, unsupported: answer?.headline ?? null },
+      { category: active, query: trimmed, accepts },
+      {
+        mode,
+        unsupported: answer?.headline ?? null,
+        hidden,
+        searchFailed: engineFailed,
+      },
     );
     const timer = setTimeout(() => setAnnouncement(text), ANNOUNCE_DELAY_MS);
     return () => clearTimeout(timer);
@@ -213,10 +295,11 @@ export function ToolsExplorer({
     results.length,
     active,
     trimmed,
-    ranking,
     accepts,
     mode,
     answer,
+    hidden,
+    engineFailed,
   ]);
 
   const groups = useMemo(
@@ -240,8 +323,42 @@ export function ToolsExplorer({
   ];
 
   const resultsHeading = useId();
+  const pendingHeading = useId();
   const reset = () =>
     updateAndRefocus({ category: "all", query: "", accepts: null });
+
+  const grouped = (
+    <div className="flex flex-col gap-12">
+      {groups.map(({ category, tools: groupTools }) => (
+        <section
+          key={category.id}
+          aria-labelledby={`tools-group-${category.id}`}
+          className="flex flex-col gap-3"
+        >
+          <div className="flex flex-col gap-1">
+            <h2
+              id={`tools-group-${category.id}`}
+              className="font-display text-fg text-2xl font-medium tracking-tight"
+            >
+              <Link
+                href={categoryHref(category.id)}
+                className="hover:text-accent transition-colors"
+              >
+                {category.name}
+              </Link>
+              <span className="text-faint ml-2.5 align-middle font-mono text-xs font-normal tracking-normal">
+                {groupTools.length}
+              </span>
+            </h2>
+            <p className="text-muted text-sm leading-relaxed">
+              {category.description}
+            </p>
+          </div>
+          <ToolGrid tools={groupTools} />
+        </section>
+      ))}
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -281,7 +398,29 @@ export function ToolsExplorer({
             </button>
           )}
         </label>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* The count leads the row, and on a wide screen the row runs from
+            its far edge: the count keeps its place and a chip from a deep
+            link lands beside it, in a row whose height is reserved. */}
+        <div className="flex min-h-8 flex-wrap items-center gap-x-4 gap-y-2 lg:flex-1 lg:flex-row-reverse">
+          <p
+            data-result-count
+            className="text-muted inline-flex items-center gap-2 text-sm"
+          >
+            <SlidersHorizontal className="size-4" aria-hidden />
+            {pending ? (
+              // No number while the engine loads: the grid's count is not
+              // the count for the query.
+              <>
+                <span aria-hidden>…</span>
+                <span className="sr-only">Searching</span>
+              </>
+            ) : (
+              <>
+                <span className="tabular-nums">{results.length}</span>
+                {results.length === 1 ? " tool" : " tools"}
+              </>
+            )}
+          </p>
           {accepts && (
             <button
               type="button"
@@ -293,11 +432,6 @@ export function ToolsExplorer({
               <X className="text-muted size-3.5" aria-hidden />
             </button>
           )}
-          <p className="text-muted inline-flex items-center gap-2 text-sm">
-            <SlidersHorizontal className="size-4" aria-hidden />
-            <span className="tabular-nums">{results.length}</span>
-            {results.length === 1 ? " tool" : " tools"}
-          </p>
         </div>
       </div>
 
@@ -335,92 +469,85 @@ export function ToolsExplorer({
         })}
       </div>
 
-      {answer && (
-        <AnswerBlock
-          answer={answer}
-          onShowFormat={(format) =>
-            updateAndRefocus({ category: "all", query: "", accepts: format })
-          }
-        />
-      )}
-
-      {engineFailed && trimmed && (
-        <p
-          role="note"
-          className="border-line bg-wash text-muted rounded-panel border px-4 py-3 text-sm"
-        >
-          Search could not load. Reload the page to search, or browse every tool
-          below.
-        </p>
-      )}
-
-      {results.length === 0 ? (
-        answer ? null : (
-          <EmptyState
-            query={ranking ? trimmed : ""}
-            accepts={accepts}
-            category={
-              active === "all"
-                ? undefined
-                : categories.find((c) => c.id === active)?.name
+      {/* Keyed on what it shows: see "NOTHING THE SERVER PAINTED MOVES". */}
+      <div
+        key={`${active}|${accepts ?? ""}|${phase}`}
+        className="flex min-h-svh flex-col gap-6"
+      >
+        {answer && (
+          <AnswerBlock
+            answer={answer}
+            onShowFormat={(format) =>
+              updateAndRefocus({ category: "all", query: "", accepts: format })
             }
-            near={near}
-            onReset={reset}
           />
-        )
-      ) : ranking && engine ? (
-        <section
-          aria-labelledby={resultsHeading}
-          data-chunk={engine.SEARCH_ENGINE_CHUNK}
-          className="flex flex-col gap-3"
-        >
-          <div className="flex flex-col gap-1">
-            <h2
-              id={resultsHeading}
-              className="font-display text-fg text-2xl font-medium tracking-tight"
-            >
-              {`${mode === "closest" ? "Closest" : "Best"} matches for “${trimmed}”`}
-            </h2>
-            {mode === "closest" && (
-              <p className="text-muted text-sm leading-relaxed">
-                No tool matches every word, so these match some of them.
-              </p>
-            )}
-          </div>
-          <ToolGrid tools={results} />
-        </section>
-      ) : (
-        <div className="flex flex-col gap-12" aria-busy={pending || undefined}>
-          {groups.map(({ category, tools: groupTools }) => (
-            <section
-              key={category.id}
-              aria-labelledby={`tools-group-${category.id}`}
-              className="flex flex-col gap-3"
-            >
-              <div className="flex flex-col gap-1">
-                <h2
-                  id={`tools-group-${category.id}`}
-                  className="font-display text-fg text-2xl font-medium tracking-tight"
-                >
-                  <Link
-                    href={categoryHref(category.id)}
-                    className="hover:text-accent transition-colors"
-                  >
-                    {category.name}
-                  </Link>
-                  <span className="text-faint ml-2.5 align-middle font-mono text-xs font-normal tracking-normal">
-                    {groupTools.length}
-                  </span>
-                </h2>
+        )}
+
+        {phase === "failed" && (
+          <p
+            role="note"
+            className="border-line bg-wash text-muted rounded-panel border px-4 py-3 text-sm"
+          >
+            Search could not load. Reload the page to search, or browse the
+            tools below.
+          </p>
+        )}
+
+        {results.length === 0 ? (
+          answer ? null : (
+            <EmptyState
+              query={ranking ? trimmed : ""}
+              accepts={accepts}
+              category={categoryName(active)}
+              near={near}
+              hidden={hidden}
+              mode={mode}
+              onReset={reset}
+              onShowHidden={() =>
+                updateAndRefocus({ ...state, category: "all", accepts: null })
+              }
+            />
+          )
+        ) : ranking && engine ? (
+          <section
+            aria-labelledby={resultsHeading}
+            data-chunk={engine.SEARCH_ENGINE_CHUNK}
+            className="flex flex-col gap-3"
+          >
+            <div className="flex flex-col gap-1">
+              <h2
+                id={resultsHeading}
+                className="font-display text-fg text-2xl font-medium tracking-tight wrap-anywhere"
+              >
+                {`${mode === "closest" ? "Closest" : "Best"} matches for “${trimmed}”`}
+              </h2>
+              {mode === "closest" && (
                 <p className="text-muted text-sm leading-relaxed">
-                  {category.description}
+                  No tool matches every word, so these match some of them.
                 </p>
-              </div>
-              <ToolGrid tools={groupTools} />
-            </section>
-          ))}
-        </div>
-      )}
+              )}
+            </div>
+            <ToolGrid tools={results} />
+          </section>
+        ) : pending ? (
+          <section
+            aria-labelledby={pendingHeading}
+            aria-busy="true"
+            className="flex flex-col gap-6"
+          >
+            <h2
+              id={pendingHeading}
+              className="font-display text-fg text-2xl font-medium tracking-tight wrap-anywhere"
+            >
+              {`Searching for “${trimmed}”…`}
+            </h2>
+            {/* Every link stays; dimmed, it is plainly not the answer. */}
+            <div className="opacity-50">{grouped}</div>
+          </section>
+        ) : (
+          grouped
+        )}
+      </div>
     </div>
   );
 }
@@ -429,6 +556,10 @@ export function ToolsExplorer({
  * "No tool here opens HEIC photos." — and the way in, derived from the
  * catalogue: the tool that takes the format to save a copy as, or for an
  * archive, the tools that take what is usually inside it.
+ *
+ * Its words are read where the reader receives them: `tools-explorer.test.tsx`
+ * renders this block for every unsupported format and scans the region's
+ * text, so a sentence added here is checked, not a copy of it elsewhere.
  */
 function AnswerBlock({
   answer,
@@ -479,35 +610,58 @@ function AnswerBlock({
   );
 }
 
-/** Nothing to show — said in words, with a way back and a way elsewhere. */
+/**
+ * Nothing to show — said in words, with a way back and a way elsewhere.
+ *
+ * When the query has matches and the filters removed every one, the heading
+ * names the filters ("Nothing that takes DOCX matches “merge”"), says how
+ * many matches they hid, and offers to show them; a query that matches
+ * nothing at all is "Nothing matches “zzzz”", whatever filter is on.
+ */
 function EmptyState({
   query,
   accepts,
   category,
   near,
+  hidden,
+  mode,
   onReset,
+  onShowHidden,
 }: {
   query: string;
   accepts: Format | null;
   category: string | undefined;
   near: readonly Tool[];
+  /** Matches the filters removed; 0 when the query matched nothing. */
+  hidden: number;
+  mode: SearchMode;
   onReset: () => void;
+  onShowHidden: () => void;
 }) {
   const heading = useId();
   const inCategory = category ? ` in ${category}` : "";
+  const filters = (accepts ? 1 : 0) + (category ? 1 : 0);
+  const filtered = Boolean(query) && hidden > 0;
   return (
     <section
       aria-labelledby={heading}
       className="border-line-strong bg-wash rounded-panel flex flex-col items-center gap-3 border border-dashed px-6 py-14 text-center"
     >
       <SearchX className="text-faint size-6" aria-hidden />
-      <h2 id={heading} className="text-fg text-lg font-semibold">
+      <h2 id={heading} className="text-fg text-lg font-semibold wrap-anywhere">
         {query
-          ? `Nothing matches “${query}”${inCategory}`
+          ? filtered
+            ? `Nothing${inCategory}${accepts ? ` that takes ${accepts}` : ""} matches “${query}”`
+            : `Nothing matches “${query}”`
           : accepts
             ? `No tools take ${accepts}${inCategory}`
             : `No tools found${inCategory}`}
       </h2>
+      {filtered && (
+        <p className="text-muted text-sm">
+          {`${hiddenMatches(hidden, filters, mode)}.`}
+        </p>
+      )}
       {near.length > 0 && (
         <p className="text-muted text-sm">
           Did you mean{" "}
@@ -529,6 +683,15 @@ function EmptyState({
         Try other words, or reset the filters to see all {toolCount} tools.
       </p>
       <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
+        {filtered && (
+          <button
+            type="button"
+            onClick={onShowHidden}
+            className="border-line-strong hover:bg-panel text-fg rounded-ctl border px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {`Show the ${hidden === 1 ? "match" : `${hidden} matches`}`}
+          </button>
+        )}
         <button
           type="button"
           onClick={onReset}
