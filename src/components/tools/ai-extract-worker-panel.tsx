@@ -338,6 +338,11 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
       ) : (
         <div className="flex flex-col gap-2">
           <span className="text-muted text-xs">Fields to extract</span>
+          <p className="text-muted text-xs">
+            The model is told to answer null rather than guess, so a field that
+            matches more than once can come back null. Give it the array type to
+            get every value.
+          </p>
           {fields.map((field, i) => {
             const earlier = duplicates.get(i);
             const problemId = `${fieldIds}-field-${i}-problem`;
@@ -440,7 +445,7 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
         <ResultCard announce="Your AI extraction package is ready.">
           <TruncationNotice
             job={outcome.job}
-            consequence="A field reported as not found was not found in those pages — it may still appear later in the document."
+            consequence="A field shown as not found, or more than one match, was judged on those pages only — it may still appear later in the document."
           />
           <p className="text-ok text-sm">
             Your AI extraction package is ready — the extracted data as JSON, a

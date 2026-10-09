@@ -45,7 +45,8 @@ import type { AiUsageMeta } from "@/lib/jobs/ai-results";
  *     the requested name even when the model respelled it (`Invoice Number` →
  *     `invoice_number`). A requested field the model did not return is `null` there
  *     and is NAMED in manifest.json (`extraction.missingKeys`) and in extraction.md
- *     as "not returned by the model" — never folded into "not found". Until
+ *     as "not returned by the model" — never folded into a null the model
+ *     returned (shown as "not found, or more than one match"). Until
  *     2026-09-28 a dropped field simply vanished: a request for 12 fields could ship
  *     10 rows, and a consumer keyed on the requested names broke, while the manifest
  *     said "absent values are null". A LIST reply in schema mode fails honestly.
@@ -498,7 +499,7 @@ export async function runAiExtract(
         }
       : { keys: extractedKeys },
     notice: reconciled
-      ? "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. A value of null means the model reported the field as not found; a requested field the model did not return at all is also null in extraction.json, and is listed in manifest.json under extraction.missingKeys. No content was fabricated beyond the model's extraction of the provided text."
+      ? "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. A value of null means the model gave no single value for the field: it was not found, or it matched more than once — ask for the field as a list (the array type) to get every value. A requested field the model did not return at all is also null in extraction.json, and is listed in manifest.json under extraction.missingKeys. No content was fabricated beyond the model's extraction of the provided text."
       : "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. No content was fabricated beyond the model's extraction of the provided text.",
   };
 
@@ -694,10 +695,26 @@ function reconcileWithSchema(
   };
 }
 
+/**
+ * What a null VALUE is shown as. Not "not found": the model is told to answer
+ * null rather than guess, so a single-value field whose value appears several
+ * times comes back null too — the ai-extract production proof failed exactly
+ * that way (one region asked of a four-row table, 2026-10-09). Until then this
+ * cell read "_(not found)_" and told a user whose PDF held the value four
+ * times that it held it none. `null-meaning.test.ts` holds every surface that
+ * explains a null to both reasons.
+ */
+export const NULL_VALUE_CELL = "_(not found, or more than one match)_";
+
 /** Render a single extracted value for the human-readable Markdown table. */
 function renderValue(value: unknown): string {
-  if (value === null || value === undefined) return "_(not found)_";
-  if (Array.isArray(value)) return value.map((v) => renderValue(v)).join("; ");
+  if (value === null || value === undefined) return NULL_VALUE_CELL;
+  // A null INSIDE a list is the model's own entry; it is shown as what it
+  // is, with no reason claimed for it.
+  if (Array.isArray(value))
+    return value
+      .map((v) => (v === null || v === undefined ? "_(null)_" : renderValue(v)))
+      .join("; ");
   if (typeof value === "object") return "`" + JSON.stringify(value) + "`";
   return String(value).replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
@@ -717,13 +734,12 @@ function renderMarkdown(
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for extraction)` : ""}`,
   );
-  // A null value in this table means "not found in the pages examined" when the
-  // window was short. Saying so beside the table is the difference between a
-  // gap and a false negative.
+  // When the window was short, a null may be a value past the cut. Saying so
+  // beside the table is the difference between a gap and a false negative.
   if (manifest.source.truncationNotice) {
     lines.push(`>`);
     lines.push(
-      `> **${manifest.source.truncationNotice}** Fields shown as \`null\` were not found in the pages examined — they may still appear later in the document.`,
+      `> **${manifest.source.truncationNotice}** A field shown as not found, or more than one match, was judged on the pages examined only — it may still appear later in the document.`,
     );
   }
   lines.push("");

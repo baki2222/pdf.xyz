@@ -116,14 +116,40 @@ describe("schema mode reconciles the reply with the request", () => {
     expect(pkg.raw).toEqual({ invoice: "INV-7", total: 1200 });
   });
 
-  it("a null the model DID return reads as not found, distinct from not returned", async () => {
+  // INVERTED 2026-10-09, history kept. This test was titled "a null the model
+  // DID return reads as not found, distinct from not returned" and pinned the
+  // cell `_(not found)_`. The distinction from "not returned" was right; the
+  // meaning was not: the model is told to answer null rather than guess, so a
+  // field whose value appears more than once comes back null too (the
+  // ai-extract production proof failed exactly that way), and "_(not found)_"
+  // told that user their value was absent. `null-meaning.test.ts` now holds
+  // every surface that explains a null to both reasons.
+  it("a null the model DID return reads as not found OR more than one match, distinct from not returned", async () => {
     const pkg = await run(schema("invoice", "po_number"), {
       invoice: "INV-7",
       po_number: null,
     });
     expect(pkg.manifest.extraction.missingKeys).toEqual([]);
-    expect(pkg.md).toMatch(/\| po_number \| _\(not found\)_ \|/);
+    expect(pkg.md).toMatch(
+      /\| po_number \| _\(not found, or more than one match\)_ \|/,
+    );
+    expect(pkg.md).not.toMatch(/_\(not found\)_/);
     expect(pkg.md).not.toContain("not returned by the model");
+    // The note under the table says how to get every value.
+    expect(pkg.manifest.notice).toMatch(
+      /not found, or it matched more than once — ask for the field as a list/,
+    );
+  });
+
+  it("a null INSIDE a list is shown as the model's null, with no reason claimed for it", async () => {
+    const pkg = await run(
+      {
+        mode: "schema",
+        schema: [{ name: "regions", type: "array" }],
+      },
+      { regions: ["North", null, "East"] },
+    );
+    expect(pkg.md).toMatch(/\| regions \| North; _\(null\)_; East \|/);
   });
 
   it("a RESPELLED key lands under the requested name, and the respelling is recorded", async () => {
