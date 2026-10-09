@@ -18,6 +18,16 @@
  * model sent no prior turns still answered the follow-up — while the check's
  * docblock said a right answer had used both turns.
  *
+ * THE SECOND FIX HAD FOUR MORE (re-review, 2026-10-09), each a wrong package
+ * below: the summary's body words (cable, corrosion, repair, truck) are what
+ * any bridge report says, so a refusal that saw only the title, a one-line
+ * description and another bridge's summary passed; one sentence left in
+ * English passed as Spanish at 6 of 13 positions, and the memo's last lines
+ * in Portuguese, Catalan or Italian passed; a translation cut short passed on
+ * one name; and the follow-up's docblock still called a right answer evidence
+ * the turns reached the model, while a worker that forwards only the user's
+ * turns passes every time — now a pinned limit.
+ *
  * Every package below is built OFFLINE — no provider is called. The right
  * ones and most wrong ones come out of the REAL engine (`runSummarize`,
  * `runTranslate`, `runChatWithPdf`) reading the REAL fixture through the real
@@ -30,7 +40,10 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { extractPdfText } from "@/lib/pdf/text";
-import type { AiProvider } from "@/lib/workers/ai/provider";
+import type {
+  AiCompletionRequest,
+  AiProvider,
+} from "@/lib/workers/ai/provider";
 import { runSummarize } from "@/lib/workers/summarize/engine";
 import { runTranslate } from "@/lib/workers/translate/engine";
 import { runChatWithPdf } from "@/lib/workers/chat-with-pdf/engine";
@@ -46,10 +59,15 @@ import {
   ITALIAN_TRANSLATION,
   MEMO_RENDERINGS,
   MEMO_TEXT,
+  NEIGHBOUR_RENDERINGS,
   PORTUGUESE_TRANSLATION,
   SPANISH_DRIFTING_INTO_ITALIAN,
   SPANISH_TRANSLATION,
-  SPANISH_TRANSLATION_SECOND,
+  SPANISH_TRANSLATION_CERNICALO,
+  SPANISH_TRANSLATION_CUT_SHORT,
+  SPANISH_TRANSLATION_KESTREL_BRIDGE,
+  spanishDriftingInto,
+  spanishWithEnglishLine,
 } from "@/tests/ai-proof-memo-renderings";
 import {
   CHAT_PROOF_DECOYS,
@@ -61,6 +79,7 @@ import {
   MARKED_LANGUAGES,
   PROOF_MEMO_BODY_NAMES,
   PROOF_MEMO_BODY_STEMS,
+  PROOF_MEMO_FIGURES,
   PROOF_MEMO_SENTENCES,
   PROOF_MEMO_SUBJECT,
   PROOF_MEMO_TITLE,
@@ -87,30 +106,39 @@ const replying = (text: string): AiProvider => ({
 
 /**
  * A model that READS its request, as a careful one does: the team "that team"
- * means, from the prior turns; that team's channel, from the notes in the
- * system prompt. With no prior turn naming a team, it does not guess — it
- * lists every team's channel.
+ * means, from the prior turns — a team they name, or a part of the worker
+ * they ask about, which the notes say one team maintains; that team's
+ * channel, from the notes in the system prompt. When the prior turns settle
+ * no one team, it does not guess — it lists every team's channel.
  */
 const readingModel: AiProvider = {
   id: "openai",
   model: "gpt-test",
   complete: async (request) => {
+    const notes = request.system ?? "";
     const channels = [
-      ...(request.system ?? "").matchAll(
+      ...notes.matchAll(
         /The (\w+) team takes its pages on the ([\w-]+) channel\./g,
       ),
     ].map((m) => ({ team: m[1]!, channel: m[2]! }));
+    const parts = [
+      ...notes.matchAll(/The (.+?) is maintained by the (\w+) team\./g),
+    ].map((m) => ({ part: m[1]!, team: m[2]! }));
     // Health: the notes reached the model through the real engine.
-    if (channels.length === 0) throw new Error("no channel in the notes");
+    if (channels.length === 0 || parts.length !== channels.length)
+      throw new Error("the notes did not reach the model whole");
     const prior = request.messages
       .slice(0, -1)
       .map((m) => m.content)
       .join(" ");
-    const meant = channels.filter((c) => mentions(prior, c.team));
-    const text =
-      meant.length === 1
-        ? `That team takes its pages on the ${meant[0]!.channel} channel [p.2].`
-        : `The notes give each team's channel: ${channels.map((c) => `the ${c.team} team on ${c.channel}`).join(", ")} [p.2].`;
+    const meant = new Set([
+      ...channels.filter((c) => mentions(prior, c.team)).map((c) => c.team),
+      ...parts.filter((p) => mentions(prior, p.part)).map((p) => p.team),
+    ]);
+    const team = meant.size === 1 ? [...meant][0]! : null;
+    const text = team
+      ? `That team takes its pages on the ${channels.find((c) => c.team === team)!.channel} channel [p.2].`
+      : `The notes give each team's channel: ${channels.map((c) => `the ${c.team} team on ${c.channel}`).join(", ")} [p.2].`;
     return { ok: true, text, model: "gpt-test" };
   },
 };
@@ -122,6 +150,24 @@ const droppingTurns = (model: AiProvider): AiProvider => ({
   complete: (request) =>
     model.complete({ ...request, messages: request.messages.slice(-1) }),
 });
+
+/**
+ * A worker that sent the model the USER's turns and dropped the assistant's —
+ * the opening answer never reaches it. Records what the model was sent.
+ */
+const userTurnsOnly = (model: AiProvider) => {
+  const sent: AiCompletionRequest["messages"][] = [];
+  const provider: AiProvider = {
+    id: model.id,
+    model: model.model,
+    complete: (request) => {
+      const messages = request.messages.filter((m) => m.role === "user");
+      sent.push(messages);
+      return model.complete({ ...request, messages });
+    },
+  };
+  return { provider, sent };
+};
 
 const extract = (bytes: Uint8Array) => extractPdfText(bytes);
 
@@ -176,7 +222,11 @@ async function handPackage(files: Record<string, string>): Promise<Uint8Array> {
 
 // ── the answers, right and wrong ────────────────────────────────────────────
 
-/** Summaries of the memo in four wordings; together they say every mark the check counts. */
+/**
+ * Summaries of the memo in many wordings: four full ones, then terse ones that
+ * each carry ONE mark of the body, so every mark the check counts passes some
+ * summary on its own.
+ */
 const RIGHT_SUMMARY =
   "The memo reports corrosion on the Kestrel Bridge over the Varrow River. " +
   "Engineer Ingrid Halvorsen found four of its twelve cables damaged; replacing them " +
@@ -191,6 +241,17 @@ const RIGHT_SUMMARIES: readonly string[] = [
     "- Trucks will be sent to a ferry from Ostby while the work goes on.",
   "The bridge needs a nine-week repair costing 2.48 million euros, and the council " +
     "must approve the budget by the end of April.",
+  // Terse, one mark of the body each — a name, the ferry, or one form of a
+  // figure — so every mark the check accepts is what passes some summary.
+  "Engineer Halvorsen inspected the Kestrel Bridge and wants its damaged cables replaced.",
+  "The Kestrel Bridge over the Varrow River needs four new cables.",
+  "While the Kestrel Bridge is repaired, heavy trucks will cross the river by boat from Ostby.",
+  "Heavy trucks will take a ferry while the Kestrel Bridge's cables are replaced.",
+  "Replacing the Kestrel Bridge's corroded cables will take nine weeks.",
+  "Kestrel Bridge cable repair: 9 weeks.",
+  "The Kestrel Bridge repair will cost €2.48m from the regional roads fund.",
+  "Trucks over seven tonnes are barred from the Kestrel Bridge during its cable repair.",
+  "Trucks over 7 tonnes may not use the Kestrel Bridge while its cables are replaced.",
 ];
 /** What a summary of the harness's old `textPdf` says: fluent, and about something else. */
 const OTHER_DOCUMENT_SUMMARY =
@@ -204,6 +265,32 @@ const TITLE_ONLY_SUMMARY = PROOF_MEMO_TITLE;
 /** An answer from outside knowledge: "kestrel" is a bird. */
 const KESTREL_BIRD_SUMMARY =
   "The kestrel is a small falcon that hovers over open fields while hunting.";
+
+/**
+ * Summaries that name the memo's subject and only words ANY bridge report
+ * says — cables, corrosion, repairs, trucks. Each passed the check until
+ * 2026-10-09 (re-review), on those generic words.
+ */
+const GENERIC_BRIDGE_SUMMARIES: readonly { name: string; text: string }[] = [
+  {
+    // The summarize prompt's own way out ("If the text is empty or
+    // unintelligible, say so plainly"), when only the heading was extracted.
+    name: "a refusal: only the title was given",
+    text: `The provided text contains only the title "${PROOF_MEMO_TITLE}". It gives no details of the inspection's findings, repairs or costs, so there is nothing more to summarize.`,
+  },
+  {
+    name: "the same refusal, naming cables and corrosion",
+    text: `The provided text contains only the title "${PROOF_MEMO_TITLE}". It says nothing about the bridge's cables or corrosion, so no summary of the inspection can be given.`,
+  },
+  {
+    name: "a description of the memo that says nothing in it",
+    text: "This memo records an inspection of the Kestrel Bridge and the repairs it recommends.",
+  },
+  {
+    name: "a summary of ANOTHER bridge",
+    text: "The memo reports an inspection of the Harlan Street Bridge, which found corroded suspension cables. Repairs will close the bridge to heavy trucks for three months.",
+  },
+];
 
 /** A Spanish translation of some other document: Spanish enough, and none of the memo's names. */
 const OTHER_DOCUMENT_SPANISH =
@@ -256,7 +343,7 @@ const wordBefore = (line: string, noun: string): string | null =>
 describe("the fixtures are what the checks assume", () => {
   const body = PROOF_MEMO_SENTENCES.join("\n");
 
-  it("the memo's subject is in its title; each body name and stem is in its body and NOT in its title", () => {
+  it("the memo's subject is in its title; each body name, stem and figure is in its body and NOT in its title", () => {
     for (const word of PROOF_MEMO_SUBJECT)
       expect(mentionsStem(PROOF_MEMO_TITLE, word), word).toBe(true);
     for (const name of PROOF_MEMO_BODY_NAMES) {
@@ -267,27 +354,79 @@ describe("the fixtures are what the checks assume", () => {
       expect(mentionsStem(body, stem), stem).toBe(true);
       expect(mentionsStem(PROOF_MEMO_TITLE, stem), stem).toBe(false);
     }
+    // Each figure is drawn into a sentence as its label says it, and some
+    // form of it is what the body carries.
+    for (const { label, forms } of PROOF_MEMO_FIGURES) {
+      expect(mentions(body, label), label).toBe(true);
+      expect(
+        forms.some((form) => mentionsStem(body, form)),
+        label,
+      ).toBe(true);
+      for (const form of forms)
+        expect(mentionsStem(PROOF_MEMO_TITLE, form), form).toBe(false);
+    }
     // POSITIVE CONTROL: the title says the subject and none of the body.
     expect(memoBodyMarksIn(PROOF_MEMO_TITLE)).toEqual([]);
     expect(memoBodyMarksIn(body).length).toBe(
-      PROOF_MEMO_BODY_NAMES.length + PROOF_MEMO_BODY_STEMS.length,
+      PROOF_MEMO_BODY_NAMES.length +
+        PROOF_MEMO_BODY_STEMS.length +
+        PROOF_MEMO_FIGURES.length,
     );
   });
 
-  it("every word the summary check accepts is said by some right summary — nothing in it is decoration", () => {
+  it("every mark the summary check accepts is the ONLY mark of some right summary — so each is what passes it, and none is decoration", () => {
     for (const word of PROOF_MEMO_SUBJECT)
       expect(
         RIGHT_SUMMARIES.some((s) => mentionsStem(s, word)),
         word,
       ).toBe(true);
+    // A mark that is only ever said beside another passes nothing on its
+    // own: the check would pass the same summaries without it.
+    const soleMark = (s: string) => {
+      const marks = memoBodyMarksIn(s);
+      return marks.length === 1 ? marks[0]! : null;
+    };
     for (const mark of [
       ...PROOF_MEMO_BODY_NAMES,
       ...PROOF_MEMO_BODY_STEMS.map((stem) => `${stem}…`),
     ])
       expect(
-        RIGHT_SUMMARIES.some((s) => memoBodyMarksIn(s).includes(mark)),
+        RIGHT_SUMMARIES.some((s) => soleMark(s) === mark),
         mark,
       ).toBe(true);
+    // Every FORM of every figure, not only every figure.
+    for (const { label, forms } of PROOF_MEMO_FIGURES)
+      for (const form of forms)
+        expect(
+          RIGHT_SUMMARIES.some(
+            (s) =>
+              soleMark(s) === label &&
+              forms.filter((f) => mentionsStem(s, f)).join() === form,
+          ),
+          form,
+        ).toBe(true);
+    // And no form catches what another already does.
+    const forms = PROOF_MEMO_FIGURES.flatMap((figure) => figure.forms);
+    for (const a of forms)
+      for (const b of forms)
+        if (a !== b) expect(mentionsStem(b, a), `${a} within ${b}`).toBe(false);
+  });
+
+  it("every way a summary may write the repair's cost starts with its one form", () => {
+    const [cost] = PROOF_MEMO_FIGURES.filter((f) => /euros$/.test(f.label));
+    expect(cost, "the cost is not a figure").toBeDefined();
+    for (const written of [
+      "2,480,000 euros",
+      "2.480.000 euros",
+      "2 480 000 euros",
+      "2.48 million euros",
+      "€2.48m",
+      "2,48 millones de euros",
+    ])
+      expect(memoBodyMarksIn(written), written).toEqual([cost!.label]);
+    // NEGATIVE CONTROL: a cost the memo does not give.
+    expect(memoBodyMarksIn("2.5 million euros")).toEqual([]);
+    expect(memoBodyMarksIn("12,480,000 euros")).toEqual([]);
   });
 
   it("the memo PDF's extracted text carries every sentence verbatim — so an echo of it is seen", async () => {
@@ -482,9 +621,30 @@ describe("verifySummaryProof", () => {
       const verdict = await verifySummaryProof(await summaryPackage(summary));
       expect(verdict.ok, summary).toBe(false);
       expect(verdict.detail).toMatch(
-        /but nothing only the memo's body says \(Halvorsen, Varrow, Ostby, cable…/,
+        /but nothing only the memo's body says \(Halvorsen, Varrow, Ostby, ferry…, nine weeks, /,
       );
     }
+  });
+
+  it("fails a summary that names the subject and only what any bridge report says — a refusal, a description, another bridge", async () => {
+    for (const { name, text } of GENERIC_BRIDGE_SUMMARIES) {
+      const verdict = await verifySummaryProof(await summaryPackage(text));
+      expect(verdict.ok, `${name}: ${verdict.detail}`).toBe(false);
+      expect(verdict.detail, name).toMatch(
+        /but nothing only the memo's body says/,
+      );
+    }
+  });
+
+  it("THE LIMIT the check's docblock states: a summary wrong about the memo passes when it carries a mark of the body", async () => {
+    // Pinned so the limit is a fact: the check asks whether the body reached
+    // the summary, not whether the summary is true to it.
+    const verdict = await verifySummaryProof(
+      await summaryPackage(
+        "Halvorsen found the Kestrel Bridge sound and recommends no work.",
+      ),
+    );
+    expect(verdict, verdict.detail).toMatchObject({ ok: true });
   });
 
   it("fails bytes that are not a package, and a package with no summary", async () => {
@@ -499,7 +659,18 @@ describe("verifySummaryProof", () => {
 });
 
 describe("verifyTranslationProof", () => {
-  it("passes a Spanish translation of the memo, in either translator's words", async () => {
+  it("passes a Spanish translation of the memo, in every translator's words — the bridge's name kept, translated or left in English", async () => {
+    // Health: the two name variants are what they say they are.
+    const named = SPANISH_TRANSLATION.split("puente Kestrel").length - 1;
+    expect(named).toBeGreaterThan(1);
+    expect(SPANISH_TRANSLATION_CERNICALO).not.toMatch(/Kestrel/);
+    expect(
+      SPANISH_TRANSLATION_KESTREL_BRIDGE.split("Kestrel Bridge"),
+    ).toHaveLength(named + 1);
+    expect(MEMO_RENDERINGS.spanish).toContain(SPANISH_TRANSLATION_CERNICALO);
+    expect(MEMO_RENDERINGS.spanish).toContain(
+      SPANISH_TRANSLATION_KESTREL_BRIDGE,
+    );
     for (const translation of MEMO_RENDERINGS.spanish) {
       const verdict = await verifyTranslationProof(
         await translationPackage(translation),
@@ -562,6 +733,78 @@ describe("verifyTranslationProof", () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.detail).toMatch(
       /does not read as Spanish: \d+ Spanish marker words against \d+ Italian/,
+    );
+  });
+
+  it("fails Spanish with ONE sentence left in English — at every position", async () => {
+    // Until 2026-10-09 (re-review) the other languages' markers could be a
+    // quarter of the Spanish ones: one English sentence passed at 6 of 13
+    // positions. Line 0 is the title, which carries no English marker word —
+    // pinned as a limit below.
+    const passed: number[] = [];
+    for (let line = 1; line <= PROOF_MEMO_SENTENCES.length; line += 1)
+      if (readsAsSpanish(spanishWithEnglishLine(line))) passed.push(line);
+    expect(passed, "lines left in English that passed as Spanish").toEqual([]);
+    // Health: each control IS one line of English in the Spanish rendering.
+    for (let line = 1; line <= PROOF_MEMO_SENTENCES.length; line += 1)
+      expect(
+        sentencesCarried(spanishWithEnglishLine(line), PROOF_MEMO_SENTENCES),
+      ).toBe(1);
+    // And through the package, as the harness reads it.
+    const verdict = await verifyTranslationProof(
+      await translationPackage(spanishWithEnglishLine(2)),
+    );
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toMatch(/does not read as Spanish: \d+ Spanish/);
+  });
+
+  it("fails a translation that drifts into EVERY neighbour for its last two or more lines", async () => {
+    // Until 2026-10-09 (re-review) the last 4 lines in Portuguese or
+    // Catalan, or the last 2 in Italian, passed.
+    const passed: string[] = [];
+    for (const [language, rendering] of Object.entries(NEIGHBOUR_RENDERINGS))
+      for (let count = 2; count <= PROOF_MEMO_SENTENCES.length; count += 1)
+        if (readsAsSpanish(spanishDriftingInto(rendering, count)))
+          passed.push(`the last ${count} lines in ${language}`);
+    expect(passed).toEqual([]);
+    for (const [language, rendering] of Object.entries(NEIGHBOUR_RENDERINGS)) {
+      const verdict = await verifyTranslationProof(
+        await translationPackage(spanishDriftingInto(rendering, 2)),
+      );
+      expect(verdict.ok, `${language}: ${verdict.detail}`).toBe(false);
+    }
+  });
+
+  it("THE LIMIT of a marker count: one line with at most one marker word passes, wherever it came from", () => {
+    // Pinned so the readsAsSpanish docblock's limit is a fact: the title
+    // left in English carries no English marker, and the memo's last line
+    // in Italian, Portuguese or Catalan carries at most one marker. If this
+    // goes red the check got stronger — invert it and rewrite the docblock.
+    expect(readsAsSpanish(spanishWithEnglishLine(0))).toBe(true);
+    expect(
+      Object.entries(NEIGHBOUR_RENDERINGS)
+        .filter(([, rendering]) =>
+          readsAsSpanish(spanishDriftingInto(rendering, 1)),
+        )
+        .map(([language]) => language),
+    ).toEqual(["italian", "portuguese", "catalan"]);
+  });
+
+  it("fails a Spanish translation cut short — of the memo, Spanish, and missing a name the memo goes on to give", async () => {
+    // Health: the cut is Spanish and keeps SOME body names, so only the
+    // whole-names rule can refuse it.
+    expect(readsAsSpanish(SPANISH_TRANSLATION_CUT_SHORT)).toBe(true);
+    const kept = PROOF_MEMO_BODY_NAMES.filter((name) =>
+      mentions(SPANISH_TRANSLATION_CUT_SHORT, name),
+    );
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.length).toBeLessThan(PROOF_MEMO_BODY_NAMES.length);
+    const verdict = await verifyTranslationProof(
+      await translationPackage(SPANISH_TRANSLATION_CUT_SHORT),
+    );
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toContain(
+      `but not ${PROOF_MEMO_BODY_NAMES.filter((n) => !kept.includes(n)).join(", ")} — `,
     );
   });
 
@@ -702,6 +945,32 @@ describe("verifyChatProof", () => {
     expect(verdict.ok).toBe(true);
   });
 
+  it("THE LIMIT, deterministic: a worker that forwards only the USER's turns passes — the opening question names the part only one team maintains", async () => {
+    // Pinned so the docblock's second limit is a fact. The opening asks which
+    // team maintains the secure worker fleet; the notes give one team for
+    // it; so the follow-up is answerable from the user's own turn and the
+    // notes, without the assistant's answer. If this goes red, the follow-up
+    // came to need the assistant's turn — invert it, and rewrite
+    // CHAT_PROOF_FOLLOW_UP and the follow-up spec's comment.
+    const { provider, sent } = userTurnsOnly(readingModel);
+    const verdict = await verifyChatProof(
+      await chatPackageFrom(
+        provider,
+        CHAT_PROOF_FOLLOW_UP.question,
+        FOLLOW_UP_CONTEXT,
+      ),
+      followUp,
+    );
+    // Health: the model got the opening question and no assistant turn.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.map((m) => m.role)).toEqual(["user", "user"]);
+    expect(sent[0]![0]!.content).toContain(CHAT_PROOF_OPENING.question);
+    expect(
+      sent[0]!.some((m) => mentions(m.content, CHAT_PROOF_FACTS.team)),
+    ).toBe(false);
+    expect(verdict, verdict.detail).toMatchObject({ ok: true });
+  });
+
   it("fails the notes echoed back as the answer — though it names the team", async () => {
     const verdict = await verifyChatProof(
       await chatPackage(CHAT_PROOF_OPENING.question, CHAT_LINES.join("\n")),
@@ -777,19 +1046,17 @@ const CASES: Record<string, { right: Case[]; wrong: Case[] }> = {
         name: "a kestrel, the bird",
         bytes: () => summaryPackage(KESTREL_BIRD_SUMMARY),
       },
+      ...GENERIC_BRIDGE_SUMMARIES.map(({ name, text }) => ({
+        name,
+        bytes: () => summaryPackage(text),
+      })),
     ],
   },
   "translate-pdf": {
-    right: [
-      {
-        name: "a Spanish translation",
-        bytes: () => translationPackage(SPANISH_TRANSLATION),
-      },
-      {
-        name: "another Spanish translation",
-        bytes: () => translationPackage(SPANISH_TRANSLATION_SECOND),
-      },
-    ],
+    right: MEMO_RENDERINGS.spanish.map((translation, i) => ({
+      name: `a Spanish translation (rendering ${i + 1})`,
+      bytes: () => translationPackage(translation),
+    })),
     wrong: [
       { name: "the memo echoed", bytes: () => translationPackage(MEMO_TEXT) },
       {
@@ -815,6 +1082,18 @@ const CASES: Record<string, { right: Case[]; wrong: Case[] }> = {
       {
         name: "Spanish drifting into Italian",
         bytes: () => translationPackage(SPANISH_DRIFTING_INTO_ITALIAN),
+      },
+      ...Object.entries(NEIGHBOUR_RENDERINGS).map(([language, rendering]) => ({
+        name: `Spanish whose last two lines are ${language}`,
+        bytes: () => translationPackage(spanishDriftingInto(rendering, 2)),
+      })),
+      {
+        name: "Spanish with one sentence left in English",
+        bytes: () => translationPackage(spanishWithEnglishLine(2)),
+      },
+      {
+        name: "a Spanish translation cut short",
+        bytes: () => translationPackage(SPANISH_TRANSLATION_CUT_SHORT),
       },
       {
         name: "another document in Spanish",

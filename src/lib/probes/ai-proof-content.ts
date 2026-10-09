@@ -37,6 +37,15 @@
  * as Spanish, passed; and the chat follow-up's notes named ONE channel, so a
  * model sent no prior turns still answered it. Each wrong package is now a
  * control in `ai-proof-content.test.ts`.
+ *
+ * The second version had holes too (re-review, 2026-10-09): the summary
+ * check's body words — cable, corrosion, repair, truck — are what any bridge
+ * report says, so a refusal that had seen only the title passed, and so did
+ * a summary of another bridge; "Spanish" let other languages' markers reach a
+ * quarter of its own, so one sentence left in English, or the memo's last
+ * lines in a neighbour, passed; and the follow-up's docblock still called a
+ * right answer evidence the turns reached the model, when a worker that sends
+ * only the user's turns passes every time. Those packages are controls too.
  */
 import JSZip from "jszip";
 import { readAnswerFromPackage } from "@/lib/workers/chat-with-pdf-conversation";
@@ -44,18 +53,56 @@ import { readAnswerFromPackage } from "@/lib/workers/chat-with-pdf-conversation"
 /** The memo's heading, drawn above its sentences. */
 export const PROOF_MEMO_TITLE = "Kestrel Bridge inspection memo";
 
+/** A count the memo states in words: "nine weeks". */
+interface MemoCount {
+  readonly count: number;
+  readonly unit: string;
+}
+
+const NUMBER_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+] as const;
+
+function numberWord(count: number): string {
+  const word = NUMBER_WORDS[count];
+  if (word === undefined) throw new Error(`no number word for ${count}`);
+  return word;
+}
+
+/** How long the repair takes. */
+const REPAIR_TIME: MemoCount = { count: 9, unit: "week" };
+/** The weight over which trucks may not cross while it goes on. */
+const TRUCK_LIMIT: MemoCount = { count: 7, unit: "tonne" };
+/** What the repair costs, in euros. */
+const REPAIR_COST_EUROS = 2_480_000;
+
+const spelledOut = ({ count, unit }: MemoCount) =>
+  `${numberWord(count)} ${unit}s`;
+const grouped = (n: number) => String(n).replace(/\B(?=(\d{3})+$)/g, ",");
+
 /**
  * The memo, one sentence per drawn line. Each is short enough to fit the
- * page's width on one line, so an extractor returns it whole.
+ * page's width on one line, so an extractor returns it whole. Its figures
+ * are drawn from the values above, which {@link PROOF_MEMO_FIGURES} reads.
  */
 export const PROOF_MEMO_SENTENCES: readonly string[] = [
   "The Kestrel Bridge carries the coast road over the Varrow River.",
   "Engineer Ingrid Halvorsen inspected the bridge on 14 March.",
   "She found corrosion on four of the twelve steel cables that hold the main span.",
   "Two of those cables have lost more than a tenth of their strength.",
-  "The repair will replace all four cables and will take nine weeks.",
-  "It is expected to cost 2,480,000 euros, paid from the regional roads fund.",
-  "Trucks over seven tonnes may not cross the bridge while the work goes on.",
+  `The repair will replace all four cables and will take ${spelledOut(REPAIR_TIME)}.`,
+  `It is expected to cost ${grouped(REPAIR_COST_EUROS)} euros, paid from the regional roads fund.`,
+  `Trucks over ${spelledOut(TRUCK_LIMIT)} may not cross the bridge while the work goes on.`,
   "Cars and bicycles may still cross, but only in one lane at a time.",
   "A ferry from Ostby harbour will carry trucks across the river instead.",
   "The city council must approve the budget before the end of April.",
@@ -87,19 +134,45 @@ export const PROOF_MEMO_SUBJECT = ["Kestrel", "bridge"] as const;
 export const PROOF_MEMO_BODY_NAMES = ["Halvorsen", "Varrow", "Ostby"] as const;
 
 /**
- * What the memo's body says, as the starts of words, for a brief summary that
- * names nobody: corroded cables, a repair, trucks sent to a ferry. The memo is
- * about little else, so such a summary is expected to say one of them — an
- * expectation, not a fact the test can hold; what it holds is that each is in
- * the body and not the title, and each is said by some right summary.
+ * Words of the memo's body, as the starts of words, that its title does not
+ * imply: trucks sent to a ferry.
+ *
+ * WAS cable, corros, repair, truck and ferry — what the body is ABOUT, which
+ * is what ANY bridge inspection says. With the subject's "bridge" those
+ * passed the summarize prompt's own refusal ("The provided text contains
+ * only the title … It gives no details of the inspection's findings, repairs
+ * or costs"), "This memo records an inspection of the Kestrel Bridge and the
+ * repairs it recommends", and a summary of another bridge's corroded cables
+ * (re-review, 2026-10-09). A word the title makes likely, or that another
+ * report of the same kind says, is not proof the body was read.
  */
-export const PROOF_MEMO_BODY_STEMS = [
-  "cable",
-  "corros",
-  "repair",
-  "truck",
-  "ferry",
-] as const;
+export const PROOF_MEMO_BODY_STEMS = ["ferry"] as const;
+
+/**
+ * The memo's FIGURES, each with the forms a summary may write it in, matched
+ * as the starts of words once punctuation is a space: "nine weeks",
+ * "nine-week" and "9 weeks"; "2,480,000", "2.480.000", "2 480 000", "2.48
+ * million" and "€2.48m" all start with "2 48" — one form, since a second
+ * that the first already catches would be decoration. Derived from the
+ * values the sentences are drawn from, so a figure changed in the memo
+ * changes here.
+ */
+export const PROOF_MEMO_FIGURES: readonly {
+  readonly label: string;
+  readonly forms: readonly string[];
+}[] = [
+  ...[REPAIR_TIME, TRUCK_LIMIT].map((figure) => ({
+    label: spelledOut(figure),
+    forms: [
+      `${numberWord(figure.count)} ${figure.unit}`,
+      `${figure.count} ${figure.unit}`,
+    ],
+  })),
+  {
+    label: `${grouped(REPAIR_COST_EUROS)} euros`,
+    forms: [String(REPAIR_COST_EUROS / 1_000_000)],
+  },
+];
 
 /** The language the translate proof asks for. */
 export const PROOF_TRANSLATION_TARGET = "es";
@@ -218,14 +291,25 @@ export const CHAT_PROOF_OPENING = {
  * the other teams.
  *
  * What it does NOT rule out — and this is the whole of what the content can
- * say about delivery: a guess of the right team, naming its channel alone,
- * passes. A right answer is evidence the turns reached the model, not proof.
- * The manifest's `contextTurns`, checked too, cannot narrow it: the engine
- * counts the turns in the OPTIONS it was given (`options.context.length`), not
- * the turns that went into the provider's prompt, so a worker that dropped
- * them in between reports 2 all the same. `ai-proof-content.test.ts` holds
- * both halves: the package of a model sent no turns that lists the channels
- * fails, and one that guesses right passes.
+ * say about delivery:
+ *  - a worker that forwards only the USER's turns and drops the assistant's
+ *    passes, every time. The opening question asks which team maintains the
+ *    secure worker fleet, and the notes give one team for that, so the
+ *    follow-up is answerable from the user's own earlier turn and the notes
+ *    without the opening answer ever reaching the model;
+ *  - a worker that drops every prior turn passes when its model guesses the
+ *    right team, naming its channel alone.
+ * So a right answer is NOT evidence that the opening answer reached the
+ * model, and not proof that any prior turn did. (Until 2026-10-09 this said
+ * a right answer was "evidence the turns reached the model".) What fails is
+ * a worker that drops every prior turn with a model that lists the channels,
+ * asks, or guesses another team. The manifest's `contextTurns`, checked too,
+ * cannot narrow it: the engine counts the turns in the OPTIONS it was given
+ * (`options.context.length`), not the turns that went into the provider's
+ * prompt, so a worker that dropped them in between reports 2 all the same.
+ * `ai-proof-content.test.ts` holds every part: the package of a model sent no
+ * turns that lists the channels fails, one that guesses right passes, and one
+ * sent only the user's turns passes.
  */
 export const CHAT_PROOF_FOLLOW_UP = {
   question: "Which channel does that team take its pages on?",
@@ -325,6 +409,11 @@ export const LANGUAGE_NAMES: Readonly<Record<MarkedLanguage, string>> = {
  * occurs in any other's, no other language's marker occurs in a Spanish one —
  * and each of those left-out words is in a Spanish rendering, so a set that
  * took one in fails there.
+ *
+ * Portuguese gained mais, sua, além, daqui and desses (re-review,
+ * 2026-10-09): with one stray marker allowed ({@link OTHER_MARKERS_AT_MOST}),
+ * the memo's last two lines in Portuguese carried one — "também" — and
+ * passed. "mais" is French too, and counts for both.
  */
 export const LANGUAGE_MARKERS: Readonly<
   Record<MarkedLanguage, ReadonlySet<string>>
@@ -392,6 +481,11 @@ export const LANGUAGE_MARKERS: Readonly<
     "ela",
     "vai",
     "ainda",
+    "mais",
+    "sua",
+    "além",
+    "daqui",
+    "desses",
   ]),
   french: new Set([
     "et",
@@ -427,6 +521,20 @@ export function languageMarkers(text: string): Record<MarkedLanguage, number> {
  */
 export const SPANISH_MARKERS_AT_LEAST = 5;
 
+/**
+ * Most marker words of ALL the other languages together that a Spanish
+ * translation may carry: one stray word, not a sentence. A correct Spanish
+ * rendering of the memo carries none (the test holds every one to that).
+ *
+ * WAS "at most a quarter as many as the Spanish markers" — room that grew
+ * with the text: one sentence left in English passed at 6 of the memo's 13
+ * positions, and the last 4 lines in Portuguese or Catalan, or the last 2 in
+ * Italian, passed as Spanish (re-review, 2026-10-09). Every sentence of the
+ * memo's English carries at least two English markers, so one left untranslated
+ * now fails wherever it sits.
+ */
+export const OTHER_MARKERS_AT_MOST = 1;
+
 /** Marker words of every language but Spanish. */
 function otherMarkers(counts: Record<MarkedLanguage, number>): number {
   return MARKED_LANGUAGES.filter((l) => l !== "spanish").reduce(
@@ -437,15 +545,19 @@ function otherMarkers(counts: Record<MarkedLanguage, number>): number {
 
 /**
  * Spanish, and neither English nor a neighbour: at least
- * {@link SPANISH_MARKERS_AT_LEAST} Spanish marker words, and the other five
- * languages' together at most a quarter as many — room for a name or a stray
- * word, not for prose in another language.
+ * {@link SPANISH_MARKERS_AT_LEAST} Spanish marker words, and at most
+ * {@link OTHER_MARKERS_AT_MOST} of the other five languages' together.
+ *
+ * What a marker count cannot see: a line that carries no more than that one
+ * marker. The title left in English ("Kestrel Bridge inspection memo") has
+ * none, and the memo's last sentence in Italian, Portuguese or Catalan has at
+ * most one, so each passes; the test pins both.
  */
 export function readsAsSpanish(text: string): boolean {
   const counts = languageMarkers(text);
   return (
     counts.spanish >= SPANISH_MARKERS_AT_LEAST &&
-    otherMarkers(counts) * 4 <= counts.spanish
+    otherMarkers(counts) <= OTHER_MARKERS_AT_MOST
   );
 }
 
@@ -498,13 +610,19 @@ async function readJson(zip: JSZip, name: string): Promise<unknown> {
 const bodyNamesIn = (text: string) =>
   PROOF_MEMO_BODY_NAMES.filter((name) => mentions(text, name));
 
-/** What only the memo's body says that `text` says too: names, then stems ("cable…"). */
+/**
+ * What only the memo's body says that `text` says too: names, then stems
+ * ("ferry…"), then figures ("nine weeks").
+ */
 export function memoBodyMarksIn(text: string): string[] {
   return [
     ...bodyNamesIn(text),
     ...PROOF_MEMO_BODY_STEMS.filter((stem) => mentionsStem(text, stem)).map(
       (stem) => `${stem}…`,
     ),
+    ...PROOF_MEMO_FIGURES.filter((figure) =>
+      figure.forms.some((form) => mentionsStem(text, form)),
+    ).map((figure) => figure.label),
   ];
 }
 
@@ -512,13 +630,21 @@ export function memoBodyMarksIn(text: string): string[] {
 const BODY_MARKS: readonly string[] = [
   ...PROOF_MEMO_BODY_NAMES,
   ...PROOF_MEMO_BODY_STEMS.map((stem) => `${stem}…`),
+  ...PROOF_MEMO_FIGURES.map((figure) => figure.label),
 ];
 
 /**
  * A summary OF THE MEMO: summary.txt is not empty, is not the memo echoed
  * back, names the memo's subject ({@link PROOF_MEMO_SUBJECT}) AND something
- * only its body says ({@link memoBodyMarksIn}). The subject alone is what a
- * summary of the title, or of a kestrel, says too.
+ * only its body says ({@link memoBodyMarksIn}): a name, the ferry, or one of
+ * its figures. The subject alone is what a summary of the title, or of a
+ * kestrel, says too; the subject with cables, corrosion, repairs and trucks
+ * is what a refusal, a one-line description or another bridge's report says.
+ *
+ * What it does NOT rule out: a summary that is wrong about the memo but
+ * carries one of those marks — "Halvorsen found the Kestrel Bridge sound"
+ * passes. It asks whether the body reached the summary, not whether the
+ * summary is true to it.
  */
 export async function verifySummaryProof(
   bytes: Uint8Array,
@@ -558,10 +684,12 @@ export async function verifySummaryProof(
  * A translation OF THE MEMO INTO SPANISH: translation.txt is not empty, is
  * not the memo echoed back, is the language the manifest says was asked for
  * and reads as Spanish — not as the memo's English, nor as Italian,
- * Portuguese, Catalan or French ({@link LANGUAGE_MARKERS}) — and keeps at
- * least one of the names only the memo's body carries
- * ({@link PROOF_MEMO_BODY_NAMES}), so a translation of its title alone, or of
- * some other document, does not pass.
+ * Portuguese, Catalan or French ({@link LANGUAGE_MARKERS}) — and keeps EVERY
+ * name only the memo's body carries ({@link PROOF_MEMO_BODY_NAMES}), so a
+ * translation of its title alone, of some other document, or one cut off
+ * before the ferry from Ostby does not pass. (Until 2026-10-09 one name was
+ * enough.) A translation cut after the last name's sentence keeps all three
+ * and passes.
  */
 export async function verifyTranslationProof(
   bytes: Uint8Array,
@@ -605,6 +733,12 @@ export async function verifyTranslationProof(
       ok: false,
       detail: `translation.txt keeps none of ${PROOF_MEMO_BODY_NAMES.join(", ")} — it is not a translation of the memo's body`,
     };
+  const dropped = PROOF_MEMO_BODY_NAMES.filter((n) => !named.includes(n));
+  if (dropped.length > 0)
+    return {
+      ok: false,
+      detail: `translation.txt keeps ${named.join(", ")} but not ${dropped.join(", ")} — a translation cut short, or of part of the memo`,
+    };
   return {
     ok: true,
     detail: `${translation.length}-char Spanish translation (${markers.spanish} Spanish marker words against ${others.breakdown}) keeping ${named.join(", ")}`,
@@ -641,7 +775,8 @@ const CHAT_LINES = CHAT_PROOF_PAGES.flatMap((page) => page.lines);
  *
  * `contextTurns` is the engine's count of the turns in its OPTIONS, not of
  * what reached the provider; for the follow-up only the answer speaks to
- * that — see {@link CHAT_PROOF_FOLLOW_UP} for how far.
+ * that, and it cannot show the opening answer arrived — see
+ * {@link CHAT_PROOF_FOLLOW_UP}.
  */
 export async function verifyChatProof(
   bytes: Uint8Array,

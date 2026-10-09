@@ -13,13 +13,23 @@
  *
  * Every translation is the title and the memo's sentences, one per line, in
  * the memo's order, names kept as a translator keeps them; the test holds the
- * line count. There are two Spanish renderings in different words — Spain's
- * and Latin America's — so the check is shown to pass a correct translation
- * it was not written against.
+ * line count. There are three Spanish renderings in different words —
+ * Spain's, Latin America's and Mexico's — and the first again with the
+ * bridge's name translated and left in English, so the check is shown to pass
+ * correct translations it was not written against.
+ *
+ * The wrong packages built from them (re-review, 2026-10-09): the Spanish with
+ * one line left in English, at every position; the Spanish whose last lines
+ * drifted into each neighbour; and the Spanish cut short. With other
+ * languages' markers allowed up to a quarter of the Spanish ones, one English
+ * sentence passed at 6 of 13 positions, and the last 2 to 4 lines in
+ * Portuguese or Catalan, or the last 2 in Italian, passed.
  */
 import {
+  PROOF_MEMO_BODY_NAMES,
   PROOF_MEMO_SENTENCES,
   PROOF_MEMO_TITLE,
+  mentions,
   type MarkedLanguage,
 } from "@/lib/probes/ai-proof-content";
 
@@ -72,6 +82,38 @@ export const SPANISH_TRANSLATION_SECOND = [
   "Halvorsen recomienda además reemplazar los otros ocho cables en cinco años o menos.",
   "La siguiente inspección completa del puente Kestrel será en dos años.",
 ].join("\n");
+
+/**
+ * A third translator, Mexican usage: "carros", "cabildo", "nada más", "se van
+ * a cambiar", a comma as the thousands separator. Written after the check, so
+ * it is a correct translation the check was not tuned to.
+ */
+export const SPANISH_TRANSLATION_MEXICAN = [
+  "Memorándum de la inspección al puente Kestrel",
+  "El puente Kestrel lleva la carretera costera por encima del río Varrow.",
+  "La ingeniera Ingrid Halvorsen revisó el puente el 14 de marzo.",
+  "Detectó corrosión en cuatro de los doce cables de acero que cargan el claro principal.",
+  "Dos de esos cables ya perdieron más de una décima parte de su resistencia.",
+  "Con la reparación se van a cambiar los cuatro cables, y los trabajos durarán nueve semanas.",
+  "Se calcula que costará 2,480,000 euros, que se van a pagar del fondo regional de carreteras.",
+  "Los camiones de más de siete toneladas no podrán cruzar el puente mientras duren los trabajos.",
+  "Los carros y las bicicletas sí van a poder pasar, pero nada más por un carril a la vez.",
+  "Un ferry que sale del puerto de Ostby va a llevar los camiones al otro lado del río.",
+  "El cabildo tiene que aprobar el presupuesto antes de que termine abril.",
+  "Si los trabajos se atrasan más allá de junio, el puente se va a cerrar a todo el tránsito.",
+  "Halvorsen también recomienda cambiar los otros ocho cables en un plazo de cinco años.",
+  "La próxima inspección completa del puente Kestrel toca dentro de dos años.",
+].join("\n");
+
+/** The first rendering with the bridge's name translated, as a translator may render a bird's name. */
+export const SPANISH_TRANSLATION_CERNICALO = SPANISH_TRANSLATION.replaceAll(
+  "puente Kestrel",
+  "puente Cernícalo",
+);
+
+/** The first rendering with the bridge's name kept in English, as a proper name. */
+export const SPANISH_TRANSLATION_KESTREL_BRIDGE =
+  SPANISH_TRANSLATION.replaceAll("puente Kestrel", "Kestrel Bridge");
 
 export const ITALIAN_TRANSLATION = [
   "Promemoria sull'ispezione del ponte Kestrel",
@@ -145,7 +187,13 @@ export const FRENCH_TRANSLATION = [
 export const MEMO_RENDERINGS: Readonly<
   Record<MarkedLanguage, readonly string[]>
 > = {
-  spanish: [SPANISH_TRANSLATION, SPANISH_TRANSLATION_SECOND],
+  spanish: [
+    SPANISH_TRANSLATION,
+    SPANISH_TRANSLATION_SECOND,
+    SPANISH_TRANSLATION_MEXICAN,
+    SPANISH_TRANSLATION_CERNICALO,
+    SPANISH_TRANSLATION_KESTREL_BRIDGE,
+  ],
   english: [MEMO_TEXT, ENGLISH_PARAPHRASE],
   italian: [ITALIAN_TRANSLATION],
   portuguese: [PORTUGUESE_TRANSLATION],
@@ -153,13 +201,61 @@ export const MEMO_RENDERINGS: Readonly<
   catalan: [CATALAN_TRANSLATION],
 };
 
+/** Spanish's neighbours, by the language each rendering is in. */
+export const NEIGHBOUR_RENDERINGS = {
+  italian: ITALIAN_TRANSLATION,
+  portuguese: PORTUGUESE_TRANSLATION,
+  catalan: CATALAN_TRANSLATION,
+  french: FRENCH_TRANSLATION,
+} as const;
+
+/**
+ * {@link SPANISH_TRANSLATION} with its line `line` — 0 the title, then one
+ * per sentence — left in the memo's English: a model that skipped one.
+ */
+export function spanishWithEnglishLine(line: number): string {
+  const english = MEMO_TEXT.split("\n");
+  return SPANISH_TRANSLATION.split("\n")
+    .map((spanish, i) => (i === line ? english[i]! : spanish))
+    .join("\n");
+}
+
+/**
+ * {@link SPANISH_TRANSLATION} whose last `count` lines are `rendering`'s: a
+ * model that drifted into another language for the end of the memo.
+ */
+export function spanishDriftingInto(rendering: string, count: number): string {
+  const spanish = SPANISH_TRANSLATION.split("\n");
+  const other = rendering.split("\n");
+  return [
+    ...spanish.slice(0, spanish.length - count),
+    ...other.slice(other.length - count),
+  ].join("\n");
+}
+
 /**
  * A translation that drifts: Spanish for its first nine lines, Italian for
  * the rest — a model that changed language partway. Enough Spanish to clear
  * the Spanish minimum on its own, so only the count of the OTHER languages'
  * markers can refuse it.
  */
-export const SPANISH_DRIFTING_INTO_ITALIAN = [
-  ...SPANISH_TRANSLATION.split("\n").slice(0, 9),
-  ...ITALIAN_TRANSLATION.split("\n").slice(9),
-].join("\n");
+export const SPANISH_DRIFTING_INTO_ITALIAN = spanishDriftingInto(
+  ITALIAN_TRANSLATION,
+  5,
+);
+
+/**
+ * {@link SPANISH_TRANSLATION} cut short: every line before the first that
+ * carries the LAST of the memo's body names to appear — a translation that
+ * stopped partway, Spanish and of the memo, missing a name the memo goes on
+ * to give.
+ */
+export const SPANISH_TRANSLATION_CUT_SHORT = (() => {
+  const lines = SPANISH_TRANSLATION.split("\n");
+  const cut = Math.max(
+    ...PROOF_MEMO_BODY_NAMES.map((name) =>
+      lines.findIndex((line) => mentions(line, name)),
+    ),
+  );
+  return lines.slice(0, cut).join("\n");
+})();

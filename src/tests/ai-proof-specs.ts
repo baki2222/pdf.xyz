@@ -140,8 +140,12 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
   // if they are dropped between the API, the queue and the engine. It is counted
   // from the engine's options, not from the provider's prompt, so it cannot see the
   // last hop; until 2026-10-09 this comment said it could. Past the engine only the
-  // answer speaks, and only as far as `CHAT_PROOF_FOLLOW_UP` says: the notes name
-  // several teams, so "that team" is settled by the opening exchange or by a guess.
+  // answer speaks, and it cannot show the opening ANSWER reached the model: the
+  // opening question names the secure worker fleet, which the notes give one team,
+  // so a worker that forwards only the user's turns passes every time, and one that
+  // forwards none passes on a lucky guess (`CHAT_PROOF_FOLLOW_UP`; both pinned in
+  // `ai-proof-content.test.ts`). What fails is a worker that drops every prior turn
+  // with a model that does not guess right.
   //
   // It also carries the only measurement of the prompt-caching bet. Caching the
   // document is justified in the engine by follow-ups re-sending it verbatim, and
@@ -181,7 +185,9 @@ export const AI_PROOF_SPECS: readonly AiProofSpec[] = [
     want: "answer ZIP",
     // Both turns reached the engine (`contextTurns`), and the answer names
     // that team's channel and no other team's — which the notes alone do not
-    // settle (`CHAT_PROOF_FOLLOW_UP` says how far that goes).
+    // settle, and the user's opening question with the notes does: a right
+    // answer is not evidence the assistant's turn reached the model
+    // (`CHAT_PROOF_FOLLOW_UP`).
     verify: (bytes) =>
       verifyChatProof(bytes, { ...CHAT_PROOF_FOLLOW_UP, contextTurns: 2 }),
   },

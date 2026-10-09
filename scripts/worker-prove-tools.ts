@@ -540,9 +540,10 @@ interface ProofSpec {
    * `expect` can only see the envelope — every AI tool returns a ZIP, so it answers
    * "a ZIP came back", which stays true even if the feature under test did nothing.
    * What is inside says more: for a conversation, the manifest's turn count says
-   * the worker's engine was given the prior turns, and the answer says how far they
-   * reached the model — `@/lib/probes/ai-proof-content` states how far that is,
-   * which is not all the way. (Until 2026-10-09 this said the manifest showed the
+   * the worker's engine was given the prior turns, and the answer can fail a worker
+   * that dropped every prior turn before the model — not one that dropped only the
+   * assistant's, nor one whose model guessed right (`@/lib/probes/ai-proof-content`,
+   * `CHAT_PROOF_FOLLOW_UP`). (Until 2026-10-09 this said the manifest showed the
    * worker "received and used" them; it counts the turns the engine was handed.)
    * The returned detail is printed on success, so a measurement (rather than a
    * mere pass) reaches the operator.
