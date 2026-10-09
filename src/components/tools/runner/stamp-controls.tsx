@@ -55,7 +55,7 @@ export function PositionPicker({
     <div
       role="radiogroup"
       aria-label={label}
-      className="border-line grid aspect-[4/3] w-40 grid-cols-3 grid-rows-3 gap-1 rounded-[4px] border bg-black/20 p-1.5"
+      className="border-line bg-canvas grid aspect-[4/3] w-40 grid-cols-3 grid-rows-3 gap-1 rounded-[4px] border p-1.5"
     >
       {STAMP_POSITIONS.map((position) => {
         const { h, v } = resolveAlign(position);
@@ -81,7 +81,7 @@ export function PositionPicker({
             <span
               className={cn(
                 "size-1.5 rounded-full transition",
-                active ? "bg-accent" : "bg-slate-500",
+                active ? "bg-accent" : "bg-faint",
               )}
               aria-hidden
             />
@@ -151,7 +151,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="border-line inline-flex rounded-[3px] border bg-black/20 p-1"
+      className="border-line bg-canvas inline-flex rounded-[3px] border p-1"
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -205,7 +205,7 @@ export function TextField({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 w-full rounded-[3px] border bg-black/20 px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+        className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas w-full rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
       />
     </div>
   );
@@ -242,7 +242,7 @@ export function NumberField({
           if (Number.isNaN(next)) return;
           onChange(Math.min(max, Math.max(min, Math.round(next))));
         }}
-        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 w-full rounded-[3px] border bg-black/20 px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas w-full rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
       />
     </div>
   );

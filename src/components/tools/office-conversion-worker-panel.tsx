@@ -131,9 +131,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
         )}
 
         <div className="flex flex-col gap-3">
-          <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-            What happens
-          </h3>
+          <h3 className="text-faint kicker">What happens</h3>
           <ol className="flex flex-col gap-1">
             {workerPipelineStages(status ? status.scan.active : null, tool).map(
               (stage, index, all) => (
@@ -160,7 +158,7 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
           </ol>
         </div>
 
-        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
+        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
           <SpecRow icon={Download} label="Output" value="PDF" />
           <SpecRow
             icon={Timer}
@@ -275,7 +273,7 @@ function OfficeRunArea({
         onClick={start}
         busy={busy}
         disabled={!file}
-        busyLabel={jobBusyLabel(job.phase, "Converting PDF…")}
+        busyLabel={jobBusyLabel(job.phase, "Converting to PDF…")}
         icon={FileText}
       >
         Convert to PDF

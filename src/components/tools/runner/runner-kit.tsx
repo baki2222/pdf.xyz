@@ -890,11 +890,7 @@ export function RunnerSection({
     <div className="flex flex-col gap-3">
       {(title || aside) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {title && (
-            <h3 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-              {title}
-            </h3>
-          )}
+          {title && <h3 className="text-faint kicker">{title}</h3>}
           {aside}
         </div>
       )}

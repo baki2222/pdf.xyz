@@ -88,7 +88,7 @@ const content: ToolContent = {
     },
     {
       title: "Download the report",
-      body: "Download comparison report saves the whole report as a text file named after both PDFs, for example draft-vs-final-comparison.txt. Start over reloads the page, which clears both slots for a new pair.",
+      body: "Download comparison report saves the whole report as a text file named after both PDFs, for example draft-vs-final-comparison.txt. Start over clears the result and both slots for a new pair, without leaving the page.",
     },
   ],
 

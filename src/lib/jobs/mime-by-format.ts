@@ -54,6 +54,55 @@ export const MIME_BY_FORMAT: Record<string, readonly string[]> = {
 };
 
 /**
+ * The filename extensions each format is recognised by, keyed by the SAME
+ * labels as {@link MIME_BY_FORMAT} — so `JPEG`, `HTM` and `MARKDOWN` stay keys
+ * of their own, looked up by a tool's raw `accept` token. Each label's own
+ * spelling, plus the two extra spellings an in-browser runner already opens:
+ * `.text` (Text to PDF) and `.mdown` (Markdown to PDF). Recognising a file by
+ * a narrower list than its runner would only cost a pick; a WIDER one would
+ * carry a file the runner refuses, which `capability.test.ts` holds against
+ * every runner's own check — over a corpus BUILT FROM this table, so an
+ * extension added here is tested the moment it is added (widening TXT with
+ * "log" turned it red, measured 2026-10-09).
+ */
+export const EXTENSIONS_BY_FORMAT: Record<string, readonly string[]> = {
+  PDF: ["pdf"],
+  DOC: ["doc"],
+  DOCX: ["docx"],
+  XLS: ["xls"],
+  XLSX: ["xlsx"],
+  CSV: ["csv"],
+  PPT: ["ppt"],
+  PPTX: ["pptx"],
+  JPG: ["jpg"],
+  JPEG: ["jpeg"],
+  PNG: ["png"],
+  HTML: ["html"],
+  HTM: ["htm"],
+  MD: ["md", "mdown"],
+  MARKDOWN: ["markdown"],
+  TXT: ["txt", "text"],
+};
+
+/** The labels that are another spelling of one format. */
+const FORMAT_ALIASES: Readonly<Record<string, string>> = {
+  JPEG: "JPG",
+  HTM: "HTML",
+  MARKDOWN: "MD",
+};
+
+/**
+ * One spelling per format: JPEG is JPG, HTM is HTML, MARKDOWN is MD; every
+ * other label is itself, upper-cased. For comparing formats ("does this tool
+ * take what that one makes?") — never apply it before a
+ * {@link MIME_BY_FORMAT} lookup, whose aliases are keys of their own.
+ */
+export function normalizeFormatLabel(label: string): string {
+  const upper = label.trim().toUpperCase();
+  return FORMAT_ALIASES[upper] ?? upper;
+}
+
+/**
  * The content type a client must declare for `filename`: the canonical (first)
  * MIME of its extension's format, or `null` when the extension is not a format
  * any tool accepts — the caller then refuses locally with a clear message

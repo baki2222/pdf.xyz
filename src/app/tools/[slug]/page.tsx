@@ -249,11 +249,7 @@ export default async function ToolPage({
           <div className="flex flex-col gap-8">
             <div className="flex flex-col gap-5">
               <div className="flex items-start gap-4">
-                <ToolIcon
-                  icon={tool.icon}
-                  gradient={category?.gradient}
-                  size="lg"
-                />
+                <ToolIcon icon={tool.icon} size="lg" />
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
@@ -288,9 +284,7 @@ export default async function ToolPage({
 
             <div className="grid gap-6 sm:grid-cols-2">
               <div className="border-line bg-panel flex flex-col gap-3 rounded-[4px] border p-5">
-                <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                  About this tool
-                </h2>
+                <h2 className="text-faint kicker">About this tool</h2>
                 {intro.map((paragraph, i) => (
                   <p
                     key={i}
@@ -306,9 +300,7 @@ export default async function ToolPage({
               </div>
               {steps.length > 0 && (
                 <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
-                  <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                    How it works
-                  </h2>
+                  <h2 className="text-faint kicker">How it works</h2>
                   {stepList}
                 </div>
               )}
@@ -319,11 +311,7 @@ export default async function ToolPage({
           <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:items-start">
             <div className="flex flex-col gap-6">
               <div className="flex items-start gap-4">
-                <ToolIcon
-                  icon={tool.icon}
-                  gradient={category?.gradient}
-                  size="lg"
-                />
+                <ToolIcon icon={tool.icon} size="lg" />
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
@@ -352,18 +340,14 @@ export default async function ToolPage({
 
               {useCaseList && (
                 <div className="flex flex-col gap-4">
-                  <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                    When to use it
-                  </h2>
+                  <h2 className="text-faint kicker">When to use it</h2>
                   {useCaseList}
                 </div>
               )}
 
               {steps.length > 0 && (
                 <div className="flex flex-col gap-4">
-                  <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                    How it works
-                  </h2>
+                  <h2 className="text-faint kicker">How it works</h2>
                   {stepList}
                 </div>
               )}
@@ -486,9 +470,7 @@ export default async function ToolPage({
           <div className="grid gap-6 sm:grid-cols-2">
             {facts.length > 0 && (
               <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
-                <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                  What this tool can do
-                </h2>
+                <h2 className="text-faint kicker">What this tool can do</h2>
                 <dl className="flex flex-col gap-3">
                   {facts.map((fact) => (
                     <div key={fact.label} className="flex flex-col gap-1">
@@ -505,9 +487,7 @@ export default async function ToolPage({
             )}
             {faq.length > 0 && (
               <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
-                <h2 className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                  Common questions
-                </h2>
+                <h2 className="text-faint kicker">Common questions</h2>
                 {faq.map((entry) => (
                   <div key={entry.question} className="flex flex-col gap-1.5">
                     <h3 className="text-fg text-sm font-semibold">

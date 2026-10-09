@@ -38,7 +38,7 @@ export function CtaSection() {
     <section className="theme-ink bg-canvas">
       <Container className="grid gap-10 py-20 sm:py-24 lg:grid-cols-12 lg:items-end">
         <div className="flex flex-col items-start gap-6 lg:col-span-8">
-          <h2 className="font-display text-fg max-w-2xl text-4xl leading-[1.06] font-medium tracking-tight text-balance sm:text-5xl">
+          <h2 className="font-display text-fg text-display-2 max-w-2xl font-medium text-balance">
             Every PDF tool, in one private workspace
           </h2>
           <p className="text-muted max-w-xl text-base leading-relaxed text-pretty sm:text-lg">

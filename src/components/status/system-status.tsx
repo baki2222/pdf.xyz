@@ -276,9 +276,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   provider reports its own honest readiness so the page can say
                   exactly what a real deployment still needs to wire up. */}
               <div className="flex flex-col gap-1.5">
-                <span className="text-faint font-mono text-xs font-medium tracking-[0.18em] uppercase">
-                  Production pipeline
-                </span>
+                <span className="text-faint kicker">Production pipeline</span>
                 <ProviderRow
                   icon={Database}
                   label="Object storage"

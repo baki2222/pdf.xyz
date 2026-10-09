@@ -744,7 +744,7 @@ function WorkerBadge({
   }
   return (
     <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium">
-      <span className="size-1.5 rounded-full bg-slate-500" aria-hidden />
+      <span className="bg-faint size-1.5 rounded-full" aria-hidden />
       Not enabled
     </span>
   );

@@ -34,7 +34,11 @@ const TOOLS_DIR = path.join(process.cwd(), "src", "components", "tools");
  * token. Without it this flags a class string that renders no card at all, and a
  * guard that cries wolf gets weakened by the next person to hit it.
  */
-const CARD_FINGERPRINT = "border border-emerald-400/25 bg-emerald-500/[0.07]";
+// Written with "·" for each colour's first hyphen and restored here: Tailwind
+// scans this file, and spelled whole the retired card's two colours shipped
+// in the stylesheet long after the card left (shipped-css.test.ts).
+const CARD_FINGERPRINT =
+  "border border·emerald-400/25 bg·emerald-500/[0.07]".replaceAll("·", "-");
 
 /** The one legal home for that markup. */
 const CARD_OWNER = path.join("runner", "runner-kit.tsx");

@@ -264,7 +264,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       {rangeError && <ErrorNote message={rangeError} />}
 
       <RunnerSection title="Crop preview">
-        <div className="border-line flex justify-center rounded-[4px] border bg-black/20 p-5">
+        <div className="border-line bg-canvas flex justify-center rounded-[4px] border p-5">
           {preview ? (
             <div
               className="relative w-full max-w-[200px] overflow-hidden rounded-lg bg-white/90 shadow-sm ring-1 ring-black/10"

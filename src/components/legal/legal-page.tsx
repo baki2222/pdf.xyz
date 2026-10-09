@@ -12,9 +12,10 @@ import { cn } from "@/lib/utils";
  * you cannot rely on.
  *
  * "Constrained measure" was not true when that was first written: the body sat
- * at 14px across the full max-w-3xl column. It is now {@link proseMeasure},
- * and `src/app/guides/guide-page.test.tsx` renders both policy pages and fails
- * if the body copy loses it.
+ * at 14px across the full max-w-3xl column. It is now {@link proseMeasure}.
+ * `src/app/guides/guide-page.test.tsx` renders both policy pages and fails
+ * if the body copy loses it, and `e2e/reading-measure.spec.ts` counts the
+ * characters its lines hold.
  */
 export function LegalPage({
   title,

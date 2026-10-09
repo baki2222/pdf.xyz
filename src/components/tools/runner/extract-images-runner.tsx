@@ -367,7 +367,7 @@ function ImageGrid({
               <img
                 src={url}
                 alt={image.name}
-                className="h-40 w-full bg-black/30 object-contain"
+                className="bg-canvas h-40 w-full object-contain"
               />
               <div className="flex items-center justify-between gap-2 p-2.5">
                 <span className="text-muted min-w-0 truncate text-xs">

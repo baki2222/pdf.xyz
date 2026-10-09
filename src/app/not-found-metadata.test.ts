@@ -29,8 +29,6 @@ import { siteConfig } from "@/lib/site";
 // The layout's fonts are build-time Next transforms with no meaning under
 // vitest; only the `metadata` export is under test.
 vi.mock("next/font/local", () => ({ default: () => ({ variable: "" }) }));
-vi.mock("geist/font/sans", () => ({ GeistSans: { variable: "" } }));
-vi.mock("geist/font/mono", () => ({ GeistMono: { variable: "" } }));
 
 const APP = path.join(process.cwd(), "src", "app");
 

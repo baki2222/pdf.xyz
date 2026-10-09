@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   Cpu,
   Download,
@@ -122,7 +123,7 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
           ))}
         </ol>
 
-        <div className="bg-panel border-line divide-y divide-white/5 rounded-[4px] border px-4 py-1">
+        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
           <SpecRow
             icon={FileUp}
             label="Inputs"
@@ -154,9 +155,14 @@ export function WorkerPreview({ tool }: { tool: Tool }) {
           <p className="text-muted text-xs leading-relaxed">
             No account required. When this ships, files are encrypted in transit
             and at rest, processed on a separate processing server, and deleted
-            automatically — see our{" "}
-            <span className="text-muted">worker architecture</span> and security
-            docs.
+            automatically; the{" "}
+            <Link
+              href="/privacy#files"
+              className="text-accent underline underline-offset-4"
+            >
+              privacy policy
+            </Link>{" "}
+            sets out each step.
           </p>
         </div>
       </div>

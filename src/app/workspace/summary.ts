@@ -18,7 +18,6 @@ export interface WorkspaceToolSummary {
   name: string;
   tagline: string;
   icon: IconName;
-  gradient?: string;
   badge?: ToolBadge;
   processing: ProcessingMode;
   /** Human capability label, e.g. "In-browser", "Secure worker". */
