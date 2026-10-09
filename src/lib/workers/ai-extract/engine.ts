@@ -17,6 +17,14 @@ import type { ExtractOptions, ExtractionField } from "@/lib/jobs/ai-extract";
 import type { AiProvider, AiCompletionResult } from "../ai/provider";
 import { AI_INPUT_LIMITS } from "@/lib/jobs/types";
 import type { AiUsageMeta } from "@/lib/jobs/ai-results";
+import {
+  AI_EXTRACT_NOT_NULL_WARNING,
+  AI_EXTRACT_NULL_CELL,
+  AI_EXTRACT_NULL_INSTRUCTION,
+  AI_EXTRACT_NULL_MEANING,
+  AI_EXTRACT_NULL_PAST_CUT,
+  AI_EXTRACT_UNRETURNED_NULL,
+} from "@/lib/jobs/ai-extract-null-meaning";
 
 /**
  * AI Data Extraction engine for the `ai-extract` AI tool.
@@ -45,7 +53,8 @@ import type { AiUsageMeta } from "@/lib/jobs/ai-results";
  *     the requested name even when the model respelled it (`Invoice Number` →
  *     `invoice_number`). A requested field the model did not return is `null` there
  *     and is NAMED in manifest.json (`extraction.missingKeys`) and in extraction.md
- *     as "not returned by the model" — never folded into "not found". Until
+ *     as "not returned by the model" — never folded into a null the model
+ *     returned (shown as `AI_EXTRACT_NULL_CELL`). Until
  *     2026-09-28 a dropped field simply vanished: a request for 12 fields could ship
  *     10 rows, and a consumer keyed on the requested names broke, while the manifest
  *     said "absent values are null". A LIST reply in schema mode fails honestly.
@@ -497,9 +506,18 @@ export async function runAiExtract(
           extraKeys: reconciled.extraKeys,
         }
       : { keys: extractedKeys },
-    notice: reconciled
-      ? "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. A value of null means the model reported the field as not found; a requested field the model did not return at all is also null in extraction.json, and is listed in manifest.json under extraction.missingKeys. No content was fabricated beyond the model's extraction of the provided text."
-      : "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only. Values may be missing or incorrect — verify against the original before relying on it. No content was fabricated beyond the model's extraction of the provided text.",
+    // What a null means is said in BOTH modes — a prompt-mode reply has
+    // nulls too, and until 2026-10-09 its package never said what one meant —
+    // and in the module's words, which every surface renders.
+    notice: [
+      "This data was extracted by an AI model from the SELECTABLE TEXT of the source PDF only.",
+      "Values may be missing or incorrect — verify against the original before relying on it.",
+      AI_EXTRACT_NULL_INSTRUCTION,
+      AI_EXTRACT_NULL_MEANING,
+      AI_EXTRACT_NOT_NULL_WARNING,
+      ...(reconciled ? [AI_EXTRACT_UNRETURNED_NULL] : []),
+      "No content was fabricated beyond the model's extraction of the provided text.",
+    ].join(" "),
   };
 
   const output = await buildPackage(data, reconciled, manifest);
@@ -694,10 +712,24 @@ function reconcileWithSchema(
   };
 }
 
-/** Render a single extracted value for the human-readable Markdown table. */
+/**
+ * Render a single extracted value for the human-readable Markdown table.
+ *
+ * A null VALUE is shown as the module's cell (`AI_EXTRACT_NULL_CELL`): the two
+ * reasons a model gives one. Until 2026-10-09 this cell read "_(not found)_"
+ * and told a user whose PDF held four values that it held none; it then read
+ * "_(not found, or more than one match)_" — but a value printed twice over is
+ * one value, which a model returns (review, 2026-10-09). The words live in
+ * `@/lib/jobs/ai-extract-null-meaning`, which every surface renders.
+ */
 function renderValue(value: unknown): string {
-  if (value === null || value === undefined) return "_(not found)_";
-  if (Array.isArray(value)) return value.map((v) => renderValue(v)).join("; ");
+  if (value === null || value === undefined) return AI_EXTRACT_NULL_CELL;
+  // A null INSIDE a list is the model's own entry; it is shown as what it
+  // is, with no reason claimed for it.
+  if (Array.isArray(value))
+    return value
+      .map((v) => (v === null || v === undefined ? "_(null)_" : renderValue(v)))
+      .join("; ");
   if (typeof value === "object") return "`" + JSON.stringify(value) + "`";
   return String(value).replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
@@ -717,13 +749,12 @@ function renderMarkdown(
   lines.push(
     `> Pages: ${manifest.source.pageCount} · Source characters: ${manifest.source.characters}${manifest.source.truncatedToCharacters !== null ? ` (truncated to ${manifest.source.truncatedToCharacters} for extraction)` : ""}`,
   );
-  // A null value in this table means "not found in the pages examined" when the
-  // window was short. Saying so beside the table is the difference between a
-  // gap and a false negative.
+  // When the window was short, a null may be a value past the cut. Saying so
+  // beside the table is the difference between a gap and a false negative.
   if (manifest.source.truncationNotice) {
     lines.push(`>`);
     lines.push(
-      `> **${manifest.source.truncationNotice}** Fields shown as \`null\` were not found in the pages examined — they may still appear later in the document.`,
+      `> **${manifest.source.truncationNotice}** ${AI_EXTRACT_NULL_PAST_CUT}`,
     );
   }
   lines.push("");
@@ -794,7 +825,7 @@ function renderReadme(manifest: ExtractionManifest): string {
   lines.push("Contents:");
   lines.push(
     manifest.options.mode === "schema"
-      ? "  extraction.json    The requested fields, in the order requested, with the model's values. A field the model did not return is null here and listed in manifest.json (extraction.missingKeys)."
+      ? "  extraction.json    The requested fields, in the order requested, with the model's values; a field the model did not return is listed in manifest.json (extraction.missingKeys)."
       : "  extraction.json    The AI-extracted structured data (exactly the model's JSON output).",
   );
   lines.push(
