@@ -166,11 +166,16 @@ describe("the copy surface reaches what the guards must read", () => {
  * Predicate 2, run for the first time on 2026-10-09, found 28 such modules —
  * and 24 of them OUTSIDE the walk: the engine and worker messages a visitor
  * reads in an error note. They are recorded below rather than walked, and the
- * record can only shrink. Walking them was measured the same day: four
- * honesty findings, one of them true ("not on your file or your account", on
- * a product with no accounts — fixed in the message itself) and three that
- * are engine code the prose guards were not built for (an operator billing
- * record, a "$4.20" number-format example, a regex replacement token).
+ * record can only shrink. Walking them was measured the same day, as part of
+ * a wider set (55 modules, from a looser first draft of this predicate): four
+ * honesty checks failed. One finding was TRUE — "not on your file or your
+ * account", on a product with no accounts, fixed in the message itself. The
+ * rest were engine code the prose guards were not built for: "pages behind a
+ * sign-in" (a third-party site's), an operator billing record and a "$4.20"
+ * number-format example read as prices, and the translate ceiling sentence,
+ * which ai-ceiling-surfaces wants wired into its per-tool checks first. (A
+ * regex replacement token "$1" read as a price too, in a telemetry module
+ * this tighter predicate does not select.)
  */
 describe("copy reach: every file that holds visitor-facing words is walked", () => {
   const ROOT = process.cwd();
