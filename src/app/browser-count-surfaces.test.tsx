@@ -37,6 +37,7 @@ import {
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { processingMeta } from "@/lib/tools/processing";
+import { whereItRuns } from "@/lib/tools/where-it-runs";
 import { supportedToolSlugs } from "@/lib/pdf/registry";
 import { ANNOUNCE_DELAY_MS } from "@/components/tools/tools-explorer";
 // In memory before /tools asks for it, so the page's own `import()` of the
@@ -147,21 +148,31 @@ interface Surface {
  * region was empty and the guard certified the label and never heard the
  * sentence.
  *
- * Returned as the page's container with every sentence it served appended,
- * so each check below reads the labels and the sentences alike.
+ * And the sentences a filter emptied: for each browser-first tool, a search
+ * that finds it with "Never uploads" chosen — the announcement and the empty
+ * state's heading, which is where the false denial shipped.
+ *
+ * Returned as one element holding the page as first painted and every
+ * sentence it served, so each check below reads the labels and the
+ * sentences alike.
  */
 async function toolsAsChosen(): Promise<HTMLElement> {
   const container = renderSurface(<ToolsPage />);
-  const served = await chooseEachPlace();
+  const texts = [container.textContent ?? ""];
+  for (const { sentence } of await chooseEachPlace()) texts.push(sentence);
+  cleanup();
+  for (const tool of BROWSER_FIRST) {
+    texts.push(...(await servedNeverUploads(queryFor(tool.name))));
+    cleanup();
+  }
   const corpus = document.createElement("div");
   corpus.dataset.served = "";
-  for (const { sentence } of served) {
+  for (const text of texts) {
     const p = document.createElement("p");
-    p.textContent = sentence;
+    p.textContent = text;
     corpus.append(p);
   }
-  container.append(corpus);
-  return container;
+  return corpus;
 }
 
 /** The live region's words after the pause, read once the timers ran. */
@@ -655,6 +666,26 @@ describe("the never-upload choice is never worded with the in-browser path", () 
     // The case the rule exists for: a tool outside the choice with an
     // in-browser path. Without one, "true of a tool outside it" is empty.
     expect(BROWSER_FIRST.length).toBeGreaterThan(0);
+  });
+
+  it("health: the /tools corpus the count checks read holds what was served, not only the labels", async () => {
+    const corpus = await toolsAsChosen();
+    const sentences = [...corpus.querySelectorAll("p")]
+      .slice(1)
+      .map((p) => p.textContent ?? "");
+    // One announcement per choice, "All" included…
+    const radios = whereItRuns(split).length + 1;
+    expect(sentences.length).toBeGreaterThanOrEqual(radios);
+    // …and for each browser-first tool, a denial and the empty heading.
+    for (const tool of BROWSER_FIRST) {
+      const q = queryFor(tool.name);
+      expect(sentences.some((s) => s.startsWith(`No tools for “${q}”`))).toBe(
+        true,
+      );
+      expect(
+        sentences.some((s) => s.startsWith("Nothing") && s.includes(`“${q}”`)),
+      ).toBe(true);
+    }
   });
 
   it("the choice's own announcement on /tools", async () => {
