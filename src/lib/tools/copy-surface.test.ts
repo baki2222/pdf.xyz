@@ -84,6 +84,9 @@ describe("the copy surface reaches what the guards must read", () => {
       // Added 2026-10-09 (WP-04): the sentence a tool page says about files
       // that arrived from another page ("Loaded the 2 files you added.").
       "src/lib/handoff/origin.ts",
+      // Added 2026-10-09 (WP-04): what /privacy §5 says the site keeps in a
+      // visitor's browser, and for how long.
+      "src/lib/browser-storage.ts",
     ]) {
       expect(
         files,

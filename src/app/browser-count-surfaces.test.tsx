@@ -69,15 +69,30 @@ function stubWorkerStatus() {
  */
 const COUNT_VOCABULARY = /tool|browser|upload|device|worker|of our|of them/i;
 
-function countClaims(node: HTMLElement): number[] {
-  const text = (node.textContent ?? "").replace(/\s+/g, " ");
+/**
+ * A number followed by a unit of time or size is a duration or a size, never
+ * a count of tools. Added 2026-10-09, the second time the set was wrong: the
+ * hand-off lifetime sentence on /privacy ("an unopened hand-off expires after
+ * 30 minutes and is deleted from this browser") sat in the vocabulary window
+ * and its 30 — the TTL — happened to equal the capability count. Both
+ * directions are pinned in "countClaims reads counts, not durations" below.
+ */
+const NOT_A_COUNT = /^\s*(?:minutes?|hours?|days?|seconds?|[KMG]B)\b/i;
+
+function countClaimsIn(raw: string): number[] {
+  const text = raw.replace(/\s+/g, " ");
   const claims: number[] = [];
   for (const m of text.matchAll(/\d+/g)) {
     const i = m.index ?? 0;
+    if (NOT_A_COUNT.test(text.slice(i + m[0].length))) continue;
     const around = text.slice(Math.max(0, i - 60), i + m[0].length + 60);
     if (COUNT_VOCABULARY.test(around)) claims.push(Number(m[0]));
   }
   return claims;
+}
+
+function countClaims(node: HTMLElement): number[] {
+  return countClaimsIn(node.textContent ?? "");
 }
 
 function renderSurface(ui: React.ReactElement): HTMLElement {
@@ -173,6 +188,22 @@ function sentenceEndingAt(text: string, end: number): string {
   const head = text.slice(0, end);
   return head.slice(head.lastIndexOf(".") + 1);
 }
+
+describe("countClaims reads counts, not durations", () => {
+  it("a tool count beside the vocabulary is read; a duration beside it is not", () => {
+    expect(countClaimsIn("30 of our 50 tools run in your browser.")).toEqual([
+      30, 50,
+    ]);
+    expect(
+      countClaimsIn(
+        "An unopened hand-off expires after 30 minutes and is deleted from this browser.",
+      ),
+    ).toEqual([]);
+    expect(countClaimsIn("Images up to 25 MB each, in your browser.")).toEqual(
+      [],
+    );
+  });
+});
 
 describe("the count a reader is shown", () => {
   it("health: the two answers are still different numbers", () => {

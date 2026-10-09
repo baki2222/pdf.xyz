@@ -80,28 +80,32 @@ function resolveName(name: string, file: string, depth = 0): string | null {
   for (const st of sf.statements) {
     if (ts.isVariableStatement(st))
       for (const d of st.declarationList.declarations)
-        if (
-          ts.isIdentifier(d.name) &&
-          d.name.text === name &&
-          d.initializer &&
-          ts.isStringLiteralLike(d.initializer)
-        )
-          return d.initializer.text;
-    const from =
-      (ts.isImportDeclaration(st) || ts.isExportDeclaration(st)) &&
+        if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer) {
+          if (ts.isStringLiteralLike(d.initializer)) return d.initializer.text;
+          // `const A = B`: follow B.
+          if (ts.isIdentifier(d.initializer))
+            return resolveName(d.initializer.text, file, depth + 1);
+        }
+    let from: string | null = null;
+    let elements:
+      ts.NodeArray<ts.ImportSpecifier | ts.ExportSpecifier> | undefined;
+    if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier)) {
+      from = st.moduleSpecifier.text;
+      const bindings = st.importClause?.namedBindings;
+      elements =
+        bindings && ts.isNamedImports(bindings) ? bindings.elements : undefined;
+    } else if (
+      ts.isExportDeclaration(st) &&
       st.moduleSpecifier &&
       ts.isStringLiteral(st.moduleSpecifier)
-        ? st.moduleSpecifier.text
-        : null;
+    ) {
+      from = st.moduleSpecifier.text;
+      elements =
+        st.exportClause && ts.isNamedExports(st.exportClause)
+          ? st.exportClause.elements
+          : undefined;
+    }
     if (!from) continue;
-    const elements = ts.isImportDeclaration(st)
-      ? st.importClause?.namedBindings &&
-        ts.isNamedImports(st.importClause.namedBindings)
-        ? st.importClause.namedBindings.elements
-        : undefined
-      : st.exportClause && ts.isNamedExports(st.exportClause)
-        ? st.exportClause.elements
-        : undefined;
     for (const el of elements ?? []) {
       if (el.name.text !== name) continue;
       const target = resolveModule(file, from);

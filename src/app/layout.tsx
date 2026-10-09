@@ -10,6 +10,7 @@ import { WebVitals } from "@/components/telemetry/web-vitals";
 import { ConsentBanner } from "@/components/analytics/consent-banner";
 import { Ga4Gate } from "@/components/analytics/ga4-gate";
 import { LiveRegion } from "@/components/a11y/live-region";
+import { HandoffSweep } from "@/components/layout/handoff-sweep";
 import { isTelemetryEnabled } from "@/lib/telemetry";
 import { cn } from "@/lib/utils";
 import "./globals.css";
@@ -146,6 +147,10 @@ export default function RootLayout({
         <SiteHeader />
         <main id="main">{children}</main>
         <SiteFooter />
+        {/* Deletes expired hand-off bytes on every page, on idle — what makes
+            the privacy page's hand-off lifetime sentence true. Renders
+            nothing; never creates storage for a visitor who has none. */}
+        <HandoffSweep />
         {/* The app's single ARIA live region. It lives here, above every route,
             because the one that already existed was rendered inside a runner's
             editor branch and was unmounted by the early return that showed the

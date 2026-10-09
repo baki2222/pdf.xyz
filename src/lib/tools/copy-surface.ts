@@ -154,6 +154,9 @@ export function copyFiles(): string[] {
     // says about it (WP-04). Listed singly, not the whole folder: the rest
     // of src/lib/handoff is storage code (addendum WP-04 #76).
     path.join(ROOT, "src", "lib", "handoff", "origin.ts"),
+    // What the site keeps in a visitor's browser and for how long, rendered
+    // by /privacy §5 (WP-04, addendum #76). Outside every walked root.
+    path.join(ROOT, "src", "lib", "browser-storage.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
