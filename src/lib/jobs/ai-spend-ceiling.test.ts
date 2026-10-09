@@ -23,8 +23,13 @@ import {
   AI_SPEND_EXTERNAL_BOUND,
   AI_CEILING_MONTHLY_COST_USD,
   AI_PRICE_SOURCE,
+  AI_CEILING_REACHED_MESSAGE,
   aiCeilingBindsFirst,
 } from "./ai-spend-ceiling";
+import {
+  ACCOUNT_CLAIMS,
+  PERSONAL_CONDUCT_CLAIMS,
+} from "@/tests/identity-claims";
 
 describe("the token ceiling and the dollar cap are comparable", () => {
   it("derives the breakeven price from both bounds rather than stating one", () => {
@@ -104,5 +109,56 @@ describe("the token ceiling and the dollar cap are comparable", () => {
     // Unchanged by this work, and it must stay labelled: the run count is still
     // the one invented factor, and the dollar comparison does not measure it.
     expect(AI_SPEND_CEILING.measuredOn).toBe("provisional");
+  });
+});
+
+/**
+ * The message a visitor reads when the GLOBAL ceiling is spent makes no claim
+ * about who they are.
+ *
+ * This module is outside the copy walk (copy-surface.test.ts records why), so
+ * account-honesty and allowance-copy never read it — and its wording was wrong
+ * twice in the same family. Both ban lists run here, over the constant every
+ * route returns, from the one shared definition. Each earlier wording is a
+ * positive control: the check must catch the defect it exists for, or a
+ * passing result says nothing.
+ */
+describe("the ceiling message makes no identity claim", () => {
+  // Shipped until 2026-10-09: an account, on a product with no accounts.
+  const HAD_AN_ACCOUNT =
+    "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side, not on your file or your account. Please try again tomorrow; every other PDF tool is unaffected.";
+  // Its first fix, the same day: an allowance the reader owns, when the
+  // limiter counts a connection.
+  const OWNED_THE_ALLOWANCE =
+    "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side, not a problem with your file or your own allowance. Please try again tomorrow; every other PDF tool is unaffected.";
+
+  const accountClaims = (text: string) =>
+    ACCOUNT_CLAIMS.filter(({ pattern }) => pattern.test(text)).map(
+      ({ label }) => label,
+    );
+  const conductClaims = (text: string) =>
+    PERSONAL_CONDUCT_CLAIMS.filter(({ pattern }) => pattern.test(text)).map(
+      ({ name }) => name,
+    );
+
+  it("positive controls: each earlier wording is caught by its list", () => {
+    expect(accountClaims(HAD_AN_ACCOUNT)).toEqual([
+      "a claim that the visitor has an account",
+    ]);
+    expect(conductClaims(OWNED_THE_ALLOWANCE)).toEqual([
+      "a possessive over the allowance itself — whose runs these are",
+    ]);
+  });
+
+  it("the shipped message carries neither", () => {
+    expect(accountClaims(AI_CEILING_REACHED_MESSAGE)).toEqual([]);
+    expect(conductClaims(AI_CEILING_REACHED_MESSAGE)).toEqual([]);
+    // Still says what the docblock requires: whose limit it is, that it is
+    // temporary, and that the file is fine.
+    expect(AI_CEILING_REACHED_MESSAGE).toContain("a limit on our side");
+    expect(AI_CEILING_REACHED_MESSAGE).toContain("try again tomorrow");
+    expect(AI_CEILING_REACHED_MESSAGE).toContain(
+      "not a problem with your file",
+    );
   });
 });

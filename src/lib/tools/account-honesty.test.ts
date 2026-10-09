@@ -53,6 +53,7 @@ import {
   flattenForPhraseSearch,
   withoutComments,
 } from "./copy-surface";
+import { ACCOUNT_CLAIMS } from "@/tests/identity-claims";
 
 const ROOT = process.cwd();
 
@@ -122,15 +123,12 @@ function accountCapabilityEvidence(): string[] {
  * of these words — "no account", which is also the stronger claim. If a
  * future honest sentence trips one, reword it or relax this rule
  * deliberately; do not teach the rule grammar.
+ *
+ * The list itself is `ACCOUNT_CLAIMS` in `src/tests/identity-claims.ts`
+ * (2026-10-09), shared with the AI ceiling message's test and the copy-reach
+ * check over phrase modules outside the walk, so no reader keeps a copy.
  */
-const FORBIDDEN = [
-  { label: "a sign-in invitation", pattern: /\bsign[- ]?in\b/i },
-  { label: "a log-in invitation", pattern: /\blog[- ]?in\b/i },
-  {
-    label: "a claim that the visitor has an account",
-    pattern: /\byour account\b/i,
-  },
-] as const;
+const FORBIDDEN = ACCOUNT_CLAIMS;
 
 describe("marketing copy does not invite a sign-in the product does not have", () => {
   it("reads the copy files, so a move cannot quietly empty this suite", () => {
