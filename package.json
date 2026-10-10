@@ -31,6 +31,7 @@
     "worker:ocr-proof": "sh scripts/worker-ocr-proof.sh",
     "worker:ocrmypdf-proof": "sh scripts/worker-ocrmypdf-proof.sh",
     "worker:pdfa-proof": "tsx scripts/worker-pdfa-proof.ts",
+    "worker:pptx-fidelity-proof": "tsx scripts/worker-pptx-fidelity-proof.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",

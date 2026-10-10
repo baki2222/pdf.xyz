@@ -148,6 +148,18 @@ jobs:
       - name: Worker image PDF/A conversion proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:pdfa-proof
 
+      # PDF to PowerPoint round-trip fidelity: the only place the faithful
+      # export meets poppler's pdftotext, pdf.js and LibreOffice together
+      # before production. CI's unit job has neither native engine, and no
+      # vitest suite runs in the image, so `fidelity.roundtrip.test.ts` skips
+      # there. This runs each generated fixture through the REAL engine, turns
+      # the deck back into a PDF with the LibreOffice runner PowerPoint to PDF
+      # uses, and compares the pages; the text-only deck shipped until
+      # 2026-10-10 and a blank deck must both FAIL the same bound. No user
+      # document, cloud service, secret, queue or store; content-free output.
+      - name: Worker image PDF to PowerPoint round-trip fidelity proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:pptx-fidelity-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)
