@@ -227,28 +227,28 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * first repair) and this one — gz KB, with raw KB for the last:
  *
  *     row             base    first    repair   now     raw now  vs base
- *     homepage        207.9   211.2    210.6    209.4     652     +1.5
- *     rotate-pdf      246.6   250.9    250.5    248.7     770     +2.1
+ *     homepage        207.9   211.2    210.6    209.5     652     +1.6
+ *     rotate-pdf      246.6   250.9    250.5    248.7     771     +2.1
  *     merge-pdf       243.1   247.1    246.7    245.1     764     +2.0
- *     ocr-pdf         247.4   251.4    251.4    249.5     779     +2.1
+ *     ocr-pdf         247.4   251.4    251.4    249.6     779     +2.1
  *     summarize-pdf   253.1   257.1    257.1    255.2     787     +2.1
  *     pdf-to-jpg      245.5   249.9    249.4    247.6     768     +2.1
  *     pdf-to-text     243.8   248.2    247.7    245.9     764     +2.1
- *     guide           199.6   205.3    201.5    201.5     632     +1.9
+ *     guide           199.6   205.3    201.5    201.5     633     +1.9
  *     404             200.9   202.5    202.4    202.4     635     +1.5
  *     /tools          220.5   221.5    222.0    222.0     696     +1.5
- *     /workspace      237.5   241.6    241.2    239.6     750     +2.1
+ *     /workspace      237.5   241.6    241.2    239.6     750     +2.2
  *
  * WHAT WP-07 SPENDS, against G.1's allocations (exact bytes, this build):
- *  - THE LAYOUT, every page: the root layout's chunk 7,071 -> 8,471 B gz
- *    (+1.37 KB of the layout's +2.5), all of it `DropLayer`: the
+ *  - THE LAYOUT, every page: the root layout's chunk 7,071 -> 8,503 B gz
+ *    (+1.40 KB of the layout's +2.5), all of it `DropLayer`: the
  *    listeners, accepting the drag, routing a turn after the registry
  *    arrives. What it draws and where files go are chunks fetched on idle
  *    or with a file, which the webpack runtime's map lists (3,296 ->
- *    3,391 B gz, +0.09: WP-07's seven lazy chunks). Layout and map are the
- *    whole of the 404's and /tools' growth.
- *  - THE TOOL PAGES, beyond the layout: 0.71 (rotate), 0.72 (ocr), 0.72
- *    (summarize), 0.60-0.71 on the other weighed tool pages — WP-07's 0.8
+ *    3,407 B gz, +0.11: the chunks WP-07 fetches later). Layout and map,
+ *    +1.51, are the whole of the 404's and /tools' growth (+1.5 each).
+ *  - THE TOOL PAGES, beyond the layout: 0.73 (rotate), 0.73 (ocr), 0.73
+ *    (summarize), 0.62-0.73 on the other weighed tool pages — WP-07's 0.8
  *    is G.1's allocation; the repair before this spent 2.4-2.5. The sheet
  *    (`DropSheet`, now folded by the bundler into the runner kit's scope),
  *    its box and face, and `useDropBox` against the old Dropzone's body;
@@ -264,17 +264,18 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  *    sheet is the runner kit's alone and is concatenated into it (-0.04);
  *    the pre-hydration pick is adopted by the box, not an effect per
  *    picker (-0.04).
- *  - THE HOMEPAGE, beyond the layout: 0.14 — of the +8 allowance, 0.2 was
- *    left after the layout's 2.5 (WP-05 4.6, main 0.8). The ticket dialog
- *    reuses the desk's ticket and sheet, so webpack keeps what they share
- *    in a chunk of its own beside the island (two files: 7,713 B gz where
- *    one would be 7,047 — the cost of the reuse); what paid for it is the
- *    desk no longer carrying the sheet's face: its box is a module of its
- *    own (`drop-sheet-box.ts`, -0.5).
+ *  - THE HOMEPAGE, beyond the layout: 0.17 (the map's 0.11 among it) —
+ *    of the +8 allowance, 0.2 was left after the layout's 2.5 (WP-05 4.6,
+ *    main 0.8). The ticket dialog reuses the desk's ticket and sheet, so
+ *    webpack keeps what they share in a chunk of its own beside the island
+ *    (two files, 4,202 + 2,991 B gz on this build; on the build that first
+ *    split them, one file instead of two was 0.65 lighter — the cost of the
+ *    reuse); what paid for it is the desk no longer carrying the sheet's
+ *    face: its box is a module of its own (`drop-sheet-box.ts`, -0.5).
  *  - THE GUIDE: the desk loads after the page (`GuideDeskSlot`), +0.5
  *    beyond the layout.
- *  - /WORKSPACE: the drop panel as the page's target, +0.7 beyond the
- *    layout.
+ *  - /WORKSPACE: the drop panel as the page's target, +0.77 beyond the
+ *    layout (the map's 0.11 among it).
  *
  * WHAT IS STILL TO COME is held against every row by the test after
  * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
@@ -311,11 +312,12 @@ const BUDGETS = [
   //
   // WP-07 raised this 210.6 -> 211.4 (211.2 measured, +3.3); its first
   // repair put it back at 210.6 with 210.56 measured, which left the rest
-  // of the layout's allowance no room. Re-repaired: 209.4 measured, +1.5 —
-  // the drop layer and the runtime's map (+1.46), the desk's share of the
-  // ticket dialog's reuse, paid for by the desk dropping the sheet's face
-  // (+0.05), itemised above the rows. Unchanged ceiling, with room for the
-  // rest of the layout's allowance (the test after `BUDGETS`).
+  // of the layout's allowance no room. Re-repaired: 209.5 measured
+  // (209.46), +1.6 — the drop layer and the runtime's map (+1.51), the
+  // desk's share of the ticket dialog's reuse, paid for by the desk dropping
+  // the sheet's face (+0.06), itemised above the rows. Unchanged ceiling,
+  // with room for the rest of the layout's allowance (the test after
+  // `BUDGETS`: 0.04 to spare).
   { name: "homepage", html: "index.html", kb: 675, gzKb: 210.6 },
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
@@ -402,9 +404,10 @@ const BUDGETS = [
   // 826 / 264.7; 1.6 gz of that was the layout's duplicated copies (above the
   // rows), fixed, and keeping those figures would hand the 1.6 out.
   //
-  // WP-07 (2026-10-10): unchanged — 248.7, 249.5 and 255.2 measured, 0.71
-  // to 0.72 of WP-07's 0.8 beyond the layout. What the rest of the
-  // programme still has to add fits under each (the test after `BUDGETS`).
+  // WP-07 (2026-10-10): unchanged — 248.7, 249.6 and 255.2 measured
+  // (248.72, 249.57, 255.24), 0.73 of WP-07's 0.8 beyond the layout on
+  // each. What the rest of the programme still has to add fits under each
+  // (the test after `BUDGETS`: 0.08, 0.03 and 0.06 to spare).
   {
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
@@ -496,17 +499,19 @@ const BUDGETS = [
   //               the first merge, where the route chunk absorbed 3889.)
   //               A drop on /tools opens the ticket dialog, fetched with the
   //               file; nothing of it is in this page's first load.
-  //               Re-repaired: the same 222.0 (221.95), so the same 222.2.
+  //               Re-repaired: the same 222.0 (222.00), so the same 222.2.
   //               The layout's growth still to come cannot fit here, and
   //               could not at WP-07's base either (`LAYOUT_CANNOT_REACH`).
   //   /workspace  238.0 -> 241.4 (753 / 241.2, +3.7): the layer (+1.4), and
   //               the drop panel built on the one drop primitive and
   //               registered as the page's target (+2.3). LOWERED by the
-  //               re-repair to 241.0: 750 / 239.6 measured (239.59, +2.1:
-  //               the layer +1.46, the panel +0.65), and 241.0 is the
-  //               lowest ceiling that still takes the rest of the layout's
-  //               allowance (1.13) on top — 241.4 would have handed the
-  //               0.4 recovered here to nobody in particular.
+  //               re-repair to 241.0: 750 / 239.6 measured (239.64, +2.2:
+  //               the layer and the runtime's map +1.51, the panel +0.66),
+  //               and 241.0 is the lowest one-decimal ceiling that takes
+  //               the rest of the layout's allowance (1.10) on top with the
+  //               0.2 these rows keep for chunk-id churn (239.64 + 1.10 +
+  //               0.2 = 240.94) — 241.4 would have handed the 0.4
+  //               recovered here to nobody in particular.
   // Both rows were past the redesign's allowance for them before WP-07
   // (/tools 219.2, /workspace 238.0).
   { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 222.2 },
@@ -570,7 +575,7 @@ const LAYOUT_CANNOT_REACH: Record<string, string> = {
    * layout's whole 2.5 still to come: 2.3 short. WP-07's drop layer is on
    * this page only because its first repair raised the ceiling by the
    * layer's 1.5 (on the row). The rest of the layout's allowance (WP-09's
-   * header, 1.13 today) lands here only by the owner's re-allocation —
+   * header, 1.10 today) lands here only by the owner's re-allocation —
    * raise this ceiling for it, or have the package that grows the layout
    * offset it on /tools — and until then the ceiling fails that package.
    */
