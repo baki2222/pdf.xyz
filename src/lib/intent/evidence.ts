@@ -67,8 +67,24 @@ export type Evidence =
   | { readonly kind: "partial"; readonly opens: number; readonly total: number }
   /** A worker or AI tool: the moment the file moves. */
   | { readonly kind: "uploads" }
-  /** A tool that cannot receive the files: they are picked again there. */
-  | { readonly kind: "add-there"; readonly count: number };
+  /**
+   * A tool that cannot receive the files: they are picked again there. It
+   * says WHICH files, because it leads its row and nothing before it names
+   * them: the one file by name; several by count and kind when only some of
+   * the staged files are meant ("the 2 DOCX files"); "the files" only when
+   * every staged file is.
+   */
+  | {
+      readonly kind: "add-there";
+      readonly count: number;
+      /** The file meant, when it is one. */
+      readonly name: string | null;
+      /** What they are, in a count's words (as `count`'s fields). */
+      readonly noun: "pdf" | "image" | "file";
+      readonly format: string | null;
+      /** Every staged file is meant. */
+      readonly all: boolean;
+    };
 
 /** Every kind, in one list the tests walk. */
 export const EVIDENCE_KINDS = [
@@ -134,9 +150,22 @@ export function renderEvidence(e: Evidence): string {
     case "uploads":
       return "uploads only when you start it";
     case "add-there":
-      return e.count === 1
-        ? "you'll add the file there"
-        : "you'll add the files there";
+      // WAS "you'll add the file there" for every one-file row: true, and
+      // leading the line, but "the file" said nothing about WHICH — the fact
+      // that did ("1 DOCX file") came last, the first words cut at 390px,
+      // and the link's name reused the phrase, so a screen reader had no
+      // referent either (review, 2026-10-10).
+      if (e.name !== null) return `you'll add ${e.name} there`;
+      if (e.all)
+        return e.count === 1
+          ? "you'll add the file there"
+          : "you'll add the files there";
+      return `you'll add the ${renderEvidence({
+        kind: "count",
+        count: e.count,
+        noun: e.noun,
+        format: e.format,
+      })} there`;
     default: {
       const unhandled: never = e;
       return unhandled;

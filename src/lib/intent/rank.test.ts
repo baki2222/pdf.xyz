@@ -435,7 +435,7 @@ describe("evidence: each boost shows the fact behind it", () => {
     // moves.
     expect(say([scan("scan.pdf")], "ocr-pdf")).toEqual([
       "No selectable text on page 1",
-      "you'll add the file there",
+      "you'll add scan.pdf there",
       "uploads only when you start it",
     ]);
     expect(say([scan("scan.pdf", 5)], "ocr-pdf")[0]).toBe(

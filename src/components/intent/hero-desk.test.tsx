@@ -214,7 +214,7 @@ describe("the desk hands the staged files to the tool", () => {
     const open = await within(ticket).findByRole(
       "link",
       {
-        name: `Open ${getToolBySlug("word-to-pdf")!.name} — you'll add the file there`,
+        name: `Open ${getToolBySlug("word-to-pdf")!.name} — you'll add letter.docx there`,
       },
       { timeout: 5000 },
     );
@@ -499,6 +499,61 @@ describe("each row leads with what the click carries", () => {
         "takes one file — contract.pdf",
       );
   });
+
+  /** A staged Word file (the desk reads its format from the name and type). */
+  const docx = (name: string) =>
+    new File(["PK\u0003\u0004 docx"], name, {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+
+  /** A tool's row in the ticket, under "More" when it is not on top. */
+  async function rowFor(ticket: HTMLElement, slug: string) {
+    const find = () =>
+      ticket.querySelector<HTMLAnchorElement>(`a[data-suggestion="${slug}"]`);
+    if (!find()) {
+      const more = within(ticket).getByRole("button", { name: /^More/ });
+      await act(async () => {
+        fireEvent.click(more);
+      });
+    }
+    await waitFor(() => expect(find()).not.toBeNull());
+    return find()!;
+  }
+
+  // The composed chain, staged files to the words drawn and the name read:
+  // a Word file and two PDFs (the review's drop, 2026-10-10), where Word to
+  // PDF carries nothing and opens one of the three.
+  it("a Word file and two PDFs: Word to PDF says which file you'll add there — drawn and in its name", async () => {
+    const { container } = render(withRouter(<Desk />));
+    stage(container, [
+      docx("report.docx"),
+      await pdf("contract.pdf", 3),
+      await pdf("annex.pdf", 1),
+    ]);
+    const row = await rowFor(await suggestions(), "word-to-pdf");
+    expect(row.querySelector("[data-lead]")?.textContent).toBe(
+      "you'll add report.docx there",
+    );
+    expect(row.getAttribute("aria-label")).toBe(
+      `Open ${getToolBySlug("word-to-pdf")!.name} — you'll add report.docx there`,
+    );
+  });
+
+  it("positive control: two Word files and a PDF — no one name to give, so the row counts which", async () => {
+    const { container } = render(withRouter(<Desk />));
+    stage(container, [
+      docx("report.docx"),
+      docx("memo.docx"),
+      await pdf("contract.pdf", 3),
+    ]);
+    const row = await rowFor(await suggestions(), "word-to-pdf");
+    expect(row.querySelector("[data-lead]")?.textContent).toBe(
+      "you'll add the 2 DOCX files there",
+    );
+    expect(row.getAttribute("aria-label")).toBe(
+      `Open ${getToolBySlug("word-to-pdf")!.name} — you'll add the 2 DOCX files there`,
+    );
+  });
 });
 
 describe("arrangeLine: the one fact that leads, and the order of the rest", () => {
@@ -507,18 +562,68 @@ describe("arrangeLine: the one fact that leads, and the order of the rest", () =
     return [...lead.map((t) => `[${t}]`), ...rest].join(" | ");
   };
 
-  it("the most limiting qualifier leads; counts come last", () => {
+  it("the most limiting qualifier leads, and says which file; counts come last", () => {
     // Word to PDF in a Word + 2 PDF drop: it carries nothing, and opens 1.
+    //
+    // INVERTED 2026-10-10. This pinned
+    //   "[you'll add the file there] | opens 1 of your 3 files | uploads
+    //    only when you start it | 1 DOCX file"
+    // — true, and the lead never cut, but "the file" never said WHICH: the
+    // fact that did ("1 DOCX file") came last, the first words cut at every
+    // width measured (390px: "you'll add the file there · opens 1 of y…"),
+    // and the link's name reused the phrase. The rule arrangeLine already
+    // keeps for "takes only that file" — a qualifier that leans on a
+    // referent has it in front, or names the file itself — now holds here:
+    // the qualifier names the file.
     expect(
       line([
         { kind: "count", count: 1, noun: "file", format: "DOCX" },
         { kind: "partial", opens: 1, total: 3 },
-        { kind: "add-there", count: 1 },
+        {
+          kind: "add-there",
+          count: 1,
+          name: "report.docx",
+          noun: "file",
+          format: "DOCX",
+          all: false,
+        },
         { kind: "uploads" },
       ]),
     ).toBe(
-      "[you'll add the file there] | opens 1 of your 3 files | uploads only when you start it | 1 DOCX file",
+      "[you'll add report.docx there] | opens 1 of your 3 files | uploads only when you start it | 1 DOCX file",
     );
+    // Positive control: SEVERAL files, only some of them meant — no name to
+    // give, so the count and kind say which.
+    expect(
+      line([
+        { kind: "count", count: 2, noun: "file", format: "DOCX" },
+        { kind: "partial", opens: 2, total: 3 },
+        {
+          kind: "add-there",
+          count: 2,
+          name: null,
+          noun: "file",
+          format: "DOCX",
+          all: false,
+        },
+      ]),
+    ).toBe(
+      "[you'll add the 2 DOCX files there] | opens 2 of your 3 files | 2 DOCX files",
+    );
+    // "the files" only when every staged file is meant.
+    expect(
+      line([
+        {
+          kind: "add-there",
+          count: 2,
+          name: null,
+          noun: "pdf",
+          format: "PDF",
+          all: true,
+        },
+        { kind: "count", count: 2, noun: "pdf", format: "PDF" },
+      ]),
+    ).toBe("[you'll add the files there] | 2 PDFs");
     // A row waiting under More.
     expect(
       line([
@@ -546,9 +651,25 @@ describe("arrangeLine: the one fact that leads, and the order of the rest", () =
       name: "locked.pdf",
       lock: "password-required",
     };
+    // WAS "[you'll add the file there] | …": the fact that named the file
+    // was the one left out.
     expect(
-      line([lock, { kind: "add-there", count: 1 }, { kind: "uploads" }], lock),
-    ).toBe("[you'll add the file there] | uploads only when you start it");
+      line(
+        [
+          lock,
+          {
+            kind: "add-there",
+            count: 1,
+            name: "locked.pdf",
+            noun: "pdf",
+            format: "PDF",
+            all: true,
+          },
+          { kind: "uploads" },
+        ],
+        lock,
+      ),
+    ).toBe("[you'll add locked.pdf there] | uploads only when you start it");
     expect(
       line([lock, { kind: "one-file", name: "locked.pdf", named: true }], lock),
     ).toBe("[takes one file — locked.pdf]");

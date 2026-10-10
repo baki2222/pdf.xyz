@@ -169,7 +169,7 @@ test.describe("each row shows what its click carries, uncut", () => {
       ticket.locator('[data-slot="suggestions"] a[data-suggestion]').first(),
     ).toHaveAttribute("data-suggestion", "unlock-pdf");
     expect(await lead(page, "unlock-pdf")).toMatchObject({
-      text: "you'll add the file there",
+      text: "you'll add locked.pdf there",
       cut: false,
       inside: true,
     });

@@ -75,8 +75,54 @@ const EVIDENCE: readonly Evidence[] = [
   { kind: "one-file", name: "annex.pdf", named: true },
   { kind: "partial", opens: 2, total: 5 },
   { kind: "uploads" },
-  { kind: "add-there", count: 1 },
-  { kind: "add-there", count: 3 },
+  {
+    kind: "add-there",
+    count: 1,
+    name: "report.docx",
+    noun: "file",
+    format: "DOCX",
+    all: false,
+  },
+  {
+    kind: "add-there",
+    count: 1,
+    name: "scan2026-v3.pdf",
+    noun: "pdf",
+    format: "PDF",
+    all: true,
+  },
+  {
+    kind: "add-there",
+    count: 3,
+    name: null,
+    noun: "pdf",
+    format: "PDF",
+    all: true,
+  },
+  {
+    kind: "add-there",
+    count: 2,
+    name: null,
+    noun: "file",
+    format: "DOCX",
+    all: false,
+  },
+  {
+    kind: "add-there",
+    count: 4,
+    name: null,
+    noun: "image",
+    format: null,
+    all: false,
+  },
+  {
+    kind: "add-there",
+    count: 2,
+    name: null,
+    noun: "file",
+    format: null,
+    all: false,
+  },
 ];
 
 const tool = (slug: string) => index.find((t) => t.slug === slug)!;
@@ -180,6 +226,31 @@ describe("renderEvidence", () => {
       "opens 2 of your 5 files",
     );
     expect(say({ kind: "uploads" })).toBe("uploads only when you start it");
+    // Which files a row that carries nothing means: the one by name, a part
+    // of the staged set by count and kind, "the files" only for all of it.
+    const there = (e: Omit<Extract<Evidence, { kind: "add-there" }>, "kind">) =>
+      say({ kind: "add-there", ...e });
+    expect(
+      there({
+        count: 1,
+        name: "report.docx",
+        noun: "file",
+        format: "DOCX",
+        all: false,
+      }),
+    ).toBe("you'll add report.docx there");
+    expect(
+      there({ count: 2, name: null, noun: "file", format: "DOCX", all: false }),
+    ).toBe("you'll add the 2 DOCX files there");
+    expect(
+      there({ count: 2, name: null, noun: "pdf", format: "PDF", all: false }),
+    ).toBe("you'll add the 2 PDFs there");
+    expect(
+      there({ count: 4, name: null, noun: "image", format: null, all: false }),
+    ).toBe("you'll add the 4 images there");
+    expect(
+      there({ count: 3, name: null, noun: "pdf", format: "PDF", all: true }),
+    ).toBe("you'll add the files there");
   });
 
   it("only a file that needs a password is called password-protected", () => {

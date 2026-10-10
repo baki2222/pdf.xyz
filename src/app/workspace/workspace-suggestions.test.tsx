@@ -169,8 +169,8 @@ describe("a suggestion is a link that carries the files", () => {
         { timeout: 8000 },
       );
       expect(ocr().textContent).toMatch(/uploads only when you start it/);
-      // It cannot carry the file yet, and its name says so.
-      expect(ocr().getAttribute("aria-label")).toMatch(/add the file there/i);
+      // It cannot carry the file yet, and its name says so — and which file.
+      expect(ocr().getAttribute("aria-label")).toMatch(/add scan\.pdf there/i);
     },
   );
 

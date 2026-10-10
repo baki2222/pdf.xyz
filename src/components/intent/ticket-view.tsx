@@ -120,7 +120,9 @@ const AFTER_QUALIFIERS: readonly (readonly Evidence["kind"][])[] = [
  * "takes only that file" leans on the fact before it, which names the file:
  * when it would lead, that fact leads instead (it names the one file the
  * click carries) and the qualifier follows it. With nothing before it to
- * lean on, it names the file itself.
+ * lean on, it names the file itself. "you'll add … there" never leans: it
+ * names its own files ("report.docx", "the 2 DOCX files"), because the fact
+ * that would (the count) comes last and is the first cut.
  */
 export function arrangeLine(
   evidence: readonly Evidence[],

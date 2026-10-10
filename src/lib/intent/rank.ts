@@ -291,30 +291,32 @@ function countEvidence(
   if (tool.slug === COMPRESS) {
     return [{ kind: "size", bytes: opens.reduce((n, f) => n + f.size, 0) }];
   }
-  const pdfs = opens.filter(isPdf);
-  if (pdfs.length === opens.length && pdfs.length > 0) {
-    const pages = pdfs.map((f) => probeOf(f)?.pages ?? null);
-    const out: Evidence[] = [
-      { kind: "count", count: pdfs.length, noun: "pdf", format: "PDF" },
-    ];
+  const what = filesNoun(opens);
+  const out: Evidence[] = [{ kind: "count", count: opens.length, ...what }];
+  if (what.noun === "pdf") {
+    const pages = opens.map((f) => probeOf(f)?.pages ?? null);
     if (pages.every((p): p is number => p !== null))
       out.push({ kind: "pages", pages: pages.reduce((a, b) => a + b, 0) });
-    return out;
   }
-  if (opens.every((f) => f.format === "JPG" || f.format === "PNG")) {
-    return [
-      { kind: "count", count: opens.length, noun: "image", format: null },
-    ];
-  }
-  const formats = new Set(opens.map((f) => f.format));
-  return [
-    {
-      kind: "count",
-      count: opens.length,
-      noun: "file",
-      format: formats.size === 1 ? [...formats][0]! : null,
-    },
-  ];
+  return out;
+}
+
+/**
+ * What some files are, in a count's words: PDFs, images, or files — of one
+ * format when they share it. One reading for the count and for "you'll add
+ * the 2 DOCX files there", so the two never call the same files different
+ * things.
+ */
+function filesNoun(files: readonly FileFacts[]): {
+  noun: "pdf" | "image" | "file";
+  format: string | null;
+} {
+  if (files.length > 0 && files.every(isPdf))
+    return { noun: "pdf", format: "PDF" };
+  if (files.every((f) => f.format === "JPG" || f.format === "PNG"))
+    return { noun: "image", format: null };
+  const formats = new Set(files.map((f) => f.format));
+  return { noun: "file", format: formats.size === 1 ? [...formats][0]! : null };
 }
 
 /** Rank the tools in `index` for `facts`. Pure and deterministic. */
@@ -472,7 +474,13 @@ export function rankForFiles<T extends ToolIndexEntry>(
       });
     }
     if (tool.handoffMode === "none") {
-      evidence.push({ kind: "add-there", count: basis.length });
+      evidence.push({
+        kind: "add-there",
+        count: basis.length,
+        name: basis.length === 1 ? basis[0]!.name : null,
+        ...filesNoun(basis),
+        all: basis.length === total,
+      });
     }
     // A worker-only tool: the file moves when it starts. (A browser-first
     // tool's worker step is optional, and says so on its own page.)
