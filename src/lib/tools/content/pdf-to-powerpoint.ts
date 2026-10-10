@@ -3,6 +3,8 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
+  MAX_DECODED_IMAGE_PIXELS,
+  MAX_LAYERS_PER_PAGE,
   MAX_PICTURE_SIDE,
 } from "@/lib/workers/pdf-office-export/picture-limits";
 
@@ -55,7 +57,19 @@ import {
  *        (an OCR layer) stays invisible;
  *      · CHANGED 2026-10-11: a page whose drawing would need more than
  *        MAX_LAYERS_PER_PAGE layers to keep paint order is ONE picture of
- *        the page with its text in invisible boxes, and the panel says so;
+ *        the page with its text in invisible boxes, and the panel says so.
+ *        Until the second review the page did NOT say so: intro[0],
+ *        useCases[1] ("not flattened into one image of the page"), the
+ *        design FAQ and tool-facts' "What goes on each slide?" promised
+ *        separate pictures and visible, styled text of every page — false
+ *        of a 33-cell table that paints each cell's text before its border.
+ *        Each now carries the exception, its number from the constant;
+ *      · CHANGED 2026-10-11 (the second review): on a page whose content
+ *        the reader cannot read ahead — every page of an encrypted file,
+ *        whose streams pdf-lib cannot decrypt, or of a damaged one — a
+ *        picture over MAX_DECODED_IMAGE_PIXELS can be removed by pdf.js
+ *        and nothing can count it, so the note cannot name its page. Every
+ *        sentence promising the note says so;
  *      · everything else drawn (lines, boxes, arrows, fills, backgrounds) is
  *        rendered into transparent pictures, in paint order with the rest;
  *      · a page with no text is NOT refused: it is a slide of pictures, and
@@ -153,6 +167,12 @@ const CEILING_MB = Math.round(WORKER_FILE_CEILING / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
 const PICTURE_PX = MAX_PICTURE_SIDE.toLocaleString("en-US");
 const BILEVEL_PX = MAX_BILEVEL_PICTURE_SIDE.toLocaleString("en-US");
+/** Past this many drawing pictures a page is drawn as one. */
+const LAYERS = MAX_LAYERS_PER_PAGE.toLocaleString("en-US");
+/** pdf.js's floor ceiling, in megapixels as the page states it. */
+const FLOOR_MP = (MAX_DECODED_IMAGE_PIXELS / 1_000_000).toLocaleString("en-US");
+/** Where the note can miss a picture, and how large that picture is. */
+const UNNOTED = `except in an encrypted or damaged PDF, where a picture over ${FLOOR_MP} megapixels can be left out with no note`;
 
 const content: ToolContent = {
   slug: "pdf-to-powerpoint",
@@ -163,7 +183,7 @@ const content: ToolContent = {
     "Turn each PDF page into a slide the size of the page: pictures where the page shows them, each line of text in its own text box, other drawing kept as pictures.",
 
   intro: [
-    "PDF to PowerPoint turns each page of a PDF into a slide of a .pptx file, in page order, and the slides take the size and shape of the first page. A photo or screenshot on a page lands on its slide as a picture of its own, where the page shows it and at the size it is shown, cut to the shape the page shows it through; a picture too large for the worker to handle, or one it cannot decode, is left out, and a note beside the download names its page. Every line of selectable text becomes a text box at its place, in its size, weight and colour, set in a font matched to the PDF's: fonts are not copied, so a line can run a little longer or shorter than on the page. Lines, boxes, arrows, backgrounds, and stencilled or tiled images come across as pictures of the drawing, stacked in the order the page paints them, so a box drawn over a screenshot stays over it.",
+    `PDF to PowerPoint turns each page of a PDF into a slide of a .pptx file, in page order, and the slides take the size and shape of the first page. A photo or screenshot on a page lands on its slide as a picture of its own, where the page shows it and at the size it is shown, cut to the shape the page shows it through. Every line of selectable text becomes a text box at its place, in its size, weight and colour, set in a font matched to the PDF's: fonts are not copied, so a line can run a little longer or shorter than on the page. Lines, boxes, arrows, backgrounds, and stencilled or tiled images come across as pictures of the drawing, stacked in the order the page paints them, so a box drawn over a screenshot stays over it. A page whose drawing would take more than ${LAYERS} such pictures to stack in order, such as a table that draws each cell's border after its text, becomes one picture of the page instead, with its text in invisible text boxes over it: you can select and search that text, but not see or restyle it. A picture too large for the worker to handle, or one it cannot decode, is left out, and a note beside the download names its page, ${UNNOTED}.`,
     "What has been checked, and how. On 10 October 2026, decks this tool's export code made from five generated test PDFs and a 33-page slide-style tutorial were opened read-only by PowerPoint for Windows through its automation interface, with its alerts switched off, and saved as PDF; every page of that PDF was compared, pixel by pixel, with the page it came from, and they matched closely, pictures included. The same day the same route opened the deck of a three-page test document and read every page's text back. Whether a downloaded file opens on a double-click without PowerPoint offering to repair it has not been checked for this version, editing the slides has not been tested, and this page makes no claim about any other presentation app.",
     `A scanned page holds a picture of its words rather than text, so its slide carries the page as a picture, and those words are not editable text. Run OCR PDF on the scan first and convert the result: its slides then also carry the recognised words, in invisible text boxes over the picture, as the OCR'd PDF does. The reading is done on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure worker, where your input is deleted as each job finishes. The worker keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
   ],
@@ -175,7 +195,7 @@ const content: ToolContent = {
     },
     {
       title: "Take the screenshots and photos out of a PDF",
-      body: `Pictures arrive on their slides as separate pictures, not flattened into one image of the page. A plain JPEG photo up to ${PICTURE_PX} pixels on its longer side is carried into the .pptx byte for byte; a larger picture is scaled down to ${PICTURE_PX} pixels on that side (a black-and-white scan to ${BILEVEL_PX}), and one with transparency, or cut to a shape, is re-saved as a PNG.`,
+      body: `Pictures arrive on their slides as separate pictures, except on a page whose drawing would take more than ${LAYERS} pictures to stack in order: that page arrives as one picture of the page, with its text in invisible text boxes over it. A plain JPEG photo up to ${PICTURE_PX} pixels on its longer side is carried into the .pptx byte for byte; a larger picture is scaled down to ${PICTURE_PX} pixels on that side (a black-and-white scan to ${BILEVEL_PX}), and one with transparency, or cut to a shape, is re-saved as a PNG.`,
     },
     {
       title: "Bring a scanned handout into a deck",
@@ -198,7 +218,7 @@ const content: ToolContent = {
     },
     {
       title: "Save the .pptx",
-      body: `"Your PPTX file is ready." appears with a Download button labelled with the output's name: your PDF's name, ending in .pptx. If some pages had no selectable text, or a picture could not be put on its slide, a note beside it names those pages. The page has already pulled the file into the tab, so that button saves it from there; the worker's own copy becomes unreachable after ${OUTPUT_TTL} minutes.`,
+      body: `"Your PPTX file is ready." appears with a Download button labelled with the output's name: your PDF's name, ending in .pptx. If some pages had no selectable text, or a picture could not be put on its slide, a note beside it names those pages, ${UNNOTED}. The page has already pulled the file into the tab, so that button saves it from there; the worker's own copy becomes unreachable after ${OUTPUT_TTL} minutes.`,
     },
   ],
 
@@ -209,7 +229,7 @@ const content: ToolContent = {
     },
     {
       q: "Will the design, images and fonts of my PDF be kept?",
-      a: "The layout and the images, yes; the fonts, approximately. Each slide is the shape of the first page, each picture sits where the page shows it, and each line of text is a text box at its place with its size, weight and colour. Fonts are matched rather than copied: a font that comes with Windows or Office, such as Calibri or Arial, keeps its name; a free look-alike of one of those, such as Liberation Sans or Carlito (common in PDFs made on Linux), becomes the font it copies; and any other becomes Arial, Times New Roman or Courier New by style, so a line can come out a little wider or narrower. Lines, boxes and backgrounds arrive as pictures, not as shapes, and links do not come across.",
+      a: `The layout and the images, yes; the fonts, approximately. Each slide is the shape of the first page, each picture sits where the page shows it, and each line of text is a text box at its place with its size, weight and colour, except on a page whose drawing would take more than ${LAYERS} pictures to stack in order, which comes as one picture of the page with its text in invisible text boxes over it. Fonts are matched rather than copied: a font that comes with Windows or Office, such as Calibri or Arial, keeps its name; a free look-alike of one of those, such as Liberation Sans or Carlito (common in PDFs made on Linux), becomes the font it copies; and any other becomes Arial, Times New Roman or Courier New by style, so a line can come out a little wider or narrower. Lines, boxes and backgrounds arrive as pictures, not as shapes, and links do not come across.`,
     },
     {
       q: "What happens to a scanned PDF?",

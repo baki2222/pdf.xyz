@@ -1910,10 +1910,17 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
    * pdf.js removes a picture over its ceiling, nothing can say whether the
    * page painted it, and the result — rightly — counts nothing it did not
    * see. Every served sentence promising that the note names a page that
-   * lost a picture is then false of that file, unless it says so. Held
-   * through the engine at the number the page states: in both encrypted
-   * layouts, a picture of exactly that many pixels is named, and one a row
-   * larger is on no slide and named nowhere.
+   * lost a picture is then false of that file, unless it says so.
+   *
+   * The size the page states is held to the engine at its WORST case. Such
+   * a page's ceiling is the floor, raised only as far as everything the
+   * page can reach fits the page budget, so the size below which no picture
+   * is ever lost unnoted is the floor itself. With a budget that admits
+   * nothing, the ceiling IS the floor; then, in both encrypted layouts, a
+   * picture of exactly the stated size must be named and one a row larger
+   * on no slide and named nowhere. (Run at the production budget, the pair
+   * moves the ceiling up to the first picture whatever the page states: a
+   * copy saying 65 megapixels passed that way, the mutation check found.)
    */
   it("a picture the worker cannot see itself lose: the page says where, at the size the engine shows", async () => {
     const NOTE =
@@ -1960,7 +1967,8 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
       });
       const run = await runPdfOfficeExport(PDF_TO_POWERPOINT_TOOL, locked, {
         extract: stubExtract(["", ""]),
-        scanPages: scanPdfPages,
+        scanPages: (bytes, options) =>
+          scanPdfPages(bytes, { ...options, pageDecodeBudgetBytes: 1 }),
       });
       if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
       const deck = await readDeck(run.output);

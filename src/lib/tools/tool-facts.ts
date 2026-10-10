@@ -45,6 +45,10 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import {
+  MAX_DECODED_IMAGE_PIXELS,
+  MAX_LAYERS_PER_PAGE,
+} from "@/lib/workers/pdf-office-export/picture-limits";
 import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
   MAX_REQUEST_SIGNERS,
@@ -1412,11 +1416,19 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       // slide" was not true of a stencil mask or a repeated tile (drawn into
       // the drawing pictures), nor of a picture too large or undecodable
       // (left out, then silently; now counted and named in the note).
+      // CHANGED again 2026-10-11 (the second review): "a picture of its own"
+      // and "a text box … in its size, weight and colour" were not true of a
+      // page drawn as ONE picture past MAX_LAYERS_PER_PAGE layers, and "the
+      // note … names its page" was not true of a picture over
+      // MAX_DECODED_IMAGE_PIXELS on a page the reader cannot read ahead (an
+      // encrypted or damaged file). claims-vs-capability.test.ts held the
+      // page to neither: it read `toolFacts()`, which is empty for this
+      // tool, and never this answer. Both exceptions are now stated, from
+      // the constants, and that test reads what the page serves.
       return [
         {
           question: "What goes on each slide?",
-          answer:
-            "One slide per PDF page, in the same order, each the shape of the first page. A photo or screenshot on the page is a picture of its own on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied; and the page's other drawing, such as lines, boxes, backgrounds and stencilled images, comes as pictures. A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page. A page with nothing on it becomes an empty slide.",
+          answer: `One slide per PDF page, in the same order, each the shape of the first page. A photo or screenshot on the page is a picture of its own on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied; and the page's other drawing, such as lines, boxes, backgrounds and stencilled images, comes as pictures. A page whose drawing would take more than ${MAX_LAYERS_PER_PAGE.toLocaleString("en-US")} such pictures to stack in order becomes one picture of the page instead, with its text in invisible text boxes over it, selectable but not shown. A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page, except in an encrypted or damaged PDF, where a picture over ${(MAX_DECODED_IMAGE_PIXELS / 1_000_000).toLocaleString("en-US")} megapixels can be left out with no note. A page with nothing on it becomes an empty slide.`,
         },
         {
           question: `Can ${tool.name} convert a scanned PDF?`,
