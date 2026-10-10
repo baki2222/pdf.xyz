@@ -587,7 +587,9 @@ export function ToolsExplorer({
             onPointerEnter={requestEngine}
             placeholder={`Search ${toolCount} tools — merge, compress, sign…`}
             aria-label="Search tools"
-            className="bg-panel border-line placeholder:text-faint focus:border-accent/40 focus-visible:ring-accent/50 text-fg h-12 w-full rounded-[3px] border pr-11 pl-11 text-sm transition outline-none focus-visible:ring-2"
+            // The browser's own ✕ off: "Clear search" below is the one
+            // clear control (Chromium and WebKit drew both, side by side).
+            className="bg-panel border-line placeholder:text-faint focus:border-accent/40 focus-visible:ring-accent/50 text-fg h-12 w-full rounded-[3px] border pr-11 pl-11 text-sm transition outline-none focus-visible:ring-2 [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query && (
             <button
