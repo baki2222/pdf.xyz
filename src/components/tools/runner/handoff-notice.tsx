@@ -2,7 +2,7 @@
 
 import { AlertTriangle, FolderInput, ShieldCheck } from "lucide-react";
 import { originPhrase, type HandoffOrigin } from "@/lib/handoff";
-import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
+import { acceptNoun } from "@/lib/intent/accept-noun";
 import { getToolBySlug } from "@/lib/tools";
 import { Spinner } from "./runner-kit";
 import type { ToolHandoff } from "./use-tool-handoff";
@@ -33,35 +33,6 @@ export function HandoffLoading() {
       Bringing your files over…
     </div>
   );
-}
-
-/** "a"/"an" before a format read as letters: an MD file, a PDF. */
-const article = (label: string) => (/^[AEFHILMNORSX]/.test(label) ? "an" : "a");
-
-/** "PDF", "JPG or PNG", "XLSX, XLS or CSV". */
-function orList(labels: readonly string[]): string {
-  if (labels.length <= 1) return labels[0] ?? "";
-  return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1]}`;
-}
-
-/**
- * What a tool takes, as a noun, read from its `accept` row: "a PDF", "a JPG
- * or PNG image", "an MD file" — and the plural. It used to be typed "a PDF"
- * for every tool, which was false on the image and text tools.
- */
-export function acceptNoun(accept: readonly string[]): {
-  one: string;
-  many: string;
-} {
-  const labels = [...new Set(accept.map(normalizeFormatLabel))];
-  if (labels.length === 0) return { one: "a file", many: "files" };
-  if (labels.length === 1 && labels[0] === "PDF") {
-    return { one: "a PDF", many: "PDFs" };
-  }
-  const list = orList(labels);
-  const images = labels.every((l) => l === "JPG" || l === "PNG");
-  const kind = images ? "image" : "file";
-  return { one: `${article(list)} ${list} ${kind}`, many: `${list} ${kind}s` };
 }
 
 /** Amber, dismissible banner for expired/incompatible handoffs. */

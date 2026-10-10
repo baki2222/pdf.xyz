@@ -83,7 +83,8 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DropSheet } from "@/components/upload/drop-sheet";
+import { GuideDesk } from "@/components/intent/guide-desk";
+import { guideDeskProps } from "@/lib/guides/desk";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { parseCreateUploadSessionRequest } from "@/lib/jobs/validation";
 import { MAX_PDF_BYTES, validatePdfFile } from "@/lib/pdf/files";
@@ -450,21 +451,16 @@ function renderAllPages(): Record<string, string> {
 }
 
 /**
- * The staging sentence, rendered through the one drop primitive the tool
- * pages' drop zones are built on (`DropSheet`). WAS rendered through
- * `UploadZone`, the home page's old drop zone, deleted when the desk
- * replaced it (WP-05, 2026-10-10); the property is the sentence's, not the
- * zone's, so it moved to the component that will show it.
+ * The staging sentence, rendered through the component that shows it — a
+ * guide's desk (WP-07), whose sheet is the one drop primitive (`DropSheet`)
+ * — for every tool. WAS rendered through the bare `DropSheet` while no page
+ * showed it, and before that through `UploadZone`, the home page's old drop
+ * zone, deleted when the desk replaced it (WP-05, 2026-10-10); the property
+ * is the sentence's, not the zone's, so it follows what shows it.
  */
 function renderStagingZone(tool: Tool): string {
   return textOf(
-    renderToStaticMarkup(
-      createElement(DropSheet, {
-        accept: tool.accept.map((f) => `.${f.toLowerCase()}`).join(","),
-        hint: stagingHint(tool),
-        onFiles: () => {},
-      }),
-    ),
+    renderToStaticMarkup(createElement(GuideDesk, guideDeskProps(tool))),
   );
 }
 
