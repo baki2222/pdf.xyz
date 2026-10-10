@@ -25,6 +25,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { DESK_ISLAND_MARKER } from "@/components/intent/desk-island-chunk";
 import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
 import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
@@ -203,6 +204,20 @@ const OUR_LAZY: LazyLibrary[] = [
     marker: TICKET_CHUNK_MARKER,
     why: "the home desk fetches it when a file approaches or arrives; a visitor who never brings one never downloads it",
     allowedAtLoad: {},
+  },
+  // WP-05 review (2026-10-10): the home desk's own island. It IS first-load
+  // on the home page, which renders it; the reason it sits behind a
+  // `next/dynamic` boundary (`hero-desk-island.tsx`) is that every other
+  // page renders a Link from the server, and without the boundary they all
+  // loaded the home page's chunk. So: exactly one page may load it, and the
+  // stale-entry check below is the positive control that it still does.
+  {
+    what: "the home desk",
+    marker: DESK_ISLAND_MARKER,
+    why: "only the home page renders the desk; the island boundary keeps it out of the chunk every page that renders a Link loads",
+    allowedAtLoad: {
+      "index.html": "the home page renders the desk",
+    },
   },
 ];
 

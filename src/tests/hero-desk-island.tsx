@@ -16,7 +16,11 @@
  * file alike (an alias, not a per-file mock, which `isolate: false` could
  * leak between files). What the boundary itself does is held where it can
  * be seen: the built home page loads the desk's chunk, found by content, and
- * no other page does (`bundle-budget.test.ts`, the desk-island exemption),
- * and the e2e specs drive the desk through the real server render.
+ * no other prerendered page does — `src/deploy/lazy-chunks.test.ts`, "our
+ * on-demand modules are not first-load on any page", the home desk's entry,
+ * whose stale-allowlist check fails if index.html stops loading it — and the
+ * e2e specs drive the desk through the real server render. (WAS cited as
+ * `bundle-budget.test.ts`'s desk-island exemption, which reads index.html
+ * alone and could not see a second page loading the chunk.)
  */
 export { HeroDesk as HeroDeskIsland } from "@/components/intent/hero-desk";
