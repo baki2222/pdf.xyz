@@ -310,6 +310,13 @@ describe("a release, or a paste", () => {
 
   it("control: with no target drawn and none registered, a drop goes to the dialog at once", async () => {
     await page();
+    // "At once" is under the 2 s a drawn target is waited for, so the
+    // dialog's module is fetched first: with it cold, under the whole
+    // suite's load, the dialog took over 1 s to appear and this failed on
+    // a module's first import, not on the routing it is about.
+    await act(async () => {
+      await import("./ticket-dialog");
+    });
     const files = [pdf("loose.pdf")];
     const h1 = screen.getByRole("heading");
     await drag("dragenter", h1, transfer(files));
