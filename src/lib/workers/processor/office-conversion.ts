@@ -117,7 +117,7 @@ export function createOfficeConversionProcessor(
         tools: OFFICE_TO_PDF_TOOLS,
         ready,
         detail: ready
-          ? "Office conversion ready: LibreOffice renders Word, Excel, and PowerPoint files to PDF on an encrypted, auto-deleting secure worker."
+          ? "Office conversion ready: LibreOffice renders Word, Excel, and PowerPoint files to PDF on an auto-deleting secure worker."
           : "Office conversion needs the native LibreOffice engine, which isn't installed on this worker.",
       };
     },

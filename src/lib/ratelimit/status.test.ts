@@ -1,9 +1,17 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import { RATE_LIMIT_ENV } from "./config";
 import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import { resolveRateLimitStatus, statusForDecision } from "./status";
 import type { RateLimitDecision } from "./types";
+
+// Per-client keying is gated on the privacy disclosure (ratelimit/config.ts,
+// 2026-10-10). These tests exercise it, so they run in the disclosed
+// counterfactual; src/tests/setup.ts restores the real flag after each test.
+beforeEach(() => {
+  discloseKeyingForTests(true);
+});
 
 /**
  * A store AND trusted client identity — both are required to enforce per
@@ -101,10 +109,13 @@ describe("resolveRateLimitStatus — the four static states", () => {
 });
 
 describe("statusForDecision — the runtime fifth state", () => {
-  const base = resolveRateLimitStatus(
-    { [RATE_LIMIT_ENV.provider]: "redis", ...creds() },
-    { providerRegistered: true },
-  );
+  // A function, not a value: computed at collection time it would run before
+  // the beforeEach that discloses per-client keying, and read as shared.
+  const base = () =>
+    resolveRateLimitStatus(
+      { [RATE_LIMIT_ENV.provider]: "redis", ...creds() },
+      { providerRegistered: true },
+    );
 
   it("flags remote-error-fail-open when a configured limiter comes back unenforced", () => {
     const failOpen: RateLimitDecision = {
@@ -116,7 +127,7 @@ describe("statusForDecision — the runtime fifth state", () => {
       retryAfterSeconds: 0,
       retryAfterBucket: "none",
     };
-    const s = statusForDecision(base, failOpen);
+    const s = statusForDecision(base(), failOpen);
     expect(s.code).toBe("remote-error-fail-open");
     expect(s.enforced).toBe(false);
     expect(s.distributed).toBe(true);
@@ -132,7 +143,7 @@ describe("statusForDecision — the runtime fifth state", () => {
       retryAfterSeconds: 42,
       retryAfterBucket: "10-60s",
     };
-    expect(statusForDecision(base, enforced).code).toBe("remote-configured");
+    expect(statusForDecision(base(), enforced).code).toBe("remote-configured");
   });
 
   it("never upgrades a non-configured base (e.g. disabled)", () => {

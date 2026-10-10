@@ -25,4 +25,14 @@ export const LEGAL_CONTACT = "legal@pdf.xyz";
  * changes — not for a typo fix, and never without changing the text, because a
  * date that moves without the content moving teaches people to ignore it.
  */
-export const LEGAL_UPDATED = "2026-09-27";
+export const LEGAL_UPDATED = "2026-10-10";
+
+/** The youngest age at which someone may use pdf.xyz (terms §2). */
+export const MINIMUM_AGE = 13;
+
+/**
+ * The highest age any EU country sets for agreeing, on your own, to things
+ * like analytics (GDPR Art. 8 lets each set 13 to 16). Above our minimum age,
+ * so /privacy tells a reader below it where they live to decline analytics.
+ */
+export const HIGHEST_DIGITAL_CONSENT_AGE = 16;

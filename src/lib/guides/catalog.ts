@@ -334,7 +334,7 @@ export const guides: Guide[] = [
         id: "where-your-file-is-processed",
         heading: "Where your file is processed",
         body: [
-          `Compress PDF is a hybrid tool, and the two paths have different privacy stories — both stated plainly. The size analysis and the lossless repack happen on your device: for that path, your PDF never leaves your browser. The optional deep image compression step is different: there, your file is uploaded to an encrypted, isolated worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `Compress PDF is a hybrid tool, and the two paths have different privacy stories — both stated plainly. The size analysis and the lossless repack happen on your device: for that path, your PDF never leaves your browser. The optional deep image compression step is different: there, your file is uploaded to a secure worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
           "Because the availability check runs first, nothing is sent to a worker that is not there to receive it.",
         ],
       },
@@ -372,7 +372,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to my file after deep image compression runs?",
-        answer: `The job runs on an encrypted, isolated worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `The job runs on a secure worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "Will a smaller PDF also open faster on a website?",
@@ -392,7 +392,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-pdf-to-word",
     title: "How to convert a PDF to an editable Word document",
     description:
-      "Convert a PDF into an editable Word (DOCX) file on an encrypted, isolated worker that deletes the input when the job finishes. No account needed.",
+      "Convert a PDF into an editable Word (DOCX) file on a secure worker that deletes the input when the job finishes. No account needed.",
     tools: ["pdf-to-word", "ocr-pdf", "word-to-pdf"],
     keywords: [
       "convert pdf to word",
@@ -404,7 +404,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word as plain paragraphs in reading order, so you edit the words instead of retyping them — the formatting is not rebuilt.",
-      `PDF to Word is a server tool: your PDF travels over an encrypted connection to an encrypted, isolated worker, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      `PDF to Word is a server tool: your PDF travels over an encrypted connection to a secure worker, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let the worker convert it, and save the DOCX before the link expires.`,
     ],
     steps: [
@@ -429,7 +429,7 @@ export const guides: Guide[] = [
         id: "where-it-runs",
         heading: "Where the conversion runs",
         body: [
-          `PDF to Word runs on an encrypted, isolated worker, not in your browser. Your file is uploaded over an encrypted connection, the worker processes it, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `PDF to Word runs on a secure worker, not in your browser. Your file is uploaded over an encrypted connection, the worker processes it, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
           "You do not need an account to run the conversion — open the page, pick the file, and download the result.",
         ],
       },
@@ -454,11 +454,11 @@ export const guides: Guide[] = [
       {
         question: "Does PDF to Word upload my file?",
         answer:
-          "Yes. PDF to Word is a server tool: your PDF is uploaded over an encrypted connection and processed on an encrypted, isolated worker. The worker deletes the input when the job finishes.",
+          "Yes. PDF to Word is a server tool: your PDF is uploaded over an encrypted connection and processed on a secure worker. The worker deletes the input when the job finishes.",
       },
       {
         question: "What happens to my PDF after the conversion runs?",
-        answer: `The file is processed on an encrypted, isolated worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `The file is processed on a secure worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "How large can my PDF be?",
@@ -1112,7 +1112,7 @@ export const guides: Guide[] = [
     slug: "how-to-make-a-scanned-pdf-searchable",
     title: "How to make a scanned PDF searchable",
     description:
-      "OCR a scanned PDF so its text becomes searchable and selectable — processed on an encrypted, auto-deleting worker, no account needed.",
+      "OCR a scanned PDF so its text becomes searchable and selectable — processed on an auto-deleting worker, no account needed.",
     tools: ["ocr-pdf", "pdf-to-text", "extract-tables"],
     keywords: [
       "how to make a scanned pdf searchable",
@@ -1123,7 +1123,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To make a scanned PDF searchable, run it through the OCR PDF tool. Optical character recognition reads the page images and adds a searchable, copyable text layer, so the file you download responds to search and lets you select and copy text like any other document.",
-      "This tool runs on a secure worker rather than in your browser. Your file uploads over an encrypted connection, the job runs on an encrypted, isolated worker, and the input is deleted when the job finishes. There is no account step anywhere in the flow — open the page, add the file, download the result.",
+      "This tool runs on a secure worker rather than in your browser. Your file uploads over an encrypted connection, the job runs there, and the input is deleted when the job finishes. There is no account step anywhere in the flow — open the page, add the file, download the result.",
       "Scans on paper are not the only input, either. A JPG or PNG — a photo of a contract, a screenshot of a form — goes in the same way and comes out as a searchable PDF or as plain text.",
     ],
     steps: [
@@ -1155,7 +1155,7 @@ export const guides: Guide[] = [
         id: "where-your-file-goes",
         heading: "Where your file goes",
         body: [
-          "OCR PDF does its work on a secure worker: your file uploads over an encrypted connection and is processed on an encrypted, isolated worker. The input is deleted when the job finishes.",
+          "OCR PDF does its work on a secure worker: your file uploads over an encrypted connection and is processed there. The input is deleted when the job finishes.",
           `The result is held only briefly. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is involved at any point.`,
         ],
       },
@@ -1175,7 +1175,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to my file after OCR runs?",
-        answer: `The job runs on an encrypted, isolated worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `The job runs on a secure worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "Which languages can the OCR recognize?",
@@ -1198,7 +1198,7 @@ export const guides: Guide[] = [
     slug: "how-to-password-protect-a-pdf",
     title: "How to password-protect a PDF",
     description:
-      "Password-protect a PDF with real AES encryption. Your file goes to an encrypted, auto-deleting worker, and no account is needed.",
+      "Password-protect a PDF with real AES encryption. Your file goes to an auto-deleting worker, and no account is needed.",
     tools: ["protect-pdf", "unlock-pdf", "redact-pdf"],
     keywords: [
       "password protect pdf",
@@ -1209,7 +1209,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To password-protect a PDF, open the Protect PDF tool on pdf.xyz, add your file, and set a password. The tool applies real AES encryption with qpdf, so only people who have the password can open the resulting PDF.",
-      `Protect PDF is a server tool: encryption runs on an encrypted, auto-deleting secure worker rather than in your browser. Your file uploads over an encrypted connection, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      `Protect PDF is a server tool: encryption runs on an auto-deleting secure worker rather than in your browser. Your file uploads over an encrypted connection, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       "No account is needed — open the tool, pick a file, choose a password, and download the encrypted copy. If you later need to remove the protection from a copy you can open, the Unlock PDF tool reverses the process using the password you know.",
     ],
     steps: [
@@ -1233,7 +1233,7 @@ export const guides: Guide[] = [
         id: "where-your-file-is-processed",
         heading: "Where your file is processed",
         body: [
-          `Protect PDF runs on the server side, because the encryption uses qpdf on an encrypted, auto-deleting secure worker. Your PDF travels over an encrypted connection, the isolated worker applies the encryption, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `Protect PDF runs on the server side, because the encryption uses qpdf on an auto-deleting secure worker. Your PDF travels over an encrypted connection, the isolated worker applies the encryption, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
           "No account is needed at any step. Because the link is deliberately short-lived, download the protected file as soon as the job completes and keep your own copy.",
         ],
       },
@@ -1258,7 +1258,7 @@ export const guides: Guide[] = [
       {
         question: "Does password-protecting a PDF upload my file?",
         answer:
-          "Yes. Protect PDF runs on a secure worker rather than in the browser, because the AES encryption is applied with qpdf. The file travels over an encrypted connection, the worker is encrypted and isolated, and it deletes the input when the job finishes.",
+          "Yes. Protect PDF runs on a secure worker rather than in the browser, because the AES encryption is applied with qpdf. The file travels over an encrypted connection, the worker is isolated, and it deletes the input when the job finishes.",
       },
       {
         question: "How long does my protected PDF stay available?",
@@ -1286,7 +1286,7 @@ export const guides: Guide[] = [
     slug: "how-to-translate-a-pdf",
     title: "How to translate a PDF into another language",
     description:
-      "Translate a PDF into another language with AI. Get Markdown and plain text back; the encrypted, isolated worker wipes inputs at job end. No account needed.",
+      "Translate a PDF into another language with AI. Get Markdown and plain text back; the secure worker wipes inputs at job end. No account needed.",
     tools: ["translate-pdf", "ocr-pdf", "summarize-pdf"],
     keywords: [
       "translate pdf",
@@ -1610,7 +1610,7 @@ export const guides: Guide[] = [
     slug: "how-to-repair-a-damaged-pdf",
     title: "How to repair a damaged or corrupted PDF",
     description:
-      "Rebuild a damaged PDF with qpdf on an encrypted, isolated worker that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+      "Rebuild a damaged PDF with qpdf on a secure worker that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
     tools: ["repair-pdf", "unlock-pdf", "ocr-pdf"],
     keywords: [
       "repair pdf",
@@ -1622,7 +1622,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To repair a damaged PDF, open the Repair PDF tool, upload the file, and download the rebuilt copy. The worker runs the file through qpdf, which reads what it can of the damaged structure and writes it out as a new, well-formed PDF.",
-      `Repair PDF is a server tool: your file travels over an encrypted connection to an encrypted, isolated worker, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed.`,
+      `Repair PDF is a server tool: your file travels over an encrypted connection to a secure worker, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed.`,
     ],
     steps: [
       "Open the Repair PDF tool.",
@@ -1652,7 +1652,7 @@ export const guides: Guide[] = [
         id: "where-the-repair-runs",
         heading: "Where the repair runs",
         body: [
-          `Repair PDF runs on an encrypted, isolated worker, not in your browser. Your file is uploaded over an encrypted connection, qpdf rebuilds it there, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `Repair PDF runs on a secure worker, not in your browser. Your file is uploaded over an encrypted connection, qpdf rebuilds it there, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
         ],
       },
       {
@@ -1675,7 +1675,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to my PDF after the repair runs?",
-        answer: `The file is processed on an encrypted, isolated worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `The file is processed on a secure worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "How large can the PDF be?",
@@ -1920,7 +1920,7 @@ export const guides: Guide[] = [
     slug: "how-to-remove-a-password-from-a-pdf",
     title: "How to remove a password from a PDF",
     description:
-      "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an encrypted, auto-deleting worker.",
+      "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an auto-deleting worker.",
     tools: ["unlock-pdf", "protect-pdf"],
     keywords: [
       "how to remove a password from a pdf",

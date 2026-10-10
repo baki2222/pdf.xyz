@@ -60,6 +60,17 @@ AND `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER` names the one header the edge writes.
 Without all three, `uploads.create` is 60 per hour in total — not 60 each —
 and the character allowance is one allowance for everyone combined.
 
+**And the three are not enough on their own (since 2026-10-10).** Per-client
+keying stores a salted hash of each visitor's address with its counter for
+up to a day, which /privacy must describe before it happens. So the limiter
+also reads `PER_CLIENT_KEYING_DISCLOSED` in `src/lib/privacy/keying.ts`:
+while it is `false`, every request lands in the shared bucket whatever the
+environment says, and the posture reports `remote-configured-shared`. To key
+per client, flip that flag in a commit — /privacy then renders the per-client
+sentence from `src/lib/privacy/rate-limits.ts` — and set the three variables
+when that build is live. `src/lib/ratelimit/keying-disclosure.test.tsx` holds
+the page and the limiter to each other.
+
 A refused request gets `429` with a `Retry-After`, not a silent drop.
 
 ---
@@ -327,8 +338,9 @@ removing.
   every request shares one bucket unless client identity is trusted.
   Per-client accounting needs ALL THREE of `PDFXYZ_RATE_LIMIT_TRUST_PROXY`,
   `PDFXYZ_RATE_LIMIT_KEY_SALT` and `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER`, on an
-  origin only the edge can reach. Any one missing lands in the shared bucket
-  and says so.
+  origin only the edge can reach, AND the privacy disclosure flag described
+  under the policy table. Any one missing lands in the shared bucket and says
+  so.
 
 <!-- gap-while-absent: /sliding[- ]?window/i in src/lib/ratelimit -->
 <!-- The marker above pins "fixed windows": if a sliding-window implementation

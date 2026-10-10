@@ -105,7 +105,7 @@ export default function StatusPage() {
                     <span className="text-muted inline-flex items-center gap-1.5 text-xs">
                       <AvailabilityGlyph available={!descriptor.uploadsFiles} />
                       {descriptor.uploadsFiles
-                        ? "Files uploaded (encrypted, auto-deleted)"
+                        ? "Files uploaded (auto-deleted)"
                         : "Files never leave your device"}
                     </span>
                   </div>
@@ -123,8 +123,8 @@ export default function StatusPage() {
                 interactive workbench, so a reader was told a live page was
                 inert. The true part is the one worth keeping: nothing is faked
                 locally. */}
-            Secure-worker and AI tools upload your file to an encrypted worker,
-            as does Compress&apos;s optional worker step, and each tells you so
+            Secure-worker and AI tools upload your file to a secure worker, as
+            does Compress&apos;s optional worker step, and each tells you so
             before you run it — pdf.xyz never fakes processing in the browser.
             The{" "}
             <Link

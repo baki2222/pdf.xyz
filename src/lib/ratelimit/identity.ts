@@ -12,9 +12,14 @@
  *    and then every request keys into one shared bucket (a coarse global
  *    throttle), never an attacker's rotating fake address.
  *  - Whatever raw address it does read is immediately **salted-hashed** with
- *    the configured shared salt and truncated. The returned token is opaque: it is
- *    used only as an in-memory map key and is never logged, returned, persisted,
- *    or placed in a {@link RateLimitDecision}. The raw address is never retained.
+ *    the configured shared salt and truncated. The returned token is opaque: it
+ *    is never logged, returned, or placed in a {@link RateLimitDecision}, and the
+ *    raw address is never retained. It IS persisted: the distributed limiter
+ *    stores it in its Redis key, with the counter, until the policy's window
+ *    ends (up to a day). This line used to say "never … persisted", true of the
+ *    in-memory limiter it was written for and false of the Redis one that
+ *    replaced it — so the privacy policy now describes the token, and the
+ *    limiter cannot produce one until it does (`isTrustForwardedFor`).
  *
  * The net effect: the guard can throttle a specific client without the raw
  * address ever living anywhere but the transient local variable it is hashed from.

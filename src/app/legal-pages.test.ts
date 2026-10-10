@@ -483,7 +483,20 @@ describe("the policy pages do not promise what the product does not do", () => {
     ["privacy", PRIVACY],
     ["terms", TERMS],
   ])("/%s makes no unsupported claim", (name, file) => {
-    const source = withoutComments(read(file));
+    // The page AND the registries it renders. Since 2026-10-10 /privacy draws
+    // its names, events and tool disclosures from `src/lib/privacy`, so a
+    // scan of the page's own source alone would read a sentence that moved
+    // there as gone: a mutation putting "strict" back into the CSP sentence
+    // stayed green here while the rendered page said it. The modules are
+    // found by following the page's imports, not by a list.
+    const own = read(file);
+    const rendered = [...own.matchAll(/from "@\/lib\/privacy\/([\w-]+)"/g)].map(
+      (m) => path.join(ROOT, "src", "lib", "privacy", `${m[1]}.ts`),
+    );
+    if (name === "privacy") expect(rendered.length).toBeGreaterThanOrEqual(5);
+    const source = [own, ...rendered.map(read)]
+      .map(withoutComments)
+      .join(" \n ");
     const found = OVERCLAIMS.filter((o) => o.pattern.test(source)).map(
       (o) => `${String(o.pattern)} — ${o.instead}`,
     );

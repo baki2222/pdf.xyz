@@ -143,7 +143,7 @@ export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">{copy.blurb}</p>
         </div>
@@ -301,7 +301,7 @@ function StructureRunArea({
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker on this machine."
-          : "Running this uploads your file to the encrypted secure worker, processes it with qpdf, and wipes the input after processing."}
+          : "Running this uploads your file to the secure worker, processes it with qpdf, and wipes the input after processing."}
       </p>
 
       {file ? (

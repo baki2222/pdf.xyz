@@ -158,7 +158,13 @@ describe("NotifyMe", () => {
     fireEvent.click(screen.getByRole("button", { name: /notify me/i }));
 
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent(/only the tool's name was sent/i);
+    // INVERTED 2026-10-10. This required "Only the tool's name was sent", and
+    // so pinned a claim that was false for every visitor who allowed
+    // analytics: the same press sends `gated_tool_interest` to Google
+    // Analytics. What WE receive is still the name alone, so the sentence
+    // now says who received it; the line under the button names Google's half.
+    expect(status).toHaveTextContent(/we received only the tool's name/i);
+    expect(status).not.toHaveTextContent(/only the tool's name was sent/i);
     expect(status).not.toHaveTextContent(/nothing was sent from your device/i);
     // No promised waitlist, no promised notification — only what happened.
     expect(status).not.toHaveTextContent(/waitlist/i);

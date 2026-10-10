@@ -29,10 +29,18 @@
  * None: this is the binding, not a ban. To key per client, flip the
  * disclosure, read the sentence it then renders, and ship both together.
  */
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import PrivacyPage from "@/app/privacy/page";
-import { RATE_LIMIT_ENV, resolveRateLimitConfig } from "./config";
+import { PER_CLIENT_KEYING_DISCLOSED } from "@/lib/privacy/keying";
+import { RATE_LIMIT_DISCLOSURE } from "@/lib/privacy/rate-limits";
+import {
+  RATE_LIMIT_ENV,
+  discloseKeyingForTests,
+  resolveRateLimitConfig,
+} from "./config";
 import { SHARED_BUCKET_TOKEN, deriveClientToken } from "./identity";
 
 /** Everything per-client keying needs from the environment. */
@@ -91,5 +99,55 @@ describe("per-client rate-limit keying is bound to the privacy disclosure", () =
         ? "/privacy says addresses are hashed, but the limiter keys everyone together"
         : "the environment alone switched on per-client keying, which /privacy does not disclose",
     ).toBe(disclosed);
+  });
+
+  it("positive control: in the disclosed counterfactual the same chain keys by address", () => {
+    // Without this, a limiter that could never key per client would pass the
+    // test above forever while /privacy says "shared" — vacuously.
+    discloseKeyingForTests(true);
+    const token = deriveClientToken(
+      CALLER,
+      resolveRateLimitConfig(PER_CLIENT_ENV),
+    );
+    expect(token).toMatch(/^c_[0-9a-f]{32}$/);
+  });
+
+  it("the page's sentence is the one the flag selects", () => {
+    // The disclosure module renders one of two sentences by the flag the
+    // limiter reads; the page must render THAT sentence, not its own words.
+    expect(collectSection()).toContain(RATE_LIMIT_DISCLOSURE.slice(0, 60));
+    expect(DISCLOSES_HASHED_ADDRESS.test(RATE_LIMIT_DISCLOSURE)).toBe(
+      PER_CLIENT_KEYING_DISCLOSED,
+    );
+  });
+
+  it("no source outside the tests can pretend the page discloses it", () => {
+    // The seam exists for tests; a production caller would be the env switch
+    // all over again. Searched in src and scripts, members printed.
+    const callers: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name !== "node_modules") walk(full);
+        } else if (
+          /\.(?:ts|tsx|mjs|js)$/.test(e.name) &&
+          !/\.(?:test|spec)\./.test(e.name)
+        ) {
+          const text = readFileSync(full, "utf8");
+          if (/\bdiscloseKeyingForTests\s*\(/.test(text))
+            callers.push(
+              path.relative(process.cwd(), full).replace(/\\/g, "/"),
+            );
+        }
+      }
+    };
+    walk(path.join(process.cwd(), "src"));
+    walk(path.join(process.cwd(), "scripts"));
+    // The definition and the per-test reset are the only two.
+    expect(callers.sort()).toEqual([
+      "src/lib/ratelimit/config.ts",
+      "src/tests/setup.ts",
+    ]);
   });
 });

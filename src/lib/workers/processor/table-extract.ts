@@ -120,7 +120,7 @@ export function createTableExtractProcessor(deps: TableExtractDeps): Processor {
         tools: [EXTRACT_TABLES_TOOL],
         ready,
         detail: ready
-          ? "Table extraction ready: aligned tables in a PDF's selectable text are detected and exported as CSV + XLSX inside a ZIP on an encrypted, auto-deleting secure worker."
+          ? "Table extraction ready: aligned tables in a PDF's selectable text are detected and exported as CSV + XLSX inside a ZIP on an auto-deleting secure worker."
           : "Table extraction needs the PDF layout extractor, which isn't available on this worker.",
       };
     },

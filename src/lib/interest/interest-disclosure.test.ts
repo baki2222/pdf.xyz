@@ -26,10 +26,13 @@ describe("the interest counter never exists without its disclosures", () => {
   });
 
   it("/privacy carries the owner's disclosure bullet, verbatim anchors intact", () => {
+    // Whitespace collapsed: a phrase search over JSX source has a hole at
+    // every line wrap, and the 2026-10-10 rewrite of the bullet wrapped
+    // "the tool's name" across two lines — same words, read as missing.
     const privacy = readFileSync(
       path.join(ROOT, "src", "app", "privacy", "page.tsx"),
       "utf8",
-    );
+    ).replace(/\s+/g, " ");
     // The heading — "you can choose" is the load-bearing phrase: the defence is
     // that it is an act, not a measurement.
     expect(privacy).toContain("One thing you can choose to send us.");

@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import { RATE_LIMIT_ENV } from "./config";
 import { policyFor } from "./policy";
 import { enforceRateLimit, resetRateLimitGuardForTests } from "./guard";
@@ -10,6 +11,13 @@ import {
   type RateLimitProvider,
 } from "./provider";
 import type { RateLimitPolicy, RateLimiterVerdict } from "./types";
+
+// Per-client keying is gated on the privacy disclosure (ratelimit/config.ts,
+// 2026-10-10). These tests exercise it, so they run in the disclosed
+// counterfactual; src/tests/setup.ts restores the real flag after each test.
+beforeEach(() => {
+  discloseKeyingForTests(true);
+});
 
 /**
  * A fake async provider — an in-process stand-in for a Redis/Upstash client. It

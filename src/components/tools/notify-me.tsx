@@ -26,8 +26,12 @@ import { getToolBySlug } from "@/lib/tools";
  * waitlist backend and no way to actually notify anyone — the copy promises
  * only what exists: the ask was counted.
  *
- * The dev-only `track()` event keeps its extra capability dimension for local
- * console visibility; the beacon deliberately carries the slug alone.
+ * The beacon deliberately carries the slug alone. The same press also calls
+ * `track()`, and that is NOT dev-only, as this note said until 2026-10-10: for
+ * a visitor who allowed analytics it reaches Google Analytics as
+ * `gated_tool_interest`, with Google's cookie id. Both disclosures — the line
+ * under the button and the /privacy bullet — now say so
+ * (`interest-disclosure.test.ts`).
  */
 export function NotifyMe({
   toolName,
@@ -69,7 +73,7 @@ export function NotifyMe({
         <Check className="size-4 shrink-0" aria-hidden />
         Noted — one more ask for {toolName} counted.
         {tool
-          ? " Only the tool's name was sent; nothing about you or your files."
+          ? " We received only the tool's name — nothing about you or your files."
           : " Nothing was sent from your device."}
       </p>
     );
@@ -103,7 +107,8 @@ export function NotifyMe({
         Notify me when this ships
       </button>
       <p className="text-muted text-xs leading-relaxed">
-        Pressing it sends us the tool&apos;s name — nothing about you.
+        Pressing it sends us the tool&apos;s name — nothing about you. If you
+        allowed analytics, Google Analytics counts the press too.
       </p>
     </div>
   );

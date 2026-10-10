@@ -5,9 +5,34 @@ import { LegalPage, LegalSection } from "@/components/legal/legal-page";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
-import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
+import {
+  HIGHEST_DIGITAL_CONSENT_AGE,
+  LEGAL_CONTACT,
+  LEGAL_ENTITY,
+  LEGAL_UPDATED,
+  MINIMUM_AGE,
+} from "@/lib/legal";
 import { AnalyticsChoices } from "@/components/analytics/analytics-choices";
 import { BROWSER_STORAGE, HANDOFF_LIFETIME } from "@/lib/browser-storage";
+import { PASSWORD_QUEUE_LIFETIME } from "@/lib/jobs/pdf-security";
+import {
+  AI_PROVIDER,
+  AI_PROVIDER_RETENTION,
+  CLOUDFLARE,
+  PROCESSORS,
+  STORAGE_PROVIDER,
+} from "@/lib/privacy/processors";
+import {
+  ANALYTICS_EVENTS,
+  PAGE_VIEW_DESCRIPTION,
+} from "@/lib/privacy/analytics-events";
+import { ASKED_FOR } from "@/lib/privacy/asked-for";
+import {
+  INTEREST_RATE_LIMIT_NOTE,
+  RATE_LIMIT_DISCLOSURE,
+} from "@/lib/privacy/rate-limits";
+import { PER_CLIENT_KEYING_DISCLOSED } from "@/lib/privacy/keying";
+import { CSP_SENTENCE } from "@/lib/privacy/site-security";
 
 /**
  * The windows this page states, each read from the code that enforces it —
@@ -50,12 +75,27 @@ export const metadata: Metadata = buildMetadata({
  * upload — 51 of 50. Deriving is necessary and not sufficient: it has to be
  * the same derivation, or the surfaces drift while every one of them can show
  * its work.
+ *
+ * The NAMES moved to `src/lib/privacy` on 2026-10-10, for the same reason. A
+ * sweep of this page against the code found it naming four unnamed
+ * categories where the code integrates Google, OpenAI and Cloudflare R2,
+ * listing two analytics facts where the schema sends sixteen fields, saying
+ * nobody is asked for a name or email beside a tool that asks for ten of
+ * each, and promising a "strict" CSP and a scanner guard the code does not
+ * have. Each section now renders the registry its subject lives in, and
+ * `privacy-truth.test.tsx` derives the subjects from the code and holds the
+ * rendered page to them.
  */
 const split = processingSplit();
 const inBrowser = split.neverUploads.length;
 const onWorker = split.mayUpload.length;
 /** The browser-first tools, counted so the sentence below can name them. */
 const browserFirst = split.browserFirst.length;
+/** The tools that take something typed, counted from the list §2 renders. */
+const askingTools = ASKED_FOR.flatMap((entry) => entry.tools).length;
+
+const strong = "text-fg font-semibold";
+const link = "text-accent underline underline-offset-4";
 
 export default function PrivacyPage() {
   return (
@@ -64,23 +104,23 @@ export default function PrivacyPage() {
       updated={LEGAL_UPDATED}
       summary={
         <>
-          <strong className="text-fg font-semibold">The short version.</strong>{" "}
-          {inBrowser} of our {tools.length} tools do their work entirely inside
-          your browser — those files are never uploaded, so we never receive
-          them. The remaining {onWorker} can send your file to a processing
-          worker, which deletes it when the job ends and stops serving the
-          result after {outputWindow}. There are no accounts, no advertising,
-          and no sale or sharing of personal information. Each tool&apos;s page
-          says which kind it is before you upload anything.
+          <strong className={strong}>The short version.</strong> {inBrowser} of
+          our {tools.length} tools do their work entirely inside your browser —
+          those files are never uploaded, so we never receive them. The
+          remaining {onWorker} can send your file to a processing worker, which
+          deletes it when the job ends and stops serving the result after{" "}
+          {outputWindow}. There are no accounts, no advertising, and no sale or
+          sharing of personal information. Each tool&apos;s page says which kind
+          it is before you upload anything.
         </>
       }
     >
       <LegalSection id="who-we-are" heading="1. Who we are">
         <p>
           pdf.xyz is operated by{" "}
-          <strong className="text-fg font-semibold">{LEGAL_ENTITY.name}</strong>
-          , a limited liability company registered in{" "}
-          {`${LEGAL_ENTITY.jurisdiction} `}(&ldquo;we&rdquo;, &ldquo;us&rdquo;).
+          <strong className={strong}>{LEGAL_ENTITY.name}</strong>, a limited
+          liability company registered in {`${LEGAL_ENTITY.jurisdiction} `}
+          (&ldquo;we&rdquo;, &ldquo;us&rdquo;).
         </p>
         <address className="text-muted not-italic">
           {LEGAL_ENTITY.address.map((line) => (
@@ -92,10 +132,7 @@ export default function PrivacyPage() {
         <p>
           For anything in this policy, including requests about your data, write
           to{" "}
-          <a
-            href={`mailto:${LEGAL_CONTACT}`}
-            className="text-accent underline underline-offset-4"
-          >
+          <a href={`mailto:${LEGAL_CONTACT}`} className={link}>
             {LEGAL_CONTACT}
           </a>
           . It is a monitored address, not a formality.
@@ -110,24 +147,28 @@ export default function PrivacyPage() {
       <LegalSection id="files" heading="2. Your files">
         <p>This is the part most people are asking about, so it comes first.</p>
         <p>
-          <strong className="text-fg font-semibold">
+          <strong className={strong}>
             Tools that run in your browser ({inBrowser} of {tools.length}).
           </strong>{" "}
           The file is opened and processed by code running on your own device.
           It is not sent to us, and we could not read it if we wanted to.
-          Closing the tab discards it. Nothing about the file&apos;s contents,
-          name, or size reaches our servers. Passing a file from one page to a
-          tool keeps it in your browser for a short while: {HANDOFF_LIFETIME}
+          Closing the tab discards it. Nothing about the file — its contents,
+          its name or its size — reaches our servers. The one exception is
+          analytics, and only if you allow it: Google Analytics is then told
+          which tool you used and a coarse size band of the result, never the
+          file, its name or its exact size (section 4 lists everything it
+          receives). Passing a file from one page to a tool keeps it in your
+          browser for a short while: {HANDOFF_LIFETIME}
         </p>
         <p>
-          <strong className="text-fg font-semibold">
+          <strong className={strong}>
             Tools that use a processing worker ({onWorker} of {tools.length}).
           </strong>{" "}
           Some work cannot be done in a browser — optical character recognition,
           office-format conversion, and anything using an AI model. For these,
-          your file is uploaded over an encrypted connection to storage we
-          control, scanned for malware, processed, and then removed on this
-          timetable:
+          your file is uploaded over an encrypted connection straight to our
+          storage provider, {STORAGE_PROVIDER}, scanned for malware, processed
+          on our processing server, and then removed on this timetable:
         </p>
         {/* The reconciliation sentence, and the reason the two groups above do
             not simply add up wherever else you meet them. It renders only while
@@ -136,7 +177,7 @@ export default function PrivacyPage() {
             instead of leaving a dangling "0 of these". */}
         {browserFirst > 0 && (
           <p>
-            <strong className="text-fg font-semibold">
+            <strong className={strong}>
               {/* One expression, for the reason recorded in retention-windows.ts:
                   split across a JSX line break the space is eaten and the page
                   renders "1of 21". And phrased about the GROUP rather than the
@@ -152,27 +193,16 @@ export default function PrivacyPage() {
             catalogue, two different questions.
           </p>
         )}
-        {/*
-          This says "scanned for malware" plainly, and may do so, because the claim
-          no longer depends on configuration. PDFXYZ_WORKER_REQUIRE_SCAN arms a
-          guardrail that REFUSES TO RUN when no scanner is configured, so a
-          deployment serving this page necessarily has one. That is why the
-          static page can assert it: not because a scanner happens to be wired,
-          but because a scanner-less deployment does not exist.
-
-          It briefly said "may be scanned … see /status" instead. That was true
-          and weaker than reality, and the right fix was not better wording — it
-          was making the bad state unreachable. If the guardrail is ever
-          disarmed, this sentence goes back to being configuration-dependent and
-          must change with it.
-
-          Where the guard lives: `worker:release-gate` runs `ops-check`, which
-          exits 4 when scanning is required but not active, so a promotion
-          cannot carry this claim past a dead scanner. See legal-pages.test.ts.
-        */}
+        {/* "Scanned for malware" is true of production, observed at the wire
+            (the live worker status reported scan.active = true on 2026-10-10),
+            and /status renders that live answer. It is NOT guaranteed by the
+            code: PDFXYZ_WORKER_REQUIRE_SCAN is opt-in and strict mode does not
+            imply it, so this page no longer says a scanner-less deployment
+            "refuses to start" (legal-pages.test.ts bans the sentence;
+            privacy-truth.test.tsx ties it to evaluateGuardrails). */}
         <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
-            <strong className="text-fg font-semibold">
+            <strong className={strong}>
               The uploaded file is actively deleted
             </strong>{" "}
             as soon as the job reaches an end — success or failure. If a job
@@ -186,7 +216,7 @@ export default function PrivacyPage() {
             longer.
           </li>
           <li>
-            <strong className="text-fg font-semibold">
+            <strong className={strong}>
               The result stops being downloadable after {outputWindow}.
             </strong>{" "}
             After that the link returns an error and nobody can retrieve it,
@@ -196,7 +226,7 @@ export default function PrivacyPage() {
             say that than round it to a number that sounds better.
           </li>
           <li>
-            <strong className="text-fg font-semibold">
+            <strong className={strong}>
               A record of the job — including your file&apos;s name — is kept
               for about {jobRecordWindow}
             </strong>{" "}
@@ -209,26 +239,38 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>
-          We do not read your documents, and no person at pdf.xyz opens them in
-          the ordinary course of running the service.
+          Every upload is scanned for malware before any processor touches it,
+          and{" "}
+          <Link href="/status" className={link}>
+            the status page
+          </Link>{" "}
+          shows whether scanning is running right now. We do not read your
+          documents, and no person at pdf.xyz opens them in the ordinary course
+          of running the service.
         </p>
         <p>
-          <strong className="text-fg font-semibold">
-            One case worth naming.
-          </strong>{" "}
-          If you use the tools that add or remove a PDF password, the password
-          you type is part of the instruction sent to the worker, and it sits in
-          that job record for the same {jobRecordWindow}. It is never written to
-          a log, an error message, a filename, or a result. Still: if a password
-          is one you use elsewhere, change it, or use it only for the document.
+          <strong className={strong}>One case worth naming.</strong> If you use
+          the tools that add or remove a PDF password, the password you type is
+          part of the instructions sent to the worker. {PASSWORD_QUEUE_LIFETIME}{" "}
+          While the job runs, the worker hands the password to the encryption
+          tool through a temporary file in the job&apos;s own folder, which is
+          erased when the job ends. It is never written to a log, an error
+          message or a result. Still: if a password is one you use elsewhere,
+          change it, or use it only for the document.
         </p>
         <p>
-          Every tool page states which of these two applies <em>before</em> you
+          <strong className={strong}>What some tools ask you for.</strong>{" "}
+          {`${askingTools} of the worker and AI tools also take something you type, which travels with the job. This is all of it:`}
+        </p>
+        <ul className="ml-5 flex list-disc flex-col gap-2">
+          {ASKED_FOR.map((entry) => (
+            <li key={entry.tools.join("+")}>{entry.text}</li>
+          ))}
+        </ul>
+        <p>
+          Every tool page states which of these applies <em>before</em> you
           choose a file, and{" "}
-          <Link
-            href="/status"
-            className="text-accent underline underline-offset-4"
-          >
+          <Link href="/status" className={link}>
             the status page
           </Link>{" "}
           lists them all.
@@ -239,27 +281,29 @@ export default function PrivacyPage() {
         <p>
           Our AI tools — summarising, translating, answering questions about a
           document, and structured extraction — work from the{" "}
-          <strong className="text-fg font-semibold">text</strong> of your PDF.
-          The worker extracts that text and sends it to a third-party AI
-          provider to produce the answer. The PDF file itself is not sent to the
-          provider.
+          <strong className={strong}>text</strong> of your PDF. The worker
+          extracts that text and sends it to our AI provider, {AI_PROVIDER.name}
+          , together with anything you typed into the tool (section 2 lists what
+          each one takes), to produce the answer. The PDF file itself is not
+          sent to {AI_PROVIDER.name}.
         </p>
         <p>
           Two details we would rather state than have you discover. Only text
           the PDF already contains as text is sent — we do not run character
           recognition to manufacture text from a scan, and a scanned document is
           refused rather than silently half-processed. And for{" "}
-          <strong className="text-fg font-semibold">Chat with PDF</strong>, the
-          document&apos;s text is sent again with every question — the worker
-          keeps nothing between them. The provider holds it in a short-lived
-          cache, which lowers the cost of processing the repeat rather than
-          avoiding it; that cache lasts minutes, not days.
+          <strong className={strong}>Chat with PDF</strong>, each question is a
+          new job: the document&apos;s text is sent again every time, together
+          with your question and the conversation so far.
         </p>
         <p>
-          We use providers under agreements that prohibit training on data sent
-          through the API. We cannot control what a provider does beyond those
-          terms, so if a document is sensitive enough that this matters, use one
-          of the in-browser tools instead, or do not use the AI tools for it.
+          {AI_PROVIDER.name} may keep what it receives for up to{" "}
+          {AI_PROVIDER_RETENTION} to monitor for abuse, under its own terms. The
+          settings in our {AI_PROVIDER.name} account that would let it use this
+          data to improve its models are switched off. We cannot control what a
+          provider does beyond that, so if a document is sensitive enough that
+          this matters, use one of the in-browser tools instead, or do not use
+          the AI tools for it.
         </p>
       </LegalSection>
 
@@ -267,53 +311,97 @@ export default function PrivacyPage() {
         <p>Beyond file processing, the data we handle is deliberately small.</p>
         <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
-            <strong className="text-fg font-semibold">
-              Ordinary server logs.
-            </strong>{" "}
-            Our hosting and storage providers record the technical details every
-            web request produces — IP address, time, the page or endpoint
-            requested, browser user-agent. These are used to operate and secure
-            the service, including to detect abuse, and are retained for a short
-            period by those providers.
+            <strong className={strong}>Ordinary server logs.</strong> Every
+            request to this site passes through {CLOUDFLARE}, which sits in
+            front of our servers, and most also reach our own servers; both
+            record the technical details a web request produces — IP address,
+            time, the page or endpoint requested, browser user-agent. Our
+            storage provider receives the same details for uploads, which your
+            browser sends to it directly. These records are used to operate and
+            secure the service, including to detect abuse. How long they are
+            kept depends on {CLOUDFLARE}&apos;s retention and on our
+            servers&apos; log settings; this policy does not yet promise a fixed
+            period.
           </li>
           <li>
-            <strong className="text-fg font-semibold">A job identifier.</strong>{" "}
-            Worker tools create a job with a random identifier so your browser
-            can poll for the result. It is not linked to you.
+            <strong className={strong}>Rate limits.</strong>{" "}
+            {RATE_LIMIT_DISCLOSURE}
           </li>
           <li>
-            <strong className="text-fg font-semibold">
+            <strong className={strong}>A job identifier.</strong> Worker tools
+            create a job with a random identifier so your browser can poll for
+            the result. It is not linked to you.
+          </li>
+          <li>
+            <strong className={strong}>
               Product analytics — only after you say yes.
             </strong>{" "}
             We use Google Analytics to count visits and see which tools are
             used, and it is loaded only after you choose &ldquo;Allow
             analytics&rdquo; in the banner. Until then — and always, if you
             decline — no analytics code loads and nothing is sent to Google.
-            When allowed, Google receives the pages you view, the names of tools
-            you use, coarse browser and device information, and an approximate
-            location derived from your IP address, acting as our processor. It
-            never sees your documents: analytics events are stripped of
-            filenames, links, and query strings before they are sent, and file
-            contents never pass through this channel at all. There is no
-            advertising pixel and no error-tracking SDK, and you can change your
-            decision at any time in the{" "}
+            When allowed, Google receives, acting as our processor: coarse
+            browser and device information, an approximate location derived from
+            your IP address, the random identifier its cookie holds, and for
+            each page you view {PAGE_VIEW_DESCRIPTION}. It also receives the
+            events below, each with the fields shown, every one of them carrying
+            the page it happened on without its query string. It never sees your
+            documents: analytics events are stripped of filenames, links, and
+            query strings before they are sent, and file contents never pass
+            through this channel at all. How long Google keeps this data is set
+            by the retention setting of our Google Analytics property. There is
+            no advertising pixel and no error-tracking SDK, and you can change
+            your decision at any time in the{" "}
             <a href="#cookies" className="text-fg underline underline-offset-2">
               cookies section
             </a>{" "}
             below.
           </li>
+        </ul>
+        {/* Rendered from the registry typed by the event schema itself
+            (src/lib/privacy/analytics-events.ts): an event or field the code
+            sends and this list omits is a compile error there, and
+            privacy-truth.test.tsx reads both by AST and by text. */}
+        <dl className="flex flex-col gap-4">
+          {Object.entries(ANALYTICS_EVENTS).map(([event, copy]) => (
+            <div
+              key={event}
+              className="border-line flex flex-col gap-1 border-l-2 pl-4"
+            >
+              <dt className="text-fg flex flex-wrap items-baseline gap-x-2 font-medium">
+                <code className="text-sm">{event}</code>
+                <span className="text-muted text-sm font-normal">
+                  sent when {copy.when}
+                </span>
+              </dt>
+              {Object.entries(copy.fields as Record<string, string>).map(
+                ([field, meaning]) => (
+                  <dd key={field}>
+                    <code className="text-sm">{field}</code> — {meaning}
+                  </dd>
+                ),
+              )}
+            </div>
+          ))}
+        </dl>
+        <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
-            <strong className="text-fg font-semibold">
+            <strong className={strong}>
               One thing you can choose to send us.
             </strong>{" "}
             Some tools in our catalogue are not built yet. If you press
-            &ldquo;Notify me&rdquo; on one, that tells us which tool you wanted
-            — the tool&apos;s name, and nothing else. No identifier, no time,
-            nothing about you or your device. We add one to a count so we know
-            what to build next. Pressing nothing sends nothing.
+            &ldquo;Notify me&rdquo; on one, your browser sends us the
+            tool&apos;s name, and nothing else, and we add one to a count so we
+            know what to build next. The count holds no identifier, no time,
+            nothing about you or your device; the request itself reaches us like
+            any other, so it appears in the ordinary logs above.
+            {INTEREST_RATE_LIMIT_NOTE} If you have allowed analytics, Google
+            Analytics also counts the press, as the{" "}
+            <code className="text-sm">gated_tool_interest</code> event above.
+            Pressing nothing sends nothing.
           </li>
           <li>
-            <strong className="text-fg font-semibold">
+            <strong className={strong}>
               Page-performance and error reports, only if we switch them on.
             </strong>{" "}
             There is one optional channel for load-speed measurements and crash
@@ -324,27 +412,33 @@ export default function PrivacyPage() {
             harmless.
           </li>
           <li>
-            <strong className="text-fg font-semibold">What you send us.</strong>{" "}
-            If you email us, we keep that correspondence so we can reply.
+            <strong className={strong}>What you send us.</strong> If you email
+            us, the message reaches us through {CLOUDFLARE} Email Routing, which
+            forwards it to our mailbox, and we keep that correspondence so we
+            can reply. This policy does not yet set a period after which it is
+            deleted; you can ask us to delete it at any time (section 10).
           </li>
         </ul>
         <p>
-          <strong className="text-fg font-semibold">
-            There are no accounts.
-          </strong>{" "}
-          We do not ask for a name, an email address, or a password to use the
-          tools, so we hold no profile of you to lose.
+          <strong className={strong}>There are no accounts.</strong> We do not
+          ask who you are, and we hold no profile of you to lose. The only
+          things a tool asks for besides your file are listed in section 2, and
+          they are used only for that job.
         </p>
       </LegalSection>
 
       <LegalSection id="cookies" heading="5. Cookies and browser storage">
         <p>
-          We use no advertising cookies and no cross-site trackers. The one kind
-          of cookie on this site belongs to Google Analytics, and it is set only
-          after you allow analytics in the consent banner: Google then stores
-          its measurement cookies (the <code>_ga</code> family) to tell
-          returning browsers apart. Decline — or never answer — and no analytics
-          cookie is ever set.
+          We use no advertising cookies and no cross-site trackers, and our own
+          code sets no cookies. Google Analytics sets its measurement cookies
+          (the <code>_ga</code> family) to tell returning browsers apart, and
+          only after you allow analytics in the consent banner. They last for
+          Google&apos;s default lifetime, which we do not change, and
+          withdrawing your consent here deletes them. Decline — or never answer
+          — and no analytics cookie is ever set. {CLOUDFLARE}, which sits in
+          front of the site, may set cookies of its own that it needs to protect
+          the site, for example to tell people from automated traffic; we do not
+          use them for analytics or advertising.
         </p>
         <p>
           Your consent decision itself is kept in your browser&rsquo;s local
@@ -384,89 +478,109 @@ export default function PrivacyPage() {
 
       <LegalSection id="why" heading="6. Why we are allowed to do this">
         <p>
-          Under UK and EU data protection law we rely on three lawful bases:
+          Under UK and EU data protection law, each use of data above rests on
+          one of these lawful bases:
         </p>
         <ul className="ml-5 flex list-disc flex-col gap-1.5">
           <li>
-            <strong className="text-fg font-semibold">
-              Performance of a contract
-            </strong>{" "}
-            — processing the file you asked us to process is the service you
-            requested.
+            <strong className={strong}>Performance of a contract</strong> —
+            processing the files you give a tool, and what you type into it (a
+            password, a web address, a question, signers&apos; names and email
+            addresses), because that is the service you asked for.
           </li>
           <li>
-            <strong className="text-fg font-semibold">
-              Legitimate interests
-            </strong>{" "}
-            — keeping the service available, secure, and free of abuse, and
-            understanding aggregate performance. We have considered your rights
-            in reaching that balance, which is why these signals carry no
-            identifiers and no document contents.
+            <strong className={strong}>Legitimate interests</strong> — the
+            server logs and rate limits that keep the service available, secure
+            and free of abuse; page-performance and error reports, if switched
+            on; the &ldquo;Notify me&rdquo; count; replying to email you send
+            us; and, for the people named as signers in a signature request,
+            preparing the request you asked for. We have considered your rights
+            in reaching that balance:{" "}
+            {PER_CLIENT_KEYING_DISCLOSED
+              ? "the logs hold IP addresses, the rate limiter keeps only a salted hash of one, and none of these signals holds document contents."
+              : "the logs hold IP addresses but no document contents, and the rate limiter holds no identifier at all."}
           </li>
           <li>
-            <strong className="text-fg font-semibold">Consent</strong> — Google
-            Analytics runs only after you opt in, and you can withdraw that
-            consent at any time in the cookies section above; withdrawing is as
-            easy as giving it.
+            <strong className={strong}>Consent</strong> — Google Analytics runs
+            only after you opt in, and you can withdraw that consent at any time
+            in the cookies section above; withdrawing is as easy as giving it.
+          </li>
+          <li>
+            <strong className={strong}>Legal obligation</strong> — answering a
+            request to exercise your rights, and disclosing information where
+            the law requires it.
           </li>
         </ul>
+        <p>
+          No law or contract requires you to give us personal data. A tool needs
+          only what it works on — a file, and for some tools a password, a web
+          address or signers&apos; details; without them that tool cannot run,
+          and nothing else changes.
+        </p>
+        <p>
+          We make no decisions about you by automated means, including
+          profiling, that have legal or similarly significant effects on you.
+        </p>
       </LegalSection>
 
       <LegalSection id="sharing" heading="7. Who else is involved">
         <p>
           We do not sell personal information, and we do not share it for
-          cross-context behavioural advertising. We use a small number of
-          service providers who process data on our instructions:
+          cross-context behavioural advertising. These companies process data on
+          our instructions:
         </p>
-        <ul className="ml-5 flex list-disc flex-col gap-1.5">
+        <ul className="ml-5 flex list-disc flex-col gap-2">
+          {PROCESSORS.map((processor) => (
+            <li key={processor.id}>
+              <strong className={strong}>{processor.name}</strong> (based in{" "}
+              {processor.basedIn}). {processor.does}
+            </li>
+          ))}
           <li>
-            a hosting and content-delivery provider for the website itself;
-          </li>
-          <li>
-            an object-storage provider that holds uploaded files and results for
-            the short windows described above;
-          </li>
-          <li>
-            infrastructure we operate for processing, including malware
-            scanning;
-          </li>
-          <li>
-            AI model providers, which receive extracted document <em>text</em>{" "}
-            when you use an AI tool.
+            The email service that hosts our mailbox, which holds the email you
+            send us.
           </li>
         </ul>
         <p>
-          We may also disclose information where the law requires it, or to
-          protect the rights and safety of our users and the service.
+          The malware scanner and the job queue are software we run ourselves,
+          on the servers above. A website you ask Webpage to PDF to convert
+          receives a request from our processing server, as any visitor&apos;s
+          request would be; it is not working for us. We may also disclose
+          information where the law requires it, or to protect the rights and
+          safety of our users and the service.
         </p>
       </LegalSection>
 
       <LegalSection id="transfers" heading="8. Where data goes">
         <p>
-          {LEGAL_ENTITY.name} is established in the United States, and our
-          providers operate internationally. If you are in the UK or the EEA,
-          using this service means your data is processed outside your country —
-          that is not a corner case here, it is the normal path.
+          {LEGAL_ENTITY.name} is established in the United States, as are most
+          of the companies in section 7, and our web server is in the United
+          States. If you are in the UK or the EEA, using this service means your
+          data is processed outside your country — that is not a corner case
+          here, it is the normal path.
         </p>
         <p>
           Where personal data leaves the UK or EEA, we rely on the safeguards
           our providers offer, typically the UK International Data Transfer
-          Agreement or the EU Standard Contractual Clauses. The practical
-          reduction in exposure is the same one that runs through this whole
-          policy: for most of our tools nothing is transferred at all, because
-          the file never leaves your device.
+          Agreement or the EU Standard Contractual Clauses. You can ask us at{" "}
+          <a href={`mailto:${LEGAL_CONTACT}`} className={link}>
+            {LEGAL_CONTACT}
+          </a>{" "}
+          which safeguard covers a given company, and for a copy of it. The
+          practical reduction in exposure is the same one that runs through this
+          whole policy: for most of our tools nothing is transferred at all,
+          because the file never leaves your device.
         </p>
       </LegalSection>
 
       <LegalSection id="security" heading="9. Security">
         <p>
-          Traffic to and from this site is encrypted in transit. Uploaded files
-          are stored on infrastructure we control and are scanned for malware
-          before any processor touches them — a deployment with no scanner
-          refuses to start, so this is not a setting that can quietly lapse. The
-          site sets a strict Content Security Policy and related protections
-          against common web attacks. We remove uploads and results on the
-          timetable in section 2 rather than keeping them.
+          Traffic between your browser and this site is encrypted in transit.
+          Uploaded files are held by our storage provider, {STORAGE_PROVIDER},
+          and are scanned for malware before any processor touches them; the
+          status page shows whether scanning is running right now.{" "}
+          {CSP_SENTENCE} We remove uploads and results on the timetable in
+          section 2 rather than keeping them.
         </p>
         <p>
           No service can promise perfect security, and we do not. What we can
@@ -486,10 +600,7 @@ export default function PrivacyPage() {
         </p>
         <p>
           To exercise any right, email{" "}
-          <a
-            href={`mailto:${LEGAL_CONTACT}`}
-            className="text-accent underline underline-offset-4"
-          >
+          <a href={`mailto:${LEGAL_CONTACT}`} className={link}>
             {LEGAL_CONTACT}
           </a>
           . We will not treat you differently for asking.
@@ -516,10 +627,14 @@ export default function PrivacyPage() {
 
       <LegalSection id="children" heading="11. Children">
         <p>
-          This service is not directed to children under 13, and we do not
-          knowingly collect personal information from them. If you believe a
-          child has provided us with personal information, contact us and we
-          will delete it.
+          This service is not directed to children under {MINIMUM_AGE}, the
+          minimum age in our terms, and we do not knowingly collect personal
+          information from them. Some countries set a higher age — up to{" "}
+          {HIGHEST_DIGITAL_CONSENT_AGE} — below which a parent must agree before
+          you can consent to things like analytics. If that applies to you,
+          decline analytics when the site asks (&ldquo;No thanks&rdquo;), or ask
+          a parent first. If you believe a child has provided us with personal
+          information, contact us and we will delete it.
         </p>
       </LegalSection>
 
@@ -534,10 +649,7 @@ export default function PrivacyPage() {
 
       <LegalSection id="contact" heading="13. Contact">
         <p>
-          <a
-            href={`mailto:${LEGAL_CONTACT}`}
-            className="text-accent underline underline-offset-4"
-          >
+          <a href={`mailto:${LEGAL_CONTACT}`} className={link}>
             {LEGAL_CONTACT}
           </a>
         </p>

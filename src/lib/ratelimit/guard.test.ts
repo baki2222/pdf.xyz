@@ -3,9 +3,17 @@
 // token) is exercised in `provider.test.ts`; this file owns the disabled /
 // local-memory / remote-unimplemented paths and the honesty/no-leak invariants.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import { RATE_LIMIT_ENV } from "./config";
 import { policyFor } from "./policy";
 import { enforceRateLimit, resetRateLimitGuardForTests } from "./guard";
+
+// Per-client keying is gated on the privacy disclosure (ratelimit/config.ts,
+// 2026-10-10). These tests exercise it, so they run in the disclosed
+// counterfactual; src/tests/setup.ts restores the real flag after each test.
+beforeEach(() => {
+  discloseKeyingForTests(true);
+});
 
 function req(headers: Record<string, string> = {}): Request {
   return new Request("http://localhost/api/jobs", { method: "POST", headers });

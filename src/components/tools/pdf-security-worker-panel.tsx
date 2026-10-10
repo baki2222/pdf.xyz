@@ -18,6 +18,7 @@ import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
   DEFAULT_PDF_KEY_LENGTH,
   MAX_PDF_PASSWORD_BYTES,
+  PASSWORD_QUEUE_LIFETIME,
   PDF_ENCRYPTION_LEVELS,
   type PdfKeyLength,
 } from "@/lib/jobs/pdf-security";
@@ -197,7 +198,7 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">{copy.blurb}</p>
         </div>
@@ -271,12 +272,10 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
 
         <p className="text-muted text-xs leading-relaxed">
           No account required. This runs on a separate processing server, not in
-          your browser: files are encrypted in transit and at rest, processed in
-          a temporary per-job folder that is erased when the job ends, and
-          deleted automatically. Your password is never logged. It waits in our
-          job queue only until the job finishes or is cancelled (or, if no
-          worker picks it up, until the queue&apos;s retention lapses), then it
-          is deleted.
+          your browser: files travel over an encrypted connection, are processed
+          in a temporary per-job folder that is erased when the job ends, and
+          are deleted automatically. Your password is never logged.{" "}
+          {PASSWORD_QUEUE_LIFETIME}
         </p>
       </div>
     </div>
@@ -452,7 +451,7 @@ function SecurityRunArea({
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker — the file and password are processed in-process on this machine, not sent to any third party."
-          : "Running this uploads your file to the encrypted secure worker; your password travels with the job through our queue and is used only to perform the operation."}
+          : "Running this uploads your file to the secure worker; your password travels with the job through our queue and is used only to perform the operation."}
       </p>
 
       {file ? (

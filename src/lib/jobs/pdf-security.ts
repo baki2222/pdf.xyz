@@ -35,6 +35,19 @@ import {
 const FALLBACK_STEM = "document";
 
 /**
+ * How long a typed password waits on our side — said by the Protect/Unlock
+ * panel AND by /privacy §2, from this one constant.
+ *
+ * Until 2026-10-10 the two disagreed: the panel said this; /privacy said the
+ * password "sits in that job record for the same 24 hours". It sits in the
+ * job's instructions (the executor spec), which the queue's FINALIZE step
+ * deletes when the job ends; the job record's window bounds it only for a job
+ * no worker ever finalises.
+ */
+export const PASSWORD_QUEUE_LIFETIME =
+  "It waits in our job queue only until the job finishes or is cancelled (or, if no worker picks it up, until the queue's retention lapses), then it is deleted.";
+
+/**
  * Maximum password length, in UTF-8 bytes. This is the PDF 2.0 / AES-256 (R6)
  * hard limit: a password longer than this cannot be represented by the format, so
  * we reject it up front rather than accept a value qpdf would silently truncate

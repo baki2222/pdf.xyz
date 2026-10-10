@@ -73,6 +73,13 @@ import {
   GUARDRAIL_ENV,
   evaluateGuardrails,
 } from "@/lib/workers/deploy/guardrails";
+import { PASSWORD_QUEUE_LIFETIME } from "@/lib/jobs/pdf-security";
+import { CSP_ALLOWS_INLINE_SCRIPTS } from "@/lib/privacy/site-security";
+import {
+  AI_PROVIDER,
+  AI_PROVIDER_RETENTION,
+  PROCESSORS,
+} from "@/lib/privacy/processors";
 import PrivacyPage from "./page";
 
 afterEach(cleanup);
@@ -671,6 +678,46 @@ describe("/privacy states the password's real lifetime (row 8)", () => {
     expect(para).toBeDefined();
     expect(para).not.toMatch(/sits in that job record/i);
     expect(para).toMatch(/until the job finishes or is cancelled/i);
+  });
+
+  it("the page and the panel say it from one constant", () => {
+    // They disagreed until 2026-10-10 because each had its own sentence.
+    expect(sectionText(renderPage(), "files")).toContain(
+      PASSWORD_QUEUE_LIFETIME,
+    );
+    expect(read("src/components/tools/pdf-security-worker-panel.tsx")).toMatch(
+      /\{PASSWORD_QUEUE_LIFETIME\}/,
+    );
+  });
+});
+
+describe("the registries the page renders agree with the bounds above", () => {
+  it("the CSP flag §9 reads is what the served header says", async () => {
+    const { scriptSrc } = await servedCspHosts();
+    expect(CSP_ALLOWS_INLINE_SCRIPTS).toBe(
+      scriptSrc.includes("'unsafe-inline'"),
+    );
+  });
+
+  it("the processor registry names the production facts, and nothing the code cannot place", async () => {
+    const { names } = await requiredProcessors();
+    const registered = PROCESSORS.map((p) => `${p.name} ${p.does}`).join(" ");
+    expect(names.filter((n) => !registered.includes(n))).toEqual([]);
+    // Every registered company is either a code integration or a recorded
+    // outside fact — never a name typed in passing.
+    const accounted = new Set([
+      ...(await requiredProcessors()).origins
+        .filter((o) => o.active)
+        .map((o) => o.company),
+      OUTSIDE_FACTS.webHost.company,
+      OUTSIDE_FACTS.workerHost.company,
+      OUTSIDE_FACTS.edge.company,
+    ]);
+    expect(
+      PROCESSORS.map((p) => p.name).filter((n) => !accounted.has(n)),
+    ).toEqual([]);
+    expect(AI_PROVIDER.family).toBe(OUTSIDE_FACTS.aiFamily);
+    expect(AI_PROVIDER_RETENTION).toBe(OUTSIDE_FACTS.aiProviderRetention);
   });
 });
 

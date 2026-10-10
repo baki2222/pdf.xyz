@@ -16,7 +16,7 @@ Every tool declares one of these, shown on its card and page:
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | **In-browser** (`client`)    | Runs entirely on your device. Files are never uploaded.                                                          |
 | **Hybrid**                   | Runs in the browser; an optional, clearly labeled worker step uploads the file only when the user starts it.     |
-| **Secure worker** (`server`) | Processed on an encrypted, isolated worker and deleted shortly after.                                            |
+| **Secure worker** (`server`) | Processed on a secure worker and deleted shortly after.                                                          |
 | **AI**                       | Sends the PDF's selectable text (not the file) to a third-party AI provider whose terms prohibit training on it. |
 
 ## What runs where (honest status)
