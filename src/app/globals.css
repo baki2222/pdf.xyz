@@ -314,8 +314,10 @@
  *
  *  So each face gets a fallback per weight range, against Arial (Arial
  *  Bold from 550). A range the site renders (sans 400/500/600, display
- *  500/700, mono) is fitted to the text set at that weight, from the
- *  spec's own measured table. Any other range takes the ratio over the 574
+ *  500/600/700, mono) is fitted to the text set at that weight, from the
+ *  spec's own measured table. Display 600 arrived with the home ticket
+ *  (WP-05), in its whole-corpus range. It read 0.9852 on Windows and
+ *  0.9831 on CI's Linux, so it is refitted to their mean. Any other range takes the ratio over the 574
  *  strings ten production pages render, all set at that weight. Ascent and descent
  *  are the real face's own (Geist 1005/295, Bricolage 930/270 per 1000),
  *  divided by that size-adjust, so line boxes keep their height. Arial,
@@ -436,9 +438,9 @@
     local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
     local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
   font-weight: 550 649;
-  size-adjust: 99.84%;
-  ascent-override: 93.15%;
-  descent-override: 27.04%;
+  size-adjust: 101.45%;
+  ascent-override: 91.67%;
+  descent-override: 26.61%;
   line-gap-override: 0%;
 }
 @font-face {
