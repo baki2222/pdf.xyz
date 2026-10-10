@@ -1401,13 +1401,23 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         scanned,
       ];
     case "pdf-to-powerpoint":
+      // CHANGED 2026-10-10 with the engine (`pdf-office-export/page-scan.ts`).
+      // Until then: "Each slide holds that page's selectable text in a single
+      // text box, one paragraph per line. Images, drawings and the page's
+      // layout are not carried over, and a page with no selectable text
+      // becomes an empty slide." — and the shared `scanned` answer, which
+      // said such a PDF "is refused". Both were true of that engine and are
+      // false of this one; worker-tool-answers.test.ts runs it to hold these.
       return [
         {
           question: "What goes on each slide?",
           answer:
-            "One slide per PDF page, in the same order. Each slide holds that page's selectable text in a single text box, one paragraph per line. Images, drawings and the page's layout are not carried over, and a page with no selectable text becomes an empty slide.",
+            "One slide per PDF page, in the same order, each the shape of the first page. Every picture on the page is a picture on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied; and the page's other drawing, such as lines, boxes and backgrounds, comes as pictures. A page with nothing on it becomes an empty slide.",
         },
-        scanned,
+        {
+          question: `Can ${tool.name} convert a scanned PDF?`,
+          answer: `Yes, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names those pages. Run the scan through ${toolName("ocr-pdf")} first to have its words as text as well: the converted slides then carry them in invisible text boxes over each picture.`,
+        },
       ];
     case "repair-pdf":
       return [

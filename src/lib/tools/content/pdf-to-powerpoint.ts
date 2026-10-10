@@ -3,7 +3,8 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 
 /*
- * Behaviour claims below were read from the implementation on 2026-09-27:
+ * Behaviour claims below were read from the implementation on 2026-10-10
+ * (they were first read on 2026-09-27; what changed is marked):
  *  - src/components/tools/pdf-office-export-worker-panel.tsx — the run area
  *    only mounts while the status badge reads "Secure worker" (otherwise it
  *    reads "Not enabled" or "Status unknown" and no drop zone is shown); the
@@ -19,31 +20,43 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    and the button saves them from tab memory, so it keeps working past the
  *    worker link's TTL until the tab is closed. The copy therefore puts the
  *    TTL on the worker's copy, never on the button;
- *  - src/lib/workers/pdf-office-export/engine.ts — pptx(): one slide per
- *    extracted page, one text shape per slide, one paragraph per non-empty
- *    trimmed line; nothing else (no images, fonts, colours or positions) is
- *    written; a PDF with no text in ANY page is refused as `no_text`. That
- *    refusal's wording is PARAPHRASED below, not quoted: the message is an
- *    inline literal nothing here can import, so a verbatim quote would go
- *    stale silently the day it is reworded;
- *  - src/lib/workers/pdf-text/native.ts + parse.ts — `pdftotext -layout` with
- *    padding "keep" (side-by-side columns stay on one line, separated by
- *    spaces), pages split on form feeds with only the trailing empty chunk
- *    dropped, so a page with no text still yields an (empty) slide; run with
- *    no `-upw`. A PDF that needs a password to open is refused by poppler,
- *    the runner throws PdfTextOpenError("needs-password"), and engine.ts
- *    classifyFailure returns `password_protected` ("This PDF is
+ *  - CHANGED 2026-10-10. Until then engine.ts pptx() wrote one slide per
+ *    extracted page, ONE text shape per slide, one paragraph per non-empty
+ *    `pdftotext -layout` line, on a fixed 16:9 slide, and nothing else (no
+ *    images, fonts, colours or positions); a PDF with no text in ANY page was
+ *    refused as `no_text`. The owner reported the missing pictures on that
+ *    day, with a competitor's deck that had them. Now
+ *    src/lib/workers/pdf-office-export/page-scan.ts reads every page with
+ *    pdf.js, and deck-from-scan.ts + pptx-package.ts write it:
+ *      · the slide size is the first page's, as displayed; other pages are
+ *        fitted inside it, centred, aspect kept;
+ *      · each raster picture is its own picture at its place and size (a
+ *        plain JPEG copied byte for byte, others re-encoded, the long side
+ *        capped);
+ *      · each line of selectable text is its own text box at its place, its
+ *        size, bold/italic and colour from the PDF, its font MAPPED (a
+ *        family PowerPoint and the worker both have keeps its name; any
+ *        other becomes Arial, Times New Roman or Courier New by class);
+ *        invisible text (an OCR layer) stays invisible;
+ *      · everything else drawn (lines, boxes, arrows, fills, backgrounds) is
+ *        rendered into transparent pictures, in paint order with the rest;
+ *      · a page with no text is NOT refused: it is a slide of pictures, and
+ *        the job result names those pages (`picturePageCount`), which the
+ *        panel shows. Word and Excel still refuse a PDF with no text;
+ *      · links and form-field interactivity are not carried: a link
+ *        annotation has no appearance to draw, and a field is drawn as it
+ *        looks.
+ *  - src/lib/workers/pdf-text/native.ts — pdftotext still OPENS the file
+ *    first, with no `-upw`, so a PDF that needs a password to open is
+ *    refused by poppler, the runner throws PdfTextOpenError("needs-password"),
+ *    and engine.ts classifyFailure returns `password_protected` ("This PDF is
  *    password-protected. Unlock it with Unlock PDF…", non-retryable); the
  *    panel links Unlock PDF by error code. Until 2026-10-07 this docblock and
  *    the FAQ said it failed as the generic `failed` kind and never mentioned
  *    a password;
  *  - src/lib/workers/processor/pdf-office-export.ts — exactly one input,
  *    output named after the upload's (sanitised, possibly truncated) stem
- *    with a .pptx extension;
- *  - PDF to Text (the recommended workaround) runs in the browser (runner
- *    "pdf-to-text", in-browser tier) and separates pages only by one blank
- *    line with no markers, so the copy does NOT promise page-by-page pasting
- *    from it.
+ *    with a .pptx extension.
  *
  * ── DOES IT OPEN IN POWERPOINT? What the copy may say, and why ──────────────
  *
@@ -59,71 +72,56 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  * meta description, intro[1], both of the first two use cases, step 4 and the
  * first FAQ answer), and that was true of every worker image production ran.
  *
- * WHAT CHANGED. 8920ee1b (reached main with #167) packs through
- * pptx-package.ts, which writes ppt/slideMasters/slideMaster1.xml,
- * ppt/slideLayouts/slideLayout1.xml, ppt/theme/theme1.xml and <p:sldSz>; since
- * a85ba73e the engine also runs pptx-inspect.ts over its own package and
- * refuses to deliver one that fails. On 2026-10-09 `pnpm prove:pptx-opens`
- * ran a real job through the worker's processor (a generated 3-page PDF, the
- * middle page blank; the extractor on that Windows host was Xpdf 4.00's
- * pdftotext, not the worker's poppler) and PowerPoint 16.0 build 20430 opened
- * the 14,253-byte result through COM with 3 slides and 1 master, and read
- * every page's text back. It opened it READ-ONLY (`Presentations.Open(path,
- * ReadOnly = msoTrue, …)`) with PowerPoint's alerts switched off
- * (`DisplayAlerts = ppAlertsNone`), and edited and saved nothing. In the same
- * run a deck PowerPoint saved reopened and the pre-2026-09-27 package was
- * refused (0x80070570). Measured on 9f2a2efb by its author, reproduced on it
- * by the reviewer, and run once more on it before this copy was rewritten,
- * with the same figures each time.
+ * 8920ee1b (reached main with #167) packs through pptx-package.ts, which
+ * writes the master, layout and theme chain and <p:sldSz>; since a85ba73e the
+ * engine runs pptx-inspect.ts over its own package and refuses to deliver one
+ * that fails. On 2026-10-09 `pnpm prove:pptx-opens` ran a real job through the
+ * worker's processor and PowerPoint 16.0 build 20430 opened the result through
+ * COM, READ-ONLY with alerts off, with 3 slides and 1 master, and read every
+ * page's text back.
  *
- * WHY THE COPY SAYS NEITHER "refuses" NOR "opens". `publish.yml` deploys both
- * tiers from main on every push, so the six "refuses" sentences would turn
- * false with the first successful publish that carries 8920ee1b. "Opens"
- * would claim more than was measured: COM is not a double-click, and
- * scripts/prove-pptx-opens.ts records damaged files that "opened" through COM
- * with no alert, so it cannot see a silent repair or a repair prompt. "Edit"
- * would too: nothing was edited. So the copy states the COM measurement,
- * dated, with how it was taken (read-only, alerts off), says the double-click
- * and editing have not been checked, and makes NO claim about other
- * presentation apps. Until 2026-10-09 it listed them as not tried (PowerPoint
- * for Mac and the web, Google Slides, Keynote, LibreOffice Impress), and that
- * list goes stale by itself: worker-prove-tools' powerpoint-to-pdf round trip
- * feeds this tool's .pptx to LibreOffice's importer on every deployment
- * proof. That is neither Impress opening it for a person nor PowerPoint, so
- * the copy claims nothing from it either.
+ * 2026-10-10, the deck of pictures and positioned text boxes. Two measurements,
+ * both through COM, both read-only with PowerPoint's alerts off, on PowerPoint
+ * 16.0 build 20430 (the Windows desktop app):
+ *   - `pnpm prove:pptx-opens` on the new engine: the real job's deck (7,706
+ *     bytes, a three-page PDF, the middle page blank) opened with 3 slides and
+ *     1 master, and the text PowerPoint read back matched every page; the
+ *     pre-2026-09-27 package was refused (0x80070570) in the same run;
+ *   - `pnpm measure:pptx-fidelity --renderer powerpoint`: decks the engine made
+ *     from the five committed fixture PDFs (src/tests/pptx-fidelity-fixtures.ts)
+ *     and from a 33-page slide-style tutorial were opened and saved as PDF, and
+ *     each page compared with its source (`fidelity.ts`): 0.000–0.011 a page on
+ *     the fixtures, mean 0.034 on the tutorial, on a scale where a blank page
+ *     scores 1 (the text-only deck scored 0.98–1.40 a page).
+ * The copy states that, dated, and says what was not checked. It does not say
+ * "editable": nobody has edited a slide.
  *
- * WHICH IMAGE IT IS TRUE OF. The measurement is of the engine on main, and the
- * copy says "this tool's export code", so it is true of a download only while
- * production runs an image carrying 8920ee1b. An older image serves the
- * package PowerPoint refused, and merging is not shipping: #167's publish
- * failed on 2026-10-09. A later publish that day put the writer into
- * production (worker build fingerprint 282f44f02ebf). The live answer would be
- * the heartbeat's `pptxPresentationChain`, but that probe is on this branch,
- * not main, so production's heartbeat does not carry it yet, and a static
- * string cannot read it anyway: the copy dates its one measurement and states
- * what was not checked; it cannot follow the image.
+ * WHICH IMAGE IT IS TRUE OF. The measurements are of the engine on this branch,
+ * and the copy says "this tool's export code", so it is true of a download only
+ * while production runs an image carrying it; merging is not shipping (#167's
+ * publish failed on 2026-10-09). The live answer is the heartbeat:
+ * `pptxPresentationChain` (wired in scripts/worker-daemon.ts since 2026-10-09)
+ * and `pptxPictures` (2026-10-10), which runs the probe PDF's picture through
+ * the running image's engine. A static string cannot read either: the copy
+ * dates its measurements and states what was not checked.
  *
- * WHAT HOLDS IT. capability-hedges.test.ts reads every entry on this page (the
- * page is named for `pptxPresentationChain`, so it is read whole) and every
- * sentence elsewhere its subject recognises, for a DEFERRAL shape, with the
- * six old sentences as fixtures. It reads deferrals only: a bare "PowerPoint
- * refuses it" or "it opens" carries no deferral marker and passes it, so the
- * "neither refuses nor opens" rule above is held by review, not by a test.
- * claims-vs-capability.test.ts holds the page and its guides to no "editable"
- * claim ("PDF to PowerPoint slides are editable").
+ * WHAT HOLDS IT. capability-hedges.test.ts reads every entry on this page for a
+ * DEFERRAL shape. claims-vs-capability.test.ts holds the page and its guides
+ * to no "editable" claim, and holds the catalogue description to a two-way
+ * rule: it may say the output is text only exactly when the engine's slides,
+ * decoded, carry no pictures. worker-tool-answers.test.ts runs the engine and
+ * holds the served answers to the deck it writes.
  *
  * EXIT CONDITION for an "opens in PowerPoint" claim — the PROPERTY, not the
  * mechanism: a file a user DOWNLOADS FROM PRODUCTION opens on a double-click
  * in PowerPoint for Windows with no repair prompt. That is the owner's check,
- * made in PowerPoint's own window. None of these licenses the claim: a slide
- * master in the package, the inspector passing, `pptxPresentationChain: true`
- * on the production heartbeat, a COM `Presentations.Open` succeeding on a real
- * job. Three of the four have already happened, and the fourth arrives with
- * the first successful publish that carries the probe, which is exactly why
- * none of them can be the exit. Until the owner has made that check, the copy
- * keeps to the dated measurement. An "editable" claim has its own exit, and
- * opening is not it: that same download, edited and saved in PowerPoint for
- * Windows, reopens with no repair prompt.
+ * made in PowerPoint's own window, and it has to be made again for the deck
+ * of 2026-10-10: it is a different file from the one before. None of these
+ * licenses the claim: the inspector passing, either heartbeat key being true,
+ * a COM `Presentations.Open` succeeding, a round trip scoring well. An
+ * "editable" claim has its own exit, and opening is not it: that same
+ * download, edited and saved in PowerPoint for Windows, reopens with no
+ * repair prompt.
  *
  * The upload ceiling below is WORKER_FILE_CEILING (JOB_LIMITS.maxFileBytes).
  * The extractor has its own env-configurable cap
@@ -139,36 +137,36 @@ const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
 const content: ToolContent = {
   slug: "pdf-to-powerpoint",
 
-  seoTitle: "PDF to PowerPoint (PPTX): Text Export by Page",
+  seoTitle: "PDF to PowerPoint: Slides with Pictures and Text",
 
   metaDescription:
-    "Export a PDF's selectable text to a .pptx: one slide per page, each holding that page's lines as plain paragraphs. Images, fonts and layout are not kept.",
+    "Turn each PDF page into a slide the size of the page: pictures where the page shows them, each line of text in its own text box, other drawing kept as pictures.",
 
   intro: [
-    "PDF to PowerPoint reads the words you can select in a PDF and packs them into a .pptx file, page by page: the first page's text goes on slide one, the second page's on slide two, and so on. Each slide holds a single text box, with one paragraph for every line of text found on that page. Pictures, charts, logos, colours, fonts, sizes and the position of each block stay behind, and a sentence the PDF wrapped over two lines arrives as two paragraphs.",
-    "What has been tested is narrow, so here it is in full. On 9 October 2026, PowerPoint for Windows was driven through its automation interface, with its alerts switched off, to open a .pptx this tool's export code built from a three-page test PDF: it opened the file read-only, found one slide per page and read every page's text back. Whether a downloaded file opens on a double-click without PowerPoint offering to repair it has not been checked, editing the slides has not been tested, and this page makes no claim about any other presentation app. If all you need is the words, PDF to Text copies them out in your browser, and nothing is uploaded.",
-    `A PDF made only of scanned images holds pictures of lettering rather than characters, so the export stops and points you to OCR as the first step. The reading is done by poppler's pdftotext on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure worker, where your input is deleted as each job finishes. The worker keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
+    "PDF to PowerPoint turns each page of a PDF into a slide of a .pptx file, in page order, and the slides take the size and shape of the first page. Every picture on a page lands on its slide as a picture of its own, where the page shows it and at the size it is shown. Every line of selectable text becomes a text box at its place, in its size, weight and colour, set in a font matched to the PDF's: fonts are not copied, so a line can run a little longer or shorter than on the page. Lines, boxes, arrows and backgrounds come across as pictures, stacked in the order the page paints them, so a box drawn over a screenshot stays over it.",
+    "What has been checked, and how. On 10 October 2026, decks this tool's export code made from five generated test PDFs and a 33-page slide-style tutorial were opened read-only by PowerPoint for Windows through its automation interface, with its alerts switched off, and saved as PDF; every page of that PDF was compared, pixel by pixel, with the page it came from, and they matched closely, pictures included. The same day the same route opened the deck of a three-page test document and read every page's text back. Whether a downloaded file opens on a double-click without PowerPoint offering to repair it has not been checked for this version, editing the slides has not been tested, and this page makes no claim about any other presentation app.",
+    `A scanned page holds a picture of its words rather than text, so its slide carries the page as a picture, and those words are not editable text. Run OCR PDF on the scan first and convert the result: its slides then also carry the recognised words, in invisible text boxes over the picture, as the OCR'd PDF does. The reading is done on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure worker, where your input is deleted as each job finishes. The worker keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
   ],
 
   useCases: [
     {
-      title: "Recover a deck's wording when only the PDF survived",
-      body: "Each page's wording is written to a slide of its own, in page order, as plain paragraphs in a single text box: raw material for rebuilding a deck, not the deck itself. The layout, pictures and styling stay in the PDF, and editing the exported slides has not been tested, so keep the PDF open beside you as the reference.",
+      title: "Rebuild a deck when only the PDF survived",
+      body: "Each page becomes a slide with its pictures, text and drawing where they were, so the deck starts out looking like the PDF rather than as a list of its words. Text is set in fonts matched to the PDF's and drawings arrive as pictures rather than shapes, and editing the slides has not been tested, so keep the PDF open beside you as the reference.",
     },
     {
-      title: "Turn a report into talking points",
-      body: "Because one page becomes one slide, the .pptx lists a report's pages in a talk's running order, and each slide starts out holding every line its page did. Cutting those lines down to what you will actually say means editing the slides, which has not been tested; the first question below says what has.",
+      title: "Take the screenshots and photos out of a PDF",
+      body: "Pictures arrive on their slides as separate pictures, not flattened into one image of the page, and a JPEG photo is carried into the .pptx byte for byte, at the resolution the PDF holds it.",
     },
     {
-      title: "Bring a scanned handout's words out",
-      body: "Paper that was scanned has no text for any exporter to read. OCR PDF adds a text layer first; the OCR'd copy then has words that this export, or PDF to Text, can pick up.",
+      title: "Bring a scanned handout into a deck",
+      body: "A scanned page comes through as a picture of the page on its slide. To have its words as text too, run OCR PDF first: the converted slides then carry the recognised words in invisible text boxes over each picture.",
     },
   ],
 
   steps: [
     {
-      title: "Check that the PDF has selectable text",
-      body: "Try highlighting a sentence in any PDF viewer. If nothing highlights, the pages are most likely images: run OCR PDF on the file first.",
+      title: "Check what is text in your PDF",
+      body: "Try highlighting a sentence in any PDF viewer. What highlights becomes text boxes on the slides; what does not, such as a scanned page or a photo of one, comes through as a picture. If you need a scan's words as text, run OCR PDF on the file first.",
     },
     {
       title: "Add your PDF",
@@ -180,26 +178,26 @@ const content: ToolContent = {
     },
     {
       title: "Save the .pptx",
-      body: `"Your PPTX file is ready." appears with a Download button labelled with the output's name: your PDF's name, ending in .pptx. The page has already pulled the file into the tab, so that button saves it from there; the worker's own copy becomes unreachable after ${OUTPUT_TTL} minutes.`,
+      body: `"Your PPTX file is ready." appears with a Download button labelled with the output's name: your PDF's name, ending in .pptx. If some pages had no selectable text, a note beside it names them. The page has already pulled the file into the tab, so that button saves it from there; the worker's own copy becomes unreachable after ${OUTPUT_TTL} minutes.`,
     },
   ],
 
   faqs: [
     {
       q: "Will the .pptx open in PowerPoint?",
-      a: "Only one route has been checked. On 9 October 2026, PowerPoint 16.0 for Windows opened a .pptx this tool made from a three-page test PDF through its automation interface, counted three slides and read each page's text back. That check switched PowerPoint's alerts off and opened the file read-only, so it would not have shown a repair prompt. No download has been opened with a double-click, and editing has not been tested, so pdf.xyz does not promise that PowerPoint opens the file without asking to repair it, or that the slides can be edited there. This page makes no claim about other presentation apps.",
+      a: "Only one route has been checked. On 10 October 2026, PowerPoint 16.0 for Windows opened decks this tool made from test PDFs through its automation interface and saved them as PDF, pages matching their sources, and read a three-page test deck's text back. That route switched PowerPoint's alerts off and opened the files read-only, so it would not have shown a repair prompt. No download has been opened with a double-click, and editing has not been tested, so pdf.xyz does not promise that PowerPoint opens the file without asking to repair it, or that the slides can be edited there. This page makes no claim about other presentation apps.",
     },
     {
       q: "Will the design, images and fonts of my PDF be kept?",
-      a: "No. Each slide contains the page's text as plain, unstyled paragraphs in one text box, and nothing else: images, charts, colours, fonts and layout are dropped. To keep the look instead, PDF to JPG renders each page as an image in your browser that you can place on a slide, though its text will not be editable.",
+      a: "The layout and the images, yes; the fonts, approximately. Each slide is the shape of the first page, each picture sits where the page shows it, and each line of text is a text box at its place with its size, weight and colour. Fonts are matched rather than copied: a font PowerPoint is likely to have, such as Calibri or Arial, keeps its name, and any other becomes Arial, Times New Roman or Courier New by style, so a line can come out a little wider or narrower. Lines, boxes and backgrounds arrive as pictures, not as shapes, and links do not come across.",
     },
     {
-      q: "Why was my PDF refused for having no selectable text?",
-      a: "It appears when no page carries real text: scans, phone photos saved as PDF, lettering converted to outlines. Run OCR PDF, then convert the result. If only some pages are images, the export goes ahead and those pages, like blank ones, become empty slides.",
+      q: "What happens to a scanned PDF?",
+      a: "It is converted, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names the pages it happened to. For text as well, run OCR PDF on the scan first and convert the OCR'd copy: its slides carry the recognised words in invisible text boxes over each picture. PDF to Word and PDF to Excel, whose files would hold nothing, still stop at a PDF with no selectable text.",
     },
     {
-      q: "Why is my text broken into short lines, or two columns run together?",
-      a: "Every PDF line becomes its own paragraph, so a wrapped sentence splits where the page wrapped it. Side-by-side columns are read across the page and share one line, separated by spaces; tables arrive as rows of text with gaps.",
+      q: "Why is a paragraph split into separate text boxes?",
+      a: "Each line of the PDF becomes its own text box, placed where that line sits, so a paragraph wrapped over five lines arrives as five boxes and a page set in two columns keeps its columns apart. A symbol drawn in a symbol font, such as an arrow, gets a box of its own so the words after it stay where the page has them.",
     },
     {
       q: "Can I convert a password-protected PDF?",
@@ -207,7 +205,7 @@ const content: ToolContent = {
     },
     {
       q: "Is my PDF kept after the conversion?",
-      a: `No. The worker reads its text, builds the .pptx and deletes the uploaded PDF once the job ends. The .pptx can be fetched from the worker for ${OUTPUT_TTL} minutes. Beyond that the link no longer works, and a daily storage rule erases whatever copy is still stored. No account is involved.`,
+      a: `No. The worker reads its pages, builds the .pptx and deletes the uploaded PDF once the job ends. The .pptx can be fetched from the worker for ${OUTPUT_TTL} minutes. Beyond that the link no longer works, and a daily storage rule erases whatever copy is still stored. No account is involved.`,
     },
   ],
 

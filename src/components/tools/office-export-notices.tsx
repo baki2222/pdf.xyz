@@ -117,13 +117,35 @@ function pageSpan(listed: readonly number[], total: number): string {
  * so it renders nothing rather than an "every page had text" it cannot know.
  * Pages with a little text get the hedged wording, because a stamp on a scan
  * and a one-line title slide look the same from here.
+ *
+ * TOOL-AWARE since 2026-10-10. Until then one notice served all three exports
+ * and said of a page with no text "nothing from it is in this file" — true of
+ * Word, Excel and the PowerPoint export of that day. PowerPoint now keeps
+ * such a page as pictures, so for it the notice says THAT, but only when the
+ * worker reported `picturePageCount`: an older worker's result has no such
+ * field, its deck really did leave the page empty, and it gets the old words.
  */
-export function OfficeExportCoverageNotice({ job }: { job: Job | undefined }) {
+export function OfficeExportCoverageNotice({
+  job,
+  tool,
+}: {
+  job: Job | undefined;
+  /** The tool the result came from; PowerPoint's pictures change the words. */
+  tool?: string;
+}) {
   const report = job?.results?.officeExport;
   if (!report) return null;
   const missing = report.pageCount - report.textPageCount;
   const little = report.littleTextPageCount;
   if (missing <= 0 && little <= 0) return null;
+  const pictures =
+    tool === "pdf-to-powerpoint" && report.picturePageCount !== undefined
+      ? {
+          count: report.picturePageCount,
+          pages: report.pagesAsPictures ?? [],
+          blank: Math.max(0, missing - report.picturePageCount),
+        }
+      : null;
 
   return (
     <div
@@ -139,12 +161,30 @@ export function OfficeExportCoverageNotice({ job }: { job: Job | undefined }) {
           </strong>
         </span>
       </p>
-      {missing > 0 && (
+      {missing > 0 && !pictures && (
         <p className="ml-6">
           No selectable text on {pageSpan(report.pagesWithoutText, missing)}, so
           nothing from {missing === 1 ? "it" : "them"} is in this file.{" "}
           {missing === 1 ? "It looks" : "They look"} scanned: run OCR PDF first
           to include {missing === 1 ? "it" : "them"}.
+        </p>
+      )}
+      {pictures && pictures.count > 0 && (
+        <p className="ml-6">
+          No selectable text on {pageSpan(pictures.pages, pictures.count)}, so{" "}
+          {pictures.count === 1 ? "its slide carries" : "their slides carry"}{" "}
+          the page as a picture, and the words on{" "}
+          {pictures.count === 1 ? "it are" : "them are"} not editable text. Run
+          OCR PDF first to have them as text too.
+        </p>
+      )}
+      {pictures && pictures.blank > 0 && (
+        <p className="ml-6">
+          {pictures.blank === 1
+            ? "One page has"
+            : `${pictures.blank} pages have`}{" "}
+          nothing on {pictures.blank === 1 ? "it" : "them"}, so{" "}
+          {pictures.blank === 1 ? "its slide is" : "their slides are"} empty.
         </p>
       )}
       {little > 0 && (
@@ -153,7 +193,10 @@ export function OfficeExportCoverageNotice({ job }: { job: Job | undefined }) {
           {little === 1 ? "has" : "have"} under {LITTLE_TEXT_CHARS} characters
           of selectable text. If{" "}
           {little === 1 ? "it is a scan" : "they are scans"} with a stamp or
-          header on top, run OCR PDF first to include the rest.
+          header on top,{" "}
+          {pictures
+            ? "the scan comes through as a picture: run OCR PDF first to have the rest as text."
+            : "run OCR PDF first to include the rest."}
         </p>
       )}
       <Link

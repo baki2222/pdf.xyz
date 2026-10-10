@@ -61,6 +61,41 @@ function extensionFor(slug: PdfOfficeTool): string {
   return "PPTX";
 }
 
+/**
+ * What the panel says the export carries, per tool. Word and Excel package a
+ * PDF's selectable text and refuse a scan; since 2026-10-10 PowerPoint reads
+ * the PAGES, keeps their pictures and drawing, and turns a scan into a slide
+ * of pictures (`pdf-office-export/page-scan.ts`). One sentence for all three
+ * said "Pages without selectable text (scans) are not included" until then,
+ * which became false for PowerPoint.
+ */
+const EXPORT_COPY: Record<
+  PdfOfficeTool,
+  { badge: string; summary: string; note: string; hint: string }
+> = {
+  "pdf-to-word": {
+    badge: "Selectable text export",
+    summary:
+      "The worker extracts selectable PDF text and packages it into a real DOCX file. Pages without selectable text (scans) are not included; run OCR first to include them.",
+    note: "Running this uses a private secure-worker job. Only selectable text is exported; scanned/image-only PDFs need OCR first.",
+    hint: "Selectable PDF",
+  },
+  "pdf-to-excel": {
+    badge: "Selectable text export",
+    summary:
+      "The worker extracts selectable PDF text and packages it into a real XLSX file. Pages without selectable text (scans) are not included; run OCR first to include them.",
+    note: "Running this uses a private secure-worker job. Only selectable text is exported; scanned/image-only PDFs need OCR first.",
+    hint: "Selectable PDF",
+  },
+  "pdf-to-powerpoint": {
+    badge: "Pages to slides",
+    summary:
+      "The worker reads each page and builds a real PPTX file: pictures where the page shows them, text in text boxes at their places, other drawing as pictures. A scanned page comes through as a picture; run OCR first to have its words as text too.",
+    note: "Running this uses a private secure-worker job. A scanned page comes through as a picture on its slide; run OCR first to have its words as text.",
+    hint: "One PDF",
+  },
+};
+
 function badgeFor(
   phase: Phase,
   status: WorkerStatus | null,
@@ -97,7 +132,7 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
           <div className="flex items-center justify-between gap-3">
             <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
               <FileText className="size-3" aria-hidden />
-              Selectable text export
+              {EXPORT_COPY[officeTool].badge}
             </span>
             <StatusBadge
               tone={badge.tone}
@@ -109,9 +144,7 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
             {tool.name} runs on an encrypted secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">
-            The worker extracts selectable PDF text and packages it into a real{" "}
-            {extensionFor(officeTool)} file. Pages without selectable text
-            (scans) are not included; run OCR first to include them.
+            {EXPORT_COPY[officeTool].summary}
           </p>
         </div>
 
@@ -250,8 +283,7 @@ function PdfOfficeRunArea({
     <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
       <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. Only selectable text is
-        exported; scanned/image-only PDFs need OCR first.
+        {EXPORT_COPY[tool].note}
       </p>
       {file ? (
         <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
@@ -275,7 +307,7 @@ function PdfOfficeRunArea({
           multiple={false}
           compact
           title="Add your PDF, or"
-          hint="Selectable PDF"
+          hint={EXPORT_COPY[tool].hint}
         />
       )}
       <WorkerRunButton
@@ -294,7 +326,7 @@ function PdfOfficeRunArea({
       {outcome?.ok === true && (
         <ResultCard announce={`Your ${output} file is ready.`}>
           <p className="text-ok text-sm">Your {output} file is ready.</p>
-          <OfficeExportCoverageNotice job={outcome.job} />
+          <OfficeExportCoverageNotice job={outcome.job} tool={tool} />
           <DownloadCta
             onClick={() =>
               downloadBytes(outcome.output, outcome.artifact.filename)
