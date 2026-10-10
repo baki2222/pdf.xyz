@@ -147,11 +147,12 @@ export function DropLayer() {
   // registered as the page's fallback — the dialog, and the picker of last
   // resort. `engine()` resolves only after that registration.
   const ready = useRef<Promise<Engine> | null>(null);
+  const unregister = useRef<(() => void) | null>(null);
   const engine = useCallback((): Promise<Engine> => {
     ready.current ??= loadEngine().then(
       (mod) => {
         let seq = 0;
-        mod.registerFallback({
+        unregister.current = mod.registerFallback({
           receive(files, via, why) {
             seq += 1;
             setUnreachable(false);
@@ -176,6 +177,19 @@ export function DropLayer() {
     );
     return ready.current;
   }, []);
+
+  // Leaving takes everything the layer put on the page with it: its place
+  // as the fallback, and the picker it appended to <body>.
+  useEffect(
+    () => () => {
+      unregister.current?.();
+      unregister.current = null;
+      ready.current = null;
+      picker.current?.remove();
+      picker.current = null;
+    },
+    [],
+  );
 
   // Fetch it while the page is idle, so the first drag draws at once.
   useEffect(() => {

@@ -379,8 +379,13 @@ describe("a file the page's zone refuses on its own terms", () => {
 });
 
 describe("Open files", () => {
-  it("with no target of its own, a page uses the layer's picker — after <main>, so never a page's first", async () => {
-    const { container } = await page();
+  it("with no target of its own, a page uses the layer's picker — made when asked for, never before, and gone with the layer", async () => {
+    const files = () => document.querySelectorAll('input[type="file"]').length;
+    const { container, unmount } = await page();
+    // Nothing of the layer's is a file input until a pick is asked for: a
+    // page's first file input is always the page's own (workspace.spec
+    // caught one that was, in the moment React reveals a prerendered page).
+    expect(files()).toBe(0);
     const click = vi
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
@@ -389,10 +394,14 @@ describe("Open files", () => {
       expect(click).toHaveBeenCalledTimes(1);
       const input = click.mock.contexts[0] as HTMLInputElement;
       expect(input.type).toBe("file");
+      expect(input.isConnected).toBe(true);
       expect(container.querySelector("main")!.contains(input)).toBe(false);
     } finally {
       click.mockRestore();
     }
+    unmount();
+    expect(files()).toBe(0);
+    expect(requestFilePick()).toBe("nowhere");
   });
 });
 
