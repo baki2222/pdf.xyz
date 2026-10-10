@@ -23,12 +23,13 @@ import {
   rectangle,
   rgb,
   setTextRenderingMode,
-  StandardFonts,
   TextRenderingMode,
   type PDFFont,
   type PDFImage,
   type PDFPage,
 } from "pdf-lib";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { encodePngImage } from "@/lib/workers/pdf-office-export/png-encode";
 import { JPEG_30X20, JPEG_HEIGHT, JPEG_WIDTH } from "./jpeg-fixtures";
 
@@ -224,8 +225,14 @@ function text(
   rec.push({ text: s, x, baseline, size, bold, color: hex(...color) });
 }
 
-function image(page: PDFPage, img: PDFImage, at: Rect): void {
-  page.drawImage(img, {
+/**
+ * Draw `img` into `at` (top-left frame). Through the repository's one raster
+ * boundary (`@/lib/pdf/pdf-lib`), like every other PDF this codebase builds:
+ * `raster-embedder-boundary.test.ts` and `raster-draw-boundary.test.ts` hold
+ * fixture builders to it too.
+ */
+function image(page: PDFPage, img: PDFImage, at: Rect): Promise<void> {
+  return drawRasterImage(page, img, {
     x: at.x,
     y: page.getHeight() - at.y - at.height,
     width: at.width,
@@ -261,10 +268,15 @@ function emptyPage(width: number, height: number): FixturePage {
   };
 }
 
-async function fonts(doc: PDFDocument) {
+/**
+ * The fixture's faces, from the one font chooser (`embedDrawingFont`), given
+ * every string the fixture will draw: Latin text gets the standard faces,
+ * which pdf-lib does not embed, as most real PDFs' do not.
+ */
+async function fonts(doc: PDFDocument, strings: readonly string[]) {
   return {
-    regular: await doc.embedFont(StandardFonts.Helvetica),
-    bold: await doc.embedFont(StandardFonts.HelveticaBold),
+    regular: await embedDrawingFont(doc, strings, "sans"),
+    bold: await embedDrawingFont(doc, strings, "sans-bold"),
   };
 }
 
@@ -279,14 +291,22 @@ async function fonts(doc: PDFDocument) {
  */
 export async function imageCaptionPdf(): Promise<PptxFixture> {
   const doc = await PDFDocument.create();
-  const f = await fonts(doc);
+  const f = await fonts(doc, [
+    "Open the portal",
+    "and sign in",
+    "Step 1 of 3: the home page",
+  ]);
   const page = doc.addPage([720, 540]);
   const rec = emptyPage(720, 540);
   const W = 480;
   const H = 300;
-  const photo = await doc.embedPng(png(W, H, "rgb8", gradientPixels(W, H)));
+  const photo = await embedRasterImage(
+    doc,
+    png(W, H, "rgb8", gradientPixels(W, H)),
+    "png",
+  );
   const shown: Rect = { x: 120, y: 120, width: W, height: H };
-  image(page, photo, shown);
+  await image(page, photo, shown);
   rec.images.push({
     shown,
     pixelWidth: W,
@@ -326,9 +346,9 @@ export async function imageCaptionPdf(): Promise<PptxFixture> {
     f.regular,
     false,
   );
-  const jpg = await doc.embedJpg(JPEG_30X20);
+  const jpg = await embedRasterImage(doc, JPEG_30X20, "jpg");
   const thumb: Rect = { x: 620, y: 40, width: 60, height: 40 };
-  image(page, jpg, thumb);
+  await image(page, jpg, thumb);
   rec.images.push({
     shown: thumb,
     pixelWidth: JPEG_WIDTH,
@@ -344,7 +364,7 @@ export async function imageCaptionPdf(): Promise<PptxFixture> {
     clip(),
     endPath(),
   );
-  image(page, photo, clipped);
+  await image(page, photo, clipped);
   page.pushOperators(popGraphicsState());
   rec.images.push({
     shown: { ...clipped, width: 45 },
@@ -363,7 +383,7 @@ export async function imageCaptionPdf(): Promise<PptxFixture> {
  */
 export async function vectorShapesPdf(): Promise<PptxFixture> {
   const doc = await PDFDocument.create();
-  const f = await fonts(doc);
+  const f = await fonts(doc, ["Quarterly plan", "Revenue", "Costs"]);
   const page = doc.addPage([720, 540]);
   const rec = emptyPage(720, 540);
   const shapes: [Rect, [number, number, number], [number, number, number]?][] =
@@ -426,9 +446,13 @@ export async function scannedPdf(): Promise<PptxFixture> {
   const rec = emptyPage(612, 792);
   const W = 612;
   const H = 792;
-  const scan = await doc.embedPng(png(W, H, "gray8", scanPixels(W, H)));
+  const scan = await embedRasterImage(
+    doc,
+    png(W, H, "gray8", scanPixels(W, H)),
+    "png",
+  );
   const shown: Rect = { x: 0, y: 0, width: 612, height: 792 };
-  image(page, scan, shown);
+  await image(page, scan, shown);
   rec.images.push({
     shown,
     pixelWidth: W,
@@ -446,7 +470,11 @@ export async function scannedPdf(): Promise<PptxFixture> {
  */
 export async function paintOrderPdf(): Promise<PptxFixture> {
   const doc = await PDFDocument.create();
-  const f = await fonts(doc);
+  const f = await fonts(doc, [
+    "PRIVATE NAME UNDER THE PICTURE",
+    "Paint order",
+    "searchable but not shown",
+  ]);
   const page = doc.addPage([720, 540]);
   const rec = emptyPage(720, 540);
   // Painted first, then covered by the picture: hidden in the PDF.
@@ -464,9 +492,13 @@ export async function paintOrderPdf(): Promise<PptxFixture> {
   rec.hiddenTexts.push(...hidden);
   const W = 520;
   const H = 320;
-  const photo = await doc.embedPng(png(W, H, "rgb8", gradientPixels(W, H)));
+  const photo = await embedRasterImage(
+    doc,
+    png(W, H, "rgb8", gradientPixels(W, H)),
+    "png",
+  );
   const shown: Rect = { x: 100, y: 120, width: W, height: H };
-  image(page, photo, shown);
+  await image(page, photo, shown);
   rec.images.push({
     shown,
     pixelWidth: W,
@@ -490,9 +522,13 @@ export async function paintOrderPdf(): Promise<PptxFixture> {
     box: { x: 150, y: 340, width: 120, height: 60 },
     overPicture: true,
   });
-  const badge = await doc.embedPng(png(96, 96, "rgba8", badgePixels(96)));
+  const badge = await embedRasterImage(
+    doc,
+    png(96, 96, "rgba8", badgePixels(96)),
+    "png",
+  );
   const badgeAt: Rect = { x: 40, y: 30, width: 64, height: 64 };
-  image(page, badge, badgeAt);
+  await image(page, badge, badgeAt);
   rec.images.push({
     shown: badgeAt,
     pixelWidth: 96,
@@ -542,18 +578,25 @@ export async function paintOrderPdf(): Promise<PptxFixture> {
  */
 export async function mixedSizesPdf(): Promise<PptxFixture> {
   const doc = await PDFDocument.create();
-  const f = await fonts(doc);
+  const f = await fonts(doc, [
+    ...[1, 2, 3, 4].map((n) => `Page ${n} heading`),
+    "A line of body text under the picture.",
+  ]);
   const pages: FixturePage[] = [];
   const W = 240;
   const H = 160;
-  const photo = await doc.embedPng(png(W, H, "rgb8", gradientPixels(W, H)));
+  const photo = await embedRasterImage(
+    doc,
+    png(W, H, "rgb8", gradientPixels(W, H)),
+    "png",
+  );
   const sizes: [number, number, number][] = [
     [720, 540, 0],
     [595, 842, 0],
     [792, 612, 0],
     [612, 792, 90],
   ];
-  sizes.forEach(([w, h, rotate], i) => {
+  for (const [i, [w, h, rotate]] of sizes.entries()) {
     const page = doc.addPage([w, h]);
     const rec = emptyPage(w, h);
     if (rotate) {
@@ -563,7 +606,7 @@ export async function mixedSizesPdf(): Promise<PptxFixture> {
     const band: Rect = { x: 40, y: 40, width: w - 80, height: 60 };
     box(page, band, [0.2, 0.55, 0.35]);
     const shown: Rect = { x: 60, y: 160, width: W, height: H };
-    image(page, photo, shown);
+    await image(page, photo, shown);
     text(page, rec.texts, `Page ${i + 1} heading`, 60, 140, 26, f.bold, true);
     text(
       page,
@@ -611,8 +654,50 @@ export async function mixedSizesPdf(): Promise<PptxFixture> {
       }));
     }
     pages.push(rec);
-  });
+  }
   return { name: "mixedSizesPdf", pdf: await doc.save(), pages };
+}
+
+/**
+ * A plain document: each page a list of lines of 18 pt Helvetica (an empty
+ * list is a blank page), and, with `picture`, one picture on page 1. For
+ * tests that need the real page reader over pages of known text — what the
+ * copy guards hold the served page to — rather than one of the shapes above.
+ */
+export async function linesPdf(
+  pages: readonly (readonly string[])[],
+  { picture = false }: { picture?: boolean } = {},
+): Promise<PptxFixture> {
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, pages.flat());
+  const recs: FixturePage[] = [];
+  for (const [index, lines] of pages.entries()) {
+    const page = doc.addPage([720, 540]);
+    const rec = emptyPage(720, 540);
+    lines.forEach((line, k) =>
+      text(page, rec.texts, line, 72, 90 + k * 30, 18, f.regular, false),
+    );
+    if (picture && index === 0) {
+      const W = 240;
+      const H = 150;
+      const photo = await embedRasterImage(
+        doc,
+        png(W, H, "rgb8", gradientPixels(W, H)),
+        "png",
+      );
+      const shown: Rect = { x: 400, y: 300, width: W, height: H };
+      await image(page, photo, shown);
+      rec.images.push({
+        shown,
+        pixelWidth: W,
+        pixelHeight: H,
+        source: "png",
+        alpha: false,
+      });
+    }
+    recs.push(rec);
+  }
+  return { name: "linesPdf", pdf: await doc.save(), pages: recs };
 }
 
 /** Every fixture, for tests that sweep them all. */

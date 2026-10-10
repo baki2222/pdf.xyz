@@ -144,6 +144,8 @@ import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { flowText } from "@/lib/workers/pdf-text/flow";
 import { parseBboxFlow } from "@/lib/workers/pdf-text/parse";
 import { OFFICE_METRIC_CLONES } from "@/lib/workers/office-conversion/fonts";
+import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
+import { linesPdf } from "@/tests/pptx-fidelity-fixtures";
 import { TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
 import { runWorkerHtmlToPdf } from "@/lib/workers/html-render-client";
 import type { FetchLike } from "@/lib/workers/pdf-security-client";
@@ -481,9 +483,28 @@ async function officeParts(
     })),
   }),
 ): Promise<Record<string, string>> {
-  const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
+  // PowerPoint reads the pages themselves since 2026-10-10: its probe is a
+  // real PDF of these lines (and, with a picture on page 1, the thing the
+  // owner reported missing) through the real page reader. The stub
+  // extraction alone answers `unsupported` for it.
+  const input =
+    tool === PDF_TO_POWERPOINT_TOOL
+      ? (
+          await linesPdf(
+            pages.map((t) =>
+              t
+                .split("\n")
+                .map((l) => l.trim())
+                .filter(Boolean),
+            ),
+            { picture: true },
+          )
+        ).pdf
+      : new Uint8Array([1]);
+  const run = await runPdfOfficeExport(tool, input, {
     extract: stubExtract(pages),
     extractFlow,
+    scanPages: scanPdfPages,
   });
   if (!run.ok) throw new Error(`${tool} export failed: ${run.message}`);
   const zip = await JSZip.loadAsync(run.output);
@@ -1446,7 +1467,22 @@ describe("the replacement copy states what the output actually is", () => {
     ).toContain("columns can merge");
   });
 
-  it("PDF to PowerPoint: while slides carry no pictures or positions, the description says text only", async () => {
+  /**
+   * REPLACED 2026-10-10. This was "while slides carry no pictures or
+   * positions, the description says text only", and it asserted NOTHING: its
+   * `textOnly` was `!/<p:pic\b|<a:xfrm\b/` over every slide, and the writer
+   * has put an `a:xfrm` on every text box since 2026-09-27, so `textOnly` was
+   * always false and the `if` that held the description never ran — green
+   * over a catalogue it never read. Its "positive control" tested a string
+   * literal, not the branch.
+   *
+   * Now the relationship runs BOTH ways, and each way is exercised: the
+   * engine is run on a page with a picture and decoded; pictures on the
+   * slides ⇒ the description and facts may not say "text only" or "not
+   * carried over"; no pictures ⇒ they must. The controls run the same
+   * predicate over the descriptions shipped on either side of the change.
+   */
+  it("PDF to PowerPoint: the description says text only exactly when the slides carry no pictures", async () => {
     const parts = await officeParts(PDF_TO_POWERPOINT_TOOL, [
       "Revenue      $4.2M",
       "Second page",
@@ -1454,21 +1490,37 @@ describe("the replacement copy states what the output actually is", () => {
     const slides = Object.entries(parts).filter(([n]) =>
       /^ppt\/slides\/slide\d+\.xml$/.test(n),
     );
-    // Health: one slide per page, decoded.
+    // Health: one slide per page, decoded, and the probe page HAS a picture,
+    // so a deck without one is the engine's doing and not the input's.
     expect(slides).toHaveLength(2);
-    const textOnly = slides.every(([, xml]) => !/<p:pic\b|<a:xfrm\b/.test(xml));
-    const QUALIFIER = /\btext only\b|\bnot carried over\b/i;
+    const pictures = slides.filter(([, xml]) => /<p:pic\b/.test(xml)).length;
+    const QUALIFIER =
+      /\btext only\b|\bnot carried over\b|\bstay(?:s)? behind\b|\bimages?\b[^.]{0,40}\bnot (?:kept|included)\b/i;
     const tool = getToolBySlug(PDF_TO_POWERPOINT_TOOL)!;
-    if (textOnly) {
-      expect(
-        tool.description,
-        "every slide is a bare text box — the description must say so",
-      ).toMatch(QUALIFIER);
-    }
-    // Positive control: the description shipped at the audit base fails it.
+    const said = [
+      tool.description,
+      ...toolFacts(tool.slug).map((f) => f.value),
+    ];
+    const qualifies = said.some((t) => QUALIFIER.test(t));
     expect(
-      "Convert each PDF page into an editable PowerPoint slide, rebuilt from the page’s selectable text — on a secure worker that deletes the input when the job finishes.",
-    ).not.toMatch(QUALIFIER);
+      qualifies,
+      pictures > 0
+        ? `the slides carry ${pictures} picture(s) — the copy may not say they are left out`
+        : "every slide is text only — the copy must say so",
+    ).toBe(pictures === 0);
+    // Controls, through the same predicate: the description shipped until
+    // 2026-10-10 qualifies; the audit base's did not (it claimed editable
+    // slides instead, which is the rule above's business).
+    expect(
+      QUALIFIER.test(
+        "Put each PDF page’s selectable text on its own slide in a .pptx file. Text only: images, charts and page layout are not carried over.",
+      ),
+    ).toBe(true);
+    expect(
+      QUALIFIER.test(
+        "Convert each PDF page into an editable PowerPoint slide, rebuilt from the page’s selectable text — on a secure worker that deletes the input when the job finishes.",
+      ),
+    ).toBe(false);
   });
 
   it("PDF to PowerPoint: the operations row promises no more than the page does", () => {

@@ -37,8 +37,18 @@ import {
 } from "./engine";
 import { inspectPptxPackage } from "./pptx-inspect";
 import { pptxPackage } from "./pptx-package";
+import { scanPdfPages } from "./page-scan";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { parseXml, xmlWellFormedness } from "@/tests/xml-well-formed";
+import { scanning, textScan } from "@/tests/page-scan-stubs";
+import {
+  imageCaptionPdf,
+  linesPdf,
+  pdftotextStandIn,
+  PPTX_FIDELITY_FIXTURES,
+  scannedPdf,
+  type PptxFixture,
+} from "@/tests/pptx-fidelity-fixtures";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -69,6 +79,17 @@ function flowPages(...pages: string[][]): PdfFlowExtractor {
   });
 }
 const extractFlow = flowPages(["Name Amount", "Alice 10"], ["Bob 20"]);
+
+/**
+ * PDF to PowerPoint's deps for a fixture: the REAL page reader, and pdftotext
+ * stood in for (it only classifies a refusal before the reader runs).
+ */
+function pptxDeps(fixture: PptxFixture): PdfOfficeExportDeps {
+  return {
+    extract: async () => pdftotextStandIn(fixture),
+    scanPages: scanPdfPages,
+  };
+}
 
 async function zipEntries(bytes: Uint8Array) {
   const zip = await JSZip.loadAsync(bytes);
@@ -123,9 +144,12 @@ describe("pdf-office-export engine", () => {
 
   it("exports selectable PDF text to XLSX and PPTX packages", async () => {
     const xlsx = await runPdfOfficeExport("pdf-to-excel", PDF, { extract });
-    const pptx = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
-      extract,
-    });
+    const fixture = await imageCaptionPdf();
+    const pptx = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      fixture.pdf,
+      pptxDeps(fixture),
+    );
     expect(xlsx.ok).toBe(true);
     expect(pptx.ok).toBe(true);
     if (xlsx.ok)
@@ -157,9 +181,12 @@ describe("pdf-office-export engine", () => {
     for (const tool of PDF_OFFICE_EXPORT_TOOLS) {
       // Both extractors, as production wires them: PDF to Word reads only the
       // flow one, and without it answers `unsupported` without writing a file.
+      // PowerPoint's text comes from its page reader, so that reader hands
+      // the writer the same hostile line.
       const run = await runPdfOfficeExport(tool, PDF, {
         extract: hostileExtract,
         extractFlow: flowPages([hostile]),
+        scanPages: scanning(textScan([[hostile]])),
       });
       expect(run.ok, tool).toBe(true);
       if (!run.ok) continue;
@@ -197,6 +224,30 @@ describe("pdf-office-export engine", () => {
         limits: { maxInputBytes: 4 },
       }),
     ).resolves.toMatchObject({ ok: false, kind: "too_large", limitBytes: 4 });
+  });
+
+  it("does NOT refuse an image-only PDF for PowerPoint: its page becomes a picture slide", async () => {
+    // Beside the refusals above, which stay: a Word or Excel file of a scan
+    // is empty, but a slide can carry the page as it looks. Until 2026-10-10
+    // PowerPoint refused the scan exactly like the other two.
+    const fixture = await scannedPdf();
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      fixture.pdf,
+      pptxDeps(fixture),
+    );
+    expect(run).toMatchObject({
+      ok: true,
+      coverage: { textPageCount: 0, picturePageCount: 1, pagesAsPictures: [1] },
+    });
+  });
+
+  it("answers `unsupported` for PowerPoint without the page reader: no text-only fallback", async () => {
+    // A deck with no pictures is the defect the reader replaced, not a
+    // lesser success, so a worker that cannot read pages does not write one.
+    await expect(
+      runPdfOfficeExport("pdf-to-powerpoint", PDF, { extract }),
+    ).resolves.toMatchObject({ ok: false, kind: "unsupported" });
   });
 });
 
@@ -293,10 +344,20 @@ describe("a PDF that will not open is classified, not retried", () => {
         outputTooLarge: false,
       });
     };
+    // PowerPoint's page reader is wired and never reached: pdftotext refuses
+    // the file first, and the refusal is classified as Excel's is.
+    let scanned = 0;
     for (const tool of ["pdf-to-excel", "pdf-to-powerpoint"] as const)
       await expect(
-        runPdfOfficeExport(tool, locked, { extract: refusedLayout }),
+        runPdfOfficeExport(tool, locked, {
+          extract: refusedLayout,
+          scanPages: async (bytes) => {
+            scanned++;
+            return scanPdfPages(bytes);
+          },
+        }),
       ).resolves.toMatchObject({ ok: false, kind: "password_protected" });
+    expect(scanned).toBe(0);
   });
 
   it("keeps a timeout, a spawn failure and an unknown throw retryable (`failed`)", async () => {
@@ -395,13 +456,62 @@ describe("coverage — which pages had text to export", () => {
       characterCount: 46,
       hasText: true,
     });
-    for (const tool of ["pdf-to-excel", "pdf-to-powerpoint"] as const)
-      await expect(
-        runPdfOfficeExport(tool, PDF, { extract: mixed }),
-      ).resolves.toMatchObject({
-        ok: true,
-        coverage: { pageCount: 3, textPageCount: 1, pagesWithoutText: [1, 3] },
-      });
+    await expect(
+      runPdfOfficeExport("pdf-to-excel", PDF, { extract: mixed }),
+    ).resolves.toMatchObject({
+      ok: true,
+      coverage: { pageCount: 3, textPageCount: 1, pagesWithoutText: [1, 3] },
+    });
+    // PowerPoint measures from the text its page reader found, which is what
+    // went into its slides, not from pdftotext's, which it does not write.
+    // (Until 2026-10-10 both read pdftotext's, in the loop this replaced.)
+    await expect(
+      runPdfOfficeExport("pdf-to-powerpoint", PDF, {
+        extract: mixed,
+        scanPages: scanning(
+          textScan([
+            [],
+            ["Region   Q1   Q2   Q3", "North   1200   1350   1410"],
+            [],
+          ]),
+        ),
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      coverage: { pageCount: 3, textPageCount: 1, pagesWithoutText: [1, 3] },
+    });
+  });
+
+  it("names the pages PowerPoint keeps only as pictures, measured from the slides it wrote", async () => {
+    // Page 1 has text and a picture; page 2 is a scan; page 3 is blank.
+    const scan = await scannedPdf();
+    const doc = await PDFDocument.create();
+    const [lines, scanPage] = await Promise.all([
+      PDFDocument.load(
+        (await linesPdf([["A typed page"]], { picture: true })).pdf,
+      ),
+      PDFDocument.load(scan.pdf),
+    ]);
+    const [p1] = await doc.copyPages(lines, [0]);
+    const [p2] = await doc.copyPages(scanPage, [0]);
+    doc.addPage(p1!);
+    doc.addPage(p2!);
+    doc.addPage([720, 540]);
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      await doc.save(),
+      { extract, scanPages: scanPdfPages },
+    );
+    expect(run).toMatchObject({
+      ok: true,
+      coverage: {
+        pageCount: 3,
+        textPageCount: 1,
+        pagesWithoutText: [2, 3],
+        picturePageCount: 1,
+        pagesAsPictures: [2],
+      },
+    });
   });
 
   it("POSITIVE CONTROL: reports nothing missing when every page has real text", async () => {
@@ -530,47 +640,34 @@ describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
   // 2026-09-27 was refused by PowerPoint on 100% of inputs (reproduced through
   // its COM API: "The file or directory is corrupted and unreadable") while
   // the only assertion here checked a part NAME was in the ZIP.
-  type Page = { pageNumber: number; text: string };
-  const layoutPages =
-    (pages: readonly Page[]): PdfTextExtractor =>
-    async () => ({
-      pageCount: pages.length,
-      pages: pages.map((p) => ({ ...p, characterCount: p.text.length })),
-      text: pages.map((p) => p.text).join("\n\n"),
-      characterCount: pages.reduce((n, p) => n + p.text.length, 0),
-      hasText: pages.some((p) => p.text.trim().length > 0),
-    });
-  async function deck(extract: PdfTextExtractor): Promise<Uint8Array> {
+  //
+  // Since 2026-10-10 the slides are written from the page reader's scan, not
+  // from pdftotext's `-layout` lines: each line of text is its own box at its
+  // place. The cases about the WRITER hand it a scan built by hand
+  // (`@/tests/page-scan-stubs`); the cases about what a PDF KEEPS read a real
+  // one (`faithful.test.ts`).
+  async function deck(scan: ReturnType<typeof textScan>): Promise<Uint8Array> {
     const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
       extract,
+      scanPages: scanning(scan),
     });
     if (!run.ok) throw new Error(`pdf-to-powerpoint failed: ${run.kind}`);
     return run.output;
   }
-  const nonBlankLines = (text: string) =>
-    text
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean);
 
   it("writes one slide per page, textless pages included, through the whole chain", async () => {
-    const pages = [
-      { pageNumber: 1, text: "Name Amount\nAlice 10" },
-      { pageNumber: 2, text: "" },
-      { pageNumber: 3, text: "Bob 20" },
-    ];
-    const read = await readPptx(await deck(layoutPages(pages)));
+    const read = await readPptx(
+      await deck(textScan([["Name Amount", "Alice 10"], [], ["Bob 20"]])),
+    );
     expect(read.problems).toEqual([]);
     // Health check on the walk: every slide, plus presentation, master,
     // layout and theme. A walk that reached nothing would find nothing wrong.
-    expect(read.reached).toHaveLength(pages.length + 4);
-    // A textless page is still a slide — slide N is page N — and its text
-    // body keeps the one empty paragraph the schema requires.
-    expect(read.slides).toEqual([
-      ["Name Amount", "Alice 10"],
-      [""],
-      ["Bob 20"],
-    ]);
+    expect(read.reached).toHaveLength(3 + 4);
+    // A textless page is still a slide — slide N is page N. INVERTED
+    // 2026-10-10: it used to hold one text box with the one empty paragraph
+    // the schema requires (read back as [""]); a page with nothing on it now
+    // gets a slide with nothing on it, and so no text body to need one.
+    expect(read.slides).toEqual([["Name Amount", "Alice 10"], [], ["Bob 20"]]);
   });
 
   it("names every slide part by its position, not by the page number it came from", async () => {
@@ -578,12 +675,7 @@ describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
     // index. They used to disagree: the part was named after `pageNumber`,
     // everything pointing at it after the loop index.
     const read = await readPptx(
-      await deck(
-        layoutPages([
-          { pageNumber: 4, text: "fourth" },
-          { pageNumber: 9, text: "ninth" },
-        ]),
-      ),
+      await deck(textScan([["fourth"], ["ninth"]], [4, 9])),
     );
     expect(read.problems).toEqual([]);
     expect(read.slides).toEqual([["fourth"], ["ninth"]]);
@@ -592,17 +684,26 @@ describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
   it("strips XML-illegal control characters from every Office output, keeping markup as text", async () => {
     // One stray control character from pdftotext made the whole part
     // malformed XML — for Word and PowerPoint alike, which escaped `<` and
-    // `&` but not these. Excel's writer already stripped them.
+    // `&` but not these. Excel's writer already stripped them. PowerPoint's
+    // text now comes from the page reader, which can hand the writer the
+    // same characters (a font's ToUnicode map says what it says).
     const text = "A\u0001 <b>&amp;</b> \u001Fz\u000Bend";
     const outputs = await Promise.all([
       runPdfOfficeExport("pdf-to-word", PDF, {
         extractFlow: flowPages([text]),
       }),
       runPdfOfficeExport("pdf-to-excel", PDF, {
-        extract: layoutPages([{ pageNumber: 1, text }]),
+        extract: async () => ({
+          pageCount: 1,
+          pages: [{ pageNumber: 1, text, characterCount: text.length }],
+          text,
+          characterCount: text.length,
+          hasText: true,
+        }),
       }),
       runPdfOfficeExport("pdf-to-powerpoint", PDF, {
-        extract: layoutPages([{ pageNumber: 1, text }]),
+        extract,
+        scanPages: scanning(textScan([[text]])),
       }),
     ]);
     let partsChecked = 0;
@@ -628,27 +729,31 @@ describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
     ]);
   });
 
-  it("writes a deck PowerPoint opens for EVERY captured poppler -layout sample", async () => {
-    // Discovered, not named: every `*_LAYOUT` capture in the samples module.
-    const samples = Object.entries(popplerSamples as Record<string, unknown>)
-      .filter(([name]) => name.endsWith("_LAYOUT"))
-      .map(([name, stdout]) => [name, String(stdout)] as const);
-    expect(samples.length).toBeGreaterThanOrEqual(3);
-    for (const [name, stdout] of samples) {
-      const extracted = parseLayoutText(stdout);
-      const read = await readPptx(await deck(async () => extracted));
-      expect(read.problems, name).toEqual([]);
-      expect(read.slides, name).toHaveLength(extracted.pages.length);
-      expect(read.slides.flat().filter(Boolean), name).toEqual(
-        extracted.pages.flatMap((p) => nonBlankLines(p.text)),
+  it("writes a deck PowerPoint opens for EVERY committed fidelity fixture, through the real page reader", async () => {
+    // Discovered, not named: every fixture the fidelity proof runs. Until
+    // 2026-10-10 this swept the captured poppler `-layout` samples, which
+    // PowerPoint no longer reads (Excel still does; its sweep is above).
+    expect(PPTX_FIDELITY_FIXTURES.length).toBeGreaterThanOrEqual(4);
+    for (const build of PPTX_FIDELITY_FIXTURES) {
+      const fixture = await build();
+      const run = await runPdfOfficeExport(
+        "pdf-to-powerpoint",
+        fixture.pdf,
+        pptxDeps(fixture),
       );
+      if (!run.ok) throw new Error(`${fixture.name}: ${run.kind}`);
+      const read = await readPptx(run.output);
+      expect(read.problems, fixture.name).toEqual([]);
+      expect(read.slides, fixture.name).toHaveLength(fixture.pages.length);
     }
   });
 
   it("NEGATIVE CONTROL: the engine's own deck goes red without its master list", async () => {
     // Run through the detector, on the writer's real output — the shape of
     // the defect that shipped.
-    const zip = await JSZip.loadAsync(await deck(extract));
+    const zip = await JSZip.loadAsync(
+      await deck(textScan([["Name Amount", "Alice 10"], ["Bob 20"]])),
+    );
     const xml = await zip.file("ppt/presentation.xml")!.async("string");
     const broken = xml.replace(
       /<p:sldMasterIdLst>[\s\S]*?<\/p:sldMasterIdLst>/,
@@ -685,21 +790,15 @@ describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
  */
 describe("pdf-to-powerpoint package", () => {
   const PAGES = [
-    { pageNumber: 1, text: "Quarterly review\nRevenue & costs <draft>" },
-    { pageNumber: 2, text: "" },
-    { pageNumber: 3, text: '  Next steps "quoted"  \n\nThanks  ' },
+    ["Quarterly review", "Revenue & costs <draft>"],
+    [],
+    ['Next steps "quoted"', "Thanks"],
   ];
-  const threePages: PdfTextExtractor = async () => ({
-    pageCount: PAGES.length,
-    pages: PAGES.map((p) => ({ ...p, characterCount: p.text.length })),
-    text: PAGES.map((p) => p.text).join("\n\n"),
-    characterCount: PAGES.reduce((n, p) => n + p.text.length, 0),
-    hasText: true,
-  });
 
   async function exportDeck(): Promise<Uint8Array> {
     const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
-      extract: threePages,
+      extract,
+      scanPages: scanning(textScan(PAGES)),
     });
     if (!run.ok) throw new Error(`export failed: ${run.message}`);
     return run.output;
@@ -773,23 +872,21 @@ describe("pdf-to-powerpoint package", () => {
  * whatever the writer returned. It now runs `./pptx-inspect` — the inspector
  * the worker's start-up probe also runs, which needs nothing the image lacks —
  * over its own output, and a deck that fails is a failure, not a download.
+ * Since 2026-10-10 that includes every picture the deck was planned with.
  */
 describe("pdf-to-powerpoint is inspected before it is delivered", () => {
   const pages = [
     { pageNumber: 1, text: "First page", characterCount: 10 },
     { pageNumber: 2, text: "Second page", characterCount: 11 },
   ];
-  const twoPages: PdfTextExtractor = async () => ({
-    pageCount: 2,
-    pages,
-    text: "First page\n\nSecond page",
-    characterCount: 21,
-    hasText: true,
-  });
+  const twoPages = {
+    extract,
+    scanPages: scanning(textScan([["First page"], ["Second page"]])),
+  };
 
   it("refuses to deliver the deck PowerPoint refused, from a writer that regressed to it", async () => {
     const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
-      extract: twoPages,
+      ...twoPages,
       writePptx: () => pptxBefore20260927(pages),
     });
     expect(run).toMatchObject({ ok: false, kind: "incomplete_output" });
@@ -800,16 +897,40 @@ describe("pdf-to-powerpoint is inspected before it is delivered", () => {
     // Structurally whole, so only the count can see it: one slide per page is
     // the promise, and a writer that dropped a page keeps every other check.
     const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
-      extract: twoPages,
-      writePptx: (slides) => pptxPackage(slides.slice(1)),
+      ...twoPages,
+      writePptx: (deck) =>
+        pptxPackage({ ...deck, slides: deck.slides.slice(1) }),
     });
     expect(run).toMatchObject({ ok: false, kind: "incomplete_output" });
   });
 
-  it("POSITIVE CONTROL: delivers what the real writer writes", async () => {
-    const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, {
-      extract: twoPages,
+  it("refuses a complete deck that dropped a picture the page has", async () => {
+    // Structurally whole again: a writer that skipped a picture still writes
+    // a valid package, and only the planned count can see it.
+    const fixture = await imageCaptionPdf();
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", fixture.pdf, {
+      ...pptxDeps(fixture),
+      writePptx: (deck) =>
+        pptxPackage({
+          ...deck,
+          slides: deck.slides.map((s) => ({
+            ...s,
+            shapes: s.shapes.filter(
+              (sh, i) => sh.kind !== "picture" || i !== 0,
+            ),
+          })),
+        }),
     });
+    expect(run).toMatchObject({ ok: false, kind: "incomplete_output" });
+    if (!run.ok) expect(run.message).toMatch(/pictures/);
+  });
+
+  it("POSITIVE CONTROL: delivers what the real writer writes", async () => {
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", PDF, twoPages);
     expect(run).toMatchObject({ ok: true, filenameExt: "pptx" });
+    const fixture = await imageCaptionPdf();
+    await expect(
+      runPdfOfficeExport("pdf-to-powerpoint", fixture.pdf, pptxDeps(fixture)),
+    ).resolves.toMatchObject({ ok: true, filenameExt: "pptx" });
   });
 });

@@ -126,10 +126,12 @@ function meta(m: PdfOfficeExportMeta): ProcessorMeta {
 export function createPdfOfficeExportProcessor(
   deps: PdfOfficeExportDeps,
 ): Processor {
-  // Both extractors, because this processor claims all three tools: Excel and
-  // PowerPoint read `extract`, Word reads `extractFlow`. Wiring one and not the
-  // other would advertise a tool that answers every job with `unsupported`.
-  const ready = deps.extract != null && deps.extractFlow != null;
+  // All three readers, because this processor claims all three tools: Excel
+  // reads `extract`, Word reads `extractFlow`, and PowerPoint reads
+  // `scanPages` after `extract` has opened the file. Wiring one and not the
+  // others would advertise a tool that answers every job with `unsupported`.
+  const ready =
+    deps.extract != null && deps.extractFlow != null && deps.scanPages != null;
   return {
     id: "pdf-office-export",
     tools: PDF_OFFICE_EXPORT_TOOLS,
@@ -142,8 +144,10 @@ export function createPdfOfficeExportProcessor(
         tools: PDF_OFFICE_EXPORT_TOOLS,
         ready,
         detail: ready
-          ? "PDF to Office export ready: selectable PDF text is packaged into DOCX, XLSX, or PPTX on an encrypted, auto-deleting secure worker."
-          : "PDF to Office export needs the PDF text extractor, which isn't available on this worker.",
+          ? "PDF to Office export ready: selectable PDF text is packaged into DOCX or XLSX, and each page's pictures, text and drawing into PPTX slides, on an encrypted, auto-deleting secure worker."
+          : deps.extract == null || deps.extractFlow == null
+            ? "PDF to Office export needs the PDF text extractor, which isn't available on this worker."
+            : "PDF to PowerPoint needs the page reader (pdf.js and its canvas), which isn't available on this worker.",
       };
     },
     async process(input): Promise<ProcessorResult> {

@@ -27,9 +27,9 @@ import { classifyPdfTextFailure } from "../pdf-office-export/encryption";
  * a deterministic fake.
  *
  * ⚠️ IT IS NOT pdfjs, and this docblock said it was — twice: *"the same text pdfjs
- * exposes"* and *"the production worker wires the pdfjs-backed extractor"*. pdfjs
- * is browser-only and throws under Node before reading a byte, which is the whole
- * reason `pdf-text/native` exists. The two extractors also do not agree on the
+ * exposes"* and *"the production worker wires the pdfjs-backed extractor"*. That
+ * extractor loads pdfjs's main build, which throws under Node before reading a
+ * byte, which is the whole reason `pdf-text/native` exists. The two extractors also do not agree on the
  * text: see `pdf-text/parse.ts`.
  */
 
@@ -38,8 +38,8 @@ export const EXTRACT_TABLES_TOOL = "extract-tables" as const;
  * The engine name that ships inside every extract-tables job result.
  *
  * RENAMED 2026-08-11 from `pdfjs-layout-tables`, which named an extractor this
- * worker does not use and cannot use — pdfjs is browser-only and throws under
- * Node before reading a byte. A contract that misdescribes itself is worse than
+ * worker does not use — the pdfjs extractor it named loads pdfjs's main build,
+ * which throws under Node before reading a byte. A contract that misdescribes itself is worse than
  * a contract change, and this is an opaque string only our own surfaces consume.
  * Job records written before that date carry the old value.
  */

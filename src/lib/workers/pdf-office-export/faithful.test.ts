@@ -39,6 +39,7 @@ import {
   type PptxFixture,
 } from "@/tests/pptx-fidelity-fixtures";
 import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
+import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import {
   contains,
   onSlide,
@@ -349,5 +350,40 @@ describe("pages of other sizes are fitted, centred, aspect kept", () => {
         if (t.rotation) expect(box.rotation).toBeCloseTo(t.rotation, 0);
       }
     });
+  });
+});
+
+describe("an owner-password PDF: encrypted, opens without a password, and converts", () => {
+  it("is read through the page reader like any other, its text on its slide", async () => {
+    // The population pdf-lib refuses and every viewer opens: an /Encrypt
+    // dictionary with an empty user password. pdftotext opens it, so the
+    // engine must too — and its streams are encrypted, so nothing may be
+    // copied out of them raw (the page reader re-encodes what it decoded).
+    const pdf = rc4EncryptedPdf({
+      userPassword: "",
+      ownerPassword: "owner",
+      text: "Owner locked but readable",
+    });
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", pdf, {
+      ...pdfOfficeExportDeps(),
+      extract: async () => ({
+        pageCount: 1,
+        pages: [
+          {
+            pageNumber: 1,
+            text: "Owner locked but readable",
+            characterCount: 25,
+          },
+        ],
+        text: "Owner locked but readable",
+        characterCount: 25,
+        hasText: true,
+      }),
+    });
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    const deck = await readDeck(run.output);
+    expect(deck.slides[0]!.texts.map((t) => t.text)).toEqual([
+      "Owner locked but readable",
+    ]);
   });
 });

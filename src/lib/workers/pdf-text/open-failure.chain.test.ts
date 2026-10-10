@@ -48,6 +48,7 @@ import type { AiProvider } from "../ai/provider";
 import { createAiExtractProcessor } from "../processor/ai-extract";
 import { createChatWithPdfProcessor } from "../processor/chat-with-pdf";
 import { createPdfOfficeExportProcessor } from "../processor/pdf-office-export";
+import { scanPdfPages } from "../pdf-office-export/page-scan";
 import { createSummarizeProcessor } from "../processor/summarize";
 import { createTableExtractProcessor } from "../processor/table-extract";
 import { createTranslateProcessor } from "../processor/translate";
@@ -139,12 +140,15 @@ const DRIVERS: Record<
   }
 > = {
   "pdf-office-export": {
-    // Both extractors: Word reads `extractFlow`, Excel and PowerPoint read
-    // `extract`, and the processor claims all three tools only with both.
+    // All three readers: Word reads `extractFlow`, Excel `extract`, and
+    // PowerPoint `extract` THEN its page reader (since 2026-10-10). The real
+    // reader is wired and never reached: pdftotext refuses the file first,
+    // and that refusal is the classification this chain checks.
     build: (s) =>
       createPdfOfficeExportProcessor({
         extract: s.text(),
         extractFlow: s.flow(),
+        scanPages: scanPdfPages,
       }),
     options: {},
     answers: "coded",

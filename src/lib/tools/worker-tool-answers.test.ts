@@ -63,6 +63,8 @@ import {
   type PdfOfficeExportTool,
 } from "@/lib/workers/pdf-office-export/engine";
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
+import { linesPdf, scannedPdf } from "@/tests/pptx-fidelity-fixtures";
 import { createPdfOfficeExportProcessor } from "@/lib/workers/processor/pdf-office-export";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { cellsByRef, readXlsxSheet } from "@/lib/workers/ooxml/sheet-read";
@@ -221,10 +223,30 @@ async function exportRun(
   tool: PdfOfficeExportTool,
   pagesText: readonly string[],
   extractFlow: PdfFlowExtractor = async () => linesAsFlow(pagesText),
+  { picture = false }: { picture?: boolean } = {},
 ): Promise<Uint8Array> {
-  const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
+  // PowerPoint reads the PAGES since 2026-10-10, not an extraction, so its
+  // run is a real PDF of these lines through the real page reader; a stub
+  // extraction alone answers `unsupported`, and a guard fed one would be
+  // reading a deck no user receives.
+  const input =
+    tool === "pdf-to-powerpoint"
+      ? (
+          await linesPdf(
+            pagesText.map((t) =>
+              t
+                .split("\n")
+                .map((l) => l.trim())
+                .filter(Boolean),
+            ),
+            { picture },
+          )
+        ).pdf
+      : new Uint8Array([1]);
+  const run = await runPdfOfficeExport(tool, input, {
     extract: async () => extracted(pagesText),
     extractFlow,
+    scanPages: scanPdfPages,
   });
   if (!run.ok) throw new Error(`${tool}: ${run.message}`);
   return run.output;
@@ -234,8 +256,11 @@ async function exportFile(
   tool: PdfOfficeExportTool,
   pagesText: readonly string[],
   extractFlow?: PdfFlowExtractor,
+  options?: { picture?: boolean },
 ): Promise<JSZip> {
-  return JSZip.loadAsync(await exportRun(tool, pagesText, extractFlow));
+  return JSZip.loadAsync(
+    await exportRun(tool, pagesText, extractFlow, options),
+  );
 }
 
 const part = async (zip: JSZip, name: string) => {
@@ -509,20 +534,36 @@ describe("Extract Tables: tables.xlsx is the page's numbers answer", () => {
 });
 
 describe("PDF to PowerPoint: the deck is the page's sentence", () => {
-  it("one slide per page, one text box each, one paragraph per line; a textless page is an empty slide", async () => {
-    const zip = await exportFile("pdf-to-powerpoint", ["A\nB", "", "C"]);
+  /**
+   * INVERTED 2026-10-10. This pinned the text-only deck: exactly ONE `p:sp`
+   * on a slide, one paragraph per line, and `not.toContain("<p:pic")` — the
+   * assertion that held the defect the owner reported (no pictures) in place,
+   * beside a served answer saying "Images, drawings and the page's layout are
+   * not carried over". The deck now keeps the page; the answer must say so
+   * and must no longer say they stay behind.
+   */
+  it("one slide per page; each line its own text box, each picture a picture; a page with nothing on it is an empty slide", async () => {
+    const zip = await exportFile(
+      "pdf-to-powerpoint",
+      ["A\nB", "", "C"],
+      undefined,
+      { picture: true },
+    );
     const slides = Object.keys(zip.files).filter((n) =>
       /^ppt\/slides\/slide\d+\.xml$/.test(n),
     );
     expect(slides).toHaveLength(3);
     const first = await part(zip, "ppt/slides/slide1.xml");
-    expect(first.match(/<p:sp>/g)).toHaveLength(1);
-    expect(first.match(/<a:p>/g)).toHaveLength(2);
-    expect(first).not.toContain("<p:pic");
+    // Two lines, two boxes; the page's picture is a picture.
+    expect(first.match(/<p:sp>/g)).toHaveLength(2);
+    expect(first.match(/<p:pic>/g)).toHaveLength(1);
     expect(await part(zip, "ppt/slides/slide2.xml")).not.toContain("<a:t>");
+    expect(await part(zip, "ppt/slides/slide2.xml")).not.toContain("<p:pic>");
     const served = answer("pdf-to-powerpoint", /slide/i);
     expect(served).toMatch(/One slide per PDF page/);
-    expect(served).toMatch(/empty slide/);
+    expect(served).toMatch(/\bpictures?\b/i);
+    expect(served).toMatch(/text box/i);
+    expect(served).not.toMatch(/not carried over|single text box|stay behind/i);
   });
 
   /**
@@ -568,20 +609,53 @@ describe("PDF to PowerPoint: the deck is the page's sentence", () => {
   });
 });
 
-describe("the three exports refuse a PDF with no text, as each page says", () => {
-  it("every export tool is asked, and each refuses", async () => {
+/**
+ * INVERTED 2026-10-10 for PowerPoint, with Word and Excel unchanged. This was
+ * "the three exports refuse a PDF with no text, as each page says": every
+ * export answered `no_text` and every page's scanned answer said "refused".
+ * A slide can carry a page as it looks, so PDF to PowerPoint keeps a scan's
+ * pages as pictures and says their words are not text; Word and Excel, whose
+ * files would be empty, still refuse. Each tool is asked, and each page must
+ * say what its tool does — the shared answer that said "refused" for all
+ * three would now be false on one of them.
+ */
+describe("a PDF with no text: Word and Excel refuse it, PowerPoint keeps it as pictures, as each page says", () => {
+  it("every export tool is asked, and each page says what its tool does", async () => {
     expect(PDF_OFFICE_EXPORT_TOOLS.length).toBeGreaterThanOrEqual(3);
+    const scan = await scannedPdf();
+    let refused = 0;
+    let kept = 0;
     for (const tool of PDF_OFFICE_EXPORT_TOOLS) {
-      const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
-        extract: async () => extracted([""]),
-        extractFlow: async () => linesAsFlow([""]),
-      });
-      expect(run.ok, tool).toBe(false);
-      expect(run.ok === false && run.kind, tool).toBe("no_text");
+      const run = await runPdfOfficeExport(
+        tool,
+        tool === "pdf-to-powerpoint" ? scan.pdf : new Uint8Array([1]),
+        {
+          extract: async () => extracted([""]),
+          extractFlow: async () => linesAsFlow([""]),
+          scanPages: scanPdfPages,
+        },
+      );
       const served = answer(tool, /scanned/i);
-      expect(served, tool).toMatch(/refused/);
       expect(served, tool).toContain("OCR PDF");
+      if (run.ok) {
+        kept++;
+        // What it kept, and the panel's evidence for saying so.
+        expect(run.coverage, tool).toMatchObject({
+          textPageCount: 0,
+          picturePageCount: 1,
+        });
+        expect(served, tool).not.toMatch(/refused/);
+        expect(served, tool).toMatch(/\bpictures?\b/i);
+        expect(served, tool).toMatch(/not (?:editable )?text/i);
+      } else {
+        refused++;
+        expect(run.kind, tool).toBe("no_text");
+        expect(served, tool).toMatch(/refused/);
+      }
     }
+    // Health: both arms ran — a sweep where every tool took one arm would
+    // not be asking the question this exists for.
+    expect({ refused, kept }).toEqual({ refused: 2, kept: 1 });
   });
 });
 

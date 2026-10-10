@@ -42,6 +42,16 @@ export interface OfficeExportResultMeta {
   littleTextPageCount: number;
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesWithLittleText: number[];
+  /**
+   * PDF to PowerPoint only, since 2026-10-10: how many pages have no text and
+   * are on their slides as PICTURES (a scan, a screenshot), so their words
+   * are not editable. Before that date a page with no text reached the deck as
+   * an empty slide, and this field is absent from those results — the panel
+   * then says what that engine did, not what this one does.
+   */
+  picturePageCount?: number;
+  /** 1-based page numbers of those pages, ascending, capped. */
+  pagesAsPictures?: number[];
 }
 
 /** True when a value plausibly came from the real office-export contract. */
@@ -78,12 +88,23 @@ export function buildOfficeExportResultMeta(
 ): OfficeExportResultMeta {
   const pageCount = count(raw.pageCount, 100_000);
   const textPageCount = count(raw.textPageCount, pageCount);
+  // The picture pages are a subset of the pages without text: a slide that
+  // carries text is not "pictures only", whatever the block claims.
+  const withoutText = pageCount - textPageCount;
   return {
     pageCount,
     textPageCount,
     pagesWithoutText: pageList(raw.pagesWithoutText, pageCount),
     littleTextPageCount: count(raw.littleTextPageCount, textPageCount),
     pagesWithLittleText: pageList(raw.pagesWithLittleText, pageCount),
+    // Copied only when the worker reported them: an absent count means an
+    // engine that did not keep pictures, and must not read as zero.
+    ...(raw.picturePageCount !== undefined
+      ? {
+          picturePageCount: count(raw.picturePageCount, withoutText),
+          pagesAsPictures: pageList(raw.pagesAsPictures, pageCount),
+        }
+      : {}),
   };
 }
 

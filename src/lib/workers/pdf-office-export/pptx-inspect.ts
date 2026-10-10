@@ -80,6 +80,7 @@ const REL_TYPE = {
   slideLayout: `${OFFICE_REL}/slideLayout`,
   slideMaster: `${OFFICE_REL}/slideMaster`,
   theme: `${OFFICE_REL}/theme`,
+  image: `${OFFICE_REL}/image`,
 } as const;
 
 const OFFICE_CT = "application/vnd.openxmlformats-officedocument";
@@ -96,6 +97,17 @@ const CONTENT_TYPE = {
 const MASTER_ID_FLOOR = 2_147_483_648;
 /** `sldId` values live in [256, 2^31) (ECMA-376 §19.2.1). */
 const SLIDE_ID_FLOOR = 256;
+/**
+ * `ST_SlideSizeCoordinate`, in EMU: 1 inch to 56 inches. PowerPoint refuses a
+ * deck whose `p:sldSz` is outside it. Typed again here, not imported from the
+ * writer, for the reason the header gives.
+ */
+const SLIDE_SIZE_EMU = [914_400, 51_206_400] as const;
+/** The first bytes of each image type a picture may name. */
+const IMAGE_MAGIC: Readonly<Record<string, readonly number[]>> = {
+  "image/png": [0x89, 0x50, 0x4e, 0x47],
+  "image/jpeg": [0xff, 0xd8, 0xff],
+};
 
 const CONTENT_TYPES_PART = "[Content_Types].xml";
 const ROOT_RELS = "_rels/.rels";
@@ -124,6 +136,11 @@ export const PPTX_CHECKS = {
   "slide-reference": "a listed slide is not a slide relationship",
   "unlisted-slide": "a slide relationship sldIdLst does not list",
   "no-slide-size": "the presentation has no p:sldSz",
+  "slide-size-range": "the slide size is outside 1–56 inches",
+  "picture-without-blip": "a picture names no image",
+  "picture-reference": "a picture's blip is not an image relationship",
+  "picture-content-type": "a picture's part is not typed as an image",
+  "picture-format": "a picture's bytes are not the image its type says",
   "master-theme": "a master lacks exactly one theme",
   "no-slide-layout": "a master lists no layout",
   "layout-id-range": "a layout id is below 2^31",
@@ -161,6 +178,12 @@ export interface PptxPackageInspection {
     readonly layouts: number;
     readonly themes: number;
     readonly slides: number;
+    /**
+     * Pictures (`p:pic`) on the listed slides whose image resolves: an image
+     * relationship to a part typed as, and holding, an image. Lets the engine
+     * check the deck holds every picture it planned.
+     */
+    readonly pictures: number;
   };
 }
 
@@ -272,6 +295,7 @@ export async function inspectPptxPackage(
         layouts: 0,
         themes: 0,
         slides: 0,
+        pictures: 0,
       },
     };
   }
@@ -394,6 +418,7 @@ export async function inspectPptxPackage(
   const layoutsListedBy = new Map<string, string>();
   const themes = new Set<string>();
   const slides: string[] = [];
+  let pictures = 0;
   const presentationXml =
     presentation !== undefined && names.has(presentation)
       ? await read(presentation)
@@ -456,8 +481,18 @@ export async function inspectPptxPackage(
           `${presentation} has a slide relationship to ${rel.target} that p:sldIdLst does not list`,
         );
 
-    if (elements(presentationXml, "p:sldSz").length === 0)
+    const sizes = elements(presentationXml, "p:sldSz");
+    if (sizes.length === 0)
       fail("no-slide-size", `${presentation} has no slide size (p:sldSz)`);
+    for (const size of sizes)
+      for (const axis of ["cx", "cy"] as const) {
+        const v = idValue(size[axis]);
+        if (v === null || v < SLIDE_SIZE_EMU[0] || v > SLIDE_SIZE_EMU[1])
+          fail(
+            "slide-size-range",
+            `${presentation} sets the slide ${axis} to ${size[axis] ?? "(none)"} EMU; PowerPoint takes ${SLIDE_SIZE_EMU[0]}–${SLIDE_SIZE_EMU[1]}`,
+          );
+      }
 
     // ── Masters: theme + the layouts each one lists ───────────────────────
     const layoutIds = new Set<number>(masterIds);
@@ -517,6 +552,48 @@ export async function inspectPptxPackage(
         );
     }
 
+    // ── Pictures: each blip an image relationship to an image part ────────
+    for (const slide of slides) {
+      const slideXml = (await read(slide)) ?? "";
+      for (const pic of slideXml.match(/<p:pic>[\s\S]*?<\/p:pic>/g) ?? []) {
+        const embed = elements(pic, "a:blip")[0]?.["r:embed"];
+        if (!embed) {
+          fail(
+            "picture-without-blip",
+            `${slide} has a picture with no a:blip r:embed`,
+          );
+          continue;
+        }
+        const rel = relById(slide, embed);
+        if (!rel || rel.type !== REL_TYPE.image) {
+          fail(
+            "picture-reference",
+            `${slide} has a picture whose blip ${embed} is not an image relationship`,
+          );
+          continue;
+        }
+        if (!names.has(rel.target)) continue; // dangling-relationship says so
+        const type = contentTypeOf(rel.target);
+        const magic = type ? IMAGE_MAGIC[type] : undefined;
+        if (!type?.startsWith("image/")) {
+          fail(
+            "picture-content-type",
+            `${rel.target} is a picture on ${slide} but its content type is ${type ?? "missing"}`,
+          );
+          continue;
+        }
+        const head = await zip.file(rel.target)!.async("uint8array");
+        if (magic && !magic.every((b, i) => head[i] === b)) {
+          fail(
+            "picture-format",
+            `${rel.target} is typed ${type} but its bytes are not one`,
+          );
+          continue;
+        }
+        pictures++;
+      }
+    }
+
     // ── Slides use a layout that some master lists ────────────────────────
     for (const slide of slides) {
       expectType(slide, CONTENT_TYPE.slide, "slide");
@@ -562,6 +639,7 @@ export async function inspectPptxPackage(
       layouts: layoutsListedBy.size,
       themes: themes.size,
       slides: slides.length,
+      pictures,
     },
   };
 }

@@ -5,6 +5,9 @@ import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { PdfTextExecError } from "../pdf-text/errors";
 import type { PdfFlowExtractor } from "../pdf-office-export/engine";
+import { scanPdfPages } from "../pdf-office-export/page-scan";
+import { scannedPdf } from "@/tests/pptx-fidelity-fixtures";
+import { scanning, textScan } from "@/tests/page-scan-stubs";
 import {
   createPdfOfficeExportProcessor,
   pdfOfficeExportOutputName,
@@ -42,7 +45,11 @@ function oneInput(bytes: Uint8Array = PDF) {
 
 describe("pdf-office-export processor", () => {
   it("owns PDF to Word/Excel/PowerPoint and reports readiness", () => {
-    const processor = createPdfOfficeExportProcessor({ extract, extractFlow });
+    const processor = createPdfOfficeExportProcessor({
+      extract,
+      extractFlow,
+      scanPages: scanPdfPages,
+    });
     expect(processor.tools).toEqual([
       "pdf-to-word",
       "pdf-to-excel",
@@ -120,15 +127,19 @@ describe("pdf-office-export processor", () => {
     );
   });
 
-  it("is ready only when BOTH extractors are wired — it claims all three tools", () => {
-    // Excel and PowerPoint read `extract`; Word reads `extractFlow`. One
-    // without the other would advertise a tool that answers `unsupported`.
+  it("is ready only when ALL THREE readers are wired — it claims all three tools", () => {
+    // Excel reads `extract`; Word reads `extractFlow`; PowerPoint reads
+    // `scanPages` (since 2026-10-10; before, `extract`). Any one missing
+    // would advertise a tool that answers `unsupported`.
     expect(createPdfOfficeExportProcessor({ extract }).capability().ready).toBe(
       false,
     );
     expect(
       createPdfOfficeExportProcessor({ extractFlow }).capability().ready,
     ).toBe(false);
+    const noReader = createPdfOfficeExportProcessor({ extract, extractFlow });
+    expect(noReader.capability().ready).toBe(false);
+    expect(noReader.capability().detail).toMatch(/page reader/);
   });
 
   it("does not retry what a retry cannot fix, and says which tool fixes it", async () => {
@@ -200,6 +211,7 @@ describe("pdf-office-export processor", () => {
     const result = await createPdfOfficeExportProcessor({
       extract,
       extractFlow,
+      scanPages: scanning(textScan([["Hello"]])),
       writePptx: () =>
         pptxBefore20260927([
           { pageNumber: 1, text: "Hello", characterCount: 5 },
@@ -257,6 +269,28 @@ describe("pdf-office-export processor", () => {
       pagesWithoutText: [2, 3],
       littleTextPageCount: 0,
       pagesWithLittleText: [],
+    });
+  });
+  it("carries the picture-only pages of a deck onto the job record (processor → sanitizeJobResults)", async () => {
+    // The composed chain, not the unit: a field the engine reports and the
+    // persistence whitelist drops reaches nobody. A scanned page through the
+    // REAL page reader, then across the boundary the panel reads from.
+    const fixture = await scannedPdf();
+    const result = await createPdfOfficeExportProcessor({
+      extract,
+      extractFlow,
+      scanPages: scanPdfPages,
+    }).process({ ...oneInput(fixture.pdf), tool: "pdf-to-powerpoint" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(sanitizeJobResults(result.results)?.officeExport).toEqual({
+      pageCount: 1,
+      textPageCount: 0,
+      pagesWithoutText: [1],
+      littleTextPageCount: 0,
+      pagesWithLittleText: [],
+      picturePageCount: 1,
+      pagesAsPictures: [1],
     });
   });
 });

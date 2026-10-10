@@ -17,6 +17,7 @@
     "a11y:contrast": "tsx scripts/a11y-contrast-audit.ts",
     "worker:prove-tools": "tsx scripts/worker-prove-tools.ts",
     "prove:pptx-opens": "tsx scripts/prove-pptx-opens.ts",
+    "measure:pptx-fidelity": "tsx scripts/measure-pptx-fidelity.ts",
     "worker:ops-check": "tsx scripts/worker-ops-check.ts",
     "worker:cleanup-check": "tsx scripts/worker-cleanup-check.ts",
     "worker:artifact-cleanup": "tsx scripts/worker-artifact-cleanup.ts",

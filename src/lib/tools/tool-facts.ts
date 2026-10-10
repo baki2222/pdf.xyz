@@ -1607,7 +1607,9 @@ export const EMBEDDED_TEXT_ONLY: ReadonlySet<string> = new Set([
   "compare-pdf",
   "pdf-to-word",
   "pdf-to-excel",
-  "pdf-to-powerpoint",
+  // pdf-to-powerpoint left on 2026-10-10: it keeps a scan's pages as
+  // pictures, so a scan does not give it nothing. Its own scanned answer
+  // (`workerFaq`) says what it does instead.
 ]);
 
 /** The scanned-PDF answer for an embedded-text tool with no answer of its own. */

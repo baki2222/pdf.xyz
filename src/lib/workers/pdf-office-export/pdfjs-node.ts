@@ -168,8 +168,7 @@ export function canvasFactoryOf(doc: NodePdfDocument): NodeCanvasFactory {
   const factory = (doc as unknown as { canvasFactory?: NodeCanvasFactory })
     .canvasFactory;
   if (!factory || typeof factory.create !== "function")
-    throw new Error(
-      "pdf.js has no canvas factory in this environment, so nothing can be drawn.",
-    );
+    // For the log: the engine reports its own sentence for any throw here.
+    throw new Error("pdf.js has no canvas factory here: nothing can be drawn");
   return factory;
 }

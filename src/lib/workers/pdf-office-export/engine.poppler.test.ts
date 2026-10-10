@@ -60,7 +60,7 @@ import {
 } from "@/tests/pdf-office-fixtures";
 import * as officeFixtures from "@/tests/pdf-office-fixtures";
 import { readXlsxSheet, sheetGridProblems } from "../ooxml/sheet-read";
-import { nativePdfOfficeExportDeps } from "../pdf-text/native";
+import { pdfOfficeExportDeps } from "./native";
 import { readDocxParagraphs } from "./docx-text";
 import { readPptx } from "./validate-ooxml";
 import {
@@ -75,9 +75,15 @@ const label = POPPLER
   ? "PDF to Office export on real poppler"
   : "PDF to Office export on real poppler (SKIPPED: no poppler pdftotext found on PATH)";
 
-/** The production deps builder, pointed at the poppler we found. */
+/**
+ * The production deps builder, pointed at the poppler we found. Since
+ * 2026-10-10 that is `pdfOfficeExportDeps`, which adds PowerPoint's page
+ * reader to pdftotext's extractors; `nativePdfOfficeExportDeps` alone (what
+ * this called before) has no reader, and PowerPoint would answer
+ * `unsupported` here while production converted.
+ */
 function deps(): PdfOfficeExportDeps {
-  return nativePdfOfficeExportDeps(
+  return pdfOfficeExportDeps(
     { PDFXYZ_PDF_TEXT_BIN: POPPLER! },
     { resolveOnPath: () => true },
   );
