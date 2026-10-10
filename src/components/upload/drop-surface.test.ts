@@ -25,9 +25,10 @@
  *    picture to PLACE on a page already open — not a document arriving, so
  *    not a drop target, and a page drop must never land in it;
  *  - `drop-layer.tsx`: the picker behind the header's "Open files" when the
- *    page has no target of its own — rendered on the client only, after
- *    `<main>`, so `e2e/helpers.ts`'s `fileInput()` (the first input on the
- *    page) still finds the page's own sheet.
+ *    page has no target of its own — made when it is asked for and appended
+ *    to the end of `<body>`, never rendered with the page, so
+ *    `e2e/helpers.ts`'s `fileInput()` (the first input on the page) always
+ *    finds the page's own sheet.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -41,7 +42,7 @@ const EXEMPT: Record<string, string> = {
   "src/components/tools/runner/edit-runner.tsx":
     "the editor's image-insert picker places a picture on an open page; it is not a document arriving",
   "src/components/intent/drop-layer.tsx":
-    "the header's Open files picker when a page has no target: client-only, after <main>",
+    "the header's Open files picker when a page has no target: made when asked for, at the end of <body>",
 };
 
 /** Every way a source can make a file input. Selectors (`[type="file"]`) excluded. */

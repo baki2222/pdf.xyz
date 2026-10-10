@@ -48,15 +48,15 @@ const JPG: DropFile = {
 };
 
 /**
- * The page is live: hydrated, and the drop layer listening (its client-only
- * picker renders once it is). The layer's picker is waited for briefly and
+ * The page is live: hydrated, and the drop layer listening (it marks
+ * `<html data-drop-layer>` once it is). The mark is waited for briefly and
  * not required, so a build without a layer fails each row on what the row
  * checks — the file is not where it should be — not on this wait.
  */
 async function layerLive(page: Page) {
   await waitForHydration(page.locator("main h1").first());
   await page
-    .locator('body > input[type="file"][hidden]')
+    .locator("html[data-drop-layer]")
     .waitFor({ state: "attached", timeout: 3000 })
     .catch(() => {});
 }

@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { DropVia, PageTarget, Route } from "@/lib/intent/page-target";
 import type { DragState, DropTicket } from "./drop-layer-view";
@@ -65,6 +59,27 @@ function toolOfPath(path: string | null): string | null {
   return match && match[1] !== "category" ? match[1]! : null;
 }
 
+/**
+ * The picker of last resort: a file input made on demand, at the end of
+ * <body>, never a tab stop and never announced — the control that asked
+ * for it is. Its files are routed like a drop.
+ */
+function makePicker(onFiles: (files: File[]) => void): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.hidden = true;
+  input.tabIndex = -1;
+  input.setAttribute("aria-hidden", "true");
+  input.addEventListener("change", () => {
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    onFiles(files);
+  });
+  document.body.append(input);
+  return input;
+}
+
 /** Input types a paste is typed into; every other input is a control. */
 const TEXT_INPUTS =
   /^(?:text|search|url|tel|email|password|number|date|datetime-local|month|time|week)$/;
@@ -76,8 +91,6 @@ function editable(target: EventTarget | null): boolean {
     return true;
   return target instanceof HTMLInputElement && TEXT_INPUTS.test(target.type);
 }
-
-const noSubscription = () => () => {};
 
 /**
  * Drop and paste anywhere: no file that lands on a pdf.xyz page is opened by
@@ -97,9 +110,13 @@ const noSubscription = () => () => {};
  * (Sign PDF's signature image) the veil clears that zone instead, and says
  * nothing: the zone's own highlight is what a release there does.
  *
- * It is also the page's picker of last resort (`requestFilePick`): a
- * client-only input, rendered after `<main>` so the first file input on any
- * page is still that page's own, whose files are routed like a drop.
+ * It is also the page's picker of last resort (`requestFilePick`): an input
+ * made at the moment it is asked for and appended to the end of `<body>`,
+ * whose files are routed like a drop. Not rendered with the page: React 19
+ * reveals a prerendered page's content a moment after the shell hydrates,
+ * and in that moment a layer input already in the DOM was the page's FIRST
+ * file input — a pick meant for the workspace's sheet went to the dialog
+ * (e2e/workspace.spec.ts, caught on this package's first run).
  *
  * COST. In every page's first load, so it is only what must answer at once:
  * the listeners, accepting the drag, and holding on to what was dropped.
@@ -110,12 +127,7 @@ const noSubscription = () => () => {};
  */
 export function DropLayer() {
   const path = usePathname();
-  const live = useSyncExternalStore(
-    noSubscription,
-    () => true,
-    () => false,
-  );
-  const input = useRef<HTMLInputElement>(null);
+  const picker = useRef<HTMLInputElement | null>(null);
   const [View, setView] = useState<Engine["default"] | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [ticket, setTicket] = useState<DropTicket | null>(null);
@@ -146,7 +158,10 @@ export function DropLayer() {
             setTicket({ key: seq, files, via, why });
           },
           pick() {
-            input.current?.click();
+            picker.current ??= makePicker((files) =>
+              mod.deliverFiles(files, "header"),
+            );
+            picker.current.click();
           },
         });
         setView(() => mod.default);
@@ -289,7 +304,11 @@ export function DropLayer() {
     window.addEventListener("dragend", end);
     window.addEventListener("blur", end);
     window.addEventListener("paste", onPaste);
+    // Said on the page, so a test (and anyone debugging) can tell the page
+    // is taking its drops before it drops anything.
+    html.setAttribute("data-drop-layer", "");
     return () => {
+      html.removeAttribute("data-drop-layer");
       window.removeEventListener("dragenter", onEnter);
       window.removeEventListener("dragleave", onLeave);
       window.removeEventListener("dragover", onOver);
@@ -320,21 +339,6 @@ export function DropLayer() {
           Couldn&apos;t load what checks your files — check your connection,
           then drop them again.
         </p>
-      )}
-      {live && (
-        <input
-          ref={input}
-          type="file"
-          multiple
-          hidden
-          tabIndex={-1}
-          aria-hidden
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = "";
-            deliver(files, "header");
-          }}
-        />
       )}
     </>
   );
