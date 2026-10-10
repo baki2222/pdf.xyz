@@ -260,11 +260,55 @@ the ticket covers it; a drop moves focus; `Tab` leaves More's button for its
 rows before **Open in workspace**; or the browser opens the dropped PDF in the
 tab.
 
+## 9. A file dropped or pasted anywhere, the ticket dialog, and a guide's desk
+
+<https://pdf.xyz/tools/rotate-pdf> — drag a PDF from your file manager over the
+page and drop it on the headline, not on the drop zone.
+
+**Must hear:** nothing while you drag (the page dims and says _"Release to open
+in Rotate PDF"_ on screen only — a drag is a pointer gesture), then the editor:
+the file's name and its pages, exactly as after a pick. Drop a second PDF on the
+headline.
+
+**Must hear:** the new file's name; the first one is gone. Now drop a JPG.
+
+**Must hear:** a dialog — _"What you can do with these files, dialog"_ — with
+_"Rotate PDF can't open it."_ at its top, and focus inside it. `Tab` goes round
+the dialog and never reaches the page behind it. The suggestions are the
+ticket's (check 8), and Rotate PDF is not among them. Press `Escape`.
+
+**Must hear:** the dialog gone, and focus back where it was before the drop.
+
+<https://pdf.xyz/tools> — paste a file you copied in your file manager (`Ctrl
+V` / `⌘ V`) with focus on the page, not in the search field.
+
+**Must hear:** the same dialog. Close it, put focus in **Search tools**, and
+paste again: the search field takes the paste, and no dialog opens.
+
+<https://pdf.xyz/guides/how-to-merge-pdf-files> — `Tab` past the introduction.
+
+**Must hear:** _"Drop your PDFs to open Merge PDF with them, or browse"_, a
+file upload, described by _"Accepts PDF · Max … MB per file"_, then **Open
+Merge PDF**. Pick two PDFs.
+
+**Must hear:** _"Opening Merge PDF with your file…"_, then Merge PDF, saying
+_"Loaded 2 files you added."_
+
+<https://pdf.xyz/guides/how-to-convert-pdf-to-word> — the same desk says
+_"Drop a PDF to see which tools open it, or browse"_; it never offers to open
+PDF to Word with the file, which no browser runner can.
+
+**Fails if:** a dropped or pasted file opens in the tab; a drop beside the
+editor does not replace the file, or a JPG closes it; the dialog is not named,
+lets `Tab` out, or keeps focus after `Escape`; a paste into a text field opens
+the dialog; or a guide whose tool runs on a worker promises to open it with the
+file.
+
 ---
 
 ## Recording the result
 
-Note the browser, screen reader, and version, and for each of the eight: heard /
+Note the browser, screen reader, and version, and for each of the nine: heard /
 not heard / heard but wrong. A partial pass is a finding, not a failure — write
 down what was actually said, because the wording is the deliverable.
 
@@ -277,7 +321,10 @@ If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `HandoffLoadedBadge` in `src/components/tools/runner/handoff-notice.tsx`; for check
 8, `HeroDesk` in `src/components/intent/hero-desk.tsx`, `TicketView` in
 `src/components/intent/ticket-view.tsx` and `DropSheet` in
-`src/components/upload/drop-sheet.tsx`. Each carries
+`src/components/upload/drop-sheet.tsx`; for check 9, `DropLayer` in
+`src/components/intent/drop-layer.tsx`, `TicketDialog` in
+`src/components/intent/ticket-dialog.tsx` and `GuideDesk` in
+`src/components/intent/guide-desk.tsx`. Each carries
 a docblock explaining what it is protecting against, which is usually faster
 than reading the logic.
 
