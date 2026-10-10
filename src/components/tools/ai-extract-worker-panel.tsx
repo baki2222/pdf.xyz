@@ -67,11 +67,18 @@ import {
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
  * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 — phone at 360px 705px, `sm` at 640px 552.5px, `lg` at 1024px
- * 591.5px — plus 4px, to the half rem. The run state includes the daily
- * allowance note, which only a panel that can run says.
+ * 2026-10-10 on the merge of main into WP-06 — the run state: phone at 360px
+ * 877px, `sm` at 640px 646.5px, `lg` at 1024px 705px — plus 4px, to the half
+ * rem. The run state includes the daily allowance note, which only a panel
+ * that can run says, and the sentence on what a null means (#171).
+ *
+ * WAS `min-h-[44.5rem] sm:min-h-[35rem] lg:min-h-[37.5rem]`, from 705 /
+ * 552.5 / 591.5px measured on WP-06 before #171 added that sentence to the
+ * run area. Merged, the ready state outgrew the reserve by 165px at 360 and
+ * 110px at 390, and e2e/tool-layout.mobile.spec.ts ("the worker status slot
+ * is one box") failed by name with the four heights.
  */
-const STATUS_SLOT = "min-h-[44.5rem] sm:min-h-[35rem] lg:min-h-[37.5rem]";
+const STATUS_SLOT = "min-h-[55.5rem] sm:min-h-[41rem] lg:min-h-[44.5rem]";
 
 type Phase = WorkerPhase;
 
