@@ -495,6 +495,18 @@ for (const width of [360, 390]) {
           (m) => m.reserved,
         ) as [number, number, number, number];
         const heights = { loading, failed, off, run };
+        // Every run prints each state's natural height, so CI's Linux numbers
+        // can be read from its log. Fitting a reserve needs both platforms,
+        // and Linux is only reachable through CI here (no WSL or Docker).
+        console.log(
+          `SLOT_NATURAL ${slug} ${width} ${JSON.stringify({
+            loading: loadingM.natural,
+            failed: failedM.natural,
+            off: offM.natural,
+            run: runM.natural,
+            reserve: loading,
+          })}`,
+        );
         const content = Math.max(
           loadingM.natural,
           failedM.natural,
