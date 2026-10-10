@@ -438,7 +438,13 @@ describe("an owner-password PDF: encrypted, opens without a password, and conver
     );
     if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
     expect((await readDeck(run.output)).slides).toHaveLength(1);
-    expect(run.coverage).toMatchObject({ pageCount: 1, picturesNotCarried: 0 });
+    // Called empty, and it is: the file holds no image at all, which the
+    // scan can know without reading the page tree.
+    expect(run.coverage).toMatchObject({
+      pageCount: 1,
+      picturesNotCarried: 0,
+      emptySlideCount: 1,
+    });
   });
 
   it("in the object-stream layout: pictures and text land where the unlocked file's do", async () => {
@@ -565,6 +571,49 @@ describe("a page whose content cannot be read is charged for nothing it only dec
       }
     },
     90_000,
+  );
+
+  it.each(LAYOUTS)(
+    "encrypted, %s: a 65.6-MP scan, over the floor, is on its slide when what the page can reach fits the budget",
+    async (_, objectStreams) => {
+      // The floor is a floor, not a ceiling: a page that cannot be read gets
+      // a ceiling as high as everything it can reach fits the page budget.
+      // In the object-stream layout pdf-lib cannot read the page tree at
+      // all, and the file's image dictionaries — in the clear — stand in.
+      const fixture = await oversizeScanPdf();
+      const page = fixture.pages[0]!;
+      // Health: the scan is over the floor, so the floor alone loses it.
+      expect(
+        page.images[0]!.pixelWidth * page.images[0]!.pixelHeight,
+      ).toBeGreaterThan(MAX_DECODED_IMAGE_PIXELS);
+      const locked = await encryptPdf(fixture.pdf, {
+        userPassword: "",
+        ownerPassword: "owner",
+        objectStreams,
+      });
+      const run = await runPdfOfficeExport("pdf-to-powerpoint", locked, {
+        ...pdfOfficeExportDeps(),
+        extract: async () => pdftotextStandIn(fixture),
+      });
+      if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+      const deck = await readDeck(run.output);
+      const want = onSlide(page.displayed, deck, page.images[0]!.shown);
+      expect(
+        deck.slides[0]!.pictures.map(({ x, y, width, height }) => ({
+          x,
+          y,
+          width,
+          height,
+        })),
+      ).toHaveLength(1);
+      const pic = deck.slides[0]!.pictures[0]!;
+      expect(contains(want, pic, 1) && contains(pic, want, 1)).toBe(true);
+      expect(run.coverage).toMatchObject({
+        picturesNotCarried: 0,
+        emptySlideCount: 0,
+      });
+    },
+    60_000,
   );
 
   it.each(LAYOUTS)(

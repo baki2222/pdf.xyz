@@ -61,6 +61,7 @@ export function textScan(
       items: lines.map((line, k) => stubLine(line, k)),
       picturesTooLarge: 0,
       picturesUndecoded: 0,
+      picturesUnverified: false,
       flattened: false,
     })),
     undecodedImages: 0,

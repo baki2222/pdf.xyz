@@ -150,6 +150,97 @@ describe("the inventory names the images pdf.js decodes, page by page", () => {
     expect(inventory[0]!.exact).toBe(false);
   });
 
+  it("an unreadable page's fallback reaches every image its resources can: forms, tiling patterns, soft-mask groups, Type3 fonts", async () => {
+    // The fallback is an upper bound on what the page paints only if it
+    // reaches every place a content walk would go. Each place here holds
+    // an image of its own size; the page paints none of them.
+    const doc = await PDFDocument.create();
+    const ctx = doc.context;
+    const image = (w: number, h: number) =>
+      ctx.register(
+        ctx.flateStream(new Uint8Array(w * h), {
+          Type: "XObject",
+          Subtype: "Image",
+          Width: w,
+          Height: h,
+          BitsPerComponent: 8,
+          ColorSpace: "DeviceGray",
+        }),
+      );
+    const holding = (w: number, h: number) =>
+      ctx.obj({ XObject: ctx.obj({ Im: image(w, h) }) });
+    const form = ctx.register(
+      ctx.flateStream(new Uint8Array(0), {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, 1, 1],
+        Resources: holding(11, 3),
+      }),
+    );
+    const tiling = ctx.register(
+      ctx.flateStream(new Uint8Array(0), {
+        Type: "Pattern",
+        PatternType: 1,
+        PaintType: 1,
+        TilingType: 1,
+        BBox: [0, 0, 1, 1],
+        XStep: 1,
+        YStep: 1,
+        Resources: holding(13, 3),
+      }),
+    );
+    const group = ctx.register(
+      ctx.flateStream(new Uint8Array(0), {
+        Type: "XObject",
+        Subtype: "Form",
+        BBox: [0, 0, 1, 1],
+        Group: ctx.obj({ S: "Transparency" }),
+        Resources: holding(17, 3),
+      }),
+    );
+    const type3 = ctx.register(
+      ctx.obj({
+        Type: "Font",
+        Subtype: "Type3",
+        FontBBox: [0, 0, 1, 1],
+        FontMatrix: [1, 0, 0, 1, 0, 0],
+        CharProcs: ctx.obj({}),
+        Encoding: ctx.obj({ Differences: [] }),
+        FirstChar: 0,
+        LastChar: 0,
+        Widths: [0],
+        Resources: holding(19, 3),
+      }),
+    );
+    const page = doc.addPage([200, 200]);
+    page.node.set(
+      PDFName.of("Resources"),
+      ctx.obj({
+        XObject: ctx.obj({ Fm: form }),
+        Pattern: ctx.obj({ P0: tiling }),
+        ExtGState: ctx.obj({
+          GS0: ctx.obj({ SMask: ctx.obj({ S: "Luminosity", G: group }) }),
+        }),
+        Font: ctx.obj({ T3: type3 }),
+      }),
+    );
+    page.drawRectangle({ x: 10, y: 10, width: 50, height: 50 });
+    const plain = await doc.save({ useObjectStreams: false });
+    const sizes = (inv: PageInventory[]) =>
+      inv[0]!.images.map((i) => `${i.width}x${i.height}`).sort();
+    // Control: read exactly, the page paints none of them.
+    const exact = (await inventoryPages(plain))!;
+    expect(exact[0]!.exact).toBe(true);
+    expect(sizes(exact)).toEqual([]);
+    const locked = await encryptPdf(plain, {
+      userPassword: "",
+      ownerPassword: "owner",
+    });
+    const declared = (await inventoryPages(locked))!;
+    expect(declared[0]!.exact).toBe(false);
+    expect(sizes(declared)).toEqual(["11x3", "13x3", "17x3", "19x3"]);
+  });
+
   it("returns null for bytes pdf-lib cannot read", async () => {
     expect(await inventoryPages(new Uint8Array([1, 2, 3]))).toBeNull();
   });
@@ -271,7 +362,12 @@ describe("the decode budget", () => {
     );
     // pdf.js leaves out images of MORE pixels than the cap: the floor (50)
     // may not cut an admitted image (20,000 px), so the cap is that image's.
-    expect(plan.pages[0]).toEqual({ cap: 20_000, tooLarge: 1, bytes: 80 });
+    expect(plan.pages[0]).toEqual({
+      cap: 20_000,
+      tooLarge: 1,
+      bytes: 80,
+      unverified: false,
+    });
     const plan2 = decodeBudgetPlan(
       [page([100, 100, 40], [200, 100, 40], [300, 300, 40])],
       { pageBytes: 100, floorPixels: 1_000_000 },

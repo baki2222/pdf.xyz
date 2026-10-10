@@ -395,8 +395,12 @@ function losses(scan: PdfPageScan) {
     picturesNotCarried: scan.pages.reduce((n, p) => n + lost(p), 0),
     picturesTooLarge: scan.pages.reduce((n, p) => n + p.picturesTooLarge, 0),
     pagesMissingPictures: missing.map((p) => p.pageNumber),
+    // Never a page pdf.js may have removed a picture from unseen
+    // (`picturesUnverified`): "nothing on it" is a claim the scan must have
+    // seen, and until 2026-10-11 it was said of a page holding a full-page
+    // scan.
     emptySlideCount: scan.pages.filter(
-      (p) => p.items.length === 0 && lost(p) === 0,
+      (p) => p.items.length === 0 && lost(p) === 0 && !p.picturesUnverified,
     ).length,
     flattenedPageCount: flattened.length,
     pagesFlattened: flattened.map((p) => p.pageNumber),

@@ -52,6 +52,7 @@
 import path from "node:path";
 import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
+import { MAX_DECODED_IMAGE_PIXELS } from "./picture-limits";
 
 export type NodePdfjs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 type LoadingTask = ReturnType<NodePdfjs["getDocument"]>;
@@ -151,15 +152,14 @@ export function nodePdfjsAvailable(
 
 /**
  * The pixel ceiling for one decoded image (width × height) when the caller
- * knows nothing better. pdf.js REMOVES a larger image from the page without a
- * word (`buildPaintImageXObject`: "Image exceeded maximum allowed size and was
- * removed", a warning at most), so a caller that opens with this ceiling must
- * know, from the file itself, which images it removed: the page scan reads
- * that from `./page-inventory` and sets the ceiling per page from a BYTE
- * budget (`decodeBudgetPlan`), with this as the floor for images the
- * inventory did not see.
+ * knows nothing better, defined in `./picture-limits` (the tool's page
+ * states it). pdf.js REMOVES a larger image from the page without a word, so
+ * a caller that opens with this ceiling must know, from the file itself,
+ * which images it removed: the page scan reads that from `./page-inventory`
+ * and sets the ceiling per page from a BYTE budget (`decodeBudgetPlan`), with
+ * this as the floor for images the inventory did not see.
  */
-export const MAX_DECODED_IMAGE_PIXELS = 64_000_000;
+export { MAX_DECODED_IMAGE_PIXELS };
 
 /**
  * Open `bytes` with the legacy build. The loading task is handed to

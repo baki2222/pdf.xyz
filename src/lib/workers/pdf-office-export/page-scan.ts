@@ -50,6 +50,15 @@
  * would need more than {@link MAX_LAYERS_PER_PAGE} layers is drawn once, as
  * one picture, with its text in invisible boxes (`flattened`).
  *
+ * What it cannot count it does not count. A page whose content the
+ * inventory cannot read (every page of an encrypted file; a damaged one) is
+ * known only by what it DECLARES, so it is never given a ceiling below
+ * {@link MAX_DECODED_IMAGE_PIXELS} and nothing is counted against it; a
+ * picture over its ceiling can then be removed by pdf.js unseen, so such a
+ * page is `picturesUnverified` and is never called empty. The tool's page
+ * states that exception, and `claims-vs-capability.test.ts` holds it to a
+ * run.
+ *
  * ── PAINT ORDER IS PRIVACY, NOT POLISH ──────────────────────────────────────
  *
  * Authors hide things by painting over them: a white box over a name in a
@@ -81,8 +90,16 @@ import {
   type NodePdfjs,
   type NodePdfPage,
 } from "./pdfjs-node";
-import { inventoryOf, type PageInventory } from "./page-inventory";
-import { MAX_BILEVEL_PICTURE_SIDE, MAX_PICTURE_SIDE } from "./picture-limits";
+import {
+  documentImages,
+  readInventory,
+  type PageInventory,
+} from "./page-inventory";
+import {
+  MAX_BILEVEL_PICTURE_SIDE,
+  MAX_LAYERS_PER_PAGE,
+  MAX_PICTURE_SIDE,
+} from "./picture-limits";
 import { encodePngImage } from "./png-encode";
 import {
   applyClipCoverage,
@@ -189,6 +206,14 @@ export interface ScannedPage {
   /** Pictures the page paints that pdf.js could not decode (damaged data). */
   picturesUndecoded: number;
   /**
+   * pdf.js may have removed a picture this page paints, and nothing here
+   * could count it: the page's content could not be read (an encrypted or
+   * damaged file), and a picture it can reach is over its ceiling — or the
+   * file had no inventory at all ({@link PageDecodePlan.unverified}). Such a
+   * page is never reported as having nothing on it.
+   */
+  picturesUnverified: boolean;
+  /**
    * The page's drawing needed more than {@link MAX_LAYERS_PER_PAGE} separate
    * layers to keep its paint order, so its slide is ONE picture of the page,
    * with its text in invisible text boxes over it (selectable, not shown).
@@ -292,14 +317,8 @@ const PAINT_BYTES_PER_PIXEL = 6;
  * cleans the document up between pages.
  */
 export const SHARED_IMAGE_BYTES = 64 * 1024 * 1024;
-/**
- * Render passes (layers) one page may take. Every layer is a full pass over
- * the page's operators, so a page alternating text and drawing — a grid of
- * cells, each text then its border — cost cells × operators: 1,440 cells was
- * 17 s on one page. Past this the page is drawn ONCE, as one picture, with its
- * text in invisible boxes over it.
- */
-export const MAX_LAYERS_PER_PAGE = 32;
+/** Render passes (layers) one page may take: see `./picture-limits`. */
+export { MAX_LAYERS_PER_PAGE };
 
 /* ------------------------------------------------------------------ *
  *  Geometry
@@ -1681,13 +1700,24 @@ export interface PageDecodePlan {
   /**
    * pdf.js's `maxImageSize` for this page: images of more pixels are left
    * out by pdf.js before it decodes them. Never below the floor for images
-   * the inventory did not see, unless the page needs it lower.
+   * the inventory did not see, unless the page needs it lower — and never
+   * below it at all for a page whose content could not be read.
    */
   cap: number;
   /** Images the page uses that the cap leaves out: too large to carry. */
   tooLarge: number;
-  /** Bytes of the images it admits. */
+  /**
+   * Bytes of the images it admits: of the images it USES on an exact page,
+   * of the ones it merely declares (an upper bound) on an inexact one.
+   */
   bytes: number;
+  /**
+   * The page's content could not be read, and an image it can reach is over
+   * `cap`: pdf.js removes that image if the page paints it, and nothing can
+   * say whether it does. Not counted in `tooLarge` (the page may not paint
+   * it); the page may not be called empty either.
+   */
+  unverified: boolean;
 }
 
 /**
@@ -1702,6 +1732,19 @@ export interface PageDecodePlan {
  * one pixel count are admitted or left out together: the ceiling cannot tell
  * them apart. Pages that leave nothing out share one ceiling, at least
  * `floorPixels`, so a typical document opens pdf.js once.
+ *
+ * AN INEXACT PAGE (its content could not be read, so its `images` are what
+ * it DECLARES — an upper bound, not a count) is budgeted the other way
+ * round. Until 2026-10-11 it was budgeted like an exact one: an
+ * owner-password file whose twelve pages share one /Resources charged every
+ * page for all twelve 6-MP photos, set a ceiling under their size, and
+ * pdf.js removed every photo, while the note blamed 144 pictures' size. Now
+ * its ceiling is never below `floorPixels` (the old ceiling for every page:
+ * what would have decoded then still decodes), nothing is counted against
+ * it, and it is `unverified` when an image it can reach is over its
+ * ceiling. And the document's total, which refuses a file outright, counts
+ * only what exact pages are SEEN to decode: a refusal may not rest on what a
+ * page only declares.
  */
 export function decodeBudgetPlan(
   pages: readonly PageInventory[],
@@ -1726,6 +1769,8 @@ export function decodeBudgetPlan(
       k = j;
     }
     return {
+      exact: page.exact,
+      largest: sorted.length > 0 ? px(sorted.at(-1)!) : 0,
       admitted: k > 0 ? px(sorted[k - 1]!) : 0,
       smallestOut: k < sorted.length ? px(sorted[k]!) : Infinity,
       tooLarge: sorted.length - k,
@@ -1737,16 +1782,79 @@ export function decodeBudgetPlan(
     ...measured.filter((m) => m.tooLarge === 0).map((m) => m.admitted),
   );
   return {
-    pages: measured.map((m) => ({
-      cap:
-        m.tooLarge === 0
-          ? shared
-          : Math.max(m.admitted, Math.min(floorPixels, m.smallestOut - 1)),
-      tooLarge: m.tooLarge,
-      bytes: m.bytes,
-    })),
-    bytes: measured.reduce((n, m) => n + m.bytes, 0),
+    pages: measured.map((m) => {
+      if (m.tooLarge === 0)
+        return { cap: shared, tooLarge: 0, bytes: m.bytes, unverified: false };
+      if (!m.exact) {
+        const cap = Math.max(floorPixels, m.admitted);
+        return {
+          cap,
+          tooLarge: 0,
+          bytes: m.bytes,
+          unverified: m.largest > cap,
+        };
+      }
+      return {
+        cap: Math.max(m.admitted, Math.min(floorPixels, m.smallestOut - 1)),
+        tooLarge: m.tooLarge,
+        bytes: m.bytes,
+        unverified: false,
+      };
+    }),
+    bytes: measured.reduce((n, m) => n + (m.exact ? m.bytes : 0), 0),
   };
+}
+
+/**
+ * A page the scan knows nothing about before pdf.js reads it: the file has
+ * no inventory and its objects could not be walked, or pdf.js finds more
+ * pages than pdf-lib did. The floor ceiling, as before 2026-10-11, nothing
+ * counted, and nothing certified.
+ */
+const UNKNOWN_PAGE: PageDecodePlan = {
+  cap: MAX_DECODED_IMAGE_PIXELS,
+  tooLarge: 0,
+  bytes: 0,
+  unverified: true,
+};
+
+/**
+ * What the scan knows, before pdf.js runs, about each page's pictures: the
+ * page inventory when pdf-lib can read the page tree; otherwise every image
+ * the file holds, as one inexact page that stands for each of them (an
+ * encrypted file whose catalog is inside an encrypted object stream — its
+ * images' dictionaries are still in the clear); otherwise nothing.
+ */
+function planPages(
+  lib: import("pdf-lib").PDFDocument | null,
+  pageBytes: number | undefined,
+): { forPage(n: number): PageDecodePlan; bytes: number } {
+  const opts = pageBytes !== undefined ? { pageBytes } : {};
+  const inventory = lib ? readInventory(lib) : null;
+  if (inventory) {
+    const plan = decodeBudgetPlan(inventory, opts);
+    return {
+      forPage: (n) => plan.pages[n - 1] ?? UNKNOWN_PAGE,
+      bytes: plan.bytes,
+    };
+  }
+  const images = lib ? documentImages(lib) : null;
+  if (!images) return { forPage: () => UNKNOWN_PAGE, bytes: 0 };
+  const plan = decodeBudgetPlan(
+    [
+      {
+        pageNumber: 0,
+        width: 0,
+        height: 0,
+        images,
+        placements: [],
+        visibleTextOps: 0,
+        exact: false,
+      },
+    ],
+    opts,
+  );
+  return { forPage: () => plan.pages[0]!, bytes: plan.bytes };
 }
 
 /**
@@ -1867,28 +1975,24 @@ async function openClassified(
  *
  * Before pdf.js decodes a page, `./page-inventory` says what it will decode,
  * and {@link decodeBudgetPlan} sets the page's ceiling: what that leaves out
- * is counted on the page (`picturesTooLarge`), never silently gone. A file
- * pdf-lib cannot parse has no inventory and gets the floor ceiling, as before
- * 2026-10-11, with nothing to count against it.
+ * is counted on the page (`picturesTooLarge`), never silently gone. A page
+ * whose content cannot be read is never given a ceiling below the floor,
+ * and is `picturesUnverified` where a picture it can reach is over it. A
+ * file whose page tree pdf-lib cannot read is planned from every image it
+ * holds ({@link planPages}); one pdf-lib cannot parse at all gets the floor
+ * ceiling, as before 2026-10-11, with nothing counted and nothing certified.
+ * No inventory is never a failed job: until 2026-10-11 an owner-password file
+ * in the object-stream layout threw here, outside any try.
  */
 export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
   const loadLib = pdfLibLoader(bytes);
-  const lib = await loadLib();
-  const inventory = lib ? inventoryOf(lib) : null;
-  const budget = inventory
-    ? decodeBudgetPlan(inventory, {
-        ...(options.pageDecodeBudgetBytes !== undefined
-          ? { pageBytes: options.pageDecodeBudgetBytes }
-          : {}),
-      })
-    : null;
-  if (budget && budget.bytes > DOCUMENT_DECODE_BUDGET_BYTES)
+  const budget = planPages(await loadLib(), options.pageDecodeBudgetBytes);
+  if (budget.bytes > DOCUMENT_DECODE_BUDGET_BYTES)
     throw new PageScanDecodeBudgetError(
       budget.bytes,
       DOCUMENT_DECODE_BUDGET_BYTES,
     );
-  const capFor = (n: number) =>
-    budget?.pages[n - 1]?.cap ?? MAX_DECODED_IMAGE_PIXELS;
+  const capFor = (n: number) => budget.forPage(n).cap;
 
   const first = await openClassified(bytes, capFor(1));
   const { pdfjs } = first;
@@ -1982,7 +2086,7 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
       const plan = planLayers(elements);
       const layers = plan.filter((step) => step.kind === "layer").length;
       const items: ScannedItem[] = [];
-      let tooLargeHere = budget?.pages[n - 1]?.tooLarge ?? 0;
+      let tooLargeHere = budget.forPage(n).tooLarge;
       const flattened = layers > MAX_LAYERS_PER_PAGE;
       if (flattened) {
         // One pass over the whole page, in its own paint order: what the page
@@ -2072,6 +2176,7 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
         items,
         picturesTooLarge: tooLargeHere,
         picturesUndecoded: undecoded.size,
+        picturesUnverified: budget.forPage(n).unverified,
         flattened,
       });
       const shared = sharedImageBytes(page);

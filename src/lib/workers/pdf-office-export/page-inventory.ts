@@ -39,10 +39,28 @@
  * pattern it fills with (`scn`/`SCN`), each soft-mask group it sets (`gs`),
  * each Type3 font it shows text in (`Tf`; pdf.js builds every glyph of such a
  * font when it loads it), each annotation's appearance — and records the
- * images invoked there (`Do`, and inline `BI … ID … EI`). A content stream it
- * cannot decode (an encrypted file, an unknown filter) falls back to every
- * image its resources declare, and marks the page inexact: the safe
- * direction for a memory bound, and a known over-report for the notice.
+ * images invoked there (`Do`, and inline `BI … ID … EI`).
+ *
+ * ── WHEN THE CONTENT CANNOT BE READ ─────────────────────────────────────────
+ *
+ * A content stream it cannot decode (every stream of an encrypted file, whose
+ * bytes are ciphertext to pdf-lib; an unknown filter) falls back to every
+ * image XObject its resources DECLARE — through forms, tiling patterns,
+ * soft-mask groups and Type3 fonts — and marks the page inexact. That set is
+ * an upper bound on what the page paints, never an estimate of it: until
+ * 2026-10-11 the decode budget treated it as one, and an owner-password file
+ * whose pages share one /Resources lost every photo to a ceiling set under
+ * their size, with a note blaming 144 pictures' size where 12 were painted.
+ * The budget may now neither lower an inexact page's ceiling below pdf.js's
+ * floor nor count what such a page only declares (`decodeBudgetPlan`).
+ *
+ * A file whose page TREE cannot be read has no inventory at all
+ * ({@link readInventory}): an encrypted file in the layout Acrobat and Word
+ * write keeps its catalog inside an encrypted object stream, which pdf-lib
+ * loads and cannot open. Its pictures are still known
+ * ({@link documentImages}): an image is a stream, a stream is never inside an
+ * object stream, and encryption leaves a dictionary's names and numbers in
+ * the clear (ISO 32000-1 §7.5.7, §7.6.1).
  */
 import { inflateSync, constants as zlibConstants } from "node:zlib";
 import {
@@ -100,7 +118,8 @@ export interface PageInventory {
   visibleTextOps: number;
   /**
    * False when some content stream could not be read, so `images` fell back
-   * to what that stream's resources DECLARE (more than it uses, never less).
+   * to what that stream's resources DECLARE: an upper bound on what the
+   * page paints, not a count of it (see "When the content cannot be read").
    */
   exact: boolean;
 }
@@ -837,8 +856,11 @@ function addImage(
 }
 
 /**
- * Every image a resources dictionary declares, recursively through its forms:
- * the fallback when a content stream cannot be read.
+ * Every image XObject a resources dictionary declares, and every one the
+ * resources of what it declares declare — forms, tiling patterns, soft-mask
+ * groups, Type3 fonts, the places a content walk would go: the fallback
+ * when a content stream cannot be read, and an upper bound on what it
+ * paints (inline images aside: they live in the unreadable stream itself).
  */
 function declaredImages(
   ctx: Ctx,
@@ -846,25 +868,53 @@ function declaredImages(
   depth: number,
 ): void {
   if (!resources || depth > MAX_DEPTH) return;
-  const xobjects = lookupDict(ctx.doc, resources.get(PDFName.of("XObject")));
-  if (!xobjects) return;
-  for (const [, raw] of xobjects.entries()) {
-    const ref = raw instanceof PDFRef ? raw : null;
-    const obj = ref ? ctx.doc.context.lookup(ref) : raw;
+  const each = (category: string) =>
+    lookupDict(ctx.doc, resources.get(PDFName.of(category)))?.entries() ?? [];
+  /** The resources of `holder` (a stream's or a dictionary's), once each. */
+  const nested = (raw: PDFObject, holder: PDFDict) => {
+    const key = raw instanceof PDFRef ? refKey(raw) : null;
+    if (key && (ctx.active.has(key) || ctx.walked.has(key))) return;
+    if (key) {
+      ctx.active.add(key);
+      ctx.walked.add(key);
+    }
+    declaredImages(
+      ctx,
+      lookupDict(ctx.doc, holder.get(PDFName.of("Resources"))),
+      depth + 1,
+    );
+    if (key) ctx.active.delete(key);
+  };
+  for (const [, raw] of each("XObject")) {
+    const obj = raw instanceof PDFRef ? ctx.doc.context.lookup(raw) : raw;
     if (!(obj instanceof PDFRawStream)) continue;
     const subtype = obj.dict.lookup(PDFName.of("Subtype"));
-    const key = ref ? refKey(ref) : null;
     if (subtype === PDFName.of("Image"))
-      addImage(ctx, key, imageFactsOf(ctx.doc, obj.dict, resources), null);
-    else if (subtype === PDFName.of("Form") && key && !ctx.active.has(key)) {
-      ctx.active.add(key);
-      declaredImages(
+      addImage(
         ctx,
-        lookupDict(ctx.doc, obj.dict.get(PDFName.of("Resources"))),
-        depth + 1,
+        raw instanceof PDFRef ? refKey(raw) : null,
+        imageFactsOf(ctx.doc, obj.dict, resources),
+        null,
       );
-      ctx.active.delete(key);
-    }
+    else if (subtype === PDFName.of("Form")) nested(raw, obj.dict);
+  }
+  for (const [, raw] of each("Pattern")) {
+    const obj = raw instanceof PDFRef ? ctx.doc.context.lookup(raw) : raw;
+    if (obj instanceof PDFRawStream) nested(raw, obj.dict);
+  }
+  for (const [, raw] of each("ExtGState")) {
+    const smask = lookupDict(
+      ctx.doc,
+      lookupDict(ctx.doc, raw)?.get(PDFName.of("SMask")),
+    );
+    const g = smask?.get(PDFName.of("G"));
+    const group = g instanceof PDFRef ? ctx.doc.context.lookup(g) : g;
+    if (g && group instanceof PDFRawStream) nested(g, group.dict);
+  }
+  for (const [, raw] of each("Font")) {
+    const font = lookupDict(ctx.doc, raw);
+    if (font && font.lookup(PDFName.of("Subtype")) === PDFName.of("Type3"))
+      nested(raw, font);
   }
 }
 
@@ -1186,6 +1236,71 @@ export function inventoryOf(doc: PDFDocument): PageInventory[] {
   });
 }
 
+/**
+ * {@link inventoryOf}, or null when this file's page tree cannot be read
+ * here. Never a throw: no inventory is not a failure, only less to go on.
+ *
+ * pdf-lib LOADS an encrypted file it cannot decrypt (`ignoreEncryption`).
+ * In the classic layout its page tree is plaintext and every page comes back
+ * inexact; in the layout Acrobat and Word write, the catalog and page tree
+ * are inside an encrypted object stream and pdf-lib has no catalog at all.
+ * Until 2026-10-11 the page scan called `inventoryOf` on that document
+ * outside any try, it threw "Cannot read properties of undefined (reading
+ * 'Pages')", and every such file — which every viewer opens — failed PDF to
+ * PowerPoint as a retryable `failed` job. A damaged page tree that throws
+ * anywhere in the walk is the same case.
+ */
+export function readInventory(doc: PDFDocument): PageInventory[] | null {
+  if (!(doc.catalog instanceof PDFDict)) return null;
+  try {
+    return inventoryOf(doc);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every image XObject in the file, whichever page paints it, each once (a
+ * soft mask or mask image is counted with the image it masks, as pdf.js
+ * decodes it): what is known of the pictures of a file with no inventory
+ * ({@link readInventory}), and an upper bound on what any one page decodes.
+ * Null when the file's objects cannot be walked.
+ */
+export function documentImages(doc: PDFDocument): InventoryImage[] | null {
+  try {
+    const images: [PDFRef, PDFRawStream][] = [];
+    const masks = new Set<string>();
+    for (const [ref, obj] of doc.context.enumerateIndirectObjects()) {
+      if (!(obj instanceof PDFRawStream)) continue;
+      if (obj.dict.lookup(PDFName.of("Subtype")) !== PDFName.of("Image"))
+        continue;
+      images.push([ref, obj]);
+      for (const key of ["SMask", "Mask"]) {
+        const m = obj.dict.get(PDFName.of(key));
+        if (m instanceof PDFRef) masks.add(refKey(m));
+      }
+    }
+    const out: InventoryImage[] = [];
+    for (const [ref, obj] of images) {
+      const key = refKey(ref);
+      if (masks.has(key)) continue;
+      const facts = imageFactsOf(doc, obj.dict, null);
+      if (!(facts.width > 0) || !(facts.height > 0)) continue;
+      out.push({
+        ref: key,
+        inline: false,
+        width: facts.width,
+        height: facts.height,
+        mask: facts.mask,
+        bytes: decodedBytes(facts),
+      });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /** Load `bytes` with pdf-lib and inventory it; null when pdf-lib cannot. */
 export async function inventoryPages(
   bytes: Uint8Array,
@@ -1197,7 +1312,7 @@ export async function inventoryPages(
       updateMetadata: false,
       throwOnInvalidObject: false,
     });
-    return inventoryOf(doc);
+    return readInventory(doc);
   } catch {
     return null;
   }
