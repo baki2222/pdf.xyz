@@ -165,20 +165,28 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
     const heading = screen.getByRole("heading", { level: 1 });
     const second = fileFor(tool, "beta");
     dropOn(heading, [second]);
-    expect(await screen.findByText(second.name)).toBeInTheDocument();
+    // Routed through the layer and the registry, a turn or two apiece: the
+    // same allowance as the chip's own arrival under a loaded run.
+    expect(
+      await screen.findByText(second.name, undefined, { timeout: 10_000 }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(first.name)).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
-    await waitFor(() =>
-      expect(liveText()).toBe(
-        `Replaced ${first.name} with ${second.name} in ${tool.name}.`,
-      ),
+    await waitFor(
+      () =>
+        expect(liveText()).toBe(
+          `Replaced ${first.name} with ${second.name} in ${tool.name}.`,
+        ),
+      { timeout: 10_000 },
     );
 
     // Its own gate: one byte over the ceiling is refused, in its words.
     const ceiling = toolFileCeilingBytes(tool)!;
     const big = fileFor(tool, "huge", ceiling + 1);
     dropOn(heading, [big]);
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", undefined, {
+      timeout: 10_000,
+    });
     expect(alert).toHaveTextContent(fileOverCeilingMessage(tool, ceiling + 1)!);
     expect(screen.getByText(second.name)).toBeInTheDocument();
   });

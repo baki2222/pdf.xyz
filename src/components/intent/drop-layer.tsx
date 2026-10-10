@@ -42,9 +42,18 @@ const loadEngine = once(() => import("./drop-layer-view"));
  * is in the stack, whichever of the two imports a module loader happened to
  * settle first. Without it, a file dropped while the registry was still on
  * its way could be routed to a page with no target.
+ *
+ * …and once every target the page DRAWS has its box (`targetsArrived`): an
+ * open editor or a chosen file's chip takes its box from a module fetched
+ * with the file, which React reveals up to 300 ms after the surface — and a
+ * drag that began, or a file released, in that moment was routed to the
+ * dialog though the page showed where it belonged (WP-07 re-review). The
+ * veil and the release both wait for it, so they say and do the same.
  */
 const settled = (registry: Registry) =>
-  new Promise<Registry>((resolve) => setTimeout(() => resolve(registry), 0));
+  new Promise<Registry>((resolve) =>
+    setTimeout(() => resolve(registry), 0),
+  ).then((ready) => ready.targetsArrived().then(() => ready));
 
 /**
  * Does this drag carry files (not text, not a link)? The layer's own copy of

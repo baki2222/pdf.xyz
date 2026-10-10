@@ -97,16 +97,10 @@ describe("createDragDepth", () => {
 describe("DropSheet", () => {
   it("a drag crossing onto the sheet's own text keeps it armed", async () => {
     const { container } = render(
-      <DropSheet
-        {...SHEET}
-        accept=".pdf"
-        onFiles={() => {}}
-        id="z"
-        hint="PDF only"
-      />,
+      <DropSheet {...SHEET} accept=".pdf" onFiles={() => {}} hint="PDF only" />,
     );
     await engine(container);
-    const root = container.querySelector<HTMLElement>("#z")!;
+    const root = container.querySelector<HTMLElement>("[data-drop-sheet]")!;
     const text = screen.getByText("PDF only");
     fireEvent.dragEnter(root, withFiles());
     fireEvent.dragEnter(text, withFiles());
@@ -120,10 +114,10 @@ describe("DropSheet", () => {
   it("a drop hands the files over as a drop, and claims the event", async () => {
     const onFiles = vi.fn();
     const { container } = render(
-      <DropSheet {...SHEET} accept=".pdf" onFiles={onFiles} id="z" />,
+      <DropSheet {...SHEET} accept=".pdf" onFiles={onFiles} />,
     );
     await engine(container);
-    const root = container.querySelector<HTMLElement>("#z")!;
+    const root = container.querySelector<HTMLElement>("[data-drop-sheet]")!;
     const dropped = files(["a.pdf", "b.pdf"]);
     fireEvent.dragEnter(root, withFiles(dropped));
     const event = new Event("drop", { bubbles: true, cancelable: true });
@@ -151,17 +145,11 @@ describe("DropSheet", () => {
   it("a drop hands every file to a one-file sheet's owner, which says what it kept; the picker takes one", async () => {
     const onFiles = vi.fn();
     const { container } = render(
-      <DropSheet
-        {...SHEET}
-        accept=".pdf"
-        multiple={false}
-        onFiles={onFiles}
-        id="z"
-      />,
+      <DropSheet {...SHEET} accept=".pdf" multiple={false} onFiles={onFiles} />,
     );
     await engine(container);
     fireEvent.drop(
-      container.querySelector("#z")!,
+      container.querySelector("[data-drop-sheet]")!,
       withFiles(files(["a.pdf", "b.pdf"])),
     );
     expect(onFiles.mock.calls[0]![0].map((f: File) => f.name)).toEqual([
@@ -175,11 +163,11 @@ describe("DropSheet", () => {
   it("a drop that lists files but no types is a file drop (what every test that fires one sends)", async () => {
     const onFiles = vi.fn();
     const { container } = render(
-      <DropSheet {...SHEET} accept=".pdf" onFiles={onFiles} id="z" />,
+      <DropSheet {...SHEET} accept=".pdf" onFiles={onFiles} />,
     );
     await engine(container);
     const dropped = files(["a.pdf"]);
-    fireEvent.drop(container.querySelector("#z")!, {
+    fireEvent.drop(container.querySelector("[data-drop-sheet]")!, {
       dataTransfer: { files: dropped },
     });
     expect(onFiles).toHaveBeenCalledWith(dropped, "drop");
@@ -197,11 +185,10 @@ describe("DropSheet", () => {
         onFiles={onFiles}
         refuse={refuse}
         onRefusal={onRefusal}
-        id="z"
       />,
     );
     await engine(container);
-    const root = container.querySelector<HTMLElement>("#z")!;
+    const root = container.querySelector<HTMLElement>("[data-drop-sheet]")!;
     // A drop of one good file between two bad ones: the good one goes on.
     fireEvent.drop(
       root,
@@ -231,10 +218,10 @@ describe("DropSheet", () => {
   it("a drag of text or a link is not a file, and arms nothing (control: a file, on the same sheet, does)", async () => {
     const onFiles = vi.fn();
     const { container } = render(
-      <DropSheet {...SHEET} accept=".pdf" onFiles={onFiles} id="z" />,
+      <DropSheet {...SHEET} accept=".pdf" onFiles={onFiles} />,
     );
     await engine(container);
-    const root = container.querySelector<HTMLElement>("#z")!;
+    const root = container.querySelector<HTMLElement>("[data-drop-sheet]")!;
     const text = { dataTransfer: { files: [], types: ["text/plain"] } };
     fireEvent.dragEnter(root, text);
     fireEvent.drop(root, text);
@@ -247,15 +234,11 @@ describe("DropSheet", () => {
 
   it("is live once hydrated, and its picker is a labelled, described input", () => {
     const { container } = render(
-      <DropSheet
-        {...SHEET}
-        accept=".pdf"
-        onFiles={() => {}}
-        id="z"
-        hint="PDF only"
-      />,
+      <DropSheet {...SHEET} accept=".pdf" onFiles={() => {}} hint="PDF only" />,
     );
-    expect(container.querySelector("#z")!.getAttribute("data-live")).toBe("on");
+    expect(
+      container.querySelector("[data-drop-sheet]")!.getAttribute("data-live"),
+    ).toBe("on");
     const input = screen.getByLabelText(/drop your files here/i);
     expect(input.getAttribute("type")).toBe("file");
     expect(input.getAttribute("accept")).toBe(".pdf");
@@ -317,11 +300,10 @@ describe("DropSheet", () => {
         {...SHEET}
         accept="application/pdf"
         onFiles={onFiles}
-        id="z"
         pageTarget={{ name: "Merge PDF", verb: "add" }}
       />,
     );
-    const root = container.querySelector<HTMLElement>("#z")!;
+    const root = container.querySelector<HTMLElement>("[data-drop-sheet]")!;
     expect(root.hasAttribute("data-page-drop-target")).toBe(true);
     // The registry is fetched on mount, not with the page: the sheet is in
     // the stack once it arrives.
@@ -403,14 +385,16 @@ describe("DropSheet", () => {
 
   it("without pageTarget a sheet is not the page's target (a secondary zone)", async () => {
     const { container } = render(
-      <DropSheet {...SHEET} accept=".pdf" onFiles={() => {}} id="z" />,
+      <DropSheet {...SHEET} accept=".pdf" onFiles={() => {}} />,
     );
     // Given the registry every chance to have arrived: still nothing.
     await import("@/lib/intent/page-target");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(activePageTarget()).toBeNull();
     expect(
-      container.querySelector("#z")!.hasAttribute("data-page-drop-target"),
+      container
+        .querySelector("[data-drop-sheet]")!
+        .hasAttribute("data-page-drop-target"),
     ).toBe(false);
   });
 });
@@ -528,16 +512,11 @@ describe("before its engine arrives", () => {
     const onFiles = vi.fn();
     const { container } = render(
       <>
-        <DropSheet
-          {...SHEET}
-          accept="image/png,image/jpeg"
-          onFiles={onFiles}
-          id="z"
-        />
+        <DropSheet {...SHEET} accept="image/png,image/jpeg" onFiles={onFiles} />
         <DropLayer />
       </>,
     );
-    const zone = container.querySelector("#z")!;
+    const zone = container.querySelector("[data-drop-sheet]")!;
     const signature = png("signature.png");
     releaseOn(zone, [signature]);
     // Not taken in the release's own turn: no engine was there to take it.
@@ -555,17 +534,12 @@ describe("before its engine arrives", () => {
     const onFiles = vi.fn();
     const { container } = render(
       <>
-        <DropSheet
-          {...SHEET}
-          accept="image/png,image/jpeg"
-          onFiles={onFiles}
-          id="z"
-        />
+        <DropSheet {...SHEET} accept="image/png,image/jpeg" onFiles={onFiles} />
         <DropLayer />
       </>,
     );
     const contract = files(["contract.pdf"]);
-    releaseOn(container.querySelector("#z")!, contract);
+    releaseOn(container.querySelector("[data-drop-sheet]")!, contract);
     await waitFor(() =>
       expect(page.receive).toHaveBeenCalledWith(contract, "drop"),
     );

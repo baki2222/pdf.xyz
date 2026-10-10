@@ -63,7 +63,6 @@ export function DropSheet({
   refuse,
   onRefusal,
   variant,
-  id,
   className,
 }: {
   accept: string;
@@ -83,7 +82,6 @@ export function DropSheet({
   /** The first refusal of the latest arrival, or null when none was refused. */
   onRefusal?(reason: string | null): void;
   variant: "sheet" | "compact";
-  id?: string;
   className?: string;
 }) {
   const hintId = useId();
@@ -99,7 +97,6 @@ export function DropSheet({
   return (
     <div
       ref={box}
-      id={id}
       data-drop-sheet=""
       data-live="pending"
       data-page-drop-target={pageTarget ? "" : undefined}

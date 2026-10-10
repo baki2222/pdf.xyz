@@ -136,9 +136,9 @@ export function Dropzone({
   accept = "application/pdf",
   multiple = true,
   title = "Drop your PDF here, or",
-  compact = false,
-  pageTarget = false,
-  busy = false,
+  compact,
+  pageTarget,
+  busy,
   ...sheet
 }: {
   onFiles: (files: File[]) => void;

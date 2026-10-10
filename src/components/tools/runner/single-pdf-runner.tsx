@@ -45,9 +45,13 @@ const EditorBox = lazy(() =>
  * beta.pdf in Rotate PDF.", and focus that was inside the old editor moves
  * into the new one (`replace-target.test.tsx`).
  *
- * All of that is `EditorBox` (`../replace-boxes`), which the open editor
- * renders and fetches as it opens — with the first file, not with the
- * page. The tool it names is its page's (`data-tool-name`).
+ * All of that is `EditorBox` (`../replace-boxes`), fetched as the editor
+ * first opens — with the first file, not with the page. React reveals a
+ * lazy component up to 300 ms after the editor it sits in, so a file
+ * released meanwhile waits for it rather than going to the ticket dialog:
+ * the editor is drawn as the page's target to be (`data-page-drop-target`;
+ * `targetsArrived` in the registry). The tool it names is its page's
+ * (`data-tool-name`).
  *
  * A file that already carries digital signatures gets a notice above the
  * editor, before Run: every PDF a client tool saves is a full pdf-lib rewrite,

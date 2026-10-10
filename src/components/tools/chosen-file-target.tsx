@@ -4,9 +4,7 @@ import { lazy, Suspense } from "react";
 import type { ChosenFileProps } from "./replace-boxes";
 
 /** The chip as its page's target, fetched with the file it shows. */
-const ChosenFileLive = lazy(() =>
-  import("./replace-boxes").then((m) => ({ default: m.ChosenFileLive })),
-);
+const ChosenFileLive = lazy(() => import("./replace-boxes"));
 
 /**
  * The file a worker panel has chosen, as its page's drop target: a file
@@ -32,14 +30,15 @@ const ChosenFileLive = lazy(() =>
  * announced: "Replaced alpha.pdf with beta.pdf in Protect PDF."
  *
  * All of that is `ChosenFileLive` (`./replace-boxes`), fetched as the chip
- * first appears — with the file, not with the page. Until it is here the
- * chip is drawn on its own, and a file released on the page goes to the
- * ticket dialog, as on a page with no target. It names the tool its page
- * names (`data-tool-name`).
+ * first appears — with the file, not with the page. It names the tool its
+ * page names (`data-tool-name`).
  */
 export function ChosenFileTarget(props: ChosenFileProps) {
   return (
-    <Suspense fallback={props.children}>
+    // Until its box is here the chip is drawn on its own — marked as the
+    // page's target to be, so a file released meanwhile waits for it
+    // (`targetsArrived`) rather than going to the ticket dialog.
+    <Suspense fallback={<div data-page-drop-target="">{props.children}</div>}>
       <ChosenFileLive {...props} />
     </Suspense>
   );

@@ -39,6 +39,7 @@ import {
   describeDrag as layerDescribeDrag,
   DropLayer,
 } from "./drop-layer";
+import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { veilWords } from "./drop-layer-view";
 
 const ROUTER = {
@@ -257,6 +258,67 @@ describe("a release, or a paste", () => {
     expect(veil()?.hasAttribute("data-open")).toBe(false);
   });
 
+  /**
+   * A target the page DRAWS before its box is here — an open editor, whose
+   * box comes from a module fetched with the file and is revealed by React
+   * up to 300 ms after the editor (WP-07 re-review, measured on the served
+   * build: the second PDF dropped on Rotate PDF the moment its editor
+   * opened went to the ticket dialog). The file waits for the box.
+   */
+  it("a drop while a target the page draws has no box yet waits for it, and is the target's (control: with none drawn, it is routed at once)", async () => {
+    await page(<div data-page-drop-target="" data-testid="arriving" />);
+    const files = [pdf("second.pdf")];
+    const h1 = screen.getByRole("heading");
+    await drag("dragenter", h1, transfer(files));
+    await drag("drop", h1, transfer(files));
+    // Not routed past it: no dialog, and nothing delivered anywhere yet.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The box arrives: registered, and marked as its engine marks it.
+    const t = target({ name: "Rotate PDF", verb: "replace" });
+    await act(async () => {
+      registerPageTarget(t);
+      screen.getByTestId("arriving").setAttribute(DROP_ENGINE_MARK, "");
+      await routed();
+    });
+    expect(t.receive).toHaveBeenCalledWith(files, "drop");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a drag that begins while a target the page draws has no box yet: the veil waits for it, then says what a release there does", async () => {
+    await page(<div data-page-drop-target="" data-testid="arriving" />);
+    const files = [pdf("second.pdf")];
+    const h1 = screen.getByRole("heading");
+    await drag("dragenter", h1, transfer(files));
+    // Not the dialog's words while the page shows a target on its way: no
+    // open veil at all yet.
+    expect(document.querySelector("[data-drop-veil][data-open]")).toBeNull();
+    const t = target({
+      name: "Rotate PDF",
+      verb: "replace",
+      current: "first.pdf",
+    });
+    await act(async () => {
+      registerPageTarget(t);
+      screen.getByTestId("arriving").setAttribute(DROP_ENGINE_MARK, "");
+      await routed();
+    });
+    expect(veil()?.textContent).toContain(
+      "Release to replace first.pdf in Rotate PDF",
+    );
+    expect(t.arm).toHaveBeenCalledWith(true);
+  });
+
+  it("control: with no target drawn and none registered, a drop goes to the dialog at once", async () => {
+    await page();
+    const files = [pdf("loose.pdf")];
+    const h1 = screen.getByRole("heading");
+    await drag("dragenter", h1, transfer(files));
+    await drag("drop", h1, transfer(files));
+    expect(
+      await screen.findByRole("dialog", undefined, { timeout: 1000 }),
+    ).toBeTruthy();
+  });
+
   it("a drop a zone claimed is that zone's: the page's target is not handed it too", async () => {
     const onFiles = vi.fn();
     await page(
@@ -265,12 +327,11 @@ describe("a release, or a paste", () => {
         accept="image/png,image/jpeg"
         title="Drop a signature image, or"
         onFiles={onFiles}
-        id="secondary"
       />,
     );
     const t = target();
     registerPageTarget(t);
-    const zone = document.getElementById("secondary")!;
+    const zone = document.querySelector<HTMLElement>("[data-drop-sheet]")!;
     const files = [jpg()];
     await drag("dragenter", zone, transfer(files));
     // Over a zone that takes its own drops the veil says nothing: the
@@ -394,12 +455,11 @@ describe("a release on a zone goes where the veil said it would", () => {
         multiple={false}
         title="Drop your PDF here, or"
         onFiles={onFiles}
-        id="zone"
         pageTarget={{ name: "Rotate PDF", verb: "open" }}
       />,
     );
     await registered();
-    const zone = document.getElementById("zone")!;
+    const zone = document.querySelector<HTMLElement>("[data-drop-sheet]")!;
     await drag("dragenter", zone, transfer([jpg()]));
     expect(veil()?.textContent).toContain("Rotate PDF can't open this file");
     expect(zone.hasAttribute("data-armed")).toBe(false);
@@ -424,12 +484,11 @@ describe("a release on a zone goes where the veil said it would", () => {
         multiple={false}
         title="Drop your PDF here, or"
         onFiles={onFiles}
-        id="zone"
         pageTarget={{ name: "Rotate PDF", verb: "open" }}
       />,
     );
     await registered();
-    const zone = document.getElementById("zone")!;
+    const zone = document.querySelector<HTMLElement>("[data-drop-sheet]")!;
     const files = [pdf("scan.pdf")];
     await drag("dragenter", zone, transfer(files));
     expect(veil()?.textContent).toContain("Release to open in Rotate PDF");
@@ -448,7 +507,6 @@ describe("a release on a zone goes where the veil said it would", () => {
         accept="application/pdf"
         title="Drop your PDFs here, or"
         onFiles={onFiles}
-        id="zone"
         pageTarget={{
           name: "Merge PDF",
           verb: "add",
@@ -457,7 +515,7 @@ describe("a release on a zone goes where the veil said it would", () => {
       />,
     );
     await registered();
-    const zone = document.getElementById("zone")!;
+    const zone = document.querySelector<HTMLElement>("[data-drop-sheet]")!;
     await drag("dragenter", zone, transfer([pdf()]));
     expect(veil()?.textContent).toContain("Merge PDF is working on a file");
     expect(zone.hasAttribute("data-armed")).toBe(false);
@@ -479,12 +537,11 @@ describe("a release on a zone goes where the veil said it would", () => {
         accept="image/png,image/jpeg"
         title="Drop a signature image, or"
         onFiles={onFiles}
-        id="secondary"
       />,
     );
     const t = target({ name: "Sign PDF", verb: "replace", current: "a.pdf" });
     registerPageTarget(t);
-    const zone = document.getElementById("secondary")!;
+    const zone = document.querySelector<HTMLElement>("[data-drop-sheet]")!;
     const files = [pdf("countersigned.pdf")];
     await drag("dragenter", zone, transfer(files));
     // Not the zone's silence: the page's route, in words.

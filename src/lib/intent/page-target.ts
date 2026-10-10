@@ -37,6 +37,7 @@
  */
 import {
   attachDropBoxWith,
+  DROP_ENGINE_MARK,
   type DropBox,
   type DropEngine,
 } from "./drop-engine";
@@ -201,6 +202,45 @@ function boxesTake(at: Element | null | undefined, files: File[]): boolean {
   for (let el = at ?? null; el; el = el.parentElement)
     if (boxes.get(el)?.take(files)) return true;
   return false;
+}
+
+/** A page target the page draws whose box has no engine yet. */
+const ARRIVING = `[data-page-drop-target]:not([${DROP_ENGINE_MARK}])`;
+
+/**
+ * Resolves once every page target the page DRAWS has its box — the one
+ * the page is about to register — or after `ms`, whichever is first.
+ *
+ * A target's box can come after the surface it belongs to: an open editor
+ * or a chosen file's chip renders at once and takes its box from a module
+ * fetched with the file (`@/components/tools/replace-boxes`), which React
+ * reveals up to 300 ms later. A file released in that moment would find no
+ * target and go to the ticket dialog, though the page shows where it
+ * belongs — measured on the served build: the second PDF dropped on Rotate
+ * PDF the moment its editor opened (WP-07 re-review). So the drop layer
+ * waits for that box before it routes, and a box that never comes (offline,
+ * a chunk a deploy replaced) costs a file `ms` before the dialog.
+ */
+export function targetsArrived(ms = 2000): Promise<void> {
+  const arriving = () => document.querySelector(ARRIVING) !== null;
+  if (!arriving()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      resolve();
+    };
+    const observer = new MutationObserver(() => {
+      if (!arriving()) done();
+    });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: [DROP_ENGINE_MARK, "data-page-drop-target"],
+    });
+    const timer = setTimeout(done, ms);
+  });
 }
 
 /** The page's target: the last one registered, or null. */

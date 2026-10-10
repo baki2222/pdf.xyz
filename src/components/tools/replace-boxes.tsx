@@ -20,9 +20,12 @@ import { confirmLeave } from "@/lib/intent/unsaved";
  * module, which they load as they appear (`React.lazy`). As first merged
  * each carried it in the page's first load: 0.2 KB gz on every single-PDF
  * tool page and every worker tool page, against WP-07's 0.8 for everything
- * it added there (G.1; WP-07 re-review). Until it is here — the moment the
- * first file is opened or chosen — a file released on the page goes where
- * it goes on a page with no target: the ticket dialog.
+ * it added there (G.1; WP-07 re-review). Until it is here (React reveals a
+ * lazy component up to 300 ms after the surface it sits in), the surface
+ * is drawn as the page's target to be — `data-page-drop-target` with no
+ * engine's mark — and a file released meanwhile waits for it
+ * (`targetsArrived` in the registry), up to 2 s, before the ticket dialog
+ * takes it.
  *
  * Unsaved work is asked about first (`confirmLeave`; which editors register
  * it is WP-08's). Then the swap is SAID — "Replaced alpha.pdf with beta.pdf
@@ -120,7 +123,7 @@ export interface ChosenFileProps {
  * ceiling, the server's type rule) — a refused file is never chosen, and
  * why is said here, as the zone says it.
  */
-export function ChosenFileLive({
+export default function ChosenFileLive({
   file,
   accept,
   busy,
