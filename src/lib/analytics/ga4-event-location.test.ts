@@ -29,7 +29,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { track, resetTelemetry } from "@/lib/telemetry/track";
-import { enableGa4, resetGa4ForTests } from "./ga4";
+import { enableGa4, resetGa4ForTests, sendGa4PageView } from "./ga4";
 
 type TestWindow = Window & {
   dataLayer?: unknown[];
@@ -96,5 +96,29 @@ describe("product events name their page without the query", () => {
     expect(leaked).toEqual([]);
     // Positive control: the same scan sees the token when it is there.
     expect(JSON.stringify([window.location.href])).toContain(TOKEN);
+  });
+
+  /*
+   * HARDENING, review 2026-10-10. gtag.js also sends hits our code does not
+   * author — `user_engagement` when a page is left, and whatever a property's
+   * Enhanced Measurement setting adds — and those take their location from
+   * the tag's page state, which defaults to `location.href`. Each route's page
+   * view now SETS the query-free location first, so the tag's own hits can
+   * read it too. What gtag.js does with a `set` page_location for its own
+   * hits is Google's code and was NOT captured at the wire for this change;
+   * /privacy therefore claims "without its query string" only for the page
+   * views and events our code sends.
+   */
+  it("each route's page view first SETS the query-free location and referrer for the tag", () => {
+    enableGa4();
+    sendGa4PageView(LANDING);
+    const all = calls();
+    const set = all.findIndex((c) => c[0] === "set");
+    const view = all.findIndex((c) => c[0] === "event" && c[1] === "page_view");
+    expect(set, "no set command").toBeGreaterThanOrEqual(0);
+    expect(set).toBeLessThan(view);
+    const params = all[set]![1] as Record<string, unknown>;
+    expect(params.page_location).toBe(`${window.location.origin}/tools/sign-pdf`);
+    expect(JSON.stringify(all)).not.toContain(TOKEN);
   });
 });

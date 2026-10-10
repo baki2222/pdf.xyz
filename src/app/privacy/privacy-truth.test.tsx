@@ -74,6 +74,8 @@ import {
   evaluateGuardrails,
 } from "@/lib/workers/deploy/guardrails";
 import { PASSWORD_QUEUE_LIFETIME } from "@/lib/jobs/pdf-security";
+import { RETENTION_WINDOWS } from "@/lib/retention-windows";
+import { ASKED_FOR as ASKED_FOR_COPY } from "@/lib/privacy/asked-for";
 import { CSP_ALLOWS_INLINE_SCRIPTS } from "@/lib/privacy/site-security";
 import {
   AI_PROVIDER,
@@ -248,57 +250,228 @@ const parseTs = (file: string) =>
     ts.ScriptKind.TS,
   );
 
+/** What one module's `parse…Options` functions return, walked. */
+interface OptionsWalk {
+  /** Every free-text leaf, as `Interface.path` (`[]` marks an array). */
+  readonly fields: string[];
+  /** Parsers that declare no fields (`ParseResult<unknown>`, the envelope), named so a reader sees them. */
+  readonly dispatchers: string[];
+}
+
 /**
- * Every free-text leaf (`string`, through arrays and same-file interfaces)
- * of every interface a `parse…Options` function in `src/lib/jobs` returns,
- * as `Interface.path`. String-literal aliases (enums) are not free text.
+ * Every free-text leaf of every type a `parse…Options` function in `source`
+ * returns. FAILS CLOSED: a type it cannot classify THROWS rather than being
+ * skipped.
+ *
+ * ── WHY IT THROWS (review, 2026-10-10) ─────────────────────────────────────
+ *
+ * The first version counted a field only when its type was the bare `string`
+ * keyword, after unwrapping `T[]` and resolving same-file interfaces — and
+ * dropped everything else WITHOUT A WORD. Mutation B: `audience?: string |
+ * null` added to `SummarizeOptions` left this file green (43/43), while the
+ * same field typed `audience?: string` turned the health test red. A union, a
+ * `readonly` array, `Array<string>`, an imported interface or an arrow-function
+ * parser all fell through, under a module (`asked-for.ts`) that promised "A
+ * field added to a form without a line here is red there". `[] ⊆ X` reported
+ * the strongest pass on the fields it could not see.
+ *
+ * So every shape the TypeScript in `src/lib/jobs` uses is unwrapped —
+ * parentheses, `readonly`, `T[]`, `Array<T>` / `ReadonlyArray<T>`, unions
+ * (free text if ANY member is), `extends` — and a reference resolves only to a
+ * same-file interface, type alias or `as const` table. Anything else is an
+ * error naming the field, so the next shape is a red, not a hole.
+ *
+ * Takes SOURCE TEXT, so the controls below can hand it the shapes it missed.
  */
-function freeTextOptionFields(): string[] {
+function freeTextFieldsIn(fileName: string, source: string): OptionsWalk {
+  const sf = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const interfaces = new Map<string, ts.InterfaceDeclaration>();
+  const aliases = new Map<string, ts.TypeAliasDeclaration>();
+  const consts = new Map<string, ts.Expression>();
+  const returned = new Set<string>();
+  const dispatchers: string[] = [];
+  const fail = (what: string): never => {
+    throw new Error(`${fileName}: ${what} — the options walk cannot tell whether it is free text`);
+  };
+
+  const parserReturns = (name: string, type: ts.TypeNode | undefined) => {
+    if (!/^parse\w*Options$/.test(name)) return;
+    if (!type) fail(`${name} declares no return type`);
+    const text = type!.getText(sf).replace(/\s+/g, " ");
+    const m = /^ParseResult<(\w+)>$/.exec(text);
+    if (m && m[1] !== "unknown") returned.add(m[1]!);
+    // A dispatcher hands the options to a tool's own parser (walked above)
+    // or validates only the envelope; it declares no fields of its own.
+    else if (
+      /^ParseResult<(?:unknown|Record<string, unknown>)>(?: \| null)?$/.test(
+        text,
+      )
+    )
+      dispatchers.push(`${fileName}:${name}`);
+    else fail(`${name} returns ${text}`);
+  };
+
+  sf.forEachChild((node) => {
+    if (ts.isInterfaceDeclaration(node)) interfaces.set(node.name.text, node);
+    if (ts.isTypeAliasDeclaration(node)) aliases.set(node.name.text, node);
+    if (ts.isFunctionDeclaration(node) && node.name)
+      parserReturns(node.name.text, node.type);
+    if (ts.isVariableStatement(node))
+      for (const d of node.declarationList.declarations) {
+        if (!ts.isIdentifier(d.name)) continue;
+        if (d.initializer) consts.set(d.name.text, d.initializer);
+        const init = d.initializer;
+        if (
+          init &&
+          (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+        )
+          parserReturns(d.name.text, init.type);
+        else if (/^parse\w*Options$/.test(d.name.text))
+          fail(`${d.name.text} is not a function this walk can read`);
+      }
+  });
+
+  /** `X` is a same-file `as const` table or literal, so `typeof X` is closed. */
+  const isClosedConst = (name: string): boolean => {
+    let init = consts.get(name);
+    while (
+      init &&
+      (ts.isSatisfiesExpression(init) || ts.isParenthesizedExpression(init))
+    )
+      init = init.expression;
+    if (!init) return false;
+    if (ts.isStringLiteral(init) || ts.isNumericLiteral(init)) return true;
+    return (
+      ts.isAsExpression(init) &&
+      ts.isTypeReferenceNode(init.type) &&
+      init.type.typeName.getText(sf) === "const"
+    );
+  };
+
+  const out = new Set<string>();
+
+  const visit = (type: ts.TypeNode, at: string, seen: Set<string>): void => {
+    if (ts.isParenthesizedTypeNode(type)) return visit(type.type, at, seen);
+    if (ts.isTypeOperatorNode(type)) {
+      if (type.operator === ts.SyntaxKind.ReadonlyKeyword)
+        return visit(type.type, at, seen);
+      if (type.operator === ts.SyntaxKind.KeyOfKeyword) return;
+      return fail(`${at} uses an operator it cannot read`);
+    }
+    if (ts.isArrayTypeNode(type)) return visit(type.elementType, `${at}[]`, seen);
+    if (ts.isUnionTypeNode(type) || ts.isIntersectionTypeNode(type)) {
+      for (const member of type.types) visit(member, at, seen);
+      return;
+    }
+    if (type.kind === ts.SyntaxKind.StringKeyword) {
+      out.add(at);
+      return;
+    }
+    if (
+      type.kind === ts.SyntaxKind.NumberKeyword ||
+      type.kind === ts.SyntaxKind.BooleanKeyword ||
+      type.kind === ts.SyntaxKind.UndefinedKeyword ||
+      type.kind === ts.SyntaxKind.NullKeyword ||
+      ts.isLiteralTypeNode(type)
+    )
+      return;
+    if (ts.isTypeLiteralNode(type)) return walkMembers(type.members, at, seen);
+    if (ts.isTypeQueryNode(type)) {
+      if (isClosedConst(type.exprName.getText(sf))) return;
+      return fail(`${at} is typeof ${type.exprName.getText(sf)}, not a same-file constant`);
+    }
+    if (ts.isIndexedAccessTypeNode(type)) {
+      // `(typeof TABLE)[number]` and `(typeof TABLE)[number]["code"]`.
+      let root: ts.TypeNode = type;
+      while (ts.isIndexedAccessTypeNode(root) || ts.isParenthesizedTypeNode(root))
+        root = ts.isIndexedAccessTypeNode(root) ? root.objectType : root.type;
+      if (ts.isTypeQueryNode(root) && isClosedConst(root.exprName.getText(sf)))
+        return;
+      return fail(`${at} indexes something other than a same-file \`as const\` table`);
+    }
+    if (ts.isTypeReferenceNode(type)) {
+      const name = type.typeName.getText(sf);
+      if (
+        (name === "Array" || name === "ReadonlyArray") &&
+        type.typeArguments?.length === 1
+      )
+        return visit(type.typeArguments[0]!, `${at}[]`, seen);
+      if (seen.has(name)) return;
+      const next = new Set([...seen, name]);
+      const iface = interfaces.get(name);
+      if (iface) return walkInterface(iface, at, next);
+      const alias = aliases.get(name);
+      if (alias) return visit(alias.type, at, next);
+      return fail(`${at} is typed ${name}, which is not declared in this file`);
+    }
+    return fail(`${at} has a type of kind ${ts.SyntaxKind[type.kind]}`);
+  };
+
+  const walkMembers = (
+    members: ts.NodeArray<ts.TypeElement>,
+    prefix: string,
+    seen: Set<string>,
+  ): void => {
+    for (const member of members) {
+      if (ts.isPropertySignature(member)) {
+        const at = `${prefix}.${member.name.getText(sf).replace(/^["']|["']$/g, "")}`;
+        if (!member.type) fail(`${at} has no type`);
+        visit(member.type!, at, seen);
+      } else if (ts.isIndexSignatureDeclaration(member)) {
+        visit(member.type, `${prefix}[key]`, seen);
+      } else fail(`${prefix} has a member that is not a property`);
+    }
+  };
+
+  const walkInterface = (
+    decl: ts.InterfaceDeclaration,
+    prefix: string,
+    seen: Set<string>,
+  ): void => {
+    for (const clause of decl.heritageClauses ?? [])
+      for (const base of clause.types) {
+        const name = base.expression.getText(sf);
+        const parent = interfaces.get(name);
+        if (!parent) fail(`${prefix} extends ${name}, which is not declared in this file`);
+        walkInterface(parent!, prefix, new Set([...seen, name]));
+      }
+    walkMembers(decl.members, prefix, seen);
+  };
+
+  for (const name of returned) {
+    const decl = interfaces.get(name);
+    const alias = aliases.get(name);
+    if (decl) walkInterface(decl, name, new Set([name]));
+    else if (alias) visit(alias.type, name, new Set([name]));
+    else fail(`${name} is returned but not declared`);
+  }
+  return { fields: [...out].sort(), dispatchers };
+}
+
+/** {@link freeTextFieldsIn} over every non-test module in `src/lib/jobs`. */
+function optionsWalk(): OptionsWalk {
   const dir = path.join(ROOT, "src", "lib", "jobs");
-  const out: string[] = [];
+  const fields: string[] = [];
+  const dispatchers: string[] = [];
   for (const f of readdirSync(dir)) {
     if (!/\.ts$/.test(f) || f.includes(".test.") || f.includes(".examples."))
       continue;
-    const sf = parseTs(path.join(dir, f));
-    const interfaces = new Map<string, ts.InterfaceDeclaration>();
-    const returned = new Set<string>();
-    sf.forEachChild((node) => {
-      if (ts.isInterfaceDeclaration(node)) interfaces.set(node.name.text, node);
-      if (
-        ts.isFunctionDeclaration(node) &&
-        node.name &&
-        /^parse\w*Options$/.test(node.name.text) &&
-        node.type
-      ) {
-        const m = /^ParseResult<(\w+)>$/.exec(node.type.getText(sf));
-        if (m) returned.add(m[1]!);
-      }
-    });
-    const walk = (decl: ts.InterfaceDeclaration, prefix: string) => {
-      for (const member of decl.members) {
-        if (!ts.isPropertySignature(member) || !member.type) continue;
-        const name = (member.name as ts.Identifier).text;
-        let type = member.type;
-        let suffix = "";
-        if (ts.isArrayTypeNode(type)) {
-          type = type.elementType;
-          suffix = "[]";
-        }
-        if (type.kind === ts.SyntaxKind.StringKeyword) {
-          out.push(`${prefix}.${name}${suffix}`);
-        } else if (ts.isTypeReferenceNode(type)) {
-          const inner = interfaces.get(type.typeName.getText(sf));
-          if (inner) walk(inner, `${prefix}.${name}${suffix}`);
-        }
-      }
-    };
-    for (const name of returned) {
-      const decl = interfaces.get(name);
-      if (!decl) throw new Error(`${f}: ${name} is returned but not declared`);
-      walk(decl, name);
-    }
+    const walk = freeTextFieldsIn(f, readFileSync(path.join(dir, f), "utf8"));
+    fields.push(...walk.fields);
+    dispatchers.push(...walk.dispatchers);
   }
-  return out.sort();
+  return { fields: fields.sort(), dispatchers: dispatchers.sort() };
+}
+
+/** Every free-text option field a tool's parser accepts. */
+function freeTextOptionFields(): string[] {
+  return optionsWalk().fields;
 }
 
 /**
@@ -431,6 +604,59 @@ describe("the derived subjects are the real ones (health)", () => {
         ).toContain(slug);
   });
 
+  it("the options walk names its dispatchers, which declare no fields of their own", () => {
+    // Printed, not counted: a parser that slips into this list stops being
+    // walked, so the list is read by a person every time it changes.
+    expect(optionsWalk().dispatchers).toEqual([
+      "ai-tool-options.ts:parseAiToolOptions",
+      "validation.ts:parseOptions",
+    ]);
+  });
+
+  it("positive control: the walk finds free text in every shape it used to drop", () => {
+    // Each of these was skipped silently by the first walker (review,
+    // 2026-10-10, mutation B: `audience?: string | null` stayed green).
+    const probe = `
+      import type { ParseResult } from "./responses";
+      type Mode = "x" | "y";
+      export const MODES = ["p", "q"] as const;
+      interface Base { inherited: string }
+      export interface ProbeOptions extends Base {
+        a?: string | null;
+        b: readonly string[];
+        c: Array<string>;
+        d: Mode;
+        e: (typeof MODES)[number];
+        f: number;
+      }
+      export const parseProbeOptions = (raw: unknown): ParseResult<ProbeOptions> => {
+        throw raw;
+      };
+    `;
+    expect(freeTextFieldsIn("probe.ts", probe).fields).toEqual([
+      "ProbeOptions.a",
+      "ProbeOptions.b[]",
+      "ProbeOptions.c[]",
+      "ProbeOptions.inherited",
+    ]);
+  });
+
+  it("control: a type the walk cannot place is an error, not a skip", () => {
+    const imported = `
+      import type { ParseResult } from "./responses";
+      import type { Elsewhere } from "./elsewhere";
+      export interface ProbeOptions { g: Elsewhere }
+      export function parseProbeOptions(raw: unknown): ParseResult<ProbeOptions> {
+        throw raw;
+      }
+    `;
+    expect(() => freeTextFieldsIn("probe.ts", imported)).toThrow(/Elsewhere/);
+    const untyped = `export const parseProbeOptions = (raw: unknown) => raw;`;
+    expect(() => freeTextFieldsIn("probe.ts", untyped)).toThrow(
+      /no return type/,
+    );
+  });
+
   it("the events walk finds every event the runtime allowlist accepts", () => {
     const fields = productEventFields();
     expect([...fields.keys()].sort()).toEqual([...EVENT_NAMES].sort());
@@ -490,6 +716,22 @@ const SHIPPED = {
     "your file is uploaded over an encrypted connection to storage we control, scanned for malware, processed, and then removed on this timetable:",
   analytics:
     "When allowed, Google receives the pages you view, the names of tools you use, coarse browser and device information, and an approximate location derived from your IP address, acting as our processor.",
+  /*
+   * The 2026-10-10 rewrite's own sentences that review found wrong — each a
+   * positive control for the check written against it.
+   */
+  inBrowserEverything:
+    "The one exception is analytics, and only if you allow it: Google Analytics is then told which tool you used and a coarse size band of the result, never the file, its name or its exact size (section 4 lists everything it receives).",
+  /** §4's Google Analytics bullet: 1,179 characters, one block. */
+  analyticsBullet:
+    "Product analytics — only after you say yes. We use Google Analytics to count visits and see which tools are used, and it is loaded only after you choose “Allow analytics” in the banner. Until then — and always, if you decline — no analytics code loads and nothing is sent to Google. When allowed, Google receives, acting as our processor: coarse browser and device information, an approximate location derived from your IP address, the random identifier its cookie holds, and for each page you view the page's address without its query string, the page's title, and the address of the previous page, also without its query string. It also receives the events below, each with the fields shown, every one of them carrying the page it happened on without its query string. It never sees your documents: analytics events are stripped of filenames, links, and query strings before they are sent, and file contents never pass through this channel at all. How long Google keeps this data is set by the retention setting of our Google Analytics property. There is no advertising pixel and no error-tracking SDK, and you can change your decision at any time in the cookies section below.",
+  /** Rendered after five of the seven "What some tools ask you for" items. */
+  inTheQueue:
+    "Our job queue keeps them only until the job ends — or, if no worker ever runs the job, until the queue's retention lapses after 24 hours.",
+  passwordLifetime:
+    "It waits in our job queue only until the job finishes or is cancelled (or, if no worker picks it up, until the queue's retention lapses), then it is deleted.",
+  jobRecord:
+    "A record of the job — including your file's name — is kept for about 24 hours so the system can report status, avoid duplicating work, and retry safely. It does not contain your document's contents.",
 } as const;
 
 describe("positive controls: each predicate catches the sentence that shipped", () => {
@@ -677,7 +919,10 @@ describe("/privacy states the password's real lifetime (row 8)", () => {
     const para = blocks.find((b) => /\bpassword you type\b/i.test(b));
     expect(para).toBeDefined();
     expect(para).not.toMatch(/sits in that job record/i);
-    expect(para).toMatch(/until the job finishes or is cancelled/i);
+    // AMENDED 2026-10-10 (review): "until the job finishes or is cancelled"
+    // was the shape of "waits only until …, then it is deleted" — silent about
+    // the queue's on-disk journal. The event is unchanged; the verb is not.
+    expect(para).toMatch(/when the job finishes or is cancelled/i);
   });
 
   it("the page and the panel say it from one constant", () => {
@@ -688,6 +933,247 @@ describe("/privacy states the password's real lifetime (row 8)", () => {
     expect(read("src/components/tools/pdf-security-worker-panel.tsx")).toMatch(
       /\{PASSWORD_QUEUE_LIFETIME\}/,
     );
+  });
+
+  it("the password's lifetime names the queue's window, as every other input's does", () => {
+    // Review, 2026-10-10: the signer's email address got "after 24 hours" and
+    // the password — the most sensitive input — got "until the queue's
+    // retention lapses", no figure. Mutation: dropping the window from
+    // PASSWORD_QUEUE_LIFETIME turns this red.
+    const para = blocksOf(renderPage(), "files").find((b) =>
+      b.startsWith("One case worth naming."),
+    );
+    expect(para).toBeDefined();
+    expect(para).toContain(RETENTION_WINDOWS.jobRecord);
+    expect(PASSWORD_QUEUE_LIFETIME).toContain(RETENTION_WINDOWS.jobRecord);
+    // Positive control: the sentence that shipped carries no figure.
+    expect(SHIPPED.passwordLifetime).not.toContain(RETENTION_WINDOWS.jobRecord);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  The queue's on-disk journal (review, 2026-10-10)
+ * ------------------------------------------------------------------ */
+
+/**
+ * A block that says how long our job queue keeps something: until (or when)
+ * the job ends, or a job record kept for / expiring after a window.
+ *
+ * The queue is a self-hosted Redis 7 with append-only persistence
+ * (`docs/RATE_LIMITING.md`: `--appendonly yes`), so a key the queue DELETEs
+ * at FINALIZE — or lets expire — stays in the append-only file on the web
+ * server's disk until that file is rewritten. The 2026-10-10 copy said what
+ * the queue does and was silent about its journal; how often production
+ * rewrites it is not recorded anywhere (the Art. 30 record: owner to
+ * confirm). So every such sentence must say the journal can keep a copy.
+ */
+const QUEUE_LIFETIME =
+  /\b(?:job queue|our queue)\b[^.]*\b(?:until|when)\s+the\s+job\s+(?:ends|finishes)\b|\b(?:record of the job|job record)\b[^.]*\b(?:kept\s+for|expires)\b/i;
+
+const lifetimesWithoutJournal = (blocks: readonly string[]) =>
+  blocks.filter((b) => QUEUE_LIFETIME.test(b) && !/\bjournal\b/i.test(b));
+
+describe("/privacy says the queue's journal can outlive what the queue deletes", () => {
+  it("positive control: every lifetime sentence that shipped without the journal is caught", () => {
+    expect(
+      lifetimesWithoutJournal([
+        SHIPPED.inTheQueue,
+        SHIPPED.passwordLifetime,
+        SHIPPED.jobRecord,
+      ]),
+    ).toHaveLength(3);
+  });
+
+  it("health: the page states queue lifetimes at all (three blocks or more)", () => {
+    const stating = blocksOf(renderPage()).filter((b) =>
+      QUEUE_LIFETIME.test(b),
+    );
+    expect(stating.length, stating.join("\n")).toBeGreaterThanOrEqual(3);
+  });
+
+  it("every block on the page that says how long the queue keeps something names the journal", () => {
+    const missing = lifetimesWithoutJournal(blocksOf(renderPage()));
+    expect(missing, missing.join("\n")).toEqual([]);
+  });
+
+  it("so does every sentence the registries hand to other pages", () => {
+    // The Protect/Unlock panel renders PASSWORD_QUEUE_LIFETIME on its own.
+    expect(lifetimesWithoutJournal([PASSWORD_QUEUE_LIFETIME])).toEqual([]);
+    expect(QUEUE_LIFETIME.test(PASSWORD_QUEUE_LIFETIME)).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  §2 as a reader meets it (review, 2026-10-10)
+ * ------------------------------------------------------------------ */
+
+/** The `ul` the timetable intro promises must be the next thing rendered. */
+function timetableOrderIssues(section: Element): string[] {
+  const intro = Array.from(section.querySelectorAll("p")).find((p) =>
+    norm(p.textContent ?? "").endsWith("timetable:"),
+  );
+  if (!intro) return ["no paragraph introduces the timetable"];
+  const next = intro.nextElementSibling;
+  if (!next || next.tagName !== "UL")
+    return [
+      `"…timetable:" is followed by <${next?.tagName.toLowerCase()}>: ${norm(next?.textContent ?? "").slice(0, 80)}`,
+    ];
+  const first = norm(next.querySelector("li")?.textContent ?? "");
+  return first.startsWith("The uploaded file is actively deleted")
+    ? []
+    : [`the timetable's first item is: ${first.slice(0, 80)}`];
+}
+
+/** Links to /status inside the inputs block — which /status does not list. */
+function statusLinksInInputs(section: Element): string[] {
+  const lead = Array.from(section.querySelectorAll("p")).find((p) =>
+    norm(p.textContent ?? "").startsWith("What some tools ask you for."),
+  );
+  if (!lead) return ["no inputs block"];
+  const found: string[] = [];
+  for (let el: Element | null = lead; el; el = el.nextElementSibling)
+    if (el.querySelector('a[href="/status"]'))
+      found.push(norm(el.textContent ?? "").slice(0, 100));
+  return found;
+}
+
+/** A DOM fragment, for the controls. */
+function fragment(html: string): Element {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return div;
+}
+
+describe("§2 puts each answer where its question is", () => {
+  it("positive control: the order that shipped is caught", () => {
+    const shipped = fragment(
+      "<p>…processed on our processing server, and then removed on this timetable:</p>" +
+        "<p>Counted here, but browser-first (1 of 21). This group — Compress PDF — …</p>" +
+        "<ul><li>The uploaded file is actively deleted as soon as …</li></ul>",
+    );
+    expect(timetableOrderIssues(shipped)).toHaveLength(1);
+  });
+
+  it("the timetable follows the sentence that promises it", () => {
+    const files = renderPage().querySelector("#files")!;
+    expect(timetableOrderIssues(files)).toEqual([]);
+  });
+
+  it("positive control: a status link inside the inputs block is caught", () => {
+    const shipped = fragment(
+      "<p>What some tools ask you for. 8 of the worker and AI tools also take something you type.</p>" +
+        "<ul><li>Request Signatures asks for …</li></ul>" +
+        '<p>Every tool page states which of these applies before you choose a file, and <a href="/status">the status page</a> lists them all.</p>',
+    );
+    expect(statusLinksInInputs(shipped)).toHaveLength(1);
+  });
+
+  it("no link in the inputs block sends the reader to /status, which does not list inputs", () => {
+    const files = renderPage().querySelector("#files")!;
+    expect(statusLinksInInputs(files)).toEqual([]);
+  });
+
+  it("the inputs list states the queue's rule once, and leads each item with its tools", () => {
+    const files = renderPage().querySelector("#files")!;
+    const lead = Array.from(files.querySelectorAll("p")).find((p) =>
+      norm(p.textContent ?? "").startsWith("What some tools ask you for."),
+    )!;
+    expect(lead).toBeDefined();
+    expect(norm(lead.textContent ?? "")).toMatch(/\bjob queue\b/);
+    expect(norm(lead.textContent ?? "")).toContain(RETENTION_WINDOWS.jobRecord);
+    const list = lead.nextElementSibling!;
+    expect(list.tagName).toBe("UL");
+    const items = Array.from(list.querySelectorAll(":scope > li"));
+    expect(items.length).toBe(ASKED_FOR_COPY.length);
+    const names = new Set(tools.map((t) => t.name));
+    for (const li of items) {
+      const text = norm(li.textContent ?? "");
+      // The rule is said once, above — not after each item.
+      expect(text, text).not.toMatch(/\bjob queue\b/);
+      const strong = li.firstElementChild;
+      expect(strong?.tagName, `no bold lead: ${text}`).toBe("STRONG");
+      const lead = norm(strong!.textContent ?? "");
+      expect(
+        [...names].some((n) => lead.includes(n)),
+        `the lead names no tool: ${lead}`,
+      ).toBe(true);
+    }
+    // Positive control: the per-item sentence that shipped says "job queue".
+    expect(SHIPPED.inTheQueue).toMatch(/\bjob queue\b/);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  §4's Google Analytics bullet (review, 2026-10-10)
+ * ------------------------------------------------------------------ */
+
+/** The most one block may hold before it is a wall of text on a phone. */
+const LONGEST_BLOCK = 600;
+
+/** Every `p` and `li` of a section, its OWN text — nested blocks removed. */
+function ownBlocks(page: HTMLElement, id: string): string[] {
+  const root = page.querySelector(`#${id}`)!;
+  return Array.from(root.querySelectorAll("p, li"))
+    .map((el) => {
+      const clone = el.cloneNode(true) as Element;
+      clone.querySelectorAll("p, ul, ol, dl").forEach((n) => n.remove());
+      return norm(clone.textContent ?? "");
+    })
+    .filter(Boolean);
+}
+
+const overlong = (blocks: readonly string[]) =>
+  blocks.filter((b) => b.length > LONGEST_BLOCK);
+
+/**
+ * What §4 must say about hits our code does not author. gtag.js sends its own
+ * automatic events (session start, first visit, engagement time), and a GA4
+ * property's Enhanced Measurement setting — in the GA admin, not in code, and
+ * not verified off (the Art. 30 record) — can add scrolls, outbound clicks,
+ * site searches and file downloads. And every product event carries a
+ * query-free `page_referrer` beside its location (`pageOf` in ga4.ts).
+ */
+function gaDisclosureIssues(text: string): string[] {
+  const issues: string[] = [];
+  if (!/\b(?:session|visit)\b[^.]*\bstart/i.test(text))
+    issues.push("does not say Google records that a visit started");
+  if (!/\bfirst visit\b/i.test(text))
+    issues.push("does not say Google records a first visit");
+  if (!/\bhow long\b[^.]*\bin use\b|\bengage/i.test(text))
+    issues.push("does not say Google records engagement time");
+  if (!/\bevents?\b[^.]*\bprevious page\b/i.test(text))
+    issues.push("does not say events carry the previous page");
+  if (!/\bscroll/i.test(text) || !/\bdownload/i.test(text))
+    issues.push("does not name what a property setting can add");
+  return issues;
+}
+
+describe("§4 says what Google Analytics receives, readably (rows 9, 10)", () => {
+  it("positive control: the 1,179-character bullet is caught, and so is its silence", () => {
+    expect(SHIPPED.analyticsBullet.length).toBe(1179);
+    expect(overlong([SHIPPED.analyticsBullet])).toHaveLength(1);
+    expect(gaDisclosureIssues(SHIPPED.analyticsBullet).length).toBe(5);
+  });
+
+  it(`no §4 paragraph or list item runs past ${LONGEST_BLOCK} characters`, () => {
+    const blocks = ownBlocks(renderPage(), "what-we-collect");
+    expect(blocks.length).toBeGreaterThan(8);
+    expect(overlong(blocks), overlong(blocks).join("\n\n")).toEqual([]);
+  });
+
+  it("names Google's own measurements and the previous page on events", () => {
+    const text = sectionText(renderPage(), "what-we-collect");
+    expect(gaDisclosureIssues(text)).toEqual([]);
+  });
+
+  it("§2 does not call §4's list everything Google receives", () => {
+    // Positive control first: the sentence that shipped.
+    expect(SHIPPED.inBrowserEverything).toMatch(/\beverything\b/);
+    const paragraph = blocksOf(renderPage(), "files").find((b) =>
+      b.startsWith("Tools that run in your browser"),
+    );
+    expect(paragraph).toBeDefined();
+    expect(paragraph).not.toMatch(/\beverything\b/);
   });
 });
 

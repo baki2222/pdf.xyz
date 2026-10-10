@@ -62,6 +62,10 @@ import { readWorkerError } from "@/lib/workers/read-error";
 import { rateLimitHeaders, rateLimitErrorResult } from "./response";
 import { AI_ALLOWANCE_ACTION } from "@/lib/jobs/ai-allowance";
 import { PERSONAL_CONDUCT_CLAIMS } from "@/tests/identity-claims";
+import { scopeOf } from "@/tests/allowance-scope";
+import { ALLOWANCE_SCOPE } from "@/lib/jobs/ai-allowance";
+import { PER_CLIENT_KEYING_DISCLOSED } from "@/lib/privacy/keying";
+import { RATE_LIMIT_ENV, resolveRateLimitConfig } from "./config";
 import type { RateLimitDecision } from "./types";
 
 /**
@@ -96,11 +100,29 @@ const PANEL_ALLOWANCE_MESSAGE = (
 const headersFor = (address: string) =>
   new Headers({ "cf-connecting-ip": address });
 
-/** The configuration production runs: forwarded addresses trusted, salt set. */
-const PRODUCTION_SHAPED = {
+/**
+ * A per-client configuration, handed to `deriveClientToken` directly.
+ *
+ * WAS "the configuration production runs", and that stopped being true twice:
+ * production reported `remote-configured-shared` at the wire on 2026-10-10,
+ * and the same day `isTrustForwardedFor` began requiring the privacy
+ * disclosure, so NO environment can produce this config while /privacy says
+ * the counters are shared. A config built by hand skips that gate — which is
+ * why it now proves only what `deriveClientToken` CAN do, and the scope the
+ * copy states is checked through the real env chain below.
+ */
+const PER_CLIENT_SHAPED = {
   trustForwardedFor: true,
   clientIpHeader: "cf-connecting-ip",
   keySalt: "a-shared-salt-of-sufficient-length-for-the-validator",
+};
+
+/** Everything per-client keying needs from the environment. */
+const PER_CLIENT_ENV = {
+  [RATE_LIMIT_ENV.provider]: "redis",
+  [RATE_LIMIT_ENV.trustForwardedFor]: "true",
+  [RATE_LIMIT_ENV.keySalt]: PER_CLIENT_SHAPED.keySalt,
+  [RATE_LIMIT_ENV.clientIpHeader]: "cf-connecting-ip",
 };
 
 const COPY: { where: string; text: string }[] = [
@@ -167,19 +189,33 @@ const TRUE_SENTENCES = [
 ];
 
 describe("the AI allowance copy matches what the limiter can distinguish", () => {
-  it("separates two clients under the configuration production runs", () => {
-    // THE PRECONDITION, re-anchored. The copy below attributes the allowance to
-    // a connection; this is the fact that makes even that much true. If it ever
-    // fails, the copy is claiming a distinction the limiter cannot draw.
-    const a = deriveClientToken(headersFor("203.0.113.7"), PRODUCTION_SHAPED);
-    const b = deriveClientToken(headersFor("198.51.100.42"), PRODUCTION_SHAPED);
+  /*
+   * INVERTED 2026-10-10, history kept. This was "separates two clients under
+   * the configuration production runs", and it handed `deriveClientToken` a
+   * config built by hand — so it stayed green while production was keyed
+   * SHARED (`remote-configured-shared`, read at the wire on 2026-10-10) and
+   * every allowance sentence said "for your connection". The precondition was
+   * the wrong proposition: what the copy needs is not that the function CAN
+   * separate clients but that the deployment DOES. The mechanism half stays
+   * (first test); the property is now read through the env chain (second).
+   */
+  it("deriveClientToken separates two clients when handed a per-client config", () => {
+    const a = deriveClientToken(headersFor("203.0.113.7"), PER_CLIENT_SHAPED);
+    const b = deriveClientToken(headersFor("198.51.100.42"), PER_CLIENT_SHAPED);
     expect(a).not.toBe(SHARED_BUCKET_TOKEN);
-    expect(
-      b,
-      "two different clients now key into the SAME bucket under production's " +
-        "own configuration — the allowance copy distinguishes connections and " +
-        "would be false",
-    ).not.toBe(a);
+    expect(b).not.toBe(a);
+  });
+
+  it("the scope the copy names is the scope the full env chain keys by", () => {
+    // THE PRECONDITION, re-anchored a second time. env → resolveRateLimitConfig
+    // → deriveClientToken is the path every route takes; the copy may name the
+    // connection only while that path separates two callers.
+    const config = resolveRateLimitConfig(PER_CLIENT_ENV);
+    const a = deriveClientToken(headersFor("203.0.113.7"), config);
+    const b = deriveClientToken(headersFor("198.51.100.42"), config);
+    const separates = a !== b;
+    expect(separates).toBe(PER_CLIENT_KEYING_DISCLOSED);
+    expect(ALLOWANCE_SCOPE).toBe(separates ? "connection" : "everyone");
   });
 
   it("still shares one bucket in the DEFAULT configuration, which the copy depends on", () => {
@@ -191,7 +227,7 @@ describe("the AI allowance copy matches what the limiter can distinguish", () =>
     // survivable.
     const off = {
       trustForwardedFor: false,
-      keySalt: PRODUCTION_SHAPED.keySalt,
+      keySalt: PER_CLIENT_SHAPED.keySalt,
     };
     expect(deriveClientToken(headersFor("203.0.113.7"), off)).toBe(
       SHARED_BUCKET_TOKEN,
@@ -258,13 +294,22 @@ describe("the AI allowance copy matches what the limiter can distinguish", () =>
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
-  it("no longer tells a first-time visitor a stranger may have spent their runs", () => {
-    // The claim that went stale. It was true when written and the system was
-    // fixed underneath it; `policy.ts` has said `per client per day` throughout.
+  /*
+   * INVERTED 2026-10-10, history kept. This was "no longer tells a first-time
+   * visitor a stranger may have spent their runs", and it banned
+   * `/shared across everyone/` outright — written when production keyed per
+   * connection. Production now keys everyone together, and the ban pinned the
+   * copy to the false side: it would have failed the one true sentence. The
+   * claim is banned while the limiter keys per connection and REQUIRED while
+   * it does not; the conduct hedge stays banned in both states.
+   */
+  it("says the allowance is shared by everyone exactly while the limiter keys everyone together", () => {
     for (const { where, text } of COPY) {
-      expect(text, `${where} still claims the allowance is shared`).not.toMatch(
-        /shared across everyone/i,
-      );
+      const scope = scopeOf(text);
+      expect(
+        scope,
+        `${where} states the "${scope}" scope; the limiter keys ${ALLOWANCE_SCOPE === "everyone" ? "everyone together" : "per connection"}`,
+      ).toBe(ALLOWANCE_SCOPE);
       expect(
         text,
         `${where} still hedges that the count may not be the visitor's own`,
@@ -277,11 +322,15 @@ describe("the AI allowance copy matches what the limiter can distinguish", () =>
     // A silently-scopeless "3 free AI runs a day" leaves the reader to guess,
     // and the guess a stranger makes after a refusal is the wrong one in both
     // directions: either "someone stole mine" or "the whole site is out".
+    //
+    // AMENDED 2026-10-10: it required `/\bconnection\b/` — the only true scope
+    // while production keyed per connection, and a false one since. The scope
+    // must still be named; WHICH one is the limiter's (the test above).
     for (const { where, text } of COPY) {
       expect(
-        text,
+        scopeOf(text),
         `${where} does not say what the allowance is counted against`,
-      ).toMatch(/\bconnection\b/i);
+      ).not.toBe("neither");
     }
   });
 });

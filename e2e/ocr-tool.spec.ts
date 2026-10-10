@@ -77,9 +77,7 @@ test.describe("OCR secure-worker tool page", () => {
     const notify = page.getByRole("button", { name: /notify me/i });
     await expect(notify).toBeVisible();
     await expect(
-      page.getByText(
-        /pressing it sends us the tool's name — nothing about you/i,
-      ),
+      page.getByText(/the count holds only the tool's name/i),
     ).toBeVisible();
     const beacon = page.waitForRequest(
       (req) => req.url().includes("/api/interest") && req.method() === "POST",

@@ -15,7 +15,53 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { NotifyMe } from "@/components/tools/notify-me";
+
+/**
+ * A sentence that says the press tells us "only the name" or "nothing about
+ * you" WITHOUT saying it is the count that holds only that.
+ *
+ * Review, 2026-10-10: the acknowledgement said "We received only the tool's
+ * name — nothing about you or your files" and the line under the button
+ * "Pressing it sends us the tool's name — nothing about you", while /privacy
+ * §4 said — truly — that the request reaches us like any other and so appears
+ * in the ordinary logs (IP address, time, user-agent). What is true is
+ * narrower: the COUNT holds only the name. Every spelling that shipped is in
+ * the corpus below.
+ */
+const unscopedOnlyTheName = (text: string): string[] =>
+  text
+    .replace(/&apos;/g, "'")
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+|"|`/)
+    .filter(
+      (sentence) =>
+        /\bnothing about you\b|\breceived only\b|\bsends us\b/i.test(
+          sentence,
+        ) && !/\bcount\b/i.test(sentence),
+    );
+
+const SHIPPED_UNSCOPED = [
+  " We received only the tool's name — nothing about you or your files.",
+  "Pressing it sends us the tool&apos;s name — nothing about you.",
+  " Only the tool's name was sent; nothing about you or your files.",
+];
+
+/** The line under the button, as the server renders it before any press. */
+const renderedButtonLine = () =>
+  renderToStaticMarkup(
+    createElement(NotifyMe, {
+      toolName: "Chat with PDF",
+      toolSlug: "chat-with-pdf",
+      checking: false,
+    }),
+  )
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;|&apos;/g, "'")
+    .replace(/\s+/g, " ");
 
 const ROOT = process.cwd();
 const ROUTE = path.join(ROOT, "src", "app", "api", "interest", "route.ts");
@@ -48,11 +94,46 @@ describe("the interest counter never exists without its disclosures", () => {
       path.join(ROOT, "src", "components", "tools", "notify-me.tsx"),
       "utf8",
     );
-    expect(button).toContain(
+    // INVERTED 2026-10-10 (review), history kept. This required the line
+    // "Pressing it sends us the tool's name — nothing about you." — and so
+    // pinned a claim /privacy §4 contradicts: the request reaches our logs
+    // with the visitor's IP address and user-agent, like any request. The
+    // line now scopes "only the name" to the count and names the logs.
+    const line = renderedButtonLine();
+    expect(line).toMatch(/\bcount holds only the tool's name\b/i);
+    expect(line).toMatch(/\blogs\b/);
+    expect(button).not.toContain(
       "Pressing it sends us the tool&apos;s name — nothing about you.",
     );
     // And the beacon carries the slug alone — the one-dimension rule.
     expect(button).toContain("JSON.stringify({ slug: tool.slug })");
+  });
+
+  it("positive control: every unscoped 'only the name' line that shipped is caught", () => {
+    for (const line of SHIPPED_UNSCOPED)
+      expect(unscopedOnlyTheName(line), line).toHaveLength(1);
+    // And spared: the same claim, scoped to the count.
+    expect(
+      unscopedOnlyTheName(
+        "We counted only the tool's name; the count holds nothing about you or your files.",
+      ),
+    ).toEqual([]);
+  });
+
+  it("neither line says 'only the name' or 'nothing about you' without the count", () => {
+    // Every string the component can show — the line under the button AND
+    // the acknowledgement after the press — read from the source, comments
+    // out; plus the line as the server renders it.
+    const button = readFileSync(
+      path.join(ROOT, "src", "components", "tools", "notify-me.tsx"),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^\s*\/\/.*$/gm, "");
+    // Health: the source still holds an acknowledgement and a line to read.
+    expect(button).toMatch(/one more ask for/);
+    expect(button).toMatch(/Google Analytics counts the press/);
+    expect(unscopedOnlyTheName(button)).toEqual([]);
+    expect(unscopedOnlyTheName(renderedButtonLine())).toEqual([]);
   });
 
   /*
@@ -88,9 +169,11 @@ describe("the interest counter never exists without its disclosures", () => {
       ),
     );
     expect(bullet).toMatch(/Google\s+Analytics/);
-    // The button's own line, under the button, before the press.
-    const line = button.slice(button.indexOf("Pressing it sends us"));
-    expect(line.slice(0, 400)).toMatch(/Google\s+Analytics/);
+    // The button's own line, under the button, before the press — read as
+    // rendered since 2026-10-10: it was a slice of the source from
+    // "Pressing it sends us", which the line no longer says, and a missing
+    // anchor slices from the END of the file (indexOf -1).
+    expect(renderedButtonLine()).toMatch(/Google\s+Analytics/);
   });
 
   it("the analytics claim the disclosure sits beside is still present", () => {

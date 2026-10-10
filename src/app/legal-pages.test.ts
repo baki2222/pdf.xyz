@@ -16,7 +16,12 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { createElement, type ComponentType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import PrivacyPage from "@/app/privacy/page";
+import TermsPage from "@/app/terms/page";
+import { BROWSER_STORAGE } from "@/lib/browser-storage";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 import { tools } from "@/lib/tools";
@@ -36,6 +41,19 @@ const FOOTER = path.join(
 const SITEMAP = path.join(ROOT, "src", "app", "sitemap.ts");
 
 const read = (file: string) => readFileSync(file, "utf8");
+
+/** A page as the text a reader receives: tags out, entities decoded, one space. */
+function renderedText(Page: ComponentType): string {
+  return renderToStaticMarkup(createElement(Page))
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;|&apos;|&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 /**
  * Source with comments removed.
  *
@@ -466,12 +484,25 @@ describe("the policy pages do not promise what the product does not do", () => {
       shipped:
         "We have considered your rights in reaching that balance, which is why these signals carry no identifiers and no document contents.",
     },
+    {
+      // Review of the 2026-10-10 rewrite. The queue is a self-hosted Redis
+      // with append-only persistence (`--appendonly yes`), so what FINALIZE
+      // deletes stays in the on-disk journal until it is rewritten, and no
+      // rewrite interval is recorded. "Only until" is the word that makes the
+      // sentence false; privacy-truth.test.tsx requires every queue lifetime
+      // the page states to name the journal.
+      pattern: /\bonly\s+until\s+the\s+job\s+(?:ends|finishes|is\s+done)\b/i,
+      instead:
+        "say the job queue removes it when the job ends, and that the queue's on-disk journal can keep a copy until it is next compacted (src/lib/privacy/job-queue.ts)",
+      shipped:
+        "Our job queue keeps them only until the job ends — or, if no worker ever runs the job, until the queue's retention lapses after 24 hours.",
+    },
   ];
 
   it("each 2026-10-10 entry catches the sentence it was written from", () => {
     const withCorpus = OVERCLAIMS.filter((o) => o.shipped !== undefined);
     // Health: the corpus did not quietly shrink.
-    expect(withCorpus.length).toBeGreaterThanOrEqual(9);
+    expect(withCorpus.length).toBeGreaterThanOrEqual(10);
     for (const o of withCorpus)
       expect(
         o.shipped!,
@@ -480,30 +511,74 @@ describe("the policy pages do not promise what the product does not do", () => {
   });
 
   it.each([
-    ["privacy", PRIVACY],
-    ["terms", TERMS],
-  ])("/%s makes no unsupported claim", (name, file) => {
-    // The page AND the registries it renders. Since 2026-10-10 /privacy draws
-    // its names, events and tool disclosures from `src/lib/privacy`, so a
-    // scan of the page's own source alone would read a sentence that moved
-    // there as gone: a mutation putting "strict" back into the CSP sentence
-    // stayed green here while the rendered page said it. The modules are
-    // found by following the page's imports, not by a list.
+    ["privacy", PRIVACY, PrivacyPage],
+    ["terms", TERMS, TermsPage],
+  ] as const)("/%s makes no unsupported claim", (name, file, Page) => {
+    // TWO READINGS, because each sees what the other cannot.
+    //
+    // THE RENDERED PAGE — what a reader receives. Until review (2026-10-10)
+    // this read the page's source plus every `@/lib/privacy/*` module it
+    // imports, matched by that typed path prefix — and its comment said the
+    // modules were "found by following the page's imports, not by a list". A
+    // prefix IS a list. /privacy also renders words from browser-storage,
+    // retention-windows, legal, the tool catalogue, the legal-page frame and
+    // the analytics choices; none were read. Mutation A: "permanently
+    // deleted" planted in BROWSER_STORAGE's consent `lasts` rendered in §5,
+    // and every guard stayed green. The render reads every module the page
+    // draws on, because that is what rendering is.
+    //
+    // THE SOURCE — the page and the `src/lib/privacy` registries it imports —
+    // because a branch a flag does not render today (the per-client
+    // rate-limit sentence in `rate-limits.ts`) is on no rendered page and
+    // still ships the day the flag flips. It is a narrower set on purpose:
+    // the branches, not the reach.
+    const rendered = renderedText(Page);
+    // Health: the render is not blind, and it reaches beyond src/lib/privacy.
+    expect(rendered.length).toBeGreaterThan(2000);
+    if (name === "privacy")
+      expect(rendered).toContain(BROWSER_STORAGE[0]!.lasts);
+    else expect(rendered).toContain(LEGAL_ENTITY.name);
     const own = read(file);
-    const rendered = [...own.matchAll(/from "@\/lib\/privacy\/([\w-]+)"/g)].map(
-      (m) => path.join(ROOT, "src", "lib", "privacy", `${m[1]}.ts`),
-    );
-    if (name === "privacy") expect(rendered.length).toBeGreaterThanOrEqual(5);
-    const source = [own, ...rendered.map(read)]
+    const registries = [
+      ...own.matchAll(/from "@\/lib\/privacy\/([\w-]+)"/g),
+    ].map((m) => path.join(ROOT, "src", "lib", "privacy", `${m[1]}.ts`));
+    if (name === "privacy")
+      expect(registries.length).toBeGreaterThanOrEqual(5);
+    const source = [own, ...registries.map(read)]
       .map(withoutComments)
       .join(" \n ");
-    const found = OVERCLAIMS.filter((o) => o.pattern.test(source)).map(
-      (o) => `${String(o.pattern)} — ${o.instead}`,
-    );
+    const found = [
+      ...OVERCLAIMS.filter((o) => o.pattern.test(rendered)).map(
+        (o) => `rendered: ${String(o.pattern)} — ${o.instead}`,
+      ),
+      ...OVERCLAIMS.filter((o) => o.pattern.test(source)).map(
+        (o) => `source: ${String(o.pattern)} — ${o.instead}`,
+      ),
+    ];
     expect(
       found,
       `${name} contains a claim this product cannot support:\n  ${found.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("positive control: an overclaim in a registry outside src/lib/privacy reaches the rendered scan", () => {
+    // Mutation A, as an executable control: the consent store's `lasts` is
+    // rendered by /privacy §5 from `@/lib/browser-storage`. The same scan the
+    // test above runs, over the rendered page with that sentence replaced.
+    const lasts = BROWSER_STORAGE[0]!.lasts;
+    const rendered = renderedText(PrivacyPage);
+    expect(rendered).toContain(lasts);
+    const planted = rendered.replace(
+      lasts,
+      "Until you change it here; then it is permanently deleted.",
+    );
+    expect(planted).not.toBe(rendered);
+    expect(OVERCLAIMS.filter((o) => o.pattern.test(rendered))).toEqual([]);
+    expect(
+      OVERCLAIMS.filter((o) => o.pattern.test(planted)).map((o) =>
+        String(o.pattern),
+      ),
+    ).toEqual([String(/\bpermanently (?:delet|eras|destroy|wip|remov|purg)/i)]);
   });
 
   it("neither does the marketing copy the legal pages sit one click from", () => {
