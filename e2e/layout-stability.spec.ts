@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { bring, DESK_SETS, ticketSettled, type DeskSet } from "./desk-files";
 import { makePdfBytes, makeScanPdfBytes, waitForHydration } from "./helpers";
 import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
@@ -1526,115 +1527,250 @@ test.describe("first visit: fonts arrive after first paint (FONTS_LATE=1)", () =
 
 /**
  * The home desk as files arrive (WP-05): the same box from the empty desk to
- * the ticket, at a fixed size, so the swap, the rows landing, the facts
- * filling in and the suggestions appearing move NOTHING — inside the desk
- * (`[data-desk]` is a reserved slot) or below it.
+ * the ticket, so the swap, the rows landing, the facts filling in, the notes
+ * and the suggestions appearing move NOTHING — inside the desk (`[data-desk]`
+ * is a reserved slot) or around and below it.
+ *
+ * WHAT THIS GUARD MISSED, ONCE. It dropped two PDFs at 1280 and at 390 — the
+ * one file set whose ticket fitted the empty desk — and stayed green while
+ * the box grew with whatever else arrived: +12px for those same two PDFs at
+ * 640-1023, +20 for a Word file and two PDFs, +40 for four or twenty-three,
+ * +110 for a HEIC and a stray file at 1280, and the notes landing after the
+ * settle moved the lede and CTAs 71px (WP-05 review, measured on the served
+ * build). Now every set in {@link DESK_SETS} is dropped at a phone, a tablet
+ * and a desktop width, and four things are read for each, every one able to
+ * fail on its own:
+ *
+ *  - the desk's height, before and after;
+ *  - the document position of every part of the hero and of the section
+ *    after it — what moves when the desk grows, on screen or not (a shift
+ *    below the fold is not reported as CLS at all);
+ *  - shifts sourced inside the desk (zero) and CLS over every shift;
+ *  - no slot of the ticket overflowing its reserved height (an overflow
+ *    would paint over its neighbours without moving anything).
  *
  * The files arrive by a synthetic drop, which carries no input flag: every
  * shift it causes counts, as it would for a visitor's real drop. The ticket's
  * chunk is held back {@link LATE_CHUNK_MS} if it has not arrived, so the
- * stand-in shows first on every run, not only on a slow machine.
+ * stand-in shows first on every run, not only on a slow machine. The
+ * positive controls at the end make the box grow the two ways it did and go
+ * through the same measurement.
  */
+const DESK_DEVICES = [
+  { name: "phone", use: PHONE },
+  { name: "tablet", use: { viewport: { width: 768, height: 1024 } } },
+  { name: "desktop", use: DESKTOP },
+] as const;
+
+interface DeskArrival {
+  boxBefore: number;
+  boxAfter: number;
+  /** Parts of the hero (and the section after it) whose position changed. */
+  moved: string[];
+  /** How many positions were read: a health check on the reading itself. */
+  witnesses: number;
+  counted: ShiftRecord[];
+  inDesk: ShiftRecord[];
+  cls: number;
+  /** Ticket slots whose content is taller than their reserved height. */
+  overflowing: string[];
+}
+
+/** Runs in the page: where each part of the hero, and what follows it, is. */
+function deskWitnesses(): { name: string; top: number; height: number }[] {
+  const stack = document.querySelector("[data-desk-stack]");
+  const hero = stack?.closest("section");
+  if (!stack || !hero) return [];
+  const container = hero.firstElementChild;
+  const parts = [
+    ...(container ? [...container.children] : []),
+    ...(hero.nextElementSibling ? [hero.nextElementSibling] : []),
+  ];
+  return [
+    ...parts.map((el, i) => {
+      const r = el.getBoundingClientRect();
+      const name = `${i}:${el.tagName.toLowerCase()}.${(el.getAttribute("class") ?? "").split(/\s+/)[0]}`;
+      return { name, top: r.top + window.scrollY, height: r.height };
+    }),
+  ];
+}
+
+async function measureDeskArrival(
+  page: Page,
+  set: DeskSet,
+): Promise<DeskArrival> {
+  await page.goto("/", { waitUntil: "load" });
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await page.goto("/", { waitUntil: "load" });
+  const desk = page.locator("[data-desk]");
+  await waitForHydration(desk);
+  await page.waitForLoadState("networkidle");
+  await page.route(
+    /\/_next\/static\/chunks\/.+\.js(?:\?.*)?$/,
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, LATE_CHUNK_MS));
+      await route.continue();
+    },
+  );
+  // The desk and what is under it are on screen when the files land.
+  await desk.evaluate((el) =>
+    el.scrollIntoView({ block: "start", behavior: "instant" }),
+  );
+  await page.waitForTimeout(300);
+  const box = () =>
+    page
+      .locator("[data-desk-stack] > [data-live]")
+      .evaluate((el) => el.getBoundingClientRect().height);
+  const before = {
+    shifts: await page.evaluate(() => window.__shifts?.length ?? -1),
+    box: await box(),
+    witnesses: await page.evaluate(deskWitnesses),
+  };
+  expect(before.shifts, "the recorder is not installed").toBeGreaterThanOrEqual(
+    0,
+  );
+
+  await bring(page, set);
+  await ticketSettled(page);
+  // Past the settle timer and the facts that land after it (the notes did).
+  await page.waitForTimeout(1200);
+
+  const after = await page.evaluate((from) => {
+    const ticket = document.querySelector("[data-desk] section");
+    const overflowing = [
+      ...(ticket?.querySelectorAll<HTMLElement>("[data-slot]") ?? []),
+    ]
+      .filter((el) => el.scrollHeight > el.clientHeight + 1)
+      .map(
+        (el) =>
+          `${el.dataset.slot}: ${el.scrollHeight}px in ${el.clientHeight}px`,
+      );
+    return { shifts: (window.__shifts ?? []).slice(from), overflowing };
+  }, before.shifts);
+  const witnessesAfter = await page.evaluate(deskWitnesses);
+  const at = new Map(witnessesAfter.map((w) => [w.name, w]));
+  const moved = before.witnesses.flatMap((w) => {
+    const now = at.get(w.name);
+    if (!now) return [`${w.name}: gone`];
+    return Math.abs(now.top - w.top) > 0.5 ||
+      Math.abs(now.height - w.height) > 0.5
+      ? [
+          `${w.name}: top ${w.top.toFixed(1)} → ${now.top.toFixed(1)}, height ${w.height.toFixed(1)} → ${now.height.toFixed(1)}`,
+        ]
+      : [];
+  });
+  const counted = after.shifts.filter((s) => !s.hadRecentInput);
+  return {
+    boxBefore: before.box,
+    boxAfter: await box(),
+    moved,
+    witnesses: before.witnesses.length,
+    counted,
+    inDesk: after.shifts.filter((s) => s.sources.some((x) => x.reserved)),
+    cls: counted.reduce((sum, s) => sum + s.value, 0),
+    overflowing: after.overflowing,
+  };
+}
+
 test.describe("the home desk as files arrive", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(observe, RESERVED);
   });
 
-  for (const c of [
-    { name: "desktop", use: DESKTOP },
-    { name: "phone", use: PHONE },
-  ] as const) {
-    test.describe(c.name, () => {
-      test.use(c.use);
+  test("health: the corpus holds every shape the ticket lays out differently", () => {
+    // One file, several, the "+N more" line, the overflow row, a note, two
+    // notes, a pin, no offers, an over-ceiling note, the sample.
+    expect(DESK_SETS.length).toBeGreaterThanOrEqual(10);
+  });
 
-      test("drop two PDFs: nothing inside or below the desk moves, from the drop to the settled ticket", async ({
-        page,
-      }) => {
-        const files = await Promise.all(
-          [
-            ["contract.pdf", 3],
-            ["annex.pdf", 1],
-          ].map(async ([name, pages]) => ({
-            name: name as string,
-            b64: Buffer.from(
-              await makePdfBytes(name as string, pages as number),
-            ).toString("base64"),
-          })),
-        );
-        await page.goto("/", { waitUntil: "load" });
-        await page.evaluate(() => document.fonts.ready.then(() => undefined));
-        await page.goto("/", { waitUntil: "load" });
-        const desk = page.locator("[data-desk]");
-        await waitForHydration(desk);
-        await page.waitForLoadState("networkidle");
-        await page.route(
-          /\/_next\/static\/chunks\/.+\.js(?:\?.*)?$/,
-          async (route) => {
-            await new Promise((resolve) => setTimeout(resolve, LATE_CHUNK_MS));
-            await route.continue();
-          },
-        );
-        // The desk and what is under it are on screen when the files land.
-        await desk.evaluate((el) =>
-          el.scrollIntoView({ block: "start", behavior: "instant" }),
-        );
-        await page.waitForTimeout(300);
-        const before = await page.evaluate(() => ({
-          shifts: window.__shifts?.length ?? -1,
-          box: document.querySelector("[data-desk]")!.getBoundingClientRect()
-            .height,
-        }));
-        expect(
-          before.shifts,
-          "the recorder is not installed",
-        ).toBeGreaterThanOrEqual(0);
+  for (const device of DESK_DEVICES) {
+    test.describe(device.name, () => {
+      test.use(device.use);
 
-        const dataTransfer = await page.evaluateHandle((list) => {
-          const dt = new DataTransfer();
-          for (const { name, b64 } of list) {
-            const bin = atob(b64);
-            const bytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-            dt.items.add(new File([bytes], name, { type: "application/pdf" }));
-          }
-          return dt;
-        }, files);
-        await desk.dispatchEvent("dragenter", { dataTransfer });
-        await desk.dispatchEvent("drop", { dataTransfer });
-
-        const ticket = page.getByRole("region", {
-          name: "What you can do with these files",
+      for (const set of DESK_SETS) {
+        test(`${set.name}: the desk keeps its height, nothing around or under it moves, nothing inside it shifts, no slot overflows`, async ({
+          page,
+        }) => {
+          // Health: the device applied (a `use` that did not would measure
+          // the default page again, and pass for it).
+          await page.goto("about:blank");
+          expect(await page.evaluate(() => window.innerWidth)).toBe(
+            device.use.viewport.width,
+          );
+          const m = await measureDeskArrival(page, set);
+          // Health: the reading saw the hero's parts and what follows it
+          // (kicker, title, desk, lede, actions, trust, next section).
+          expect(m.witnesses).toBeGreaterThanOrEqual(7);
+          expect(m.boxAfter, "the desk changed height").toBe(m.boxBefore);
+          expect(m.moved, "something around or under the desk moved").toEqual(
+            [],
+          );
+          expect(
+            m.inDesk.length,
+            `something inside the desk moved:\n${report(m.inDesk)}`,
+          ).toBe(0);
+          expect(
+            m.overflowing,
+            "a ticket slot overflows its reserved height",
+          ).toEqual([]);
+          expect(
+            m.cls,
+            `the page moved as the files arrived:\n${report(m.counted)}`,
+          ).toBeLessThanOrEqual(MAX_CLS);
         });
-        await expect(ticket).toContainText(/2 PDFs\s·\s4 pages/, {
-          timeout: 15_000,
-        });
-        await expect(
-          ticket.locator('[data-slot="suggestions"] ol > li'),
-        ).toHaveCount(3);
-        await page.waitForTimeout(600);
-
-        const after = await page.evaluate((from) => {
-          const shifts = (window.__shifts ?? []).slice(from);
-          return {
-            shifts,
-            box: document.querySelector("[data-desk]")!.getBoundingClientRect()
-              .height,
-          };
-        }, before.shifts);
-        const counted = after.shifts.filter((s) => !s.hadRecentInput);
-        const inDesk = after.shifts.filter((s) =>
-          s.sources.some((x) => x.reserved),
-        );
-        expect(after.box, "the desk changed height").toBe(before.box);
-        expect(
-          inDesk.length,
-          `something inside the desk moved:\n${report(inDesk)}`,
-        ).toBe(0);
-        expect(
-          counted.reduce((sum, s) => sum + s.value, 0),
-          `the page moved as the files arrived:\n${report(counted)}`,
-        ).toBeLessThanOrEqual(MAX_CLS);
-      });
+      }
     });
   }
+
+  /**
+   * The two ways the box grew, injected, through the same measurement: a
+   * ticket part whose height follows its content (the file rows, as the
+   * notes did), and the empty desk without the frame that holds the
+   * ticket's height (the box was the taller of the empty desk and the
+   * ticket). Each must read as a moved page and a changed box.
+   */
+  test.describe("positive controls: the box growing is measured", () => {
+    async function inject(page: Page, css: string) {
+      await page.addInitScript((text) => {
+        const add = () => {
+          const style = document.createElement("style");
+          style.dataset.probe = "";
+          style.textContent = text;
+          document.head.append(style);
+        };
+        if (document.head) add();
+        else document.addEventListener("DOMContentLoaded", add);
+      }, css);
+    }
+    const set = (name: string) => DESK_SETS.find((s) => s.name === name)!;
+
+    test.describe("desktop", () => {
+      test.use(DESKTOP);
+
+      test("file rows that grow with what arrived", async ({ page }) => {
+        await inject(
+          page,
+          '[data-desk] section [data-slot="files"]{height:auto !important} [data-desk] section dl > div{height:3rem !important}',
+        );
+        const m = await measureDeskArrival(page, set("four PDFs (+1 more)"));
+        await expect(page.locator("style[data-probe]")).toHaveCount(1);
+        expect(m.boxAfter).toBeGreaterThan(m.boxBefore);
+        expect(m.moved).not.toEqual([]);
+      });
+    });
+
+    test.describe("tablet", () => {
+      test.use({ viewport: { width: 768, height: 1024 } });
+
+      test("the empty desk without the frame that holds the ticket's height", async ({
+        page,
+      }) => {
+        await inject(page, "[data-desk-ghost]{display:none !important}");
+        const m = await measureDeskArrival(page, set("two PDFs"));
+        await expect(page.locator("style[data-probe]")).toHaveCount(1);
+        expect(m.boxAfter).toBeGreaterThan(m.boxBefore);
+        expect(m.moved).not.toEqual([]);
+      });
+    });
+  });
 });

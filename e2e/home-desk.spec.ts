@@ -185,6 +185,51 @@ test("Open in workspace carries the desk's files there", async ({ page }) => {
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
 
+/**
+ * The ticket's footer is read and tabbed in one order: "More for these
+ * files", then "Open in workspace", then — when More is open — its rows.
+ *
+ * WAS a native <details> with "Open in workspace" absolutely placed beside
+ * its summary but AFTER the disclosure in the DOM: with More open, Tab went
+ * from the summary (y≈524) through ~40 rows and the "Every tool that takes
+ * PDF" link down to y≈2022, then jumped back up to the button on the first
+ * line (WCAG 2.4.3; WP-05 review, on the served build).
+ */
+test("with More open, Tab goes More → Open in workspace → the rows, the order they are drawn in", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("one.pdf", 1),
+    await writeTempPdf("two.pdf", 2),
+  ]);
+  const ticket = ticketOf(page);
+  const more = ticket.getByRole("button", { name: /^More for these files/ });
+  const workspace = ticket.getByRole("button", { name: /open in workspace/i });
+  await more.click();
+  await expect(more).toHaveAttribute("aria-expanded", "true");
+  const firstRow = page
+    .locator(`#${await more.getAttribute("aria-controls")}`)
+    .locator("a[data-suggestion]")
+    .first();
+  await expect(firstRow).toBeVisible();
+
+  await more.focus();
+  await page.keyboard.press("Tab");
+  await expect(workspace).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(firstRow).toBeFocused();
+
+  // …which is the order they are drawn in: the two buttons on one line,
+  // More first, and the rows below it.
+  const [m, w, r] = await Promise.all(
+    [more, workspace, firstRow].map((l) => l.boundingBox()),
+  );
+  expect(Math.abs(m!.y - w!.y)).toBeLessThan(4);
+  expect(w!.x).toBeGreaterThan(m!.x);
+  expect(r!.y).toBeGreaterThan(m!.y + m!.height - 1);
+});
+
 test("a PDF that needs a password: Unlock PDF comes first, and says why", async ({
   page,
 }) => {
