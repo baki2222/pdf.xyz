@@ -49,10 +49,25 @@ export interface Remedy {
   readonly toolName: string;
   readonly href: string;
   readonly problem: PdfEngineErrorKind;
-  /** Where the remedy runs — said beside it, read from the catalogue. */
-  readonly processing: ProcessingMode;
-  /** How it fixes this file, after the tool's name: "with the password…". */
+  /** The link's words: "Open Unlock PDF", "Try Repair PDF". */
+  readonly label: string;
+  /** How it fixes this file, after the link: "with the password…". */
   readonly why: string;
+  /** Where the remedy runs, read from the catalogue. */
+  readonly processing: ProcessingMode;
+  /**
+   * Where the file goes there, said at the moment it would move — or null
+   * for a mode no remedy runs in yet, which `remedies.test.ts` fails, so a
+   * new remedy cannot ship without saying it.
+   */
+  readonly where: string | null;
+}
+
+/** The sentence for a remedy's mode; worker tools are the only ones today. */
+function whereFor(mode: ProcessingMode): string | null {
+  return mode === "server"
+    ? "You add the file there, and it uploads to the secure worker only when you start it."
+    : null;
 }
 
 /** The words for an encrypted file, by what a reader made of its lock. */
@@ -73,16 +88,21 @@ function remedy(
   fallbackName: string,
   href: string,
   problem: PdfEngineErrorKind,
+  verb: "Open" | "Try",
   why: string,
 ): Remedy {
   const tool = getToolBySlug(toolSlug);
+  const toolName = tool?.name ?? fallbackName;
+  const processing = tool?.processing ?? "server";
   return {
     toolSlug,
-    toolName: tool?.name ?? fallbackName,
+    toolName,
     href,
     problem,
-    processing: tool?.processing ?? "server",
+    label: `${verb} ${toolName}`,
     why,
+    processing,
+    where: whereFor(processing),
   };
 }
 
@@ -103,6 +123,7 @@ function remedyOf({ kind, verdict }: RemedyInput): Remedy | null {
         UNLOCK_TOOL_NAME,
         UNLOCK_TOOL_HREF,
         "encrypted",
+        "Open",
         unlockWhy(verdict),
       );
     case "unreadable":
@@ -111,6 +132,7 @@ function remedyOf({ kind, verdict }: RemedyInput): Remedy | null {
         REPAIR_TOOL_NAME,
         REPAIR_TOOL_HREF,
         "unreadable",
+        "Try",
         "to recover as much of the file as it can",
       );
     case "too-large":

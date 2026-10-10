@@ -38,7 +38,10 @@ import {
   Spinner,
   UndecodedImagesNotice,
   useAsyncRun,
+  NO_ADJUST,
+  outputFile,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
@@ -202,25 +205,21 @@ function PdfToImageEditor({
         />
       </div>
 
-      {busy && progress && (
-        <RenderProgress
-          done={progress.done}
-          total={progress.total}
-          label={label}
-        />
-      )}
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          busyLabel={`Rendering ${label}…`}
-        >
-          <ImageDown className="size-4" aria-hidden />
-          Render {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            busyLabel={`Rendering ${label}…`}
+            progress={progress && { ...progress, unit: "pages" }}
+          >
+            <ImageDown className="size-4" aria-hidden />
+            Render {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }
@@ -310,6 +309,17 @@ export function ImageResult({
         result.zip ? " · bundled as a ZIP" : ""
       }`}
       onReset={onStartOver}
+      output={result.pages.map((page) =>
+        outputFile(
+          page.bytes,
+          pageImageName(pdf.file.name, page.index, pageCount, format),
+          mime,
+        ),
+      )}
+      // "Change resolution", beside Download, is this tool's way back.
+      onAdjust={NO_ADJUST(
+        "Change resolution, beside Download, returns to the resolution chips with the same file",
+      )}
     >
       <div className="flex w-full flex-col gap-5">
         <UndecodedImagesNotice
@@ -401,35 +411,6 @@ export function ImageResult({
         )}
       </div>
     </ResultPanel>
-  );
-}
-
-function RenderProgress({
-  done,
-  total,
-  label,
-}: {
-  done: number;
-  total: number;
-  label: string;
-}) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  return (
-    <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-      <span className="text-muted inline-flex items-center gap-1.5 text-xs">
-        <Spinner className="size-3" />
-        Rendering {label}… {done}/{total}
-      </span>
-      <span
-        className="bg-wash h-1 w-full overflow-hidden rounded-full"
-        aria-hidden
-      >
-        <span
-          className="bg-accent block h-full rounded-full transition-[width] duration-300"
-          style={{ width: `${pct}%` }}
-        />
-      </span>
-    </div>
   );
 }
 

@@ -253,10 +253,12 @@ describe("stylesheet motion is opt-in", () => {
    * Rules allowed to move outside `no-preference`, each with its reason and
    * its exit. Stale entries fail, so this can only shrink.
    */
-  const ALLOWED: Record<string, string> = {
-    ".animate-float-up":
-      "the result panel's entrance, from before the motion contract; the reset stills it. WP-08 moves ResultPanel to animate-rise and deletes this rule.",
-  };
+  // WAS one entry, `.animate-float-up` — the result panel's 600ms entrance
+  // from before the motion contract, which only the reset stilled. WP-08
+  // moved ResultPanel (and Extract Images' empty-result panel, its other
+  // consumer) to `motion-safe:animate-rise` and deleted the rule; the stale
+  // check below is what made this entry leave with it.
+  const ALLOWED: Record<string, string> = {};
 
   it("every animating rule is inside no-preference, or allowed with a reason", () => {
     const ungated = ungatedMotion(css).map((r) => r.selector);

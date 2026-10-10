@@ -19,12 +19,15 @@ import {
   Info,
   Loader2,
   RefreshCw,
+  SlidersHorizontal,
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
 import { PageRangeError } from "@/lib/pdf/ranges";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
+import { remedyFor, type Remedy, type RemedyInput } from "@/lib/pdf/remedies";
+import type { RunOutput } from "@/lib/intent/run-output";
 import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
@@ -34,6 +37,13 @@ import {
   reportToolCompleted,
   reportToolFailed,
 } from "@/lib/telemetry/tool-outcome";
+import { useToolRun } from "./tool-context";
+
+export {
+  outputFile,
+  textOutputFile,
+  type RunOutput,
+} from "@/lib/intent/run-output";
 
 /* ------------------------------------------------------------------ *
  *  Async run state
@@ -50,13 +60,58 @@ export function errorMessage(err: unknown): string {
 
 /**
  * The failure code a thrown value maps to for telemetry. Our typed errors are
- * refusals of the INPUT (unreadable, password-protected, a bad page range);
- * anything else failed while processing and gets no code.
+ * refusals of the INPUT; the engine's own refusals say which (an encrypted
+ * file, an unreadable one), and the rest — a bad page range, an engine error
+ * with no kind — are the input refused as it stands. Anything else failed
+ * while processing and gets no code.
  */
 export function failureCode(err: unknown): string | undefined {
+  if (err instanceof PdfEngineError && err.kind !== undefined)
+    return err.kind === "encrypted" ? "encrypted_input" : "unreadable_input";
   return err instanceof PdfEngineError || err instanceof PageRangeError
     ? "unprocessable_entity"
     : undefined;
+}
+
+/**
+ * The end of a result — its receipt and "Continue with" — is one on-demand
+ * chunk (`@/components/intent/result-ending`): in the runner kit it would be
+ * in every tool page's first load, for a screen most visits never reach.
+ * Fetched the moment a run STARTS, so by the time the result draws it is
+ * here and draws with it; a result that beats it draws the rest a moment
+ * later, never instead of the Download.
+ */
+type Ending = typeof import("@/components/intent/result-ending");
+let ending: Ending | null = null;
+let endingLoad: Promise<Ending> | null = null;
+
+export function warmEnding(): Promise<Ending> {
+  endingLoad ??= import("@/components/intent/result-ending").then(
+    (m) => (ending = m),
+    (err: unknown) => {
+      endingLoad = null;
+      throw err;
+    },
+  );
+  return endingLoad;
+}
+
+function useEnding(): Ending | null {
+  const [loaded, setLoaded] = useState(ending);
+  useEffect(() => {
+    if (loaded) return;
+    let live = true;
+    warmEnding().then(
+      (m) => live && setLoaded(m),
+      () => {
+        // Not loaded: the result still offers Download and Start over.
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [loaded]);
+  return loaded;
 }
 
 /**
@@ -71,6 +126,7 @@ export function useAsyncRun<T>() {
   const run = useCallback(async (task: () => Promise<T>) => {
     setBusy(true);
     setError(null);
+    void warmEnding().catch(() => {});
     const started = Date.now();
     try {
       const value = await task();
@@ -283,13 +339,22 @@ export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
 }
 
 /**
- * Does {@link ErrorNote} put an "Open Unlock PDF" link inside this message's
- * alert? Exported so a panel with its own next-step link (the office-export
- * codes) can tell the alert already carries that one, rather than render it
- * twice: two "Open Unlock PDF" links, one inside the alert and one below it.
+ * Does {@link ErrorNote} put a link to Unlock PDF inside this alert? Exported
+ * so a panel with its own next-step link (the office-export codes) can tell
+ * the alert already carries that one, rather than render it twice: two
+ * "Open Unlock PDF" links, one inside the alert and one below it.
+ *
+ * ONE answer for both ways the alert gets the link: a remedy read off the
+ * error's cause (`remedyFor`), or — for a message that names Unlock PDF and
+ * came with no cause — the link the message's words ask for. Never both.
  */
-export function errorNoteLinksUnlock(message: string): boolean {
-  return message.includes(UNLOCK_TOOL_NAME);
+export function errorNoteLinksUnlock(
+  message: string,
+  remedy: Remedy | null = null,
+): boolean {
+  return remedy
+    ? remedy.href === UNLOCK_TOOL_HREF
+    : message.includes(UNLOCK_TOOL_NAME);
 }
 
 /**
@@ -297,17 +362,28 @@ export function errorNoteLinksUnlock(message: string): boolean {
  * to the tool that can do what this one could not — and it renders INSIDE the
  * alert, so it is announced with the error and reached by keyboard right after
  * it, rather than sitting somewhere the reader has to go and find.
+ *
+ * `cause` is what the error says about why (`causeOf(err)`, or the file
+ * check's own kind): an encrypted or unreadable file gets its REMEDY here
+ * (`@/lib/pdf/remedies`) — the tool that fixes it, how, and where the file
+ * goes there — never offered from the tool that is that remedy. A cause the
+ * engine did not name gets none.
  */
 export function ErrorNote({
   message,
   action,
+  cause,
 }: {
   message: string;
   action?: ReactNode;
+  cause?: RemedyInput;
 }) {
+  const run = useToolRun();
+  const remedy = cause ? remedyFor(cause, run?.slug ?? "") : null;
   // A message that sends the user to Unlock PDF (every encrypted-file message
-  // does) carries the way there, rather than a tool name to go and find.
-  const offersUnlock = errorNoteLinksUnlock(message);
+  // does) carries the way there, rather than a tool name to go and find —
+  // as the remedy's link when there is one, else as its own.
+  const offersUnlock = !remedy && errorNoteLinksUnlock(message);
   return (
     <p
       role="alert"
@@ -329,6 +405,20 @@ export function ErrorNote({
           </>
         )}
         {action ? <> {action}</> : null}
+        {remedy && (
+          <span data-remedy="" className="mt-2 flex flex-col gap-0.5">
+            <span>
+              <Link
+                href={remedy.href}
+                className="font-semibold underline underline-offset-2"
+              >
+                {remedy.label}
+              </Link>{" "}
+              {remedy.why}.
+            </span>
+            {remedy.where && <span className="text-xs">{remedy.where}</span>}
+          </span>
+        )}
       </span>
     </p>
   );
@@ -368,6 +458,7 @@ export function RunButton({
   children,
   busyLabel = "Working…",
   className,
+  progress,
 }: {
   onClick: () => void;
   busy?: boolean;
@@ -375,11 +466,18 @@ export function RunButton({
   children: ReactNode;
   busyLabel?: string;
   className?: string;
+  /**
+   * How far a run that reports progress has got (grayscale, PDF to image,
+   * redact). Drawn under the button only while busy: a 2px mark bar and
+   * "7 / 24 pages", never a percentage the operation did not report.
+   */
+  progress?: RunProgress | null;
 }) {
   const blocked = Boolean(busy) || Boolean(disabled);
-  return (
+  const button = (
     <button
       type="button"
+      data-run-trigger=""
       onClick={(event) => {
         if (blocked) {
           event.preventDefault();
@@ -404,6 +502,62 @@ export function RunButton({
         children
       )}
     </button>
+  );
+  if (progress === undefined) return button;
+  return (
+    <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+      {button}
+      {busy && progress && <ProgressLine {...progress} />}
+    </div>
+  );
+}
+
+/** Work done of a run that counts it, in the run's own unit ("pages"). */
+export interface RunProgress {
+  readonly done: number;
+  readonly total: number;
+  readonly unit: string;
+}
+
+/**
+ * A run's progress, as it reports it: a bar that is a share of the width
+ * (`scaleX`, M14) and the count beside it. The bar is decoration; the count
+ * is the fact, exposed as a progressbar. It is not a live region — a page
+ * a second read out aloud is noise — so it speaks at each quarter instead,
+ * through the app's region.
+ */
+function ProgressLine({ done, total, unit }: RunProgress) {
+  const share = total > 0 ? Math.min(1, done / total) : 0;
+  const quarter = Math.floor(share * 4);
+  const spoken = useRef(0);
+  useEffect(() => {
+    if (quarter > spoken.current && quarter < 4) {
+      spoken.current = quarter;
+      announceOutcome(`${quarter * 25}% — ${done} of ${total} ${unit}`);
+    }
+  }, [quarter, done, total, unit]);
+  return (
+    <div
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={done}
+      aria-valuetext={`${done} of ${total} ${unit}`}
+      className="flex w-full items-center gap-3 sm:w-56"
+    >
+      <span
+        aria-hidden
+        className="bg-line relative h-0.5 flex-1 overflow-hidden"
+      >
+        <span
+          className="bg-mark absolute inset-0 origin-left motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-linear"
+          style={{ transform: `scaleX(${share})` }}
+        />
+      </span>
+      <span className="figure text-muted shrink-0 text-xs">
+        {done} / {total} {unit}
+      </span>
+    </div>
   );
 }
 
@@ -570,7 +724,40 @@ export function DownloadCta({
 }
 
 /**
- * Success panel shown after a tool produces output.
+ * A result with nothing to go back to — said, with the reason, where the
+ * result is built, so a census can tell a decision from an omission
+ * (`result-output.test.ts`).
+ */
+export interface NoAdjust {
+  readonly noAdjust: string;
+}
+export const NO_ADJUST = (reason: string): NoAdjust => ({ noAdjust: reason });
+
+/**
+ * A finished run that wrote no file (a PDF with no text to extract): no
+ * receipt to show and nothing to carry on — said, with the reason.
+ */
+export interface NoOutput {
+  readonly noOutput: string;
+}
+export const NO_OUTPUT = (reason: string): NoOutput => ({ noOutput: reason });
+
+/**
+ * The finished run: its title and summary, the RECEIPT (what it made,
+ * measured here), Download (the children), "Back to adjust", "Continue
+ * with", and "Start over" — every ending a fork (redesign E.6, C.3).
+ *
+ * `output` is REQUIRED: what the run produced, which the receipt re-opens
+ * and counts and "Continue with" carries to the next tool. `onAdjust` is
+ * required too: `reset` from the run's own `useAsyncRun` (the editor's
+ * settings live in the component that renders this panel, so clearing the
+ * result shows them again, untouched, with the same file), or
+ * `NO_ADJUST(reason)` where a run has nothing to adjust.
+ * `result-output.test.ts` holds every call site to both.
+ *
+ * The receipt and "Continue with" are one on-demand chunk (`warmEnding`),
+ * fetched as the run started; Download, Back to adjust and Start over are
+ * here, and never wait for it.
  *
  * Deliberately NOT a live region — it receives focus instead, and doing both
  * makes some screen readers read the outcome twice. See {@link useOutcomeFocus}.
@@ -583,6 +770,10 @@ export function ResultPanel({
   resetLabel = "Start over",
   announcement,
   tone = "ok",
+  output,
+  onAdjust,
+  expectedPages,
+  inputBytes,
 }: {
   title: string;
   summary?: ReactNode;
@@ -604,19 +795,57 @@ export function ResultPanel({
    * ("PDF re-saved", "Selectable text matches").
    */
   announcement?: string;
+  /** What the run produced (`outputFile(bytes, name)`), or `NO_OUTPUT(…)`. */
+  output: RunOutput | NoOutput;
+  /** Back to the settings with the same file: `reset`, or `NO_ADJUST(…)`. */
+  onAdjust: (() => void) | NoAdjust;
+  /**
+   * The pages the runner meant to write, when it knows exactly (a merge's
+   * sum): a re-count that differs is said on the receipt.
+   */
+  expectedPages?: number;
+  /** What went in, for the optimize tools' before-and-after. */
+  inputBytes?: number;
 }) {
   const id = useId();
+  const run = useToolRun();
+  const ending = useEnding();
   // Always `true`: this panel only ever renders on success, so its existence IS
   // the outcome. Surfaces that persist across runs pass a real condition.
   const outcome = useOutcomeFocus(true, announcement ?? title);
+  const finished = run?.finished;
+  useEffect(() => {
+    if (!finished) return;
+    finished(true);
+    return () => finished(false);
+  }, [finished]);
+
+  const adjust = typeof onAdjust === "function" ? onAdjust : null;
+  const made = "noOutput" in output ? null : output;
+  const backToAdjust = () => {
+    if (!adjust) return;
+    // Found before the panel unmounts: the tool's panel, then its Run.
+    const scope: ParentNode =
+      outcome.ref.current?.closest("[data-tool-panel]") ?? document;
+    adjust();
+    requestAnimationFrame(() => {
+      const trigger = scope.querySelector<HTMLElement>("[data-run-trigger]");
+      if (!trigger) return;
+      trigger.focus({ preventScroll: true });
+      trigger.scrollIntoView?.({ block: "nearest", behavior: "instant" });
+    });
+  };
+
   return (
     <div
       {...outcome}
       role="group"
       aria-labelledby={summary ? `${id}-t ${id}-s` : `${id}-t`}
       data-tone={tone}
+      data-result-panel=""
+      data-motion-ui=""
       className={cn(
-        "animate-float-up flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2",
+        "rounded-panel motion-safe:animate-rise flex flex-col gap-5 border p-6 outline-none focus-visible:ring-2",
         tone === "warn"
           ? "border-warn/40 bg-warn/10 focus-visible:ring-warn/50"
           : tone === "ok"
@@ -654,9 +883,28 @@ export function ResultPanel({
           )}
         </div>
       </div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      {ending && made && (
+        <ending.OutputFacts
+          output={made}
+          expectedPages={expectedPages}
+          inputBytes={inputBytes}
+          optimize={run?.category === "optimize"}
+        />
+      )}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         {children}
+        {adjust && (
+          <button
+            type="button"
+            onClick={backToAdjust}
+            className={buttonVariants({ variant: "outline", size: "lg" })}
+          >
+            <SlidersHorizontal className="size-4" aria-hidden />
+            Back to adjust
+          </button>
+        )}
       </div>
+      {ending && made && <ending.ContinueWith output={made} />}
       <button
         type="button"
         onClick={onReset}
@@ -677,15 +925,23 @@ export function ResultPanel({
  * pixel-for-pixel no-op — with the difference that `announce` is REQUIRED. A new
  * panel cannot build the card without writing the sentence a user hears, which
  * is the only kind of convention this codebase has not drifted out of.
+ *
+ * `output`, when the card has the file in hand, adds the receipt and
+ * "Continue with" under its contents, as {@link ResultPanel} does. Optional
+ * until every worker panel has its file to give (redesign WP-10).
  */
 export function ResultCard({
   announce,
   children,
   className,
+  output,
+  inputBytes,
 }: {
   announce: string;
   children: ReactNode;
   className?: string;
+  output?: RunOutput;
+  inputBytes?: number;
 }) {
   const outcome = useOutcomeFocus(true, announce);
   return (
@@ -699,6 +955,45 @@ export function ResultCard({
       )}
     >
       {children}
+      {output && (
+        <RunEnding
+          output={output}
+          inputBytes={inputBytes}
+          className="border-ok/20 mt-2 border-t pt-4"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The receipt and "Continue with" for a result that is not a
+ * {@link ResultPanel} — Compress PDF's analysis and its batch, the worker
+ * result card — from the same on-demand chunk, drawn once it is here.
+ */
+export function RunEnding({
+  output,
+  inputBytes,
+  expectedPages,
+  className,
+}: {
+  output: RunOutput;
+  inputBytes?: number;
+  expectedPages?: number;
+  className?: string;
+}) {
+  const run = useToolRun();
+  const ending = useEnding();
+  if (!ending) return null;
+  return (
+    <div className={cn("flex flex-col gap-4", className)} data-motion-ui="">
+      <ending.OutputFacts
+        output={output}
+        inputBytes={inputBytes}
+        expectedPages={expectedPages}
+        optimize={run?.category === "optimize"}
+      />
+      <ending.ContinueWith output={output} />
     </div>
   );
 }

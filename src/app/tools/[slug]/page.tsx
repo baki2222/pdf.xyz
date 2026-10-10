@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, ShieldCheck } from "lucide-react";
-import { getAllToolSlugs, getRelatedTools, getToolBySlug } from "@/lib/tools";
+import {
+  getAllToolSlugs,
+  getRelatedTools,
+  getToolBySlug,
+  tools,
+} from "@/lib/tools";
+import { continueTargetsFor } from "@/lib/intent/next-steps";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
@@ -14,6 +20,8 @@ import { ToolCard } from "@/components/tools/tool-card";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { FormatsLine } from "@/components/tools/formats-line";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
+import { ToolRunProvider } from "@/components/tools/runner/tool-context";
+import { TicketRail } from "@/components/intent/ticket-rail";
 import { WORKER_PANELS } from "@/components/tools/worker-panels";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
@@ -266,22 +274,39 @@ export default async function ToolPage({
               data-tool-name={tool.name}
               className="border-line bg-panel rounded-panel flex flex-col gap-5 border p-5 sm:p-7"
             >
-              <div className="text-ok flex items-center gap-2 text-sm">
-                <ShieldCheck className="size-4" aria-hidden />
-                {/* Gated on the PROPERTY (can this file leave the device?),
-                    not on `=== "hybrid"`. The fallback branch here is the
-                    STRONG claim — "never leaves your device" — so a mode the
-                    condition did not anticipate defaulted into a promise
-                    rather than out of one. `modeUploadsFiles` is exhaustive
-                    over ProcessingMode by construction, so a new mode is a
-                    compile error instead of a false promise. */}
-                {modeUploadsFiles(tool.processing)
-                  ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
-                  : "Runs in your browser — your file never leaves your device."}
-              </div>
-              <ErrorBoundary boundary="tool-runner">
-                <ToolRunner kind={runnerKind} slug={tool.slug} />
-              </ErrorBoundary>
+              {/* The job this run is part of: the tool, where its output can
+                  go next — computed HERE, on the server, from the catalogue,
+                  and handed over as data — and the steps the files came
+                  through, which the runner's hand-off fills in. */}
+              <ToolRunProvider
+                tool={{
+                  slug: tool.slug,
+                  name: tool.name,
+                  category: tool.category,
+                }}
+                plan={continueTargetsFor(tool, tools)}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                  <div className="text-ok flex items-center gap-2 text-sm">
+                    <ShieldCheck className="size-4 shrink-0" aria-hidden />
+                    {/* Gated on the PROPERTY (can this file leave the
+                        device?), not on `=== "hybrid"`. The fallback branch
+                        here is the STRONG claim — "never leaves your device"
+                        — so a mode the condition did not anticipate defaulted
+                        into a promise rather than out of one.
+                        `modeUploadsFiles` is exhaustive over ProcessingMode
+                        by construction, so a new mode is a compile error
+                        instead of a false promise. */}
+                    {modeUploadsFiles(tool.processing)
+                      ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
+                      : "Runs in your browser — your file never leaves your device."}
+                  </div>
+                  <TicketRail />
+                </div>
+                <ErrorBoundary boundary="tool-runner">
+                  <ToolRunner kind={runnerKind} slug={tool.slug} />
+                </ErrorBoundary>
+              </ToolRunProvider>
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2">

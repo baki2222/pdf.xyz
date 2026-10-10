@@ -13,8 +13,10 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import {
   HandoffLoadedBadge,
   HandoffLoading,
@@ -151,6 +153,8 @@ function TextToPdfEditor({
           onSource({ name: "text.txt", text: "" });
           onClearError();
         }}
+        output={outputFile(result, filename)}
+        onAdjust={reset}
       >
         <button
           type="button"
@@ -211,12 +215,14 @@ function TextToPdfEditor({
       {loadError && <ErrorNote message={loadError} />}
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel="Creating PDF…">
-          <FileText className="size-4" aria-hidden />
-          Create PDF
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton onClick={onRun} busy={busy} busyLabel="Creating PDF…">
+            <FileText className="size-4" aria-hidden />
+            Create PDF
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

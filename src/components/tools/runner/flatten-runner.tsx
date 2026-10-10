@@ -19,8 +19,10 @@ import {
   RunButton,
   RunnerSection,
   Spinner,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
@@ -52,7 +54,7 @@ export function FlattenEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<FlattenResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<FlattenResult>();
   const [inspection, setInspection] = useState<FormInspection | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
 
@@ -93,6 +95,12 @@ export function FlattenEditor({
               : `Flattened ${result.flattenedFields} of ${result.totalFields} form field${plural(result.totalFields)} · ${size}`
         }
         onReset={onReset}
+        output={outputFile(
+          result.bytes,
+          flattenDownloadName(pdf.file.name, result),
+        )}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <div className="flex flex-col gap-3">
           {!result.hadForm && (
@@ -222,17 +230,19 @@ export function FlattenEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={blocked}
-          busyLabel={fillable === 0 ? "Saving…" : "Flattening…"}
-        >
-          <Layers className="size-4" aria-hidden />
-          {fillable === 0 ? "Re-save PDF" : "Flatten form fields"}
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={blocked}
+            busyLabel={fillable === 0 ? "Saving…" : "Flattening…"}
+          >
+            <Layers className="size-4" aria-hidden />
+            {fillable === 0 ? "Re-save PDF" : "Flatten form fields"}
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

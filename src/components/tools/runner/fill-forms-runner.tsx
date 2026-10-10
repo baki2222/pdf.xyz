@@ -14,13 +14,16 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   ErrorNote,
-  errorMessage,
   ResultPanel,
   RunButton,
   RunnerSection,
   Spinner,
+  errorMessage,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
+import { useUnsavedGuard } from "./use-unsaved-guard";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
@@ -206,9 +209,15 @@ function FieldsEditor({
   inspection: FormInspection;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<FillFormsResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<FillFormsResult>();
   const [values, setValues] = useState<Record<string, FieldValue>>(() =>
     initialValues(inspection.fields),
+  );
+  // Answers typed or chosen and not yet written into the PDF.
+  const [initial] = useState(() => JSON.stringify(values));
+  useUnsavedGuard(
+    JSON.stringify(values) !== initial && !result,
+    "your answers",
   );
   const [flatten, setFlatten] = useState(false);
 
@@ -271,6 +280,9 @@ function FieldsEditor({
           </>
         }
         onReset={onReset}
+        output={outputFile(result.bytes, filledFormsOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -352,12 +364,14 @@ function FieldsEditor({
         browser.
       </PrivacyLine>
 
-      <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel="Filling…">
-          <PenLine className="size-4" aria-hidden />
-          Fill form
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton onClick={onRun} busy={busy} busyLabel="Filling…">
+            <PenLine className="size-4" aria-hidden />
+            Fill form
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

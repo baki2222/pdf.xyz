@@ -40,11 +40,14 @@ import {
   Dropzone,
   ErrorNote,
   ResultCard,
+  RunEnding,
   Spinner,
   WorkerRunButton,
   errorMessage,
   failureCode,
+  outputFile,
   useOutcomeFocus,
+  warmEnding,
 } from "./runner-kit";
 import { CompressBatchRunner } from "./compress-batch";
 import {
@@ -164,7 +167,7 @@ function CompressSingle({
   if (error) {
     return (
       <div className="flex flex-col gap-4">
-        <ErrorNote message={error} />
+        <ErrorNote message={error.message} cause={error} />
         <button
           type="button"
           onClick={onReset}
@@ -381,6 +384,7 @@ function CompressEditor({
   useEffect(() => {
     let active = true;
     const started = Date.now();
+    void warmEnding().catch(() => {});
     // This is the tool's in-browser run — the analysis IS the lossless
     // recompression, and its output is the download below. It holds its own
     // state rather than `useAsyncRun`'s, so it reports its own outcome (see
@@ -539,17 +543,29 @@ function CompressEditor({
       </div>
 
       {canDownload && (!signed || signaturesConfirmed) && (
-        <DownloadCta
-          size="lg"
-          onClick={() =>
-            downloadBytes(
+        <>
+          <DownloadCta
+            size="lg"
+            onClick={() =>
+              downloadBytes(
+                result.optimized,
+                outputName(pdf.file.name, "optimized"),
+              )
+            }
+          >
+            Download optimized PDF ({formatBytes(analysis.optimizedBytes)})
+          </DownloadCta>
+          {/* The repack's receipt — before and after to one scale, the
+              pages re-counted — and where the smaller file can go next. */}
+          <RunEnding
+            output={outputFile(
               result.optimized,
               outputName(pdf.file.name, "optimized"),
-            )
-          }
-        >
-          Download optimized PDF ({formatBytes(analysis.optimizedBytes)})
-        </DownloadCta>
+            )}
+            inputBytes={analysis.originalBytes}
+            expectedPages={analysis.pageCount}
+          />
+        </>
       )}
 
       <WorkerDeepPanel
@@ -650,6 +666,7 @@ function WorkerDeepPanel({
   async function run() {
     setBusy(true);
     setOutcome(null);
+    void warmEnding().catch(() => {});
     try {
       const res = await runWorkerCompression({
         filename: file.name,
@@ -843,6 +860,11 @@ function DeepRunControls({
         (savedBytes > 0 ? (
           <ResultCard
             announce={`Compression finished. The worker shrank this file by ${formatBytes(savedBytes)} — ${formatBytes(outcome.output.byteLength)} final.`}
+            output={outputFile(
+              outcome.output,
+              outcome.artifact.filename || outputName(filename, "compressed"),
+            )}
+            inputBytes={originalBytes}
           >
             <p className="text-ok text-sm">
               The worker shrank this file by {formatBytes(savedBytes)} (

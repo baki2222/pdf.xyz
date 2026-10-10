@@ -17,8 +17,10 @@ import {
   RunButton,
   RunnerSection,
   errorMessage,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import {
   allIndices,
   invertSelection,
@@ -112,7 +114,7 @@ function PageSelectEditor({
   const [rangeInput, setRangeInput] = useState("");
   const [rangeError, setRangeError] = useState<string | null>(null);
   const anchorRef = useRef<number | null>(null);
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const { thumbs, rendered, status, capped, eagerCount, requestPage } =
     usePdfThumbnails(pdf.bytes, pdf.pageCount);
 
@@ -170,6 +172,16 @@ function PageSelectEditor({
         title={config.resultTitle}
         summary={`${config.resultSummary(selected.size, pdf.pageCount)} · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
+        output={outputFile(
+          result,
+          outputName(pdf.file.name, config.outputSuffix),
+        )}
+        onAdjust={reset}
+        expectedPages={
+          config === CONFIG.extract
+            ? selected.size
+            : pdf.pageCount - selected.size
+        }
       >
         <button
           type="button"
@@ -259,24 +271,26 @@ function PageSelectEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        {config.disallowSelectAll && allSelected && (
-          <p className="text-warn text-xs">
-            You can&apos;t delete every page — deselect at least one.
-          </p>
-        )}
-        <div className="sm:ml-auto">
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={disabled}
-            busyLabel={config.busyLabel}
-          >
-            <ActionIcon className="size-4" aria-hidden />
-            {config.actionLabel(selected.size)}
-          </RunButton>
+      <RunBar>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          {config.disallowSelectAll && allSelected && (
+            <p className="text-warn text-xs">
+              You can&apos;t delete every page — deselect at least one.
+            </p>
+          )}
+          <div className="sm:ml-auto">
+            <RunButton
+              onClick={onRun}
+              busy={busy}
+              disabled={disabled}
+              busyLabel={config.busyLabel}
+            >
+              <ActionIcon className="size-4" aria-hidden />
+              {config.actionLabel(selected.size)}
+            </RunButton>
+          </div>
         </div>
-      </div>
+      </RunBar>
     </div>
   );
 }

@@ -48,8 +48,15 @@ describe("every refusal the engine can name has a decision", () => {
       expect(remedy!.toolName).toBe(target!.name);
       expect(remedy!.href).toBe(`/tools/${remedy!.toolSlug}`);
       expect(remedy!.problem).toBe(kind);
-      // Where it runs is said, from the catalogue.
+      // Where it runs is said, from the catalogue, in words.
       expect(remedy!.processing).toBe(target!.processing);
+      expect(
+        remedy!.where,
+        `${remedy!.toolName} runs as "${remedy!.processing}", and nothing says where the file goes there`,
+      ).toMatch(/uploads to the secure worker only when you start it/);
+      expect(remedy!.label).toMatch(
+        new RegExp(`^(?:Open|Try) ${remedy!.toolName}$`),
+      );
     },
   );
 

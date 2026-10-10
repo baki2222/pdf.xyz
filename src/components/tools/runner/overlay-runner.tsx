@@ -32,8 +32,10 @@ import {
   RunnerSection,
   Spinner,
   errorMessage,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine, RangeField, SegmentedControl } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
@@ -64,7 +66,7 @@ function OverlayEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<OverlayResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<OverlayResult>();
   const [overlay, setOverlay] = useState<OverlayFile | null>(null);
   const [overlayError, setOverlayError] = useState<string | null>(null);
   const [loadingOverlay, setLoadingOverlay] = useState(false);
@@ -120,6 +122,9 @@ function OverlayEditor({
         title="Overlay applied"
         summary={`${describeLayer(result.layer).done} ${describePages(result.overlaidPageCount, result.pageCount)} ·${describeFit(result.fit)} · ${result.opacity === 1 ? "opaque" : `${Math.round(result.opacity * 100)}% opacity`} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result.bytes, overlayOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         {skipped.length > 0 && (
           <p className="text-muted text-sm">
@@ -284,19 +289,21 @@ function OverlayEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={!overlay}
-          busyLabel="Overlaying…"
-        >
-          <Layers className="size-4" aria-hidden />
-          {overlay
-            ? `Overlay onto ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"}`
-            : "Add an overlay PDF"}
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={!overlay}
+            busyLabel="Overlaying…"
+          >
+            <Layers className="size-4" aria-hidden />
+            {overlay
+              ? `Overlay onto ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"}`
+              : "Add an overlay PDF"}
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

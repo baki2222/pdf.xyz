@@ -13,10 +13,12 @@ import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import {
   ChipButton,
   ErrorNote,
+  NO_ADJUST,
   ResultCard,
   ResultPanel,
   RunButton,
   WorkerRunButton,
+  outputFile,
 } from "./runner-kit";
 
 /**
@@ -41,6 +43,8 @@ afterEach(() => {
   resetAnnouncer();
 });
 
+const MERGED = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
 function MiniRunner({ announcement }: { announcement?: string } = {}) {
   const [done, setDone] = useState(false);
   if (done) {
@@ -50,6 +54,8 @@ function MiniRunner({ announcement }: { announcement?: string } = {}) {
         summary="3 files combined into one PDF · 12 pages"
         announcement={announcement}
         onReset={() => setDone(false)}
+        output={outputFile(MERGED, "merged.pdf")}
+        onAdjust={NO_ADJUST("a fixture with no settings")}
       >
         <button type="button">Download merged PDF</button>
       </ResultPanel>

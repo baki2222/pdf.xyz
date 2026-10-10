@@ -7,13 +7,20 @@
  * or leave the page — a file dropped on an editor, a launch from the ticket
  * — calls `confirmLeave()` first and does nothing when it returns false.
  *
- * WP-07 wires the QUESTION into the surfaces that discard: the editor's
- * "replace" target (`single-pdf-runner.tsx`) asks before a dropped file
- * replaces the document. Which editors REGISTER, and the browser's own
- * `beforeunload` and link-click guards, are WP-08's (redesign spec D.6:
- * edit, annotate, sign, create-forms, redact, fill-forms, organize). Until
- * an editor registers, nothing is dirty and the answer is yes — which is
- * what every replace did before this existed, not a new promise.
+ * The QUESTION is asked by every surface that discards: the editor's
+ * "replace" target (`single-pdf-runner.tsx`) before a dropped file replaces
+ * the document, the ticket and "Continue with" before they navigate, and
+ * — while an editor holds edits — the page's own links and the browser's
+ * `beforeunload` (`useUnsavedGuard`, `src/components/tools/runner`). The
+ * editors that REGISTER are the ones whose work is more than a choice of
+ * options (redesign spec D.6: edit, annotate, sign, create-forms, redact,
+ * fill-forms, organize); nothing else is ever dirty, so everywhere else
+ * the answer is yes without a question, as before this existed.
+ *
+ * ONE ANSWER PER GESTURE. A click on a Continue row is asked about by the
+ * page's link guard and then by the launch it starts — the same gesture,
+ * twice. A "yes" stands for the rest of the task it was given in
+ * (`setTimeout 0`), so the visitor is asked once.
  *
  * Module-level and a list, never a single slot (two editors can be dirty at
  * once); tests start from {@link resetUnsavedForTests}.
@@ -61,10 +68,20 @@ export function confirmLeave(
   ask: (question: string) => boolean = (question) => window.confirm(question),
 ): boolean {
   const question = leaveQuestion(unsavedLabels());
-  return question === null || ask(question);
+  if (question === null || agreed) return true;
+  if (!ask(question)) return false;
+  agreed = true;
+  setTimeout(() => {
+    agreed = false;
+  }, 0);
+  return true;
 }
+
+/** A "yes" given in this task: the same gesture is not asked twice. */
+let agreed = false;
 
 /** Forget every registration (vitest shares one module cache). */
 export function resetUnsavedForTests(): void {
   dirty.length = 0;
+  agreed = false;
 }

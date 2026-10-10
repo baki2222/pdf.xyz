@@ -77,8 +77,12 @@ const NO_FACE_EXAMPLE =
  * the page's /Rotate. `stampProducer`
  * rewrites Producer and Creator, and `doc.save()` writes the whole file anew
  * after new page content is appended, so an existing signature's byte range no
- * longer matches. The runner has no preview, and "Start over"
- * clears the loaded file (`onReset` = `clear` in useSinglePdf).
+ * longer matches. The runner has no preview; "Back to adjust" clears the
+ * result and nothing else (`onAdjust` = the run's `reset`), so the options
+ * and the loaded file survive it, while "Start over" clears the loaded file
+ * (`onReset` = `clear` in useSinglePdf). Until Back to adjust existed the FAQ
+ * said changing a setting meant Start over and the file again
+ * (unbacked-claims rule 6 holds that sentence).
  * JPG to PDF / PNG to PDF paint a full-page white rectangle under the image
  * (image-to-pdf.ts), so their output is opaque when used as an overlay.
  * Overlay / Stamp has its own Opacity slider (10-100 in overlay-runner.tsx)
@@ -155,7 +159,7 @@ const content: ToolContent = {
     },
     {
       q: "Why is my watermark smaller than I set, or cut off?",
-      a: `It should not be cut off or off-center. Max font size is an upper limit: on a page too small for the text at that size, the mark is drawn at the largest size whose tilted text spans no more than ${WATERMARK_FIT_PERCENT}% of the visible page, and it is centered on the part of the page a reader sees, including a page trimmed with Crop PDF. The result panel says on how many pages it was shrunk. For a larger mark, shorten the text. There is no preview, so to change the settings press Start over and choose the file again.`,
+      a: `It should not be cut off or off-center. Max font size is an upper limit: on a page too small for the text at that size, the mark is drawn at the largest size whose tilted text spans no more than ${WATERMARK_FIT_PERCENT}% of the visible page, and it is centered on the part of the page a reader sees, including a page trimmed with Crop PDF. The result panel says on how many pages it was shrunk. For a larger mark, shorten the text. There is no preview: to try other settings, press Back to adjust after a run, and the options come back as you left them with the same file still loaded.`,
     },
   ],
 

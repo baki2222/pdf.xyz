@@ -11,6 +11,7 @@ import {
 } from "@/lib/handoff/claim";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 import { getToolBySlug } from "@/lib/tools";
+import { useToolRun } from "./tool-context";
 
 export {
   claimFromUrl,
@@ -49,6 +50,9 @@ export type ToolHandoff = ClaimedHandoff & {
 export function useToolHandoff(slug: string | undefined): ToolHandoff {
   const router = useRouter();
   const [state, setState] = useState<ClaimedHandoff>(IDLE);
+  // The page's job: told which tools these files already went through, so it
+  // can draw the steps and "Continue with" can pass them on.
+  const arrived = useToolRun()?.arrived;
   // Claims exactly once, even under React StrictMode's double-invoked effects.
   const startedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -84,10 +88,11 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
         // download now rather than paying it at run-click (the one gap the
         // pdf-lib deferral left open — TASK-05 §3c).
         warmPdfLib();
+        arrived?.(result.trail);
       }
       setState(result);
     });
-  }, [slug, router]);
+  }, [slug, router, arrived]);
 
   const dismiss = useCallback(() => setState(IDLE), []);
   const accept = useMemo(

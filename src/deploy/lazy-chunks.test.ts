@@ -29,6 +29,7 @@ import { DESK_ISLAND_MARKER } from "@/components/intent/desk-island-chunk";
 import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
 import { TICKET_DIALOG_CHUNK_MARKER } from "@/components/intent/ticket-dialog-chunk";
 import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
+import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
@@ -238,6 +239,17 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "the replace targets",
     marker: REPLACE_BOXES_CHUNK,
     why: "the open editor and a worker panel's chosen file fetch them as they first appear, with the file",
+    allowedAtLoad: {},
+  },
+  // WP-08 (2026-10-10): the end of a run — the receipt that re-opens and
+  // counts the output, and "Continue with", which carries it on (the
+  // hand-off launch and the page count come with them). Everything in the
+  // runner kit is in every tool page's first load; these are fetched as a
+  // run starts and drawn when it ends, so no page may load them up front.
+  {
+    what: "the result's ending",
+    marker: RESULT_ENDING_CHUNK,
+    why: "the runner kit fetches it when a run starts; a visit that never finishes a run never downloads it",
     allowedAtLoad: {},
   },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load

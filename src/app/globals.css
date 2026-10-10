@@ -117,6 +117,18 @@
       background-position: -200% 0;
     }
   }
+
+  /* A finished run's receipt rises into place (M8): 8px over 320ms, once,
+     on the result itself — never on words the server rendered. Played as
+     `motion-safe:animate-rise`, so a reduced-motion reader gets the
+     receipt where it ends. */
+  --animate-rise: rise 320ms var(--ease-out-expo) both;
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
 }
 
 /* Semantic utilities. `inline` is load-bearing: it makes each utility carry
@@ -557,20 +569,6 @@
  *  Motion
  * ------------------------------------------------------------------ */
 
-@keyframes float-up {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.animate-float-up {
-  animation: float-up 0.6s var(--ease-out-expo) both;
-}
-
 @media (prefers-reduced-motion: reduce) {
   /* Reduced-motion reset: every animation and transition lands on its end
      state at once. Zeroing DURATIONS alone was not that (it was, until
@@ -644,6 +642,73 @@
     transition:
       translate 160ms var(--ease-snap),
       rotate 160ms var(--ease-snap);
+  }
+
+  /* M9: a measured size draws from its cap when the receipt lands; the
+     caps arrive as the line ends. */
+  .dim-line[data-draw] {
+    animation: draw-x 600ms var(--ease-draw) both;
+  }
+  .dim-line[data-draw]::before,
+  .dim-line[data-draw]::after {
+    animation: cap-in 120ms linear 480ms both;
+  }
+  /* M10: the proof ring draws once, beside a count made by re-opening. */
+  .proof-mark circle {
+    stroke-dasharray: 1;
+    animation: ring-draw 320ms var(--ease-draw) both;
+  }
+  /* M11: "Continue with" follows the receipt, one row after another. */
+  .continue-item {
+    transition:
+      opacity 200ms var(--ease-out-expo),
+      translate 200ms var(--ease-out-expo);
+    transition-delay: calc(min(var(--i, 0), 4) * 40ms + 160ms);
+    @starting-style {
+      opacity: 0;
+      translate: 0 4px;
+    }
+  }
+  /* M12: the job's steps land in order; each connector draws to the next. */
+  .rail-step {
+    transition: opacity 240ms var(--ease-out-expo);
+    transition-delay: calc(min(var(--i, 0), 6) * 60ms);
+    @starting-style {
+      opacity: 0;
+    }
+  }
+  .rail-connector {
+    transition: scale 200ms var(--ease-draw);
+    transition-delay: calc(min(var(--i, 0), 6) * 60ms);
+    @starting-style {
+      scale: 0 1;
+    }
+  }
+}
+
+/* M13: on a phone, the Run bar slides up as it docks. */
+@media (prefers-reduced-motion: no-preference) and (max-width: 39.99rem) {
+  [data-run-dock] {
+    transition: translate 240ms var(--ease-out-expo);
+    @starting-style {
+      translate: 0 100%;
+    }
+  }
+}
+
+@keyframes draw-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes cap-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes ring-draw {
+  from {
+    stroke-dashoffset: 1;
   }
 }
 
@@ -752,6 +817,42 @@
     background-size: 6px 2px;
     background-repeat: repeat-x;
     background-position: center;
+  }
+
+  /* A dimension line: a measured length, capped at both ends with the
+     mark (B.7). Drawn only under a measured figure — the receipt's sizes
+     before and after — never around an estimate. */
+  .dim-line {
+    position: relative;
+    height: 1px;
+    background: var(--sf-line-strong);
+    transform-origin: left;
+  }
+  .dim-line::before,
+  .dim-line::after {
+    content: "";
+    position: absolute;
+    top: -4px;
+    width: 1.5px;
+    height: 9px;
+    background: var(--sf-mark);
+  }
+  .dim-line::before {
+    left: 0;
+  }
+  .dim-line::after {
+    right: 0;
+  }
+
+  /* The phone's docked Run bar never covers the control the keyboard is on
+     (WCAG 2.4.11): the page scrolls a focused element clear of the dock and
+     of the consent banner under it. Both publish their heights. */
+  @media (max-width: 39.99rem) {
+    html:has([data-run-dock]) {
+      scroll-padding-bottom: calc(
+        var(--sf-dock-h, 0px) + var(--sf-bottom-inset, 0px) + 1rem
+      );
+    }
   }
 
   /* The dimension-line end cap: a short vertical tick on the strip's rule. */

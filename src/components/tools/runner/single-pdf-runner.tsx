@@ -164,7 +164,7 @@ export function SinglePdfRunner({
           hint={hint}
         />
       )}
-      {error && <ErrorNote message={error} />}
+      {error && <ErrorNote message={error.message} cause={error} />}
     </div>
   );
 }

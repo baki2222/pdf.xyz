@@ -313,9 +313,67 @@ of the dialog's first row; or the desk says "your file" for two.
 
 ---
 
+## 10. Every ending is a fork: the receipt, Back to adjust, Continue with
+
+<https://pdf.xyz/tools/merge-pdf> — merge a 3-page and a 2-page PDF, as in
+check 1, keyboard only.
+
+**Then read on from the outcome** (`Insert+Down` / `VO+A`).
+
+**Must hear,** after the title and summary: _"File PDF, Size …, Pages 5"_,
+then _"Re-opened and counted in this browser: 5 pages."_ (a moment after
+the outcome — the count is made by opening the file again, after the
+page draws). Then **Download merged PDF**, then **Back to adjust**, then
+a group _"Continue with"_ whose links read like _"Continue with Compress
+PDF, In-browser, carries merged.pdf"_, then **Start over**.
+
+`Tab` to **Back to adjust**, press `Enter`.
+
+**Must hear:** **Merge 2 PDFs** — focus on the run button again, with both
+files still in the list, in the order you left them.
+
+Merge again, `Tab` to _"Continue with Compress PDF"_, press `Enter`.
+
+**Must hear:** Compress PDF's page, saying _"Loaded your result from Merge
+PDF."_ Then find the landmark _"Job steps"_ next to the privacy line: a list
+of two — _"Merge PDF (done)"_ and _"Compress PDF"_, the current step.
+
+<https://pdf.xyz/tools/rotate-pdf> — add a password-protected PDF.
+
+**Must hear:** the alert — _"This PDF is password-protected. Remove the
+password with Unlock PDF first, then try again."_ — with **one** link,
+_"Open Unlock PDF"_, followed by _"with the password that opens it."_ and
+where the file goes there (_"…it uploads to the secure worker only when you
+start it."_). Two Unlock links in the alert is a failure.
+
+<https://pdf.xyz/tools/grayscale-pdf> — on a phone (or a narrow window),
+convert a long PDF.
+
+**Must hear:** the run button's busy label, then progress only by the
+quarter — _"25% — 6 of 24 pages"_, _"50% — …"_ — never a page at a time.
+`Tab` through the options above the Run bar: the bar is docked at the
+bottom of the screen, and the control you land on is never hidden behind
+it, or behind the consent banner while that is open.
+
+<https://pdf.xyz/tools/edit-pdf> — add an edit and do not apply it, then
+follow a link in the header.
+
+**Must hear:** the browser's question, _"You have unsaved changes: your
+edits in Edit PDF. Discard them?"_ Choose **Cancel**: the page stays, with
+the edit.
+
+**Fails if:** the receipt reads a page count before saying it was counted,
+or never says it; **Back to adjust** lands focus on the page or loses the
+files; a Continue link does not say what it carries; Compress PDF does not
+say where the file came from; the remedy is a second Unlock link, or tells
+you to leave the password blank; progress speaks every page; the dock hides
+a focused control; or a header link drops unapplied edits without asking.
+
+---
+
 ## Recording the result
 
-Note the browser, screen reader, and version, and for each of the nine: heard /
+Note the browser, screen reader, and version, and for each of the ten: heard /
 not heard / heard but wrong. A partial pass is a finding, not a failure — write
 down what was actually said, because the wording is the deliverable.
 
@@ -331,7 +389,13 @@ If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `src/components/upload/drop-desk.tsx`; for check 9, `DropLayer` in
 `src/components/intent/drop-layer.tsx`, `TicketDialog` in
 `src/components/intent/ticket-dialog.tsx` and `GuideDesk` in
-`src/components/intent/guide-desk.tsx`. Each carries
+`src/components/intent/guide-desk.tsx`; for check 10, `ResultPanel`,
+`ErrorNote` and `RunButton` in `src/components/tools/runner/runner-kit.tsx`,
+`OutputFacts` in `src/components/intent/output-facts.tsx`, `ContinueWith`
+in `src/components/intent/continue-with.tsx`, `TicketRail` in
+`src/components/intent/ticket-rail.tsx`, `RunBar` in
+`src/components/tools/runner/run-bar.tsx` and `useUnsavedGuard` in
+`src/components/tools/runner/use-unsaved-guard.ts`. Each carries
 a docblock explaining what it is protecting against, which is usually faster
 than reading the logic.
 

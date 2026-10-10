@@ -24,7 +24,11 @@ import {
   RunButton,
   RunnerSection,
   useAsyncRun,
+  NO_ADJUST,
+  NO_OUTPUT,
+  textOutputFile,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import {
@@ -82,6 +86,12 @@ function PdfToTextEditor({
         }
         onReset={onReset}
         tone={result.hasText ? "ok" : "warn"}
+        output={
+          result.hasText
+            ? textOutputFile(result, result.text, filename)
+            : NO_OUTPUT("no selectable text, so no TXT was written")
+        }
+        onAdjust={NO_ADJUST("PDF to Text has no settings to change")}
       >
         {result.hasText ? (
           <div className="flex flex-col gap-4">
@@ -144,12 +154,14 @@ function PdfToTextEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel="Extracting text…">
-          <FileText className="size-4" aria-hidden />
-          Extract text
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton onClick={onRun} busy={busy} busyLabel="Extracting text…">
+            <FileText className="size-4" aria-hidden />
+            Extract text
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

@@ -4,6 +4,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   ArrowDown,
@@ -18,6 +19,7 @@ import {
 import { getPageCount, mergePdfs } from "@/lib/pdf/engine";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { mergedOutputName, partitionPdfFiles } from "@/lib/pdf/files";
+import { causeOf, remedyFor, type RemedyInput } from "@/lib/pdf/remedies";
 import { renderFirstPage } from "@/lib/pdf/render";
 import type { Thumbnail } from "@/lib/pdf/render-utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -31,10 +33,12 @@ import {
   RunnerSection,
   Spinner,
   errorMessage,
+  outputFile,
   reorder,
   useAnnouncer,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import {
   HandoffLoadedBadge,
   HandoffLoading,
@@ -56,6 +60,8 @@ interface MergeItem {
 interface Rejection {
   name: string;
   reason: string;
+  /** What the refusal says about why, for its fix (an encrypted file). */
+  cause?: RemedyInput;
 }
 
 export function MergeRunner() {
@@ -133,7 +139,7 @@ export function MergeRunner() {
         } catch (err) {
           setRejections((prev) => [
             ...prev,
-            { name: file.name, reason: errorMessage(err) },
+            { name: file.name, reason: errorMessage(err), cause: causeOf(err) },
           ]);
         } finally {
           setLoading((n) => n - 1);
@@ -194,6 +200,12 @@ export function MergeRunner() {
         title="PDFs merged"
         summary={`${items.length} files combined into one PDF · ${totalPages} pages · ${formatBytes(result.byteLength)}`}
         onReset={startOver}
+        output={outputFile(result, mergedOutputName(items.map((i) => i.name)))}
+        // The list and its order stay: clearing the result shows them again.
+        onAdjust={reset}
+        // Every page of every file, in one document — a re-count that
+        // differs is said on the receipt.
+        expectedPages={totalPages}
       >
         <button
           type="button"
@@ -374,21 +386,23 @@ export function MergeRunner() {
       {rejectionsPanel}
       {error && <ErrorNote message={error} />}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-muted inline-flex items-center gap-1.5 text-xs">
-          <Layers className="text-accent size-3.5" aria-hidden />
-          Files are combined in the order shown above.
-        </p>
-        <RunButton
-          onClick={onMerge}
-          busy={busy}
-          disabled={items.length < 2}
-          busyLabel="Merging…"
-        >
-          <Plus className="size-4" aria-hidden />
-          Merge {items.length} PDF{items.length === 1 ? "" : "s"}
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted inline-flex items-center gap-1.5 text-xs">
+            <Layers className="text-accent size-3.5" aria-hidden />
+            Files are combined in the order shown above.
+          </p>
+          <RunButton
+            onClick={onMerge}
+            busy={busy}
+            disabled={items.length < 2}
+            busyLabel="Merging…"
+          >
+            <Plus className="size-4" aria-hidden />
+            Merge {items.length} PDF{items.length === 1 ? "" : "s"}
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }
@@ -422,11 +436,29 @@ function RejectionsNote({
         </button>
       </div>
       <ul className="text-warn flex flex-col gap-1 pl-6 text-xs">
-        {rejections.map((r, i) => (
-          <li key={`${r.name}-${i}`} className={cn("list-disc", NAME_WRAP)}>
-            <span className="text-warn font-medium">{r.name}</span> — {r.reason}
-          </li>
-        ))}
+        {rejections.map((r, i) => {
+          // The file's fix, when its refusal names one: Unlock PDF for a
+          // locked file — the other files stay in the list meanwhile.
+          const remedy = r.cause ? remedyFor(r.cause, "merge-pdf") : null;
+          return (
+            <li key={`${r.name}-${i}`} className={cn("list-disc", NAME_WRAP)}>
+              <span className="text-warn font-medium">{r.name}</span> —{" "}
+              {r.reason}
+              {remedy && (
+                <>
+                  {" "}
+                  <Link
+                    href={remedy.href}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    {remedy.label}
+                  </Link>{" "}
+                  {remedy.why}.
+                </>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

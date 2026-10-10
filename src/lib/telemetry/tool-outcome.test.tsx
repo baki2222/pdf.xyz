@@ -32,7 +32,7 @@ import {
 } from "./track";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
 import { useAsyncRun } from "@/components/tools/runner/runner-kit";
-import { PdfEngineError } from "@/lib/pdf/engine";
+import { PdfEncryptedError, PdfEngineError } from "@/lib/pdf/engine";
 import {
   resumeSecurityJob,
   runSecurityJob,
@@ -156,6 +156,33 @@ describe("browser runners — useAsyncRun reports the outcome", () => {
         reason: "invalid-input",
       },
     ]);
+    expect(JSON.stringify(seen)).not.toContain("clientlist");
+  });
+
+  it("an engine refusal that names its cause says which: encrypted-input, unreadable-input", async () => {
+    const seen = sink();
+    const encrypted = async () => {
+      throw new PdfEncryptedError("needs-password");
+    };
+    const unreadable = async () => {
+      throw new PdfEngineError(SECRET, { kind: "unreadable" });
+    };
+    await act(async () => {
+      render(
+        <>
+          <ToolTelemetry toolSlug="rotate-pdf" capability="in-browser" />
+          <Runner task={encrypted} />
+          <Runner task={unreadable} />
+        </>,
+      );
+    });
+    const reasons = seen
+      .filter((e) => e.name === "tool_failed")
+      .map((e) => (e as { reason?: string }).reason)
+      .sort();
+    // Both survive `sanitizeEvent`: a reason missing from the fixed list
+    // would drop the event, and this would see one or none.
+    expect(reasons).toEqual(["encrypted-input", "unreadable-input"]);
     expect(JSON.stringify(seen)).not.toContain("clientlist");
   });
 

@@ -27,7 +27,9 @@ import {
   Spinner,
   errorMessage,
   useAsyncRun,
+  outputFile,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
@@ -64,7 +66,7 @@ export function SplitEditor({
   });
   const [size, setSize] = useState(1);
   const { zipping, zipError, downloadZip } = useZipDownload();
-  const { busy, error, result, run } = useAsyncRun<NamedBytes[]>();
+  const { busy, error, result, run, reset } = useAsyncRun<NamedBytes[]>();
 
   const { parts, previewError } = useMemo((): {
     parts: SplitPart[];
@@ -109,6 +111,10 @@ export function SplitEditor({
         title="PDF split"
         summary={`${result.length} file${result.length === 1 ? "" : "s"} created · ${formatBytes(totalBytes(result))} total`}
         onReset={onReset}
+        // Each part, as the PDF it is (several download as one ZIP).
+        output={result.map((part) => outputFile(part.bytes, part.name))}
+        onAdjust={reset}
+        expectedPages={parts.reduce((n, part) => n + part.indices.length, 0)}
       >
         {zipError && <ErrorNote message={zipError} />}
         <button
@@ -236,17 +242,19 @@ export function SplitEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onSplit}
-          busy={busy}
-          disabled={parts.length === 0 || Boolean(previewError)}
-          busyLabel="Splitting…"
-        >
-          <Scissors className="size-4" aria-hidden />
-          Split into {parts.length} file{parts.length === 1 ? "" : "s"}
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onSplit}
+            busy={busy}
+            disabled={parts.length === 0 || Boolean(previewError)}
+            busyLabel="Splitting…"
+          >
+            <Scissors className="size-4" aria-hidden />
+            Split into {parts.length} file{parts.length === 1 ? "" : "s"}
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }
