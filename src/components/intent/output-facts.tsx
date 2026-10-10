@@ -128,7 +128,7 @@ export function OutputFacts({
       data-receipt=""
       data-chunk={RESULT_ENDING_CHUNK}
     >
-      <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1.5 text-sm">
+      <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
         <Fact term={files.length === 1 ? "File" : "Files"}>
           {files.length === 1
             ? (formats[0] ?? "File")
@@ -166,7 +166,7 @@ export function OutputFacts({
           id={proofId}
           className="text-muted flex items-center gap-1.5 text-xs leading-5"
         >
-          <ProofMark still />
+          <ProofMark />
           Re-opened and counted in this browser: {pages(counted)}.
         </p>
       )}
@@ -201,15 +201,17 @@ function Fact({ term, children }: { term: string; children: React.ReactNode }) {
 /**
  * ⊕ — this figure was measured by re-opening the output here. Its words are
  * beside it ("Re-opened and counted in this browser"), so it is hidden from
- * assistive tech. Drawn once (M10), then still.
+ * assistive tech. Still; drawing it once (M10) is WP-12's.
  */
-function ProofMark({ still = false }: { still?: boolean }) {
+function ProofMark() {
   return (
     <svg
       viewBox="0 0 12 12"
       aria-hidden="true"
       focusable="false"
-      className={cn("text-mark size-3 shrink-0", !still && "proof-mark")}
+      className="size-3 shrink-0"
+      // The mark's colour: decoration, never text (B.2).
+      style={{ color: "var(--sf-mark)" }}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.25"
@@ -242,17 +244,30 @@ function SizeCompare({ before, after }: { before: number; after: number }) {
           ["Before", before],
           ["After", after],
         ].map(([label, bytes]) => (
-          <div
-            key={label as string}
-            className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-3"
-          >
-            <span className="kicker text-faint">{label}</span>
-            <span className="relative h-2.5">
+          <div key={label as string} className="flex items-center gap-3">
+            {/* Widths in style, not new utilities: this is an on-demand
+                chunk, and the stylesheet is on every page. */}
+            <span className="kicker text-faint shrink-0" style={{ width: 56 }}>
+              {label}
+            </span>
+            <span className="flex h-2.5 flex-1 items-center">
+              {/* A dimension line: the length is the figure, to one scale,
+                  capped at both ends with the mark (the stats band's
+                  `dim-cap`, so no new rule ships to every page). */}
               <span
-                data-draw=""
-                className="dim-line absolute top-1/2 left-0"
-                style={{ width: `${((bytes as number) / longest) * 100}%` }}
-              />
+                data-dimension-line=""
+                className="dim-cap block"
+                style={{
+                  width: `${((bytes as number) / longest) * 100}%`,
+                  height: 1,
+                  background: "var(--sf-line-strong)",
+                }}
+              >
+                <span
+                  className="dim-cap"
+                  style={{ position: "absolute", top: 0, right: 0 }}
+                />
+              </span>
             </span>
             <span className="figure text-fg text-xs">
               {formatBytes(bytes as number)}

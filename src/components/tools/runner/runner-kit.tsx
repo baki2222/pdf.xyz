@@ -543,15 +543,20 @@ function ProgressLine({ done, total, unit }: RunProgress) {
       aria-valuemax={total}
       aria-valuenow={done}
       aria-valuetext={`${done} of ${total} ${unit}`}
-      className="flex w-full items-center gap-3 sm:w-56"
+      className="flex w-full items-center gap-3 sm:w-auto"
+      style={{ minWidth: "14rem" }}
     >
+      {/* Sized and turned in its style, not with utilities of its own: the
+          stylesheet is on every page (shipped-css.test.ts), this bar on
+          three. The transition is stilled by the reduced-motion reset. */}
       <span
         aria-hidden
-        className="bg-line relative h-0.5 flex-1 overflow-hidden"
+        className="bg-line relative flex-1 overflow-hidden"
+        style={{ height: 2 }}
       >
         <span
-          className="bg-mark absolute inset-0 origin-left motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-linear"
-          style={{ transform: `scaleX(${share})` }}
+          className="bg-mark absolute inset-0 transition-transform duration-200"
+          style={{ transform: `scaleX(${share})`, transformOrigin: "left" }}
         />
       </span>
       <span className="figure text-muted shrink-0 text-xs">
@@ -959,7 +964,7 @@ export function ResultCard({
         <RunEnding
           output={output}
           inputBytes={inputBytes}
-          className="border-ok/20 mt-2 border-t pt-4"
+          className="border-ok/30 mt-2 border-t pt-4"
         />
       )}
     </div>

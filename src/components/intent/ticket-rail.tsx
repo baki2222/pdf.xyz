@@ -46,14 +46,10 @@ export function TicketRail() {
           <li
             key={step.slug}
             aria-current={step.current ? "step" : undefined}
-            className="rail-step flex items-center"
-            style={{ "--i": i } as React.CSSProperties}
+            className="flex items-center"
           >
             {i > 0 && (
-              <span
-                aria-hidden
-                className="rail-connector bg-line-strong mx-1.5 h-px w-3 shrink-0 origin-left"
-              />
+              <span aria-hidden className="bg-line mx-1.5 h-px w-3 shrink-0" />
             )}
             <span
               className={
@@ -65,10 +61,7 @@ export function TicketRail() {
               {step.name}
               {step.done && (
                 <>
-                  <Check
-                    className="rail-tick text-ok size-3 shrink-0"
-                    aria-hidden
-                  />
+                  <Check className="text-ok size-3 shrink-0" aria-hidden />
                   <span className="sr-only"> (done)</span>
                 </>
               )}

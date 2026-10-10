@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+/* Tailwind writes a utility for every class-shaped word in every file it
+   scans — tests, scripts, docs included — and this stylesheet is on every
+   page. Classes only a test, a script or a doc spells (`sm:py-28` from a
+   test that forbids it, `bg-clip-text` from the contrast audit) are dead
+   weight a reader downloads, so those trees are not scanned. Shipped
+   source under src/ is, comments and all. */
+@source not "../../scripts";
+@source not "../../e2e";
+@source not "../../docs";
+@source not "../tests";
+@source not "../**/*.test.ts";
+@source not "../**/*.test.tsx";
+
 /* ------------------------------------------------------------------ *
  *  pdf.xyz design tokens
  *
@@ -613,6 +626,14 @@
  *  marks that draw in when a drop sheet goes live (M1) and grow while a
  *  file is dragged over the page (M2), the stacked sheets that fan apart
  *  then, and the sweep on a fact still being measured (M4, a token above).
+ *  WP-08 brought the receipt's rise (M8, the `rise` token above, which
+ *  replaced the old 600ms `float-up`). The rest of the ending's motion —
+ *  the dimension line drawing (M9), the proof ring (M10), Continue rows in
+ *  turn (M11), the rail's steps (M12), the dock sliding up (M13) — waits
+ *  for WP-12, which owns this region: as first built it cost the shared
+ *  stylesheet 0.2 KB gzip on every page, over the programme's 15.0 KB
+ *  ceiling (`shipped-css.test.ts`). Every surface it would move already
+ *  ends in its still state, which is what a reduced-motion reader gets.
  * ------------------------------------------------------------------ */
 
 /* The crop marks' length, registered so it can be transitioned. Inherits
@@ -642,73 +663,6 @@
     transition:
       translate 160ms var(--ease-snap),
       rotate 160ms var(--ease-snap);
-  }
-
-  /* M9: a measured size draws from its cap when the receipt lands; the
-     caps arrive as the line ends. */
-  .dim-line[data-draw] {
-    animation: draw-x 600ms var(--ease-draw) both;
-  }
-  .dim-line[data-draw]::before,
-  .dim-line[data-draw]::after {
-    animation: cap-in 120ms linear 480ms both;
-  }
-  /* M10: the proof ring draws once, beside a count made by re-opening. */
-  .proof-mark circle {
-    stroke-dasharray: 1;
-    animation: ring-draw 320ms var(--ease-draw) both;
-  }
-  /* M11: "Continue with" follows the receipt, one row after another. */
-  .continue-item {
-    transition:
-      opacity 200ms var(--ease-out-expo),
-      translate 200ms var(--ease-out-expo);
-    transition-delay: calc(min(var(--i, 0), 4) * 40ms + 160ms);
-    @starting-style {
-      opacity: 0;
-      translate: 0 4px;
-    }
-  }
-  /* M12: the job's steps land in order; each connector draws to the next. */
-  .rail-step {
-    transition: opacity 240ms var(--ease-out-expo);
-    transition-delay: calc(min(var(--i, 0), 6) * 60ms);
-    @starting-style {
-      opacity: 0;
-    }
-  }
-  .rail-connector {
-    transition: scale 200ms var(--ease-draw);
-    transition-delay: calc(min(var(--i, 0), 6) * 60ms);
-    @starting-style {
-      scale: 0 1;
-    }
-  }
-}
-
-/* M13: on a phone, the Run bar slides up as it docks. */
-@media (prefers-reduced-motion: no-preference) and (max-width: 39.99rem) {
-  [data-run-dock] {
-    transition: translate 240ms var(--ease-out-expo);
-    @starting-style {
-      translate: 0 100%;
-    }
-  }
-}
-
-@keyframes draw-x {
-  from {
-    transform: scaleX(0);
-  }
-}
-@keyframes cap-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes ring-draw {
-  from {
-    stroke-dashoffset: 1;
   }
 }
 
@@ -819,35 +773,24 @@
     background-position: center;
   }
 
-  /* A dimension line: a measured length, capped at both ends with the
-     mark (B.7). Drawn only under a measured figure — the receipt's sizes
-     before and after — never around an estimate. */
-  .dim-line {
-    position: relative;
-    height: 1px;
-    background: var(--sf-line-strong);
-    transform-origin: left;
-  }
-  .dim-line::before,
-  .dim-line::after {
-    content: "";
-    position: absolute;
-    top: -4px;
-    width: 1.5px;
-    height: 9px;
-    background: var(--sf-mark);
-  }
-  .dim-line::before {
-    left: 0;
-  }
-  .dim-line::after {
-    right: 0;
-  }
-
-  /* The phone's docked Run bar never covers the control the keyboard is on
-     (WCAG 2.4.11): the page scrolls a focused element clear of the dock and
-     of the consent banner under it. Both publish their heights. */
+  /* A runner's action row, docked to the bottom of a phone's screen while
+     the runner is in view (`RunBar`): above the consent banner and the home
+     bar, edge to edge across the panel's padding. One rule rather than a
+     dozen utilities, every one of them undone again from `sm`. It never
+     covers the control the keyboard is on (WCAG 2.4.11): the page scrolls a
+     focused element clear of the dock and of the banner under it — both
+     publish their heights. */
   @media (max-width: 39.99rem) {
+    [data-run-dock] {
+      position: sticky;
+      bottom: calc(env(safe-area-inset-bottom) + var(--sf-bottom-inset, 0px));
+      z-index: 20;
+      margin-inline: -1.25rem;
+      border-top: 1px solid var(--sf-line);
+      background: var(--sf-panel);
+      padding: 0.75rem 1.25rem;
+      box-shadow: var(--sf-shadow-lift);
+    }
     html:has([data-run-dock]) {
       scroll-padding-bottom: calc(
         var(--sf-dock-h, 0px) + var(--sf-bottom-inset, 0px) + 1rem

@@ -104,11 +104,7 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
           const mode = getProcessingMeta(target.processing);
           const busy = launching === target.slug;
           return (
-            <li
-              key={target.slug}
-              className="continue-item"
-              style={{ "--i": i } as React.CSSProperties}
-            >
+            <li key={target.slug}>
               {/* Named by its words, which say what the click does:
                   "Continue with Compress PDF · In-browser · carries
                   merged.pdf" — the visible label inside the name. */}
@@ -116,7 +112,7 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
                 href={toolHref(target.slug)}
                 onClick={(event) => void open(event, target, i + 1)}
                 aria-busy={busy || undefined}
-                className="group border-line bg-panel hover:border-line-strong rounded-ctl flex min-h-12 items-center gap-3 border px-3.5 py-2.5 transition-colors"
+                className="group border-line bg-panel hover:border-line-strong rounded-ctl flex min-h-10 items-center gap-3 border px-3.5 py-2.5 transition-colors"
               >
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="text-fg text-sm font-medium">

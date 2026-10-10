@@ -148,7 +148,7 @@ describe("the receipt", () => {
       />,
     );
     const figure = document.querySelector("[data-size-compare]")!;
-    const lines = figure.querySelectorAll<HTMLElement>(".dim-line");
+    const lines = figure.querySelectorAll<HTMLElement>("[data-dimension-line]");
     expect(lines).toHaveLength(2);
     expect(lines[0]!.style.width).toBe("100%");
     expect(lines[1]!.style.width).toBe("25%");

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * A runner's action row — its Run button and whatever sits beside it —
@@ -10,7 +9,8 @@ import { cn } from "@/lib/utils";
  *
  * It WRAPS the row the runner already renders: the same DOM nodes, so the
  * button a keyboard user is on is the one that docks, and nothing is
- * rendered twice. From `sm` up it is the plain row it always was.
+ * rendered twice. From `sm` up it is the plain row it always was. How it
+ * docks is one rule in the stylesheet (`[data-run-dock]`, below `sm`).
  *
  * Docked, it sits above the consent banner while that is open (the banner
  * publishes its height as `--sf-bottom-inset`) and above the home bar
@@ -43,15 +43,7 @@ export function RunBar({
     };
   }, []);
   return (
-    <div
-      ref={ref}
-      data-run-dock=""
-      className={cn(
-        "border-line bg-panel shadow-lift sticky bottom-[calc(env(safe-area-inset-bottom)+var(--sf-bottom-inset,0px))] z-20 -mx-5 border-t px-5 py-3",
-        "sm:static sm:z-auto sm:mx-0 sm:border-t-0 sm:bg-transparent sm:p-0 sm:shadow-none",
-        className,
-      )}
-    >
+    <div ref={ref} data-run-dock="" className={className}>
       {children}
     </div>
   );
