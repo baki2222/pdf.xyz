@@ -68,7 +68,7 @@ import {
  * 2026-10-10 — phone at 360px 300px, `sm` at 640px 261px, `lg` at 1024px
  * 261px — plus 4px, to the half rem.
  */
-const STATUS_SLOT = "min-h-[19rem] sm:min-h-[17rem] lg:min-h-[17rem]";
+const STATUS_SLOT = "min-h-[19.5rem] sm:min-h-[17rem] lg:min-h-[17rem]";
 
 type Phase = WorkerPhase;
 

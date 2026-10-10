@@ -56,7 +56,7 @@ import {
  * 2026-10-10 — phone at 360px 619px, `sm` at 640px 501.5px, `lg` at 1024px
  * 521px — plus 4px, to the half rem.
  */
-const STATUS_SLOT = "min-h-[39rem] sm:min-h-[32rem] lg:min-h-[33rem]";
+const STATUS_SLOT = "min-h-[40.5rem] sm:min-h-[32rem] lg:min-h-[33rem]";
 
 type Phase = WorkerPhase;
 type Mode = "protect" | "unlock";

@@ -70,7 +70,7 @@ import {
  * 507px — plus 4px, to the half rem. The run state includes the daily
  * allowance note, which only a panel that can run says.
  */
-const STATUS_SLOT = "min-h-[41rem] sm:min-h-[32rem] lg:min-h-[32rem]";
+const STATUS_SLOT = "min-h-[42.5rem] sm:min-h-[32rem] lg:min-h-[32rem]";
 
 type Phase = WorkerPhase;
 

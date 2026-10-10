@@ -42,7 +42,7 @@ import {
  * 2026-10-10 — phone at 360px 308px, `sm` at 640px 269px, `lg` at 1024px
  * 269px — plus 4px, to the half rem.
  */
-const STATUS_SLOT = "min-h-[19.5rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
+const STATUS_SLOT = "min-h-[20rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
 
 type PdfOfficeTool = "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint";
 type Phase = WorkerPhase;
