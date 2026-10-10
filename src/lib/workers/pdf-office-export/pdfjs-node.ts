@@ -31,8 +31,21 @@
  * system fonts, no XFA, and the caller's own deadline; this pdf.js release has
  * no `eval` path left to switch off (the option was removed with it). A single
  * synchronous decode cannot be interrupted.
+ *
+ * ── WHY NOTHING HERE NAMES A PACKAGE TO THE BUNDLER ─────────────────────────
+ *
+ * The web tier's route handlers reach this file: `@/lib/workers` re-exports
+ * the processors, the PowerPoint processor imports its engine, and the engine
+ * imports the page scan. On 2026-10-10 `next build` FAILED on it: webpack read
+ * `createRequire(…).resolve("@napi-rs/canvas")` as a dependency, followed it
+ * into the canvas's native `.node` binary, and could not parse the binary.
+ * Every vitest suite was green, because vitest does not bundle. So `require`
+ * is made at RUN time, through `process.getBuiltinModule`, which no bundler
+ * reads — the same door pdf.js itself uses to reach the same canvas, so it
+ * asks nothing of Node that pdf.js does not (pdfjs-dist 6.2 needs Node 22.13
+ * or later). `src/deploy/server-bundle-native-free.test.ts` holds every
+ * module the web build compiles to it, this one by name among its controls.
  */
-import { createRequire } from "node:module";
 import path from "node:path";
 import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
@@ -81,6 +94,11 @@ export interface NodeCanvasFactory {
   destroy(canvasAndContext: NodeCanvasAndContext): void;
 }
 
+/** Node's `createRequire`, fetched when called. See the docblock above. */
+function runtimeRequire(from: string): NodeJS.Require {
+  return process.getBuiltinModule("node:module").createRequire(from);
+}
+
 let loaded: Promise<NodePdfjs> | undefined;
 
 /** The legacy build, imported once. Hidden from bundlers: Node only. */
@@ -101,8 +119,9 @@ export function nodePdfjsAssetDirs(): {
   cMapUrl: string;
   standardFontDataUrl: string;
 } {
-  const require = createRequire(import.meta.url);
-  const root = path.dirname(require.resolve("pdfjs-dist/package.json"));
+  const root = path.dirname(
+    runtimeRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
+  );
   const dir = (name: string) =>
     `${path.join(root, name).split(path.sep).join("/")}/`;
   return {
@@ -114,13 +133,13 @@ export function nodePdfjsAssetDirs(): {
 
 /** True when the legacy build and its canvas resolve here. Never imports them. */
 export function nodePdfjsAvailable(
-  resolve: (specifier: string) => string = createRequire(import.meta.url)
-    .resolve,
+  resolve: (specifier: string) => string = (specifier) =>
+    runtimeRequire(import.meta.url).resolve(specifier),
 ): boolean {
   try {
     const pdfjs = resolve("pdfjs-dist/legacy/build/pdf.mjs");
     // pdf.js requires the canvas from its OWN directory, so ask from there.
-    createRequire(pdfjs).resolve("@napi-rs/canvas");
+    runtimeRequire(pdfjs).resolve("@napi-rs/canvas");
     return true;
   } catch {
     return false;
