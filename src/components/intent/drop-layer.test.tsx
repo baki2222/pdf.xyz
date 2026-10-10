@@ -21,6 +21,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import { DropSheet } from "@/components/upload/drop-sheet";
+import { Dropzone } from "@/components/tools/runner/runner-kit";
 import {
   carriesFiles as registryCarriesFiles,
   registerPageTarget,
@@ -334,6 +335,46 @@ describe("when the page's target does not take them, the ticket dialog does", ()
       timeout: 5000,
     });
     expect(dialog.textContent).toContain("Merge PDF can't open it.");
+  });
+});
+
+/**
+ * Addendum WP-07 #2: "a routed whole-page drop on a worker tool must never
+ * reach onFiles with a refused file", and what the page does when EVERY
+ * routed file is refused is one choice, tested. The choice, by the reason:
+ *  - a file whose KIND the zone does not take (its `accept`) goes to the
+ *    ticket dialog before it reaches the zone (the rows above, "opens none");
+ *  - a file the zone takes in kind but refuses on its own terms (`refuse`:
+ *    over the tool's cap, say) is handed to the zone, as a drop on it would
+ *    be, and the refusal is said ON the zone — the tool's own words for its
+ *    own limit — and the owner never receives it.
+ */
+describe("a file the page's zone refuses on its own terms", () => {
+  it("is refused on the zone, said there, and never reaches the zone's owner", async () => {
+    const onFiles = vi.fn();
+    await page(
+      <Dropzone
+        pageTarget
+        compact
+        multiple={false}
+        title="Add a scan to OCR, or"
+        refuse={(file) =>
+          file.size > 4 ? `"${file.name}" is over this tool's limit.` : null
+        }
+        onFiles={onFiles}
+      />,
+    );
+    const big = new File(["%PDF-1.7 and then some"], "big.pdf", {
+      type: "application/pdf",
+    });
+    const h1 = screen.getByRole("heading");
+    await drag("dragenter", h1, transfer([big]));
+    await drag("drop", h1, transfer([big]));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      `"big.pdf" is over this tool's limit.`,
+    );
+    expect(onFiles).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
