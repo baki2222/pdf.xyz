@@ -1,10 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { FileText, ShieldAlert } from "lucide-react";
-import { useToolContext } from "@/components/tools/tool-context";
-import { usePageTarget } from "@/components/upload/use-page-target";
-import { takesByAccept } from "@/lib/intent/accept-match";
 import { formatBytes } from "@/lib/utils";
 import { Dropzone, ErrorNote, Spinner } from "./runner-kit";
 import {
@@ -15,8 +12,10 @@ import {
 import { useSinglePdf, type LoadedPdf, type PdfReader } from "./use-single-pdf";
 import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
 
-/** What the open editor's "replace" target takes: a PDF, by type or by name. */
-const takesPdf = takesByAccept("application/pdf,.pdf");
+/** The open editor as its page's "replace" target — fetched with the file. */
+const EditorBox = lazy(() =>
+  import("../replace-boxes").then((m) => ({ default: m.EditorBox })),
+);
 
 /**
  * Handles the shared "load one PDF" lifecycle — dropzone, reading state, and
@@ -33,8 +32,7 @@ const takesPdf = takesByAccept("application/pdf,.pdf");
  * (`@/lib/intent/page-target`, verb "replace"): a PDF dropped or pasted
  * anywhere on the page opens in its place, through the same `open` a pick
  * uses — after `confirmLeave()`, so unsaved work is asked about first
- * (the editors that register it are WP-08's; the question is fetched with
- * the file, not with the page). It is registered after the
+ * (the editors that register it are WP-08's). It is registered after the
  * drop zone it replaced unmounted and before any secondary zone the editor
  * renders, and secondary zones never register (`Dropzone`'s `pageTarget`
  * is opt-in), so Sign PDF's signature-image zone cannot take the page's
@@ -45,8 +43,11 @@ const takesPdf = takesByAccept("application/pdf,.pdf");
  *
  * A REPLACE IS SAID, AND FOCUS SURVIVES IT — "Replaced alpha.pdf with
  * beta.pdf in Rotate PDF.", and focus that was inside the old editor moves
- * into the new one (`./replace-open-file`, fetched with the file, not with
- * the page; `replace-target.test.tsx`).
+ * into the new one (`replace-target.test.tsx`).
+ *
+ * All of that is `EditorBox` (`../replace-boxes`), which the open editor
+ * renders and fetches as it opens — with the first file, not with the
+ * page. The tool it names is its page's (`data-tool-name`).
  *
  * A file that already carries digital signatures gets a notice above the
  * editor, before Run: every PDF a client tool saves is a full pdf-lib rewrite,
@@ -88,39 +89,7 @@ export function SinglePdfRunner({
   // Self-claim only when a parent hasn't already provided a claimed hand-off.
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);
   const handoff = providedHandoff ?? selfHandoff;
-  const tool = useToolContext();
   const editorRef = useRef<HTMLDivElement>(null);
-  const [armed, setArmed] = useState(false);
-  const name = tool?.name ?? toolName;
-
-  usePageTarget(
-    pdf
-      ? {
-          name,
-          verb: "replace",
-          current: pdf.file.name,
-          canReceive: () =>
-            !editorRef.current?.querySelector('[aria-busy="true"]'),
-          takes: takesPdf,
-          receive: (files) => {
-            const next = files.find((file) => takesPdf(file));
-            if (!next) return;
-            const from = pdf.file.name;
-            void import("./replace-open-file").then(({ replaceOpenFile }) =>
-              replaceOpenFile({
-                next,
-                from,
-                name,
-                open,
-                editor: () => editorRef.current,
-              }),
-            );
-          },
-          arm: setArmed,
-          element: () => editorRef.current,
-        }
-      : null,
-  );
 
   // Pre-load the first handed-off PDF exactly once.
   const openedRef = useRef(false);
@@ -141,7 +110,6 @@ export function SinglePdfRunner({
         ref={editorRef}
         data-single-pdf-runner="loaded"
         data-page-drop-target=""
-        data-armed={armed || undefined}
         className="flex flex-col gap-4"
       >
         {handoff.status === "ready" && (
@@ -158,6 +126,14 @@ export function SinglePdfRunner({
           />
         )}
         {children(pdf, clear)}
+        <Suspense fallback={null}>
+          <EditorBox
+            editor={editorRef}
+            from={pdf.file.name}
+            open={open}
+            toolName={toolName}
+          />
+        </Suspense>
       </div>
     );
   }

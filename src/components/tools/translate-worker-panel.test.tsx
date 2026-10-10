@@ -74,6 +74,7 @@ import {
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { userPasswordEncryptedPdf } from "@/tests/encrypted-pdf-fixture";
 import { READY_WORKER_STATUS as READY } from "@/tests/ready-worker-status";
+import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { TranslateWorkerPanel } from "./translate-worker-panel";
 
 const translateTool = getToolBySlug("translate-pdf")!;
@@ -217,6 +218,7 @@ describe("TranslateWorkerPanel: a dropped non-PDF is refused at the drop", () =>
     });
     const zone = fileInput().closest("label");
     expect(zone).not.toBeNull();
+    await dropSheetsLive();
     fireEvent.drop(zone!, { dataTransfer: { files: [docx] } });
 
     const alert = await screen.findByRole("alert");
@@ -231,6 +233,7 @@ describe("TranslateWorkerPanel: a dropped non-PDF is refused at the drop", () =>
   it("control: dropping a PDF stages it with no refusal", async () => {
     const { run } = await renderReadyPanel();
     const zone = fileInput().closest("label");
+    await dropSheetsLive();
     fireEvent.drop(zone!, {
       dataTransfer: { files: [pdfFile(await textPdf(), "report.pdf")] },
     });

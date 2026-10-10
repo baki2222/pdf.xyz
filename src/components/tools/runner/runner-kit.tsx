@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -29,7 +28,6 @@ import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
-import { useToolContext } from "@/components/tools/tool-context";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 import { cn } from "@/lib/utils";
 import {
@@ -127,8 +125,8 @@ export function Spinner({ className }: { className?: string }) {
  * PDF's signature image, Overlay PDF's overlay) must never take the page's
  * drops from the editor's own "replace" target, and an opt-in cannot be
  * forgotten in the direction that steals them (`drop-anywhere` e2e, and the
- * discovery in `page-target-sites.test.ts`). The page names the tool from
- * `ToolContextProvider`.
+ * discovery in `page-target-sites.test.ts`). The page names the tool
+ * (`data-tool-name` around the runner and the panel).
  *
  * `busy`: the zone's runner is at work; a file dropped on the PAGE then goes
  * to the ticket dialog rather than into a run already started.
@@ -138,13 +136,10 @@ export function Dropzone({
   accept = "application/pdf",
   multiple = true,
   title = "Drop your PDF here, or",
-  browse = true,
-  hint,
   compact = false,
-  className,
-  refuse,
   pageTarget = false,
   busy = false,
+  ...sheet
 }: {
   onFiles: (files: File[]) => void;
   accept?: string;
@@ -166,7 +161,6 @@ export function Dropzone({
   pageTarget?: boolean;
   busy?: boolean;
 }) {
-  const tool = useToolContext();
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const receive = useCallback(
@@ -181,29 +175,20 @@ export function Dropzone({
     [onFiles],
   );
 
-  // Rebuilt when `busy` changes: the page asks the latest one.
-  const target = useMemo<SheetTarget | undefined>(
-    () =>
-      pageTarget
-        ? {
-            name: tool?.name ?? "this tool",
-            verb: multiple ? "add" : "open",
-            canReceive: () => !busy,
-          }
-        : undefined,
-    [pageTarget, tool?.name, multiple, busy],
-  );
+  // Read by the page at every question, so the latest `busy` is the answer.
+  // Named by the page it is on (`data-tool-name`), not here.
+  const target: SheetTarget | undefined = pageTarget
+    ? { verb: multiple ? "add" : "open", canReceive: () => !busy }
+    : undefined;
 
+  // `browse`, `hint`, `className` and `refuse` go to the sheet as given.
   const zone = (
     <DropSheet
+      {...sheet}
       accept={accept}
       multiple={multiple}
       title={title}
-      browse={browse}
-      hint={hint}
       variant={compact ? "compact" : "sheet"}
-      className={className}
-      refuse={refuse}
       onRefusal={setRefusal}
       pageTarget={target}
       onFiles={receive}

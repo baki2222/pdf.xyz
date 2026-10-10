@@ -11,11 +11,12 @@
  * top rows were Compress, Sign and Edit. The chip is now the page's target
  * (`ChosenFileTarget`, verb "replace").
  *
- * Composed as the tool page composes it — the tool's identity, the panel
- * with the worker answering ready, the real drop layer and live region, and
- * a heading outside the panel for the file to land on — over EVERY panel
- * the page's registry routes (`@/tests/worker-panel-dispatch`), each with
- * the first tool routed to it that takes a file. The source-level half (a
+ * Composed as the tool page composes it — the tool's identity (the page's
+ * `data-tool-name` around the panel), the panel with the worker answering
+ * ready, the real drop layer and live region, and a heading outside the
+ * panel for the file to land on — over EVERY panel the page's registry
+ * routes (`@/tests/worker-panel-dispatch`), each with the first tool
+ * routed to it that takes a file. The source-level half (a
  * zone that is one branch of a condition leaves a target behind it, with
  * the zone's own `accept` and `refuse`) is `page-target-sites.test.ts`.
  */
@@ -29,7 +30,6 @@ import {
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import { DropLayer } from "@/components/intent/drop-layer";
-import { ToolContextProvider } from "@/components/tools/tool-context";
 import {
   activePageTarget,
   resetPageTargetsForTests,
@@ -133,9 +133,9 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
       withAppRouter(
         <>
           <h1>{tool.name}</h1>
-          <ToolContextProvider slug={tool.slug} name={tool.name}>
+          <div data-tool-panel data-tool-name={tool.name}>
             <Panel tool={tool} />
-          </ToolContextProvider>
+          </div>
           <DropLayer />
           <LiveRegion />
         </>,
@@ -150,8 +150,12 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
     const first = fileFor(tool, "alpha");
     fireEvent.change(input, { target: { files: [first] } });
     expect(await screen.findByText(first.name)).toBeInTheDocument();
-    // The zone is gone; the chip is the page's target now.
-    await waitFor(() => expect(activePageTarget()?.verb).toBe("replace"));
+    // The zone is gone; the chip is the page's target now — once its box
+    // (`ChosenFileLive`, fetched with the file it shows) is here: a cold
+    // import under a loaded test run.
+    await waitFor(() => expect(activePageTarget()?.verb).toBe("replace"), {
+      timeout: 10_000,
+    });
     expect(activePageTarget()?.name).toBe(tool.name);
     expect(activePageTarget()?.current).toBe(first.name);
     expect(container.querySelectorAll("[data-page-drop-target]")).toHaveLength(

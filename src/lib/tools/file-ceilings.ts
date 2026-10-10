@@ -244,7 +244,7 @@ export function fileOverCeilingMessage(
  * from that tool's own gate rather than from the widest kind on the homepage.
  *
  * It lives here, not inline in a page, so it can be RENDERED through the drop
- * primitive (`DropSheet`) by a test for all fifty tools. Shown under every
+ * primitive (a guide's desk) by a test for all fifty tools. Shown under every
  * guide's desk since WP-07 (`src/app/guides/[slug]/page.tsx`), for the tool
  * the guide teaches; before that no page showed it — the
  * tool page's staging branch rendered for no tool and was removed (WP-06),

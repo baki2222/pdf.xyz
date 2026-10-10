@@ -3,10 +3,11 @@
  * A PDF dropped anywhere on a tool page whose editor is open REPLACES the
  * open document — and nothing else does.
  *
- * Composed as a tool page composes it: the tool's identity
- * (`ToolContextProvider`), the real dispatcher and runner, the real drop
- * layer, and a heading outside the runner for the file to land on. The
- * file is loaded through the zone's real input and read by the real hook.
+ * Composed as a tool page composes it: the tool's identity (the page's
+ * `data-tool-name` around the runner), the real dispatcher and runner, the
+ * real drop layer, and a heading outside the runner for the file to land
+ * on. The file is loaded through the zone's real input and read by the
+ * real hook.
  *
  * The four ways this can go wrong, each held below with its control:
  *  - the page's drop opens the file in the tab (no target): the editor
@@ -35,7 +36,6 @@ import { PDFDocument } from "pdf-lib";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import { DropLayer } from "@/components/intent/drop-layer";
-import { ToolContextProvider } from "@/components/tools/tool-context";
 import {
   activePageTarget,
   resetPageTargetsForTests,
@@ -98,9 +98,9 @@ async function openTool(kind: "rotate" | "sign", slug: string, name: string) {
     withAppRouter(
       <>
         <h1>{name}</h1>
-        <ToolContextProvider slug={slug} name={name}>
+        <div data-tool-panel data-tool-name={name}>
           <ToolRunner kind={kind} slug={slug} />
-        </ToolContextProvider>
+        </div>
         <DropLayer />
         <LiveRegion />
       </>,
@@ -129,9 +129,12 @@ async function openTool(kind: "rotate" | "sign", slug: string, name: string) {
       ).not.toBeNull(),
     { timeout: 20_000 },
   );
-  // The editor is the page's target once the registry (fetched on mount,
-  // not with the page) has it.
-  await waitFor(() => expect(activePageTarget()?.verb).toBe("replace"));
+  // The editor is the page's target once its box (`EditorBox`, fetched as
+  // the editor opens — not with the page) and the registry have it: a cold
+  // import under a loaded test run, so the same allowance as the runner's.
+  await waitFor(() => expect(activePageTarget()?.verb).toBe("replace"), {
+    timeout: 20_000,
+  });
   return view;
 }
 

@@ -327,8 +327,8 @@ If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `FileSuggestions` in `src/app/workspace/file-suggestions.tsx` and
 `HandoffLoadedBadge` in `src/components/tools/runner/handoff-notice.tsx`; for check
 8, `HeroDesk` in `src/components/intent/hero-desk.tsx`, `TicketView` in
-`src/components/intent/ticket-view.tsx` and `DropSheet` in
-`src/components/upload/drop-sheet.tsx`; for check 9, `DropLayer` in
+`src/components/intent/ticket-view.tsx` and `DropDesk` in
+`src/components/upload/drop-desk.tsx`; for check 9, `DropLayer` in
 `src/components/intent/drop-layer.tsx`, `TicketDialog` in
 `src/components/intent/ticket-dialog.tsx` and `GuideDesk` in
 `src/components/intent/guide-desk.tsx`. Each carries

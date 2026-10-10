@@ -45,6 +45,7 @@ import {
   readHandoffId,
 } from "@/lib/handoff";
 import { readOrigin } from "@/lib/handoff/origin";
+import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { resetPageTargetsForTests } from "@/lib/intent/page-target";
 import { MAX_TICKET_FILES } from "@/lib/intent/ticket";
 import { getToolBySlug } from "@/lib/tools";
@@ -306,6 +307,7 @@ describe("the desk's other ways in and out", () => {
     const desk = container.querySelector("[data-desk]")!;
     const file = await pdf("dropped.pdf", 2);
     const dataTransfer = { files: [file], types: ["Files"], dropEffect: "" };
+    await dropSheetsLive(container);
     fireEvent.dragEnter(desk, { dataTransfer });
     expect(container.querySelector("#upload")?.hasAttribute("data-armed")).toBe(
       true,
@@ -382,14 +384,22 @@ describe("the desk's other ways in and out", () => {
     }
   });
 
-  it("a drag that only carries text arms nothing", () => {
+  it("a drag that only carries text arms nothing (control: a file, on the same desk, does)", async () => {
     const { container } = render(withRouter(<Desk />));
     const desk = container.querySelector("[data-desk]")!;
+    await dropSheetsLive(container);
     fireEvent.dragEnter(desk, {
       dataTransfer: { files: [], types: ["text/plain"] },
     });
     expect(container.querySelector("#upload")?.hasAttribute("data-armed")).toBe(
       false,
+    );
+    // The desk's engine is listening: the absence above is not its absence.
+    fireEvent.dragEnter(desk, {
+      dataTransfer: { files: [], types: ["Files"] },
+    });
+    expect(container.querySelector("#upload")?.hasAttribute("data-armed")).toBe(
+      true,
     );
   });
 });

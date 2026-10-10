@@ -39,6 +39,7 @@ import type { WorkerStatus } from "@/lib/workers/status";
 import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { makeSignedPdf } from "@/tests/signed-pdf";
+import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CompressRunner, UNLOCK_TOOL_HREF } from "./compress-runner";
 
 const router = {
@@ -161,7 +162,8 @@ const asFile = (bytes: Uint8Array, name: string) =>
     type: "application/pdf",
   });
 
-function drop(container: HTMLElement, files: File[]) {
+async function drop(container: HTMLElement, files: File[]) {
+  await dropSheetsLive(container);
   const input = container.querySelector('input[type="file"]');
   expect(input, "the runner offers a file picker").not.toBeNull();
   fireEvent.drop(input!.closest("label")!, { dataTransfer: { files } });
@@ -177,7 +179,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
       ownerPassword: "owner-secret",
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(bytes, "statement.pdf")]);
+    await drop(container, [asFile(bytes, "statement.pdf")]);
 
     const notice = await screen.findByRole(
       "status",
@@ -222,7 +224,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
       objectStreams: true,
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(bytes, "statement.pdf")]);
+    await drop(container, [asFile(bytes, "statement.pdf")]);
     const notice = await screen.findByRole(
       "status",
       { name: /permission restrictions/i },
@@ -253,7 +255,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
       objectStreams: true,
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(bytes, "statement.pdf")]);
+    await drop(container, [asFile(bytes, "statement.pdf")]);
 
     const run = await screen.findByRole(
       "button",
@@ -286,7 +288,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
       ownerPassword: "owner-secret",
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(bytes, "locked.pdf")]);
+    await drop(container, [asFile(bytes, "locked.pdf")]);
 
     const alert = await screen.findByRole("alert", {}, { timeout: 10_000 });
     expect(alert).toHaveTextContent(/needs a password to open/i);
@@ -301,7 +303,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
   it("control: an unencrypted PDF gets the analysis and the lossless download", async () => {
     answerWorkerStatus();
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
+    await drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
     await screen.findByRole(
       "button",
       { name: /download optimized pdf/i },
@@ -320,7 +322,7 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
   it("warns that the signatures will break, and gates both outputs behind a confirmation", async () => {
     answerWorkerStatus();
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [
+    await drop(container, [
       asFile(await makeSignedPdf({ count: 2 }), "contract.pdf"),
     ]);
 
@@ -353,7 +355,7 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
   it("control: an unsigned PDF keeps 'no quality lost' and needs no confirmation", async () => {
     answerWorkerStatus();
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
+    await drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
     await screen.findByRole(
       "button",
       { name: /download optimized pdf/i },
@@ -381,7 +383,7 @@ describe("Compress batch", { timeout: 30_000 }, () => {
       ownerPassword: "owner-secret",
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [
+    await drop(container, [
       asFile(await plainPdf(2), "plain.pdf"),
       asFile(await makeSignedPdf(), "signed.pdf"),
       asFile(restricted, "restricted.pdf"),

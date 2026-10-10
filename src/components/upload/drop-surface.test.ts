@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * One drop primitive: every file input the site renders is the DropSheet's.
+ * One drop primitive: every file input the site renders is the drop sheet's.
  *
  * WHY. A file reaches a page three ways — picked, dropped, pasted — and each
  * zone that grew its own `<input type="file">` grew its own answers to the
@@ -9,11 +9,16 @@
  * open the file in the tab, does a refused file still reach `onFiles`, does
  * a paste land anywhere. The runner kit's `Dropzone` and the workspace's
  * label each answered differently from the home desk's sheet (redesign
- * WP-07). So the input lives in ONE module, `drop-sheet.tsx`, and every
- * surface that takes files is built on it — and in the sheet's SHELL,
+ * WP-07). So the input lives in ONE primitive, and every surface that takes
+ * files is built on it: `drop-sheet.tsx`, the sheet as a whole-surface
+ * label (every tool's zone, a guide's desk), and `drop-desk.tsx`, the same
+ * sheet whose body is its owner's (the home desk, the workspace, the ticket
+ * dialog) — one box (`drop-sheet-face.tsx`), one path in and one engine
+ * (`use-drop-box.ts`), in two modules only so a tool page does not carry a
+ * desk in its first load (WP-07 re-review). And in the sheet's SHELL,
  * `drop-sheet-shell.tsx`: the same sheet as the server draws it for a page
- * whose sheet's code arrives after the page (a guide's desk), drawn from the
- * same face (`drop-sheet-face.tsx`) and held to the sheet's markup by
+ * whose sheet's code arrives after the page (a guide's desk), drawn from
+ * the same face and held to the sheet's markup by
  * `drop-sheet-shell.test.tsx`. It only ever holds a pick until the live
  * sheet takes it over.
  *
@@ -44,6 +49,8 @@ import { withoutComments } from "@/lib/tools/copy-surface";
 const ROOT = process.cwd();
 const ROOTS = ["src/components", "src/app"];
 const HOME = "src/components/upload/drop-sheet.tsx";
+/** The same primitive, as a desk whose body is its owner's (see above). */
+const DESK = "src/components/upload/drop-desk.tsx";
 /** The primitive's server-drawn shell (see above). */
 const SHELL = "src/components/upload/drop-sheet-shell.tsx";
 const EXEMPT: Record<string, string> = {
@@ -105,9 +112,10 @@ describe("every file input is the drop primitive's", () => {
     // Both roots, whole: a walk that lost a directory would pass vacuously.
     expect(walked.length).toBeGreaterThanOrEqual(150);
     expect(walked.some((f) => f.startsWith("src/app/"))).toBe(true);
-    // The primitive itself is found — two inputs: the sheet's own label
-    // input and the hidden one behind `pick()`.
-    expect(found.get(HOME)).toBeGreaterThanOrEqual(2);
+    // The primitive itself is found: the sheet's label input, and the
+    // desk's two — its picker's and the hidden one behind `pick()`.
+    expect(found.get(HOME)).toBe(1);
+    expect(found.get(DESK)).toBe(2);
     // …and its shell, one: the native picker it draws.
     expect(found.get(SHELL)).toBe(1);
   });
@@ -131,11 +139,12 @@ describe("every file input is the drop primitive's", () => {
 
   it("no surface outside the primitive renders a file input of its own", () => {
     const offenders = [...found.keys()].filter(
-      (file) => file !== HOME && file !== SHELL && !(file in EXEMPT),
+      (file) =>
+        file !== HOME && file !== DESK && file !== SHELL && !(file in EXEMPT),
     );
     expect(
       offenders,
-      "these render a file input of their own — build them on DropSheet (src/components/upload/drop-sheet.tsx), or exempt them here with a reason",
+      "these render a file input of their own — build them on DropSheet or DropDesk (src/components/upload/drop-sheet.tsx, drop-desk.tsx), or exempt them here with a reason",
     ).toEqual([]);
   });
 

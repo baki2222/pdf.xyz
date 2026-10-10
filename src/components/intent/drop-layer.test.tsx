@@ -97,6 +97,13 @@ afterEach(() => {
   document.documentElement.removeAttribute("data-dragging");
 });
 
+/** What every tool page's zone passes (the runner kit's `Dropzone`); a case overrides it. */
+const SHEET = {
+  title: "Drop your files here, or",
+  multiple: true,
+  variant: "sheet",
+} as const;
+
 const pdf = (name = "a.pdf") =>
   new File(["%PDF-1.7"], name, { type: "application/pdf" });
 const jpg = (name = "photo.jpg") =>
@@ -254,6 +261,7 @@ describe("a release, or a paste", () => {
     const onFiles = vi.fn();
     await page(
       <DropSheet
+        {...SHEET}
         accept="image/png,image/jpeg"
         title="Drop a signature image, or"
         onFiles={onFiles}
@@ -381,6 +389,7 @@ describe("a release on a zone goes where the veil said it would", () => {
     const onFiles = vi.fn();
     await page(
       <DropSheet
+        {...SHEET}
         accept="application/pdf"
         multiple={false}
         title="Drop your PDF here, or"
@@ -410,6 +419,7 @@ describe("a release on a zone goes where the veil said it would", () => {
     const onFiles = vi.fn();
     await page(
       <DropSheet
+        {...SHEET}
         accept="application/pdf"
         multiple={false}
         title="Drop your PDF here, or"
@@ -434,6 +444,7 @@ describe("a release on a zone goes where the veil said it would", () => {
     const onFiles = vi.fn();
     await page(
       <DropSheet
+        {...SHEET}
         accept="application/pdf"
         title="Drop your PDFs here, or"
         onFiles={onFiles}
@@ -464,6 +475,7 @@ describe("a release on a zone goes where the veil said it would", () => {
     const onFiles = vi.fn();
     await page(
       <DropSheet
+        {...SHEET}
         accept="image/png,image/jpeg"
         title="Drop a signature image, or"
         onFiles={onFiles}

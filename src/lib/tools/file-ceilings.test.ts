@@ -452,11 +452,12 @@ function renderAllPages(): Record<string, string> {
 
 /**
  * The staging sentence, rendered through the component that shows it — a
- * guide's desk (WP-07), whose sheet is the one drop primitive (`DropSheet`)
- * — for every tool. WAS rendered through the bare `DropSheet` while no page
- * showed it, and before that through `UploadZone`, the home page's old drop
- * zone, deleted when the desk replaced it (WP-05, 2026-10-10); the property
- * is the sentence's, not the zone's, so it follows what shows it.
+ * guide's desk (WP-07), whose sheet is the one drop primitive (a `DropDesk`
+ * drawing the compact sheet's face) — for every tool. WAS rendered through
+ * the bare `DropSheet` while no page showed it, and before that through
+ * `UploadZone`, the home page's old drop zone, deleted when the desk
+ * replaced it (WP-05, 2026-10-10); the property is the sentence's, not the
+ * zone's, so it follows what shows it.
  */
 function renderStagingZone(tool: Tool): string {
   return textOf(

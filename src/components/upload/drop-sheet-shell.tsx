@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
-import { faceClass, SheetFace, sheetClass } from "./drop-sheet-face";
+import { sheetClass } from "./drop-sheet-box";
+import { faceClass, SheetFace } from "./drop-sheet-face";
 
 /**
  * A drop sheet's SHELL: the sheet as the server draws it, for a page whose
  * sheet's code is not in its first load — the guide desk, which a guide's
  * prose does not wait for (`@/components/intent/guide-desk-slot`). Its
- * markup is the sheet's own (`./drop-sheet-face`; `drop-sheet-shell.test`
+ * markup is the sheet's own (`./drop-sheet-box`, `./drop-sheet-face`; `drop-sheet-shell.test`
  * holds the two to one), so the live sheet replaces it without moving a
  * pixel; and its picker is a native, labelled file input, so a pick works
  * before any code has arrived — the live sheet adopts what was picked.

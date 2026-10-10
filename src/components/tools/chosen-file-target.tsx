@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
-import { announceOutcome } from "@/components/a11y/live-region";
-import { ErrorNote } from "@/components/tools/runner/runner-kit";
-import { useToolContext } from "@/components/tools/tool-context";
-import { usePageTarget } from "@/components/upload/use-page-target";
-import { takesByAccept } from "@/lib/intent/accept-match";
+import { lazy, Suspense } from "react";
+import type { ChosenFileProps } from "./replace-boxes";
+
+/** The chip as its page's target, fetched with the file it shows. */
+const ChosenFileLive = lazy(() =>
+  import("./replace-boxes").then((m) => ({ default: m.ChosenFileLive })),
+);
 
 /**
  * The file a worker panel has chosen, as its page's drop target: a file
@@ -29,71 +30,17 @@ import { takesByAccept } from "@/lib/intent/accept-match";
  * why is said here, as the zone says it. Unsaved work is asked about
  * before the swap (`confirmLeave`, WP-08's to fill), and the swap is
  * announced: "Replaced alpha.pdf with beta.pdf in Protect PDF."
+ *
+ * All of that is `ChosenFileLive` (`./replace-boxes`), fetched as the chip
+ * first appears — with the file, not with the page. Until it is here the
+ * chip is drawn on its own, and a file released on the page goes to the
+ * ticket dialog, as on a page with no target. It names the tool its page
+ * names (`data-tool-name`).
  */
-export function ChosenFileTarget({
-  file,
-  accept,
-  busy,
-  refuse,
-  onReplace,
-  children,
-}: {
-  /** The file chosen now. */
-  file: File;
-  /** The panel zone's `accept`. */
-  accept: string;
-  /** The panel's job is running: nothing may land mid-run. */
-  busy: boolean;
-  /** The panel zone's `refuse`. */
-  refuse: (file: File) => string | null;
-  /** What the zone's `onFiles` does, after whatever Remove resets. */
-  onReplace: (files: File[]) => void;
-  /** The chip. */
-  children: ReactNode;
-}) {
-  const tool = useToolContext();
-  const name = tool?.name ?? "this tool";
-  const ref = useRef<HTMLDivElement>(null);
-  const [armed, setArmed] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
-  const takes = useMemo(() => takesByAccept(accept), [accept]);
-
-  usePageTarget({
-    name,
-    verb: "replace",
-    current: file.name,
-    canReceive: () => !busy,
-    takes,
-    receive: (files) => {
-      const kept: File[] = [];
-      let first: string | null = null;
-      for (const f of files) {
-        const why = refuse(f);
-        if (why === null) kept.push(f);
-        else first ??= why;
-      }
-      setRefusal(first);
-      if (kept.length === 0) return;
-      const from = file.name;
-      void import("@/lib/intent/unsaved").then(({ confirmLeave }) => {
-        if (!confirmLeave()) return;
-        onReplace(kept);
-        announceOutcome(`Replaced ${from} with ${kept[0]!.name} in ${name}.`);
-      });
-    },
-    arm: setArmed,
-    element: () => ref.current,
-  });
-
+export function ChosenFileTarget(props: ChosenFileProps) {
   return (
-    <div
-      ref={ref}
-      data-page-drop-target=""
-      data-armed={armed || undefined}
-      className="flex flex-col gap-2"
-    >
-      {children}
-      {refusal && <ErrorNote message={refusal} />}
-    </div>
+    <Suspense fallback={props.children}>
+      <ChosenFileLive {...props} />
+    </Suspense>
   );
 }

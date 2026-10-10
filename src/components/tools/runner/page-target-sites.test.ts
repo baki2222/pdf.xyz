@@ -20,8 +20,10 @@
  * went to the ticket dialog, which never offers the page's own tool (WP-07
  * review). Every such zone's source must register what replaced it: the
  * chip, through `ChosenFileTarget` (with the zone's own `accept` and
- * `refuse`), or an editor of its own (`usePageTarget`, the single-PDF
- * runner's "replace").
+ * `refuse`), or an editor of its own (`EditorBox`, the single-PDF runner's
+ * "replace"; WAS a `usePageTarget(` call there, until the target left the
+ * page's first load for a module that comes with the file — WP-07
+ * re-review).
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -100,7 +102,7 @@ function replacements(source: string): string[] {
     ...[...code.matchAll(/<ChosenFileTarget\b/g)].map((m) =>
       openingTag(code, m.index),
     ),
-    ...[...code.matchAll(/\busePageTarget\(/g)].map(() => "usePageTarget("),
+    ...[...code.matchAll(/<EditorBox\b/g)].map(() => "EditorBox"),
   ];
 }
 
@@ -163,9 +165,10 @@ describe("the page's drops land in a tool's primary zone, never in a secondary o
       `{(file) => pickRefusal(tool, file)}`,
     );
     expect(replacements(`// <ChosenFileTarget file={file}>`)).toEqual([]);
-    expect(replacements(`usePageTarget(pdf ? {} : null)`)).toEqual([
-      "usePageTarget(",
+    expect(replacements(`<EditorBox editor={editorRef} />`)).toEqual([
+      "EditorBox",
     ]);
+    expect(replacements(`// <EditorBox editor={editorRef} />`)).toEqual([]);
   });
 
   it("every primary zone opts in", () => {

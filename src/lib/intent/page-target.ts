@@ -18,19 +18,28 @@
  *
  * NOT IN ANY PAGE'S FIRST LOAD. Free of React and of the catalogue, and
  * fetched only when a page first needs it: by the drop layer on idle (or
- * with the first file), and by a target's registration on mount
- * (`usePageTarget`, which imports it). Nothing a page renders imports it
- * statically — the sheet reads a drag through `./drag` — so the layer and
- * every target reach the one copy through the same `import()`, and a
- * registration made on mount is in the stack before any delivery the layer
- * routes through that import (its callback was attached first). Was a static
- * import of every drop sheet, the hook and the guide desk: 1.2 KB raw in the
- * first load of every page with a drop target (WP-07 review, 2026-10-10).
+ * with the first file), and by every DROP BOX as it mounts — a drop sheet,
+ * an open editor, a chosen file's chip (`useDropBox`). What makes a box take
+ * a file — its drag states, its claim on a release, its registration — is
+ * `./drop-engine`, bound here as {@link attachDropBox}, so it arrives in
+ * this chunk and not with the page. Nothing a page renders imports it
+ * statically, so the layer and every box reach the one copy through the
+ * same `import()`, and a registration made on mount is in the stack before
+ * any delivery the layer routes through that import (its callback was
+ * attached first). Was a static import of every drop sheet, the hook and
+ * the guide desk: 1.2 KB raw in the first load of every page with a drop
+ * target (WP-07 review, 2026-10-10); and the boxes' engine was each box's
+ * own, 2.4 KB gz on every tool page (WP-07 re-review).
  *
  * Module-level state (a stack and a set of listeners, never a single slot),
  * so tests start from {@link resetPageTargetsForTests} — vitest shares one
  * module cache.
  */
+import {
+  attachDropBoxWith,
+  type DropBox,
+  type DropEngine,
+} from "./drop-engine";
 import type { TicketVia } from "./ticket";
 
 /** How files arrived: picked, dropped, pasted, picked before hydration, or from the header. */
@@ -132,7 +141,8 @@ export function registerPageTarget(target: PageTarget): () => void {
  * Register whatever `latest` holds at each question — a React surface's
  * target, re-rendered with new props (a name, a busy state) but registered
  * ONCE, so a re-render never moves it above a target that mounted after it
- * (the stack's last registration wins). Asked through `usePageTarget`.
+ * (the stack's last registration wins). Asked by a drop box's engine
+ * (`./drop-engine`).
  */
 export function registerLatest(latest: {
   readonly current: PageTarget | null;
@@ -159,6 +169,38 @@ export function registerLatest(latest: {
     arm: (on) => now()?.arm(on),
     element: () => now()?.element() ?? null,
   });
+}
+
+/** Every attached drop box, by its element: where a release on it is decided. */
+const boxes = new Map<Element, DropEngine>();
+
+/**
+ * Make a drop box take what is dropped on it, and — while it names a target
+ * — be the page's target, registered as {@link registerLatest} registers
+ * (`./drop-engine`). Asked by `useDropBox` as the box mounts, through the
+ * same `import()` as every other registration; returns the detach.
+ */
+export function attachDropBox(
+  root: HTMLElement,
+  latest: { readonly current: DropBox },
+): () => void {
+  const engine = attachDropBoxWith(root, latest, registerLatest);
+  boxes.set(root, engine);
+  return () => {
+    if (boxes.get(root) === engine) boxes.delete(root);
+    engine.detach();
+  };
+}
+
+/**
+ * A release at `at` that the drop layer caught because no box's engine was
+ * attached yet: decided by the boxes around it, innermost first, as their
+ * own listeners would have decided it. True when one took it.
+ */
+function boxesTake(at: Element | null | undefined, files: File[]): boolean {
+  for (let el = at ?? null; el; el = el.parentElement)
+    if (boxes.get(el)?.take(files)) return true;
+  return false;
 }
 
 /** The page's target: the last one registered, or null. */
@@ -200,16 +242,21 @@ export function routeFor(files: readonly FileKind[]): Route {
 }
 
 /**
- * Hand files that arrived on the page to wherever they belong. The target
- * receives ALL of them when it takes any — as a drop on it would, so its
- * own refusal says which it kept; otherwise the fallback, told why — or,
- * when the fallback has not registered yet, they wait for it.
+ * Hand files that arrived on the page to wherever they belong. A release
+ * `at` a drop box (one the drop layer caught because the box's engine was
+ * not here yet) is the boxes' around it to decide first, as their own
+ * listeners would have; then the target receives ALL of them when it takes
+ * any — as a drop on it would, so its own refusal says which it kept;
+ * otherwise the fallback, told why — or, when the fallback has not
+ * registered yet, they wait for it.
  */
 export function deliverFiles(
   files: File[],
   via: DropVia,
-): "target" | "fallback" | "waiting" | "nowhere" {
+  at?: Element | null,
+): "box" | "target" | "fallback" | "waiting" | "nowhere" {
   if (files.length === 0) return "nowhere";
+  if (via === "drop" && boxesTake(at, files)) return "box";
   const route = routeFor(files);
   if (route.to === "target") {
     route.target.receive(files, via);
@@ -255,6 +302,7 @@ export function requestFilePick(): "target" | "fallback" | "nowhere" {
 
 /** Empty every stack and listener (vitest shares one module cache). */
 export function resetPageTargetsForTests(): void {
+  boxes.clear();
   targets.length = 0;
   fallbacks.length = 0;
   waiting.length = 0;

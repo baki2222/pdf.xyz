@@ -4,10 +4,10 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Info } from "lucide-react";
 import {
-  DropSheet,
+  DropDesk,
   type DropVia,
   type SheetTarget,
-} from "@/components/upload/drop-sheet";
+} from "@/components/upload/drop-desk";
 import type { HandoffOrigin } from "@/lib/handoff/origin";
 import type { Unrouted } from "@/lib/intent/page-target";
 import { cn } from "@/lib/utils";
@@ -175,8 +175,7 @@ export default function TicketDialog({
         "motion-safe:backdrop:transition-[opacity,display,overlay] motion-safe:backdrop:transition-discrete motion-safe:backdrop:duration-120 motion-safe:starting:open:backdrop:opacity-0",
       )}
     >
-      <DropSheet
-        variant="desk"
+      <DropDesk
         accept=""
         multiple
         onFiles={onFiles}
@@ -225,7 +224,7 @@ export default function TicketDialog({
             </section>
           </>
         )}
-      </DropSheet>
+      </DropDesk>
     </dialog>,
     document.body,
   );

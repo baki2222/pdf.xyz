@@ -15,7 +15,6 @@ import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { FormatsLine } from "@/components/tools/formats-line";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { WORKER_PANELS } from "@/components/tools/worker-panels";
-import { ToolContextProvider } from "@/components/tools/tool-context";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
@@ -257,8 +256,14 @@ export default async function ToolPage({
           <div className="flex flex-col gap-6 sm:gap-8">
             {head}
 
+            {/* `data-tool-name`: the tool this page is, for what its drop
+                boxes tell the page — "Release to add to Merge PDF",
+                "Replaced a.pdf with b.pdf in Rotate PDF." — read by the drop
+                engine when a file arrives, so no box carries the name in
+                its code (`toolNameAt`, `@/lib/intent/drop-engine`). */}
             <div
               data-tool-panel
+              data-tool-name={tool.name}
               className="border-line bg-panel rounded-panel flex flex-col gap-5 border p-5 sm:p-7"
             >
               <div className="text-ok flex items-center gap-2 text-sm">
@@ -274,11 +279,9 @@ export default async function ToolPage({
                   ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
                   : "Runs in your browser — your file never leaves your device."}
               </div>
-              <ToolContextProvider slug={tool.slug} name={tool.name}>
-                <ErrorBoundary boundary="tool-runner">
-                  <ToolRunner kind={runnerKind} slug={tool.slug} />
-                </ErrorBoundary>
-              </ToolContextProvider>
+              <ErrorBoundary boundary="tool-runner">
+                <ToolRunner kind={runnerKind} slug={tool.slug} />
+              </ErrorBoundary>
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2">
@@ -333,14 +336,13 @@ export default async function ToolPage({
 
             <div
               data-tool-panel
+              data-tool-name={tool.name}
               className="self-start lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1"
             >
               {panel && (
-                <ToolContextProvider slug={tool.slug} name={tool.name}>
-                  <ErrorBoundary boundary={panel.boundary}>
-                    <panel.Panel tool={tool} />
-                  </ErrorBoundary>
-                </ToolContextProvider>
+                <ErrorBoundary boundary={panel.boundary}>
+                  <panel.Panel tool={tool} />
+                </ErrorBoundary>
               )}
             </div>
 

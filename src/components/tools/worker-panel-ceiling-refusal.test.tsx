@@ -59,6 +59,7 @@ import { canRunTranslate } from "@/lib/workers/translate-client";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { READY_WORKER_STATUS as READY } from "@/tests/ready-worker-status";
 import { panelDispatchArms } from "@/tests/worker-panel-dispatch";
+import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { AiExtractWorkerPanel } from "./ai-extract-worker-panel";
 import { ChatWithPdfWorkerPanel } from "./chat-with-pdf-worker-panel";
 import { HtmlRenderWorkerPanel } from "./html-render-worker-panel";
@@ -317,6 +318,7 @@ describe.each(
       `${tool.slug}: the picker is not inside its drop zone`,
     ).not.toBeNull();
     // A drop, because a drop is what `accept` does not filter.
+    await dropSheetsLive();
     fireEvent.drop(zone!, { dataTransfer: { files: [wrong] } });
 
     const alert = await screen.findByRole("alert");

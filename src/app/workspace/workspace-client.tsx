@@ -26,10 +26,10 @@ import {
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import {
-  DropSheet,
+  DropDesk,
   DropSheetPick,
   type SheetTarget,
-} from "@/components/upload/drop-sheet";
+} from "@/components/upload/drop-desk";
 import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
 import { originPhrase } from "@/lib/handoff/origin";
 import { factWords, type FactWord } from "@/lib/intent/fact-words";
@@ -263,8 +263,7 @@ export function WorkspaceClient({
           {/* The drop panel: the one drop primitive, and the page's target —
               a file dropped or pasted anywhere on the workspace is staged
               here, and one it cannot read says so below, like any other. */}
-          <DropSheet
-            variant="desk"
+          <DropDesk
             accept={ACCEPT}
             multiple
             onFiles={onFiles}
@@ -298,7 +297,7 @@ export function WorkspaceClient({
                 </span>
               </DropSheetPick>
             )}
-          </DropSheet>
+          </DropDesk>
 
           {ws.arrival && (
             <ArrivalNote arrival={ws.arrival} onDismiss={ws.dismissArrival} />

@@ -10,10 +10,12 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
-  DropSheet,
+  DropDesk,
+  DropSheetPick,
   type DropVia,
   type SheetTarget,
-} from "@/components/upload/drop-sheet";
+} from "@/components/upload/drop-desk";
+import { faceClass, SheetFace } from "@/components/upload/drop-sheet-face";
 import { takesByAccept } from "@/lib/intent/accept-match";
 import type { LaunchRouter } from "@/lib/intent/launch";
 import { GUIDE_DESK_STATUS_CLASS, guideDeskTitle } from "./guide-desk-words";
@@ -200,16 +202,30 @@ export function GuideDesk({
   return (
     <div ref={root} className="flex w-full flex-col gap-2" data-guide-desk="">
       {live && <RouterInto onRouter={keepRouter} />}
-      <DropSheet
-        variant="compact"
+      {/* The compact sheet as a desk whose body is the sheet's own face —
+          the shell's markup to the pixel (`drop-sheet-shell.test.tsx`), and
+          `./drop-sheet` stays the tool pages' alone, where the bundler
+          folds it into the runner kit's scope (WP-07 re-review). */}
+      <DropDesk
         accept={accept}
         multiple={opens !== "one"}
-        title={title}
-        hint={hint}
         onFiles={onFiles}
         pageTarget={target}
+        variant="compact"
         className="w-full"
-      />
+      >
+        {(api) => (
+          <DropSheetPick className={faceClass("compact")}>
+            <SheetFace
+              variant="compact"
+              title={title}
+              browse
+              hint={hint}
+              hintId={api.hintId}
+            />
+          </DropSheetPick>
+        )}
+      </DropDesk>
       {/* Always here, at the height of its longest sentence (two lines of
           the failure at 360px), so what it says never moves the page. */}
       <p

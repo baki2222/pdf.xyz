@@ -12,11 +12,11 @@ import {
 import { FilePlus } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import {
-  DropSheet,
+  DropDesk,
   DropSheetPick,
   type DropVia,
   type SheetTarget,
-} from "@/components/upload/drop-sheet";
+} from "@/components/upload/drop-desk";
 import type { HandoffOrigin } from "@/lib/handoff/origin";
 import { cn } from "@/lib/utils";
 import { DESK_ISLAND_MARKER } from "./desk-island-chunk";
@@ -176,8 +176,7 @@ export function HeroDesk({
         data-sheet="mid"
         className="border-line bg-panel absolute -top-[5px] right-2 left-2 h-16 border"
       />
-      <DropSheet
-        variant="desk"
+      <DropDesk
         id={id}
         accept={accept}
         multiple
@@ -293,7 +292,7 @@ export function HeroDesk({
             )}
           </div>
         )}
-      </DropSheet>
+      </DropDesk>
     </div>
   );
 }

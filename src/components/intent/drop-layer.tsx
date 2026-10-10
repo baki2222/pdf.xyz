@@ -211,15 +211,17 @@ export function DropLayer() {
     return () => window.clearTimeout(timer);
   }, [registry, view]);
 
-  // Files that landed: where they go is the registry's, as soon as it is here.
+  // Files that landed: where they go is the registry's, as soon as it is
+  // here — with where they were released, so a release on a drop sheet whose
+  // engine had not arrived yet is that sheet's to decide (`deliverFiles`).
   const deliver = useCallback(
-    (files: File[], via: DropVia) => {
+    (files: File[], via: DropVia, at?: Element | null) => {
       if (files.length === 0) return;
       setUnreachable(false);
       void registry()
         .then(settled)
         .then(
-          (mod) => mod.deliverFiles(files, via),
+          (mod) => mod.deliverFiles(files, via, at),
           // Offline, or a deploy replaced the chunk: the files went nowhere,
           // and the page says so rather than nothing.
           () => setUnreachable(true),
@@ -322,7 +324,11 @@ export function DropLayer() {
       // A zone on the page claimed it (a drop sheet's own handler ran first).
       if (e.defaultPrevented) return;
       e.preventDefault();
-      deliver(Array.from(e.dataTransfer?.files ?? []), "drop");
+      deliver(
+        Array.from(e.dataTransfer?.files ?? []),
+        "drop",
+        e.target instanceof Element ? e.target : null,
+      );
     };
     const onPaste = (e: ClipboardEvent) => {
       if (editable(e.target)) return;
