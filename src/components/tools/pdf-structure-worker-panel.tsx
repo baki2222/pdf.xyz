@@ -55,7 +55,7 @@ import { OfficeExportNextStep } from "./office-export-notices";
  * Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
  * e2e/tool-layout.mobile.spec.ts).
  */
-const STATUS_SLOT = "min-h-[28.5rem] sm:min-h-[17.5rem] lg:min-h-[20.5rem]";
+const STATUS_SLOT = "min-h-[30rem] sm:min-h-[17.5rem] lg:min-h-[20.5rem]";
 
 type Phase = WorkerPhase;
 type Mode = "repair" | "optimize";

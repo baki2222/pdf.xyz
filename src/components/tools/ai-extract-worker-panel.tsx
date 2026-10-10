@@ -83,7 +83,7 @@ import {
  * run), because text metrics differ by platform, so 57rem (912px) holds
  * both. 640 and 1024 passed on both platforms as they were.
  */
-const STATUS_SLOT = "min-h-[57rem] sm:min-h-[41rem] lg:min-h-[44.5rem]";
+const STATUS_SLOT = "min-h-[58rem] sm:min-h-[41rem] lg:min-h-[44.5rem]";
 
 type Phase = WorkerPhase;
 

@@ -44,7 +44,7 @@ import {
  * Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
  * e2e/tool-layout.mobile.spec.ts).
  */
-const STATUS_SLOT = "min-h-[21.5rem] sm:min-h-[17.5rem] lg:min-h-[18.5rem]";
+const STATUS_SLOT = "min-h-[24rem] sm:min-h-[17.5rem] lg:min-h-[18.5rem]";
 
 type OfficeTool = "word-to-pdf" | "excel-to-pdf" | "powerpoint-to-pdf";
 type Phase = WorkerPhase;

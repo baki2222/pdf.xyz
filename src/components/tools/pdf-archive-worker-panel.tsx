@@ -46,7 +46,7 @@ import { PdfANotes } from "./pdfa-notes";
  * Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
  * e2e/tool-layout.mobile.spec.ts).
  */
-const STATUS_SLOT = "min-h-[21.5rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
+const STATUS_SLOT = "min-h-[22.5rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
 
 type Phase = WorkerPhase;
 

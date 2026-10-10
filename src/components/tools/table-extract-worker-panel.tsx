@@ -39,7 +39,7 @@ import { OfficeExportNextStep } from "./office-export-notices";
  * 2026-10-10 — phone at 360px 327.5px, `sm` at 640px 269px, `lg` at 1024px
  * 288.5px — plus 4px, to the half rem.
  */
-const STATUS_SLOT = "min-h-[21.5rem] sm:min-h-[17.5rem] lg:min-h-[18.5rem]";
+const STATUS_SLOT = "min-h-[22.5rem] sm:min-h-[17.5rem] lg:min-h-[18.5rem]";
 
 type Phase = WorkerPhase;
 

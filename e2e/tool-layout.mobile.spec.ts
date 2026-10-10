@@ -445,6 +445,14 @@ const slotHeight = (page: Page) =>
  * 393/393 here and failed on CI. So off Linux a reserve must clear its
  * content by 3%, which leaves about 1% once Linux adds its 2.2%; on Linux,
  * 1%. Every STATUS_SLOT was refitted to at least 3.5% on Windows the same day.
+ *
+ * A percentage is the wrong unit when Linux wraps one more LINE: #178's
+ * longer Notify-me text set PDF to PowerPoint's off state 327.5px tall on
+ * Windows and 366.5px on Linux (+12%), chat-with-pdf 715.5 -> 751px. So the
+ * base reserves are fitted to the larger of both platforms' SLOT_NATURAL
+ * lines (this test prints them; CI's log is the Linux column), x1.035,
+ * rounded up to the half-rem. The off-Linux 3% check is a coarse local
+ * alarm; CI's run is the real check.
  */
 const SLOT_HEADROOM = process.platform === "linux" ? 1.01 : 1.03;
 
