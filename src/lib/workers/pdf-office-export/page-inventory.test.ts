@@ -504,10 +504,18 @@ describe("the decode budget", () => {
       decodeBudgetPlan([{ ...big, exact: false }], { ...opts, pageBytes: 1000 })
         .pages[0],
     ).toMatchObject({ cap: 2_000_000, tooLarge: 0, unverified: false });
-    // Under the floor: pdf.js removes nothing it could paint.
+    // INVERTED 2026-10-11 (the second re-review): this pair, under the
+    // floor but over the page budget together, was "under the floor: pdf.js
+    // removes nothing it could paint" — the unbounded ceiling. Held to the
+    // budget, the page leaves both out and cannot say it painted neither.
     const small = page([100, 100, 60], [100, 100, 60]);
     expect(
-      decodeBudgetPlan([{ ...small, exact: false }], opts).pages[0]!.unverified,
+      decodeBudgetPlan([{ ...small, exact: false }], opts).pages[0],
+    ).toMatchObject({ cap: 9_999, tooLarge: 0, unverified: true });
+    // ... and one that fits the budget leaves nothing out, so it is not.
+    expect(
+      decodeBudgetPlan([{ ...page([100, 100, 60]), exact: false }], opts)
+        .pages[0]!.unverified,
     ).toBe(false);
     // An exact page's losses are COUNTED, so it is never unverified.
     expect(decodeBudgetPlan([big], opts).pages[0]).toMatchObject({

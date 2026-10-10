@@ -3,7 +3,6 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
-  MAX_DECODED_IMAGE_PIXELS,
   MAX_LAYERS_PER_PAGE,
   MAX_PICTURE_SIDE,
 } from "@/lib/workers/pdf-office-export/picture-limits";
@@ -70,6 +69,13 @@ import {
  *        picture over MAX_DECODED_IMAGE_PIXELS can be removed by pdf.js
  *        and nothing can count it, so the note cannot name its page. Every
  *        sentence promising the note says so;
+ *      · CHANGED again the same day (the second re-review): the reader now
+ *        reads an encrypted page (`standard-security.ts`), so "an
+ *        encrypted … PDF" is no longer an exception, and the size is gone:
+ *        it was the floor of a ceiling with no bound under it (one locked
+ *        page decoded 2.2 GB), and an unreadable page is now held to the
+ *        page budget, which promises no size. What is left is a page the
+ *        worker cannot read before it is drawn, as in a damaged PDF;
  *      · everything else drawn (lines, boxes, arrows, fills, backgrounds) is
  *        rendered into transparent pictures, in paint order with the rest;
  *      · a page with no text is NOT refused: it is a slide of pictures, and
@@ -169,10 +175,9 @@ const PICTURE_PX = MAX_PICTURE_SIDE.toLocaleString("en-US");
 const BILEVEL_PX = MAX_BILEVEL_PICTURE_SIDE.toLocaleString("en-US");
 /** Past this many drawing pictures a page is drawn as one. */
 const LAYERS = MAX_LAYERS_PER_PAGE.toLocaleString("en-US");
-/** pdf.js's floor ceiling, in megapixels as the page states it. */
-const FLOOR_MP = (MAX_DECODED_IMAGE_PIXELS / 1_000_000).toLocaleString("en-US");
-/** Where the note can miss a picture, and how large that picture is. */
-const UNNOTED = `except in an encrypted or damaged PDF, where a picture over ${FLOOR_MP} megapixels can be left out with no note`;
+/** Where the note can miss a picture: a page the reader cannot read ahead. */
+const UNNOTED =
+  "except on a page the worker cannot read before it is drawn, as in a damaged PDF, where a picture can be left out with no note";
 
 const content: ToolContent = {
   slug: "pdf-to-powerpoint",

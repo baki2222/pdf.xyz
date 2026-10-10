@@ -2,9 +2,9 @@
  * The limits PDF to PowerPoint applies to pictures — in a module with no
  * imports, so the tool's page can state them from the constant that owns
  * them (`@/lib/tools/content/pdf-to-powerpoint`, `@/lib/tools/tool-facts`)
- * without pulling the page reader into the browser. `./page-scan` (and
- * `./pdfjs-node`, for the pixel ceiling) re-export them and are the only
- * code that applies them.
+ * and its guards can hold them, without pulling the page reader into the
+ * browser. `./page-scan` (and `./pdfjs-node`, for the pixel ceiling)
+ * re-export them and are the only code that applies them.
  */
 
 /**
@@ -33,10 +33,14 @@ export const MAX_LAYERS_PER_PAGE = 32;
  * without a word (`buildPaintImageXObject`: "Image exceeded maximum allowed
  * size and was removed", a warning at most). The page scan sets the ceiling
  * per page from a byte budget over what each page is SEEN to decode
- * (`decodeBudgetPlan` in `./page-scan`), and counts what that leaves out; a
- * page whose content cannot be read (an encrypted or damaged file) never
- * gets a ceiling below this one, and a picture over it can then go
- * uncounted. Moved here from `./pdfjs-node` on 2026-10-11 so the page can
- * state that size.
+ * (`decodeBudgetPlan` in `./page-scan`), and counts what that leaves out.
+ * Moved here from `./pdfjs-node` on 2026-10-11 so the page could state it,
+ * as the size over which a picture of an unreadable page went unnoted; the
+ * re-review the same day found that size was the floor of a ceiling with
+ * no bound under it, and the page no longer states one.
+ *
+ * Still unbounded: a file pdf-lib cannot load at all (twenty bytes of junk
+ * after %%EOF will do, and pdf.js reads it) gets this ceiling on every page
+ * and nothing counted (`UNKNOWN_PAGE` in `./page-scan`). An open defect.
  */
 export const MAX_DECODED_IMAGE_PIXELS = 64_000_000;

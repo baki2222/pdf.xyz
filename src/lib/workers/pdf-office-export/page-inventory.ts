@@ -41,23 +41,35 @@
  * font when it loads it), each annotation's appearance — and records the
  * images invoked there (`Do`, and inline `BI … ID … EI`).
  *
+ * ── AN ENCRYPTED FILE IS READ ──────────────────────────────────────────────
+ *
+ * pdf-lib loads an encrypted file and never decrypts it. The streams this
+ * walks are decrypted here instead (`./standard-security`: the Standard
+ * handler with the empty user password, as every viewer opens an
+ * owner-password PDF), and in the layout Acrobat and Word write — catalog
+ * and page tree inside an encrypted object stream pdf-lib could not parse —
+ * that object stream is decrypted and read into the document first
+ * ({@link unlockObjectStreams}). So a locked file's pages are read exactly,
+ * as the unlocked file's are. Until 2026-10-11 they could not be, and both
+ * ways of guessing what such a page paints failed in production on one day
+ * (see the module).
+ *
  * ── WHEN THE CONTENT CANNOT BE READ ─────────────────────────────────────────
  *
- * A content stream it cannot decode (every stream of an encrypted file, whose
- * bytes are ciphertext to pdf-lib; an unknown filter) falls back to every
- * image XObject its resources DECLARE — through forms, tiling patterns,
- * soft-mask groups and Type3 fonts — and marks the page inexact. That set is
- * an upper bound on what the page paints, never an estimate of it: until
- * 2026-10-11 the decode budget treated it as one, and an owner-password file
- * whose pages share one /Resources lost every photo to a ceiling set under
- * their size, with a note blaming 144 pictures' size where 12 were painted.
- * The budget may now neither lower an inexact page's ceiling below pdf.js's
- * floor nor count what such a page only declares (`decodeBudgetPlan`).
+ * A content stream it still cannot decode (damaged data, a filter it does
+ * not know, an encryption it does not read) falls back to every image
+ * XObject its resources DECLARE — through forms, tiling patterns, soft-mask
+ * groups and Type3 fonts — and marks the page inexact. That set is an upper
+ * bound on what the page paints, never a count of it: until 2026-10-11 the
+ * decode budget counted it, and an owner-password file whose pages share one
+ * /Resources lost every photo to a ceiling set under their size, with a note
+ * blaming 144 pictures' size where 12 were painted. The budget now holds an
+ * inexact page to the page budget over that whole set — an upper bound, so
+ * the bound holds whatever the page paints — and counts none of it
+ * (`decodeBudgetPlan`).
  *
- * A file whose page TREE cannot be read has no inventory at all
- * ({@link readInventory}): an encrypted file in the layout Acrobat and Word
- * write keeps its catalog inside an encrypted object stream, which pdf-lib
- * loads and cannot open. Its pictures are still known
+ * A file whose page TREE still cannot be read has no inventory at all
+ * ({@link readInventory}). Its pictures are still known
  * ({@link documentImages}): an image is a stream, a stream is never inside an
  * object stream, and encryption leaves a dictionary's names and numbers in
  * the clear (ISO 32000-1 §7.5.7, §7.6.1).
@@ -67,14 +79,19 @@ import {
   decodePDFRawStream,
   PDFArray,
   PDFBool,
+  PDFCatalog,
   PDFDict,
+  PDFInvalidObject,
   PDFName,
   PDFNumber,
+  PDFObjectParser,
+  PDFObjectStreamParser,
   PDFRawStream,
   PDFRef,
   type PDFDocument,
   type PDFObject,
 } from "pdf-lib";
+import { standardDecryptor, type StreamDecryptor } from "./standard-security";
 
 /* ------------------------------------------------------------------ *
  *  What it returns
@@ -638,26 +655,63 @@ function num(v: PDFObject | undefined, fallback = 0): number {
   return v instanceof PDFNumber ? v.asNumber() : fallback;
 }
 
-/** Decode a content stream's bytes, or null when they cannot be read. */
+/** An encrypted document's decryptor, and each stream's own reference. */
+interface Decryption {
+  decryptor: StreamDecryptor | null;
+  refs: Map<PDFRawStream, PDFRef>;
+}
+const decryptions = new WeakMap<PDFDocument, Decryption>();
+
+/**
+ * How to read `doc`'s streams in the clear. Its streams are indexed once,
+ * by their indirect reference: the per-object key is derived from it.
+ */
+function decryptionOf(doc: PDFDocument): Decryption {
+  let known = decryptions.get(doc);
+  if (!known) {
+    const decryptor = standardDecryptor(doc);
+    const refs = new Map<PDFRawStream, PDFRef>();
+    if (decryptor)
+      for (const [ref, obj] of doc.context.enumerateIndirectObjects())
+        if (obj instanceof PDFRawStream) refs.set(obj, ref);
+    known = { decryptor, refs };
+    decryptions.set(doc, known);
+  }
+  return known;
+}
+
+/**
+ * Decode a content stream's bytes — decrypted first when the file is
+ * encrypted — or null when they cannot be read.
+ */
 function streamBytes(
   doc: PDFDocument,
   stream: PDFRawStream,
 ): Uint8Array | null {
-  if (doc.isEncrypted) return null;
+  let raw = stream.contents;
+  if (doc.isEncrypted) {
+    const { decryptor, refs } = decryptionOf(doc);
+    const ref = refs.get(stream);
+    const plain = decryptor && ref ? decryptor.decrypt(ref, stream) : null;
+    if (!plain) return null;
+    raw = plain;
+  }
   const filter = stream.dict.lookup(PDFName.of("Filter"));
   try {
-    if (filter === undefined) return stream.contents;
+    if (filter === undefined) return raw;
     if (
       filter instanceof PDFName &&
       filter.asString() === "/FlateDecode" &&
       !stream.dict.has(PDFName.of("DecodeParms"))
     )
       return new Uint8Array(
-        inflateSync(stream.contents, {
+        inflateSync(raw, {
           finishFlush: zlibConstants.Z_SYNC_FLUSH,
         }),
       );
-    return decodePDFRawStream(stream).decode();
+    return decodePDFRawStream(
+      raw === stream.contents ? stream : PDFRawStream.of(stream.dict, raw),
+    ).decode();
   } catch {
     return null;
   }
@@ -1241,14 +1295,14 @@ export function inventoryOf(doc: PDFDocument): PageInventory[] {
  * here. Never a throw: no inventory is not a failure, only less to go on.
  *
  * pdf-lib LOADS an encrypted file it cannot decrypt (`ignoreEncryption`).
- * In the classic layout its page tree is plaintext and every page comes back
- * inexact; in the layout Acrobat and Word write, the catalog and page tree
- * are inside an encrypted object stream and pdf-lib has no catalog at all.
- * Until 2026-10-11 the page scan called `inventoryOf` on that document
- * outside any try, it threw "Cannot read properties of undefined (reading
- * 'Pages')", and every such file — which every viewer opens — failed PDF to
- * PowerPoint as a retryable `failed` job. A damaged page tree that throws
- * anywhere in the walk is the same case.
+ * In the layout Acrobat and Word write, the catalog and page tree are inside
+ * an encrypted object stream and pdf-lib has no catalog at all until
+ * {@link unlockObjectStreams} reads it. Until 2026-10-11 the page scan
+ * called `inventoryOf` on that document outside any try, it threw "Cannot
+ * read properties of undefined (reading 'Pages')", and every such file —
+ * which every viewer opens — failed PDF to PowerPoint as a retryable
+ * `failed` job. A damaged page tree that throws anywhere in the walk is the
+ * same case.
  */
 export function readInventory(doc: PDFDocument): PageInventory[] | null {
   if (!(doc.catalog instanceof PDFDict)) return null;
@@ -1301,6 +1355,51 @@ export function documentImages(doc: PDFDocument): InventoryImage[] | null {
   }
 }
 
+/**
+ * Read an encrypted file's object streams into `doc`, so that its catalog
+ * and page tree — packed inside them, in the layout Acrobat and Word write —
+ * are there to walk. pdf-lib parses an object stream as it loads the file;
+ * an encrypted one is ciphertext to it, so it keeps the whole object as an
+ * unparsed `PDFInvalidObject` and the document has no catalog. Here each
+ * such object stream is decrypted with its own key (`./standard-security`)
+ * and parsed in, and the catalog set. A file that is not encrypted, already
+ * has a catalog, or cannot be decrypted here is left as it is. Never throws.
+ */
+export async function unlockObjectStreams(doc: PDFDocument): Promise<void> {
+  if (!doc.isEncrypted || doc.catalog instanceof PDFDict) return;
+  const { decryptor } = decryptionOf(doc);
+  if (!decryptor) return;
+  const OBJSTM = PDFName.of("ObjStm");
+  for (const [ref, obj] of doc.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFInvalidObject)) continue;
+    try {
+      // What pdf-lib could not parse, as it stood between "obj" and "endobj".
+      const bytes = (obj as unknown as { data: Uint8Array }).data;
+      const stream = PDFObjectParser.forBytes(bytes, doc.context).parseObject();
+      if (
+        !(stream instanceof PDFRawStream) ||
+        stream.dict.lookup(PDFName.of("Type")) !== OBJSTM
+      )
+        continue;
+      const plain = decryptor.decrypt(ref, stream);
+      if (!plain) continue;
+      await PDFObjectStreamParser.forStream(
+        PDFRawStream.of(stream.dict, plain),
+      ).parseIntoContext();
+    } catch {
+      // This object stream stays unread; the next may still hold the tree.
+    }
+  }
+  try {
+    const root = doc.context.lookup(doc.context.trailerInfo.Root);
+    // pdf-lib sets `catalog` once, as it loads; set it as it would have.
+    if (root instanceof PDFCatalog)
+      (doc as unknown as { catalog: PDFCatalog }).catalog = root;
+  } catch {
+    // No catalog: the caller falls back to what the file's images say.
+  }
+}
+
 /** Load `bytes` with pdf-lib and inventory it; null when pdf-lib cannot. */
 export async function inventoryPages(
   bytes: Uint8Array,
@@ -1312,6 +1411,7 @@ export async function inventoryPages(
       updateMetadata: false,
       throwOnInvalidObject: false,
     });
+    await unlockObjectStreams(doc);
     return readInventory(doc);
   } catch {
     return null;
