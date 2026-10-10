@@ -323,6 +323,46 @@ describe("the inventory names the images pdf.js decodes, page by page", () => {
    * the page tree is there. What stays pinned is that the raw walk over
    * pdf-lib's own load still throws — the shape the scan meets first.
    */
+  it("an AES stream's padding is not page content: a stream ending in Do keeps its picture", async () => {
+    // AES pads each stream to whole blocks with bytes of the pad's length
+    // (here 0x05, not PDF whitespace). Left on an uncompressed content
+    // stream that ends at its last operator, they fuse with it: "Do" reads
+    // as "Do\x05\x05…", and the page's only picture goes unseen. The
+    // mutation check of 2026-10-11 found nothing held the unpadding.
+    const doc = await PDFDocument.create();
+    const ctx = doc.context;
+    const image = ctx.register(
+      ctx.flateStream(new Uint8Array(30 * 20 * 3), {
+        Type: "XObject",
+        Subtype: "Image",
+        Width: 30,
+        Height: 20,
+        BitsPerComponent: 8,
+        ColorSpace: "DeviceRGB",
+      }),
+    );
+    const page = doc.addPage([200, 200]);
+    page.node.set(
+      PDFName.of("Resources"),
+      ctx.obj({ XObject: ctx.obj({ Im: image }) }),
+    );
+    const content = "q 30 0 0 20 10 10 cm /Im Do";
+    // Health: 27 bytes pad with five 0x05 bytes, which are not whitespace.
+    expect(16 - (content.length % 16)).toBe(5);
+    page.node.set(PDFName.of("Contents"), ctx.register(ctx.stream(content)));
+    const plain = await doc.save({ useObjectStreams: false });
+    const want = (await inventoryPages(plain))!;
+    expect(want[0]!.images).toHaveLength(1);
+    for (const cipher of ["aes-128", "aes-256"] as const) {
+      const locked = await encryptPdf(plain, {
+        userPassword: "",
+        ownerPassword: "owner",
+        cipher,
+      });
+      expect(await inventoryPages(locked), cipher).toEqual(want);
+    }
+  });
+
   it("reads the page tree out of an encrypted object stream, and does not throw", async () => {
     const doc = await PDFDocument.load(ownerOnlyObjectStreamPdf(), LOAD);
     // Health: loaded, encrypted, and the raw walk does throw on it — the
