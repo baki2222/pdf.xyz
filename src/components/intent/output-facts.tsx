@@ -128,6 +128,9 @@ export function OutputFacts({
       data-receipt=""
       data-chunk={RESULT_ENDING_CHUNK}
     >
+      {/* The tear line the ticket uses: what follows is the stub — the
+          measured facts of what was made. */}
+      <div aria-hidden className="perforation" />
       <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
         <Fact term={files.length === 1 ? "File" : "Files"}>
           {files.length === 1
@@ -238,7 +241,13 @@ function SizeCompare({ before, after }: { before: number; after: number }) {
         ? `${change}% larger`
         : "the same size";
   return (
-    <figure className="flex flex-col gap-2" data-size-compare="">
+    // One scale, kept short: two lines across a wide panel put each figure
+    // a hand's width from the end it measures.
+    <figure
+      className="flex flex-col gap-2"
+      data-size-compare=""
+      style={{ maxWidth: "28rem" }}
+    >
       <div aria-hidden className="flex flex-col gap-2.5">
         {[
           ["Before", before],
