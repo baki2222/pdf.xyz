@@ -111,9 +111,7 @@ async function rels(
 }
 
 /** Pixel size and alpha from the image's own header. */
-export function imageHeader(
-  bytes: Uint8Array,
-): {
+export function imageHeader(bytes: Uint8Array): {
   width: number;
   height: number;
   alpha: boolean;
