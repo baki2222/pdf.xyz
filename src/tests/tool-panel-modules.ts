@@ -32,13 +32,18 @@
  * `⊆` check (CLAUDE.md rule 4).
  */
 import type * as TS from "typescript";
-import { createRequire } from "node:module";
+// A plain default import, NOT `createRequire(import.meta.url)`: Playwright
+// loads this module as CommonJS (e2e/layout-stability.spec.ts and
+// e2e/tool-layout.mobile.spec.ts reach it through `./worker-panel-dispatch`),
+// and `import.meta` is a SyntaxError there. With it, both specs listed
+// "0 tests in 0 files" on the merge of #175 into WP-06 (fb90edbb), the
+// always-on late-font CLS run among them. `src/tests/e2e-cjs-load.test.ts`
+// holds every module Playwright loads to that.
+import ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { tools } from "@/lib/tools";
-
-const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 
 export const ROOT = process.cwd();
 export const SRC = path.join(ROOT, "src");
