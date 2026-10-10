@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
+import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 import {
   attachConsoleGuard,
   fileInput,
@@ -94,8 +95,45 @@ function watchNavigations(page: Page) {
   return urls;
 }
 
+/**
+ * A guide's desk is live: the page's drop target. It arrives after the page
+ * (`GuideDeskSlot` swaps it in over the server's shell), so a row that drops
+ * on a guide waits for it, as a person's hand would arrive after it does.
+ */
+async function deskLive(page: Page) {
+  await expect(
+    page.locator("[data-guide-desk] [data-page-drop-target]"),
+  ).toHaveCount(1);
+}
+
 const ticketDialog = (page: Page) =>
   page.getByRole("dialog", { name: "What you can do with these files" });
+
+/**
+ * Answer `/api/worker/status` as a ready deployment, in the page (no
+ * `page.route`, which turns the HTTP cache off): a worker panel shows its
+ * drop zone only then, and this server has no worker.
+ */
+async function readyWorker(page: Page) {
+  await page.addInitScript((ready) => {
+    const real = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url,
+        location.href,
+      );
+      if (url.pathname !== "/api/worker/status") return real(input, init);
+      return new Response(ready, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+  }, JSON.stringify(READY_WORKER_STATUS));
+}
 
 test("/tools: a drop opens the ticket dialog, and Rotate PDF opens with the file", async ({
   page,
@@ -179,6 +217,90 @@ test("/tools/rotate-pdf: a JPG is not opened in Rotate PDF — the dialog says s
   await expect(page.locator('[data-single-pdf-runner="empty"]')).toBeVisible();
 });
 
+/**
+ * WAS (WP-07 review, on the built page at 1440): released ON Rotate PDF's
+ * own drop zone — where a person is most likely to let go — a JPG lit the
+ * zone while the veil said "Rotate PDF can't open this file / Release to
+ * see what can", and the release showed the runner's error ("photo.jpg
+ * isn't a PDF") instead of what the veil promised.
+ */
+test("/tools/rotate-pdf: a JPG released ON the drop zone is not lit for, and opens the dialog saying so — no runner error", async ({
+  page,
+}) => {
+  await page.goto("/tools/rotate-pdf");
+  await layerLive(page);
+  const zone = page.locator("[data-page-drop-target]");
+  await expect(zone).toHaveCount(1);
+  const dataTransfer = await transfer(page, [JPG]);
+  await zone.dispatchEvent("dragenter", { dataTransfer });
+  await expect(page.locator("[data-drop-veil][data-open]")).toContainText(
+    "Rotate PDF can't open this file",
+  );
+  await expect(zone).not.toHaveAttribute("data-armed", /.*/);
+  await zone.dispatchEvent("dragover", { dataTransfer });
+  await zone.dispatchEvent("drop", { dataTransfer });
+  const dialog = ticketDialog(page);
+  await expect(dialog).toContainText("Rotate PDF can't open it.");
+  await expect(
+    page.locator('[data-single-pdf-runner="empty"] [role="alert"]'),
+  ).toHaveCount(0);
+  await expect(page.getByText(/isn't a PDF/)).toHaveCount(0);
+  // Control: a PDF released on the same zone is the zone's.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await dropOn(zone, [await pdf("on-the-zone.pdf")]);
+  await expect(page.locator('[data-single-pdf-runner="loaded"]')).toContainText(
+    "on-the-zone.pdf",
+  );
+});
+
+/**
+ * WAS (WP-07 review, worker status mocked as available): once a worker
+ * panel had a file, its drop zone was gone and the page had no target — a
+ * second PDF dropped on Protect PDF opened the ticket dialog, which never
+ * offers the page's own tool, and led with Compress, Sign and Edit.
+ */
+for (const slug of ["protect-pdf", "ocr-pdf"]) {
+  test(`/tools/${slug}, a file chosen: a second PDF dropped on the page replaces it in the tool`, async ({
+    page,
+  }) => {
+    await readyWorker(page);
+    await page.goto(`/tools/${slug}`);
+    await layerLive(page);
+    // The worker answered ready: the panel's zone is the page's target.
+    await expect(page.locator("[data-page-drop-target]")).toHaveCount(1);
+    const input = fileInput(page);
+    await waitForHydration(input);
+    await input.setInputFiles({
+      name: "first.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from(await makePdfBytes("first", 1)),
+    });
+    await expect(page.getByText("first.pdf")).toBeVisible();
+    // The chip took the zone's place, and its place as the page's target.
+    await expect(page.locator("[data-page-drop-target]")).toHaveCount(1);
+    await expect(page.locator("[data-page-drop-target]")).toContainText(
+      "first.pdf",
+    );
+    const dataTransfer = await transfer(page, [await pdf("second.pdf")]);
+    await heading(page).dispatchEvent("dragenter", { dataTransfer });
+    await expect(page.locator("[data-drop-veil][data-open]")).toContainText(
+      "Release to replace first.pdf in",
+    );
+    await heading(page).dispatchEvent("dragover", { dataTransfer });
+    await heading(page).dispatchEvent("drop", { dataTransfer });
+    const chosen = page.locator("[data-page-drop-target]");
+    await expect(chosen).toContainText("second.pdf");
+    await expect(chosen).not.toContainText("first.pdf");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    // And it was said, by both names.
+    await expect(
+      page.getByRole("status").filter({ hasText: "Replaced first.pdf" }),
+    ).toHaveText(/^Replaced first\.pdf with second\.pdf in /);
+    await expect(page).toHaveURL(new RegExp(`/tools/${slug}$`));
+  });
+}
+
 test("/tools/merge-pdf: a drop on the add-more tile adds files, and the tab never leaves for the file", async ({
   page,
 }) => {
@@ -208,6 +330,7 @@ test("a guide: dropping the files on its desk opens Merge PDF with them — G.7,
   let actions = 0;
   await page.goto("/guides/how-to-merge-pdf-files");
   await layerLive(page);
+  await deskLive(page);
   const desk = page.locator("[data-guide-desk]");
   await expect(desk).toContainText(
     "Drop your PDFs to open Merge PDF with them, or browse",
@@ -230,16 +353,140 @@ test("a guide: dropping the files on its desk opens Merge PDF with them — G.7,
   expect(actions).toBeLessThanOrEqual(3);
 });
 
+/**
+ * WAS (WP-07 review): every guide desk took everything, so a JPG held over
+ * the Merge PDF guide made the veil say "Release to open in Merge PDF" —
+ * and the release opened the dialog saying "Merge PDF can't open it."
+ */
+test("a guide: a JPG held over the page is said to be one Merge PDF can't open, and the release says the same", async ({
+  page,
+}) => {
+  await page.goto("/guides/how-to-merge-pdf-files");
+  await layerLive(page);
+  await deskLive(page);
+  const dataTransfer = await transfer(page, [JPG]);
+  await heading(page).dispatchEvent("dragenter", { dataTransfer });
+  const veil = page.locator("[data-drop-veil][data-open]");
+  await expect(veil).toContainText("Merge PDF can't open this file");
+  await expect(veil).not.toContainText("Release to open in Merge PDF");
+  await heading(page).dispatchEvent("drop", { dataTransfer });
+  await expect(ticketDialog(page)).toContainText("Merge PDF can't open it.");
+  await expect(page).toHaveURL(/\/guides\/how-to-merge-pdf-files$/);
+});
+
+test.describe("a guide's desk at 390", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  /** Every chunk fetched from here on arrives late. */
+  const slowChunks = (page: Page) =>
+    page.route(/\/_next\/static\/chunks\/.+\.js(\?.*)?$/, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await route.continue();
+    });
+
+  /** The desk's height, and the top of what follows it: its Open button. */
+  const measure = async (page: Page) => {
+    const desk = page.locator("[data-guide-desk]");
+    const next = page.getByRole("link", { name: "Open Merge PDF" }).first();
+    const round = (n: number) => Math.round(n * 10) / 10;
+    return {
+      height: round((await desk.boundingBox())!.height),
+      next: round((await next.boundingBox())!.y),
+    };
+  };
+
+  /** Layout shifts from here on that no input caused. */
+  const watchShifts = (page: Page) =>
+    page.evaluate(() => {
+      const w = window as unknown as { __shifts: number[] };
+      w.__shifts = [];
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as unknown as {
+          value: number;
+          hadRecentInput: boolean;
+        }[])
+          if (!entry.hadRecentInput) w.__shifts.push(entry.value);
+      }).observe({ type: "layout-shift", buffered: false });
+    });
+  const shifts = (page: Page) =>
+    page.evaluate(() => (window as unknown as { __shifts: number[] }).__shifts);
+
+  test("the live desk arrives over its shell and moves nothing (chunks slowed)", async ({
+    page,
+  }) => {
+    await slowChunks(page);
+    await page.goto("/guides/how-to-merge-pdf-files");
+    const desk = page.locator("[data-guide-desk]");
+    await desk.scrollIntoViewIfNeeded();
+    // The shell, measured while it is the one on the page.
+    await expect(desk.locator("[data-drop-sheet-shell]")).toHaveCount(1);
+    const shell = await measure(page);
+    expect(shell.height).toBeGreaterThan(60);
+    await watchShifts(page);
+    await expect(desk.locator("[data-page-drop-target]")).toHaveCount(1, {
+      timeout: 20_000,
+    });
+    expect(await measure(page), "the live desk, over its shell").toEqual(shell);
+    expect(await shifts(page)).toEqual([]);
+  });
+
+  /**
+   * WAS (WP-07 review, launch chunks slowed): "Opening … with your file…"
+   * was a paragraph mounted under the drop sheet with the launch. It grew
+   * the desk 122 -> 146px and moved everything under it 24px: CLS 0.0167 at
+   * 390 with the desk in view, hadRecentInput false (a drop is not input,
+   * and a pick resolves long after the click).
+   */
+  test("a drop moves nothing: the desk's height, what follows it, and no layout shift (launch chunks slowed)", async ({
+    page,
+  }) => {
+    await page.goto("/guides/how-to-merge-pdf-files");
+    await layerLive(page);
+    await deskLive(page);
+    const desk = page.locator("[data-guide-desk]");
+    await desk.scrollIntoViewIfNeeded();
+    const before = await measure(page);
+    await watchShifts(page);
+    // The launch's chunks arrive late: its state is on screen to measure.
+    await slowChunks(page);
+    await dropOn(desk.locator("[data-drop-sheet]"), [
+      await pdf("chapter-1.pdf"),
+      await pdf("chapter-2.pdf"),
+    ]);
+    // By its role, so the measure is of whatever says it is opening.
+    const status = desk.getByRole("status");
+    await expect(status).not.toBeEmpty();
+    expect(await measure(page), "the desk, saying it is opening").toEqual(
+      before,
+    );
+    await expect(status).toHaveText("Opening Merge PDF with your 2 files…");
+    expect(
+      await shifts(page),
+      "layout shifts while the desk said it was opening",
+    ).toEqual([]);
+    await expect(page).toHaveURL(/\/tools\/merge-pdf$/, { timeout: 20_000 });
+  });
+});
+
 test("a guide whose tool has no in-browser runner offers what opens the file, and promises nothing else", async ({
   page,
 }) => {
   await page.goto("/guides/how-to-convert-pdf-to-word");
   await layerLive(page);
+  await deskLive(page);
   const desk = page.locator("[data-guide-desk]");
   await expect(desk).toContainText("Drop a PDF to see which tools open it");
   await expect(desk).not.toContainText("open PDF to Word");
   await dropOn(heading(page), [await pdf("report.pdf")]);
-  await expect(ticketDialog(page)).toContainText("report.pdf");
+  const dialog = ticketDialog(page);
+  await expect(dialog).toContainText("report.pdf");
+  // The tool the guide teaches comes first — WAS about 26th of 42, under
+  // "More", below Compress, Sign and Edit (WP-07 review).
+  const first = dialog.locator("[data-suggestion]").first();
+  await expect(first).toHaveAttribute("data-suggestion", "pdf-to-word");
+  await expect(first).toHaveAccessibleName(
+    "Open PDF to Word — you'll add report.pdf there",
+  );
   await expect(page).toHaveURL(/\/guides\/how-to-convert-pdf-to-word$/);
 });
 
