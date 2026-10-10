@@ -33,6 +33,7 @@ import {
   reportToolFailed,
 } from "@/lib/telemetry/tool-outcome";
 import { cn, formatBytes } from "@/lib/utils";
+import { NAME_WRAP } from "@/components/ui/name-wrap";
 import {
   ChipButton,
   DownloadCta,
@@ -1006,7 +1007,7 @@ function RejectionsNote({
       </div>
       <ul className="text-warn flex flex-col gap-1 pl-6 text-xs">
         {rejections.map((r, i) => (
-          <li key={`${r.name}-${i}`} className="list-disc">
+          <li key={`${r.name}-${i}`} className={cn("list-disc", NAME_WRAP)}>
             <span className="text-warn font-medium">{r.name}</span> — {r.reason}
           </li>
         ))}
