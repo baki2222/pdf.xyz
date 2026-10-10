@@ -1,7 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
-import { reportClientError } from "@/lib/telemetry";
+// The reporter module, NOT the `@/lib/telemetry` barrel the other surfaces
+// use — a chunking decision, not an API one; global-error ships the same
+// bytes either way (the reporter imports the config and the redactor itself).
+// The barrel is imported by exactly three client entries every tool page
+// loads together: the root layout (WebVitals), app/error.tsx and the tool
+// route (its ErrorBoundary). Webpack only offers a shared chunk for a set of
+// entries some module is imported by EXACTLY, and while this file imported
+// the barrel too, no module had that set — so the ~20.7 KB the three share
+// (the telemetry client, the Button, cn(), lucide's icon base) went to a
+// chunk for error + the tool route alone, and the layout kept its own
+// copies: 5.3 KB raw that every page downloaded twice. global-error is a
+// root webpack never splits, so it shares nothing either way.
+// src/deploy/first-load-duplicates.test.ts holds the property; this import
+// is just today's way of meeting it.
+import { reportClientError } from "@/lib/telemetry/reporter";
 import { useUploadDisclosure } from "@/components/telemetry/upload-disclosure";
 
 /**
