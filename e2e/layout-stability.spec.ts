@@ -43,34 +43,37 @@ import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
  *  - WARM (the gate, every run): the route is visited once so its fonts are
  *    cached, then measured. What moves then is layout code — the client
  *    islands this spec exists for — and the figure repeats on any machine.
- *  - LATE (`FONTS_LATE=1`, on demand): every font response is held back
- *    {@link FONT_DELAY_MS}, so the swap always lands after first paint — a
- *    first visit on a slow connection. NOT a CI gate, because what a swap
- *    moves depends on the fallback face, and the fallback is a platform font
- *    (`adjustFontFallback: "Arial"` resolves to a different face, or none, on
- *    Linux). Measured on Windows Chromium 2026-10-09: home 0.0004, /tools
- *    0.0007, merge 0.0006, OCR 0.0041-0.0076, the first guide 0.0164 and the
- *    404 0.0335 — the last two are the display-face headings re-wrapping.
- *    Those two are a real first-visit defect, recorded in {@link LATE_FONT_DEFECTS}.
+ *  - LATE (the gate too, since 2026-10-09): every font response is held
+ *    back {@link FONT_DELAY_MS}, so the swap always lands after first paint,
+ *    as on a first visit over a slow connection.
+ *
+ * LATE WAS ON DEMAND (`FONTS_LATE=1`), and not a CI gate, because what a swap
+ * moves depends on the fallback face. That face was a platform font:
+ * `adjustFontFallback: "Arial"` resolves to a different face, or none, on
+ * Linux. Measured on Windows Chromium 2026-10-09: home 0.0004, /tools 0.0007,
+ * merge 0.0006, OCR 0.0041-0.0076, the first guide 0.0164 and the 404 0.0335.
+ * The guide and the 404 were recorded as defects. Two causes, both fixed the
+ * same day. The fallbacks were not fitted to the faces, which globals.css
+ * "Fallback faces" now does (e2e/font-fallback.spec.ts). And the guides' `ch`
+ * measure followed whichever face was painting (src/components/ui/prose.ts).
+ * After both: home 0.0009, /tools 0.0002, merge 0.0005, OCR 0.0009, the
+ * guide 0.0002, the 404 0.0006. The fallbacks are now named, metric-identical
+ * faces that the CI image installs with Chromium (Liberation Sans and Mono).
+ * So the figure is comparable across machines, and LATE runs on every build.
  */
 
 const MAX_CLS = 0.01;
 const FONT_DELAY_MS = 400;
-const FONTS_LATE = !!process.env.FONTS_LATE;
 
 /**
  * Routes whose first-visit CLS exceeds the bound when fonts arrive late, with
- * the reason. Measured, not fixed here: WP-01 changes nothing visible but the
- * reduced-motion reset, and the headings involved are the type work of the
- * next package. Under `FONTS_LATE=1` these are expected to fail (and the run
- * goes red the day one stops failing, so the record cannot go stale).
+ * the reason. Each is expected to fail, and the run goes red the day one stops
+ * failing, so the record cannot go stale. Empty since 2026-10-09: the guide
+ * and the 404 were here until the fallback faces were fitted and the guides'
+ * measure left `ch`. Both reported "expected to fail, but passed", which is
+ * this record working.
  */
-const LATE_FONT_DEFECTS: Record<string, string> = {
-  "a guide":
-    "the guide H1 (display face) wraps differently in the fallback: its intro moves up 28-84px when the face swaps in",
-  "404":
-    "the 404's centred column re-centres when the display face swaps in: CLS 0.0335",
-};
+const LATE_FONT_DEFECTS: Record<string, string> = {};
 const RESERVED = "[data-desk], [data-slot], [data-run-dock]";
 
 interface ShiftRecord {
@@ -1498,11 +1501,7 @@ test.describe("the workspace as files arrive", () => {
   });
 });
 
-test.describe("first visit: fonts arrive after first paint (FONTS_LATE=1)", () => {
-  test.skip(
-    !FONTS_LATE,
-    "on demand: the fallback face is a platform font, so the figure is not comparable across CI and a workstation",
-  );
+test.describe("first visit: fonts arrive after first paint", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(observe, RESERVED);
   });

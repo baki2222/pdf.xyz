@@ -16,6 +16,7 @@ import { regionMean, renderPdfPages, type Rgb } from "@/tests/pdf-render";
 import { getToolBySlug } from "@/lib/tools";
 import { pageSteps, stepText } from "@/lib/tools/page-copy";
 import { ToolRunner } from "./tool-runner";
+import { runnerMounted } from "@/tests/runner-mounted";
 
 /**
  * The overlay tool, driven the way a visitor drives it, with the verdict read
@@ -132,6 +133,7 @@ async function overlayThroughTheUi(
       <ToolRunner kind={kind!} slug={SLUG} />
     </Router>,
   );
+  await runnerMounted(container);
   const baseInput =
     container.querySelector<HTMLInputElement>('input[type="file"]');
   expect(baseInput, "the base dropzone file input").not.toBeNull();
@@ -208,6 +210,7 @@ describe("overlay-pdf: what the downloaded file shows", () => {
         <ToolRunner kind="overlay" slug={SLUG} />
       </Router>,
     );
+    await runnerMounted(container);
     const input =
       container.querySelector<HTMLInputElement>('input[type="file"]');
     fireEvent.change(input!, {

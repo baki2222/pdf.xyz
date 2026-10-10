@@ -14,86 +14,86 @@
  * nothing falls through to a preview now, because
  * `src/app/tools/tool-page-registry.test.ts` requires every slug to resolve to
  * an in-browser runner or a route here, and holds this parse equal to the
- * runtime registry, component for component.
+ * runtime registry, route for route.
  *
  * Five guards used to carry a private copy of the chain parse
  * (`claims-vs-capability`, `ai-ceiling-surfaces`, `worker-tool-answers`,
  * `worker-panel-ceiling-refusal`, and this file); all of them read this one.
  *
+ * AND SINCE 2026-10-09 (#175) the registry does not bind the panels
+ * themselves: each `Panel` is a `next/dynamic` loader from
+ * `worker-panel-loaders.tsx`, so a tool page's first load carries only its
+ * own panel. The routes are therefore read by the shared AST reader
+ * (`./tool-panel-modules`), which finds the registry FROM the page and follows
+ * each `Panel` through the loader to the module that DEFINES it — the module
+ * a test must render, because a loader renders nothing until it resolves.
+ * (WP-06's first version of this file was a regex over single-name
+ * `import { X } from "@/components/tools/…"` lines in the registry; against
+ * the loaders it would have read "X is routed but not imported" for all 13.)
+ *
  * A broken link is FATAL rather than a smaller corpus: the page must index
- * the registry, every route the registry spells must be parsed, and every
- * route's component must be imported where the registry says.
+ * exactly one registry, every route the registry spells must be read, and
+ * every route's component must resolve to the module that defines it.
  */
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { ComponentType } from "react";
 import { getToolBySlug } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
+import {
+  TOOL_PAGE,
+  rel,
+  specifierOf,
+  workerPanelArms,
+} from "./tool-panel-modules";
 
-export const TOOL_PAGE = path.resolve("src/app/tools/[slug]/page.tsx");
-export const WORKER_PANELS_MODULE = path.resolve(
-  "src/components/tools/worker-panels.tsx",
-);
+export { TOOL_PAGE };
 
 export interface PanelArm {
   slugs: string[];
-  /** The panel component's exported name, e.g. `OcrWorkerPanel`. */
+  /** The panel component's name in the module that defines it, e.g. `OcrWorkerPanel`. */
   component: string;
-  /** Its module, as imported: `@/components/tools/ocr-worker-panel`. */
+  /** That module, as an `@/` specifier: `@/components/tools/ocr-worker-panel`. */
   specifier: string;
+  /** That module's file, repo-relative with POSIX separators. */
+  file: string;
   /** The error boundary's crash label the page wraps it in. */
   boundary: string;
+  /**
+   * What the registry entry itself binds as its `Panel` — the thing the page
+   * renders (a `next/dynamic` loader since #175): the module it is imported
+   * from, as an `@/` specifier, and its exported name there.
+   */
+  registered: { specifier: string; name: string };
 }
-
-const withoutComments = (source: string) =>
-  source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
 
 export function panelDispatchArms(): PanelArm[] {
-  // The page → registry link. Without it the registry could be complete and
-  // correct and render nowhere.
-  const page = withoutComments(readFileSync(TOOL_PAGE, "utf8"));
-  if (
-    !/import\s*\{[^}]*\bWORKER_PANELS\b[^}]*\}\s*from\s*"@\/components\/tools\/worker-panels"/.test(
-      page,
-    ) ||
-    !page.includes("WORKER_PANELS[")
-  )
-    throw new Error(
-      "page.tsx no longer renders WORKER_PANELS from @/components/tools/worker-panels",
-    );
-
-  const source = withoutComments(readFileSync(WORKER_PANELS_MODULE, "utf8"));
-  const imports = new Map<string, string>();
-  for (const m of source.matchAll(
-    /import\s*\{\s*(\w+)\s*\}\s*from\s*"(@\/components\/tools\/[^"]+)";/g,
-  ))
-    imports.set(m[1]!, m[2]!);
-  const arms: PanelArm[] = [];
-  for (const m of source.matchAll(
-    /\{\s*slugs:\s*\[([^\]]*)\],\s*Panel:\s*(\w+),\s*boundary:\s*"([^"]+)",?\s*\}/g,
-  )) {
-    const slugs = [...m[1]!.matchAll(/"([^"]+)"/g)].map((s) => s[1]!);
-    const component = m[2]!;
-    const specifier = imports.get(component);
-    if (!specifier) throw new Error(`${component} is routed but not imported`);
-    arms.push({ slugs, component, specifier, boundary: m[3]! });
-  }
-  const spelled = [...source.matchAll(/\bslugs:\s*\[/g)].length;
-  if (spelled !== arms.length || arms.length === 0)
-    throw new Error(
-      `worker-panels.tsx spells ${spelled} routes; the parse found ${arms.length}`,
-    );
-  return arms;
+  return workerPanelArms().map((arm) => {
+    const first = arm.resolved.hops[0];
+    if (!first)
+      throw new Error(
+        `${arm.component} is declared in the registry itself — a route must bind a panel from another module`,
+      );
+    return {
+      slugs: arm.keys,
+      component: arm.resolved.name,
+      specifier: specifierOf(arm.resolved.file),
+      file: rel(arm.resolved.file),
+      boundary: arm.boundary,
+      registered: { specifier: specifierOf(first.file), name: first.name },
+    };
+  });
 }
 
+/** `@/…` → an absolute specifier a test can `import()` at run time. */
+const importable = (specifier: string) =>
+  specifier.replace(/^@\//, `${path.resolve("src").replace(/\\/g, "/")}/`);
+
+/** The panel component itself, from the module that defines it. */
 export async function panelComponent(
   arm: PanelArm,
 ): Promise<ComponentType<{ tool: Tool }>> {
   const mod = (await import(
-    /* @vite-ignore */ arm.specifier.replace(
-      /^@\//,
-      `${path.resolve("src").replace(/\\/g, "/")}/`,
-    )
+    /* @vite-ignore */ importable(arm.specifier)
   )) as Record<string, unknown>;
   const component = mod[arm.component];
   if (typeof component !== "function")
@@ -101,9 +101,25 @@ export async function panelComponent(
   return component as ComponentType<{ tool: Tool }>;
 }
 
-/** The module file a route's panel lives in, relative to the repo root. */
+/**
+ * What the registry entry binds, from the module it is imported from — the
+ * value the page renders. Not a function since #175: a `next/dynamic` loader
+ * is a `forwardRef` object.
+ */
+export async function registeredPanel(arm: PanelArm): Promise<unknown> {
+  const mod = (await import(
+    /* @vite-ignore */ importable(arm.registered.specifier)
+  )) as Record<string, unknown>;
+  if (!(arm.registered.name in mod))
+    throw new Error(
+      `${arm.registered.specifier} does not export ${arm.registered.name}`,
+    );
+  return mod[arm.registered.name];
+}
+
+/** The module file a route's panel is defined in, relative to the repo root. */
 export function panelFile(arm: PanelArm): string {
-  return `src/${arm.specifier.replace(/^@\//, "")}.tsx`;
+  return arm.file;
 }
 
 export function catalogTool(slug: string): Tool {

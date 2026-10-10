@@ -1,18 +1,20 @@
 import type { ComponentType } from "react";
 import type { Tool } from "@/lib/tools/types";
-import { AiExtractWorkerPanel } from "@/components/tools/ai-extract-worker-panel";
-import { ChatWithPdfWorkerPanel } from "@/components/tools/chat-with-pdf-worker-panel";
-import { HtmlRenderWorkerPanel } from "@/components/tools/html-render-worker-panel";
-import { OcrWorkerPanel } from "@/components/tools/ocr-worker-panel";
-import { OfficeConversionWorkerPanel } from "@/components/tools/office-conversion-worker-panel";
-import { PdfArchiveWorkerPanel } from "@/components/tools/pdf-archive-worker-panel";
-import { PdfOfficeExportWorkerPanel } from "@/components/tools/pdf-office-export-worker-panel";
-import { PdfSecurityWorkerPanel } from "@/components/tools/pdf-security-worker-panel";
-import { PdfStructureWorkerPanel } from "@/components/tools/pdf-structure-worker-panel";
-import { RequestSignaturesWorkerPanel } from "@/components/tools/request-signatures-worker-panel";
-import { SummarizeWorkerPanel } from "@/components/tools/summarize-worker-panel";
-import { TableExtractWorkerPanel } from "@/components/tools/table-extract-worker-panel";
-import { TranslateWorkerPanel } from "@/components/tools/translate-worker-panel";
+import {
+  AiExtractWorkerPanel,
+  ChatWithPdfWorkerPanel,
+  HtmlRenderWorkerPanel,
+  OcrWorkerPanel,
+  OfficeConversionWorkerPanel,
+  PdfArchiveWorkerPanel,
+  PdfOfficeExportWorkerPanel,
+  PdfSecurityWorkerPanel,
+  PdfStructureWorkerPanel,
+  RequestSignaturesWorkerPanel,
+  SummarizeWorkerPanel,
+  TableExtractWorkerPanel,
+  TranslateWorkerPanel,
+} from "@/components/tools/worker-panel-loaders";
 
 /** One worker panel and the tools it serves. */
 export interface WorkerPanelRoute {
@@ -42,12 +44,20 @@ export interface WorkerPanelRoute {
  *
  * NOT a client module, on purpose: the page indexes this object on the
  * server, and a `"use client"` boundary would hand it a reference it cannot
- * index. Each panel is its own client component, imported here exactly as
- * the page imported them before.
+ * index. Nor does it import the panels themselves: each `Panel` is the
+ * `next/dynamic` loader `./worker-panel-loaders.tsx` exports (#175), so a tool
+ * page's first load carries its own panel and no other tool's. A route bound
+ * to a panel module directly — here, where the page's server graph reaches
+ * it — would put every panel in every tool page again; that file says why
+ * the loaders cannot live in this one. `src/deploy/own-panel-first-load.test.ts`
+ * measures the property on the build.
  *
- * The guards that read panel source (`@/tests/worker-panel-dispatch`) parse
- * THIS list — the import table and the `{ slugs, Panel, boundary }` entries —
- * so keep each entry in that literal shape.
+ * The guards that read panel source (`@/tests/tool-panel-modules`, through
+ * `@/tests/worker-panel-dispatch`) find THIS list from the page's
+ * `WORKER_PANELS[tool.slug]` and follow each `Panel` through its loader to the
+ * module that defines it, so keep each entry a literal `{ slugs, Panel,
+ * boundary }` object — any other shape is a FATAL error there, not a smaller
+ * set.
  */
 export const WORKER_PANEL_ROUTES: readonly WorkerPanelRoute[] = [
   { slugs: ["ocr-pdf"], Panel: OcrWorkerPanel, boundary: "ocr-worker-panel" },

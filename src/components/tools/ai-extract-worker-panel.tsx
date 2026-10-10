@@ -24,6 +24,12 @@ import {
   type ExtractionFieldType,
   type ExtractionMode,
 } from "@/lib/jobs/ai-extract";
+import {
+  AI_EXTRACT_NOT_NULL_WARNING,
+  AI_EXTRACT_NULL_INSTRUCTION,
+  AI_EXTRACT_NULL_MEANING,
+  AI_EXTRACT_NULL_PAST_CUT,
+} from "@/lib/jobs/ai-extract-null-meaning";
 import type { WorkerStatus } from "@/lib/workers/status";
 import {
   aiDailyAllowanceNote,
@@ -447,6 +453,13 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
         </div>
       )}
 
+      {/* In both modes: a prompt-mode reply has nulls too. The words are the
+          module's, which every surface renders (null-meaning.test.ts). */}
+      <p className="text-muted text-xs leading-relaxed">
+        {AI_EXTRACT_NULL_INSTRUCTION} {AI_EXTRACT_NULL_MEANING}{" "}
+        {AI_EXTRACT_NOT_NULL_WARNING}
+      </p>
+
       <WorkerRunButton
         onClick={start}
         busy={busy}
@@ -464,7 +477,7 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
         <ResultCard announce="Your AI extraction package is ready.">
           <TruncationNotice
             job={outcome.job}
-            consequence="A field reported as not found was not found in those pages — it may still appear later in the document."
+            consequence={AI_EXTRACT_NULL_PAST_CUT}
           />
           <p className="text-ok text-sm">
             Your AI extraction package is ready — the extracted data as JSON, a

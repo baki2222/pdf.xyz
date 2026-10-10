@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
 import { twitterAttribution } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -43,9 +41,39 @@ const displayFace = localFont({
   style: "normal",
   variable: "--font-display-face",
   display: "swap",
-  // The same fallback-metric adjustment next/font/google applied, so the swap
-  // from the fallback face does not reflow headlines.
-  adjustFontFallback: "Arial",
+  // See "Fallback faces" in globals.css. next/font's own Arial fallback (one
+  // size-adjust per face, from the file's average glyph width) set these
+  // headings 7.0% wide, and the swap re-wrapped them.
+  adjustFontFallback: false,
+  fallback: ['"pdfxyz Display Fallback"'],
+});
+
+/**
+ * Geist, from the `geist` package's own files, declared here rather than
+ * imported as `GeistSans`/`GeistMono`. The package's declarations fix their
+ * fallbacks: Sans takes next/font's single Arial face (4.1% wide on our
+ * body text), and Mono takes none. Both now swap in over the measured,
+ * per-weight faces in globals.css, which e2e/font-fallback.spec.ts holds
+ * to the real faces' widths.
+ */
+const GeistSans = localFont({
+  src: "../../node_modules/geist/dist/fonts/geist-sans/Geist-Variable.woff2",
+  weight: "100 900",
+  style: "normal",
+  variable: "--font-geist-sans",
+  display: "swap",
+  adjustFontFallback: false,
+  fallback: ['"pdfxyz Sans Fallback"'],
+});
+
+const GeistMono = localFont({
+  src: "../../node_modules/geist/dist/fonts/geist-mono/GeistMono-Variable.woff2",
+  weight: "100 900",
+  style: "normal",
+  variable: "--font-geist-mono",
+  display: "swap",
+  adjustFontFallback: false,
+  fallback: ['"pdfxyz Mono Fallback"'],
 });
 
 export const metadata: Metadata = {

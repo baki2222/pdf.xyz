@@ -1856,7 +1856,11 @@ describe("the Chromium pages describe the print the renderer asks for", () => {
  * one parse every source-reading guard shares — never a typed list.
  *
  * WAS a private walk of the page's `tool.slug === "…" ? <XWorkerPanel` chain
- * and its imports. The chain became the registry (WP-06, 2026-10-10).
+ * and its imports. The chain became the registry (WP-06, 2026-10-10). And
+ * since 2026-10-09 (#175) each panel the registry binds is a `next/dynamic`
+ * loader, so `panelFile` is the module that DEFINES the panel, followed
+ * through the loader (`@/tests/tool-panel-modules`) — a single-name import
+ * regex found none of them.
  */
 function workerPanelSources(): Map<string, string> {
   const out = new Map<string, string>();

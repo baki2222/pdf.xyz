@@ -22,11 +22,20 @@
  * and the panel modules on disk (`src/components/tools/*-worker-panel.tsx`).
  * The parse every source-reading guard shares (`@/tests/worker-panel-dispatch`)
  * is held equal to the registry the page actually renders.
+ *
+ * SINCE #175 (merged into WP-06 on 2026-10-10) a route's `Panel` is a
+ * `next/dynamic` loader, not the panel component, so "the parse is the
+ * registry" is held at both hops: the registry binds the very loader the
+ * parse names, and that loader, once resolved, renders exactly what the
+ * module the parse followed it to renders.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { getAllToolSlugs, tools } from "@/lib/tools";
+import { createElement, type ComponentType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import { getAllToolSlugs, getToolBySlug, tools } from "@/lib/tools";
+import type { Tool } from "@/lib/tools/types";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { processingSplit } from "@/lib/tools/processing-split";
 import {
@@ -37,7 +46,12 @@ import {
   TOOL_PAGE,
   panelComponent,
   panelDispatchArms,
+  registeredPanel,
 } from "@/tests/worker-panel-dispatch";
+import {
+  workerPanelArms,
+  workerPanelRegistry,
+} from "@/tests/tool-panel-modules";
 
 const TOOLS_DIR = path.resolve("src/components/tools");
 
@@ -72,6 +86,36 @@ const actual = resolve(SLUGS, hasRunner, WORKER_PANELS);
 
 const withoutComments = (source: string) =>
   source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
+
+/** Server markup of `Panel` for `tool`, as the page's server render gets it. */
+const markup = (Panel: unknown, tool: Tool) =>
+  renderToStaticMarkup(
+    createElement(Panel as ComponentType<{ tool: Tool }>, { tool }),
+  );
+
+/**
+ * The markup a `next/dynamic` loader renders once its module has arrived.
+ * Outside Next the loader renders nothing until then; the first render starts
+ * the load. Empty markup until the timeout is a red, never a pass: every
+ * panel renders something.
+ */
+async function markupThroughLoader(Panel: unknown, tool: Tool) {
+  markup(Panel, tool);
+  return vi.waitFor(
+    () => {
+      const html = markup(Panel, tool);
+      if (!html) throw new Error("the loader has not resolved yet");
+      return html;
+    },
+    { timeout: 5000 },
+  );
+}
+
+const toolOf = (slug: string): Tool => {
+  const tool = getToolBySlug(slug);
+  if (!tool) throw new Error(`${slug} is not in the catalogue`);
+  return tool;
+};
 
 describe("every tool page resolves to one engine", () => {
   it("every catalogue slug has an in-browser runner or a worker panel — never neither, never both", () => {
@@ -156,12 +200,94 @@ describe("the registry is the panels on disk, and the page renders it", () => {
     const parsed = arms.flatMap((arm) => arm.slugs).sort();
     expect(parsed).toEqual(Object.keys(WORKER_PANELS).sort());
     for (const arm of arms) {
-      const component = await panelComponent(arm);
+      // WAS `route.Panel` toBe the panel component. Since #175 the route
+      // binds a loader, so identity is held where the registry binds…
+      const registered = await registeredPanel(arm);
       for (const slug of arm.slugs) {
         const route: WorkerPanelRoute | undefined = WORKER_PANELS[slug];
-        expect(route?.Panel, `${slug} → ${arm.component}`).toBe(component);
+        expect(
+          route?.Panel,
+          `${slug} → ${arm.registered.specifier} ${arm.registered.name}`,
+        ).toBe(registered);
         expect(route?.boundary, slug).toBe(arm.boundary);
       }
     }
+  });
+
+  it("each route's loader renders the panel module the parse follows it to", async () => {
+    // …and this holds the second hop at run time: the loader the page
+    // renders, resolved, renders exactly what the module every
+    // source-reading guard reads renders. A parse that followed a loader to
+    // the wrong module would read one panel's copy and certify another's.
+    const arms = panelDispatchArms();
+    for (const arm of arms) {
+      const tool = toolOf(arm.slugs[0]!);
+      const direct = markup(await panelComponent(arm), tool);
+      expect(direct, `${arm.specifier} renders nothing`).not.toBe("");
+      const loaded = await markupThroughLoader(
+        WORKER_PANELS[tool.slug]!.Panel,
+        tool,
+      );
+      expect(loaded, `${tool.slug}: the loader vs ${arm.specifier}`).toBe(
+        direct,
+      );
+    }
+  });
+
+  it("positive control: a route whose loader resolved to another route's panel fails that check", async () => {
+    // Without this, "the loader renders what the module renders" could hold
+    // because every panel renders the same placeholder before the worker
+    // answers, and a loader pointed at the wrong panel would pass. Each
+    // route's tool is rendered by the NEXT route's panel — what its loader
+    // would render if it loaded the wrong module — and must not match. (An
+    // AI panel refuses a tool that is not priced per call by throwing, which
+    // counts as not matching.)
+    const arms = panelDispatchArms();
+    expect(
+      new Set(arms.map((arm) => arm.specifier)).size,
+    ).toBeGreaterThanOrEqual(10);
+    for (const [i, arm] of arms.entries()) {
+      const other = arms[(i + 1) % arms.length]!;
+      const tool = toolOf(arm.slugs[0]!);
+      const direct = markup(await panelComponent(arm), tool);
+      let swapped: string;
+      try {
+        swapped = markup(await panelComponent(other), tool);
+      } catch (error) {
+        swapped = `threw: ${(error as Error).message}`;
+      }
+      expect(swapped, `${tool.slug} rendered by ${other.specifier}`).not.toBe(
+        direct,
+      );
+    }
+  });
+
+  it("every route reaches its panel through a next/dynamic loader in a client module", () => {
+    // The property — a tool page's first load carries its own panel and no
+    // other tool's — is measured on the build by
+    // src/deploy/own-panel-first-load.test.ts. This is the build-free
+    // tripwire for the one way to lose it in source. App Router puts every
+    // client module a route's SERVER graph reaches, `import()` edges
+    // included, into that route's client entry, eagerly. So the loaders must
+    // sit behind a "use client" module (there, `import()` is a real split),
+    // and the registry must not be one (the page indexes it on the server).
+    const directive = (file: string) =>
+      /^\s*["']use client["']/.test(readFileSync(file, "utf8"));
+    const arms = workerPanelArms();
+    expect(arms.length).toBeGreaterThanOrEqual(10);
+    for (const arm of arms) {
+      const [toLoader, toPanel, ...rest] = arm.resolved.hops;
+      const label = `${arm.keys.join("|")}: ${arm.resolved.hops.map((h) => `${h.via} ${path.basename(h.file)}#${h.name}`).join(" → ")}`;
+      expect(rest, label).toEqual([]);
+      expect(toLoader?.via, label).toBe("static");
+      expect(toPanel?.via, label).toBe("dynamic");
+      expect(directive(toLoader!.file), `${label}: the loaders' module`).toBe(
+        true,
+      );
+    }
+    expect(
+      directive(workerPanelRegistry().file),
+      "the registry the page indexes",
+    ).toBe(false);
   });
 });

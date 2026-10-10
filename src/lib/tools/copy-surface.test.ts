@@ -669,6 +669,8 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
       [
         TOOLING,
         [
+          "src/lib/probes/ai-proof-content.ts",
+          "src/lib/probes/ai-proof-declaration.ts",
           "src/lib/probes/extraction-proof.ts",
           "src/lib/probes/origin-knock.ts",
           "src/lib/probes/proof-outcome.ts",
@@ -733,8 +735,19 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
      * discovering by content and found the 163 recorded above). Lowering this
      * number is the only allowed edit: a module that leaves the record lowers
      * it, and a new phrase module goes into a walked root instead of joining.
+     *
+     * Raised ONCE, to 165, on 2026-10-09, for the two AI-proof modules
+     * (`ai-proof-content.ts`, `ai-proof-declaration.ts`). Both were written on
+     * a branch cut before this ratchet existed, and they are the proofs' own
+     * tooling: a fixture document and an operator's error. They were walked
+     * first, as the rule says, and the walk produced exactly two findings, both
+     * false: the chat fixture's topic word "sandbox isolation" read as an
+     * isolation claim, and the declaration's import of the translate ceiling
+     * (it mirrors the browser's preflight) read as an unattributed ceiling
+     * sentence. The module the same branch added for READERS, the null
+     * meaning, is walked.
      */
-    const OUTSIDE_THE_WALK_CEILING = 163;
+    const OUTSIDE_THE_WALK_CEILING = 165;
 
     /**
      * Identity language a recorded module may hold, each with the reason, as

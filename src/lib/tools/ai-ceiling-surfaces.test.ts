@@ -540,12 +540,20 @@ const CEILING_NAMES: readonly string[] = [
  * resolved through the page's own imports. The chain became the registry
  * (WP-06, 2026-10-10); that walk would have found nothing.
  */
-/** slug → the panel's module specifier and exported component, as the registry imports it. */
+/** slug → the module that DEFINES the slug's panel, and its export there. */
 const panelComponents = new Map<
   string,
   { specifier: string; component: string }
 >();
 
+/**
+ * Read by the shared AST reader (`@/tests/tool-panel-modules`, through
+ * `panelDispatchArms`): each registry route's panel, followed through the
+ * registry's bindings to the module that DEFINES it. Since 2026-10-09 (#175)
+ * every panel the registry binds is a `next/dynamic` loader; an import-table
+ * walk would resolve every slug to the file of loaders, read none of the
+ * panels' copy, and render empty loaders.
+ */
 function panelsFromDispatch(): Map<string, string> {
   const bySlug = new Map<string, string>();
   for (const arm of panelDispatchArms()) {

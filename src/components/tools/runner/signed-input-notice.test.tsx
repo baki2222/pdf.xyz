@@ -36,6 +36,7 @@ import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { getToolBySlug } from "@/lib/tools";
 import { signedPdf } from "@/tests/signed-pdf";
 import { ToolRunner } from "./tool-runner";
+import { runnerMounted } from "@/tests/runner-mounted";
 
 // The router comes from its context (`withAppRouter`), not a module mock:
 // under isolate:false a runner another file imported first stays cached bound
@@ -61,6 +62,10 @@ async function openIn(slug: string, file: File) {
     withAppRouter(<ToolRunner kind={kind} slug={slug} />),
   );
   try {
+    // The runner is a `next/dynamic` loader: until it has rendered, EVERY
+    // tool looks like "not a single-file runner", and the corpus floor below
+    // is what caught that on 2026-10-09 (0 subjects).
+    await runnerMounted(container);
     if (!container.querySelector('[data-single-pdf-runner="empty"]')) {
       return { single: false as const };
     }

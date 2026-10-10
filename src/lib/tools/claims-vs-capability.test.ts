@@ -150,6 +150,7 @@ import type { FetchLike } from "@/lib/workers/pdf-security-client";
 import { resetUploadedThisSessionForTests } from "@/lib/uploads/session-uploads";
 import { ADVERTISED_WORKER_CAPABILITIES } from "@/lib/workers/observability";
 import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
+import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -168,10 +169,10 @@ function runnerFileForKind(kind: string): string | undefined {
     `case\\s+"${kind}":[\\s\\S]{0,200}?<([A-Z][A-Za-z]*)`,
   ).exec(dispatch)?.[1];
   if (!component) return undefined;
-  const from = new RegExp(
-    `import\\s+\\{[^}]*\\b${component}\\b[^}]*\\}\\s+from\\s+"\\./([^"]+)"`,
-  ).exec(dispatch)?.[1];
-  return from ? `${RUNNER_DIR}/${from}.tsx` : undefined;
+  // Through the dispatcher's own bindings — a static import, or the
+  // `next/dynamic` loader every runner has been since 2026-10-09 — to the
+  // module that defines it. (An import regex here went blind to the loaders.)
+  return runnerModuleOf(component);
 }
 
 /** Runner slugs of one registry kind — the registry is what the page reads. */

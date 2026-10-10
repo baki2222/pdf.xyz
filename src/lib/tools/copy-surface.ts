@@ -160,6 +160,10 @@ export function copyFiles(): string[] {
     // The hand-off lifetime sentence those pages say (a leaf, so a page can
     // say it without loading the registry).
     path.join(ROOT, "src", "lib", "handoff", "lifetime.ts"),
+    // What a null means in AI Extract's answer, and the sentences the panel,
+    // the page and the download each say about one. Engine-adjacent, so
+    // listed singly, like the modules above.
+    path.join(ROOT, "src", "lib", "jobs", "ai-extract-null-meaning.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

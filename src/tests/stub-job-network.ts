@@ -1,5 +1,6 @@
 import { vi } from "vitest";
-import type { JobError } from "@/lib/jobs/types";
+import type { JobArtifact, JobError } from "@/lib/jobs/types";
+import type { JobResults } from "@/lib/jobs/results";
 import type { WorkerStatus } from "@/lib/workers/status";
 
 /**
@@ -21,6 +22,14 @@ export interface StubbedJobOutcome {
   /** A terminal job status: the client polls nothing further. */
   status: "failed" | "completed";
   error?: JobError;
+  /**
+   * A completed job's artifact, with the bytes its `url` serves — so a panel
+   * reaches its result card. Without one, a completed job has nothing to
+   * download and the client reports that.
+   */
+  artifact?: { readonly artifact: JobArtifact; readonly bytes: Uint8Array };
+  /** A completed job's results block, as the route returns it. */
+  results?: JobResults;
 }
 
 export interface JobNetwork {
@@ -56,6 +65,8 @@ export function stubJobNetwork(
   }),
 ): JobNetwork {
   const jobBodies: Record<string, unknown>[] = [];
+  /** Artifact URL → bytes, for every completed job that carried one. */
+  const downloads = new Map<string, Uint8Array>();
   let uploads = 0;
   const now = new Date(0).toISOString();
   vi.stubGlobal(
@@ -89,10 +100,14 @@ export function stubJobNetwork(
         uploads += 1;
         return json({});
       }
+      if (downloads.has(url) && method === "GET")
+        return new Response(downloads.get(url)!.slice(), { status: 200 });
       if (url === "/api/jobs" && method === "POST") {
         const body = parseBody(init?.body);
         jobBodies.push(body);
         const outcome = jobOutcome(body);
+        if (outcome.artifact)
+          downloads.set(outcome.artifact.artifact.url, outcome.artifact.bytes);
         return json(
           {
             jobId: "j_stub",
@@ -101,6 +116,10 @@ export function stubJobNetwork(
             status: outcome.status,
             progress: 100,
             ...(outcome.error ? { error: outcome.error } : {}),
+            ...(outcome.artifact
+              ? { artifacts: [outcome.artifact.artifact] }
+              : {}),
+            ...(outcome.results ? { results: outcome.results } : {}),
             createdAt: now,
             updatedAt: now,
             expiresAt: now,

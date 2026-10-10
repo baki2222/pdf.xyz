@@ -53,6 +53,39 @@
  * weight coming back — one careless static `import { PDFDocument }` anywhere
  * a page reaches — fails this suite rather than shipping unnoticed.
  *
+ * THE SPLIT, RE-MEASURED — 2026-10-09, and at today's weight it IS the lever.
+ * The 411 -> 418 above was measured while pdf-lib rode every tool page and the
+ * bundler hoisted the runners' shared code into it. By 2026-10-09 pdf-lib sat
+ * behind its own boundary and the route chunk `app/tools/[slug]/page-*.js` had
+ * grown to 539 KB raw: all 27 runners and all 13 worker panels, on every tool
+ * page — Rotate's first load carried the Translate panel. Each runner and panel
+ * became a `next/dynamic` loader (`tool-runner.tsx`, `worker-panels.tsx`), SSR
+ * kept on, and both builds (main f2b3db8b, and the split) were weighed with
+ * `pnpm weigh:pages`, raw KB / gz KB:
+ *
+ *     row                        before         after          delta
+ *     homepage                    635 / 202.6    636 / 203.4     +1 / +0.8
+ *     rotate-pdf (client-side)   1239 / 371.1    774 / 250.5   -465 / -120.6
+ *     merge-pdf (client-side)    1239 / 371.1    767 / 247.2   -472 / -123.9
+ *     ocr-pdf (worker)           1239 / 371.1    779 / 250.5   -460 / -120.6
+ *     summarize-pdf (AI)         1239 / 371.1    787 / 256.0   -452 / -115.1
+ *     pdf-to-jpg (pdfjs)         1239 / 371.1    772 / 249.9   -467 / -121.2
+ *     pdf-to-text (pdfjs)        1239 / 371.1    768 / 248.1   -471 / -123.0
+ *     guide (merge)               625 / 198.5    627 / 199.3     +2 / +0.8
+ *     404                         635 / 202.6    636 / 203.4     +1 / +0.8
+ *     tools explorer              675 / 214.2    676 / 215.0     +1 / +0.8
+ *     workspace                   732 / 234.0    734 / 234.6     +2 / +0.6
+ *
+ * Across all 50 tool pages: 1,239 / 371.1 each before; 765-815 raw and
+ * 246.9-268.0 gz after (lightest split-pdf, heaviest markdown-to-pdf). The
+ * +1-2 KB on every other page is real, and it is the price: webpack's runtime
+ * (`webpack-*.js`, loaded by every page) carries the id -> file map of every
+ * async chunk, 4,192 -> 5,508 bytes for the ~40 new ones. The server HTML did
+ * not change on any of the 89 pages — identical markup once scripts, links
+ * and React's useId values are set aside (the loader adds a tree level, so
+ * the generated ids differ). WHICH panel a page carries is held by
+ * `own-panel-first-load.test.ts`; this file holds how much.
+ *
  * So this file measures and bounds. It does not claim the current weight is
  * good; it stops it getting worse without someone noticing, which is the thing
  * that was missing.
@@ -136,7 +169,20 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * hid in. The 404, /tools and /workspace are new rows (raw: measured + ~40):
  * the 404 was in no budget, and /tools and /workspace were wrongly believed
  * not to be prerendered.
+ *
+ * The tool-page rows were RE-ANCHORED on 2026-10-09 to the build with every
+ * panel split into its own chunk — raw and gz each measured + the same margin
+ * (+40 raw, +10 gz), see the rows — and joined by a derived ceiling over all
+ * 50 tool pages, which stopped weighing the same that day.
  */
+/**
+ * Every tool page, not three of them. Until 2026-10-09 all 50 loaded the same
+ * chunks, so three rows spoke for the rest; with each panel its own chunk they
+ * range 765-815 KB raw / 246.9-268.0 gz, and a heavy runner on a page no row
+ * names would grow unseen. Heaviest measured (markdown-to-pdf, 815 / 268.0) +
+ * the same carried-over margin (+40 raw, +10 gz).
+ */
+const EVERY_TOOL_PAGE = { kb: 855, gzKb: 278.0 } as const;
 const BUDGETS = [
   // TIGHTENED 700 -> 675 on 2026-10-08: the homepage weighs 635 KB once the
   // catalogue left it (b9ccf092). Same +40 KB margin as the tool pages; under
@@ -188,23 +234,45 @@ const BUDGETS = [
   // WORSE (see the top of this file). Re-measuring that trade at today's
   // weight is the open lever; this raise does not claim the weight is good.
   // The margin (+39 KB) is the same as the old 1060 -> 1100 one.
+  //
+  // LOWERED 1280 -> 814 / 819 / 827 on 2026-10-09 (gz 381.2 -> 260.5 / 260.5
+  // / 266.0), and something got LIGHTER: the open lever above, pulled. Every
+  // runner and worker panel is now its own chunk, so a tool page loads its
+  // own panel and no other tool's (table at the top of this file;
+  // own-panel-first-load.test.ts holds WHICH). The three rows no longer weigh
+  // the same, so each is measured + margin on its own:
+  //
+  //     row           before (raw / gz)   after (raw / gz)   ceiling (raw / gz)
+  //     rotate-pdf      1239 / 371.1        774 / 250.5        814 / 260.5
+  //     ocr-pdf         1239 / 371.1        779 / 250.5        819 / 260.5
+  //     summarize-pdf   1239 / 371.1        787 / 256.0        827 / 266.0
+  //
+  // The margin, itemised — both halves CARRIED OVER, neither widened:
+  //   +40 KB raw   the headroom the redesign programme had under 1280
+  //                (1,280 - 1,239 = 41), shared by its remaining packages;
+  //   +10.0 KB gz  the redesign's tool-page growth allowance (the "+10" in
+  //                the gz table above), unchanged.
+  // Nothing of the ~465 KB raw / ~120 KB gz this freed is handed out: under
+  // 1280 a tool page could have regained 400 KB with nothing failing. A
+  // package that needs more raises its row here and names what grew. The
+  // other 47 tool pages are bounded by the derived check below.
   {
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
-    kb: 1280,
-    gzKb: 381.2,
+    kb: 814,
+    gzKb: 260.5,
   },
   {
     name: "a worker tool page",
     html: "tools/ocr-pdf.html",
-    kb: 1280,
-    gzKb: 381.2,
+    kb: 819,
+    gzKb: 260.5,
   },
   {
     name: "an AI tool page",
     html: "tools/summarize-pdf.html",
-    kb: 1280,
-    gzKb: 381.2,
+    kb: 827,
+    gzKb: 266.0,
   },
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
@@ -256,6 +324,29 @@ describe("client bundle budget", () => {
       ).toBeLessThanOrEqual(gzKb);
     },
   );
+
+  it(`every tool page stays under ${EVERY_TOOL_PAGE.kb} KB raw and ${EVERY_TOOL_PAGE.gzKb} KB gz`, () => {
+    if (!built) return;
+    // DERIVED: every catalogue slug's prerendered page, not a typed sample.
+    const pages = tools.map((t) => `tools/${t.slug}.html`);
+    const prerendered = new Set(prerenderedPages(NEXT_DIR));
+    expect(
+      pages.filter((html) => !prerendered.has(html)),
+      "catalogue tools with no prerendered page",
+    ).toEqual([]);
+    // 50 on 2026-10-09; a floor so an emptied catalogue cannot pass.
+    expect(pages.length).toBeGreaterThanOrEqual(40);
+    const over = pages
+      .map((html) => ({ html, w: weigh(html)! }))
+      .filter(
+        ({ w }) => w.kb > EVERY_TOOL_PAGE.kb || w.gzKb > EVERY_TOOL_PAGE.gzKb,
+      )
+      .map(({ html, w }) => `${html}: ${w.kb} KB raw / ${w.gzKb} KB gz`);
+    expect(
+      over,
+      "tool pages over the every-tool-page ceiling — a runner or panel grew, or a static import pulled another tool's code in. Name what grew.",
+    ).toEqual([]);
+  });
 
   it("keeps the homepage clear of the tool pages' weight", () => {
     if (!built) return;
@@ -391,6 +482,46 @@ describe("client bundle budget", () => {
     expect(
       stale,
       "NEEDS_CATALOGUE names a page that no longer carries the catalogue — remove it",
+    ).toEqual([]);
+  });
+
+  it("the weigher counts every chunk a page names — the flight payload included", () => {
+    if (!built) return;
+    // The weigher reads `/_next/static/chunks/…js` out of the HTML: the
+    // <script> tags and the <link rel="preload">s a `next/dynamic` loader
+    // emits. React's flight payload names each client reference's chunks too
+    // — JSON-escaped, as `static/chunks/…js`, WITHOUT the `/_next/` — and the
+    // browser fetches those as well, so a chunk named ONLY there would load
+    // and weigh nothing. Checked over both builds on 2026-10-09 (main, and
+    // the split): none was. This holds that over every page, rather than a
+    // comment asserting it.
+    const anyForm = /static\/chunks\/[^"'\\]+?\.js/g;
+    const flightBlock = /self\.__next_f\.push\(\[[\s\S]*?\]\)/g;
+    const blind: string[] = [];
+    let flightNamed = 0;
+    for (const html of prerenderedPages(NEXT_DIR)) {
+      const text = readFileSync(path.join(APP_DIR, html), "utf8");
+      const counted = new Set(
+        chunkList(html).map((u) =>
+          decodeURIComponent(u.replace("/_next/", "")),
+        ),
+      );
+      for (const ref of text.match(anyForm) ?? []) {
+        if (!counted.has(decodeURIComponent(ref)))
+          blind.push(`${html}: ${ref}`);
+      }
+      for (const block of text.match(flightBlock) ?? [])
+        flightNamed += (block.match(anyForm) ?? []).length;
+    }
+    // Positive control: the flight payload's own spelling IS being read, or
+    // the empty list below would mean nothing.
+    expect(
+      flightNamed,
+      "chunk names found inside flight payloads",
+    ).toBeGreaterThan(100);
+    expect(
+      [...new Set(blind)],
+      "chunks a page names that the weigher does not count",
     ).toEqual([]);
   });
 

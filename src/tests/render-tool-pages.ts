@@ -29,6 +29,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import Loadable from "next/dist/shared/lib/loadable.shared-runtime";
 import ToolPage from "@/app/tools/[slug]/page";
 import { tools } from "@/lib/tools";
 
@@ -65,7 +66,22 @@ function textOf(markup: string): string {
 const RAW =
   process.argv.includes("--markup") || process.argv.includes("--html");
 
+/**
+ * Every runner and worker panel is a `next/dynamic` loader since 2026-10-09
+ * (`tool-runner.tsx`, and `worker-panel-loaders.tsx`, which the panel
+ * registry `worker-panels.tsx` binds), so a tool page's first load
+ * carries only its own. `next build` prerenders each page with the loader
+ * RESOLVED — the panel's markup is in the HTML; `own-panel-first-load.test.ts`
+ * holds the build to that. Outside Next, `next/dynamic` is the loadable
+ * implementation, which renders its loading state (nothing) until it has
+ * loaded, and a synchronous render never waits. `preloadAll()` is that
+ * implementation's own "resolve every loader registered on the server" (the
+ * call Next's pages-router server makes before it serves; the App Router's
+ * prerender waits on the lazy loader instead) — so this census renders the
+ * panels a reader receives, not 50 empty slots.
+ */
 async function main(): Promise<void> {
+  await Loadable.preloadAll();
   const census: Record<string, string> = {};
   for (const tool of tools) {
     const element = await ToolPage({
