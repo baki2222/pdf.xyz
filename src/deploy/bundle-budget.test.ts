@@ -328,6 +328,32 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * the three tool-page ceilings each LOWERED 0.1, the programme's total
  * allowance unchanged. On the rows.
  *
+ * WP-08 REPAIR, 2026-10-11 (after the package's review). One weigher over
+ * two builds: 50b2a243 (the figures above) and the repair's final build.
+ * gz KB, exact, with raw KB:
+ *
+ *     row             before   now      delta   raw before -> now
+ *     homepage        209.63   209.64   +0.01    653 -> 653
+ *     rotate-pdf      251.76   252.06   +0.30    779 -> 780
+ *     merge-pdf       248.72   249.02   +0.30    773 -> 774
+ *     ocr-pdf         252.25   252.54   +0.29    787 -> 787
+ *     summarize-pdf   257.86   258.15   +0.29    795 -> 796
+ *     pdf-to-jpg      250.98   251.28   +0.30    777 -> 778
+ *     pdf-to-text     249.02   249.32   +0.30    773 -> 774
+ *     guide, 404, /tools, /workspace: unchanged (±0.01)
+ *
+ * WHAT THE REPAIR SPENDS, on the tool pages only (the runner kit and the
+ * route are theirs): a finished run waits for its ending before it is
+ * drawn (`endingReady`) and a result that outwaits it draws the ending
+ * under Download; a worker panel's result card says why nothing follows
+ * (`NO_CONTINUE`, read from the job the page now gives worker panels too);
+ * the tool-run context counts "Bringing your files over…" so the job's row
+ * is held from that frame (`useBringingFiles`, `TicketRail`'s slot). The
+ * receipt's one-statement count, its stacked states, the mismatch part
+ * and Continue with's size rules are all in the on-demand ending chunk,
+ * not here. No ceiling changes: what is still to come fits under each
+ * tool row with 1.2 / 1.5 / 1.6 to spare (was 1.5 / 1.8 / 1.9).
+ *
  * WHAT IS STILL TO COME is held against every row by the test after
  * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
  * fails. The one row the layout's remaining growth cannot reach is /tools,
@@ -473,6 +499,10 @@ const BUDGETS = [
   // here rather than out of the programme's. What is still to come (WP-11,
   // WP-12, the unallocated 0.4 and the layout's 1.02) fits under each with
   // 1.5 / 1.8 / 1.9 to spare.
+  //
+  // WP-08 repair (2026-10-11): 252.06, 252.54 and 258.15 (+0.30, +0.29,
+  // +0.29; itemised above the rows). Unchanged ceilings; 1.2 / 1.5 / 1.6 to
+  // spare.
   {
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
