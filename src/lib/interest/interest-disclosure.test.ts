@@ -52,6 +52,44 @@ describe("the interest counter never exists without its disclosures", () => {
     expect(button).toContain("JSON.stringify({ slug: tool.slug })");
   });
 
+  /*
+   * THE OTHER HALF OF THE PRESS, missing from both disclosures until
+   * 2026-10-10 (the legal-pages sweep, row 2). The same click that sends the
+   * beacon calls `track({ name: "gated_tool_interest", … })`, and for a
+   * visitor who allowed analytics that event goes to Google Analytics with
+   * its `_ga` client id. The bullet said "No identifier, no time, nothing
+   * about you or your device", true of OUR count and silent about Google's.
+   * The anchors above stay — what we receive is still the name alone — and
+   * these require the second recipient to be named wherever the press is
+   * described. Derived: the guard reads the button for the `track` call, so
+   * removing the event retires the requirement instead of leaving it stale.
+   */
+  it("while the press is tracked, both disclosures say analytics counts it too", () => {
+    const button = readFileSync(
+      path.join(ROOT, "src", "components", "tools", "notify-me.tsx"),
+      "utf8",
+    );
+    const tracked = /track\(\{\s*name:\s*"gated_tool_interest"/.test(button);
+    // Positive control on the derivation: the event exists today.
+    expect(tracked).toBe(true);
+    if (!tracked) return;
+    const privacy = readFileSync(
+      path.join(ROOT, "src", "app", "privacy", "page.tsx"),
+      "utf8",
+    );
+    const bullet = privacy.slice(
+      privacy.indexOf("One thing you can choose to send us."),
+      privacy.indexOf(
+        "</li>",
+        privacy.indexOf("One thing you can choose to send us."),
+      ),
+    );
+    expect(bullet).toMatch(/Google\s+Analytics/);
+    // The button's own line, under the button, before the press.
+    const line = button.slice(button.indexOf("Pressing it sends us"));
+    expect(line.slice(0, 400)).toMatch(/Google\s+Analytics/);
+  });
+
   it("the analytics claim the disclosure sits beside is still present", () => {
     // The pairing this pins was RE-DECIDED on 2026-08-25, exactly the way the
     // previous comment demanded — loudly, when this test fired on the edit.
