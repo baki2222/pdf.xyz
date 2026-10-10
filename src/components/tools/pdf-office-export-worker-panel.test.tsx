@@ -28,7 +28,12 @@ import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { PDFDocument } from "pdf-lib";
 import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
-import { linesPdf, scannedPdf } from "@/tests/pptx-fidelity-fixtures";
+import {
+  imageCaptionPdf,
+  linesPdf,
+  scannedPdf,
+  undecodablePicturePdf,
+} from "@/tests/pptx-fidelity-fixtures";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 
 const wordTool = getToolBySlug("pdf-to-word")!;
@@ -417,5 +422,113 @@ describe("PDF to PowerPoint panel — pages kept only as pictures", () => {
     expect(notice.closest('[role="status"]')).toHaveTextContent(
       /nothing from them is in this file/,
     );
+  });
+});
+
+/**
+ * A picture the worker could not carry is SAID, never turned into "nothing
+ * on it". Until 2026-10-11 such a picture left no trace in the result: a page
+ * whose only content was a picture pdf.js could not decode (or one past its
+ * pixel ceiling) was counted with the blank pages — "2 pages have nothing on
+ * them" — and a page with text kept its picture's loss to itself. Through
+ * the same chain as above: the real page reader, processor, persistence
+ * whitelist, client and panel.
+ */
+describe("PDF to PowerPoint panel — pictures that are not on their slides", () => {
+  const pptxTool = getToolBySlug("pdf-to-powerpoint")!;
+
+  async function pptxJobFor(
+    pdf: Uint8Array,
+    scanPages: typeof scanPdfPages = scanPdfPages,
+  ) {
+    const result = await createPdfOfficeExportProcessor({
+      extract: layoutExtract,
+      extractFlow: pages(SENTENCE),
+      scanPages,
+    }).process({
+      tool: "pdf-to-powerpoint",
+      options: {},
+      inputs: [
+        {
+          fileId: "f1",
+          filename: "report.pdf",
+          contentType: "application/pdf",
+          bytes: pdf,
+        },
+      ],
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    return {
+      job: {
+        jobId: "job_1",
+        tool: "pdf-to-powerpoint",
+        capability: "worker",
+        progress: 100,
+        createdAt: "2026-10-11T00:00:00.000Z",
+        updatedAt: "2026-10-11T00:00:00.000Z",
+        status: "completed",
+        artifacts: [
+          {
+            artifactId: "a1",
+            filename: result.artifacts[0]!.filename,
+            contentType: result.artifacts[0]!.contentType,
+            bytes: result.artifacts[0]!.bytes.byteLength,
+            url: "/download/a1",
+            expiresAt: "2026-10-11T01:00:00.000Z",
+          },
+        ],
+        results: sanitizeJobResults(result.results)!,
+      } as unknown as Job,
+      output: result.artifacts[0]!.bytes,
+    };
+  }
+
+  async function exportPptx() {
+    render(<PdfOfficeExportWorkerPanel tool={pptxTool} />);
+    const input = await vi.waitFor(() => {
+      const found = document.querySelector('input[type="file"]');
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "report.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /export pptx/i }));
+  }
+
+  it("a page whose only picture could not be decoded is named as such, and only the blank page is called empty", async () => {
+    stubNetwork(await pptxJobFor((await undecodablePicturePdf()).pdf));
+    await exportPptx();
+    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const box = notice.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(
+      /1 picture on page 2 is not on its slide: its image data could not be decoded/,
+    );
+    expect(box).toHaveTextContent(/One page has nothing on it/);
+    expect(box).not.toHaveTextContent(/2 pages have nothing on them/);
+  });
+
+  it("a picture too large for the worker is named even when every page has text", async () => {
+    // The decode budget, lowered for the test so a 480 × 300 photo is over it.
+    const lowBudget: typeof scanPdfPages = (bytes, options) =>
+      scanPdfPages(bytes, { ...options, pageDecodeBudgetBytes: 100_000 });
+    stubNetwork(await pptxJobFor((await imageCaptionPdf()).pdf, lowBudget));
+    await exportPptx();
+    const sentence = await screen.findByText(
+      /1 picture on page 1 is not on its slide/,
+    );
+    const box = sentence.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(/it was too large for the worker to carry/);
+    // No page lacks text, so nothing about text or OCR is said.
+    expect(box).not.toHaveTextContent(/Text found on/);
+    expect(
+      within(box).queryByRole("link", { name: "Open OCR PDF" }),
+    ).toBeNull();
   });
 });

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { provesPptxPictures, provesPptxPresentationChain } from "./capability";
 import type { runPdfOfficeExport } from "./engine";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
+import { encodePngImage } from "./png-encode";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { pptxTextOnly20261010 } from "@/tests/pptx-text-only-2026-10-10";
 
@@ -150,6 +151,46 @@ describe("provesPptxPictures", () => {
     await expect(provesPptxPictures(moved)).resolves.toBe(false);
     await expect(provesPptxPictures(rescaled)).resolves.toBe(false);
     await expect(provesPptxPictures(undefined, otherPixels)).resolves.toBe(
+      false,
+    );
+  });
+});
+
+/**
+ * A BLANK PICTURE IS NOT THE PICTURE. Until 2026-10-11 this probe read the
+ * delivered image's PNG signature and its IHDR width and height, and
+ * nothing else: the review zeroed every re-encoded picture's pixels in the
+ * encoder (a 40 × 30 PNG, every byte 0) and the probe still said `true`, as
+ * did the production verdict and the whole local suite. The picture is now
+ * decoded and its two colours sampled.
+ */
+describe("provesPptxPictures decodes the picture", () => {
+  const blanking =
+    (layout: "rgba8" | "rgb8"): PdfPageScanner =>
+    async (bytes, options) => {
+      const scan = await scanPdfPages(bytes, options);
+      for (const item of scan.pages[0]!.items)
+        if (item.kind === "picture" && item.role === "image") {
+          const { pixelWidth: w, pixelHeight: h } = item.media;
+          // Same box, same pixel size, same format: no colour in it.
+          const samples = new Uint8Array(w * h * (layout === "rgba8" ? 4 : 3));
+          item.media = {
+            ...item.media,
+            bytes: encodePngImage(w, h, layout, samples),
+            ext: "png",
+          };
+        }
+      return scan;
+    };
+
+  it("NEGATIVE CONTROL: false when the picture is a transparent PNG of the same size", async () => {
+    await expect(
+      provesPptxPictures(undefined, blanking("rgba8")),
+    ).resolves.toBe(false);
+  });
+
+  it("NEGATIVE CONTROL: false when the picture is a black PNG of the same size", async () => {
+    await expect(provesPptxPictures(undefined, blanking("rgb8"))).resolves.toBe(
       false,
     );
   });

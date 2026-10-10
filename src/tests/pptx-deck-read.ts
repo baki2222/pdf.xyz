@@ -10,6 +10,7 @@
  * the right picture under the wrong relationship, is read as it is.
  */
 import JSZip from "jszip";
+import { decodePng } from "@/lib/png-probe";
 import { parseXml } from "./xml-well-formed";
 
 const P = "http://schemas.openxmlformats.org/presentationml/2006/main";
@@ -313,3 +314,69 @@ export function contains(
     inner.y + inner.height <= outer.y + outer.height + slack
   );
 }
+
+/**
+ * What a slide shows at one point, picture by picture, the way a
+ * presentation app composites it: from the top of the shape tree down, each
+ * picture whose box (turned and flipped about its centre, cropped by its
+ * srcRect) covers the point, with the media pixel there. PNG pixels are
+ * decoded by `@/lib/png-probe` (a reader that shares nothing with the
+ * writer); a JPEG pixel is reported as opaque with no colour, since a JPEG
+ * has no transparency. Text boxes are not sampled.
+ *
+ * For tests that ask whether the deck SHOWS something — a picture's hidden
+ * corner, a picture's real pixels — not where its box is.
+ */
+export function pictureAt(
+  slide: DeckSlide,
+  x: number,
+  y: number,
+): {
+  picture: DeckPicture;
+  rgba: [number, number, number, number] | null;
+}[] {
+  const hits: {
+    picture: DeckPicture;
+    rgba: [number, number, number, number] | null;
+  }[] = [];
+  const byZ = [...slide.pictures].sort((a, b) => b.z - a.z);
+  for (const p of byZ) {
+    const cx = p.x + p.width / 2;
+    const cy = p.y + p.height / 2;
+    const r = (-p.rotation * Math.PI) / 180;
+    const dx = x - cx;
+    const dy = y - cy;
+    let u = (dx * Math.cos(r) - dy * Math.sin(r)) / p.width + 0.5;
+    let v = (dx * Math.sin(r) + dy * Math.cos(r)) / p.height + 0.5;
+    if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
+    if (p.flipH) u = 1 - u;
+    if (p.flipV) v = 1 - v;
+    const c = p.crop ?? { left: 0, top: 0, right: 0, bottom: 0 };
+    const mu = c.left + u * (1 - c.left - c.right);
+    const mv = c.top + v * (1 - c.top - c.bottom);
+    if (imageHeader(p.bytes)?.format !== "png") {
+      hits.push({ picture: p, rgba: null });
+      continue;
+    }
+    const png = decodedPngs.get(p.bytes) ?? decodePng(p.bytes);
+    decodedPngs.set(p.bytes, png);
+    const px = Math.min(png.width - 1, Math.max(0, Math.floor(mu * png.width)));
+    const py = Math.min(
+      png.height - 1,
+      Math.max(0, Math.floor(mv * png.height)),
+    );
+    const i = (py * png.width + px) * 4;
+    hits.push({
+      picture: p,
+      rgba: [
+        png.data[i]!,
+        png.data[i + 1]!,
+        png.data[i + 2]!,
+        png.data[i + 3]!,
+      ],
+    });
+  }
+  return hits;
+}
+
+const decodedPngs = new WeakMap<Uint8Array, ReturnType<typeof decodePng>>();

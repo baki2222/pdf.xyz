@@ -28,21 +28,33 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  cellGridPdf,
+  circleClipPdf,
+  CLIP_PHOTO_SIDE,
+  drawingBits,
+  gradientPixels,
   imageCaptionPdf,
   mixedSizesPdf,
+  oversizeScanPdf,
   paintOrderPdf,
   pdftotextStandIn,
   PPTX_FIDELITY_FIXTURES,
+  rotatedFramePdf,
   scannedPdf,
+  scanPixels,
+  undecodablePicturePdf,
   vectorShapesPdf,
+  type ClippedPicturePage,
   type FixtureText,
   type PptxFixture,
 } from "@/tests/pptx-fidelity-fixtures";
+import { decodePng } from "@/lib/png-probe";
 import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import {
   contains,
   onSlide,
+  pictureAt,
   readDeck,
   type Deck,
   type DeckPicture,
@@ -51,6 +63,11 @@ import {
 } from "@/tests/pptx-deck-read";
 import { runPdfOfficeExport, type PdfOfficeExportRun } from "./engine";
 import { pdfOfficeExportDeps } from "./native";
+import {
+  MAX_BILEVEL_PICTURE_SIDE,
+  MAX_LAYERS_PER_PAGE,
+  scanPdfPages,
+} from "./page-scan";
 import { inspectPptxPackage } from "./pptx-inspect";
 import { readPptx } from "./validate-ooxml";
 
@@ -385,5 +402,288 @@ describe("an owner-password PDF: encrypted, opens without a password, and conver
     expect(deck.slides[0]!.texts.map((t) => t.text)).toEqual([
       "Owner locked but readable",
     ]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ *  2026-10-11: what the review of the faithful export found
+ * ------------------------------------------------------------------ */
+
+/**
+ * A PICTURE IS NEVER SILENTLY LOST. Until 2026-10-11 pdf.js was opened with
+ * a 64-megapixel ceiling per image and REMOVED anything larger without a
+ * word: a 124 MP A1 drawing at 400 dpi exported as a blank slide, and the
+ * panel said its page had "nothing on it". Pictures pdf.js could not decode
+ * were counted by the page reader and read by nobody. Now a picture is on
+ * its slide, or the result counts it, page by page.
+ */
+describe("a picture is on its slide, or the result says it is not", () => {
+  it("a 65.6-megapixel scan — over pdf.js's old 64 MP ceiling — is on its slide, with its pixels", async () => {
+    const fixture = await oversizeScanPdf();
+    const run = await exportFixture(fixture);
+    const deck = await readDeck(run.output);
+    const page = fixture.pages[0]!;
+    const want = onSlide(page.displayed, deck, page.images[0]!.shown);
+    const pic = deck.slides[0]!.pictures.find(
+      (p) => contains(want, p, 1) && contains(p, want, 1),
+    );
+    expect(
+      pic,
+      `no picture covers the page; pictures: ${JSON.stringify(deck.slides[0]!.pictures.map(({ x, y, width, height }) => ({ x, y, width, height })))}`,
+    ).toBeDefined();
+    // Scaled down to the bilevel ceiling on its long side, aspect kept.
+    expect(Math.max(pic!.pixelWidth, pic!.pixelHeight)).toBe(
+      MAX_BILEVEL_PICTURE_SIDE,
+    );
+    expect(pic!.pixelWidth / pic!.pixelHeight).toBeCloseTo(8200 / 8000, 2);
+    // Its pixels are the drawing's: as much of it is dark as of the source.
+    const png = decodePng(pic!.bytes);
+    let dark = 0;
+    for (let i = 0; i < png.data.length; i += 4) dark += 255 - png.data[i]!;
+    // 8,200 is a whole number of bytes: no padding bits to skip.
+    const bits = drawingBits(8200, 8000);
+    let black = 0;
+    for (let b = 0; b < bits.length; b++)
+      for (let k = 0; k < 8; k++) black += (bits[b]! >> k) & 1 ? 0 : 1;
+    const share = dark / 255 / (png.width * png.height);
+    expect(share).toBeGreaterThan(0.05);
+    expect(Math.abs(share - black / (8200 * 8000))).toBeLessThan(0.01);
+    expect(run.coverage).toMatchObject({
+      picturePageCount: 1,
+      pagesAsPictures: [1],
+      picturesNotCarried: 0,
+      emptySlideCount: 0,
+    });
+  }, 60_000);
+
+  it("a picture pdf.js cannot decode is counted on its page, and that page is not called empty", async () => {
+    const fixture = await undecodablePicturePdf();
+    const run = await exportFixture(fixture);
+    expect(run.coverage).toMatchObject({
+      pageCount: 3,
+      picturesNotCarried: 1,
+      picturesTooLarge: 0,
+      pagesMissingPictures: [2],
+      // Page 3 is blank; page 2 is not, whatever its slide now holds.
+      emptySlideCount: 1,
+    });
+  });
+
+  it("pictures past a page's decode budget are left out and counted, the rest kept", async () => {
+    // The budget is the production constant in production; here it is set
+    // low enough that the 480 × 300 photo (≈ 0.5 MB decoded) is over it and
+    // the 30 × 20 JPEG is not.
+    const fixture = await imageCaptionPdf();
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", fixture.pdf, {
+      ...pdfOfficeExportDeps(),
+      extract: async () => pdftotextStandIn(fixture),
+      scanPages: (bytes, options) =>
+        scanPdfPages(bytes, { ...options, pageDecodeBudgetBytes: 100_000 }),
+    });
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    const deck = await readDeck(run.output);
+    const page = fixture.pages[0]!;
+    const jpeg = onSlide(page.displayed, deck, page.images[1]!.shown);
+    const photo = onSlide(page.displayed, deck, page.images[0]!.shown);
+    const at = (r: { x: number; y: number }) =>
+      deck.slides[0]!.pictures.filter(
+        (p) => near(p.x, r.x, 1) && near(p.y, r.y, 1),
+      );
+    expect(at(jpeg), "the small JPEG fits and is kept").toHaveLength(1);
+    expect(at(photo), "the photo is over the budget").toEqual([]);
+    // The photo is drawn twice (once whole, once clipped): one image, one
+    // count — pdf.js decodes an XObject once a page.
+    expect(run.coverage).toMatchObject({
+      picturesNotCarried: 1,
+      picturesTooLarge: 1,
+      pagesMissingPictures: [1],
+    });
+  });
+});
+
+/** The colour the clip fixtures' photo has at page point (x, y). */
+function photoColour(
+  page: ClippedPicturePage,
+  x: number,
+  y: number,
+): [number, number, number] | null {
+  const { box, turn } = page.photo;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const r = (-turn * Math.PI) / 180;
+  const dx = x - cx;
+  const dy = y - cy;
+  const u = (dx * Math.cos(r) - dy * Math.sin(r)) / box.width + 0.5;
+  const v = (dx * Math.sin(r) + dy * Math.cos(r)) / box.height + 0.5;
+  if (u < 0 || u >= 1 || v < 0 || v >= 1) return null;
+  const px = Math.floor(u * CLIP_PHOTO_SIDE);
+  const py = Math.floor(v * CLIP_PHOTO_SIDE);
+  const i = (py * CLIP_PHOTO_SIDE + px) * 3;
+  return [PHOTO[i]!, PHOTO[i + 1]!, PHOTO[i + 2]!];
+}
+const PHOTO = gradientPixels(CLIP_PHOTO_SIDE, CLIP_PHOTO_SIDE);
+
+function insideClip(page: ClippedPicturePage, x: number, y: number): boolean {
+  const c = page.clip;
+  if (c.kind === "circle") return Math.hypot(x - c.cx, y - c.cy) < c.r;
+  return (
+    x > c.box.x &&
+    x < c.box.x + c.box.width &&
+    y > c.box.y &&
+    y < c.box.y + c.box.height
+  );
+}
+
+/**
+ * WHAT A CLIP HIDES STAYS HIDDEN. Until 2026-10-11 every clip was reduced to
+ * its bounding box and a picture was cropped only when upright: a profile
+ * photo shown through a circle came out square, its corners showing, and a
+ * photo turned inside a frame spilled its corners over the page. Asked of
+ * the PIXELS the deck shows (`pictureAt`), on a grid over the photo's whole
+ * box: outside the clip nothing of the photo may show; inside, the photo's
+ * own colours must.
+ */
+describe("a picture shows through its clip, and only through it", () => {
+  it.each([
+    ["circleClipPdf", circleClipPdf],
+    ["rotatedFramePdf", rotatedFramePdf],
+  ] as const)("%s", async (_, build) => {
+    const fixture = await build();
+    const deck = await deckOf(fixture as unknown as PptxFixture);
+    const page = fixture.pages[0]!;
+    const slide = deck.slides[0]!;
+    // Points over the photo's whole box (turned), clear of the frame's
+    // stroke, sorted by whether the clip shows them.
+    const { box, turn } = page.photo;
+    const shown: [number, number][] = [];
+    const hidden: [number, number][] = [];
+    for (let i = 1; i < 24; i++)
+      for (let j = 1; j < 24; j++) {
+        const u = i / 24 - 0.5;
+        const v = j / 24 - 0.5;
+        const t = (turn * Math.PI) / 180;
+        const x =
+          box.x +
+          box.width / 2 +
+          u * box.width * Math.cos(t) -
+          v * box.height * Math.sin(t);
+        const y =
+          box.y +
+          box.height / 2 +
+          u * box.width * Math.sin(t) +
+          v * box.height * Math.cos(t);
+        const nearEdge =
+          page.clip.kind === "circle"
+            ? Math.abs(
+                Math.hypot(x - page.clip.cx, y - page.clip.cy) - page.clip.r,
+              ) < 4
+            : Math.min(
+                Math.abs(x - page.clip.box.x),
+                Math.abs(x - page.clip.box.x - page.clip.box.width),
+                Math.abs(y - page.clip.box.y),
+                Math.abs(y - page.clip.box.y - page.clip.box.height),
+              ) < 6;
+        if (nearEdge) continue;
+        (insideClip(page, x, y) ? shown : hidden).push([x, y]);
+      }
+    // Health: both sets are real — a photo the clip hides nothing of, or
+    // everything of, would make one half of this vacuous.
+    expect(hidden.length).toBeGreaterThan(30);
+    expect(shown.length).toBeGreaterThan(100);
+    const leaks = hidden.filter(([x, y]) =>
+      pictureAt(slide, x, y).some((h) => !h.rgba || h.rgba[3] > 16),
+    );
+    expect(
+      leaks.map(([x, y]) => `${x.toFixed(0)},${y.toFixed(0)}`),
+      "the deck shows the photo where the PDF hides it",
+    ).toEqual([]);
+    const wrong = shown.filter(([x, y]) => {
+      const want = photoColour(page, x, y)!;
+      const top = pictureAt(slide, x, y).find((h) => h.rgba && h.rgba[3] > 200);
+      return (
+        !top ||
+        Math.max(...want.map((c, k) => Math.abs(c - top.rgba![k]!))) > 24
+      );
+    });
+    expect(
+      wrong.length,
+      `${wrong.length} of ${shown.length} points inside the clip do not show the photo`,
+    ).toBeLessThan(shown.length * 0.03);
+  });
+});
+
+/**
+ * LAYERS PER PAGE ARE BOUNDED. A page that alternates text and overlapping
+ * drawing — a cell's number, then its border — took one full render pass
+ * per cell: 1,440 cells were 17 s and 1,441 pictures on one page, and eight
+ * such pages ran into the deadline, retryably. Past the cap the page is
+ * drawn once, in its own paint order, with its text in invisible boxes.
+ */
+describe("a page that would need too many layers is drawn once", () => {
+  /** MAX_LAYERS_PER_PAGE, written here so the test can fail before it exists. */
+  const K = 32;
+
+  it("1,000 cells, each its text then its border: at most K + 1 pictures, quickly, text kept", async () => {
+    const fixture = await cellGridPdf(1000);
+    const t0 = Date.now();
+    const run = await exportFixture(fixture);
+    const elapsed = Date.now() - t0;
+    const deck = await readDeck(run.output);
+    const slide = deck.slides[0]!;
+    expect(slide.pictures.length).toBeLessThanOrEqual(K + 1);
+    expect(elapsed, `took ${elapsed} ms`).toBeLessThan(8_000);
+    // The words are still there, as text a reader can select.
+    for (const t of fixture.pages[0]!.texts)
+      expect(
+        slide.texts.some((b) => b.text.trim() === t.text),
+        `no text box reads "${t.text}"`,
+      ).toBe(true);
+    expect(run.coverage).toMatchObject({
+      flattenedPageCount: 1,
+      pagesFlattened: [1],
+    });
+    expect(MAX_LAYERS_PER_PAGE).toBe(K);
+  }, 60_000);
+
+  it("CONTROL: 30 such cells stay as layers, in paint order", async () => {
+    const fixture = await cellGridPdf(30);
+    const run = await exportFixture(fixture);
+    const deck = await readDeck(run.output);
+    expect(deck.slides[0]!.pictures.length).toBe(30);
+    expect(deck.slides[0]!.texts.every((t) => !t.runs[0]!.invisible)).toBe(
+      true,
+    );
+    expect(run.coverage).toMatchObject({ flattenedPageCount: 0 });
+  });
+});
+
+/**
+ * A RE-ENCODED PICTURE CARRIES ITS PIXELS. Every check of the picture path
+ * asked where a picture is and what kind of file it is; none decoded it, so
+ * an encoder writing transparent black passed them all (the review's
+ * mutation, 2026-10-11). The scanned page's grey picture is re-encoded, not
+ * copied: decoded here, it must be the scan.
+ */
+describe("a re-encoded picture is the source's pixels", () => {
+  it("the scanned page's picture, decoded, matches the scan pixel for pixel", async () => {
+    const fixture = await scannedPdf();
+    const deck = await deckOf(fixture);
+    const page = fixture.pages[0]!;
+    const want = onSlide(page.displayed, deck, page.images[0]!.shown);
+    const pic = deck.slides[0]!.pictures.find(
+      (p) => contains(want, p, 1) && contains(p, want, 1),
+    )!;
+    expect(pic.contentType).toBe("image/png");
+    const png = decodePng(pic.bytes);
+    expect([png.width, png.height]).toEqual([612, 792]);
+    const source = scanPixels(612, 792);
+    let worst = 0;
+    let opaque = 0;
+    for (let p = 0; p < source.length; p++) {
+      worst = Math.max(worst, Math.abs(png.data[p * 4]! - source[p]!));
+      if (png.data[p * 4 + 3] === 255) opaque++;
+    }
+    expect(opaque).toBe(source.length);
+    expect(worst).toBeLessThanOrEqual(1);
   });
 });

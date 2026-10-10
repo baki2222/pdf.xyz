@@ -1,0 +1,78 @@
+// @vitest-environment node
+/**
+ * The page reader's memory, measured where it can be: the peak resident set
+ * of a FRESH process scanning one page (`src/tests/page-scan-rss.ts`).
+ *
+ * ── THE DEFECT ──────────────────────────────────────────────────────────────
+ *
+ * pdf.js decodes every image a page uses before the page can be drawn, and
+ * holds the pixels until the page is cleaned up, in the worker daemon's own
+ * process. The review of 2026-10-11 measured one page with six 8000 × 8000
+ * RGB photos (a 20 MB upload; this fixture's are a flat colour, so it is
+ * 1 MB) at 4,244 MB of peak RSS, and nothing in the container limits it: one
+ * upload could take the daemon down, and every tool with it, three times.
+ *
+ * ── THE BOUND ───────────────────────────────────────────────────────────────
+ *
+ * The scan now reads from the FILE what each page will decode
+ * (`./page-inventory`) and admits a page's images only up to
+ * {@link PAGE_DECODE_BUDGET_BYTES}; the rest are left out before pdf.js sees
+ * them, and counted. Measured 2026-10-11 (Node 24, Windows; MB over the
+ * process's peak after a warm-up scan): six photos +23, all six counted as
+ * too large; ONE photo (admitted, the positive control that the measure sees
+ * a decode at all) +394, placed.
+ */
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import { bigPhotosPdf } from "@/tests/pptx-fidelity-fixtures";
+import { PAGE_DECODE_BUDGET_BYTES } from "./page-scan";
+
+const ROOT = process.cwd();
+const TSX_CLI = path.join(ROOT, "node_modules", "tsx", "dist", "cli.mjs");
+const SCRIPT = path.join(ROOT, "src", "tests", "page-scan-rss.ts");
+const dir = mkdtempSync(path.join(tmpdir(), "pptx-rss-"));
+afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+interface Measured {
+  warmMb: number;
+  peakMb: number;
+  ms: number;
+  tooLarge?: number;
+  pictures: number;
+}
+
+async function measure(count: number): Promise<Measured> {
+  const file = path.join(dir, `photos-${count}.pdf`);
+  writeFileSync(file, (await bigPhotosPdf(count)).pdf);
+  const out = execFileSync(process.execPath, [TSX_CLI, SCRIPT, file], {
+    cwd: ROOT,
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+  });
+  return JSON.parse(out.trim().split("\n").at(-1)!) as Measured;
+}
+
+/** What the scan may add to a warm process: the page budget plus its own output. */
+const BOUND_MB = PAGE_DECODE_BUDGET_BYTES / 1e6 + 150;
+
+describe("one page's decoding is bounded before pdf.js decodes it", () => {
+  it("six 8000² photos on one page: left out, counted, and the peak barely moves", async () => {
+    const six = await measure(6);
+    expect(six.peakMb - six.warmMb, JSON.stringify(six)).toBeLessThan(150);
+    expect(six.tooLarge, JSON.stringify(six)).toBe(6);
+    expect(six.pictures).toBe(0);
+  }, 300_000);
+
+  it("POSITIVE CONTROL: one such photo fits the budget, is placed, and the measure sees its decode", async () => {
+    const one = await measure(1);
+    expect(one.pictures, JSON.stringify(one)).toBe(1);
+    expect(one.tooLarge).toBe(0);
+    // The instrument can see a decode: a measure that read the same peak
+    // for both would make the bound above vacuous.
+    expect(one.peakMb - one.warmMb, JSON.stringify(one)).toBeGreaterThan(200);
+    expect(one.peakMb - one.warmMb, JSON.stringify(one)).toBeLessThan(BOUND_MB);
+  }, 300_000);
+});

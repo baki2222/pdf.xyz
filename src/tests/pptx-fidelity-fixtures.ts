@@ -13,10 +13,16 @@
  * Positions are recorded in the deck's frame: page points, origin at the TOP
  * left of the page as displayed (pdf-lib draws from the bottom left).
  */
+import { deflateSync } from "node:zlib";
 import {
+  appendBezierCurve,
   clip,
+  closePath,
+  concatTransformationMatrix,
   degrees,
+  drawObject,
   endPath,
+  moveTo,
   PDFDocument,
   popGraphicsState,
   pushGraphicsState,
@@ -24,6 +30,8 @@ import {
   rgb,
   setTextRenderingMode,
   TextRenderingMode,
+  type PDFOperator,
+  type PDFRef,
   type PDFFont,
   type PDFImage,
   type PDFPage,
@@ -572,11 +580,27 @@ export async function paintOrderPdf(): Promise<PptxFixture> {
 }
 
 /**
+ * How a deck can get ONE picture wrong while every other thing on the page
+ * is right: the defects a fidelity bound must not license. Each is drawn the
+ * way the round trip would show it — `crop15` as a slide picture whose
+ * srcRect cuts 15% off its right side: the remaining 85% stretched over the
+ * box.
+ */
+export type PictureAlteration = "move18pt" | "stretch10" | "crop15";
+
+/**
  * Four pages, four shapes: 4:3 landscape (the deck takes its size from this
  * first page), A4 portrait, US Letter landscape, and a portrait page turned
  * by /Rotate 90 so it displays landscape.
+ *
+ * With `alter`, page `alter.page`'s picture is drawn wrong in that one way
+ * and nothing else changes: the fidelity instrument's partial controls
+ * (`fidelity.test.ts`). The record still describes the RIGHT page.
  */
-export async function mixedSizesPdf(): Promise<PptxFixture> {
+export async function mixedSizesPdf(alter?: {
+  page: number;
+  kind: PictureAlteration;
+}): Promise<PptxFixture> {
   const doc = await PDFDocument.create();
   const f = await fonts(doc, [
     ...[1, 2, 3, 4].map((n) => `Page ${n} heading`),
@@ -606,7 +630,9 @@ export async function mixedSizesPdf(): Promise<PptxFixture> {
     const band: Rect = { x: 40, y: 40, width: w - 80, height: 60 };
     box(page, band, [0.2, 0.55, 0.35]);
     const shown: Rect = { x: 60, y: 160, width: W, height: H };
-    await image(page, photo, shown);
+    if (alter?.page === i + 1)
+      await alteredImage(page, photo, shown, alter.kind);
+    else await image(page, photo, shown);
     text(page, rec.texts, `Page ${i + 1} heading`, 60, 140, 26, f.bold, true);
     text(
       page,
@@ -700,6 +726,294 @@ export async function linesPdf(
   return { name: "linesPdf", pdf: await doc.save(), pages: recs };
 }
 
+/** `img` drawn into `at` the wrong way `kind` says (see PictureAlteration). */
+async function alteredImage(
+  page: PDFPage,
+  img: PDFImage,
+  at: Rect,
+  kind: PictureAlteration,
+): Promise<void> {
+  if (kind === "move18pt") return image(page, img, { ...at, x: at.x + 18 });
+  if (kind === "stretch10")
+    return image(page, img, { ...at, width: at.width * 1.1 });
+  page.pushOperators(
+    pushGraphicsState(),
+    rectangle(at.x, page.getHeight() - at.y - at.height, at.width, at.height),
+    clip(),
+    endPath(),
+  );
+  await image(page, img, { ...at, width: at.width / 0.85 });
+  page.pushOperators(popGraphicsState());
+}
+
+/* ------------------------------------------------------------------ *
+ *  Raw image XObjects: what `embedRasterImage` cannot make
+ * ------------------------------------------------------------------ */
+
+/**
+ * An image XObject from raw samples deflated here: a 1-bit scan, a picture
+ * larger than any PNG the boundary would take, or a stream that is not an
+ * image at all. Drawn with {@link drawXObject}, which is operators, not
+ * pdf-lib's `drawImage` (`raster-draw-boundary.test.ts` holds that one).
+ */
+function rawImageXObject(
+  doc: PDFDocument,
+  dict: Record<string, string | number>,
+  contents: Uint8Array,
+): PDFRef {
+  return doc.context.register(
+    doc.context.stream(contents, {
+      Type: "XObject",
+      Subtype: "Image",
+      ...dict,
+    }),
+  );
+}
+
+/**
+ * Paint XObject `ref` so its unit square fills `at` (top-left frame), turned
+ * `turn` degrees clockwise about the box's centre, through `clipOps` (path
+ * operators ending in a clip, in PDF space) when given.
+ */
+function drawXObject(
+  page: PDFPage,
+  ref: PDFRef,
+  at: Rect,
+  { turn = 0, clipOps = [] }: { turn?: number; clipOps?: PDFOperator[] } = {},
+): void {
+  const name = page.node.newXObject("Im", ref);
+  const cx = at.x + at.width / 2;
+  const cy = page.getHeight() - at.y - at.height / 2;
+  const a = (-turn * Math.PI) / 180;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  page.pushOperators(
+    pushGraphicsState(),
+    ...clipOps,
+    concatTransformationMatrix(1, 0, 0, 1, cx, cy),
+    concatTransformationMatrix(c, s, -s, c, 0, 0),
+    concatTransformationMatrix(
+      at.width,
+      0,
+      0,
+      at.height,
+      -at.width / 2,
+      -at.height / 2,
+    ),
+    drawObject(name),
+    popGraphicsState(),
+  );
+}
+
+/**
+ * A bilevel engineering drawing: a grid, a filled block and a frame, as 1-bit
+ * rows (a set bit is white, as /DeviceGray 1-bit reads by default).
+ *
+ * Its lines are about 3 pt wide on the page, not hairlines: both round-trip
+ * routes downsample a picture when they write the deck back out as a PDF
+ * (PowerPoint wrote this one's 3,600-px picture at 1,366 px), and a
+ * hairline's grey then depends on the route's resampler rather than on the
+ * deck — measured 2026-10-11, 0.99 "points out of place" for 0.5-pt lines on
+ * a deck whose picture was right.
+ */
+export function drawingBits(width: number, height: number): Uint8Array {
+  const rowBytes = (width + 7) >> 3;
+  const out = new Uint8Array(rowBytes * height).fill(0xff);
+  const step = Math.round(width / 10);
+  const thick = Math.max(2, Math.round(width / 160));
+  for (let y = 0; y < height; y++) {
+    const onRow = y % step < thick || y >= height - thick;
+    const blockRow = y > height * 0.35 && y < height * 0.6;
+    for (let x = 0; x < width; x++) {
+      const block = blockRow && x > width * 0.3 && x < width * 0.55;
+      if (onRow || x % step < thick || x >= width - thick || block) {
+        const i = y * rowBytes + (x >> 3);
+        out[i] = out[i]! & ~(0x80 >> (x & 7));
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * A scanned drawing whose ONE picture is over 64 megapixels: 8,200 × 8,000
+ * pixels at 1,200 dpi, 1 bit a pixel (8.2 MB as pdf.js holds it). pdf.js's
+ * old per-image ceiling (64,000,000 px) removed it without a word, and the
+ * deck was a blank slide said to have "nothing on it". No text.
+ */
+export async function oversizeScanPdf(): Promise<PptxFixture> {
+  const W = 8200;
+  const H = 8000;
+  const doc = await PDFDocument.create();
+  const wPt = (W / 1200) * 72;
+  const hPt = (H / 1200) * 72;
+  const page = doc.addPage([wPt, hPt]);
+  const rec = emptyPage(wPt, hPt);
+  const ref = rawImageXObject(
+    doc,
+    {
+      Width: W,
+      Height: H,
+      BitsPerComponent: 1,
+      ColorSpace: "DeviceGray",
+      Filter: "FlateDecode",
+    },
+    deflateSync(drawingBits(W, H)),
+  );
+  const shown: Rect = { x: 0, y: 0, width: wPt, height: hPt };
+  drawXObject(page, ref, shown);
+  rec.images.push({
+    shown,
+    pixelWidth: W,
+    pixelHeight: H,
+    source: "png",
+    alpha: false,
+  });
+  return { name: "oversizeScanPdf", pdf: await doc.save(), pages: [rec] };
+}
+
+/** Closed circle path operators (four Béziers), PDF space. */
+function circleOps(cx: number, cy: number, r: number): PDFOperator[] {
+  const k = 0.5523 * r;
+  return [
+    moveTo(cx + r, cy),
+    appendBezierCurve(cx + r, cy + k, cx + k, cy + r, cx, cy + r),
+    appendBezierCurve(cx - k, cy + r, cx - r, cy + k, cx - r, cy),
+    appendBezierCurve(cx - r, cy - k, cx - k, cy - r, cx, cy - r),
+    appendBezierCurve(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
+    closePath(),
+  ];
+}
+
+/** Where a clip lets a picture show, page points from the top left. */
+export type FixtureClip =
+  | { kind: "circle"; cx: number; cy: number; r: number }
+  | { kind: "rect"; box: Rect };
+
+export interface ClippedPicturePage extends FixturePage {
+  /** The picture's whole box before the clip, and its clockwise turn. */
+  photo: { box: Rect; turn: number; pixelWidth: number; pixelHeight: number };
+  clip: FixtureClip;
+}
+
+/** The photo the clip fixtures show, so a test can know its pixels. */
+export const CLIP_PHOTO_SIDE = 600;
+
+/**
+ * A profile photo: a square picture shown through a CIRCLE, as a page lays
+ * out a person's portrait. The corners are hidden by the PDF, and a deck
+ * that places the whole square shows them.
+ */
+export async function circleClipPdf(): Promise<
+  Omit<PptxFixture, "pages"> & { pages: ClippedPicturePage[] }
+> {
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, ["Our team"]);
+  const page = doc.addPage([720, 540]);
+  const ref = rawImageXObject(
+    doc,
+    {
+      Width: CLIP_PHOTO_SIDE,
+      Height: CLIP_PHOTO_SIDE,
+      BitsPerComponent: 8,
+      ColorSpace: "DeviceRGB",
+      Filter: "FlateDecode",
+    },
+    deflateSync(gradientPixels(CLIP_PHOTO_SIDE, CLIP_PHOTO_SIDE)),
+  );
+  const photo: Rect = { x: 210, y: 120, width: 300, height: 300 };
+  const circle = { cx: 360, cy: 270, r: 130 };
+  drawXObject(page, ref, photo, {
+    clipOps: [
+      ...circleOps(circle.cx, 540 - circle.cy, circle.r),
+      clip(),
+      endPath(),
+    ],
+  });
+  const rec: ClippedPicturePage = {
+    ...emptyPage(720, 540),
+    photo: {
+      box: photo,
+      turn: 0,
+      pixelWidth: CLIP_PHOTO_SIDE,
+      pixelHeight: CLIP_PHOTO_SIDE,
+    },
+    clip: { kind: "circle", ...circle },
+  };
+  text(page, rec.texts, "Our team", 60, 70, 30, f.bold, true, [0.1, 0.1, 0.3]);
+  return { name: "circleClipPdf", pdf: await doc.save(), pages: [rec] };
+}
+
+/**
+ * A photo turned 20° and shown through an upright square frame, the frame
+ * stroked over it, a title above: the turned photo's corners overhang the
+ * frame, and the PDF hides them.
+ */
+export async function rotatedFramePdf(): Promise<
+  Omit<PptxFixture, "pages"> & { pages: ClippedPicturePage[] }
+> {
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, ["A photo in a frame"]);
+  const page = doc.addPage([720, 540]);
+  const ref = rawImageXObject(
+    doc,
+    {
+      Width: CLIP_PHOTO_SIDE,
+      Height: CLIP_PHOTO_SIDE,
+      BitsPerComponent: 8,
+      ColorSpace: "DeviceRGB",
+      Filter: "FlateDecode",
+    },
+    deflateSync(gradientPixels(CLIP_PHOTO_SIDE, CLIP_PHOTO_SIDE)),
+  );
+  const frame: Rect = { x: 220, y: 140, width: 280, height: 280 };
+  const photo: Rect = { x: 190, y: 110, width: 340, height: 340 };
+  drawXObject(page, ref, photo, {
+    turn: 20,
+    clipOps: [
+      rectangle(
+        frame.x,
+        540 - frame.y - frame.height,
+        frame.width,
+        frame.height,
+      ),
+      clip(),
+      endPath(),
+    ],
+  });
+  page.drawRectangle({
+    x: frame.x,
+    y: 540 - frame.y - frame.height,
+    width: frame.width,
+    height: frame.height,
+    borderColor: rgb(0.1, 0.1, 0.1),
+    borderWidth: 3,
+  });
+  const rec: ClippedPicturePage = {
+    ...emptyPage(720, 540),
+    photo: {
+      box: photo,
+      turn: 20,
+      pixelWidth: CLIP_PHOTO_SIDE,
+      pixelHeight: CLIP_PHOTO_SIDE,
+    },
+    clip: { kind: "rect", box: frame },
+  };
+  rec.shapes.push({ box: frame, overPicture: true });
+  text(
+    page,
+    rec.texts,
+    "A photo in a frame",
+    60,
+    70,
+    30,
+    f.bold,
+    true,
+    [0.1, 0.1, 0.3],
+  );
+  return { name: "rotatedFramePdf", pdf: await doc.save(), pages: [rec] };
+}
+
 /** Every fixture, for tests that sweep them all. */
 export const PPTX_FIDELITY_FIXTURES = [
   imageCaptionPdf,
@@ -707,7 +1021,150 @@ export const PPTX_FIDELITY_FIXTURES = [
   scannedPdf,
   paintOrderPdf,
   mixedSizesPdf,
+  oversizeScanPdf,
+  circleClipPdf,
+  rotatedFramePdf,
 ] as const;
+
+/* ------------------------------------------------------------------ *
+ *  Fixtures for what a page costs, not how it looks
+ * ------------------------------------------------------------------ */
+
+/**
+ * Three pages: a typed one, one whose only content is a picture whose data
+ * is not an image (a DCT stream of noise, which pdf.js cannot decode and
+ * resolves to nothing), and a blank one. Before 2026-10-11 the panel said
+ * the middle page had "nothing on it", like the blank one.
+ */
+export async function undecodablePicturePdf(): Promise<PptxFixture> {
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, ["The report"]);
+  const typed = doc.addPage([720, 540]);
+  const rec1 = emptyPage(720, 540);
+  text(typed, rec1.texts, "The report", 60, 80, 28, f.bold, true);
+  const page = doc.addPage([720, 540]);
+  const noise = new Uint8Array(4096);
+  for (let i = 0; i < noise.length; i++) noise[i] = (i * 7919 + 13) & 0xff;
+  const ref = rawImageXObject(
+    doc,
+    {
+      Width: 320,
+      Height: 200,
+      BitsPerComponent: 8,
+      ColorSpace: "DeviceRGB",
+      Filter: "DCTDecode",
+    },
+    noise,
+  );
+  drawXObject(page, ref, { x: 200, y: 170, width: 320, height: 200 });
+  doc.addPage([720, 540]);
+  return {
+    name: "undecodablePicturePdf",
+    pdf: await doc.save(),
+    pages: [rec1, emptyPage(720, 540), emptyPage(720, 540)],
+  };
+}
+
+let flatSamples: { side: number; bytes: Uint8Array } | null = null;
+
+/**
+ * One page with `count` DISTINCT `side` × `side` RGB photos of one flat
+ * colour, each drawn small, and a caption. Flate packs each into a few
+ * hundred kilobytes, and pdf.js decodes each to `side² × 3` bytes: six at
+ * 8,000 px are a 2 MB upload and over a gigabyte of pixels on one page.
+ */
+export async function bigPhotosPdf(
+  count: number,
+  side = 8000,
+): Promise<PptxFixture> {
+  if (!flatSamples || flatSamples.side !== side)
+    flatSamples = {
+      side,
+      bytes: deflateSync(Buffer.alloc(side * side * 3, 0xc8), { level: 9 }),
+    };
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, ["Six photos"]);
+  const page = doc.addPage([720, 540]);
+  const rec = emptyPage(720, 540);
+  for (let i = 0; i < count; i++) {
+    const ref = rawImageXObject(
+      doc,
+      {
+        Width: side,
+        Height: side,
+        BitsPerComponent: 8,
+        ColorSpace: "DeviceRGB",
+        Filter: "FlateDecode",
+      },
+      flatSamples.bytes,
+    );
+    const at: Rect = {
+      x: 40 + (i % 3) * 220,
+      y: 120 + Math.floor(i / 3) * 200,
+      width: 180,
+      height: 180,
+    };
+    drawXObject(page, ref, at);
+    rec.images.push({
+      shown: at,
+      pixelWidth: side,
+      pixelHeight: side,
+      source: "png",
+      alpha: false,
+    });
+  }
+  text(page, rec.texts, "Six photos", 60, 70, 28, f.bold, true);
+  return { name: "bigPhotosPdf", pdf: await doc.save(), pages: [rec] };
+}
+
+/**
+ * A grid of `cells` cells, each a number and THEN its border, as some report
+ * generators paint a table: every border overlaps the text painted before
+ * it, so keeping paint order takes a layer per cell. 1,440 such cells took
+ * 17 s on one page before layers were capped. The record holds the first
+ * three cells' text.
+ */
+export async function cellGridPdf(cells: number): Promise<PptxFixture> {
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, ["0123456789"]);
+  const cols = Math.ceil(Math.sqrt(cells * 1.5));
+  const rows = Math.ceil(cells / cols);
+  const cw = 40;
+  const ch = 18;
+  const width = cols * cw + 80;
+  const height = rows * ch + 80;
+  const page = doc.addPage([width, height]);
+  const rec = emptyPage(width, height);
+  for (let k = 0; k < cells; k++) {
+    const x = 40 + (k % cols) * cw;
+    const y = 40 + Math.floor(k / cols) * ch;
+    const label = String((k * 37) % 1000);
+    page.drawText(label, {
+      x: x + 4,
+      y: height - y - 13,
+      size: 10,
+      font: f.regular,
+    });
+    page.drawRectangle({
+      x,
+      y: height - y - ch,
+      width: cw,
+      height: ch,
+      borderColor: rgb(0.2, 0.2, 0.2),
+      borderWidth: 1,
+    });
+    if (k < 3)
+      rec.texts.push({
+        text: label,
+        x: x + 4,
+        baseline: y + 13,
+        size: 10,
+        bold: false,
+        color: "000000",
+      });
+  }
+  return { name: "cellGridPdf", pdf: await doc.save(), pages: [rec] };
+}
 
 /**
  * What `pdftotext -layout` would say about a fixture, for tests that run the

@@ -18,6 +18,7 @@ import {
 } from "./deployment-proof";
 import { runPdfOfficeExport } from "./engine";
 import { scanPdfPages } from "./page-scan";
+import { encodePngImage } from "./png-encode";
 
 const PAGES = [
   {
@@ -84,5 +85,65 @@ describe("pptxDeploymentVerdict", () => {
     );
     expect(verdict.ok).toBe(false);
     expect(verdict.detail).toMatch(/^PowerPoint cannot open this deck/);
+  });
+});
+
+/**
+ * The verdict decodes the picture (2026-10-11). It read only the PNG
+ * signature and the IHDR size, so a deployed engine that wrote every
+ * picture blank — a 64 × 40 PNG of transparent black at the right box —
+ * passed it with "the page's picture is on slide 1".
+ */
+describe("pptxDeploymentVerdict decodes the picture", () => {
+  async function deckWithBlankPicture(
+    layout: "rgba8" | "rgb8",
+  ): Promise<Uint8Array> {
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      await pptxProofPdf(),
+      {
+        extract: async () => ({
+          pageCount: 1,
+          pages: PAGES,
+          text: PPTX_PROOF_TEXT,
+          characterCount: PPTX_PROOF_TEXT.length,
+          hasText: true,
+        }),
+        scanPages: async (bytes, options) => {
+          const scan = await scanPdfPages(bytes, options);
+          for (const item of scan.pages[0]!.items)
+            if (item.kind === "picture" && item.role === "image") {
+              const { pixelWidth: w, pixelHeight: h } = item.media;
+              item.media = {
+                ...item.media,
+                bytes: encodePngImage(
+                  w,
+                  h,
+                  layout,
+                  new Uint8Array(w * h * (layout === "rgba8" ? 4 : 3)),
+                ),
+                ext: "png",
+              };
+            }
+          return scan;
+        },
+      },
+    );
+    if (!run.ok) throw new Error(run.message);
+    return run.output;
+  }
+
+  it("NEGATIVE CONTROL: fails a deck whose picture is a transparent PNG of the right size", async () => {
+    const verdict = await pptxDeploymentVerdict(
+      await deckWithBlankPicture("rgba8"),
+    );
+    expect(verdict.ok).toBe(false);
+  });
+
+  it("NEGATIVE CONTROL: fails a deck whose picture is a black PNG of the right size", async () => {
+    const verdict = await pptxDeploymentVerdict(
+      await deckWithBlankPicture("rgb8"),
+    );
+    expect(verdict.ok).toBe(false);
   });
 });

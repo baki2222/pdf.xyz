@@ -6,7 +6,10 @@ import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { PdfTextExecError } from "../pdf-text/errors";
 import type { PdfFlowExtractor } from "../pdf-office-export/engine";
 import { scanPdfPages } from "../pdf-office-export/page-scan";
-import { scannedPdf } from "@/tests/pptx-fidelity-fixtures";
+import {
+  scannedPdf,
+  undecodablePicturePdf,
+} from "@/tests/pptx-fidelity-fixtures";
 import { scanning, textScan } from "@/tests/page-scan-stubs";
 import {
   createPdfOfficeExportProcessor,
@@ -283,6 +286,9 @@ describe("pdf-office-export processor", () => {
     }).process({ ...oneInput(fixture.pdf), tool: "pdf-to-powerpoint" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    // Since 2026-10-11 the block also says what the slides do NOT carry and
+    // which slides are empty, and those must cross the boundary too: the
+    // panel's "nothing on it" now reads `emptySlideCount`, not a difference.
     expect(sanitizeJobResults(result.results)?.officeExport).toEqual({
       pageCount: 1,
       textPageCount: 0,
@@ -291,6 +297,30 @@ describe("pdf-office-export processor", () => {
       pagesWithLittleText: [],
       picturePageCount: 1,
       pagesAsPictures: [1],
+      picturesNotCarried: 0,
+      picturesTooLarge: 0,
+      pagesMissingPictures: [],
+      emptySlideCount: 0,
+      flattenedPageCount: 0,
+      pagesFlattened: [],
+    });
+  });
+
+  it("carries a picture the deck could not take onto the job record, page by page", async () => {
+    const fixture = await undecodablePicturePdf();
+    const result = await createPdfOfficeExportProcessor({
+      extract,
+      extractFlow,
+      scanPages: scanPdfPages,
+    }).process({ ...oneInput(fixture.pdf), tool: "pdf-to-powerpoint" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(sanitizeJobResults(result.results)?.officeExport).toMatchObject({
+      pageCount: 3,
+      picturesNotCarried: 1,
+      picturesTooLarge: 0,
+      pagesMissingPictures: [2],
+      emptySlideCount: 1,
     });
   });
 });

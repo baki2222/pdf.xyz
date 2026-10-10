@@ -99,11 +99,17 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
+import { createRequire } from "node:module";
 import {
+  concatTransformationMatrix,
+  drawObject,
   PDFDocument,
   PDFArray,
   PDFRawStream,
   decodePDFRawStream,
+  popGraphicsState,
+  pushGraphicsState,
+  setFillingRgbColor,
 } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { tools, getToolBySlug } from "@/lib/tools";
@@ -144,7 +150,13 @@ import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { flowText } from "@/lib/workers/pdf-text/flow";
 import { parseBboxFlow } from "@/lib/workers/pdf-text/parse";
 import { OFFICE_METRIC_CLONES } from "@/lib/workers/office-conversion/fonts";
-import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
+import {
+  MAX_PICTURE_SIDE,
+  scanPdfPages,
+} from "@/lib/workers/pdf-office-export/page-scan";
+import { typefaceFor } from "@/lib/workers/pdf-office-export/deck-from-scan";
+import { getToolContent } from "./content";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { linesPdf } from "@/tests/pptx-fidelity-fixtures";
 import { TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
 import { runWorkerHtmlToPdf } from "@/lib/workers/html-render-client";
@@ -1554,5 +1566,223 @@ describe("the replacement copy states what the output actually is", () => {
     const before = rule.shipped.find((s) => s.startsWith("PDF to PowerPoint"));
     expect(before).toBeDefined();
     expect(caught([before!])).toEqual([before]);
+  });
+});
+
+/**
+ * PDF to PowerPoint's picture and font sentences, held to the engine (added
+ * 2026-10-11, from the review of the faithful export). Each sentence was
+ * true of the common case and false of an input the review built:
+ *
+ *  - "a JPEG photo is carried into the .pptx byte for byte, at the
+ *    resolution the PDF holds it": only up to MAX_PICTURE_SIDE on its long
+ *    side — every 4032 × 3024 phone photo is re-encoded and scaled down;
+ *  - "a font PowerPoint is likely to have … keeps its name": the deck kept
+ *    Liberation, Carlito, Caladea, DejaVu and Noto by name, the faces of
+ *    every PDF LibreOffice writes on Linux, and PowerPoint for Windows ships
+ *    none of them;
+ *  - "Every picture on a page lands on its slide as a picture of its own":
+ *    a stencil mask is drawn into the drawing pictures, not placed alone.
+ */
+describe("PDF to PowerPoint: the picture and font sentences hold of the engine", () => {
+  const ppt = getToolContent("pdf-to-powerpoint")!;
+  const pageText = () =>
+    [
+      ...ppt.intro,
+      ...ppt.useCases.map((u) => u.body),
+      ...ppt.steps.map((s) => s.body),
+      ...ppt.faqs.map((f) => f.a),
+      ...toolFacts("pdf-to-powerpoint").map((f) => f.value),
+    ].join("\n");
+
+  /**
+   * The faces Windows 10/11 and Microsoft 365 install: a fact about the
+   * outside world, written down here, not derived from the code it judges.
+   */
+  const WINDOWS_OR_OFFICE = new Set([
+    "Aptos",
+    "Arial",
+    "Arial Black",
+    "Arial Narrow",
+    "Bahnschrift",
+    "Book Antiqua",
+    "Bookman Old Style",
+    "Calibri",
+    "Calibri Light",
+    "Cambria",
+    "Candara",
+    "Century",
+    "Century Gothic",
+    "Comic Sans MS",
+    "Consolas",
+    "Constantia",
+    "Corbel",
+    "Courier New",
+    "Franklin Gothic Medium",
+    "Garamond",
+    "Georgia",
+    "Gill Sans MT",
+    "Impact",
+    "Lucida Console",
+    "Lucida Sans Unicode",
+    "Palatino Linotype",
+    "Segoe UI",
+    "Segoe UI Symbol",
+    "Symbol",
+    "Tahoma",
+    "Times New Roman",
+    "Trebuchet MS",
+    "Verdana",
+    "Webdings",
+    "Wingdings",
+    "Wingdings 2",
+    "Wingdings 3",
+  ]);
+
+  it("every font the deck names is one Windows or Office ships; a free clone becomes the face it copies", () => {
+    const families = [
+      ...OFFICE_METRIC_CLONES.flatMap((c) => [c.office, c.clone]),
+      "DejaVu Sans",
+      "DejaVu Serif",
+      "DejaVu Sans Mono",
+      "Noto Sans",
+      "Noto Serif",
+      "Noto Sans Mono",
+      "Segoe UI",
+      "Helvetica",
+      "Times",
+      "Courier",
+      "Some Unknown Grotesk",
+    ];
+    const named = families.map((family) =>
+      typefaceFor({ family, fontClass: "sans", text: "Abc" }),
+    );
+    expect(
+      named.filter((n) => !WINDOWS_OR_OFFICE.has(n)),
+      "the deck asks PowerPoint for a font Windows and Office do not ship",
+    ).toEqual([]);
+    for (const c of OFFICE_METRIC_CLONES)
+      expect(
+        typefaceFor({ family: c.clone, fontClass: "sans", text: "Abc" }),
+        c.clone,
+      ).toBe(c.office);
+    // The page says exactly that, and no longer says "likely to have".
+    const text = pageText();
+    expect(text).toMatch(/comes with Windows or Office[^.]*keeps its name/);
+    expect(text).toMatch(/becomes the font it copies/);
+    expect(text).not.toMatch(/likely to have/);
+  });
+
+  it("a JPEG is copied byte for byte only up to the size the page names; a larger one is scaled down to it", async () => {
+    // Two plain JPEGs, one each side of the limit, made by the canvas
+    // pdf.js itself paints with.
+    const canvas = createRequire(
+      createRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
+    )("@napi-rs/canvas") as {
+      createCanvas(
+        w: number,
+        h: number,
+      ): {
+        getContext(k: "2d"): {
+          fillStyle: string;
+          fillRect(x: number, y: number, w: number, h: number): void;
+        };
+        toBuffer(m: "image/jpeg", q: number): Uint8Array;
+      };
+    };
+    const jpeg = (w: number, h: number) => {
+      const c = canvas.createCanvas(w, h);
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#3366cc";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#cc3333";
+      ctx.fillRect(0, 0, w / 2, h);
+      return new Uint8Array(c.toBuffer("image/jpeg", 85));
+    };
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([720, 540]);
+    const small = jpeg(MAX_PICTURE_SIDE, 60);
+    const large = jpeg(MAX_PICTURE_SIDE + 400, 60);
+    for (const [bytes, y] of [
+      [small, 100],
+      [large, 300],
+    ] as const)
+      await drawRasterImage(page, await embedRasterImage(doc, bytes, "jpg"), {
+        x: 40,
+        y,
+        width: 600,
+        height: 40,
+      });
+    const run = await runPdfOfficeExport(
+      PDF_TO_POWERPOINT_TOOL,
+      await doc.save(),
+      { extract: stubExtract([""]), scanPages: scanPdfPages },
+    );
+    if (!run.ok) throw new Error(run.message);
+    const zip = await JSZip.loadAsync(run.output);
+    const media = await Promise.all(
+      Object.keys(zip.files)
+        .filter((n) => n.startsWith("ppt/media/") && !zip.files[n]!.dir)
+        .map((n) => zip.file(n)!.async("uint8array")),
+    );
+    const same = (a: Uint8Array, b: Uint8Array) =>
+      a.length === b.length && a.every((v, i) => v === b[i]);
+    expect(
+      media.some((m) => same(m, small)),
+      "the small JPEG, byte for byte",
+    ).toBe(true);
+    expect(
+      media.some((m) => same(m, large)),
+      "the large JPEG was copied",
+    ).toBe(false);
+    // The page names the limit, from the constant that applies it.
+    const px = MAX_PICTURE_SIDE.toLocaleString("en-US");
+    const text = pageText();
+    expect(text).toMatch(new RegExp(`up to ${px} pixels[^;]*byte for byte`));
+    expect(text).toMatch(new RegExp(`scaled down to ${px} pixels`));
+    expect(text).not.toMatch(
+      /byte for byte, at the resolution the PDF holds it/,
+    );
+  });
+
+  it("a stencilled picture is drawn with the drawing, so the page does not promise every picture alone", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 300]);
+    const bits = new Uint8Array(8 * 64).fill(0xaa);
+    const ref = doc.context.register(
+      doc.context.flateStream(bits, {
+        Type: "XObject",
+        Subtype: "Image",
+        Width: 64,
+        Height: 64,
+        ImageMask: true,
+        BitsPerComponent: 1,
+      }),
+    );
+    const name = page.node.newXObject("Im", ref);
+    page.pushOperators(
+      pushGraphicsState(),
+      setFillingRgbColor(0.8, 0.1, 0.1),
+      concatTransformationMatrix(200, 0, 0, 200, 100, 50),
+      drawObject(name),
+      popGraphicsState(),
+    );
+    const run = await runPdfOfficeExport(
+      PDF_TO_POWERPOINT_TOOL,
+      await doc.save(),
+      { extract: stubExtract([""]), scanPages: scanPdfPages },
+    );
+    if (!run.ok) throw new Error(run.message);
+    const slide = await (
+      await JSZip.loadAsync(run.output)
+    )
+      .file("ppt/slides/slide1.xml")!
+      .async("string");
+    // Health: the stencil is ON the slide — as drawing, not as a picture.
+    expect(slide).toMatch(/name="Drawing /);
+    expect(slide).not.toMatch(/name="Picture /);
+    expect(pageText()).not.toMatch(
+      /\bevery picture on (?:a|the) page (?:lands|is)\b/i,
+    );
   });
 });
