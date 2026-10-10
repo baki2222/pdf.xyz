@@ -266,11 +266,14 @@ tab.
 page and drop it on the headline, not on the drop zone.
 
 **Must hear:** nothing while you drag (the page dims and says _"Release to open
-in Rotate PDF"_ on screen only — a drag is a pointer gesture), then the editor:
-the file's name and its pages, exactly as after a pick. Drop a second PDF on the
-headline.
+in Rotate PDF"_ on screen only — a drag is a pointer gesture), then only the
+editor's own progress, _"Rendering previews…"_, as after a pick: nothing
+announces the file itself. Put focus on one of the editor's buttons, copy a
+second PDF in your file manager, and paste it (`Ctrl V` / `⌘ V`).
 
-**Must hear:** the new file's name; the first one is gone. Now drop a JPG.
+**Must hear:** _"Replaced first.pdf with second.pdf in Rotate PDF."_ (your two
+files' names), and focus on the new file's header — its name, its pages and its
+size — not on the page. Now drop a JPG.
 
 **Must hear:** a dialog — _"What you can do with these files, dialog"_ — with
 _"Rotate PDF can't open it."_ at its top, and focus inside it. `Tab` goes round
@@ -291,18 +294,22 @@ paste again: the search field takes the paste, and no dialog opens.
 file upload, described by _"Accepts PDF · Max … MB per file"_, then **Open
 Merge PDF**. Pick two PDFs.
 
-**Must hear:** _"Opening Merge PDF with your file…"_, then Merge PDF, saying
+**Must hear:** _"Opening Merge PDF with your 2 files…"_, then Merge PDF, saying
 _"Loaded 2 files you added."_
 
 <https://pdf.xyz/guides/how-to-convert-pdf-to-word> — the same desk says
 _"Drop a PDF to see which tools open it, or browse"_; it never offers to open
-PDF to Word with the file, which no browser runner can.
+PDF to Word with the file, which no browser runner can. Pick a PDF.
+
+**Must hear:** the dialog, and as its first suggestion _"Open PDF to Word —
+you'll add report.pdf there"_ (your file's name).
 
 **Fails if:** a dropped or pasted file opens in the tab; a drop beside the
-editor does not replace the file, or a JPG closes it; the dialog is not named,
-lets `Tab` out, or keeps focus after `Escape`; a paste into a text field opens
-the dialog; or a guide whose tool runs on a worker promises to open it with the
-file.
+editor does not replace the file, or a JPG closes it; a replace is not said, or
+leaves focus on the page; the dialog is not named, lets `Tab` out, or keeps
+focus after `Escape`; a paste into a text field opens the dialog; a guide whose
+tool runs on a worker promises to open it with the file, or leaves that tool out
+of the dialog's first row; or the desk says "your file" for two.
 
 ---
 
