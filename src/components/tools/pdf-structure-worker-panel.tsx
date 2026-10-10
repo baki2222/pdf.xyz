@@ -46,10 +46,16 @@ import { OfficeExportNextStep } from "./office-export-notices";
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
  * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 — phone at 360px 399px, `sm` at 640px 269px, `lg` at 1024px
- * 272.3px — plus 4px, to the half rem.
+ * 2026-10-10 on Windows: phone at 360px 438px (Optimize for web; Repair
+ * 418.5px), `sm` at 640px 269px, `lg` at 1024px 311.3px.
+ * The worker-off state grew when its notice gained the logs-and-analytics
+ * disclosure (fix/privacy-truth, 2026-10-10); at `lg` it overflowed the
+ * 280px reserve by 31px. The phone and `lg` reserves are refitted to clear
+ * the tallest state by at least 3.5%, to the half rem: the headroom Linux
+ * Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
+ * e2e/tool-layout.mobile.spec.ts).
  */
-const STATUS_SLOT = "min-h-[26rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
+const STATUS_SLOT = "min-h-[28.5rem] sm:min-h-[17.5rem] lg:min-h-[20.5rem]";
 
 type Phase = WorkerPhase;
 type Mode = "repair" | "optimize";

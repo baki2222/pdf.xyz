@@ -38,10 +38,15 @@ import { PdfANotes } from "./pdfa-notes";
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
  * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 — phone at 360px 308px, `sm` at 640px 269px, `lg` at 1024px
- * 269px — plus 4px, to the half rem.
+ * 2026-10-10 on Windows: phone at 360px 327.5px, `sm` at 640px 269px,
+ * `lg` at 1024px 269px.
+ * The worker-off state grew when its notice gained the logs-and-analytics
+ * disclosure (fix/privacy-truth, 2026-10-10), so the phone reserve is refitted
+ * to clear the tallest state by at least 3.5%, to the half rem: the headroom
+ * Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
+ * e2e/tool-layout.mobile.spec.ts).
  */
-const STATUS_SLOT = "min-h-[20rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
+const STATUS_SLOT = "min-h-[21.5rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
 
 type Phase = WorkerPhase;
 
