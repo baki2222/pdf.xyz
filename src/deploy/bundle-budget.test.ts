@@ -354,6 +354,14 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * not here. No ceiling changes: what is still to come fits under each
  * tool row with 1.2 / 1.5 / 1.6 to spare (was 1.5 / 1.8 / 1.9).
  *
+ * WP-08 SECOND REPAIR, 2026-10-11 (the re-review: Compress PDF's CLS after
+ * a pick). Same weigher, 4de768a2's build against the repair's: every row
+ * above ±0 to the byte, the runner kit unchanged. Compress PDF, which no
+ * row names (held by `EVERY_TOOL_PAGE`), 822,194 -> 822,877 bytes raw
+ * (+683) and 263,237 -> 263,566 gz (+329): its stage held from the frame a
+ * file arrives (`stageHoldPx`) and the ending fetched then, both in its
+ * own runner's chunk.
+ *
  * WHAT IS STILL TO COME is held against every row by the test after
  * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
  * fails. The one row the layout's remaining growth cannot reach is /tools,
