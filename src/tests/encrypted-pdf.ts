@@ -32,7 +32,7 @@
  * hand (ISO 32000-1 §7.5.7, §7.5.8); strings inside the packed objects are not
  * encrypted individually, because the stream that holds them is.
  */
-import { createHash } from "node:crypto";
+import { createCipheriv, createHash } from "node:crypto";
 import {
   PDFArray,
   PDFDict,
@@ -110,6 +110,17 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * The cipher a fixture is encrypted with. `rc4-128` — Standard handler
+ * revision 3, the default and until 2026-10-11 the only one — is what pypdf
+ * and many generators write; `rc4-40` is revision 2; `aes-128` is revision 4
+ * with the AESV2 crypt filter; `aes-256` is revision 6 with AESV3, what
+ * Acrobat and Word write today. Each is opened with pdf.js, an independent
+ * implementation of the same algorithms, before a test trusts it
+ * (`page-inventory.test.ts`).
+ */
+export type EncryptCipher = "rc4-40" | "rc4-128" | "aes-128" | "aes-256";
+
 export interface EncryptOptions {
   /** Password needed to OPEN the file. `""` means anyone can open it. */
   userPassword: string;
@@ -126,12 +137,213 @@ export interface EncryptOptions {
    * header for why this layout exists.
    */
   objectStreams?: boolean;
+  /** The cipher; `rc4-128` when omitted. */
+  cipher?: EncryptCipher;
+}
+
+/** How one fixture is encrypted: its dictionary, and each object's bytes. */
+interface Scheme {
+  /** The /Encrypt dictionary (never itself encrypted, §7.6.1). */
+  dict: PDFDict;
+  /** `data`, a string or stream body of the indirect object `ref`, encrypted. */
+  encrypt(ref: PDFRef, data: Uint8Array): Uint8Array;
+}
+
+function sha(algorithm: string, ...parts: Uint8Array[]): Uint8Array {
+  const h = createHash(algorithm);
+  for (const p of parts) h.update(p);
+  return new Uint8Array(h.digest());
+}
+
+/** AES in `mode` over whole blocks, no padding (the caller pads). */
+function aes(
+  mode: "cbc" | "ecb",
+  key: Uint8Array,
+  iv: Uint8Array | null,
+  data: Uint8Array,
+): Uint8Array {
+  const c = createCipheriv(`aes-${key.length * 8}-${mode}`, key, iv);
+  c.setAutoPadding(false);
+  return new Uint8Array(Buffer.concat([c.update(data), c.final()]));
 }
 
 /**
- * Encrypt `source` with the Standard security handler, R3/RC4-128, and return
- * the bytes. `source` is serialised and re-parsed first so every stream is a raw
- * stream whose bytes are final, and so the caller's document is left untouched.
+ * ISO 32000-2 §7.6.4.3.4, Algorithm 2.B — written here apart from the code
+ * under test (`standard-security.ts`), so that a misreading shared by both
+ * is caught by pdf.js rather than agreed with.
+ */
+function hash2B(
+  password: Uint8Array,
+  salt: Uint8Array,
+  udata: Uint8Array,
+): Uint8Array {
+  let k = sha("sha256", password, salt, udata);
+  for (let round = 1; ; round++) {
+    const block = concat([password, k, udata]);
+    const k1 = new Uint8Array(block.length * 64);
+    for (let r = 0; r < 64; r++) k1.set(block, r * block.length);
+    const e = aes("cbc", k.subarray(0, 16), k.subarray(16, 32), k1);
+    let mod3 = 0;
+    for (let i = 0; i < 16; i++) mod3 = (mod3 * 256 + e[i]!) % 3;
+    k = sha(["sha256", "sha384", "sha512"][mod3]!, e);
+    if (round >= 64 && e[e.length - 1]! <= round - 32) break;
+  }
+  return k.subarray(0, 32);
+}
+
+/** `<< /StdCF << /CFM /<method> /AuthEvent /DocOpen /Length n >> >>`. */
+function cryptFilters(
+  ctx: PDFDocument["context"],
+  method: string,
+  length: number,
+): PDFDict {
+  return ctx.obj({
+    StdCF: ctx.obj({ CFM: method, AuthEvent: "DocOpen", Length: length }),
+  });
+}
+
+function schemeFor(
+  ctx: PDFDocument["context"],
+  cipher: EncryptCipher,
+  opts: EncryptOptions,
+  permissions: number,
+  id: Uint8Array,
+): Scheme {
+  // AES: a fresh IV for every string and stream — deterministic here, so a
+  // fixture is the same bytes on every run.
+  let ivs = 0;
+  const aesPadded = (key: Uint8Array, data: Uint8Array) => {
+    const iv = md5(latin1(`pdf.xyz fixture iv ${ivs++}`));
+    const pad = 16 - (data.length % 16);
+    const padded = new Uint8Array(data.length + pad).fill(pad);
+    padded.set(data);
+    return concat([iv, aes("cbc", key, iv, padded)]);
+  };
+  const hex = (b: Uint8Array) => PDFHexString.of(toHex(b));
+
+  if (cipher === "aes-256") {
+    const fileKey = sha(
+      "sha256",
+      latin1(`pdf.xyz fixture key ${opts.ownerPassword}`),
+    );
+    const salt = (label: string) =>
+      sha("sha256", latin1(`pdf.xyz fixture salt ${label}`)).subarray(0, 8);
+    const user = new TextEncoder().encode(opts.userPassword).subarray(0, 127);
+    const owner = new TextEncoder().encode(opts.ownerPassword).subarray(0, 127);
+    const none = new Uint8Array(0);
+    const zero = new Uint8Array(16);
+    // Algorithms 8 and 9: /U and /UE, then /O and /OE over the whole /U.
+    const U = concat([hash2B(user, salt("uv"), none), salt("uv"), salt("uk")]);
+    const UE = aes("cbc", hash2B(user, salt("uk"), none), zero, fileKey);
+    const O = concat([hash2B(owner, salt("ov"), U), salt("ov"), salt("ok")]);
+    const OE = aes("cbc", hash2B(owner, salt("ok"), U), zero, fileKey);
+    // Algorithm 10: /Perms.
+    const perms = new Uint8Array(16);
+    new DataView(perms.buffer).setInt32(0, permissions, true);
+    perms.set([0xff, 0xff, 0xff, 0xff, 0x54, 0x61, 0x64, 0x62], 4); // "Tadb"
+    return {
+      dict: ctx.obj({
+        Filter: "Standard",
+        V: 5,
+        R: 6,
+        Length: 256,
+        CF: cryptFilters(ctx, "AESV3", 32),
+        StmF: "StdCF",
+        StrF: "StdCF",
+        P: permissions,
+        O: hex(O),
+        U: hex(U),
+        OE: hex(OE),
+        UE: hex(UE),
+        Perms: hex(aes("ecb", fileKey, null, perms)),
+      }),
+      encrypt: (_ref, data) => aesPadded(fileKey, data),
+    };
+  }
+
+  // Revisions 2 to 4: the RC4-based /O and /U, and the MD5-based key.
+  const r2 = cipher === "rc4-40";
+  const bytes = r2 ? 5 : KEY_BYTES;
+  // Algorithm 3: the /O value.
+  let ownerKey = md5(padPassword(opts.ownerPassword || opts.userPassword));
+  if (!r2) for (let i = 0; i < 50; i++) ownerKey = md5(ownerKey);
+  const O = r2
+    ? rc4(ownerKey.subarray(0, bytes), padPassword(opts.userPassword))
+    : rc4Twenty(ownerKey.subarray(0, bytes), padPassword(opts.userPassword));
+
+  // Algorithm 2: the file encryption key.
+  let key = md5(padPassword(opts.userPassword), O, le32(permissions), id);
+  if (!r2) for (let i = 0; i < 50; i++) key = md5(key.subarray(0, bytes));
+  key = key.subarray(0, bytes);
+
+  // Algorithm 4 (revision 2) or 5: the /U value.
+  const U = new Uint8Array(32);
+  if (r2) U.set(rc4(key, PAD));
+  else {
+    U.set(rc4Twenty(key, md5(PAD, id)));
+    U.set(PAD.subarray(0, 16), 16);
+  }
+
+  const aesV2 = cipher === "aes-128";
+  const objectKey = (ref: PDFRef): Uint8Array => {
+    const n = ref.objectNumber;
+    const g = ref.generationNumber;
+    const salt = Uint8Array.of(
+      n & 0xff,
+      (n >> 8) & 0xff,
+      (n >> 16) & 0xff,
+      g & 0xff,
+      (g >> 8) & 0xff,
+    );
+    return (aesV2 ? md5(key, salt, latin1("sAlT")) : md5(key, salt)).subarray(
+      0,
+      Math.min(bytes + 5, 16),
+    );
+  };
+  if (aesV2)
+    return {
+      dict: ctx.obj({
+        Filter: "Standard",
+        V: 4,
+        R: 4,
+        Length: 128,
+        CF: cryptFilters(ctx, "AESV2", 16),
+        StmF: "StdCF",
+        StrF: "StdCF",
+        P: permissions,
+        O: hex(O),
+        U: hex(U),
+      }),
+      encrypt: (ref, data) => aesPadded(objectKey(ref), data),
+    };
+  return {
+    dict: r2
+      ? ctx.obj({
+          Filter: "Standard",
+          V: 1,
+          R: 2,
+          P: permissions,
+          O: hex(O),
+          U: hex(U),
+        })
+      : ctx.obj({
+          Filter: "Standard",
+          V: 2,
+          R: 3,
+          Length: KEY_BYTES * 8,
+          P: permissions,
+          O: hex(O),
+          U: hex(U),
+        }),
+    encrypt: (ref, data) => rc4(objectKey(ref), data),
+  };
+}
+
+/**
+ * Encrypt `source` with the Standard security handler — R3/RC4-128 unless
+ * `opts.cipher` says otherwise — and return the bytes. `source` is serialised
+ * and re-parsed first so every stream is a raw stream whose bytes are final,
+ * and so the caller's document is left untouched.
  */
 export async function encryptPdf(
   source: Uint8Array,
@@ -144,50 +356,26 @@ export async function encryptPdf(
   const id = md5(
     new TextEncoder().encode(`pdf.xyz fixture ${opts.ownerPassword}`),
   );
-
-  // Algorithm 3: the /O value.
-  let ownerKey = md5(padPassword(opts.ownerPassword || opts.userPassword));
-  for (let i = 0; i < 50; i++) ownerKey = md5(ownerKey);
-  const O = rc4Twenty(
-    ownerKey.subarray(0, KEY_BYTES),
-    padPassword(opts.userPassword),
+  const scheme = schemeFor(
+    ctx,
+    opts.cipher ?? "rc4-128",
+    opts,
+    permissions,
+    id,
   );
 
-  // Algorithm 2: the file encryption key.
-  let key = md5(padPassword(opts.userPassword), O, le32(permissions), id);
-  for (let i = 0; i < 50; i++) key = md5(key.subarray(0, KEY_BYTES));
-  key = key.subarray(0, KEY_BYTES);
-
-  // Algorithm 5: the /U value (16 meaningful bytes + 16 of arbitrary padding).
-  const U = new Uint8Array(32);
-  U.set(rc4Twenty(key, md5(PAD, id)));
-  U.set(PAD.subarray(0, 16), 16);
-
-  const objectKey = (ref: PDFRef): Uint8Array => {
-    const n = ref.objectNumber;
-    const g = ref.generationNumber;
-    const salt = Uint8Array.of(
-      n & 0xff,
-      (n >> 8) & 0xff,
-      (n >> 16) & 0xff,
-      g & 0xff,
-      (g >> 8) & 0xff,
-    );
-    return md5(key, salt).subarray(0, Math.min(KEY_BYTES + 5, 16));
-  };
-
-  const encryptValue = (value: PDFObject, k: Uint8Array): PDFObject => {
+  const encryptValue = (value: PDFObject, ref: PDFRef): PDFObject => {
     if (value instanceof PDFString || value instanceof PDFHexString) {
-      return PDFHexString.of(toHex(rc4(k, value.asBytes())));
+      return PDFHexString.of(toHex(scheme.encrypt(ref, value.asBytes())));
     }
     if (value instanceof PDFArray) {
       for (let i = 0; i < value.size(); i++)
-        value.set(i, encryptValue(value.get(i), k));
+        value.set(i, encryptValue(value.get(i), ref));
       return value;
     }
     if (value instanceof PDFDict) {
       for (const [name, v] of value.entries())
-        value.set(name, encryptValue(v, k));
+        value.set(name, encryptValue(v, ref));
       return value;
     }
     return value;
@@ -195,30 +383,22 @@ export async function encryptPdf(
 
   if (opts.objectStreams) {
     return writeObjectStreamLayout(doc, {
-      objectKey,
+      encrypt: scheme.encrypt,
       encryptValue,
-      encryptDict: {
-        V: 2,
-        R: 3,
-        Length: KEY_BYTES * 8,
-        P: permissions,
-        O: toHex(O),
-        U: toHex(U),
-      },
+      encryptDict: scheme.dict,
       id,
     });
   }
 
   let encrypted = 0;
   for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
-    const k = objectKey(ref);
     if (obj instanceof PDFRawStream) {
-      encryptValue(obj.dict, k);
-      const cipher = rc4(k, obj.contents);
+      encryptValue(obj.dict, ref);
+      const cipher = scheme.encrypt(ref, obj.contents);
       ctx.assign(ref, PDFRawStream.of(obj.dict, cipher));
       encrypted++;
     } else {
-      ctx.assign(ref, encryptValue(obj, k));
+      ctx.assign(ref, encryptValue(obj, ref));
     }
   }
   // Health check: a document with no stream at all has no page content, so a
@@ -227,17 +407,7 @@ export async function encryptPdf(
 
   // Registered AFTER the walk: the Encrypt dictionary's own strings are never
   // encrypted (ISO 32000-1 §7.6.1).
-  ctx.trailerInfo.Encrypt = ctx.register(
-    ctx.obj({
-      Filter: PDFName.of("Standard"),
-      V: PDFNumber.of(2),
-      R: PDFNumber.of(3),
-      Length: PDFNumber.of(KEY_BYTES * 8),
-      P: PDFNumber.of(permissions),
-      O: PDFHexString.of(toHex(O)),
-      U: PDFHexString.of(toHex(U)),
-    }),
-  );
+  ctx.trailerInfo.Encrypt = ctx.register(scheme.dict);
   const idHex = PDFHexString.of(toHex(id));
   ctx.trailerInfo.ID = ctx.obj([idHex, idHex]);
   return doc.save({ useObjectStreams: false, updateFieldAppearances: false });
@@ -273,16 +443,9 @@ function concat(parts: Uint8Array[]): Uint8Array {
 function writeObjectStreamLayout(
   doc: PDFDocument,
   crypto: {
-    objectKey: (ref: PDFRef) => Uint8Array;
-    encryptValue: (value: PDFObject, k: Uint8Array) => PDFObject;
-    encryptDict: {
-      V: number;
-      R: number;
-      Length: number;
-      P: number;
-      O: string;
-      U: string;
-    };
+    encrypt: (ref: PDFRef, data: Uint8Array) => Uint8Array;
+    encryptValue: (value: PDFObject, ref: PDFRef) => PDFObject;
+    encryptDict: PDFDict;
     id: Uint8Array;
   },
 ): Uint8Array {
@@ -320,7 +483,7 @@ function writeObjectStreamLayout(
   const plainObjStm = concat(
     [headerBytes].concat(bodies.flatMap((b) => [b, latin1("\n")])),
   );
-  const cipherObjStm = rc4(crypto.objectKey(objStmRef), plainObjStm);
+  const cipherObjStm = crypto.encrypt(objStmRef, plainObjStm);
 
   const parts: Uint8Array[] = [latin1("%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")];
   let cursor = parts[0]!.length;
@@ -344,9 +507,8 @@ function writeObjectStreamLayout(
     ]);
 
   for (const [ref, stream] of streams) {
-    const k = crypto.objectKey(ref);
-    crypto.encryptValue(stream.dict, k);
-    const cipher = rc4(k, stream.contents);
+    crypto.encryptValue(stream.dict, ref);
+    const cipher = crypto.encrypt(ref, stream.contents);
     stream.dict.set(PDFName.of("Length"), PDFNumber.of(cipher.length));
     emit(ref.objectNumber, streamBytes(stream.dict, cipher));
   }
@@ -362,21 +524,7 @@ function writeObjectStreamLayout(
       cipherObjStm,
     ),
   );
-  const e = crypto.encryptDict;
-  emit(
-    encryptRef.objectNumber,
-    objectBytes(
-      ctx.obj({
-        Filter: "Standard",
-        V: e.V,
-        R: e.R,
-        Length: e.Length,
-        P: e.P,
-        O: PDFHexString.of(e.O),
-        U: PDFHexString.of(e.U),
-      }),
-    ),
-  );
+  emit(encryptRef.objectNumber, objectBytes(crypto.encryptDict));
 
   // The cross-reference stream: W [1 4 2] — type, offset or stream, index.
   const xrefOffset = cursor;

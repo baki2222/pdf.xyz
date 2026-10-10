@@ -26,6 +26,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   bigPhotosPdf,
+  damageContentStreams,
   imageCaptionPdf,
   PPTX_FIDELITY_FIXTURES,
   undecodablePicturePdf,
@@ -139,7 +140,17 @@ describe("the inventory names the images pdf.js decodes, page by page", () => {
     expect(inventory.map((p) => p.visibleTextOps)).toEqual([1, 0]);
   });
 
-  it("falls back to what an encrypted file DECLARES, and says it is inexact", async () => {
+  /*
+   * INVERTED 2026-10-11 (the second re-review). This test pinned that an
+   * encrypted file falls back to what its pages DECLARE, "and says it is
+   * inexact" — a limitation of the reader (pdf-lib does not decrypt), and
+   * the root of two defects on one day: a page charged for every image it
+   * declared lost all of an album's photos; one charged for nothing decoded
+   * 2.2 GB from a 1 MB upload. A viewer opens this file with no password,
+   * and so, now, does the reader (`./standard-security`). The file is
+   * `rc4EncryptedPdf`'s: revision 2, RC4-40, from a helper of its own.
+   */
+  it("reads an owner-password file's page exactly, as a viewer opens it", async () => {
     const pdf = rc4EncryptedPdf({
       userPassword: "",
       ownerPassword: "owner",
@@ -147,8 +158,62 @@ describe("the inventory names the images pdf.js decodes, page by page", () => {
     });
     const inventory = (await inventoryPages(pdf))!;
     expect(inventory).toHaveLength(1);
-    expect(inventory[0]!.exact).toBe(false);
+    expect(inventory[0]!.exact).toBe(true);
+    // Health: the content was READ — its one line of text is counted — not
+    // merely called exact.
+    expect(inventory[0]!.visibleTextOps).toBe(1);
   });
+
+  /*
+   * 2026-10-11, the second re-review: every Standard-handler cipher a viewer
+   * opens with no password, in both layouts, over every fixture the export
+   * is proven on. The fixtures' encryption is the test helper's own, and
+   * pdf.js — an independent implementation — is its oracle: a locked
+   * variant must paint exactly what the unlocked file paints, or the
+   * comparison below would be agreeing with a broken fixture.
+   */
+  const CIPHERS = ["rc4-40", "rc4-128", "aes-128", "aes-256"] as const;
+  it.each(
+    CIPHERS.flatMap((cipher) =>
+      [false, true].map((objectStreams) => [cipher, objectStreams] as const),
+    ),
+  )(
+    "%s (object streams: %s): a locked file's inventory is the unlocked file's",
+    async (cipher, objectStreams) => {
+      const lock = (pdf: Uint8Array) =>
+        encryptPdf(pdf, {
+          userPassword: "",
+          ownerPassword: "owner",
+          objectStreams,
+          cipher,
+        });
+      const oracle = await imageCaptionPdf();
+      expect(await pdfjsImages(await lock(oracle.pdf))).toEqual(
+        await pdfjsImages(oracle.pdf),
+      );
+      let images = 0;
+      for (const build of PPTX_FIDELITY_FIXTURES) {
+        const fixture = await build();
+        const plain = (await inventoryPages(fixture.pdf))!;
+        const locked = await inventoryPages(await lock(fixture.pdf));
+        expect(locked, fixture.name).toEqual(plain);
+        images += plain.flatMap((p) => p.images).length;
+      }
+      // Health: equal, and not equal by being empty.
+      expect(images).toBeGreaterThanOrEqual(10);
+      // A file that needs a password is not read as plaintext: its key does
+      // not check against /U, and the page falls back, inexact.
+      const userLocked = await inventoryPages(
+        await encryptPdf(oracle.pdf, {
+          userPassword: "secret",
+          ownerPassword: "owner",
+          cipher,
+        }),
+      );
+      expect(userLocked?.[0]?.exact).toBe(false);
+    },
+    60_000,
+  );
 
   it("an unreadable page's fallback reaches every image its resources can: forms, tiling patterns, soft-mask groups, Type3 fonts", async () => {
     // The fallback is an upper bound on what the page paints only if it
@@ -232,11 +297,11 @@ describe("the inventory names the images pdf.js decodes, page by page", () => {
     const exact = (await inventoryPages(plain))!;
     expect(exact[0]!.exact).toBe(true);
     expect(sizes(exact)).toEqual([]);
-    const locked = await encryptPdf(plain, {
-      userPassword: "",
-      ownerPassword: "owner",
-    });
-    const declared = (await inventoryPages(locked))!;
+    // CHANGED 2026-10-11 (the second re-review): the page is made
+    // unreadable by a broken checksum on its content stream, not by
+    // encryption — an encrypted page is now read like any other.
+    const damaged = await damageContentStreams(plain);
+    const declared = (await inventoryPages(damaged))!;
     expect(declared[0]!.exact).toBe(false);
     expect(sizes(declared)).toEqual(["11x3", "13x3", "17x3", "19x3"]);
   });
@@ -251,15 +316,22 @@ describe("the inventory names the images pdf.js decodes, page by page", () => {
    * encrypted object stream. pdf-lib LOADS it and then has no catalog, and
    * the walk threw "Cannot read properties of undefined (reading 'Pages')"
    * — outside any try in the page scan, so the whole export failed.
+   *
+   * INVERTED the same day (the second re-review): "has no inventory" was
+   * the fix for the throw, and it pinned a reader that knew nothing about
+   * such a file's pages. The object stream is now decrypted and read, so
+   * the page tree is there. What stays pinned is that the raw walk over
+   * pdf-lib's own load still throws — the shape the scan meets first.
    */
-  it("has no inventory, and does not throw, when the page tree is inside an encrypted object stream", async () => {
+  it("reads the page tree out of an encrypted object stream, and does not throw", async () => {
     const doc = await PDFDocument.load(ownerOnlyObjectStreamPdf(), LOAD);
     // Health: loaded, encrypted, and the raw walk does throw on it — the
     // shape the scan met, not a file pdf-lib refuses outright.
     expect(doc.isEncrypted).toBe(true);
     expect(() => inventoryOf(doc)).toThrow();
     expect(readInventory(doc)).toBeNull();
-    expect(await inventoryPages(ownerOnlyObjectStreamPdf())).toBeNull();
+    const inventory = await inventoryPages(ownerOnlyObjectStreamPdf());
+    expect(inventory?.map((p) => p.exact)).toEqual([true]);
   });
 
   it("still names every picture such a file holds, from the dictionaries left in the clear", async () => {
@@ -394,8 +466,18 @@ describe("the decode budget", () => {
    * over it was counted too large. An owner-password file of twelve 6-MP
    * photos under one shared /Resources lost all twelve, and its note said
    * 144 pictures were too large.
+   *
+   * INVERTED the same day (the second re-review). The repair let such a
+   * page's ceiling "never fall below the floor" — and so let it decode
+   * anything up to 64 MP, as many times as the page paints one: one page of
+   * six 8000² photos decoded 2.2 GB, encrypted with an owner password or
+   * merely with a broken checksum on its content stream. The ceiling is
+   * held to the page budget over everything the page can reach again (an
+   * upper bound on what it paints, so the bound holds whatever it paints);
+   * what stays is that nothing it only declares is COUNTED, and the
+   * encrypted album no longer reaches this branch (`./standard-security`).
    */
-  it("an inexact page never lowers the ceiling below the floor, and counts nothing it only declares", () => {
+  it("an inexact page is held to the page budget over all it can reach, and counts nothing it only declares", () => {
     const declared = page([100, 100, 60], [100, 100, 60]);
     const opts = { pageBytes: 100, floorPixels: 1_000_000 };
     // Control: read exactly, the pair is over the budget, left out, counted.
@@ -403,8 +485,12 @@ describe("the decode budget", () => {
     expect(exact.pages[0]!.tooLarge).toBe(2);
     expect(exact.pages[0]!.cap).toBeLessThan(10_000);
     const plan = decodeBudgetPlan([{ ...declared, exact: false }], opts);
-    expect(plan.pages[0]!.cap).toBeGreaterThanOrEqual(1_000_000);
+    // The same ceiling: what it can reach does not fit, so none of it is
+    // admitted ...
+    expect(plan.pages[0]!.cap).toBe(exact.pages[0]!.cap);
+    // ... nothing is counted, and the page cannot be called empty.
     expect(plan.pages[0]!.tooLarge).toBe(0);
+    expect(plan.pages[0]!.unverified).toBe(true);
   });
 
   it("an inexact page is unverified exactly when it declares an image over its ceiling", () => {

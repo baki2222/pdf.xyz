@@ -155,11 +155,13 @@ import {
   scanPdfPages,
 } from "@/lib/workers/pdf-office-export/page-scan";
 import { typefaceFor } from "@/lib/workers/pdf-office-export/deck-from-scan";
+import { MAX_DECODED_IMAGE_PIXELS } from "@/lib/workers/pdf-office-export/picture-limits";
 import { getToolContent } from "./content";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import {
   cellGridPdf,
   ceilingPairPdf,
+  damageContentStreams,
   linesPdf,
 } from "@/tests/pptx-fidelity-fixtures";
 import { encryptPdf } from "@/tests/encrypted-pdf";
@@ -1921,12 +1923,28 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
    * on no slide and named nowhere. (Run at the production budget, the pair
    * moves the ceiling up to the first picture whatever the page states: a
    * copy saying 65 megapixels passed that way, the mutation check found.)
+   *
+   * CHANGED the same day (the second re-review). The exception named
+   * encrypted files and a size — "except in an encrypted or damaged PDF,
+   * where a picture over 64 megapixels can be left out with no note" — and
+   * neither survived. The size was the floor of a ceiling with no bound
+   * under it: one locked page of six 8000² photos decoded 2.2 GB
+   * (`page-scan.rss.test.ts`). And the reader now reads an encrypted page
+   * (`standard-security.ts`), so a locked file is noted like any other.
+   * What is left is a page the reader cannot read before pdf.js draws it —
+   * a damaged one — and there the ceiling is the page budget over all the
+   * page can reach, so no size can be promised. Held both ways, on one
+   * pair of pictures: damaged, the exception HAPPENS (page 2's picture is
+   * on no slide and named nowhere), so the page must state it; locked, in
+   * both layouts, it does NOT (both are named), so the page may not
+   * except encrypted files.
    */
-  it("a picture the worker cannot see itself lose: the page says where, at the size the engine shows", async () => {
+  it("a picture the worker cannot see itself lose: the page says where, and only where it happens", async () => {
     const NOTE =
       /\b(?:left out|could not be put on its slide)\b[^.]*\bnote beside (?:the download|it) names\b/i;
     const EXCEPTION =
-      /\b(?:encrypted|damaged)\b[^.]*\bover ([\d,]+) megapixels\b[^.]*\bno note\b/i;
+      /\bcannot read before (?:it is drawn|drawing)\b[^.]*\bno note\b/i;
+    const OVERCLAIM = /\bencrypted\b[^.]*\bno note\b/i;
     const unqualified = (entries: readonly string[]) =>
       entries.filter((e) => NOTE.test(e) && !EXCEPTION.test(e));
     // The corpus: the promises shipped until this change, each caught, each
@@ -1936,10 +1954,13 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
       "a picture too large for the worker to handle, or one it cannot decode, is left out, and a note beside the download names its page.",
       "If some pages had no selectable text, or a picture could not be put on its slide, a note beside it names those pages.",
       "A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page.",
+      // The second review's exception: qualified then, false now.
+      "A picture too large for the worker to handle, or one it cannot decode, is left out, and a note beside the download names its page, except in an encrypted or damaged PDF, where a picture over 64 megapixels can be left out with no note.",
     ];
     for (const sentence of SHIPPED)
       expect(NOTE.test(sentence), sentence).toBe(true);
     expect(unqualified(SHIPPED)).toEqual(SHIPPED);
+    expect(SHIPPED.filter((e) => OVERCLAIM.test(e))).toEqual([SHIPPED[3]]);
     expect(
       NOTE.test(
         "its slide carries the page as a picture and those words are not editable text; the note beside the download names the pages it happened to.",
@@ -1949,37 +1970,42 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
     const texts = await served();
     expect(texts.filter((e) => NOTE.test(e)).length).toBeGreaterThanOrEqual(2);
     expect(unqualified(texts)).toEqual([]);
+    expect(texts.filter((e) => OVERCLAIM.test(e))).toEqual([]);
 
-    const stated = new Set(
-      texts.flatMap((e) => {
-        const m = EXCEPTION.exec(e);
-        return m ? [Number(m[1]!.replace(/,/g, ""))] : [];
-      }),
-    );
-    expect([...stated], "the page states one size").toHaveLength(1);
-    const megapixels = [...stated][0]!;
-    const fixture = await ceilingPairPdf(megapixels * 1_000_000);
-    for (const objectStreams of [false, true]) {
-      const locked = await encryptPdf(fixture.pdf, {
-        userPassword: "",
-        ownerPassword: "owner",
-        objectStreams,
-      });
-      const run = await runPdfOfficeExport(PDF_TO_POWERPOINT_TOOL, locked, {
+    // A pair either side of pdf.js's floor ceiling: one fits the page
+    // budget, the two together do not.
+    const fixture = await ceilingPairPdf(MAX_DECODED_IMAGE_PIXELS);
+    const run = async (pdf: Uint8Array) => {
+      const result = await runPdfOfficeExport(PDF_TO_POWERPOINT_TOOL, pdf, {
         extract: stubExtract(["", ""]),
-        scanPages: (bytes, options) =>
-          scanPdfPages(bytes, { ...options, pageDecodeBudgetBytes: 1 }),
+        scanPages: scanPdfPages,
       });
-      if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
-      const deck = await readDeck(run.output);
-      const where = objectStreams ? "object streams" : "classic";
-      // Neither picture is on a slide (their data is noise) ...
-      expect(
-        deck.slides.map((sl) => sl.pictures.length),
-        where,
-      ).toEqual([0, 0]);
-      // ... and only the one at the stated size is named.
-      expect(run.coverage?.pagesMissingPictures, where).toEqual([1]);
-    }
+      if (!result.ok) throw new Error(`${result.kind}: ${result.message}`);
+      const deck = await readDeck(result.output);
+      return {
+        // Neither picture is ever on a slide: their data is noise.
+        pictures: deck.slides.map((sl) => sl.pictures.length),
+        named: result.coverage?.pagesMissingPictures,
+      };
+    };
+    // Damaged: the exception happens — page 2's picture is lost unnamed.
+    expect(await run(await damageContentStreams(fixture.pdf))).toEqual({
+      pictures: [0, 0],
+      named: [1],
+    });
+    // Locked: it does not — both are named, as for the plain file.
+    for (const pdf of [
+      fixture.pdf,
+      ...(await Promise.all(
+        [false, true].map((objectStreams) =>
+          encryptPdf(fixture.pdf, {
+            userPassword: "",
+            ownerPassword: "owner",
+            objectStreams,
+          }),
+        ),
+      )),
+    ])
+      expect(await run(pdf)).toEqual({ pictures: [0, 0], named: [1, 2] });
   }, 60_000);
 });

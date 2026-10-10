@@ -32,6 +32,7 @@ import {
   ceilingPairPdf,
   circleClipPdf,
   CLIP_PHOTO_SIDE,
+  damageContentStreams,
   drawingBits,
   gradientPixels,
   imageCaptionPdf,
@@ -497,6 +498,16 @@ describe("an owner-password PDF: encrypted, opens without a password, and conver
  * pictures and a note blaming 144 pictures' size. An inexact page may now
  * neither lower the ceiling below pdf.js's old floor nor count a picture it
  * did not see.
+ *
+ * CHANGED the same day (the second re-review). "Never below the floor"
+ * gave such a page no bound at all, and one locked page of six 8000²
+ * photos decoded 2.2 GB (`page-scan.rss.test.ts`). The reader now READS an
+ * encrypted page (`./standard-security`), so these files are no longer
+ * inexact: every test below that runs a locked file now holds it to the
+ * unlocked file's result. An inexact page — now one the reader truly
+ * cannot read, such as a damaged content stream — is held to the page
+ * budget over everything it can reach, and still counts nothing it did not
+ * see; the last test holds that.
  */
 describe("a page whose content cannot be read is charged for nothing it only declares", () => {
   const LAYOUTS = [
@@ -580,6 +591,9 @@ describe("a page whose content cannot be read is charged for nothing it only dec
       // a ceiling as high as everything it can reach fits the page budget.
       // In the object-stream layout pdf-lib cannot read the page tree at
       // all, and the file's image dictionaries — in the clear — stand in.
+      // CHANGED 2026-10-11 (the second re-review): the locked page is now
+      // read, in both layouts, so this is the unlocked page's own ceiling;
+      // the test stays as the proof that locking the file changes nothing.
       const fixture = await oversizeScanPdf();
       const page = fixture.pages[0]!;
       // Health: the scan is over the floor, so the floor alone loses it.
@@ -616,13 +630,23 @@ describe("a page whose content cannot be read is charged for nothing it only dec
     60_000,
   );
 
+  /*
+   * INVERTED 2026-10-11 (the second re-review). Under the title "the result
+   * names only the picture it saw lost, and calls no page empty", this
+   * pinned that a LOCKED file's page-2 picture, over pdf.js's ceiling, went
+   * with no note: the reader could not read an encrypted page, so it could
+   * not know the page painted it. It can now (`./standard-security`), and
+   * the locked pair gives the unlocked control's result — both named. What
+   * the old test protected, that the result names nothing it did not see
+   * and calls no page empty, is held below where it still happens: a page
+   * whose content stream is damaged.
+   */
   it.each(LAYOUTS)(
-    "encrypted, %s: the result names only the picture it saw lost, and calls no page empty",
+    "encrypted, %s: both lost pictures are named, as for the unlocked file",
     async (_, objectStreams) => {
       // Two pages declare the same two pictures; page 1 paints one of
       // exactly pdf.js's floor ceiling (it tries to decode it, and fails:
-      // the data is noise), page 2 one a row over it, which pdf.js removes
-      // unread. The scan saw page 1's loss; it cannot see page 2's.
+      // the data is noise), page 2 one a row over it.
       const fixture = await ceilingPairPdf(MAX_DECODED_IMAGE_PIXELS);
       const locked = await encryptPdf(fixture.pdf, {
         userPassword: "",
@@ -633,6 +657,12 @@ describe("a page whose content cannot be read is charged for nothing it only dec
         ...pdfOfficeExportDeps(),
         extract: async () => pdftotextStandIn(fixture),
       };
+      const named = {
+        picturesNotCarried: 2,
+        picturesTooLarge: 0,
+        pagesMissingPictures: [1, 2],
+        emptySlideCount: 0,
+      };
       // Control: unlocked, the reader sees each page's ONE picture, admits
       // both, and both fail to decode — two named.
       const plain = await runPdfOfficeExport(
@@ -641,28 +671,38 @@ describe("a page whose content cannot be read is charged for nothing it only dec
         deps,
       );
       if (!plain.ok) throw new Error(`${plain.kind}: ${plain.message}`);
-      expect(plain.coverage).toMatchObject({
-        picturesNotCarried: 2,
-        picturesTooLarge: 0,
-        pagesMissingPictures: [1, 2],
-        emptySlideCount: 0,
-      });
+      expect(plain.coverage).toMatchObject(named);
       const run = await runPdfOfficeExport("pdf-to-powerpoint", locked, deps);
       if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
-      // Page 2's picture is not on its slide and nothing counts it: the
-      // scan cannot tell whether the page paints it. That gap is stated on
-      // the tool's page (claims-vs-capability.test.ts holds the sentence to
-      // this run). What the result may not do is blame size for a picture
-      // a page only DECLARES, or call page 2 empty.
-      expect(run.coverage).toMatchObject({
-        picturesNotCarried: 1,
-        picturesTooLarge: 0,
-        pagesMissingPictures: [1],
-        emptySlideCount: 0,
-      });
+      expect(run.coverage).toMatchObject(named);
     },
     60_000,
   );
+
+  it("a damaged content stream: the result names only the picture it saw lost, and calls no page empty", async () => {
+    // The same pair, unlocked, with each page's content-stream checksum
+    // broken: pdf.js draws the pages as before, the reader cannot read
+    // them, so each page is known only by the two pictures it DECLARES.
+    // Page 1's picture fits the page budget and is tried (and fails, and is
+    // named); page 2's does not fit beside it, is removed by pdf.js, and
+    // nothing can say the page painted it. That gap is stated on the
+    // tool's page (claims-vs-capability.test.ts holds the sentence to a
+    // run). What the result may not do is blame size for a picture a page
+    // only DECLARES, or call page 2 empty.
+    const fixture = await ceilingPairPdf(MAX_DECODED_IMAGE_PIXELS);
+    const damaged = await damageContentStreams(fixture.pdf);
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", damaged, {
+      ...pdfOfficeExportDeps(),
+      extract: async () => pdftotextStandIn(fixture),
+    });
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    expect(run.coverage).toMatchObject({
+      picturesNotCarried: 1,
+      picturesTooLarge: 0,
+      pagesMissingPictures: [1],
+      emptySlideCount: 0,
+    });
+  }, 60_000);
 });
 
 /** What pdf.js holds for a Flate DeviceRGB 8-bit image (`decodedBytes`). */

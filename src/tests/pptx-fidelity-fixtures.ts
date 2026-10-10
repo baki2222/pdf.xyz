@@ -23,9 +23,12 @@ import {
   drawObject,
   endPath,
   moveTo,
+  PDFArray,
   PDFDict,
   PDFDocument,
   PDFName,
+  PDFRawStream,
+  PDFRef,
   popGraphicsState,
   pushGraphicsState,
   rectangle,
@@ -33,7 +36,6 @@ import {
   setTextRenderingMode,
   TextRenderingMode,
   type PDFOperator,
-  type PDFRef,
   type PDFFont,
   type PDFImage,
   type PDFPage,
@@ -1349,6 +1351,45 @@ export async function ceilingPairPdf(pixels: number): Promise<PptxFixture> {
     pdf: await doc.save({ useObjectStreams: false }),
     pages: recs,
   };
+}
+
+/**
+ * `pdf` with the zlib checksum of every page's content stream broken (its
+ * last byte flipped): the shape of a damaged file, and of a hostile one.
+ * pdf.js ignores the checksum and draws the page exactly as before; the page
+ * reader's inflate refuses the stream, so it cannot know what the page
+ * paints before pdf.js decodes it (`exact: false` in `./page-inventory`).
+ * Callers check the first half against pdf.js themselves.
+ *
+ * Built for the second re-review of 2026-10-11: such a page was given no
+ * decode bound at all, and one page of six 8000² photos decoded 2.2 GB in a
+ * file that was not even encrypted.
+ */
+export async function damageContentStreams(
+  pdf: Uint8Array,
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(pdf, { updateMetadata: false });
+  let damaged = 0;
+  for (const page of doc.getPages()) {
+    const contents = page.node.get(PDFName.of("Contents"));
+    const refs = contents instanceof PDFArray ? contents.asArray() : [contents];
+    for (const ref of refs) {
+      if (!(ref instanceof PDFRef)) continue;
+      const stream = doc.context.lookup(ref);
+      if (
+        !(stream instanceof PDFRawStream) ||
+        stream.dict.lookup(PDFName.of("Filter")) !== PDFName.of("FlateDecode")
+      )
+        continue;
+      const bytes = stream.contents.slice();
+      bytes[bytes.length - 1]! ^= 0xff;
+      doc.context.assign(ref, PDFRawStream.of(stream.dict, bytes));
+      damaged++;
+    }
+  }
+  // Health: a fixture with nothing damaged is the undamaged file.
+  if (damaged === 0) throw new Error("damageContentStreams: nothing to damage");
+  return doc.save({ useObjectStreams: false });
 }
 
 /**
