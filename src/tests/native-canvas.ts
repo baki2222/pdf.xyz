@@ -32,16 +32,18 @@
  *  - `./native-canvas-guard.ts` (a setup file) fails any test file that
  *    LOADS the module while running in a worker thread — observed, at the
  *    point of consumption, not inferred from imports;
- *  - the same guard fails a MARKED file that ran every test without loading
- *    it (a stale marker moves a file off threads for nothing), and
- *    `native-canvas-pool.test.ts` asks vitest itself how it assigns every
- *    test file.
+ *  - `native-canvas-pool.test.ts` fails a MARKED file whose imports cannot
+ *    reach the module at all (a stale marker moves a file off threads for
+ *    nothing), and asks vitest itself how it assigns every test file. Not
+ *    "a marked file that did not load it this run": a file can reach it and
+ *    load it on some runs only (`./native-canvas-guard.ts` has the case).
  *
  * Why a marker and not the import graph: on 2026-10-11 a full run, one fresh
  * process per file, observed 81 test files loading the module; an import
  * graph that follows `import()` names 193, because pdf.js is reached through
  * modules that load it only on some paths. The graph answers an easier
- * question (CLAUDE.md rule 4); the observation is what the guard repeats.
+ * question (CLAUDE.md rule 4) — which is why it is used only as a NECESSARY
+ * condition for a marker, and the observation is what the guard repeats.
  *
  * Dependency-free on purpose: `vitest.config.ts` imports it.
  */

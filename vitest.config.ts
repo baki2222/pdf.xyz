@@ -126,9 +126,9 @@ export default defineConfig({
           exclude: [...configDefaults.exclude, ...CLI_EXCLUDE],
           // A child process per file: the native module is unloaded with a
           // process, never at a worker thread's teardown — where it crashed
-          // the run (exit 139) 3 times in 100. Fresh per file, so the guard
-          // can tell exactly which file loaded it, and a marked file that
-          // never does is caught as well.
+          // the run (exit 139: 3 times in 100 as measured when these tests
+          // arrived; 1 in 100 re-measured on Node 22 on 2026-10-11). Fresh
+          // per file, so no file inherits another's module state either.
           pool: "forks",
           isolate: true,
         },

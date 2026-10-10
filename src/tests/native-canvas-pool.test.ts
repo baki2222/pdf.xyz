@@ -18,9 +18,10 @@
  * control below), so it is marked, and it must be among the files it finds.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import type * as TS from "typescript";
 import { describe, expect, it } from "vitest";
 import { createVitest } from "vitest/node";
 import { cliExclude } from "../../vitest.config";
@@ -172,4 +173,109 @@ describe("`pnpm test` runs what its script says", () => {
     expect(files.filter((f) => excluded.includes(f))).toEqual([]);
     expect(files.length).toBe(allTestFiles().length - excluded.length);
   }, 120_000);
+});
+
+/**
+ * A STALE MARKER, caught where it can be told for certain. A marked file
+ * whose imports cannot reach pdf.js's Node build — static imports (not
+ * type-only: those are erased) and `import()` of a named module — can never
+ * load the module, and is moved off threads for nothing. The reverse does
+ * not hold (a file that CAN reach it may not load it on every run), so this
+ * is a necessary condition only; the first version of this check judged a
+ * single run instead, and failed a correctly marked file 5 times in 25
+ * (`native-canvas-guard.ts` has the history).
+ *
+ * The walker follows exactly the forms the marked files use, each one
+ * removed in turn on 2026-10-11 to see a marked file go stale: `require()`,
+ * `require.resolve()`, `createRequire(…)()`, `export … from`, pdf.js's
+ * worker module and `@napi-rs/canvas` named directly were each followed by
+ * a first draft and needed by no marked file — decoration (CLAUDE.md rule
+ * 1). A file that reaches the module only through one of them will be named
+ * stale here: add that form then, with that file as the case it catches.
+ */
+describe("every marked file can reach the native canvas through its imports", () => {
+  const ts = createRequire(import.meta.url)("typescript") as typeof TS;
+  /** pdf.js's Node build, which loads `@napi-rs/canvas` as it is evaluated. */
+  const NATIVE_ENTRY = "pdfjs-dist/legacy/build/pdf.mjs";
+
+  /** The modules `file` names to be loaded, as written. */
+  function named(file: string): string[] {
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const out: string[] = [];
+    const visit = (node: TS.Node): void => {
+      if (
+        ts.isImportDeclaration(node) &&
+        !node.importClause?.isTypeOnly &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      )
+        out.push(node.moduleSpecifier.text);
+      else if (
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword
+      ) {
+        const [first] = node.arguments;
+        if (first && ts.isStringLiteralLike(first)) out.push(first.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return out;
+  }
+
+  /** A local module `spec` names from `from`, or null (a package). */
+  function local(from: string, spec: string): string | null {
+    const base = spec.startsWith("@/")
+      ? path.join(ROOT, "src", spec.slice(2))
+      : spec.startsWith(".")
+        ? path.resolve(path.dirname(from), spec)
+        : null;
+    if (!base) return null;
+    for (const ext of ["", ".ts", ".tsx", ".mts", "/index.ts", "/index.tsx"])
+      if (existsSync(base + ext) && statSync(base + ext).isFile())
+        return base + ext;
+    return null;
+  }
+
+  const visited = new Set<string>();
+  const parsed = new Map<string, string[]>();
+  /** Breadth-first through local modules, each parsed once. */
+  function reaches(file: string): boolean {
+    const seen = new Set([file]);
+    const queue = [file];
+    while (queue.length > 0) {
+      const at = queue.shift()!;
+      visited.add(at);
+      let specs = parsed.get(at);
+      if (!specs) parsed.set(at, (specs = named(at)));
+      for (const spec of specs) {
+        if (spec === NATIVE_ENTRY) return true;
+        const next = local(at, spec);
+        if (next && !seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    return false;
+  }
+
+  it("each marked file reaches it; the helper module, dependency-free, does not", () => {
+    // Controls, both ways: this file loads pdf.js (the positive control
+    // above), and the marker's own module imports nothing that could.
+    expect(
+      reaches(path.join(ROOT, "src/tests/native-canvas-pool.test.ts")),
+    ).toBe(true);
+    expect(reaches(path.join(ROOT, "src/tests/native-canvas.ts"))).toBe(false);
+    const marked = nativeCanvasTestFiles(ROOT);
+    const stale = marked.filter((f) => !reaches(path.join(ROOT, f)));
+    expect(stale, "marked, but nothing they import can load it").toEqual([]);
+    // Health: the walk went through the import graph, not around it.
+    expect(visited.size).toBeGreaterThanOrEqual(200);
+  });
 });
