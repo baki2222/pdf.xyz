@@ -142,6 +142,10 @@ describe("every target is a promise the catalogue keeps", () => {
     // The same-format pair the format rule cannot see: a merge undone.
     expect(slugsOf(plan("split-pdf"))).not.toContain("merge-pdf");
     expect(slugsOf(plan("merge-pdf"))).not.toContain("split-pdf");
+    // …and a step that leaves nothing for the next: no fields after a flatten.
+    expect(slugsOf(plan("flatten-pdf"))).not.toContain("fill-forms");
+    // The direction matters: filling a form, then flattening it, is the job.
+    expect(slugsOf(plan("fill-forms"))).toContain("flatten-pdf");
   });
 
   it("POSITIVE CONTROL: with the inverse rule off, the same assertion fails", () => {

@@ -13,8 +13,9 @@
  *    never tells anyone to leave the password blank (Unlock refuses an empty
  *    password — `PDF_RESTRICTED_MESSAGE`);
  *  - a remedy is never the tool that failed;
- *  - whether it CARRIES the file is the hand-off capability's answer, not a
- *    flag of its own (a plain link until the target can take a file);
+ *  - it is a plain link while its target cannot take a hand-off, and this
+ *    file FAILS the day one can — the exit names the property (the target
+ *    receives files), and that is when the remedy must carry the file;
  *  - an error with no kind, and a size refusal, get nothing — the positive
  *    control that the absence of a remedy is a decision too.
  */
@@ -23,7 +24,12 @@ import { handoffCapabilityFor } from "@/lib/handoff/capability";
 import { getToolBySlug } from "@/lib/tools";
 import { PDF_ENGINE_ERROR_KINDS } from "./engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "./encryption";
-import { REPAIR_TOOL_NAME, remedyFor, type RemedyInput } from "./remedies";
+import {
+  REPAIR_TOOL_NAME,
+  causeOf,
+  remedyFor,
+  type RemedyInput,
+} from "./remedies";
 
 const VERDICTS = ["needs-password", "opens-without-password", null] as const;
 
@@ -44,10 +50,17 @@ describe("every refusal the engine can name has a decision", () => {
       expect(remedy!.problem).toBe(kind);
       // Where it runs is said, from the catalogue.
       expect(remedy!.processing).toBe(target!.processing);
-      // Carrying the file is the capability's call.
-      expect(remedy!.carries).toBe(
-        handoffCapabilityFor(remedy!.toolSlug).supported,
-      );
+    },
+  );
+
+  it.each(PDF_ENGINE_ERROR_KINDS.map((k) => [k]))(
+    "%s: a link today, because its target cannot take a file yet",
+    (kind) => {
+      const remedy = remedyFor({ kind, verdict: null }, "rotate-pdf")!;
+      expect(
+        handoffCapabilityFor(remedy.toolSlug).supported,
+        `${remedy.toolName} can take a hand-off now: make its remedy carry the file (origin "remedy", @/lib/handoff) and invert this`,
+      ).toBe(false);
     },
   );
 
@@ -92,6 +105,27 @@ describe("a remedy is never the tool that failed", () => {
     expect(
       remedyFor({ kind: "encrypted", verdict: null }, "unlock-pdf"),
     ).toBeNull();
+  });
+});
+
+describe("the cause is read off the thrown error", () => {
+  it("an encrypted refusal carries its verdict; an unreadable one its kind", async () => {
+    const { PdfEncryptedError, PdfEngineError } = await import("./engine");
+    expect(causeOf(new PdfEncryptedError("needs-password"))).toEqual({
+      kind: "encrypted",
+      verdict: "needs-password",
+    });
+    expect(causeOf(new PdfEngineError("x", { kind: "encrypted" }))).toEqual({
+      kind: "encrypted",
+      verdict: null,
+    });
+    expect(causeOf(new PdfEngineError("x", { kind: "unreadable" }))).toEqual({
+      kind: "unreadable",
+    });
+    // No kind, or not ours: nothing to read.
+    expect(causeOf(new PdfEngineError("x"))).toEqual({});
+    expect(causeOf(new Error("x"))).toEqual({});
+    expect(causeOf("x")).toEqual({});
   });
 });
 
