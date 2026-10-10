@@ -536,9 +536,9 @@ test("G.7 row 2: merge 3 PDFs, then compress — five actions, no file picked tw
 /**
  * Holds the result's ending — the script that carries `RESULT_ENDING_CHUNK`,
  * found by its content, not by its hashed name — until `release()`. Every
- * other script passes as it is. A drop zone fetches the ending the moment a
- * file arrives, so left alone it is here long before Compress PDF's
- * analysis is, and the run's wait for it (`endingReady`) is never used;
+ * other script passes as it is. Compress PDF fetches the ending the moment
+ * a file arrives, so left alone it is here long before the analysis is, and
+ * the run's wait for it (`endingReady`) is never used;
  * held, it comes after the analysis is worked out, which is what that wait
  * is for. `held` lists what was held: empty, the instrument saw nothing.
  */
@@ -619,19 +619,20 @@ function shiftSum(shifts: readonly Shift[], since: number) {
  *
  * The ending is held until the analysis is worked out — its completion is
  * recorded (the page's recents) as the work ends, before the wait — so the
- * run's wait for it is what is under test, not a race the drop zone's early
- * fetch now always wins (`holdEnding`). And no sooner than
+ * run's wait for it is what is under test, not a race the early fetch on
+ * the file's arrival now always wins (`holdEnding`). And no sooner than
  * `OUTSIDE_THE_PICK` after the pick: a pick opens an input window, and a
  * result drawn inside it has every shift it causes forgiven — the sums would
  * pass whatever it moved. On the re-review's slow network it was drawn 8.4 s
  * after the pick; held here, it is drawn after the window has closed, as on
  * any connection slower than this machine's loopback.
  *
- * Fails with the stage not held (`stageHoldPx` in the Compress runner): both
- * sums, the analysis's arrival alone past 0.1. Fails with the run's wait for
- * its ending removed (`endingReady` in the runner kit): the ending then
- * arrives frames after the analysis and moves the worker card, so its
- * arrival is not free.
+ * Mutation-checked on the production build, 2026-10-11. The stage not held
+ * (`stageHoldPx` in the Compress runner): "CLS after the pick: 0.1357",
+ * and the same from the analysis's first frame. The run's wait for its
+ * ending removed (`endingReady` in the runner kit): "CLS from the
+ * analysis's first frame: 0.0325 [worker]" — the ending drawn into the
+ * analysis after it painted, the WP-08 review's own +0.032, back.
  */
 test("Compress PDF's analysis draws with its ending into space held for it: after a pick the page moves once", async ({
   page,
@@ -692,9 +693,6 @@ test("Compress PDF's analysis draws with its ending into space held for it: afte
   expect(shifts.length).toBeGreaterThan(0);
   const painted = frames.findIndex((f) => f.present.analysis);
   expect(painted, "the analysis never painted").toBeGreaterThanOrEqual(0);
-  // ...and painted after the pick's input window had closed, where the sums
-  // below can see what it moves.
-  expect(frames[painted]!.t - pickedAt).toBeGreaterThan(500);
 
   // THE PAGE: everything that moved outside an input's window, whatever it
   // was — after the pick, and after the analysis's first frame.
@@ -718,9 +716,14 @@ test("Compress PDF's analysis draws with its ending into space held for it: afte
     ).toEqual(new Set([tops[0]]));
   }
   // Drawn in one frame with its receipt — not into it later — and after
-  // the ending came: the wait was used.
+  // the ending came: the wait was used. So drawn after the pick's input
+  // window had closed, where the sums above see what it moved. (Checked
+  // after them, not before: a run that does not wait draws its analysis
+  // inside the window, and is named by the sum its late ending fails —
+  // mutation-checked, 2026-10-11.)
   expect(frames[painted]!.present.receipt).toBe(true);
   expect(frames[painted]!.t).toBeGreaterThan(releasedAt);
+  expect(frames[painted]!.t - pickedAt).toBeGreaterThan(500);
   expect(frames.at(-1)!.present.counted).toBe(true);
 });
 
@@ -745,7 +748,8 @@ async function writeLeanPdf(name: string): Promise<string> {
  * asking, the widest layout, one line to a sentence — fills it, so a held
  * stage never shows as a blank band under a result. At 1280 x 900 the room
  * left on the screen (499 px) is more than the cap, so it is the cap that
- * is held, and the cap that this reads.
+ * is held, and the cap that this reads. Mutation-checked: at 30 rem, "a 480
+ * px stage left 18 px blank under its analysis".
  */
 test("the shortest analysis fills the stage held for it: no blank band under a result", async ({
   page,
