@@ -517,7 +517,7 @@
     },
     "guides/how-to-convert-pdf-to-word.html": {
       "title": "How to convert a PDF to an editable Word document — pdf.xyz",
-      "description": "Convert a PDF into an editable Word (DOCX) file on an encrypted, isolated worker that deletes the input when the job finishes. No account needed.",
+      "description": "Convert a PDF into an editable Word (DOCX) file on a secure worker that deletes the input when the job finishes. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-pdf-to-word",
       "robots": "index, follow",
       "h1": ["How to convert a PDF to an editable Word document"],
@@ -794,7 +794,7 @@
     },
     "guides/how-to-make-a-scanned-pdf-searchable.html": {
       "title": "How to make a scanned PDF searchable — pdf.xyz",
-      "description": "OCR a scanned PDF so its text becomes searchable and selectable — processed on an encrypted, auto-deleting worker, no account needed.",
+      "description": "OCR a scanned PDF so its text becomes searchable and selectable — processed on an auto-deleting worker, no account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-make-a-scanned-pdf-searchable",
       "robots": "index, follow",
       "h1": ["How to make a scanned PDF searchable"],
@@ -905,7 +905,7 @@
     },
     "guides/how-to-password-protect-a-pdf.html": {
       "title": "How to password-protect a PDF — pdf.xyz",
-      "description": "Password-protect a PDF with real AES encryption. Your file goes to an encrypted, auto-deleting worker, and no account is needed.",
+      "description": "Password-protect a PDF with real AES encryption. Your file goes to an auto-deleting worker, and no account is needed.",
       "canonical": "https://pdf.xyz/guides/how-to-password-protect-a-pdf",
       "robots": "index, follow",
       "h1": ["How to password-protect a PDF"],
@@ -1017,7 +1017,7 @@
     },
     "guides/how-to-remove-a-password-from-a-pdf.html": {
       "title": "How to remove a password from a PDF — pdf.xyz",
-      "description": "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an encrypted, auto-deleting worker.",
+      "description": "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an auto-deleting worker.",
       "canonical": "https://pdf.xyz/guides/how-to-remove-a-password-from-a-pdf",
       "robots": "index, follow",
       "h1": ["How to remove a password from a PDF"],
@@ -1071,7 +1071,7 @@
     },
     "guides/how-to-repair-a-damaged-pdf.html": {
       "title": "How to repair a damaged or corrupted PDF — pdf.xyz",
-      "description": "Rebuild a damaged PDF with qpdf on an encrypted, isolated worker that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+      "description": "Rebuild a damaged PDF with qpdf on a secure worker that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-repair-a-damaged-pdf",
       "robots": "index, follow",
       "h1": ["How to repair a damaged or corrupted PDF"],
@@ -1294,7 +1294,7 @@
     },
     "guides/how-to-translate-a-pdf.html": {
       "title": "How to translate a PDF into another language — pdf.xyz",
-      "description": "Translate a PDF into another language with AI. Get Markdown and plain text back; the encrypted, isolated worker wipes inputs at job end. No account needed.",
+      "description": "Translate a PDF into another language with AI. Get Markdown and plain text back; the secure worker wipes inputs at job end. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-translate-a-pdf",
       "robots": "index, follow",
       "h1": ["How to translate a PDF into another language"],
@@ -1542,6 +1542,7 @@
         "/#security",
         "/guides",
         "/privacy",
+        "/privacy#files",
         "/status",
         "/terms",
         "/tools",
@@ -1702,7 +1703,7 @@
       "robots": "index, follow",
       "h1": ["AI Data Extraction"],
       "h2": [
-        "AI Data Extraction runs on an encrypted secure worker",
+        "AI Data Extraction runs on a secure worker",
         "Common questions",
         "How it works",
         "Related tools",
@@ -2190,7 +2191,7 @@
       "robots": "index, follow",
       "h1": ["Chat with PDF"],
       "h2": [
-        "Chat with PDF runs on an encrypted secure worker",
+        "Chat with PDF runs on a secure worker",
         "Common questions",
         "How it works",
         "Related tools",
@@ -2508,7 +2509,7 @@
       "h1": ["Excel to PDF"],
       "h2": [
         "Common questions",
-        "Excel to PDF runs on an encrypted secure worker",
+        "Excel to PDF runs on a secure worker",
         "How it works",
         "Related tools",
         "When to use it"
@@ -2664,7 +2665,7 @@
       "h1": ["Extract Tables"],
       "h2": [
         "Common questions",
-        "Extract Tables runs on an encrypted secure worker",
+        "Extract Tables runs on a secure worker",
         "Guides",
         "How it works",
         "Related tools",
@@ -2928,7 +2929,7 @@
       "h1": ["HTML to PDF"],
       "h2": [
         "Common questions",
-        "HTML to PDF runs on an encrypted secure worker",
+        "HTML to PDF runs on a secure worker",
         "How it works",
         "Related tools",
         "When to use it"
@@ -3142,7 +3143,7 @@
         "Common questions",
         "Guides",
         "How it works",
-        "OCR PDF runs on an encrypted secure worker",
+        "OCR PDF runs on a secure worker",
         "Related tools",
         "What this tool can do",
         "When to use it"
@@ -3174,6 +3175,7 @@
         "/guides/how-to-repair-a-damaged-pdf",
         "/guides/how-to-translate-a-pdf",
         "/privacy",
+        "/privacy#files",
         "/status",
         "/terms",
         "/tools",
@@ -3201,7 +3203,7 @@
         "Common questions",
         "Guides",
         "How it works",
-        "Optimize PDF for Web runs on an encrypted secure worker",
+        "Optimize PDF for Web runs on a secure worker",
         "Related tools",
         "When to use it"
       ],
@@ -3412,7 +3414,7 @@
       "h2": [
         "Common questions",
         "How it works",
-        "PDF to Excel runs on an encrypted secure worker",
+        "PDF to Excel runs on a secure worker",
         "Related tools",
         "What this tool can do",
         "When to use it"
@@ -3568,7 +3570,7 @@
       "h2": [
         "Common questions",
         "How it works",
-        "PDF to PDF/A runs on an encrypted secure worker",
+        "PDF to PDF/A runs on a secure worker",
         "Related tools",
         "When to use it"
       ],
@@ -3672,7 +3674,7 @@
       "h2": [
         "Common questions",
         "How it works",
-        "PDF to PowerPoint runs on an encrypted secure worker",
+        "PDF to PowerPoint runs on a secure worker",
         "Related tools",
         "When to use it"
       ],
@@ -3778,7 +3780,7 @@
         "Common questions",
         "Guides",
         "How it works",
-        "PDF to Word runs on an encrypted secure worker",
+        "PDF to Word runs on a secure worker",
         "Related tools",
         "When to use it"
       ],
@@ -3883,7 +3885,7 @@
       "h2": [
         "Common questions",
         "How it works",
-        "PowerPoint to PDF runs on an encrypted secure worker",
+        "PowerPoint to PDF runs on a secure worker",
         "Related tools",
         "When to use it"
       ],
@@ -3935,7 +3937,7 @@
         "Common questions",
         "Guides",
         "How it works",
-        "Protect PDF runs on an encrypted secure worker",
+        "Protect PDF runs on a secure worker",
         "Related tools",
         "When to use it"
       ],
@@ -4099,7 +4101,7 @@
         "Guides",
         "How it works",
         "Related tools",
-        "Repair PDF runs on an encrypted secure worker",
+        "Repair PDF runs on a secure worker",
         "When to use it"
       ],
       "jsonLdTypes": [
@@ -4152,7 +4154,7 @@
         "Guides",
         "How it works",
         "Related tools",
-        "Request Signatures runs on an encrypted secure worker",
+        "Request Signatures runs on a secure worker",
         "What this tool can do",
         "When to use it"
       ],
@@ -4368,7 +4370,7 @@
         "Guides",
         "How it works",
         "Related tools",
-        "Summarize PDF runs on an encrypted secure worker",
+        "Summarize PDF runs on a secure worker",
         "What this tool can do",
         "When to use it"
       ],
@@ -4475,7 +4477,7 @@
         "Guides",
         "How it works",
         "Related tools",
-        "Translate PDF runs on an encrypted secure worker",
+        "Translate PDF runs on a secure worker",
         "What this tool can do",
         "When to use it"
       ],
@@ -4529,7 +4531,7 @@
         "Guides",
         "How it works",
         "Related tools",
-        "Unlock PDF runs on an encrypted secure worker",
+        "Unlock PDF runs on a secure worker",
         "When to use it"
       ],
       "jsonLdTypes": [
@@ -4634,7 +4636,7 @@
         "Common questions",
         "How it works",
         "Related tools",
-        "Webpage to PDF runs on an encrypted secure worker",
+        "Webpage to PDF runs on a secure worker",
         "When to use it"
       ],
       "jsonLdTypes": [
@@ -4686,7 +4688,7 @@
         "How it works",
         "Related tools",
         "When to use it",
-        "Word to PDF runs on an encrypted secure worker"
+        "Word to PDF runs on a secure worker"
       ],
       "jsonLdTypes": [
         "Answer",
