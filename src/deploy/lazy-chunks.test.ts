@@ -28,6 +28,8 @@ import { describe, expect, it } from "vitest";
 import { DESK_ISLAND_MARKER } from "@/components/intent/desk-island-chunk";
 import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
 import { TICKET_DIALOG_CHUNK_MARKER } from "@/components/intent/ticket-dialog-chunk";
+import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
+import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
@@ -216,6 +218,26 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "the ticket dialog",
     marker: TICKET_DIALOG_CHUNK_MARKER,
     why: "the drop layer fetches it only for files the page's own target does not take",
+    allowedAtLoad: {},
+  },
+  // WP-07 re-review (2026-10-10): what makes a drop box take a file — its
+  // drag states, its claim on a release, its registration — is the drop
+  // engine, in the registry's chunk. Every tool page's zone, the home desk
+  // and the workspace's panel render a box, and as first merged each
+  // carried its engine: 2.4 KB gz on every tool page against WP-07's 0.8.
+  // The box asks for it as it mounts; the layer, on idle.
+  {
+    what: "the drop engine",
+    marker: DROP_ENGINE_MARK,
+    why: "a drop box fetches its engine with the registry as it mounts, and the drop layer on idle",
+    allowedAtLoad: {},
+  },
+  // WP-07 re-review (2026-10-10): the "replace" targets — an open editor's,
+  // a chosen file's — exist only once a file has arrived, and load with it.
+  {
+    what: "the replace targets",
+    marker: REPLACE_BOXES_CHUNK,
+    why: "the open editor and a worker panel's chosen file fetch them as they first appear, with the file",
     allowedAtLoad: {},
   },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load

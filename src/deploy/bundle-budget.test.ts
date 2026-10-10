@@ -221,65 +221,66 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  *
  * What the merge did to each ceiling is said on its row.
  *
- * WP-07, 2026-10-10 (design batch C, drop and paste anywhere), as REPAIRED
- * after its adversarial review. One weigher over three builds — 8fd8048a
- * (the package's base), 8655040d (the package as first merged) and the
- * repair — raw KB / gz KB:
+ * WP-07, 2026-10-10 (design batch C, drop and paste anywhere), as
+ * RE-REPAIRED after its second review. One weigher over four builds —
+ * 8fd8048a (the package's base), 8655040d (first merged), c887e15c (the
+ * first repair) and this one — gz KB, with raw KB for the last:
  *
- *     row             base          first merged  repaired      vs base
- *     homepage        650 / 207.9   657 / 211.2   656 / 210.6    +6 / +2.7
- *     rotate-pdf      765 / 246.6   776 / 250.9   774 / 250.5    +9 / +3.9
- *     merge-pdf       758 / 243.1   768 / 247.1   767 / 246.7    +9 / +3.6
- *     ocr-pdf         773 / 247.4   783 / 251.4   782 / 251.4    +9 / +4.0
- *     summarize-pdf   782 / 253.1   791 / 257.1   791 / 257.1    +9 / +4.0
- *     pdf-to-jpg      763 / 245.5   774 / 249.9   772 / 249.4    +9 / +3.9
- *     pdf-to-text     759 / 243.8   770 / 248.2   768 / 247.7    +9 / +3.9
- *     guide           628 / 199.6   642 / 205.3   632 / 201.5    +4 / +1.9
- *     404             632 / 200.9   636 / 202.5   635 / 202.4    +3 / +1.5
- *     /tools          692 / 220.5   696 / 221.5   696 / 222.0    +4 / +1.5
- *     /workspace      745 / 237.5   755 / 241.6   753 / 241.2    +8 / +3.7
+ *     row             base    first    repair   now     raw now  vs base
+ *     homepage        207.9   211.2    210.6    209.4     652     +1.5
+ *     rotate-pdf      246.6   250.9    250.5    248.7     770     +2.1
+ *     merge-pdf       243.1   247.1    246.7    245.1     764     +2.0
+ *     ocr-pdf         247.4   251.4    251.4    249.5     779     +2.1
+ *     summarize-pdf   253.1   257.1    257.1    255.2     787     +2.1
+ *     pdf-to-jpg      245.5   249.9    249.4    247.6     768     +2.1
+ *     pdf-to-text     243.8   248.2    247.7    245.9     764     +2.1
+ *     guide           199.6   205.3    201.5    201.5     632     +1.9
+ *     404             200.9   202.5    202.4    202.4     635     +1.5
+ *     /tools          220.5   221.5    222.0    222.0     696     +1.5
+ *     /workspace      237.5   241.6    241.2    239.6     750     +2.1
  *
- * What grew, by minified module (raw bytes) and chunk (gz bytes):
- *  - EVERY PAGE, the drop layer: the root layout's chunk 7,071 -> 8,467 B gz
- *    (+1.36 KB, of the spec's +2.5 for the layout), all of it `DropLayer`
- *    (3,692 B raw): the listeners, accepting the drag, routing a turn after
- *    the registry arrives. What it draws (the veil, the dialog's host, the
- *    picker of last resort) and where files go (the registry) are chunks
- *    fetched on idle or with a file; the webpack runtime's chunk map lists
- *    them (3,296 -> 3,411 B gz). That is the whole of the 404's and
- *    /tools' growth. /tools weighed 221.5 on the first merge only because
- *    its route chunk happened to absorb the shared chunk 3889 there; the
- *    base and the repair both load 3889 separately (+0.5 gz of chunking,
- *    not of code).
- *  - Every page whose drop zone is the one primitive: the sheet (4.3 KB raw
- *    with its face, `drop-sheet-face.tsx`), the `accept` reader (398) and
- *    the registration hook (301), in one shared chunk (2,490 B gz). The
- *    registry itself left every page's first load in the repair (it was
- *    1,183 B raw on every page with a target): a target registers through
- *    its own `import()` of it. On the tool pages the sheet replaces the old
- *    Dropzone's body (runner-kit -977 B raw), and the tool's identity for
- *    the veil (271), the runner chunk lists that name the new shared chunk
- *    (ToolRunner +478, the panel loaders +119) and the open editor's
- *    "replace" target (single-pdf-runner +577; its announcement, focus
- *    repair and unsaved-work question load with the file) come with it.
- *  - The guide: the desk loads AFTER its page in the repair — the server
- *    draws a shell that is the sheet's own markup, and `GuideDeskSlot` (one
- *    small route chunk) swaps the live desk in. First merged, the desk and
- *    its sheet were the route's first client code: +3.8 gz, past the page's
- *    whole allowance.
- *  - The homepage: the desk's sheet is the page's target, and the island
- *    is split in two — the ticket dialog reuses the desk's sheet, frame and
- *    ticket state, so webpack moved what they share into the chunk above
- *    (an extra file, and modules no longer concatenated into the island).
+ * WHAT WP-07 SPENDS, against G.1's allocations (exact bytes, this build):
+ *  - THE LAYOUT, every page: the root layout's chunk 7,071 -> 8,471 B gz
+ *    (+1.37 KB of the layout's +2.5), all of it `DropLayer`: the
+ *    listeners, accepting the drag, routing a turn after the registry
+ *    arrives. What it draws and where files go are chunks fetched on idle
+ *    or with a file, which the webpack runtime's map lists (3,296 ->
+ *    3,391 B gz, +0.09: WP-07's seven lazy chunks). Layout and map are the
+ *    whole of the 404's and /tools' growth.
+ *  - THE TOOL PAGES, beyond the layout: 0.71 (rotate), 0.72 (ocr), 0.72
+ *    (summarize), 0.60-0.71 on the other weighed tool pages — WP-07's 0.8
+ *    is G.1's allocation; the repair before this spent 2.4-2.5. The sheet
+ *    (`DropSheet`, now folded by the bundler into the runner kit's scope),
+ *    its box and face, and `useDropBox` against the old Dropzone's body;
+ *    the runtime's map; `ChosenFileTarget`'s lazy wrapper on worker pages
+ *    (+0.1). What it took to get there, each measured on its own build:
+ *    the sheet's drag states, claim and registration became a DOM engine
+ *    in the registry's chunk (`@/lib/intent/drop-engine`, -0.8 gz); the
+ *    open editor's and the chosen file's "replace" targets load with the
+ *    first file (`@/components/tools/replace-boxes`, -0.1 each); the
+ *    tool's name comes from the page (`data-tool-name`), not a client
+ *    context (-0.1); the desk variant left the tool pages' sheet
+ *    (`drop-desk.tsx`, -0.3), and with the guide's desk on it too, the
+ *    sheet is the runner kit's alone and is concatenated into it (-0.04);
+ *    the pre-hydration pick is adopted by the box, not an effect per
+ *    picker (-0.04).
+ *  - THE HOMEPAGE, beyond the layout: 0.14 — of the +8 allowance, 0.2 was
+ *    left after the layout's 2.5 (WP-05 4.6, main 0.8). The ticket dialog
+ *    reuses the desk's ticket and sheet, so webpack keeps what they share
+ *    in a chunk of its own beside the island (two files: 7,713 B gz where
+ *    one would be 7,047 — the cost of the reuse); what paid for it is the
+ *    desk no longer carrying the sheet's face: its box is a module of its
+ *    own (`drop-sheet-box.ts`, -0.5).
+ *  - THE GUIDE: the desk loads after the page (`GuideDeskSlot`), +0.5
+ *    beyond the layout.
+ *  - /WORKSPACE: the drop panel as the page's target, +0.7 beyond the
+ *    layout.
  *
- * The homepage and guide ceilings are back where the redesign set them
- * (210.6, 203.5); the tool rows never moved. WP-07 is over its tool-page
- * allocation all the same — 0.8 gz beyond the layout, spent about 2.4 —
- * and the homepage, /tools and /workspace have no room left for the rest
- * of the layout's allowance. Neither passes silently: the test after
- * `BUDGETS` sums what the redesign still has to add to each row against
- * what is left, and names each row that is short, by how much
- * (`SHORT_BY`), for the owner's re-allocation.
+ * WHAT IS STILL TO COME is held against every row by the test after
+ * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
+ * fails. The one row the layout's remaining growth cannot reach is /tools,
+ * and it could not before WP-07 either — `LAYOUT_CANNOT_REACH` says why,
+ * and fails the day that stops being so.
  */
 /**
  * Every tool page, not three of them. Until 2026-10-09 all 50 loaded the same
@@ -308,12 +309,13 @@ const BUDGETS = [
   // is left. (The merge's first build spent 7.3, 2.0 of it the layout's
   // duplicated copies — fixed, above the rows.)
   //
-  // WP-07 raised this 210.6 -> 211.4 (211.2 measured, +3.3); its repair
-  // put it back: 210.6 measured (210.56), +2.7 — the drop layer (+1.4 with
-  // the runtime map) and the desk's sheet as the page's target (+1.3),
-  // itemised above the rows. The redesign's +8 for this page is spent, to
-  // the last 0.04: the rest of the layout's allowance does not fit
-  // (`SHORT_BY`).
+  // WP-07 raised this 210.6 -> 211.4 (211.2 measured, +3.3); its first
+  // repair put it back at 210.6 with 210.56 measured, which left the rest
+  // of the layout's allowance no room. Re-repaired: 209.4 measured, +1.5 —
+  // the drop layer and the runtime's map (+1.46), the desk's share of the
+  // ticket dialog's reuse, paid for by the desk dropping the sheet's face
+  // (+0.05), itemised above the rows. Unchanged ceiling, with room for the
+  // rest of the layout's allowance (the test after `BUDGETS`).
   { name: "homepage", html: "index.html", kb: 675, gzKb: 210.6 },
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
@@ -399,6 +401,10 @@ const BUDGETS = [
   // 786 / 254.7 here, and these rows went to 809 / 258.2, 817 / 259.0 and
   // 826 / 264.7; 1.6 gz of that was the layout's duplicated copies (above the
   // rows), fixed, and keeping those figures would hand the 1.6 out.
+  //
+  // WP-07 (2026-10-10): unchanged — 248.7, 249.5 and 255.2 measured, 0.71
+  // to 0.72 of WP-07's 0.8 beyond the layout. What the rest of the
+  // programme still has to add fits under each (the test after `BUDGETS`).
   {
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
@@ -431,7 +437,8 @@ const BUDGETS = [
   // measured, +1.9 — the drop layer (+1.4) and the slot that swaps the desk
   // in after the page (+0.5), above the rows. Still the leak detector it
   // was: no runner, no pdf-lib, no catalogue (the desk reads its tool from
-  // the server, and the hand-off code arrives with a file).
+  // the server, and the hand-off code arrives with a file). Re-repaired:
+  // the same 201.5.
   {
     name: "a guide page",
     html: "guides/how-to-merge-pdf-files.html",
@@ -489,14 +496,21 @@ const BUDGETS = [
   //               the first merge, where the route chunk absorbed 3889.)
   //               A drop on /tools opens the ticket dialog, fetched with the
   //               file; nothing of it is in this page's first load.
+  //               Re-repaired: the same 222.0 (221.95), so the same 222.2.
+  //               The layout's growth still to come cannot fit here, and
+  //               could not at WP-07's base either (`LAYOUT_CANNOT_REACH`).
   //   /workspace  238.0 -> 241.4 (753 / 241.2, +3.7): the layer (+1.4), and
   //               the drop panel built on the one drop primitive and
-  //               registered as the page's target (+2.3).
+  //               registered as the page's target (+2.3). LOWERED by the
+  //               re-repair to 241.0: 750 / 239.6 measured (239.59, +2.1:
+  //               the layer +1.46, the panel +0.65), and 241.0 is the
+  //               lowest ceiling that still takes the rest of the layout's
+  //               allowance (1.13) on top — 241.4 would have handed the
+  //               0.4 recovered here to nobody in particular.
   // Both rows were past the redesign's allowance for them before WP-07
-  // (/tools 219.2, /workspace 238.0), and `SHORT_BY` says by how much the
-  // rest of the layout's allowance does not fit.
+  // (/tools 219.2, /workspace 238.0).
   { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 222.2 },
-  { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 241.4 },
+  { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 241.0 },
 ] as const;
 
 /**
@@ -505,14 +519,19 @@ const BUDGETS = [
  *
  * The spec's G.1 allocates each row's growth allowance among the packages
  * (tool pages: WP-07 0.8, WP-08 4.5, WP-11 1.5, WP-12 0.3, the layout 2.5;
- * WP-10 offsets itself). A ceiling alone cannot see an overspend: WP-07 spent
- * 2.4 of its 0.8 and every tool row still passed, because the overspend was
- * paid out of WP-08's share — which WP-08 would then find missing. So each
- * row's headroom (ceiling − measured) is held against the sum of what is
- * still to come there: the packages not yet landed (STILL_TO_COME; a
- * package deletes its entry in the PR that lands it) and what is left of
- * the layout's allowance, which every page pays (measured from the layout
- * chunk itself against its size at WP-07's base).
+ * WP-10 offsets itself). A ceiling alone cannot see an overspend: WP-07
+ * once spent 2.4 of its 0.8 and every tool row still passed, because the
+ * overspend was paid out of WP-08's share — which WP-08 would then have
+ * found missing. So each row's headroom (ceiling − measured) is held
+ * against the sum of what is still to come there: the packages not yet
+ * landed (a package deletes its entry in the PR that lands it), what is
+ * left of the layout's allowance, which every page pays (measured from the
+ * layout chunk itself against its size at WP-07's base), and the 0.4 G.1
+ * allocated to no one — taking it is a re-allocation, so it is held like
+ * an allocation still to come. A row that cannot take it all FAILS: there
+ * is no record of a shortfall to hide behind (WAS `SHORT_BY`, which held
+ * WP-07's tool-row overrun as an "owner decision" and passed — WP-07
+ * review, rule 2).
  */
 const LAYOUT = {
   /** G.1: the root layout's growth for the whole programme, KB gz. */
@@ -520,39 +539,43 @@ const LAYOUT = {
   /** The root layout chunk at 8fd8048a (WP-07's base), bytes gz. */
   baseBytes: 7_071,
 };
-const TOOL_PAGES_TO_COME = { "WP-08": 4.5, "WP-11": 1.5, "WP-12": 0.3 };
+/** G.1, tool pages: 10.0 − (0.8 + 4.5 + 1.5 + 0.3 + 2.5), held by no package. */
+const UNALLOCATED = 0.4;
+const TOOL_PAGES_TO_COME = {
+  "WP-08": 4.5,
+  "WP-11": 1.5,
+  "WP-12": 0.3,
+  unallocated: UNALLOCATED,
+};
 const STILL_TO_COME: Record<string, Record<string, number>> = {
   "tools/rotate-pdf.html": TOOL_PAGES_TO_COME,
   "tools/ocr-pdf.html": TOOL_PAGES_TO_COME,
   "tools/summarize-pdf.html": TOOL_PAGES_TO_COME,
 };
+
 /**
- * Rows that cannot take what is still to come, and by how much (KB gz, the
- * measured shortfall rounded up to the next 0.1) — OWNER DECISIONS, not
- * passes: G.1 has to be re-allocated (lower WP-08/11/12, or the layout's
- * remainder, by the shortfall) or the weight recovered. Recorded so the
- * test can say it without failing every build until then, and held both
- * ways: a shortfall that grows fails, and one that shrinks by 0.2 or more
- * must be lowered, so the record cannot hand out what was recovered.
- *
- * Measured 2026-10-10 on WP-07's repair (layout 8,467 B gz, 1.14 of its
- * allowance left):
- *   tool rows   WP-07 spent ~2.4 of its 0.8 beyond the layout (the drop
- *               primitive and its registration, the editor's "replace"
- *               target, the tool's identity — above the rows); short by
- *               1.30 (rotate), 1.45 (ocr), 1.42 (summarize).
- *   homepage    the +8 allowance is spent to 0.04 (WP-05's desk 4.6, the
- *               layout 0.8 before WP-07, WP-07 2.7): short 1.10.
- *   /tools,     past their allowances before WP-07 (above the rows):
- *   /workspace  short 0.91 and 0.93.
+ * Rows the layout's remaining growth cannot reach, and why — never because
+ * of the package that lists them. Each is held two ways: the layout's
+ * remainder must STILL not fit there (an entry that stops being true fails
+ * as stale, so it cannot outlive its reason), and nothing else is excused:
+ * the row's packages still to come are held as on any row, and its growth
+ * is its ceiling's to stop.
  */
-const SHORT_BY: Record<string, number> = {
-  "index.html": 1.2,
-  "tools/rotate-pdf.html": 1.4,
-  "tools/ocr-pdf.html": 1.5,
-  "tools/summarize-pdf.html": 1.5,
-  "tools.html": 1.0,
-  "workspace.html": 1.0,
+const LAYOUT_CANNOT_REACH: Record<string, string> = {
+  /**
+   * /tools: no room for the layout's growth since before WP-07 — at its
+   * base (8fd8048a) the row was 220.49 under a 220.7 ceiling that the
+   * batch-B reconcile set as "measured + 0.2, which is not allowance"
+   * (G.1's +5 was spent by batches A and B and main, 6.3), with the
+   * layout's whole 2.5 still to come: 2.3 short. WP-07's drop layer is on
+   * this page only because its first repair raised the ceiling by the
+   * layer's 1.5 (on the row). The rest of the layout's allowance (WP-09's
+   * header, 1.13 today) lands here only by the owner's re-allocation —
+   * raise this ceiling for it, or have the package that grows the layout
+   * offset it on /tools — and until then the ceiling fails that package.
+   */
+  "tools.html":
+    "spent before WP-07: the batch-B reconcile left /tools no allowance, and the layout's growth needs the owner's re-allocation here",
 };
 
 /** One row's headroom against what is still to come there, KB gz. */
@@ -613,7 +636,7 @@ describe("client bundle budget", () => {
     },
   );
 
-  it("what the redesign still has to add fits what each row has left — or the row is named, short by no more than recorded", () => {
+  it("what the redesign still has to add fits what each row has left", () => {
     if (!built) return;
     const layout = layoutChunkGzBytes("index.html");
     // Health: the layout chunk was found and weighed, and has not shrunk
@@ -626,73 +649,97 @@ describe("client bundle budget", () => {
       "the root layout grew past the redesign's whole allowance for it",
     ).toBeGreaterThanOrEqual(0);
     const rows = BUDGETS.map(({ html, gzKb }) => {
+      // Exact, not the weigher's one decimal: rounded, a row 0.04 short
+      // read as fitting (249.52 -> 249.5), and one 0.04 over its line read
+      // as short — a cliff a chunk hash could cross between machines.
       const w = weigh(html)!;
-      return shortfall({
+      const measured = w.sized.reduce((sum, c) => sum + c.gzBytes, 0) / 1024;
+      const toCome = STILL_TO_COME[html] ?? {};
+      return {
         html,
-        ceiling: gzKb,
-        measured: w.gzKb,
-        layoutLeft,
-        toCome: STILL_TO_COME[html] ?? {},
-      });
+        // Every package still to come, and the layout's remainder unless
+        // it cannot reach this row (`LAYOUT_CANNOT_REACH`).
+        fits: shortfall({
+          html,
+          ceiling: gzKb,
+          measured,
+          layoutLeft: html in LAYOUT_CANNOT_REACH ? 0 : layoutLeft,
+          toCome,
+        }),
+        // The same, with the layout's remainder: for the stale check.
+        withLayout: shortfall({
+          html,
+          ceiling: gzKb,
+          measured,
+          layoutLeft,
+          toCome,
+        }),
+      };
     });
     // Health: every budgeted row was weighed, the tool rows with their
-    // allocations among them.
+    // allocations among them, and every listed row is a budgeted one.
     expect(rows).toHaveLength(BUDGETS.length);
-    expect(
-      Object.keys(STILL_TO_COME).every((h) =>
-        BUDGETS.some((b) => b.html === h),
-      ),
-    ).toBe(true);
-    const unrecorded = rows
-      .filter((r) => r.short > 0 && !(r.html in SHORT_BY))
+    for (const listed of [
+      ...Object.keys(STILL_TO_COME),
+      ...Object.keys(LAYOUT_CANNOT_REACH),
+    ])
+      expect(
+        BUDGETS.some((b) => b.html === listed),
+        `${listed} is not a budgeted row`,
+      ).toBe(true);
+    const short = rows
+      .filter((r) => r.fits.short > 0)
       .map(
         (r) =>
-          `${r.html}: needs ${r.needed.toFixed(2)}, has ${r.left.toFixed(2)}`,
+          `${r.html}: needs ${r.fits.needed.toFixed(2)}, has ${r.fits.left.toFixed(2)}`,
       );
     expect(
-      unrecorded,
-      "rows that cannot take what the redesign still has to add — re-allocate in the spec's G.1 and record the shortfall in SHORT_BY, or recover the weight",
+      short,
+      "rows that cannot take what the redesign still has to add — recover the weight, or bring the owner a re-allocation of G.1 to encode here",
     ).toEqual([]);
-    const grew = rows
-      .filter((r) => r.html in SHORT_BY && r.short > SHORT_BY[r.html]!)
-      .map(
-        (r) =>
-          `${r.html}: short ${r.short.toFixed(2)}, recorded ${SHORT_BY[r.html]}`,
-      );
-    expect(grew, "a recorded shortfall grew").toEqual([]);
     const stale = rows
-      .filter((r) => r.html in SHORT_BY && r.short <= SHORT_BY[r.html]! - 0.2)
-      .map(
-        (r) =>
-          `${r.html}: short ${r.short.toFixed(2)}, recorded ${SHORT_BY[r.html]}`,
-      );
+      .filter((r) => r.html in LAYOUT_CANNOT_REACH && r.withLayout.short <= 0)
+      .map((r) => r.html);
     expect(
       stale,
-      "a recorded shortfall shrank — lower its SHORT_BY entry (or delete it), so the record cannot hand the difference out",
+      "LAYOUT_CANNOT_REACH names a row the layout's remainder now fits — delete the entry, so the row is held to it",
     ).toEqual([]);
   });
 
   it("positive control: the shortfall sum tells a row that fits from one that does not", () => {
-    const toCome = { "WP-08": 4.5, "WP-11": 1.5, "WP-12": 0.3 };
+    // WP-07 just within its 0.8 beyond the layout (246.6 + 1.4 layout +
+    // 0.75): the rest of the programme and the unallocated 0.4 still fit.
     expect(
       shortfall({
         html: "x",
         ceiling: 256.6,
-        measured: 248.0,
+        measured: 248.75,
         layoutLeft: 1.1,
-        toCome,
+        toCome: TOOL_PAGES_TO_COME,
       }).short,
     ).toBeLessThanOrEqual(0);
+    // …and 0.15 past it, paid from what no package was given: short.
+    expect(
+      shortfall({
+        html: "x",
+        ceiling: 256.6,
+        measured: 248.95,
+        layoutLeft: 1.1,
+        toCome: TOOL_PAGES_TO_COME,
+      }).short,
+    ).toBeGreaterThan(0);
+    // The repair before this one: 250.5 measured, 1.3 of WP-08's share
+    // and the whole unallocated 0.4 gone.
     const over = shortfall({
       html: "x",
       ceiling: 256.6,
       measured: 250.5,
       layoutLeft: 1.1,
-      toCome,
+      toCome: TOOL_PAGES_TO_COME,
     });
-    expect(over.needed).toBeCloseTo(7.4, 5);
+    expect(over.needed).toBeCloseTo(7.8, 5);
     expect(over.left).toBeCloseTo(6.1, 5);
-    expect(over.short).toBeCloseTo(1.3, 5);
+    expect(over.short).toBeCloseTo(1.7, 5);
   });
 
   it(`every tool page stays under ${EVERY_TOOL_PAGE.kb} KB raw and ${EVERY_TOOL_PAGE.gzKb} KB gz`, () => {
