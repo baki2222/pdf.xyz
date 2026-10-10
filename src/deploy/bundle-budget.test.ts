@@ -225,23 +225,23 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * over both builds — 8fd8048a and the package — raw KB / gz KB:
  *
  *     row             before        after         delta
- *     homepage        650 / 207.9   657 / 211.0    +7 / +3.1
- *     rotate-pdf      765 / 246.6   775 / 250.8   +10 / +4.2
- *     merge-pdf       758 / 243.1   768 / 247.0   +10 / +3.9
- *     ocr-pdf         773 / 247.4   783 / 251.3   +10 / +3.9
+ *     homepage        650 / 207.9   657 / 211.1    +7 / +3.2
+ *     rotate-pdf      765 / 246.6   776 / 250.9   +11 / +4.3
+ *     merge-pdf       758 / 243.1   768 / 247.1   +10 / +4.0
+ *     ocr-pdf         773 / 247.4   783 / 251.4   +10 / +4.0
  *     summarize-pdf   782 / 253.1   791 / 257.0    +9 / +3.9
  *     pdf-to-jpg      763 / 245.5   773 / 249.8   +10 / +4.3
- *     pdf-to-text     759 / 243.8   769 / 248.0   +10 / +4.2
- *     guide           628 / 199.6   642 / 205.2   +14 / +5.6
+ *     pdf-to-text     759 / 243.8   769 / 248.1   +10 / +4.3
+ *     guide           628 / 199.6   642 / 205.3   +14 / +5.7
  *     404             632 / 200.9   636 / 202.4    +4 / +1.5
- *     /tools          692 / 220.5   696 / 221.4    +4 / +0.9
- *     /workspace      745 / 237.5   754 / 241.5    +9 / +4.0
+ *     /tools          692 / 220.5   696 / 221.5    +4 / +1.0
+ *     /workspace      745 / 237.5   754 / 241.6    +9 / +4.1
  *
  * What grew, by minified module (raw bytes):
- *  - EVERY PAGE, the drop layer: the layout chunk 19,137 -> 23,033 B raw,
- *    7.1 -> 8.5 gz (+1.4, inside the spec's 2.5 for the layout), all of it
- *    `DropLayer` (3,847 B) — the listeners, accepting the drag, the page's
- *    last-resort picker. What it draws and where files go (the veil, the
+ *  - EVERY PAGE, the drop layer: the layout chunk 19,137 -> 23,161 B raw,
+ *    6.9 -> 8.3 KB gz (+1.4, inside the spec's 2.5 for the layout), all of
+ *    it `DropLayer` (3,975 B) — the listeners, accepting the drag, the
+ *    page's last-resort picker. What it draws and where files go (the veil, the
  *    target registry, the dialog's host) is a chunk fetched on idle, and the
  *    dialog, the ticket and the catalogue come with a file; the first build
  *    had the registry and the veil in the layout (+2.6 gz) and was split.
@@ -271,8 +271,8 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * guide, /tools and /workspace rows are raised to the measurement + 0.2 gz
  * (the margin /tools already had for chunk-id churn between machines). Two
  * of them now pass the redesign's whole allowance for the page — the
- * homepage's (202.6 + 8 = 210.6; 211.0) and the guide's (198.5 + 5 = 203.5;
- * 205.2) — by what this package puts on every page and on that one.
+ * homepage's (202.6 + 8 = 210.6; 211.1) and the guide's (198.5 + 5 = 203.5;
+ * 205.3) — by what this package puts on every page and on that one.
  */
 /**
  * Every tool page, not three of them. Until 2026-10-09 all 50 loaded the same
@@ -301,11 +301,11 @@ const BUDGETS = [
   // is left. (The merge's first build spent 7.3, 2.0 of it the layout's
   // duplicated copies — fixed, above the rows.)
   //
-  // RAISED 210.6 -> 211.2 gz by WP-07 (657 / 211.0 measured, +3.1): the drop
+  // RAISED 210.6 -> 211.3 gz by WP-07 (657 / 211.1 measured, +3.2): the drop
   // layer (+1.5 with the runtime map) and the desk's sheet becoming the
-  // page's drop target, which the ticket dialog shares (+1.6) — itemised
-  // above the rows. The redesign's +8 for this page is spent, by 0.4.
-  { name: "homepage", html: "index.html", kb: 675, gzKb: 211.2 },
+  // page's drop target, which the ticket dialog shares (+1.7) — itemised
+  // above the rows. The redesign's +8 for this page is spent, by 0.5.
+  { name: "homepage", html: "index.html", kb: 675, gzKb: 211.3 },
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
   // every page via the static import in src/lib/pdf/browser.ts, now fetched
@@ -417,18 +417,18 @@ const BUDGETS = [
   // batch B +0.4). Unchanged. (The merge's first build spent 3.1, 2.0 of it
   // the layout's duplicated copies — fixed, above the rows.)
   //
-  // RAISED 203.5 -> 205.4 gz by WP-07 (642 / 205.2 measured, +5.6): the drop
+  // RAISED 203.5 -> 205.5 gz by WP-07 (642 / 205.3 measured, +5.7): the drop
   // layer (+1.5), and the guide desk — the first client code a guide route
   // has had: the desk, the drop sheet and the registry, with the route's own
-  // copies of lucide's icon base and cn() (+4.1) — itemised above the rows.
-  // The redesign's +5 for this page is spent, by 1.7. Still the leak
+  // copies of lucide's icon base and cn() (+4.2) — itemised above the rows.
+  // The redesign's +5 for this page is spent, by 1.8. Still the leak
   // detector it was: no runner, no pdf-lib, no catalogue (the desk reads
   // its tool from the server, and the hand-off code arrives with a file).
   {
     name: "a guide page",
     html: "guides/how-to-merge-pdf-files.html",
     kb: 665,
-    gzKb: 205.4,
+    gzKb: 205.5,
   },
   // NEW 2026-10-09. The root 404 ships with EVERY route, which is why the
   // catalogue riding it reached every page (b9ccf092); it had no budget of its
@@ -475,14 +475,14 @@ const BUDGETS = [
   // The raw ceilings did not move (692 and 745 measured).
   //
   // RAISED by WP-07, each to measured + 0.2 gz (above the rows, itemised):
-  //   /tools      220.7 -> 221.6 (696 / 221.4): the drop layer alone, +0.9.
+  //   /tools      220.7 -> 221.7 (696 / 221.5): the drop layer alone, +1.0.
   //               A drop on /tools opens the ticket dialog, fetched with the
   //               file; nothing of it is in this page's first load.
-  //   /workspace  238.0 -> 241.7 (754 / 241.5, +4.0): the layer (+1.5), and
+  //   /workspace  238.0 -> 241.8 (754 / 241.6, +4.1): the layer (+1.5), and
   //               the drop panel built on the one drop primitive and
-  //               registered as the page's target (+2.5).
-  { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 221.6 },
-  { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 241.7 },
+  //               registered as the page's target (+2.6).
+  { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 221.7 },
+  { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 241.8 },
 ] as const;
 
 describe("client bundle budget", () => {
