@@ -32,8 +32,6 @@ export {
   type WorkspaceEvent,
 } from "./state";
 
-export { suggestTools, type ToolSuggestion } from "./suggestions";
-
 export {
   clearPersisted,
   loadPersisted,

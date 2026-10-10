@@ -41,6 +41,7 @@ export {
   toolFailedEvent,
   toolErrorReason,
   handoffCreatedEvent,
+  suggestionOpenedEvent,
 } from "./events";
 export {
   countBucket,

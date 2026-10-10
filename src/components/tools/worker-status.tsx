@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { RotateCw } from "lucide-react";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { track } from "@/lib/telemetry/track";
+import { cn } from "@/lib/utils";
 import { Spinner } from "./runner/runner-kit";
 
 /**
@@ -66,6 +67,72 @@ export function useWorkerStatus(): {
   return { phase, status, retry };
 }
 
+/** What the status-dependent part of a panel is showing. */
+export type WorkerSlotState = "loading" | "error" | "off" | "run";
+
+/**
+ * `run` once the status says this panel can run, `off` once it says it
+ * cannot, and the phase itself until it says anything.
+ */
+export function workerSlotState(
+  phase: WorkerPhase,
+  available: boolean,
+): WorkerSlotState {
+  if (available) return "run";
+  return phase === "ready" ? "off" : phase;
+}
+
+/**
+ * The status-dependent part of a worker panel — "Checking the secure
+ * worker…", then the run area or the not-enabled box — as ONE reserved box.
+ *
+ * WHY (WP-06 review, 2026-10-10): the tool page puts the panel straight under
+ * the tool's name, so on a phone this part is in the first screen, and it
+ * changed height when `/api/worker/status` answered — the checking box was a
+ * bare `min-h-32`, the run area several times taller — moving everything
+ * under it in view: CLS 0.0582 on Protect PDF at 390 with a ready answer,
+ * 0.0324 on Word to PDF, against a bound of 0.01.
+ *
+ * `reserve` is the panel's own min-height, per breakpoint: at least the
+ * tallest state the slot can show — loading, error, not enabled, or the idle
+ * run area — at the narrowest width that breakpoint covers, so every state
+ * is the same box. The states stretch to fill it (a grid of one row grows to
+ * its container's min-height): a checking or not-enabled box is a box the
+ * size of the run area it stands in for. A run area that outgrows its
+ * reserve fails `e2e/layout-stability.spec.ts`, which measures every worker
+ * panel at 390 with this server's answer and a ready one held back 500ms.
+ * Growth after the reader acts (a file picked, a result) is input's, and
+ * not reserved.
+ */
+export function WorkerStatusSlot({
+  state,
+  reserve,
+  children,
+}: {
+  state: WorkerSlotState;
+  /** Tailwind min-heights, e.g. `min-h-[31rem] sm:min-h-[26rem]`. */
+  reserve: string;
+  children: ReactNode;
+}) {
+  return (
+    // One column that never grows past the panel (`grid-cols-1` is
+    // `minmax(0, 1fr)`): an auto column would widen to a wide child. A box
+    // standing in for the run area centres what it says; the run area keeps
+    // its own top, so nothing in it moves as it grows with a file.
+    <div
+      data-slot="worker-status"
+      data-state={state}
+      className={cn(
+        "grid grid-cols-1",
+        state !== "run" && "[&>*]:justify-center",
+        reserve,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 /**
  * What a worker panel shows while it does NOT KNOW whether it can run.
  *
@@ -79,8 +146,9 @@ export function useWorkerStatus(): {
  *
  * Neither phase here makes a claim about the tool. A failed status check gets
  * a retry, not a notify button: an unreachable endpoint is not news that the
- * tool is missing. The min-height keeps the runner's arrival from shoving the
- * page.
+ * tool is missing. Its own min-height is only a floor: what keeps the run
+ * area's arrival from shoving the page is the panel's {@link
+ * WorkerStatusSlot}, which this box fills.
  */
 export function WorkerStatusPending({
   phase,

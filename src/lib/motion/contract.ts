@@ -92,6 +92,15 @@ export function parseCss(css: string): CssBlock {
     const ch = src[i]!;
     if (!buffer.trim() && !/\s/.test(ch)) bufferLine = line;
     if (ch === "\n") line++;
+    // An escape outside a string is one literal character of a selector or
+    // value: `.\[grid-template-areas\:\'a\'\]` is a class, and its `\'` must
+    // not open a string (it did, and the whole reset read as missing).
+    if (ch === "\\") {
+      if (src[i + 1] === "\n") line++;
+      buffer += src.slice(i, i + 2);
+      i++;
+      continue;
+    }
     if (ch === '"' || ch === "'") {
       let j = i + 1;
       while (j < src.length && src[j] !== ch) j += src[j] === "\\" ? 2 : 1;

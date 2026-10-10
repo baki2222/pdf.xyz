@@ -7,6 +7,7 @@ import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 import { AnalyticsChoices } from "@/components/analytics/analytics-choices";
+import { BROWSER_STORAGE, HANDOFF_LIFETIME } from "@/lib/browser-storage";
 
 /**
  * The windows this page states, each read from the code that enforces it —
@@ -115,7 +116,8 @@ export default function PrivacyPage() {
           The file is opened and processed by code running on your own device.
           It is not sent to us, and we could not read it if we wanted to.
           Closing the tab discards it. Nothing about the file&apos;s contents,
-          name, or size reaches our servers.
+          name, or size reaches our servers. Passing a file from one page to a
+          tool keeps it in your browser for a short while: {HANDOFF_LIFETIME}
         </p>
         <p>
           <strong className="text-fg font-semibold">
@@ -351,12 +353,33 @@ export default function PrivacyPage() {
         </p>
         <AnalyticsChoices />
         <p>
-          Some tools keep information inside your browser so a feature can work
-          — for example, holding files you added to the workspace so you can
-          carry them to another tool. That data stays on your device and is not
-          transmitted to us. Clearing your browser storage for this site removes
-          it, along with your analytics decision.
+          A few features keep information in your own browser so they work
+          across pages and reloads. This is everything this site keeps there —
+          clearing this site&rsquo;s data in your browser removes all of it,
+          along with your analytics decision:
         </p>
+        {/* Rendered from the registry the code is held to: every store a
+            storage call uses is listed, and every listed store is used
+            (browser-storage.test.ts). */}
+        <dl className="flex flex-col gap-4">
+          {BROWSER_STORAGE.map((store) => (
+            <div
+              key={store.key}
+              className="border-line flex flex-col gap-1 border-l-2 pl-4"
+            >
+              <dt className="text-fg flex flex-wrap items-baseline gap-x-2 font-medium">
+                <code className="text-sm">
+                  {store.perTool ? `${store.key}<tool>` : store.key}
+                </code>
+                <span className="text-muted text-sm font-normal">
+                  {store.area}
+                </span>
+              </dt>
+              <dd>{store.holds}</dd>
+              <dd className="text-muted">{store.lasts}</dd>
+            </div>
+          ))}
+        </dl>
       </LegalSection>
 
       <LegalSection id="why" heading="6. Why we are allowed to do this">

@@ -107,8 +107,13 @@ export function acceptHint(
     if (group) group.push(kind.label);
     else byCap.set(kind.maxBytes, [kind.label]);
   }
-  return [...byCap.entries()]
-    .sort((a, b) => b[0] - a[0])
-    .map(([bytes, labels]) => `${labels.join(", ")} up to ${mb(bytes)} MB`)
-    .join(" · ");
+  return (
+    [...byCap.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([bytes, labels]) => `${labels.join(", ")} up to ${mb(bytes)} MB`)
+      // A no-break space before each dot: a wrapped caption ends a line on the
+      // dot and never starts one with it (the facts lines do the same,
+      // `fact-separator.ts`). Written as an escape: the character is invisible.
+      .join("\u00a0· ")
+  );
 }

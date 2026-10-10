@@ -27,6 +27,7 @@ import { PageRangeError } from "@/lib/pdf/ranges";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { buttonVariants } from "@/components/ui/button";
+import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 import { cn } from "@/lib/utils";
@@ -352,7 +353,8 @@ export function ErrorNote({
       className="border-err/40 bg-err/10 text-err flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-      <span>
+      {/* Most messages name the file ("<name> isn't a PDF"); see NAME_WRAP. */}
+      <span className={NAME_WRAP}>
         {message}
         {offersUnlock && (
           <>

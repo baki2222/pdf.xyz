@@ -150,6 +150,16 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
+    // Where a hand-off came from, and the sentence the receiving tool page
+    // says about it (WP-04). Listed singly, not the whole folder: the rest
+    // of src/lib/handoff is storage code (addendum WP-04 #76).
+    path.join(ROOT, "src", "lib", "handoff", "origin.ts"),
+    // What the site keeps in a visitor's browser and for how long, rendered
+    // by /privacy §5 (WP-04, addendum #76). Outside every walked root.
+    path.join(ROOT, "src", "lib", "browser-storage.ts"),
+    // The hand-off lifetime sentence those pages say (a leaf, so a page can
+    // say it without loading the registry).
+    path.join(ROOT, "src", "lib", "handoff", "lifetime.ts"),
     // What a null means in AI Extract's answer, and the sentences the panel,
     // the page and the download each say about one. Engine-adjacent, so
     // listed singly, like the modules above.

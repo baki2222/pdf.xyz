@@ -1,6 +1,7 @@
 import { FORMATS, formatForToken, type Format } from "@/lib/intent/formats";
 import { categories } from "./categories";
 import type { ToolCategoryId } from "./types";
+import { runsFilter, type RunsFilter } from "./where-it-runs";
 
 export type ToolsFilter = ToolCategoryId | "all";
 
@@ -9,6 +10,8 @@ export interface ToolsQuery {
   readonly query: string;
   /** Only tools that take this format (`?accepts=pdf`); null for any. */
   readonly accepts: Format | null;
+  /** Only tools that run here (`?runs=never-uploads`); "all" for any. */
+  readonly runs: RunsFilter;
 }
 
 const CATEGORY_IDS = new Set<string>(categories.map((c) => c.id));
@@ -27,7 +30,7 @@ function acceptsFormat(value: string | null): Format | null {
 }
 
 /**
- * Read `/tools?category=…&q=…&accepts=…` into explorer state.
+ * Read `/tools?category=…&q=…&accepts=…&runs=…` into explorer state.
  *
  * This used to happen on the SERVER: `tools/page.tsx` awaited `searchParams`,
  * which made `/tools` dynamic — `Cache-Control: private, no-store`, a server
@@ -35,11 +38,13 @@ function acceptsFormat(value: string | null): Format | null {
  * that links all fifty tools (measured on production). The route is
  * now prerendered with the full grid in its HTML, and the explorer applies
  * this after hydration, so old shared filter URLs and the WebSite
- * SearchAction's `/tools?q=` template keep working. `?accepts=` is read the
- * same way and never by the page, so it cannot make the route dynamic again.
+ * SearchAction's `/tools?q=` template keep working. `?accepts=` and `?runs=`
+ * are read the same way and never by the page, so neither can make the route
+ * dynamic again, and the canonical stays `/tools` (`buildMetadata` writes
+ * the static path).
  *
  * An unknown category is `"all"`, never an empty grid; so is an unknown
- * format.
+ * format, and so is a `runs` value the explorer does not offer.
  */
 export function parseToolsQuery(search: string): ToolsQuery {
   const params = new URLSearchParams(search);
@@ -51,6 +56,7 @@ export function parseToolsQuery(search: string): ToolsQuery {
         : "all",
     query: params.get("q") ?? "",
     accepts: acceptsFormat(params.get("accepts")),
+    runs: runsFilter(params.get("runs")),
   };
 }
 
@@ -68,6 +74,8 @@ export function toolsSearch(current: string, state: ToolsQuery): string {
   else params.delete("q");
   if (state.accepts === null) params.delete("accepts");
   else params.set("accepts", state.accepts.toLowerCase());
+  if (state.runs === "all") params.delete("runs");
+  else params.set("runs", state.runs);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }

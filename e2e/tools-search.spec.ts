@@ -175,6 +175,61 @@ test.describe("the /tools search, after hydration", () => {
     await expect(count).toHaveText("0 tools");
   });
 
+  /**
+   * WAS (review, 2026-10-10): typing drew TWO clear buttons side by side —
+   * Chromium's and WebKit's own blue ✕ (`::-webkit-search-cancel-button`,
+   * which Tailwind's preflight leaves on) beside the explorer's "Clear
+   * search" — at every width, in both themes.
+   *
+   * Read from the PIXELS, not from `getComputedStyle(box,
+   * "::-webkit-search-cancel-button")`: Chromium answers that with the
+   * input's own style — "auto" for the cancel button, for
+   * `::-webkit-search-decoration` (which preflight sets to none) and for a
+   * pseudo-element that does not exist — so it could never say "none". The
+   * box is drawn with the explorer's ✕ hidden, and compared with the same
+   * box with the native button forced off and forced on; the last two
+   * must differ, or the comparison could not see it at all. Shots are taken
+   * with animations stopped: the focus ring's transition made two shots of
+   * one state differ (the first version of this test compared those), so
+   * the same state shot twice must also match.
+   */
+  test("one clear control: the browser's own search ✕ is not drawn beside Clear search", async ({
+    page,
+  }) => {
+    await page.goto("/tools");
+    const box = page.getByRole("searchbox", { name: /search tools/i });
+    await waitForHydration(box);
+    await box.fill("compress");
+    const clear = page.getByRole("button", { name: "Clear search" });
+    await expect(clear).toBeVisible();
+    await expect(clear).toHaveCount(1);
+    await clear.evaluate((el) => (el.style.visibility = "hidden"));
+    const shot = () => box.screenshot({ animations: "disabled" });
+    const drawn = await shot();
+    // Health: one state, shot twice, is one image.
+    expect((await shot()).equals(drawn), "the screenshots are unstable").toBe(
+      true,
+    );
+    const force = async (appearance: "none" | "searchfield-cancel-button") => {
+      await page.evaluate((value) => {
+        const id = "force-native-cancel";
+        document.getElementById(id)?.remove();
+        const style = document.createElement("style");
+        style.id = id;
+        style.textContent = `input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: ${value} !important; appearance: ${value === "none" ? "none" : "auto"} !important; }`;
+        document.head.append(style);
+      }, appearance);
+      return shot();
+    };
+    const off = await force("none");
+    const on = await force("searchfield-cancel-button");
+    // Positive control: the comparison can see the native button.
+    expect(on.equals(off), "forcing the native ✕ on changed nothing").toBe(
+      false,
+    );
+    expect(drawn.equals(off), "the native ✕ is drawn as shipped").toBe(true);
+  });
+
   test("typing ranks as you go, and a format filter survives a category click", async ({
     page,
   }) => {

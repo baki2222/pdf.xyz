@@ -40,7 +40,9 @@
  *    the catalogue in both directions;
  *  - the panel modules and which page owns which: read from the dispatchers
  *    the page mounts (`src/tests/tool-panel-modules.ts`) — registry kind →
- *    runner `case`, else the page's `tool.slug ===` arms — and cross-checked
+ *    runner `case`, else the worker-panel registry the page indexes
+ *    (`WORKER_PANELS[tool.slug]`, each route's loader followed to its panel
+ *    module; WAS the page's `tool.slug ===` arms until WP-06) — and cross-checked
  *    against the files: every `*-worker-panel.tsx`, and every `*-runner.tsx`
  *    that is neither the dispatcher nor a shared base a mounted runner
  *    imports, must be in it.

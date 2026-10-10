@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import Link from "next/link";
 import {
@@ -31,7 +32,13 @@ import {
   type ToolsFilter,
   type ToolsQuery,
 } from "@/lib/tools/tools-query";
-import { ToolCard } from "@/components/tools/tool-card";
+import {
+  RUNS_COPY,
+  type RunsChoice,
+  type RunsFilter,
+} from "@/lib/tools/where-it-runs";
+import { ToolCardView } from "@/components/tools/tool-card-view";
+import { ModeShape } from "@/components/tools/processing-badge";
 import { cn } from "@/lib/utils";
 
 const counts = getCategoryCounts();
@@ -40,6 +47,120 @@ const counts = getCategoryCounts();
 export const ANNOUNCE_DELAY_MS = 400;
 
 const noSubscription = () => () => {};
+
+/** No "Where it runs" choices: the filter is not offered. */
+const NO_RUNS: readonly RunsChoice[] = [];
+
+/** A tool's glyph by slug, drawn by the server page. */
+export type ToolIcons = Readonly<Record<string, ReactNode>>;
+const NO_ICONS: ToolIcons = {};
+
+/**
+ * One filter row: a single sideways-scrolling line on a phone (the chips
+ * snap, and the ends fade inside the gutter so the first chip is never
+ * dimmed), a label column beside wrapping chips from `sm`.
+ *
+ * A row that scrolls also CLIPS, at its padding box. It used to be exactly
+ * as tall as a chip, so a focused chip's indicator — drawn outside it — lost
+ * its top and bottom and showed as two faint vertical edges (WP-06 review,
+ * 2026-10-10). On a phone the row now has 6px above and below its chips,
+ * taken back by a negative margin so nothing under it moves; the site's
+ * focus outline reaches 4px. Its scroll-padding is 1.5rem, the 1.25rem fade
+ * plus that outline, so a chip scrolled to by {@link revealInRow} — or by
+ * the browser — stops clear of the fade, its outline whole; its end padding
+ * is 1.5rem too, or the last chip could never be scrolled that far in.
+ * `e2e/tools-filter-focus.spec.ts` measures both, at 390 and 1440.
+ */
+const FILTER_ROW =
+  "-mx-5 flex snap-x snap-proximity scroll-px-6 items-center gap-2 overflow-x-auto pr-6 pl-5 [scrollbar-width:none] max-sm:-my-1.5 max-sm:py-1.5 max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:grid sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start sm:gap-x-4 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
+/**
+ * The row's label. A snap point too: otherwise a phone snaps the row to its
+ * first chip on load and the label starts scrolled out of view.
+ */
+const FILTER_LABEL =
+  "text-faint kicker shrink-0 snap-start pr-1 whitespace-nowrap sm:pt-2";
+/** The chips: flex items of the scrolling row on a phone, a wrap from `sm`. */
+const FILTER_CHIPS = "contents sm:flex sm:flex-wrap sm:gap-2";
+/**
+ * A chip. It draws NO focus style of its own: a category chip is a button
+ * and takes the site's `:focus-visible` outline (2px solid accent, 2px out:
+ * 7.40:1 on the light canvas, 9.30:1 on the dark), and a radio's label
+ * draws the same outline when its hidden input has focus ({@link
+ * RADIO_FOCUS}). WAS a half-strength ring, `ring-accent/50` — 2.41:1 on the
+ * light canvas, under WCAG 1.4.11's 3:1, and 3.13:1 on the dark.
+ */
+const CHIP =
+  "rounded-tag inline-flex h-8 shrink-0 snap-start items-center gap-1.5 border px-3 text-sm font-medium whitespace-nowrap transition-colors";
+/** The site's focus outline, on a radio's label while its input has focus. */
+const RADIO_FOCUS =
+  "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2";
+const CHIP_ON = "bg-invert text-fg-invert border-transparent";
+const CHIP_OFF =
+  "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg";
+const chipCount = (on: boolean) =>
+  cn("text-xs tabular-nums", on ? "text-fg-invert/70" : "text-faint");
+
+/**
+ * Scroll a filter row SIDEWAYS so `control` is wholly in view, clear of the
+ * row's inset (its scroll-padding). Never vertically: the row's own
+ * `scrollLeft` is set, so the page stays where the reader left it.
+ *
+ * Nearest, and home when it can be: a control already in view leaves the row
+ * alone; one out of view that would be in view with the row unscrolled sends
+ * the row back to its start, so the label shows again; any other is brought
+ * just far enough in. A row that does not scroll (from `sm`, it wraps) is
+ * left alone.
+ *
+ * WHY (WP-06 review, 2026-10-10): before WP-06 the chips wrapped, so the
+ * pressed one was always on screen. As one sideways line, a deep link's
+ * choice sat off a 390px screen — `?runs=ai` at x=680, `?category=ai` at
+ * 884 — while "All" and "All tools" looked unselected over a filtered grid;
+ * and a chip reached by Tab near the edge stayed half off it, under the
+ * fade ("To PDF" at x=321..406). `e2e/tool-layout.mobile.spec.ts` holds the
+ * first for every choice, `e2e/tools-filter-focus.spec.ts` the second.
+ */
+export function revealInRow(control: Element | null): void {
+  const row = control?.closest<HTMLElement>("[data-filter-row]");
+  if (!control || !row || row.scrollWidth <= row.clientWidth) return;
+  const style = getComputedStyle(row);
+  const insetStart = parseFloat(style.scrollPaddingLeft) || 0;
+  const insetEnd = parseFloat(style.scrollPaddingRight) || 0;
+  const rowBox = row.getBoundingClientRect();
+  /** An element's extent in the row's scroll coordinates. */
+  const extent = (el: Element) => {
+    const box = el.getBoundingClientRect();
+    const start = box.left - rowBox.left - row.clientLeft + row.scrollLeft;
+    return { start, end: start + box.width };
+  };
+  const { start, end } = extent(control);
+  const max = row.scrollWidth - row.clientWidth;
+  const fits = (scrollLeft: number) =>
+    start - scrollLeft >= insetStart - 0.5 &&
+    end - scrollLeft <= row.clientWidth - insetEnd + 0.5;
+  if (fits(row.scrollLeft)) return;
+  if (fits(0)) {
+    row.scrollLeft = 0;
+    return;
+  }
+  // Land ON a snap position: the row snaps (proximity), so a position
+  // between two would be moved after the scroll — measured, by up to 12px,
+  // back under the edge. The snap positions are each snapping child's start
+  // at the inset, and the row's two ends; the nearest one that shows the
+  // control whole wins.
+  const positions = [0, max];
+  for (const el of row.querySelectorAll(":scope > *, :scope > * > *"))
+    if (getComputedStyle(el).scrollSnapAlign !== "none")
+      positions.push(Math.min(max, Math.max(0, extent(el).start - insetStart)));
+  const showing = positions.filter(fits);
+  const next = showing.length
+    ? showing.reduce((best, p) =>
+        Math.abs(p - row.scrollLeft) < Math.abs(best - row.scrollLeft)
+          ? p
+          : best,
+      )
+    : Math.min(Math.max(0, end - (row.clientWidth - insetEnd)), max);
+  row.scrollLeft = next;
+}
 
 /** What the explorer needs from the search engine chunk. */
 export interface SearchEngine {
@@ -74,6 +195,25 @@ function categoryName(id: ToolsFilter): string | undefined {
   return id === "all" ? undefined : categories.find((c) => c.id === id)?.name;
 }
 
+/**
+ * The filters, said as what the tools they leave DO: "take DOCX", "always
+ * keep your files on your device". One tool or many, so a sentence can
+ * agree with its count. The category is not a verb; callers add " in
+ * Organize". A denial says the same words of the tools a filter HID, so each
+ * must be false of every tool outside its filter (see `RUNS_COPY`).
+ */
+function filterVerbs(
+  n: number,
+  accepts: Format | null,
+  runs: RunsFilter,
+): string[] {
+  const verbs: string[] = [];
+  if (accepts) verbs.push(`${n === 1 ? "takes" : "take"} ${accepts}`);
+  if (runs !== "all")
+    verbs.push(n === 1 ? RUNS_COPY[runs].one : RUNS_COPY[runs].many);
+  return verbs;
+}
+
 /** "The filter hides 1 match", "The filters hide 3 closest matches". */
 export function hiddenMatches(
   hidden: number,
@@ -98,50 +238,61 @@ export function hiddenMatches(
  * every word — the filter had removed it, and only the category filter was
  * ever named. An empty list now says which filter emptied it and how many
  * matches it hid; a query that matches nothing at all says so plainly.
+ * "Where it runs" is said the same way, as a verb beside "take DOCX": "29
+ * tools always keep your files on your device", "No tools run on a secure
+ * worker in AI Tools".
  */
 export function resultAnnouncement(
   count: number,
   state: Pick<ToolsQuery, "category" | "query"> & {
     readonly accepts?: Format | null;
+    readonly runs?: RunsFilter;
   },
   outcome: ResultOutcome = {},
 ): string {
   const q = state.query.trim();
   const accepts = state.accepts ?? null;
+  const runs = state.runs ?? "all";
   const category = categoryName(state.category);
   const inCategory = category ? ` in ${category}` : "";
-  const filters = (accepts ? 1 : 0) + (category ? 1 : 0);
-  const takes = (n: number) =>
-    accepts ? ` that ${n === 1 ? "takes" : "take"} ${accepts}` : "";
+  const filters =
+    (accepts ? 1 : 0) + (category ? 1 : 0) + (runs !== "all" ? 1 : 0);
+  /** " that take DOCX and use AI", or "" with no such filter. */
+  const that = (n: number) => {
+    const verbs = filterVerbs(n, accepts, runs);
+    return verbs.length ? ` that ${verbs.join(" and ")}` : "";
+  };
+  /** "take DOCX and use AI", or "". */
+  const bare = (n: number) => filterVerbs(n, accepts, runs).join(" and ");
   const prefix = outcome.unsupported ? `${outcome.unsupported} ` : "";
   const noun = count === 1 ? "tool" : "tools";
   if (q && outcome.searchFailed) {
-    return `Search could not load. Showing ${filters ? "" : "all "}${count} ${noun}${takes(count)}${inCategory}`;
+    return `Search could not load. Showing ${filters ? "" : "all "}${count} ${noun}${that(count)}${inCategory}`;
   }
   if (count === 0) {
     if (q) {
       if (filters === 0 || outcome.hidden === 0) {
         return `${prefix}No tools match “${q}”`;
       }
-      const none = accepts
-        ? `No tools for “${q}” take ${accepts}${inCategory}`
+      const none = bare(0)
+        ? `No tools for “${q}” ${bare(0)}${inCategory}`
         : `No tools match “${q}”${inCategory}`;
       return outcome.hidden
         ? `${prefix}${none}. ${hiddenMatches(outcome.hidden, filters, outcome.mode)}`
         : `${prefix}${none}`;
     }
-    return accepts
-      ? `${prefix}No tools take ${accepts}${inCategory}`
+    return bare(0)
+      ? `${prefix}No tools ${bare(0)}${inCategory}`
       : `${prefix}No tools found`;
   }
   if (q && outcome.mode === "closest") {
-    return `${prefix}No tool matches every word of “${q}”. ${count} closest ${count === 1 ? "match" : "matches"}${takes(count)}${inCategory}`;
+    return `${prefix}No tool matches every word of “${q}”. ${count} closest ${count === 1 ? "match" : "matches"}${that(count)}${inCategory}`;
   }
   if (q) {
-    return `${prefix}${count} ${noun} for “${q}”${takes(count)}${inCategory}`;
+    return `${prefix}${count} ${noun} for “${q}”${that(count)}${inCategory}`;
   }
-  if (accepts) {
-    return `${prefix}${count} ${noun} ${count === 1 ? "takes" : "take"} ${accepts}${inCategory}`;
+  if (bare(count)) {
+    return `${prefix}${count} ${noun} ${bare(count)}${inCategory}`;
   }
   return `${prefix}${count} ${noun}${inCategory}`;
 }
@@ -191,9 +342,24 @@ export function resultAnnouncement(
  */
 export function ToolsExplorer({
   loadEngine = loadSearchEngine,
+  runs: runsChoices = NO_RUNS,
+  icons = NO_ICONS,
 }: {
   /** The engine loader; a test seam for a chunk that fails to load. */
   loadEngine?: () => Promise<SearchEngine>;
+  /**
+   * The "Where it runs" choices and their members, computed on the server
+   * from the one partition (`whereItRuns(processingSplit())` in
+   * `app/tools/page.tsx`) and handed over as slugs. Without them there is
+   * no "Where it runs" filter, and a `?runs=` link shows every tool.
+   */
+  runs?: readonly RunsChoice[];
+  /**
+   * Each tool's glyph by slug, drawn on the server by `app/tools/page.tsx`.
+   * Drawing them here would ship the icon registry (~50 lucide glyphs) to
+   * this page; `tool-card.test.tsx` holds that every card gets its own.
+   */
+  icons?: ToolIcons;
 } = {}) {
   // The server snapshot is "" — the prerendered, unfiltered grid. On the
   // client React re-renders once with the real query string after hydration.
@@ -207,6 +373,14 @@ export function ToolsExplorer({
   const [chosen, setChosen] = useState<ToolsQuery | null>(null);
   const state = chosen ?? linked;
   const { category: active, query, accepts } = state;
+  const runsMembers = useMemo(
+    () =>
+      new Map(runsChoices.map((choice) => [choice.id, new Set(choice.slugs)])),
+    [runsChoices],
+  );
+  // A choice this page does not offer is every tool, never an empty grid.
+  const runs: RunsFilter =
+    state.runs !== "all" && runsMembers.has(state.runs) ? state.runs : "all";
   const update = (patch: Partial<ToolsQuery>) =>
     setChosen({ ...state, ...patch });
   const searchField = useRef<HTMLInputElement>(null);
@@ -264,9 +438,10 @@ export function ToolsExplorer({
       (ranking?.ranked ?? tools).filter(
         (tool) =>
           (active === "all" || tool.category === active) &&
-          (accepts === null || toolAcceptsFormat(tool.accept, accepts)),
+          (accepts === null || toolAcceptsFormat(tool.accept, accepts)) &&
+          (runs === "all" || Boolean(runsMembers.get(runs)?.has(tool.slug))),
       ),
-    [ranking, active, accepts],
+    [ranking, active, accepts, runs, runsMembers],
   );
   // Matches the filters removed: only ever non-zero when they removed all.
   const hidden = ranking && results.length === 0 ? ranking.ranked.length : 0;
@@ -279,7 +454,7 @@ export function ToolsExplorer({
     if (!chosen || pending) return;
     const text = resultAnnouncement(
       results.length,
-      { category: active, query: trimmed, accepts },
+      { category: active, query: trimmed, accepts, runs },
       {
         mode,
         unsupported: answer?.headline ?? null,
@@ -296,6 +471,7 @@ export function ToolsExplorer({
     active,
     trimmed,
     accepts,
+    runs,
     mode,
     answer,
     hidden,
@@ -322,10 +498,32 @@ export function ToolsExplorer({
     })),
   ];
 
+  // The active choice in each filter row, brought on screen: after
+  // hydration (a deep link's choice applies then) and whenever it changes.
+  const runsRow = useRef<HTMLDivElement>(null);
+  const categoryRow = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    revealInRow(
+      runsRow.current?.querySelector("input:checked")?.closest("label") ?? null,
+    );
+  }, [runs]);
+  useEffect(() => {
+    revealInRow(
+      categoryRow.current?.querySelector('[aria-pressed="true"]') ?? null,
+    );
+  }, [active]);
+
   const resultsHeading = useId();
   const pendingHeading = useId();
+  const runsLabel = useId();
+  const runsName = useId();
   const reset = () =>
-    updateAndRefocus({ category: "all", query: "", accepts: null });
+    updateAndRefocus({
+      category: "all",
+      query: "",
+      accepts: null,
+      runs: "all",
+    });
 
   const grouped = (
     <div className="flex flex-col gap-12">
@@ -333,12 +531,12 @@ export function ToolsExplorer({
         <section
           key={category.id}
           aria-labelledby={`tools-group-${category.id}`}
-          className="flex flex-col gap-3"
+          className="flex flex-col gap-2 sm:gap-3"
         >
           <div className="flex flex-col gap-1">
             <h2
               id={`tools-group-${category.id}`}
-              className="font-display text-fg text-2xl font-medium tracking-tight"
+              className="font-display text-fg text-xl font-medium tracking-tight sm:text-2xl"
             >
               <Link
                 href={categoryHref(category.id)}
@@ -354,14 +552,14 @@ export function ToolsExplorer({
               {category.description}
             </p>
           </div>
-          <ToolGrid tools={groupTools} />
+          <ToolGrid tools={groupTools} icons={icons} />
         </section>
       ))}
     </div>
   );
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <p
         role="status"
         aria-live="polite"
@@ -370,8 +568,12 @@ export function ToolsExplorer({
       >
         {announcement}
       </p>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <label className="relative w-full lg:max-w-md">
+      {/* The field and the count share one row at every width: on a phone a
+          row of its own for "50 tools" pushed the first tool 44px further
+          down. A format chip from a deep link (`?accepts=`) takes the
+          count's place on a phone, so it adds no row and moves nothing. */}
+      <div className="flex items-center gap-3 lg:justify-between lg:gap-4">
+        <label className="relative min-w-0 flex-1 lg:max-w-md">
           <Search
             className="text-muted pointer-events-none absolute top-1/2 left-4 size-4.5 -translate-y-1/2"
             aria-hidden
@@ -385,7 +587,9 @@ export function ToolsExplorer({
             onPointerEnter={requestEngine}
             placeholder={`Search ${toolCount} tools — merge, compress, sign…`}
             aria-label="Search tools"
-            className="bg-panel border-line placeholder:text-faint focus:border-accent/40 focus-visible:ring-accent/50 text-fg h-12 w-full rounded-[3px] border pr-11 pl-11 text-sm transition outline-none focus-visible:ring-2"
+            // The browser's own ✕ off: "Clear search" below is the one
+            // clear control (Chromium and WebKit drew both, side by side).
+            className="bg-panel border-line placeholder:text-faint focus:border-accent/40 focus-visible:ring-accent/50 text-fg h-12 w-full rounded-[3px] border pr-11 pl-11 text-sm transition outline-none focus-visible:ring-2 [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query && (
             <button
@@ -398,15 +602,17 @@ export function ToolsExplorer({
             </button>
           )}
         </label>
-        {/* The count leads the row, and on a wide screen the row runs from
-            its far edge: the count keeps its place and a chip from a deep
-            link lands beside it, in a row whose height is reserved. */}
-        <div className="flex min-h-8 flex-wrap items-center gap-x-4 gap-y-2 lg:flex-1 lg:flex-row-reverse">
+        {/* On a wide screen the row runs from its far edge: the count keeps
+            its place and a chip from a deep link lands beside it. */}
+        <div className="flex shrink-0 items-center gap-x-4 lg:flex-1 lg:flex-row-reverse">
           <p
             data-result-count
-            className="text-muted inline-flex items-center gap-2 text-sm"
+            className={cn(
+              "text-muted inline-flex items-center justify-end gap-2 text-sm whitespace-nowrap max-sm:w-[4.5rem]",
+              accepts && "max-sm:hidden",
+            )}
           >
-            <SlidersHorizontal className="size-4" aria-hidden />
+            <SlidersHorizontal className="size-4 max-sm:hidden" aria-hidden />
             {pending ? (
               // No number while the engine loads: the grid's count is not
               // the count for the query.
@@ -415,10 +621,12 @@ export function ToolsExplorer({
                 <span className="sr-only">Searching</span>
               </>
             ) : (
-              <>
+              // One span: the row's flex gap would otherwise also sit
+              // between the number and its word ("50  tools").
+              <span>
                 <span className="tabular-nums">{results.length}</span>
                 {results.length === 1 ? " tool" : " tools"}
-              </>
+              </span>
             )}
           </p>
           {accepts && (
@@ -426,7 +634,9 @@ export function ToolsExplorer({
               type="button"
               onClick={() => updateAndRefocus({ ...state, accepts: null })}
               aria-label={`Takes ${accepts}, remove this filter`}
-              className="border-line-strong bg-select text-fg hover:border-accent/60 focus-visible:ring-accent/50 rounded-tag inline-flex h-8 items-center gap-1.5 border pr-2 pl-3 text-sm font-medium transition-colors outline-none focus-visible:ring-2"
+              // The site's focus outline, as on the filter chips: this drew
+              // the same half-strength ring (2.41:1) until the WP-06 review.
+              className="border-line-strong bg-select text-fg hover:border-accent/60 rounded-tag inline-flex h-8 items-center gap-1.5 border pr-2 pl-3 text-sm font-medium transition-colors"
             >
               Takes {accepts}
               <X className="text-muted size-3.5" aria-hidden />
@@ -435,50 +645,117 @@ export function ToolsExplorer({
         </div>
       </div>
 
-      <div
-        className="-mx-1 flex flex-wrap gap-2 px-1"
-        role="group"
-        aria-label="Filter by category"
-      >
-        {filters.map((filter) => {
-          const selected = active === filter.id;
-          return (
-            <button
-              key={filter.id}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => update({ category: filter.id })}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-[2px] border px-3.5 py-1.5 text-sm font-medium transition-colors",
-                selected
-                  ? "bg-invert text-fg-invert border-transparent"
-                  : "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
-              )}
-            >
-              {filter.label}
-              <span
-                className={cn(
-                  "text-xs tabular-nums",
-                  selected ? "text-fg-invert/70" : "text-faint",
-                )}
-              >
-                {filter.count}
-              </span>
-            </button>
-          );
-        })}
+      {/* Two filter rows. On a phone each is ONE line that scrolls sideways
+          (its label scrolls with it), so the first tool stays near the top
+          of the screen; from `sm` the label takes a column and the chips
+          wrap beside it. Every chip is focusable, so a keyboard reaches the
+          ones off-screen, and each one focused is scrolled wholly into view
+          (`revealInRow`) — the browser's own scroll left a chip half under
+          the fade. */}
+      <div className="flex flex-col gap-2 sm:gap-3">
+        {runsChoices.length > 0 && (
+          <div
+            ref={runsRow}
+            role="radiogroup"
+            aria-labelledby={runsLabel}
+            data-filter-row
+            className={FILTER_ROW}
+          >
+            <span id={runsLabel} className={FILTER_LABEL}>
+              Where it runs
+            </span>
+            <div className={FILTER_CHIPS}>
+              {[{ id: "all" as const }, ...runsChoices].map((choice) => {
+                const checked = runs === choice.id;
+                return (
+                  <label
+                    key={choice.id}
+                    className={cn(
+                      CHIP,
+                      checked ? CHIP_ON : CHIP_OFF,
+                      "relative cursor-pointer",
+                      RADIO_FOCUS,
+                    )}
+                  >
+                    {/* `relative` on the label keeps this input inside the
+                        scrolling row: positioned against the page instead,
+                        a radio off the right edge widened the page. */}
+                    <input
+                      type="radio"
+                      name={runsName}
+                      value={choice.id}
+                      checked={checked}
+                      onChange={() => update({ runs: choice.id })}
+                      onFocus={(e) =>
+                        revealInRow(e.currentTarget.closest("label"))
+                      }
+                      className="sr-only"
+                    />
+                    {"mode" in choice ? (
+                      <>
+                        <ModeShape mode={choice.mode} />
+                        {RUNS_COPY[choice.id].label}{" "}
+                        <span className={chipCount(checked)}>
+                          {choice.slugs.length}
+                        </span>
+                      </>
+                    ) : (
+                      "All"
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div
+          ref={categoryRow}
+          role="group"
+          aria-label="Filter by category"
+          data-filter-row
+          className={FILTER_ROW}
+        >
+          <span aria-hidden className={FILTER_LABEL}>
+            Category
+          </span>
+          <div className={FILTER_CHIPS}>
+            {filters.map((filter) => {
+              const selected = active === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => update({ category: filter.id })}
+                  onFocus={(e) => revealInRow(e.currentTarget)}
+                  className={cn(CHIP, selected ? CHIP_ON : CHIP_OFF)}
+                >
+                  {filter.label}
+                  <span className={chipCount(selected)}>{filter.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Keyed on what it shows: see "NOTHING THE SERVER PAINTED MOVES". */}
       <div
-        key={`${active}|${accepts ?? ""}|${phase}`}
+        key={`${active}|${accepts ?? ""}|${runs}|${phase}`}
         className="flex min-h-svh flex-col gap-6"
       >
         {answer && (
           <AnswerBlock
             answer={answer}
+            icons={icons}
             onShowFormat={(format) =>
-              updateAndRefocus({ category: "all", query: "", accepts: format })
+              updateAndRefocus({
+                category: "all",
+                query: "",
+                accepts: format,
+                runs: "all",
+              })
             }
           />
         )}
@@ -498,13 +775,19 @@ export function ToolsExplorer({
             <EmptyState
               query={ranking ? trimmed : ""}
               accepts={accepts}
+              runs={runs}
               category={categoryName(active)}
               near={near}
               hidden={hidden}
               mode={mode}
               onReset={reset}
               onShowHidden={() =>
-                updateAndRefocus({ ...state, category: "all", accepts: null })
+                updateAndRefocus({
+                  ...state,
+                  category: "all",
+                  accepts: null,
+                  runs: "all",
+                })
               }
             />
           )
@@ -527,7 +810,7 @@ export function ToolsExplorer({
                 </p>
               )}
             </div>
-            <ToolGrid tools={results} />
+            <ToolGrid tools={results} icons={icons} />
           </section>
         ) : pending ? (
           <section
@@ -563,9 +846,11 @@ export function ToolsExplorer({
  */
 function AnswerBlock({
   answer,
+  icons,
   onShowFormat,
 }: {
   answer: UnsupportedAnswer<Tool>;
+  icons: ToolIcons;
   onShowFormat: (format: Format) => void;
 }) {
   const heading = useId();
@@ -591,8 +876,8 @@ function AnswerBlock({
         </div>
       </div>
       {alt?.kind === "tool" && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <ToolCard tool={alt.tool} />
+        <div className={GRID}>
+          <ToolCardView tool={alt.tool} icon={icons[alt.tool.slug]} />
         </div>
       )}
       {alt?.kind === "accepts" && (
@@ -621,6 +906,7 @@ function AnswerBlock({
 function EmptyState({
   query,
   accepts,
+  runs,
   category,
   near,
   hidden,
@@ -630,6 +916,7 @@ function EmptyState({
 }: {
   query: string;
   accepts: Format | null;
+  runs: RunsFilter;
   category: string | undefined;
   near: readonly Tool[];
   /** Matches the filters removed; 0 when the query matched nothing. */
@@ -640,8 +927,13 @@ function EmptyState({
 }) {
   const heading = useId();
   const inCategory = category ? ` in ${category}` : "";
-  const filters = (accepts ? 1 : 0) + (category ? 1 : 0);
+  const filters =
+    (accepts ? 1 : 0) + (category ? 1 : 0) + (runs !== "all" ? 1 : 0);
   const filtered = Boolean(query) && hidden > 0;
+  /** "takes DOCX and uses AI": what the one missing tool would do. */
+  const one = filterVerbs(1, accepts, runs).join(" and ");
+  /** "take DOCX and use AI": what no tool here does. */
+  const none = filterVerbs(0, accepts, runs).join(" and ");
   return (
     <section
       aria-labelledby={heading}
@@ -651,10 +943,10 @@ function EmptyState({
       <h2 id={heading} className="text-fg text-lg font-semibold wrap-anywhere">
         {query
           ? filtered
-            ? `Nothing${inCategory}${accepts ? ` that takes ${accepts}` : ""} matches “${query}”`
+            ? `Nothing${inCategory}${one ? ` that ${one}` : ""} matches “${query}”`
             : `Nothing matches “${query}”`
-          : accepts
-            ? `No tools take ${accepts}${inCategory}`
+          : none
+            ? `No tools ${none}${inCategory}`
             : `No tools found${inCategory}`}
       </h2>
       {filtered && (
@@ -711,11 +1003,24 @@ function EmptyState({
   );
 }
 
-function ToolGrid({ tools: list }: { tools: readonly Tool[] }) {
+/**
+ * Cards as index rows: a hairline under each, columns apart, no gap between
+ * rows — the rows' own rules separate them, as on the category pages.
+ */
+const GRID =
+  "grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+
+function ToolGrid({
+  tools: list,
+  icons,
+}: {
+  tools: readonly Tool[];
+  icons: ToolIcons;
+}) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className={GRID}>
       {list.map((tool) => (
-        <ToolCard key={tool.slug} tool={tool} />
+        <ToolCardView key={tool.slug} tool={tool} icon={icons[tool.slug]} />
       ))}
     </div>
   );

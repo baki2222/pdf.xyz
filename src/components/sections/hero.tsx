@@ -1,12 +1,19 @@
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight } from "lucide-react";
-import { getPopularTools, toolCount } from "@/lib/tools";
+import { toolCount } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { buttonVariants } from "@/components/ui/button";
-import { UploadZone } from "@/components/upload/upload-zone";
+import { HeroDeskIsland } from "@/components/intent/hero-desk-island";
+import { TaskList } from "@/components/intent/task-list";
+import {
+  acceptAttribute,
+  acceptHint,
+} from "@/components/upload/accepted-kinds";
 
-/** The homepage drop zone's id: the target of every "Start for free". */
+/** The home desk's id: the target of every "Choose files" link on the page. */
 export const UPLOAD_ANCHOR = "upload";
+
+/** The task list's label, shared by the kicker and the list it names. */
+const TASKS_LABEL = "desk-tasks";
 
 const trust = [
   "No sign-up to start",
@@ -15,110 +22,87 @@ const trust = [
 ];
 
 /**
- * Prepress hero: headline column left, the working object — a real drop
- * zone — right. No badge pill, no gradient text, no glow. The kicker is a
- * mono spec line, the headline is the grotesque with the promise carried on
- * a process-cyan sweep (the mark at 22% — text stays fg, so the line can
- * never fail contrast), and the sheet on the right wears the crop marks:
- * the one place the trim-room device appears on this screen, because it is
- * the one place a real page will actually be.
+ * Prepress hero: the promise on the left, the working object on the right —
+ * a desk a file is dropped on, which becomes the job ticket for that file.
+ * No badge pill, no gradient text, no glow. The kicker is a mono spec line,
+ * the headline is the grotesque with the promise carried on a process-cyan
+ * sweep (the mark at 22% — text stays fg, so the line can never fail
+ * contrast), and the desk wears the crop marks: the one place the trim-room
+ * device appears on this screen, because it is where a real page will be.
+ *
+ * ONE ORDER FOR EVERY WIDTH. On a phone the desk comes right under the
+ * headline — kicker, title, desk, lede, actions, trust — and from `lg` the
+ * same DOM is placed in two columns by row and column (no template areas,
+ * no reordering): the reading order is the visual order at both sizes.
+ *
+ * WAS a "Start for free" button beside the lede, aimed at the drop zone
+ * beside it. The desk's own "Choose files" is now the page's first action,
+ * so the lede keeps the two ways onward that are not a file: the workspace,
+ * and the catalogue. "Start with" (six editorial picks) became the desk's
+ * six tasks — each a job in a person's words, with where its tool runs.
  */
 export function Hero() {
-  const popular = getPopularTools(6);
-
   return (
     <section className="border-line border-b">
-      <Container className="grid gap-14 pt-10 pb-16 sm:pt-14 lg:grid-cols-12 lg:gap-10 lg:pt-16 lg:pb-20">
-        <div className="flex flex-col items-start lg:col-span-7 lg:pr-6">
-          <p className="text-muted kicker">
-            Privacy-first PDF platform · {toolCount} tools
-          </p>
+      <Container className="grid grid-cols-1 pt-6 pb-16 sm:pt-12 lg:grid-cols-12 lg:grid-rows-[auto_auto_auto_auto_1fr] lg:gap-x-10 lg:pt-16 lg:pb-20">
+        <p className="text-muted kicker lg:col-span-7 lg:row-start-1">
+          Privacy-first PDF platform · {toolCount} tools
+        </p>
 
-          <h1 className="font-display text-fg text-display-1 mt-6 font-bold text-balance">
-            Every PDF tool.{" "}
-            <span className="mark-sweep">Private by design.</span>
-          </h1>
+        <h1 className="font-display text-fg text-display-1 mt-4 font-bold text-balance sm:mt-6 lg:col-span-7 lg:row-start-2 lg:pr-6">
+          Every PDF tool. <span className="mark-sweep">Private by design.</span>
+        </h1>
 
-          <p className="text-muted mt-6 max-w-xl text-base leading-relaxed text-pretty sm:text-lg">
-            Merge, split, compress, convert, edit, sign, and run AI on your
-            documents — in one fast, beautiful workspace. Most tools run
-            entirely in your browser, so your files never leave your device.
-          </p>
-
-          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-            {/* Was a link to /workspace: a staging page that processes
-                nothing, reached empty. The drop zone beside this is where
-                starting actually happens. A plain anchor, so the browser
-                fires the `hashchange` the zone listens for to focus its
-                input (a client-side Link navigation does not). */}
-            <a
-              href={`#${UPLOAD_ANCHOR}`}
-              className={buttonVariants({ variant: "primary", size: "lg" })}
-            >
-              Start for free
-              <ArrowRight className="size-4" aria-hidden />
-            </a>
-            <Link
-              href="/tools"
-              className="text-fg decoration-line-strong hover:decoration-accent inline-flex items-center gap-1.5 text-[15px] font-medium underline decoration-1 underline-offset-[6px] transition-colors"
-            >
-              Browse all tools
-            </Link>
-          </div>
-
-          <ul className="border-line mt-12 flex w-full flex-wrap items-center gap-x-7 gap-y-2 border-t pt-5">
-            {trust.map((label) => (
-              <li
-                key={label}
-                className="text-muted inline-flex items-center gap-2 text-[13px]"
-              >
-                <span className="bg-mark size-1.5 shrink-0" aria-hidden />
-                {label}
-              </li>
-            ))}
-          </ul>
+        <div className="mt-6 lg:col-span-5 lg:col-start-8 lg:row-span-5 lg:row-start-1 lg:mt-2 lg:self-start">
+          <HeroDeskIsland
+            id={UPLOAD_ANCHOR}
+            accept={acceptAttribute()}
+            acceptHint={acceptHint()}
+            tasks={
+              <>
+                <p id={TASKS_LABEL} className="kicker text-faint">
+                  Start from a task
+                </p>
+                <div className="mt-2">
+                  <TaskList labelledBy={TASKS_LABEL} />
+                </div>
+              </>
+            }
+          />
         </div>
 
-        <div className="flex flex-col lg:col-span-5">
-          {/* The working object. It gets the page's one shadow level and a
-              stack of sheets behind it — physical presence, reserved for the
-              single thing on this screen a visitor can actually use. */}
-          <div className="relative mt-2">
-            <div
-              aria-hidden
-              className="border-line bg-panel absolute -top-2.5 right-4 left-4 h-16 border"
-            />
-            <div
-              aria-hidden
-              className="border-line bg-panel absolute -top-[5px] right-2 left-2 h-16 border"
-            />
-            <div className="border-line bg-panel crop-marks shadow-sheet relative border p-4 sm:p-5">
-              <UploadZone id={UPLOAD_ANCHOR} />
-            </div>
-          </div>
+        <p className="text-muted mt-10 max-w-xl text-base leading-relaxed text-pretty sm:text-lg lg:col-span-7 lg:row-start-3 lg:mt-6 lg:pr-6">
+          Merge, split, compress, convert, edit, sign, and run AI on your
+          documents — in one fast, beautiful workspace. Most tools run entirely
+          in your browser, so your files never leave your device.
+        </p>
 
-          <div className="mt-8">
-            {/* Was "Popular right now": an editorial list (a catalogue flag)
-                labelled as if it were measured, and live. */}
-            <p className="text-faint kicker">Start with</p>
-            <ul className="border-line mt-3 grid grid-cols-2 gap-x-6 border-t">
-              {popular.map((tool) => (
-                <li key={tool.slug} className="border-line border-b">
-                  <Link
-                    href={`/tools/${tool.slug}`}
-                    className="group text-fg hover:text-accent flex items-center justify-between gap-2 py-2.5 pr-1 text-sm transition-colors"
-                  >
-                    {tool.name}
-                    <ArrowUpRight
-                      className="text-faint size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                      aria-hidden
-                    />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
+        <div className="mt-7 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6 lg:col-span-7 lg:row-start-4">
+          <Link
+            href="/workspace"
+            className={buttonVariants({ variant: "outline", size: "lg" })}
+          >
+            Open workspace
+          </Link>
+          <Link
+            href="/tools"
+            className="text-fg decoration-line-strong hover:decoration-accent inline-flex items-center gap-1.5 text-[15px] font-medium underline decoration-1 underline-offset-[6px] transition-colors"
+          >
+            Browse all tools
+          </Link>
         </div>
+
+        <ul className="border-line mt-10 flex w-full flex-wrap items-center gap-x-7 gap-y-2 border-t pt-5 lg:col-span-7 lg:row-start-5 lg:self-end">
+          {trust.map((label) => (
+            <li
+              key={label}
+              className="text-muted inline-flex items-center gap-2 text-[13px]"
+            >
+              <span className="bg-mark size-1.5 shrink-0" aria-hidden />
+              {label}
+            </li>
+          ))}
+        </ul>
       </Container>
     </section>
   );

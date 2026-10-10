@@ -12,8 +12,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { handoffCapabilityFor } from "@/lib/handoff/capability";
+import { opensRestrictedPdfs } from "@/lib/pdf/registry";
 import { tools } from "@/lib/tools";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
+import {
+  modeHasBrowserPath,
+  modeUploadsFiles,
+} from "@/lib/tools/processing-split";
 import { buildToolIndex } from "./tool-index";
 
 describe("buildToolIndex", () => {
@@ -50,6 +55,15 @@ describe("buildToolIndex", () => {
       if (entry.ceilingBytes !== toolFileCeilingBytes(tool)) {
         out.push(`${entry.slug} ceilingBytes`);
       }
+      if (entry.opensRestricted !== opensRestrictedPdfs(entry.slug)) {
+        out.push(`${entry.slug} opensRestricted`);
+      }
+      if (entry.mayUpload !== modeUploadsFiles(tool.processing)) {
+        out.push(`${entry.slug} mayUpload`);
+      }
+      if (entry.hasBrowserPath !== modeHasBrowserPath(tool.processing)) {
+        out.push(`${entry.slug} hasBrowserPath`);
+      }
       return out;
     });
     expect(drift).toEqual([]);
@@ -62,5 +76,8 @@ describe("buildToolIndex", () => {
     expect(modes.has("none")).toBe(true);
     expect(modes.has("single")).toBe(true);
     expect(index.some((entry) => entry.ceilingBytes === null)).toBe(true);
+    // Both answers to "does it open a restricted PDF" are present.
+    expect(index.some((entry) => entry.opensRestricted)).toBe(true);
+    expect(index.some((entry) => !entry.opensRestricted)).toBe(true);
   });
 });

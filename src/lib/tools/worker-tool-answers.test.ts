@@ -108,7 +108,6 @@ import {
 } from "@/lib/workers/pdf-security/engine";
 import { createPdfSecurityProcessor } from "@/lib/workers/processor/pdf-security";
 import { PRINT_TO_PDF_OPTIONS } from "@/lib/workers/html-render/native";
-import { workerPanelArms } from "@/tests/tool-panel-modules";
 import {
   HTML_RENDER_TOOLS,
   WEBPAGE_TO_PDF_TOOL,
@@ -128,6 +127,7 @@ import {
 } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
 import { pageDescription, pageIntro } from "./page-copy";
+import { panelDispatchArms, panelFile } from "@/tests/worker-panel-dispatch";
 import {
   renderToolPages,
   type RenderedToolPage,
@@ -1852,18 +1852,20 @@ describe("the Chromium pages describe the print the renderer asks for", () => {
 /**
  * slug → the source of the worker panel `/tools/[slug]` mounts, plus the
  * components that panel imports from its own directory. Resolved from the
- * page's own dispatch (`tool.slug === "…" ? <XWorkerPanel`) and its imports —
- * never a typed list.
+ * registry the page indexes (`@/components/tools/worker-panels`) through the
+ * one parse every source-reading guard shares — never a typed list.
+ *
+ * WAS a private walk of the page's `tool.slug === "…" ? <XWorkerPanel` chain
+ * and its imports. The chain became the registry (WP-06, 2026-10-10). And
+ * since 2026-10-09 (#175) each panel the registry binds is a `next/dynamic`
+ * loader, so `panelFile` is the module that DEFINES the panel, followed
+ * through the loader (`@/tests/tool-panel-modules`) — a single-name import
+ * regex found none of them.
  */
 function workerPanelSources(): Map<string, string> {
   const out = new Map<string, string>();
-  // The page's arms, each followed through its bindings to the module that
-  // DEFINES the panel (`@/tests/tool-panel-modules`). Since 2026-10-09 the
-  // page imports its panels from `worker-panels.tsx` as `next/dynamic`
-  // loaders, and the single-name import regex this replaced found none.
-  for (const arm of workerPanelArms()) {
-    const file = path.relative(ROOT, arm.resolved.file);
-    const main = read(file);
+  for (const arm of panelDispatchArms()) {
+    const main = read(panelFile(arm));
     const nested = [...main.matchAll(/from\s+"\.\/([\w-]+)"/g)]
       .map((m) => path.join("src/components/tools", `${m[1]}.tsx`))
       .flatMap((rel) => {
@@ -1874,7 +1876,7 @@ function workerPanelSources(): Map<string, string> {
         }
       });
     const source = [main, ...nested].join("\n");
-    for (const slug of arm.keys) out.set(slug, source);
+    for (const slug of arm.slugs) out.set(slug, source);
   }
   return out;
 }

@@ -1,6 +1,6 @@
 import { guides } from "./catalog";
-import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
 import { getToolBySlug } from "@/lib/tools";
+import { formatFamily } from "@/lib/tools/formats-line";
 import type { Tool } from "@/lib/tools/types";
 import type { Guide, GuideFaqEntry, GuideSection } from "./types";
 
@@ -25,11 +25,11 @@ export interface ToolGuide {
 
 /**
  * A format family: a ZIP is packaging, not a format, and each format has one
- * spelling — JPEG is JPG, HTM is HTML, MARKDOWN is MD — by the same rule the
- * rest of the site compares formats with.
+ * spelling — JPEG is JPG, HTM is HTML, MARKDOWN is MD. The rule is
+ * `formatFamily`'s, the same one every tool card's formats line uses.
  */
 function formats(list: readonly string[]): Set<string> {
-  return new Set(list.filter((f) => f !== "ZIP").map(normalizeFormatLabel));
+  return new Set(formatFamily(list));
 }
 
 function overlaps(a: Set<string>, b: Set<string>): boolean {

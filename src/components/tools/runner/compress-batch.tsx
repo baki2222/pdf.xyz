@@ -22,7 +22,7 @@ import type { NamedBytes } from "@/lib/pdf/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import type { BatchItem } from "@/lib/batch";
-import { HandoffLoadedBadge } from "./handoff-notice";
+import { HandoffLoadedBadge, type Arrival } from "./handoff-notice";
 import { ErrorNote, Spinner } from "./runner-kit";
 import { useBatchRunner, type BatchUnit } from "./use-batch-runner";
 import { useZipDownload } from "./use-zip-download";
@@ -74,13 +74,12 @@ async function repackOrExplain(bytes: Uint8Array): Promise<LosslessResult> {
 export function CompressBatchRunner({
   files,
   onReset,
-  preloaded = false,
-  skipped = 0,
+  arrival = null,
 }: {
   files: File[];
   onReset: () => void;
-  preloaded?: boolean;
-  skipped?: number;
+  /** Set when the files were handed over from another page. */
+  arrival?: Arrival | null;
 }) {
   const units = useMemo<BatchUnit[]>(
     () =>
@@ -144,8 +143,12 @@ export function CompressBatchRunner({
 
   return (
     <div className="flex flex-col gap-5">
-      {preloaded && (
-        <HandoffLoadedBadge count={files.length} skipped={skipped} />
+      {arrival && (
+        <HandoffLoadedBadge
+          origin={arrival.origin}
+          count={files.length}
+          skipped={arrival.skipped}
+        />
       )}
 
       {/* Honest scope banner: lossless-only, on-device. */}

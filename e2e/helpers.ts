@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { drawRasterImage, embedRasterImage } from "../src/lib/pdf/pdf-lib";
 
 /**
  * Generate a tiny, valid multi-page PDF in-process with pdf-lib. We never ship
@@ -59,6 +60,45 @@ export async function writeTempFormPdf(name: string): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "pdfxyz-e2e-"));
   const path = join(dir, name);
   writeFileSync(path, await makeFormPdfBytes(name));
+  return path;
+}
+
+/** A 1×1 opaque PNG: the whole of a generated scan's page. */
+const PNG_1PX = Uint8Array.from(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  ),
+);
+
+/**
+ * What a scanner produces: each page one full-bleed image, and no text
+ * operator anywhere — so no text layer to select. Embedded through the
+ * product's own raster boundary, which `raster-embedder-boundary.test.ts`
+ * holds every caller to (e2e included).
+ */
+export async function makeScanPdfBytes(pageCount = 1): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const image = await embedRasterImage(doc, PNG_1PX, "png");
+  for (let i = 0; i < pageCount; i++) {
+    await drawRasterImage(doc.addPage([612, 792]), image, {
+      x: 0,
+      y: 0,
+      width: 612,
+      height: 792,
+    });
+  }
+  return doc.save();
+}
+
+/** Write a generated scan to a temp file and return its path. */
+export async function writeTempScanPdf(
+  name: string,
+  pages = 1,
+): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), "pdfxyz-e2e-"));
+  const path = join(dir, name);
+  writeFileSync(path, await makeScanPdfBytes(pages));
   return path;
 }
 

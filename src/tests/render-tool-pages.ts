@@ -68,7 +68,8 @@ const RAW =
 
 /**
  * Every runner and worker panel is a `next/dynamic` loader since 2026-10-09
- * (`tool-runner.tsx`, `worker-panels.tsx`), so a tool page's first load
+ * (`tool-runner.tsx`, and `worker-panel-loaders.tsx`, which the panel
+ * registry `worker-panels.tsx` binds), so a tool page's first load
  * carries only its own. `next build` prerenders each page with the loader
  * RESOLVED — the panel's markup is in the HTML; `own-panel-first-load.test.ts`
  * holds the build to that. Outside Next, `next/dynamic` is the loadable

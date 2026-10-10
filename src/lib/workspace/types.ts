@@ -11,6 +11,8 @@
  * metadata is written to disk — only tool preferences + a name-free activity log.
  */
 
+import type { FileFacts } from "@/lib/intent/facts";
+
 /** Coarse file family, derived from name/MIME, used for summaries + suggestions. */
 export type FileFamily =
   "pdf" | "image" | "word" | "excel" | "powerpoint" | "text" | "other";
@@ -47,10 +49,17 @@ export interface WorkspaceFile {
   addedAt: number;
   /**
    * Page count, filled in asynchronously for PDFs via a best-effort *local*
-   * parse (see `countPdfPages`). Undefined while pending, or when the file
+   * parse (the probe, through `facts`). Undefined while pending, or when the file
    * isn't a PDF or couldn't be read. Never persisted.
    */
   pageCount?: number;
+  /**
+   * What this tab measured: the format its bytes declare and, for a PDF, the
+   * probe's findings (pages, form fields, its lock, scanned pages). Memory
+   * only, like the file itself — never persisted (`./storage` writes no file
+   * field at all).
+   */
+  facts?: FileFacts;
 }
 
 /** What a recorded activity entry represents. */

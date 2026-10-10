@@ -1,9 +1,19 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
   plugins: [tsconfigPaths(), react()],
+  resolve: {
+    alias: {
+      // The home desk without its `next/dynamic` boundary, which renders
+      // nothing outside Next; see the module for why and what guards it.
+      "@/components/intent/hero-desk-island": fileURLToPath(
+        new URL("./src/tests/hero-desk-island.tsx", import.meta.url),
+      ),
+    },
+  },
   test: {
     // Default to the fast Node environment: the overwhelming majority of the suite
     // is worker/library logic that never touches the DOM, and booting jsdom for

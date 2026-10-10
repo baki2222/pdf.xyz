@@ -11,6 +11,8 @@
  * `./store` for the lifecycle guarantees and `docs/SECURITY.md` for the model.
  */
 
+import type { HandoffOrigin, PendingStep } from "./origin";
+
 /**
  * One file inside a handoff. Bytes are held as a {@link Blob} (structured-clone
  * safe, so IndexedDB stores it natively) alongside the metadata needed to
@@ -30,11 +32,19 @@ export interface HandoffFileEntry {
 /**
  * A complete handoff: the target tool, timing metadata, and the files. Persisted
  * as-is into IndexedDB (Blobs included) and read back by the claiming runner.
+ *
+ * The three provenance fields are optional ON THE RECORD because records stored
+ * before they existed may still be claimed; a claim reads them through
+ * `readOrigin`/`readTrail`/`readPending` (`./origin`), which also refuse a
+ * malformed value. Every CREATOR must supply an origin — see `HandoffMeta`.
  */
 export interface HandoffRecord {
   /** Opaque, unguessable id; also the IndexedDB primary key and URL token. */
   id: string;
-  /** Slug of the tool this handoff targets, e.g. "merge-pdf". */
+  /**
+   * Slug of the tool this handoff targets, e.g. "merge-pdf" — or a reserved
+   * target that is not a tool (`workspace`, `parked`; see `./origin`).
+   */
   toolSlug: string;
   /** Client-clock ms epoch when the handoff was created. */
   createdAt: number;
@@ -42,6 +52,12 @@ export interface HandoffRecord {
   expiresAt: number;
   /** The files being handed off, in the order the user queued them. */
   files: HandoffFileEntry[];
+  /** Where the files came from: the workspace, a drop, a result, a remedy. */
+  origin?: HandoffOrigin;
+  /** Tool slugs this job has already been through, oldest first. */
+  trail?: string[];
+  /** A step to take after the target tool, with any files set aside for it. */
+  pending?: PendingStep;
 }
 
 /**

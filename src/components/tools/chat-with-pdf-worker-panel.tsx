@@ -46,7 +46,18 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 715.5px, `sm` at 640px 579px, `lg` at 1024px
+ * 598.5px — plus 4px, to the half rem. The run state includes the daily
+ * allowance note, which only a panel that can run says.
+ */
+const STATUS_SLOT = "min-h-[46.5rem] sm:min-h-[36.5rem] lg:min-h-[38rem]";
 
 type Phase = WorkerPhase;
 
@@ -134,35 +145,45 @@ export function ChatWithPdfWorkerPanel({
           </p>
         </div>
 
-        {available && (
-          <p className="text-muted text-xs leading-relaxed">
-            {aiDailyAllowanceNote(tool.slug)}
-          </p>
-        )}
-        {available ? (
-          <ChatBuilder
-            refuse={(file) => pickRefusal(tool, file)}
-            runChat={runChat}
-            measureChat={measureChat}
-          />
-        ) : phase === "ready" ? (
-          <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-            <p className="text-muted text-sm leading-relaxed">
-              {unavailableDetail}
-            </p>
-            <p className="text-muted text-xs leading-relaxed">
-              No question box is shown until the worker is ready, so {tool.name}{" "}
-              never pretends to answer from a document it cannot actually read.
-            </p>
-            <NotifyMe
-              toolName={tool.name}
-              toolSlug={tool.slug}
-              checking={false}
-            />
-          </div>
-        ) : (
-          <WorkerStatusPending phase={phase} onRetry={retry} />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available)}
+          reserve={STATUS_SLOT}
+        >
+          {available ? (
+            <div className="flex flex-col gap-6">
+              {/* Said only when the panel can run, so it is part of the
+                  run area. Above the slot it pushed the whole slot down
+                  as the status answered: Chat with PDF read CLS 0.0241 at
+                  390 with the slot reserved (measured 2026-10-10). */}
+              <p className="text-muted text-xs leading-relaxed">
+                {aiDailyAllowanceNote(tool.slug)}
+              </p>
+              <ChatBuilder
+                refuse={(file) => pickRefusal(tool, file)}
+                runChat={runChat}
+                measureChat={measureChat}
+              />
+            </div>
+          ) : phase === "ready" ? (
+            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
+              <p className="text-muted text-sm leading-relaxed">
+                {unavailableDetail}
+              </p>
+              <p className="text-muted text-xs leading-relaxed">
+                No question box is shown until the worker is ready, so{" "}
+                {tool.name} never pretends to answer from a document it cannot
+                actually read.
+              </p>
+              <NotifyMe
+                toolName={tool.name}
+                toolSlug={tool.slug}
+                checking={false}
+              />
+            </div>
+          ) : (
+            <WorkerStatusPending phase={phase} onRetry={retry} />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens</h3>

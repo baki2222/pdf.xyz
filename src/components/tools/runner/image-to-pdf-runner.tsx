@@ -223,6 +223,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       <HandoffProblem handoff={handoff} toolName={`${label} to PDF`} />
       {handoff.status === "ready" && (
         <HandoffLoadedBadge
+          origin={handoff.origin}
           count={handoff.files.length}
           skipped={handoff.skipped}
         />

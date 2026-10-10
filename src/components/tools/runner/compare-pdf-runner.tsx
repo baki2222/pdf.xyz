@@ -23,6 +23,7 @@ import {
 } from "@/lib/pdf/compare-pdf";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes, formatSignedBytes } from "@/lib/utils";
+import { NAME_WRAP } from "@/components/ui/name-wrap";
 import {
   Dropzone,
   ErrorNote,
@@ -126,6 +127,7 @@ export function ComparePdfRunner({
       <HandoffProblem handoff={handoff} toolName="Compare PDF" />
       {handoff.status === "ready" && (
         <HandoffLoadedBadge
+          origin={handoff.origin}
           count={Math.min(2, handoff.files.length)}
           skipped={handoff.skipped}
         />
@@ -321,15 +323,17 @@ export function ComparePdfEditor({
           </span>
         }
       >
-        <div className="grid gap-3 md:grid-cols-2">
+        {/* `grid-cols-1`: an implicit column is sized to its widest word,
+            and a file's name is one word (see NAME_WRAP). */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {[0, 1].map((slot) => {
             const item = items[slot];
             return item ? (
               <div
                 key={item.id}
-                className="border-line bg-wash flex items-start justify-between gap-3 rounded-[4px] border p-4"
+                className="border-line bg-wash flex min-w-0 items-start justify-between gap-3 rounded-[4px] border p-4"
               >
-                <div>
+                <div className={NAME_WRAP}>
                   <p className="text-fg font-medium">{item.name}</p>
                   <p className="text-muted mt-1 text-xs">
                     {item.pageCount} page{item.pageCount === 1 ? "" : "s"} ·{" "}
@@ -339,7 +343,7 @@ export function ComparePdfEditor({
                 <button
                   type="button"
                   onClick={() => onRemove(item.id)}
-                  className="text-muted hover:bg-wash hover:text-fg rounded-full p-2"
+                  className="text-muted hover:bg-wash hover:text-fg shrink-0 rounded-full p-2"
                 >
                   <X className="size-4" aria-hidden />
                   <span className="sr-only">Remove {item.name}</span>
@@ -389,7 +393,7 @@ export function ComparePdfEditor({
           </div>
           <ul className="list-disc space-y-1 pl-5">
             {rejections.map((r, i) => (
-              <li key={`${r.name}-${i}`}>
+              <li key={`${r.name}-${i}`} className={NAME_WRAP}>
                 {r.name}: {r.reason}
               </li>
             ))}

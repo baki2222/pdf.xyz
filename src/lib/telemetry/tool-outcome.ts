@@ -56,12 +56,30 @@ function toolFor(toolSlug: string | undefined): PageTool | null {
   return pageTool;
 }
 
-/** A run on this page produced its output. */
+/**
+ * A run on this page produced its output.
+ *
+ * Also where this browser REMEMBERS that the tool finished a job
+ * (`recordCompletion`: the slug and the time, kept locally, never sent), so
+ * the home desk's "Recent" row offers it again. Here and not on a result
+ * panel's mount (the redesign planned that, E.8) because this is the one
+ * point every run path is PROVEN to reach — `run-outcome-coverage.test.ts`
+ * discovers the paths — while results render through several components.
+ * It does not wait for analytics consent: nothing leaves the device. The
+ * store is fetched when a run finishes, not with the page: a tool page that
+ * never completes a run never loads it.
+ */
 export function reportToolCompleted(
   input: { toolSlug?: string; elapsedMs?: number } = {},
 ): void {
   const tool = toolFor(input.toolSlug);
   if (tool === null) return;
+  void import("@/lib/intent/recents")
+    .then(({ recordCompletion }) => recordCompletion(tool.toolSlug))
+    .catch(() => {
+      // Not remembered: the run still finished, and nothing else depends on
+      // the recents being there.
+    });
   track(
     toolCompletedEvent({
       toolSlug: tool.toolSlug,

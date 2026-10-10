@@ -74,15 +74,21 @@ export function ModeShape({
 /**
  * Honest, at-a-glance chip telling the user where a tool runs. Copy comes from
  * the single source of truth in `processing.ts`.
+ *
+ * `wordClassName` is for tight layouts only — the home toolbox's phone cards
+ * pass `max-sm:sr-only`, so the shape shows and the word is still read out
+ * (redesign B.8: the mode word never disappears, it only stops being drawn).
  */
 export function ProcessingBadge({
   mode,
   variant = "short",
   className,
+  wordClassName,
 }: {
   mode: ProcessingMode;
   variant?: "short" | "long";
   className?: string;
+  wordClassName?: string;
 }) {
   const meta = getProcessingMeta(mode);
   return (
@@ -94,7 +100,9 @@ export function ProcessingBadge({
       )}
     >
       <ModeShape mode={mode} />
-      {variant === "short" ? meta.short : meta.label}
+      <span className={wordClassName}>
+        {variant === "short" ? meta.short : meta.label}
+      </span>
     </span>
   );
 }

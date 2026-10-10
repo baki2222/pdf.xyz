@@ -30,8 +30,18 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
 import { PdfANotes } from "./pdfa-notes";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 308px, `sm` at 640px 269px, `lg` at 1024px
+ * 269px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[20rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
 
 type Phase = WorkerPhase;
 
@@ -109,14 +119,19 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
-        {available && status ? (
-          <ArchiveRunArea
-            localDevOnly={status.localDevOnly}
-            refuse={(file) => pickRefusal(tool, file)}
-          />
-        ) : (
-          <ArchiveUnavailable onRetry={retry} phase={phase} status={status} />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available && status !== null)}
+          reserve={STATUS_SLOT}
+        >
+          {available && status ? (
+            <ArchiveRunArea
+              localDevOnly={status.localDevOnly}
+              refuse={(file) => pickRefusal(tool, file)}
+            />
+          ) : (
+            <ArchiveUnavailable onRetry={retry} phase={phase} status={status} />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens to your file</h3>

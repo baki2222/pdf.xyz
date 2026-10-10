@@ -16,11 +16,12 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { CONSENT_STORAGE_KEY } from "./consent-key";
 
 /** A decision the visitor actually made. Absence of one is `null`, never a default. */
 export type AnalyticsConsent = "granted" | "denied";
 
-export const CONSENT_STORAGE_KEY = "pdfxyz.analytics-consent";
+export { CONSENT_STORAGE_KEY };
 
 /** Same-tab change notifications (the `storage` event only fires cross-tab). */
 const CONSENT_EVENT = "pdfxyz:analytics-consent";

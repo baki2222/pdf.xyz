@@ -518,7 +518,11 @@ describe("no mock is observable by another test file", () => {
         "the stub, so the next file in the same worker runs against it — " +
         "silently, and only on machines whose CPU count puts them in one thread.",
     ).toEqual([]);
-  });
+    // A parse of every tracked source: about 1 s alone, and it outgrew
+    // vitest's 5 s default under a loaded full run once the home desk added
+    // its files (timed out once on 2026-10-10, 2/2 green alone) — the same
+    // class as 2b20baa7 (raster-boundary).
+  }, 30_000);
 
   it("still applies — the config has not turned isolation back on", () => {
     /**

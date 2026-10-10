@@ -364,7 +364,13 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
 
 describe("the hand-off badge names what was skipped truthfully for every tool", () => {
   it('does not call a skipped PDF "non-PDF" on a tool that takes images or text', () => {
-    render(<HandoffLoadedBadge count={1} skipped={2} />);
+    render(
+      <HandoffLoadedBadge
+        origin={{ kind: "workspace" }}
+        count={1}
+        skipped={2}
+      />,
+    );
     const status = screen.getByRole("status");
     expect(status.textContent).toContain(
       "2 files this tool can't open were skipped.",

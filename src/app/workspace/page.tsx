@@ -42,9 +42,10 @@ export default function WorkspacePage() {
             Your workspace
           </h1>
           <p className="text-muted max-w-2xl text-base leading-relaxed text-pretty sm:text-lg">
-            Stage your documents here, get tool suggestions based on what you
-            dropped, and line up a batch. Everything sits in this browser tab —
-            nothing is uploaded, and your files clear the moment you close it.
+            Stage your documents here, see the tools that fit — each with the
+            fact this tab read from your files — and line up a batch. Nothing is
+            uploaded: the files stay in this browser, and the in-browser tools
+            open with them already loaded.
           </p>
         </div>
 

@@ -58,7 +58,17 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 300px, `sm` at 640px 261px, `lg` at 1024px
+ * 261px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[19.5rem] sm:min-h-[17rem] lg:min-h-[17rem]";
 
 type Phase = WorkerPhase;
 
@@ -133,7 +143,9 @@ function badgeFor(
 /**
  * Premium, OCR-specific secure-worker panel for `/tools/ocr-pdf`.
  *
- * It is the honest OCR counterpart to the generic {@link WorkerPreview}: it reads
+ * The tool page mounts it from the panel registry (`./worker-panels`), which
+ * since WP-06 has no generic preview to fall back to: every worker tool has a
+ * real panel, and `tool-page-registry.test.ts` holds that. It reads
  * the live, presence-only `/api/worker/status` endpoint, lets the user configure
  * a real OCR request (languages, output, redo-OCR) that is validated with the
  * shared `parseOcrOptions` contract, and shows exactly what a secure worker would
@@ -379,22 +391,27 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         </div>
 
         {/* Status-dependent action area */}
-        {available && status ? (
-          <OcrRunArea
-            request={request}
-            localDevOnly={status.localDevOnly}
-            refuse={(file) => pickRefusal(tool, file)}
-            runnable={runnable}
-          />
-        ) : (
-          <OcrUnavailable
-            onRetry={retry}
-            phase={phase}
-            status={status}
-            toolName={tool.name}
-            toolSlug={tool.slug}
-          />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available && status !== null)}
+          reserve={STATUS_SLOT}
+        >
+          {available && status ? (
+            <OcrRunArea
+              request={request}
+              localDevOnly={status.localDevOnly}
+              refuse={(file) => pickRefusal(tool, file)}
+              runnable={runnable}
+            />
+          ) : (
+            <OcrUnavailable
+              onRetry={retry}
+              phase={phase}
+              status={status}
+              toolName={tool.name}
+              toolSlug={tool.slug}
+            />
+          )}
+        </WorkerStatusSlot>
 
         {/* Pipeline: honest "here's what will happen" */}
         <div className="flex flex-col gap-3">

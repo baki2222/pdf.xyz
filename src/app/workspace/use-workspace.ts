@@ -11,14 +11,15 @@ import {
 import { useRouter } from "next/navigation";
 import {
   clearHandoffs,
-  handoffCapabilityFor,
-  handoffHref,
+  HANDOFF_TARGET_WORKSPACE,
   handoffPayload,
   purgeExpiredHandoffs,
   readHandoffId,
+  type HandoffOrigin,
 } from "@/lib/handoff";
-import { isLikelyPdf, MAX_PDF_BYTES } from "@/lib/pdf/files";
-import { countPdfPages } from "@/lib/pdf/page-count";
+import { claimFromUrl } from "@/lib/handoff/claim";
+import type { FileFacts } from "@/lib/intent/facts";
+import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import {
   clearPersisted,
   createWorkspaceFile,
@@ -27,17 +28,14 @@ import {
   MAX_RECENT_ACTIONS,
   planBatch,
   savePersisted,
-  suggestTools,
   workspaceReducer,
   type BatchPlan,
-  type ToolSuggestion,
   type WorkspaceAction,
   type WorkspaceFile,
   type WorkspaceState,
 } from "@/lib/workspace";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { indexSummaries, type WorkspaceToolSummary } from "./summary";
-import { handoffCreatedEvent, track } from "@/lib/telemetry/track";
 
 /** In-browser tools never load files larger than this. Exported so the copy
  * DERIVES the figure — the old comment admitted it was "manually kept in
@@ -46,11 +44,40 @@ import { handoffCreatedEvent, track } from "@/lib/telemetry/track";
 const MAX_FILE_BYTES = MAX_PDF_BYTES;
 export const MAX_FILE_MB = Math.round(MAX_FILE_BYTES / (1024 * 1024));
 
+/**
+ * PDFs the workspace probes per staging session (spec WP-04: "the first 10
+ * PDFs, sequentially"). The rest are shown as not checked; clearing the
+ * staged files starts a new session.
+ */
+const WORKSPACE_PROBES = 10;
+
+/**
+ * The launch (`launchWithFiles`) is reached through `import()`: the
+ * workspace needs it only on a click, and it is warmed with the first staged
+ * file so a click never waits for it.
+ *
+ * The claim (`claimFromUrl`) is imported STATICALLY, on purpose. It is
+ * shared with every tool page, and the bundler treats the two kinds of share
+ * differently: a module both pages load up front joins the chunk the two
+ * already share, while one the workspace loads LAZILY becomes a chunk of its
+ * own that every tool page then fetches. Measured on 2026-10-09: the lazy
+ * claim added a chunk to every tool page; the static one adds none.
+ */
+const loadLaunch = () => import("@/lib/intent/launch");
+
 /** A file the workspace declined to stage, with a user-facing reason. */
 export interface RejectedFile {
   name: string;
   reason: string;
 }
+
+/**
+ * Files that arrived from another page through a hand-off addressed to the
+ * workspace — what the staging panel says about them.
+ */
+export type WorkspaceArrival =
+  | { kind: "loaded"; origin: HandoffOrigin; count: number }
+  | { kind: "expired" };
 
 let idCounter = 0;
 /** Opaque id for an activity entry. Random when available, monotonic otherwise. */
@@ -76,9 +103,11 @@ export interface WorkspaceController {
   /** Clock captured at hydration, for stable relative-time rendering. */
   now: number;
   rejected: RejectedFile[];
-  suggestions: ToolSuggestion[];
+  /** Files claimed from a hand-off addressed to the workspace, if any. */
+  arrival: WorkspaceArrival | null;
+  dismissArrival: () => void;
   batchPlan: BatchPlan;
-  addFiles: (list: FileList | File[] | null) => void;
+  addFiles: (list: FileList | File[] | null) => number;
   removeFile: (id: string) => void;
   clearFiles: () => void;
   /**
@@ -99,19 +128,35 @@ export interface WorkspaceController {
   launchBatch: (tool: WorkspaceToolSummary, fileCount: number) => void;
   /**
    * Hand queued files off to a live tool: stash them in browser-local storage
-   * and open the tool with them pre-loaded (falls back to a plain open if the
-   * hand-off can't be created). Files never leave the device.
+   * and open the tool with them pre-loaded (opens plainly when the tool can
+   * take none of them). Files never leave the device.
    */
   launchHandoff: (tool: WorkspaceToolSummary, ids: string[]) => void;
+  /**
+   * Open a suggested tool with the staged files it opens (`ids`, from the
+   * ranking): carried when the tool can receive them, a plain open when it
+   * cannot. `rank` is the suggestion's 1-based position, for measurement.
+   */
+  launchSuggestion: (
+    tool: WorkspaceToolSummary,
+    ids: readonly string[],
+    rank: number,
+  ) => void;
   /** Slug of the tool currently being launched via hand-off, or null. */
   launchingSlug: string | null;
+  /**
+   * Slug of the last tool whose hand-off could not be stored — the files did
+   * not travel, nothing navigated, and the page must say so. Null otherwise.
+   */
+  launchFailedSlug: string | null;
 }
 
 /**
  * Wire the pure workspace model to React: a reducer for in-memory state, plus a
  * guarded localStorage bridge that persists only the safe subset (tool prefs +
  * activity — never file metadata). Files live in memory and clear when the tab
- * closes; on mount we restore preferences, letting a `?tool=` deep link win.
+ * closes; on mount we restore preferences, letting a `?tool=` deep link win,
+ * and claim any files another page handed to the workspace.
  */
 export function useWorkspace(
   summaries: WorkspaceToolSummary[],
@@ -128,9 +173,12 @@ export function useWorkspace(
     { ready: false, now: 0 },
   );
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
+  const [arrival, setArrival] = useState<WorkspaceArrival | null>(null);
   const router = useRouter();
   // Slug of the tool currently being launched with a hand-off (button spinner).
   const [launchingSlug, setLaunchingSlug] = useState<string | null>(null);
+  // Slug of a launch whose files could not be stored (said on the page).
+  const [launchFailedSlug, setLaunchFailedSlug] = useState<string | null>(null);
 
   // Live File handles for staged files, kept by id in a ref (never rendered, so
   // no re-render churn). This is what makes a real hand-off possible: staged
@@ -146,7 +194,7 @@ export function useWorkspace(
     stateRef.current = state;
   });
 
-  // Guards the async page-count enrichment from dispatching after unmount.
+  // Guards the async measurement from dispatching after unmount.
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -155,10 +203,9 @@ export function useWorkspace(
     };
   }, []);
 
-  // Sweep any expired hand-off bytes when the workspace opens. Landing here is
-  // the natural moment to reclaim storage from a launch the user never finished,
-  // rather than waiting for them to next open a tool page. Best-effort; failures
-  // are swallowed inside the store.
+  // Sweep any expired hand-off bytes when the workspace opens. Best-effort;
+  // failures are swallowed inside the store. (Every page also sweeps on idle:
+  // `HandoffSweep` in the root layout.)
   useEffect(() => {
     void purgeExpiredHandoffs();
   }, []);
@@ -189,36 +236,66 @@ export function useWorkspace(
   ]);
 
   /**
-   * Best-effort, local-only page-count enrichment. Reads each staged PDF's bytes
-   * in the browser (never uploaded) just far enough to count pages, then attaches
-   * the count to its card. Sequential to bound peak memory; the reducer ignores
-   * ids that are no longer staged, so a file removed mid-parse is a safe no-op.
+   * Local-only measurement: each staged file's first bytes, then — for the
+   * first {@link WORKSPACE_PROBES} PDFs of the session — the probe (pages,
+   * form fields, its lock, scanned pages). Nothing leaves the device. Runs are
+   * CHAINED so files are measured one after another however fast they are
+   * added; the reducer ignores ids that are no longer staged, and clearing
+   * the files aborts the run in flight.
    */
-  const enrichPageCounts = useCallback(
-    async (handles: { id: string; file: File }[]) => {
-      for (const { id, file } of handles) {
-        if (!aliveRef.current) return;
-        let pageCount: number | null = null;
-        try {
-          pageCount = await countPdfPages(
-            new Uint8Array(await file.arrayBuffer()),
-          );
-        } catch {
-          pageCount = null;
+  const measuring = useRef<Promise<void>>(Promise.resolve());
+  const probed = useRef(0);
+  const session = useRef(new AbortController());
+
+  const measure = useCallback((entries: { id: string; file: File }[]) => {
+    const { signal } = session.current;
+    measuring.current = measuring.current.then(async () => {
+      if (signal.aborted || !aliveRef.current) return;
+      // Warm the launch now: whoever stages a file is about to open a tool.
+      void loadLaunch().catch(() => {});
+      try {
+        const { measureFacts, quickFacts } = await import("@/lib/intent/facts");
+        const quick: FileFacts[] = entries.map(({ id, file }) =>
+          quickFacts({ name: file.name, size: file.size, type: file.type }, id),
+        );
+        for (const facts of quick) {
+          if (signal.aborted || !aliveRef.current) return;
+          dispatch({ type: "set-facts", id: facts.id, facts });
         }
-        if (!aliveRef.current || pageCount === null) continue;
-        dispatch({ type: "set-page-count", id, pageCount });
+        const final = await measureFacts(
+          quick,
+          (id) => fileHandles.current.get(id),
+          (facts) => {
+            if (aliveRef.current && !signal.aborted)
+              dispatch({ type: "set-facts", id: facts.id, facts });
+          },
+          {
+            maxProbes: Math.max(0, WORKSPACE_PROBES - probed.current),
+            signal,
+          },
+        );
+        probed.current += final.filter(
+          (f) => f.pdf?.state === "checked",
+        ).length;
+      } catch {
+        // Measuring is an enhancement: a file that could not be read keeps
+        // what its name says.
       }
-    },
-    [],
-  );
+    });
+  }, []);
+
+  const resetMeasuring = useCallback(() => {
+    session.current.abort();
+    session.current = new AbortController();
+    probed.current = 0;
+  }, []);
 
   const addFiles = useCallback(
-    (list: FileList | File[] | null) => {
+    (list: FileList | File[] | null): number => {
       const incoming = list ? Array.from(list) : [];
-      if (incoming.length === 0) return;
+      if (incoming.length === 0) return 0;
       const accepted: WorkspaceFile[] = [];
-      const pdfHandles: { id: string; file: File }[] = [];
+      const handles: { id: string; file: File }[] = [];
       const bad: RejectedFile[] = [];
       const now = Date.now();
       incoming.forEach((file, i) => {
@@ -246,15 +323,52 @@ export function useWorkspace(
         );
         // Retain the live File handle so it can be handed off to a tool later.
         fileHandles.current.set(id, file);
-        // PDFs get a locally-parsed page count; keep the live File handle for it.
-        if (isLikelyPdf(file)) pdfHandles.push({ id, file });
+        handles.push({ id, file });
       });
       if (accepted.length > 0) dispatch({ type: "add-files", files: accepted });
       setRejected(bad);
-      if (pdfHandles.length > 0) void enrichPageCounts(pdfHandles);
+      if (handles.length > 0) measure(handles);
+      return accepted.length;
     },
-    [enrichPageCounts],
+    [measure],
   );
+
+  // Claim files another page handed to the workspace (`/workspace?handoff=`),
+  // once. The token is stripped either way, so a reload cannot replay it.
+  const claimed = useRef(false);
+  useEffect(() => {
+    if (claimed.current) return;
+    claimed.current = true;
+    let search = "";
+    try {
+      search = window.location.search;
+    } catch {
+      return;
+    }
+    if (!readHandoffId(search)) return;
+    const claim = claimFromUrl(
+      HANDOFF_TARGET_WORKSPACE,
+      (entries) => entries,
+      router,
+    );
+    if (!claim) return;
+    void claim
+      .then((result) => {
+        if (!aliveRef.current) return;
+        if (result.status === "ready") {
+          const count = addFiles(result.files);
+          if (count > 0)
+            setArrival({ kind: "loaded", origin: result.origin, count });
+        } else if (result.status === "expired") {
+          setArrival({ kind: "expired" });
+        }
+      })
+      .catch(() => {
+        // The claim could not load: the page stays the plain workspace.
+      });
+  }, [addFiles, router]);
+
+  const dismissArrival = useCallback(() => setArrival(null), []);
 
   const removeFile = useCallback((id: string) => {
     fileHandles.current.delete(id);
@@ -263,20 +377,25 @@ export function useWorkspace(
 
   const clearFiles = useCallback(() => {
     fileHandles.current.clear();
+    resetMeasuring();
     dispatch({ type: "clear-files" });
     setRejected([]);
-  }, []);
+    setArrival(null);
+  }, [resetMeasuring]);
 
   const clearSession = useCallback(() => {
     fileHandles.current.clear();
+    resetMeasuring();
     dispatch({ type: "reset" });
     setRejected([]);
+    setArrival(null);
     setLaunchingSlug(null);
+    setLaunchFailedSlug(null);
     clearPersisted();
     // Drop any hand-off bytes this browser is still holding for an unclaimed
     // launch. Best-effort and local-only.
     void clearHandoffs();
-  }, []);
+  }, [resetMeasuring]);
 
   const dismissRejected = useCallback(() => setRejected([]), []);
 
@@ -351,8 +470,6 @@ export function useWorkspace(
     [persistWithAction],
   );
 
-  const suggestions = useMemo(() => suggestTools(state.files), [state.files]);
-
   const batchPlan = useMemo(
     () =>
       planBatch(state.batch, (slug) => {
@@ -371,49 +488,85 @@ export function useWorkspace(
     [state.batch, bySlug],
   );
 
+  const handlesFor = useCallback(
+    (ids: readonly string[]) =>
+      ids
+        .map((id) => fileHandles.current.get(id))
+        .filter((file): file is File => file !== undefined),
+    [],
+  );
+
   /**
    * Stash the queued files in browser-local storage and open the target tool
-   * with them pre-loaded. Single-file tools receive just the first eligible PDF;
-   * collect/batch tools receive the whole eligible set. If the hand-off can't be
-   * created (unsupported, no eligible files, or a storage failure) we open the
-   * tool plainly — an honest fallback, never a fake pass.
+   * with them pre-loaded, through `launchWithFiles` — the one launch, which
+   * also decides what travels (single-file tools receive just the first
+   * eligible file) and measures it. A tool that can take none of them opens
+   * plainly; a hand-off that cannot be stored does NOT navigate, and the page
+   * says so (`launchFailedSlug`) instead of opening an empty tool.
    */
   const launchHandoff = useCallback(
     (tool: WorkspaceToolSummary, ids: string[]) => {
-      const ordered = ids
-        .map((id) => fileHandles.current.get(id))
-        .filter((file): file is File => file !== undefined);
-      // The gating (capability, eligibility, single-file slice) is
-      // `handoffPayload`'s, shared with the homepage drop zone.
-      const toStash = handoffPayload(tool.slug, ordered);
+      const ordered = handlesFor(ids);
 
       // Record the launch as name-free activity, same as a plain batch launch.
-      launchBatch(tool, toStash.length || ids.length);
+      launchBatch(
+        tool,
+        handoffPayload(tool.slug, ordered).length || ids.length,
+      );
 
-      if (toStash.length === 0) {
-        router.push(`/tools/${tool.slug}`);
-        return;
-      }
-
+      setLaunchFailedSlug(null);
       setLaunchingSlug(tool.slug);
-      void handoffHref(tool.slug, toStash).then((href) => {
-        // Only a hand-off that really exists is counted: `handoffHref` falls
-        // back to the plain tool URL (no token) when nothing could be stashed,
-        // and that honest plain open is not a hand-off.
-        const query = href.includes("?") ? href.slice(href.indexOf("?")) : "";
-        if (readHandoffId(query)) {
-          track(
-            handoffCreatedEvent({
-              toolSlug: tool.slug,
-              mode: handoffCapabilityFor(tool.slug).mode,
-              fileCount: toStash.length,
-            }),
-          );
-        }
-        router.push(href);
-      });
+      void loadLaunch()
+        .then(({ launchWithFiles }) =>
+          launchWithFiles({
+            toolSlug: tool.slug,
+            files: ordered,
+            origin: { kind: "workspace" },
+            router,
+          }),
+        )
+        .catch(() => "failed" as const)
+        .then((result) => {
+          if (result === "carried" || result === "plain") return;
+          setLaunchingSlug(null);
+          if (result === "failed") setLaunchFailedSlug(tool.slug);
+        });
     },
-    [launchBatch, router],
+    [handlesFor, launchBatch, router],
+  );
+
+  const launchSuggestion = useCallback(
+    (tool: WorkspaceToolSummary, ids: readonly string[], rank: number) => {
+      const files = handlesFor(ids);
+      setLaunchFailedSlug(null);
+      setLaunchingSlug(tool.slug);
+      void loadLaunch()
+        .then(({ launchWithFiles }) =>
+          launchWithFiles({
+            toolSlug: tool.slug,
+            files,
+            origin: { kind: "workspace" },
+            suggestion: { source: "workspace", rank },
+            router,
+          }),
+        )
+        .catch(() => "failed" as const)
+        .then((result) => {
+          if (result === "carried" || result === "plain") {
+            // Recorded once the tool really opens: name-free, like every entry.
+            openTool(
+              tool,
+              result === "carried"
+                ? handoffPayload(tool.slug, files).length
+                : undefined,
+            );
+            return;
+          }
+          setLaunchingSlug(null);
+          if (result === "failed") setLaunchFailedSlug(tool.slug);
+        });
+    },
+    [handlesFor, openTool, router],
   );
 
   return {
@@ -421,7 +574,8 @@ export function useWorkspace(
     hydrated: hydration.ready,
     now: hydration.now,
     rejected,
-    suggestions,
+    arrival,
+    dismissArrival,
     batchPlan,
     addFiles,
     removeFile,
@@ -436,6 +590,8 @@ export function useWorkspace(
     clearBatch,
     launchBatch,
     launchHandoff,
+    launchSuggestion,
     launchingSlug,
+    launchFailedSlug,
   };
 }

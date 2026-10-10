@@ -95,6 +95,7 @@ export function BatchPanel({
   onClear,
   onLaunch,
   launchingSlug,
+  launchFailedSlug = null,
 }: {
   files: WorkspaceFile[];
   summaries: WorkspaceToolSummary[];
@@ -106,6 +107,8 @@ export function BatchPanel({
   onClear: () => void;
   onLaunch: (tool: WorkspaceToolSummary, ids: string[]) => void;
   launchingSlug: string | null;
+  /** A launch whose files could not be stored: said here, with a plain way on. */
+  launchFailedSlug?: string | null;
 }) {
   const selectId = useId();
   const bySlug = useMemo(() => indexSummaries(summaries), [summaries]);
@@ -328,6 +331,19 @@ export function BatchPanel({
               </>
             )}
           </button>
+        )}
+
+        {tool && launchFailedSlug === tool.slug && (
+          <p role="alert" className="text-warn text-xs leading-relaxed">
+            Couldn&apos;t carry your files to {tool.name} in this browser.{" "}
+            <Link
+              href={`/tools/${tool.slug}`}
+              className="text-fg underline underline-offset-4"
+            >
+              Open {tool.name}
+            </Link>{" "}
+            and add them there.
+          </p>
         )}
 
         {isWorkerish && tool && (

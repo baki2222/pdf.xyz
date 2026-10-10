@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { ArrowRight, RotateCcw } from "lucide-react";
-import { Container } from "@/components/ui/container";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { reportClientError } from "@/lib/telemetry";
 import { useUploadDisclosure } from "@/components/telemetry/upload-disclosure";
@@ -30,7 +29,15 @@ export default function RouteError({
 
   return (
     <div className="grid min-h-[70vh] place-items-center py-20">
-      <Container className="flex flex-col items-center gap-8 text-center">
+      {/*
+       * Container's classes, written out rather than imported. This boundary
+       * loads on every page, and Container was the one module only it and
+       * the root layout (SiteHeader) imported: at 287 bytes it can never reach
+       * webpack's 20,000-byte shared-chunk minimum, so every page downloaded
+       * it twice (src/deploy/first-load-duplicates.test.ts). Keep these in
+       * step with src/components/ui/container.tsx.
+       */}
+      <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-8 px-5 text-center sm:px-8">
         {/* The one display moment on the page gets the rubrication accent. */}
         <span className="font-display text-accent text-6xl font-medium tracking-tight sm:text-7xl">
           Oops
@@ -64,7 +71,7 @@ export default function RouteError({
             Reference: {error.digest}
           </p>
         )}
-      </Container>
+      </div>
     </div>
   );
 }

@@ -1,12 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { categories, toolCount } from "@/lib/tools";
+import { categories, toolCount, tools } from "@/lib/tools";
 import { guides } from "@/lib/guides";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
-import { ToolsExplorer } from "@/components/tools/tools-explorer";
+import {
+  ToolsExplorer,
+  type ToolIcons,
+} from "@/components/tools/tools-explorer";
+import { ToolIcon } from "@/components/ui/tool-icon";
 import { buildMetadata } from "@/lib/seo";
+import { processingSplit } from "@/lib/tools/processing-split";
+import { runsChoices, whereItRuns } from "@/lib/tools/where-it-runs";
 
 export const metadata: Metadata = buildMetadata({
   title: "All PDF tools",
@@ -24,19 +30,41 @@ export const metadata: Metadata = buildMetadata({
  * now applies `?category=` and `?q=` itself after hydration, so the static
  * HTML is the complete, unfiltered catalogue and every old filter URL still
  * works. `pages-static.test.ts` fails if a request-time API returns.
+ *
+ * "Where it runs" is decided HERE, at build time, from the one partition,
+ * and handed to the explorer as slugs: `processingSplit` derives "uploads"
+ * through `@/lib/jobs/capabilities`, which this page's browser bundle does
+ * not otherwise carry, and the choices never change between builds. The
+ * radios' counts are this partition's (`browser-count-surfaces.test.tsx`
+ * renders this page and reads them).
  */
+const RUNS = runsChoices(whereItRuns(processingSplit()));
+
+/**
+ * Every tool's glyph, drawn here on the server and handed to the explorer,
+ * which renders its cards on the client: the icon registry stays out of this
+ * page's bundle, and the glyphs travel as markup in the page instead.
+ */
+const ICONS: ToolIcons = Object.fromEntries(
+  tools.map((tool) => [
+    tool.slug,
+    <ToolIcon key={tool.slug} icon={tool.icon} size="sm" />,
+  ]),
+);
+
 export default function ToolsPage() {
   return (
-    <div className="bg-canvas text-fg py-14 sm:py-20">
-      <Container className="flex flex-col gap-12">
+    <div className="bg-canvas text-fg py-8 sm:py-20">
+      <Container className="flex flex-col gap-6 sm:gap-12">
         <SectionHeading
           as="h1"
           align="left"
+          className="gap-3 sm:gap-4"
           eyebrow="Tool catalog"
           title="Every PDF tool, one place"
           description={`All ${toolCount} tools, organized into ${categories.length} categories. Search, filter, and each tool tells you honestly whether it runs in your browser or on a secure worker.`}
         />
-        <ToolsExplorer />
+        <ToolsExplorer runs={RUNS} icons={ICONS} />
         {/* The hub that links every tool also links the guides written for the
             same jobs. The footer's "Guides" item was the only way from here to
             them; `internal-links.test.ts` requires this link in the page's own

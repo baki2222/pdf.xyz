@@ -29,7 +29,7 @@ import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 
 /** A 1×1 opaque PNG — enough for a page that is all image and no text. */
-const PNG_1PX = Uint8Array.from(
+export const PNG_1PX = Uint8Array.from(
   Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
     "base64",

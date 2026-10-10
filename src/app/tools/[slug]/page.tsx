@@ -1,18 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  FileDown,
-  FileUp,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ShieldCheck } from "lucide-react";
 import { getAllToolSlugs, getRelatedTools, getToolBySlug } from "@/lib/tools";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
-import { stagingHint } from "@/lib/tools/file-ceilings";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { Container } from "@/components/ui/container";
@@ -20,24 +12,9 @@ import { ToolIcon } from "@/components/ui/tool-icon";
 import { ToolBadgePill } from "@/components/ui/badge";
 import { ToolCard } from "@/components/tools/tool-card";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
-import { UploadZone } from "@/components/upload/upload-zone";
+import { FormatsLine } from "@/components/tools/formats-line";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
-import { WorkerPreview } from "@/components/tools/worker-preview";
-import {
-  OcrWorkerPanel,
-  PdfSecurityWorkerPanel,
-  PdfStructureWorkerPanel,
-  PdfArchiveWorkerPanel,
-  HtmlRenderWorkerPanel,
-  OfficeConversionWorkerPanel,
-  PdfOfficeExportWorkerPanel,
-  TableExtractWorkerPanel,
-  RequestSignaturesWorkerPanel,
-  SummarizeWorkerPanel,
-  TranslateWorkerPanel,
-  AiExtractWorkerPanel,
-  ChatWithPdfWorkerPanel,
-} from "@/components/tools/worker-panels";
+import { WORKER_PANELS } from "@/components/tools/worker-panels";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
@@ -135,19 +112,20 @@ export default async function ToolPage({
   const toolGuides = pageGuides(tool);
   const runnerKind = getRunnerKind(tool.slug);
   /*
-   * THIS TOOL's ceiling, not the worker's. The staging hint below interpolated
-   * `JOB_LIMITS.maxFileBytes` — 100 MB — for whatever tool rendered it, while
-   * `image-to-pdf` refuses at 25 MB and `text-to-pdf` at 2 MB.
-   *
-   * Measured on 2026-08-22 before the change: that branch renders for a tool
-   * that is `processing: "client"` AND has no runner, and the intersection of
-   * those two sets is EMPTY — 29 client tools, 20 runner-less tools, 0 in both
-   * — so the wrong number reached no reader. It was a loaded gun rather than a
-   * live defect: removing any one runner would have shipped 100 MB on a page
-   * whose gate refuses at 2 MB. `file-ceilings.test.ts` renders all fifty pages
-   * and would fail on that the moment it happened.
+   * What runs this tool: its in-browser runner, or the worker panel the
+   * registry routes it to (`@/components/tools/worker-panels`). There is no
+   * third answer. The page used to end its panel chain in a `WorkerPreview`
+   * fallback, and to give an in-browser tool without a runner an
+   * `UploadZone` that staged files for the workspace; both rendered for zero
+   * tools, so a slug that lost its route would have shipped a preview page
+   * for a live tool. Now it fails the build here, and
+   * `tool-page-registry.test.ts` names the slug before a build is needed.
    */
-  const hint = stagingHint(tool);
+  const panel = runnerKind ? undefined : WORKER_PANELS[tool.slug];
+  if (!runnerKind && !panel)
+    throw new Error(
+      `/tools/${tool.slug} has neither an in-browser runner nor a worker panel route`,
+    );
 
   const breadcrumbs = [
     { name: "All tools", path: "/tools" },
@@ -174,8 +152,9 @@ export default async function ToolPage({
       {steps.map((step, i) => (
         <li key={i} className="flex items-start gap-3">
           {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
-              theme ground — 16.4:1 here, and correct inside any future scope. */}
-          <span className="bg-invert text-fg-invert grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
+              theme ground — 16.4:1 here, and correct inside any future scope.
+              Square since WP-06: a number that counts a step is a tag. */}
+          <span className="bg-invert text-fg-invert rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold">
             {i + 1}
           </span>
           <span className="text-muted text-sm leading-relaxed">
@@ -189,17 +168,45 @@ export default async function ToolPage({
     </ol>
   );
 
-  const formatChips = (
-    <div className="flex flex-wrap items-center gap-2">
-      <ProcessingBadge mode={tool.processing} variant="long" />
-      <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-[11px]">
-        <FileUp className="text-faint size-3.5" aria-hidden />
-        In: {tool.accept.join(", ")}
+  /*
+   * The facts a reader checks before they pick a file: where the tool runs
+   * and what goes in and out. One line, so on a phone the panel sits right
+   * under the tool's name; it may scroll sideways rather than wrap, and
+   * `e2e/tool-layout.mobile.spec.ts` holds that on every tool page today it
+   * never has to.
+   */
+  const factsRow = (
+    <div
+      data-tool-facts
+      className="-mx-5 flex [scrollbar-width:none] items-center gap-3 overflow-x-auto px-5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
+    >
+      <ProcessingBadge
+        mode={tool.processing}
+        variant="long"
+        className="shrink-0"
+      />
+      <span className="border-line bg-wash rounded-tag inline-flex shrink-0 items-center border px-2.5 py-1">
+        <FormatsLine tool={tool} />
       </span>
-      <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-[11px]">
-        <FileDown className="text-faint size-3.5" aria-hidden />
-        Out: {tool.outputs.join(", ")}
-      </span>
+    </div>
+  );
+
+  /** The tool's name, what it does, and its facts: first on every layout. */
+  const head = (
+    <div className="flex flex-col gap-4 sm:gap-5">
+      <div className="flex items-start gap-4">
+        <ToolIcon icon={tool.icon} size="lg" />
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
+              {tool.name}
+            </h1>
+            {tool.badge && <ToolBadgePill badge={tool.badge} />}
+          </div>
+          <p className="text-muted text-base">{tool.tagline}</p>
+        </div>
+      </div>
+      {factsRow}
     </div>
   );
 
@@ -221,7 +228,7 @@ export default async function ToolPage({
             : []),
         ]}
       />
-      <Container className="flex flex-col gap-10">
+      <Container className="flex flex-col gap-6 sm:gap-10">
         <nav
           aria-label="Breadcrumb"
           className="text-muted flex items-center gap-2 text-sm"
@@ -245,25 +252,14 @@ export default async function ToolPage({
         </nav>
 
         {runnerKind ? (
-          /* ── Workbench layout: interactive, client-side tool runner ── */
-          <div className="flex flex-col gap-8">
-            <div className="flex flex-col gap-5">
-              <div className="flex items-start gap-4">
-                <ToolIcon icon={tool.icon} size="lg" />
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
-                      {tool.name}
-                    </h1>
-                    {tool.badge && <ToolBadgePill badge={tool.badge} />}
-                  </div>
-                  <p className="text-muted text-base">{tool.tagline}</p>
-                </div>
-              </div>
-              {formatChips}
-            </div>
+          /* ── Workbench: the in-browser runner, under the head ── */
+          <div className="flex flex-col gap-6 sm:gap-8">
+            {head}
 
-            <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
+            <div
+              data-tool-panel
+              className="border-line bg-panel rounded-panel flex flex-col gap-5 border p-5 sm:p-7"
+            >
               <div className="text-ok flex items-center gap-2 text-sm">
                 <ShieldCheck className="size-4" aria-hidden />
                 {/* Gated on the PROPERTY (can this file leave the device?),
@@ -283,7 +279,7 @@ export default async function ToolPage({
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2">
-              <div className="border-line bg-panel flex flex-col gap-3 rounded-[4px] border p-5">
+              <div className="border-line bg-panel rounded-panel flex flex-col gap-3 border p-5">
                 <h2 className="text-faint kicker">About this tool</h2>
                 {intro.map((paragraph, i) => (
                   <p
@@ -299,7 +295,7 @@ export default async function ToolPage({
                 {useCaseList}
               </div>
               {steps.length > 0 && (
-                <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+                <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
                   <h2 className="text-faint kicker">How it works</h2>
                   {stepList}
                 </div>
@@ -307,22 +303,43 @@ export default async function ToolPage({
             </div>
           </div>
         ) : (
-          /* ── Overview layout: polished, implementation-ready placeholder ── */
-          <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:items-start">
-            <div className="flex flex-col gap-6">
-              <div className="flex items-start gap-4">
-                <ToolIcon icon={tool.icon} size="lg" />
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="font-display text-fg text-4xl font-medium tracking-tight sm:text-5xl">
-                      {tool.name}
-                    </h1>
-                    {tool.badge && <ToolBadgePill badge={tool.badge} />}
-                  </div>
-                  <p className="text-muted text-base">{tool.tagline}</p>
-                </div>
-              </div>
+          /*
+           * ── Worker and AI tools: head, panel, details ──
+           * DOM order is head → panel → details, so on a phone the panel
+           * comes right after the tool's name (it was under the whole
+           * introduction: 2,192px down on Word to PDF at 390px), with no
+           * placement needed. From `lg` the panel takes a sticky second
+           * column spanning both rows, beside the head and the details, as
+           * before. Placed by column and row, not `grid-template-areas`: an
+           * areas value needs quotes, and a quoted arbitrary class broke the
+           * stylesheet scanner the motion guards read (fixed there too).
+           *
+           * Rows `auto 1fr`, never two auto rows: a spanning panel taller
+           * than the head and the details shares its extra height into every
+           * auto row it spans, so row 1 grew past the head, a gap opened
+           * above the details, and it grew again when the worker status
+           * answered and the panel grew — the details moved 45-57px after
+           * the answer at 1440, CLS 0.1028 on Protect PDF at 1280 (WP-06
+           * review, 2026-10-10). With a flexible row 2 the panel's extra
+           * height goes there alone, so the details sit one row gap under
+           * the head whatever the panel does (`e2e/layout-stability.spec.ts`
+           * measures it on every worker panel, before and after the answer).
+           */
+          <div className="grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:grid-rows-[auto_1fr] lg:items-start lg:gap-y-6">
+            <div className="lg:col-start-1 lg:row-start-1">{head}</div>
 
+            <div
+              data-tool-panel
+              className="self-start lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1"
+            >
+              {panel && (
+                <ErrorBoundary boundary={panel.boundary}>
+                  <panel.Panel tool={tool} />
+                </ErrorBoundary>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-2">
               {intro.map((paragraph, i) => (
                 <p
                   key={i}
@@ -332,9 +349,7 @@ export default async function ToolPage({
                 </p>
               ))}
 
-              {formatChips}
-
-              <p className="border-line bg-wash text-muted rounded-[4px] border p-4 text-sm leading-relaxed">
+              <p className="border-line bg-wash text-muted rounded-panel border p-4 text-sm leading-relaxed">
                 {processing.description}
               </p>
 
@@ -352,124 +367,13 @@ export default async function ToolPage({
                 </div>
               )}
             </div>
-
-            <div className="lg:sticky lg:top-24">
-              {!modeUploadsFiles(tool.processing) ? (
-                /* Never-upload tool without a runner yet: stage files locally. */
-                <div className="border-line bg-panel flex flex-col gap-5 rounded-[4px] border p-5 sm:p-7">
-                  <div className="flex flex-col gap-1">
-                    <h2 className="text-fg text-lg font-semibold">
-                      {tool.name}
-                    </h2>
-                    <p className="text-muted text-sm">
-                      Add your files to get started —{" "}
-                      {processing.short.toLowerCase()}.
-                    </p>
-                  </div>
-                  <UploadZone
-                    ctaLabel={`Run ${tool.name}`}
-                    ctaHref={`/workspace?tool=${tool.slug}`}
-                    hint={hint}
-                  />
-                </div>
-              ) : tool.slug === "ocr-pdf" ? (
-                /* OCR: a premium, OCR-specific secure-worker flow (honest, live
-                   capability check, real job path when a worker is available). */
-                <ErrorBoundary boundary="ocr-worker-panel">
-                  <OcrWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "protect-pdf" || tool.slug === "unlock-pdf" ? (
-                /* Protect / Unlock: a qpdf-backed secure-worker flow (honest, live
-                   capability check, real job path with a masked password field). */
-                <ErrorBoundary boundary="pdf-security-worker-panel">
-                  <PdfSecurityWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "repair-pdf" || tool.slug === "optimize-web" ? (
-                /* Repair / Optimize for Web: qpdf-backed structure operations with
-                   the same honest secure-worker lifecycle and real output download. */
-                <ErrorBoundary boundary="pdf-structure-worker-panel">
-                  <PdfStructureWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "pdf-to-pdfa" ? (
-                /* PDF/A: Ghostscript-backed secure-worker conversion with real output download. */
-                <ErrorBoundary boundary="pdf-archive-worker-panel">
-                  <PdfArchiveWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "html-to-pdf" ||
-                tool.slug === "webpage-to-pdf" ? (
-                /* HTML/Webpage to PDF: Chromium-backed secure-worker conversion with real output download. */
-                <ErrorBoundary boundary="html-render-worker-panel">
-                  <HtmlRenderWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "word-to-pdf" ||
-                tool.slug === "excel-to-pdf" ||
-                tool.slug === "powerpoint-to-pdf" ? (
-                /* Office to PDF: LibreOffice-backed secure-worker conversion with real output download. */
-                <ErrorBoundary boundary="office-conversion-worker-panel">
-                  <OfficeConversionWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "pdf-to-word" ||
-                tool.slug === "pdf-to-excel" ||
-                tool.slug === "pdf-to-powerpoint" ? (
-                /* PDF to Office: selectable-text worker export with real Office Open XML output download. */
-                <ErrorBoundary boundary="pdf-office-export-worker-panel">
-                  <PdfOfficeExportWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "extract-tables" ? (
-                /* Extract Tables: pdfjs positioned-text layout detection with real
-                   CSV + XLSX output packaged in a ZIP on the secure worker. */
-                <ErrorBoundary boundary="table-extract-worker-panel">
-                  <TableExtractWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "request-signatures" ? (
-                /* Request Signatures: pdf-lib field preparation packaged as a real
-                   signature-request ZIP (prepared PDF + manifest + audit) on the worker. */
-                <ErrorBoundary boundary="request-signatures-worker-panel">
-                  <RequestSignaturesWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "summarize-pdf" ? (
-                /* Summarize PDF: selectable-text extraction summarized by a configured
-                   AI provider, packaged as a real summary ZIP (md + txt + manifest) on
-                   the worker. Fails honestly when no provider is configured — never faked. */
-                <ErrorBoundary boundary="summarize-worker-panel">
-                  <SummarizeWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "translate-pdf" ? (
-                /* Translate PDF: selectable-text extraction translated by a configured
-                   AI provider, packaged as a real translation ZIP (md + txt + manifest)
-                   on the worker. Fails honestly when no provider is configured — never faked. */
-                <ErrorBoundary boundary="translate-worker-panel">
-                  <TranslateWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "ai-extract" ? (
-                /* AI Data Extraction: selectable-text extraction turned into structured
-                   JSON by a configured AI provider, packaged as a real extraction ZIP
-                   (extraction.json + model-output.json + extraction.md + manifest) on the worker. Fails
-                   honestly when no provider is configured or the reply isn't JSON — never faked. */
-                <ErrorBoundary boundary="ai-extract-worker-panel">
-                  <AiExtractWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : tool.slug === "chat-with-pdf" ? (
-                /* Chat with PDF: selectable-text extraction answered by a configured
-                   AI provider from ONLY the document text, with page-level [p.N]
-                   citations when page metadata is present, packaged as a real answer ZIP
-                   (answer.md + answer.txt + manifest) on the worker. Fails honestly when
-                   no provider is configured or the PDF has no selectable text — never faked. */
-                <ErrorBoundary boundary="chat-with-pdf-worker-panel">
-                  <ChatWithPdfWorkerPanel tool={tool} />
-                </ErrorBoundary>
-              ) : (
-                /* Secure-worker / hybrid / AI tool: honest future-flow preview. */
-                <WorkerPreview tool={tool} />
-              )}
-            </div>
           </div>
         )}
 
         {(facts.length > 0 || faq.length > 0) && (
           <div className="grid gap-6 sm:grid-cols-2">
             {facts.length > 0 && (
-              <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+              <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
                 <h2 className="text-faint kicker">What this tool can do</h2>
                 <dl className="flex flex-col gap-3">
                   {facts.map((fact) => (
@@ -486,7 +390,7 @@ export default async function ToolPage({
               </div>
             )}
             {faq.length > 0 && (
-              <div className="border-line bg-panel flex flex-col gap-4 rounded-[4px] border p-5">
+              <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
                 <h2 className="text-faint kicker">Common questions</h2>
                 {faq.map((entry) => (
                   <div key={entry.question} className="flex flex-col gap-1.5">
@@ -550,7 +454,7 @@ export default async function ToolPage({
                 <Link
                   key={guide.slug}
                   href={`/guides/${guide.slug}`}
-                  className="border-line bg-panel hover:border-line-strong flex flex-col gap-2 rounded-[4px] border p-5 transition-colors"
+                  className="border-line bg-panel hover:border-line-strong rounded-panel flex flex-col gap-2 border p-5 transition-colors"
                 >
                   <span className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">
                     {role === "primary"

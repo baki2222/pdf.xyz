@@ -96,12 +96,17 @@ describe("pages are prerenderable", () => {
       category: "ai",
       query: "chat",
       accepts: null,
+      runs: "all",
     });
     expect(parseToolsQuery("?category=bogus").category).toBe("all");
     // ?accepts= is read here too, never by the page: a known format, in any
     // spelling, or nothing at all.
     expect(parseToolsQuery("?accepts=jpeg").accepts).toBe("JPG");
     expect(parseToolsQuery("?accepts=bogus").accepts).toBeNull();
+    // ?runs= likewise (WP-06): where a tool runs, or every tool for a value
+    // the explorer does not offer — never an empty grid.
+    expect(parseToolsQuery("?runs=never-uploads").runs).toBe("never-uploads");
+    expect(parseToolsQuery("?runs=bogus").runs).toBe("all");
     const summaries = [{ slug: "merge-pdf" }];
     expect(deepLinkedToolSlug("?tool=merge-pdf", summaries)).toBe("merge-pdf");
     expect(deepLinkedToolSlug("?tool=not-a-tool", summaries)).toBeUndefined();

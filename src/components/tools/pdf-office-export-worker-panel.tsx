@@ -28,11 +28,21 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
 import {
   OfficeExportCoverageNotice,
   OfficeExportNextStep,
 } from "./office-export-notices";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 — phone at 360px 308px, `sm` at 640px 269px, `lg` at 1024px
+ * 269px — plus 4px, to the half rem.
+ */
+const STATUS_SLOT = "min-h-[20rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
 
 type PdfOfficeTool = "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint";
 type Phase = WorkerPhase;
@@ -105,30 +115,35 @@ export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
-        {available ? (
-          <PdfOfficeRunArea
-            tool={officeTool}
-            output={extensionFor(officeTool)}
-            refuse={(file) => pickRefusal(tool, file)}
-          />
-        ) : phase === "ready" ? (
-          <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-            <p className="text-muted text-sm leading-relaxed">
-              {unavailableDetail}
-            </p>
-            <p className="text-muted text-xs leading-relaxed">
-              No runner is shown until the worker is ready, so {tool.name} never
-              pretends to process input it cannot actually convert.
-            </p>
-            <NotifyMe
-              toolName={tool.name}
-              toolSlug={tool.slug}
-              checking={false}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available)}
+          reserve={STATUS_SLOT}
+        >
+          {available ? (
+            <PdfOfficeRunArea
+              tool={officeTool}
+              output={extensionFor(officeTool)}
+              refuse={(file) => pickRefusal(tool, file)}
             />
-          </div>
-        ) : (
-          <WorkerStatusPending phase={phase} onRetry={retry} />
-        )}
+          ) : phase === "ready" ? (
+            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
+              <p className="text-muted text-sm leading-relaxed">
+                {unavailableDetail}
+              </p>
+              <p className="text-muted text-xs leading-relaxed">
+                No runner is shown until the worker is ready, so {tool.name}{" "}
+                never pretends to process input it cannot actually convert.
+              </p>
+              <NotifyMe
+                toolName={tool.name}
+                toolSlug={tool.slug}
+                checking={false}
+              />
+            </div>
+          ) : (
+            <WorkerStatusPending phase={phase} onRetry={retry} />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens</h3>

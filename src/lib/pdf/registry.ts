@@ -78,3 +78,25 @@ export function isToolSupported(slug: string): boolean {
 
 /** Slugs of every tool with a working client-side runner. */
 export const supportedToolSlugs: string[] = Object.keys(RUNNERS);
+
+/**
+ * Runner kinds whose pipeline reads a PDF with pdf.js alone. pdf.js opens a
+ * file whose author restricted editing (an owner password, no user password)
+ * the way every viewer does; pdf-lib refuses any /Encrypt. So these tools
+ * take a restricted PDF and every other runner does not — what the
+ * suggestion ranking needs to know before it offers one.
+ *
+ * Held to the runners, both ways, by `registry-readers.test.ts`: a kind is
+ * here iff the runner the dispatcher mounts for it passes `reader="pdfjs"`.
+ */
+export const PDFJS_READER_KINDS: ReadonlySet<RunnerKind> = new Set<RunnerKind>([
+  "pdf-to-text",
+  "pdf-to-markdown",
+  "pdf-to-image",
+]);
+
+/** Does this tool's in-browser runner open a restricted PDF? */
+export function opensRestrictedPdfs(slug: string): boolean {
+  const kind = RUNNERS[slug];
+  return kind !== undefined && PDFJS_READER_KINDS.has(kind);
+}

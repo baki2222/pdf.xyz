@@ -103,6 +103,20 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-snap: cubic-bezier(0.2, 0, 0, 1);
   --ease-draw: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* The mark sweep across a "measuring…" placeholder (M4): it runs only
+     while a fact is pending — the placeholder is replaced when it lands —
+     and stops by itself after 7 passes (9.8s), so a measurement that never
+     answers cannot leave a loop running. */
+  --animate-sweep: sweep 1.4s linear 7;
+  @keyframes sweep {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
 }
 
 /* Semantic utilities. `inline` is load-bearing: it makes each utility carry
@@ -300,8 +314,10 @@
  *
  *  So each face gets a fallback per weight range, against Arial (Arial
  *  Bold from 550). A range the site renders (sans 400/500/600, display
- *  500/700, mono) is fitted to the text set at that weight, from the
- *  spec's own measured table. Any other range takes the ratio over the 574
+ *  500/600/700, mono) is fitted to the text set at that weight, from the
+ *  spec's own measured table. Display 600 arrived with the home ticket
+ *  (WP-05), in its whole-corpus range. It read 0.9852 on Windows and
+ *  0.9831 on CI's Linux, so it is refitted to their mean. Any other range takes the ratio over the 574
  *  strings ten production pages render, all set at that weight. Ascent and descent
  *  are the real face's own (Geist 1005/295, Bricolage 930/270 per 1000),
  *  divided by that size-adjust, so line boxes keep their height. Arial,
@@ -422,9 +438,9 @@
     local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"),
     local("LiberationSans-Bold"), local("Arimo Bold"), local("Arimo-Bold");
   font-weight: 550 649;
-  size-adjust: 99.84%;
-  ascent-override: 93.15%;
-  descent-override: 27.04%;
+  size-adjust: 101.45%;
+  ascent-override: 91.67%;
+  descent-override: 26.61%;
   line-gap-override: 0%;
 }
 @font-face {
@@ -597,8 +613,41 @@
  *  nothing plays. That last rule is why the region starts empty: the
  *  planned motion vocabulary (the land, rise, draw-x and sweep keyframes
  *  and the duration scale) arrives with the first component that plays
- *  it, not ahead of it.
+ *  it, not ahead of it. The home desk (WP-05) brought the first: the crop
+ *  marks that draw in when a drop sheet goes live (M1) and grow while a
+ *  file is dragged over the page (M2), the stacked sheets that fan apart
+ *  then, and the sweep on a fact still being measured (M4, a token above).
  * ------------------------------------------------------------------ */
+
+/* The crop marks' length, registered so it can be transitioned. Inherits
+   on purpose: the ticks are ::before/::after and read the ORIGINATING
+   element's value — a non-inheriting registration would freeze them at the
+   initial 12px. */
+@property --cm-len {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 12px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* M1: a sheet is not a drop target until the page is live, and its marks
+     say so — they draw in at hydration. Only here: with reduced motion the
+     marks are at full length from the first paint. */
+  .crop-marks[data-live="pending"] {
+    --cm-len: 0px;
+  }
+  .crop-marks {
+    transition:
+      --cm-len 200ms var(--ease-snap),
+      border-color 160ms var(--ease-snap);
+  }
+  /* M2: the stack behind the desk eases apart while a file is held. */
+  [data-desk-stack] > [data-sheet] {
+    transition:
+      translate 160ms var(--ease-snap),
+      rotate 160ms var(--ease-snap);
+  }
+}
 
 /* ------------------------------------------------------------------ *
  *  Prepress signature
@@ -656,6 +705,55 @@
       right top,
       left bottom,
       right bottom;
+  }
+
+  /* Armed: a file is being dragged over the page and will land on this
+     sheet — the ticks reach out (M2). A state, not a motion: under reduced
+     motion it is applied at once. */
+  .crop-marks[data-armed] {
+    --cm-len: 18px;
+  }
+  @media (forced-colors: active) {
+    .crop-marks {
+      --cm-c: CanvasText;
+    }
+  }
+
+  /* The sheets stacked behind the desk, fanned while a file is held. */
+  [data-desk-stack]:has(> [data-armed]) > [data-sheet="back"] {
+    translate: -4px -3px;
+    rotate: -0.6deg;
+  }
+  [data-desk-stack]:has(> [data-armed]) > [data-sheet="mid"] {
+    translate: 4px -1px;
+    rotate: 0.6deg;
+  }
+
+  /* A fact still being measured: the mark's sweep passes behind its words
+     (M4, `animate-sweep`). Decoration only — the words say "measuring…". */
+  .sweep-placeholder {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--sf-mark) 18%, transparent),
+      transparent
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+  }
+
+  /* The ticket's tear line: a row of punched holes across the sheet, between
+     what came in and what to do with it. */
+  .perforation {
+    height: 2px;
+    background-image: radial-gradient(
+      circle,
+      var(--sf-line-strong) 0.75px,
+      transparent 1.1px
+    );
+    background-size: 6px 2px;
+    background-repeat: repeat-x;
+    background-position: center;
   }
 
   /* The dimension-line end cap: a short vertical tick on the strip's rule. */

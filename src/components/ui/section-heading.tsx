@@ -24,6 +24,7 @@ export function SectionHeading({
   align = "left",
   as: Heading = "h2",
   className,
+  descriptionClassName,
 }: {
   eyebrow?: string;
   title: React.ReactNode;
@@ -32,6 +33,8 @@ export function SectionHeading({
   /** Heading level. Defaults to h2; use h1 when this is the page's main title. */
   as?: "h1" | "h2";
   className?: string;
+  /** Classes for the description alone (e.g. hiding it at a breakpoint). */
+  descriptionClassName?: string;
 }) {
   return (
     <div
@@ -59,6 +62,7 @@ export function SectionHeading({
           className={cn(
             "text-muted max-w-2xl text-base leading-relaxed text-pretty sm:text-lg",
             align === "center" && "mx-auto",
+            descriptionClassName,
           )}
         >
           {description}

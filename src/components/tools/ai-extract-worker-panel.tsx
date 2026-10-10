@@ -60,7 +60,30 @@ import {
   useWorkerStatus,
   WorkerStatusPending,
   type WorkerPhase,
+  WorkerStatusSlot,
+  workerSlotState,
 } from "./worker-status";
+
+/**
+ * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
+ * state it shows at the narrowest width of each breakpoint, measured
+ * 2026-10-10 on the merge of main into WP-06 — the run state: phone at 360px
+ * 877px, `sm` at 640px 646.5px, `lg` at 1024px 705px — plus 4px, to the half
+ * rem. The run state includes the daily allowance note, which only a panel
+ * that can run says, and the sentence on what a null means (#171).
+ *
+ * WAS `min-h-[44.5rem] sm:min-h-[35rem] lg:min-h-[37.5rem]`, from 705 /
+ * 552.5 / 591.5px measured on WP-06 before #171 added that sentence to the
+ * run area. Merged, the ready state outgrew the reserve by 165px at 360 and
+ * 110px at 390, and e2e/tool-layout.mobile.spec.ts ("the worker status slot
+ * is one box") failed by name with the four heights.
+ *
+ * The base step was 55.5rem (888px), from 877px measured on Windows. CI's
+ * Linux Chromium sets the same run area 896.5px tall at 360 (#176's first CI
+ * run), because text metrics differ by platform, so 57rem (912px) holds
+ * both. 640 and 1024 passed on both platforms as they were.
+ */
+const STATUS_SLOT = "min-h-[57rem] sm:min-h-[41rem] lg:min-h-[44.5rem]";
 
 type Phase = WorkerPhase;
 
@@ -117,32 +140,41 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
           </p>
         </div>
 
-        {available && (
-          <p className="text-muted text-xs leading-relaxed">
-            {aiDailyAllowanceNote(tool.slug)}
-          </p>
-        )}
-        {available ? (
-          <AiExtractBuilder refuse={(file) => pickRefusal(tool, file)} />
-        ) : phase === "ready" ? (
-          <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-            <p className="text-muted text-sm leading-relaxed">
-              {unavailableDetail}
-            </p>
-            <p className="text-muted text-xs leading-relaxed">
-              No builder is shown until the worker is ready, so {tool.name}{" "}
-              never pretends to produce an extraction it cannot actually
-              generate.
-            </p>
-            <NotifyMe
-              toolName={tool.name}
-              toolSlug={tool.slug}
-              checking={false}
-            />
-          </div>
-        ) : (
-          <WorkerStatusPending phase={phase} onRetry={retry} />
-        )}
+        <WorkerStatusSlot
+          state={workerSlotState(phase, available)}
+          reserve={STATUS_SLOT}
+        >
+          {available ? (
+            <div className="flex flex-col gap-6">
+              {/* Said only when the panel can run, so it is part of the
+                  run area. Above the slot it pushed the whole slot down
+                  as the status answered: Chat with PDF read CLS 0.0241 at
+                  390 with the slot reserved (measured 2026-10-10). */}
+              <p className="text-muted text-xs leading-relaxed">
+                {aiDailyAllowanceNote(tool.slug)}
+              </p>
+              <AiExtractBuilder refuse={(file) => pickRefusal(tool, file)} />
+            </div>
+          ) : phase === "ready" ? (
+            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
+              <p className="text-muted text-sm leading-relaxed">
+                {unavailableDetail}
+              </p>
+              <p className="text-muted text-xs leading-relaxed">
+                No builder is shown until the worker is ready, so {tool.name}{" "}
+                never pretends to produce an extraction it cannot actually
+                generate.
+              </p>
+              <NotifyMe
+                toolName={tool.name}
+                toolSlug={tool.slug}
+                checking={false}
+              />
+            </div>
+          ) : (
+            <WorkerStatusPending phase={phase} onRetry={retry} />
+          )}
+        </WorkerStatusSlot>
 
         <div className="flex flex-col gap-3">
           <h3 className="text-faint kicker">What happens</h3>
@@ -366,7 +398,13 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
                       );
                     }}
                     placeholder="field name (e.g. total)"
-                    className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+                    // `w-0` with `flex-1`: an input's automatic minimum is its
+                    // default width (~20 characters), so this row — name,
+                    // type, delete — was 32px wider than a phone's panel and
+                    // the page scrolled sideways (473px at 390, measured on
+                    // the WP-06 review build with a ready worker). A zero
+                    // width zeroes that minimum and flex-1 grows it back.
+                    className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 w-0 flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
                   />
                   <select
                     value={field.type}

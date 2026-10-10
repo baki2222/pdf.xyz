@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Hourglass, RotateCw, X } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import type { WorkerJobPhase } from "@/lib/workers/job-polling";
 import { ErrorNote } from "./runner/runner-kit";
 
@@ -63,7 +64,7 @@ export const CANCELED: WorkerJobFailure = {
   message: "Canceled. The job was stopped and nothing more will be processed.",
 };
 
-const STORAGE_PREFIX = "pdfxyz.workerJob.";
+const STORAGE_PREFIX = WORKER_JOB_STORAGE_PREFIX;
 
 interface Saved {
   jobId: string;

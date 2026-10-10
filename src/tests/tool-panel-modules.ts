@@ -8,8 +8,11 @@
  *     runner kind and mounts the element it hands that value to (today
  *     `<ToolRunner kind={runnerKind} …>`), whose `switch (kind)` returns one
  *     runner per kind;
- *  2. otherwise it walks a chain of `tool.slug === "…" ? <XWorkerPanel
- *     tool={tool} />` arms.
+ *  2. otherwise it indexes the worker-panel registry with the slug (today
+ *     `WORKER_PANELS[tool.slug]`, from `@/components/tools/worker-panels`)
+ *     and mounts the route's panel (`<panel.Panel tool={tool} />`). Until
+ *     WP-06 (2026-10-10) this was a chain of `tool.slug === "…" ?
+ *     <XWorkerPanel tool={tool} />` arms in the page itself.
  *
  * Both are read here with the TypeScript parser, and every component is
  * followed through its bindings to the module that DEFINES it: a static
@@ -17,21 +20,30 @@
  * `const X = dynamic(() => import("…").then(({ X }) => X))` loader. Following
  * the loader is the point — a dispatcher that defers its panels must still
  * resolve to the panel modules, or every guard reading this would lose them.
+ * The worker panels take two hops: the registry binds a loader from
+ * `worker-panel-loaders.tsx`, and the loader loads the panel module.
  *
- * A broken link is FATAL, never a smaller answer: a slug comparison outside an
- * arm, an arm whose component does not resolve, a `dynamic()` call whose loader
- * this cannot read, a registry kind with no `case`, a `case` no slug reaches.
- * Each of those would otherwise drop a module from the corpus silently, and an
- * empty corpus passes every `⊆` check (CLAUDE.md rule 4).
+ * A broken link is FATAL, never a smaller answer: a slug comparison in the
+ * page (a dispatch outside the registry), a page that indexes no registry or
+ * two, a registry entry this cannot read, a component that does not resolve,
+ * a `dynamic()` call whose loader this cannot read, a registry kind with no
+ * `case`, a `case` or a route no slug reaches. Each of those would otherwise
+ * drop a module from the corpus silently, and an empty corpus passes every
+ * `⊆` check (CLAUDE.md rule 4).
  */
 import type * as TS from "typescript";
-import { createRequire } from "node:module";
+// A plain default import, NOT `createRequire(import.meta.url)`: Playwright
+// loads this module as CommonJS (e2e/layout-stability.spec.ts and
+// e2e/tool-layout.mobile.spec.ts reach it through `./worker-panel-dispatch`),
+// and `import.meta` is a SyntaxError there. With it, both specs listed
+// "0 tests in 0 files" on the merge of #175 into WP-06 (fb90edbb), the
+// always-on late-font CLS run among them. `src/tests/e2e-cjs-load.test.ts`
+// holds every module Playwright loads to that.
+import ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { getRunnerKind } from "@/lib/pdf/registry";
 import { tools } from "@/lib/tools";
-
-const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 
 export const ROOT = process.cwd();
 export const SRC = path.join(ROOT, "src");
@@ -305,7 +317,7 @@ const hasAttribute = (el: TS.JsxOpeningLikeElement, name: string): boolean =>
 
 /** One way a dispatcher mounts a module. */
 export interface DispatchArm {
-  /** The runner kinds (`case` labels) or slugs (`tool.slug ===`) of this arm. */
+  /** The runner kinds (`case` labels) or the slugs (a registry route) of this arm. */
   keys: string[];
   /** The component as the dispatcher writes it. */
   component: string;
@@ -426,56 +438,216 @@ function slugComparison(n: TS.Node): string | null {
   return null;
 }
 
-/** The slugs of an arm condition made ONLY of `tool.slug === "…"` joined by `||`. */
-function armSlugs(cond: TS.Expression): string[] | null {
-  let c: TS.Expression = cond;
-  while (ts.isParenthesizedExpression(c)) c = c.expression;
-  const one = slugComparison(c);
-  if (one !== null) return [one];
-  if (
-    ts.isBinaryExpression(c) &&
-    c.operatorToken.kind === ts.SyntaxKind.BarBarToken
-  ) {
-    const left = armSlugs(c.left);
-    const right = armSlugs(c.right);
-    return left && right ? [...left, ...right] : null;
-  }
-  return null;
+/** An expression without the wrappers that do not change its value. */
+function unwrap(e: TS.Expression): TS.Expression {
+  let x = e;
+  while (
+    ts.isParenthesizedExpression(x) ||
+    ts.isAsExpression(x) ||
+    ts.isSatisfiesExpression(x) ||
+    ts.isTypeAssertionExpression(x)
+  )
+    x = x.expression;
+  return x;
+}
+
+/** Where the page finds its worker panels, read off the page. */
+export interface WorkerPanelRegistry {
+  /** The module that declares what the page indexes. */
+  file: string;
+  /** The exported name the page indexes with the slug (`WORKER_PANELS`). */
+  name: string;
+  /** The route property the page mounts with a `tool` prop (`Panel`). */
+  panelProp: string;
 }
 
 /**
- * The page's worker-panel arms: every `tool.slug === "…" ? (…<X tool={tool}
- * />…)` conditional, resolved to the module that defines X. Every slug
- * comparison in the page must land in one of them.
+ * The registry the page indexes, DERIVED from the page: the one imported
+ * binding it subscripts with `tool.slug`, and the one property of the
+ * variable holding the result that it mounts as `<route.X tool={…} />`.
+ * Renaming the registry, the variable or the property moves this with it.
+ *
+ * FATAL: any `tool.slug === "…"` in the page (a slug dispatched outside the
+ * registry, which no route below would show), no subscript or two, a
+ * subscripted name that is not imported from this tree, a result never
+ * mounted, or mounted through two properties.
  */
-export function workerPanelArms(): DispatchArm[] {
-  const { sf } = facts(TOOL_PAGE);
-  const arms: DispatchArm[] = [];
-  let compared = 0;
+export function workerPanelRegistry(): WorkerPanelRegistry {
+  const { sf, bindings } = facts(TOOL_PAGE);
+  const compared: string[] = [];
+  const indexed: TS.ElementAccessExpression[] = [];
   const visit = (n: TS.Node): void => {
-    if (slugComparison(n) !== null) compared += 1;
-    if (ts.isConditionalExpression(n)) {
-      const slugs = armSlugs(n.condition);
-      if (slugs) {
-        const el = firstJsx(n.whenTrue, (e) => hasAttribute(e, "tool"));
-        if (!el)
-          throw new Error(
-            `${where(sf, n)}: the arm for ${slugs.join(", ")} mounts no element with a tool prop`,
-          );
-        arms.push({
-          keys: slugs,
-          component: tagName(el),
-          resolved: resolveComponent(TOOL_PAGE, tagName(el)),
-        });
-      }
-    }
+    const slug = slugComparison(n);
+    if (slug !== null) compared.push(slug);
+    if (
+      ts.isElementAccessExpression(n) &&
+      n.argumentExpression.getText(sf) === "tool.slug"
+    )
+      indexed.push(n);
     ts.forEachChild(n, visit);
   };
   visit(sf);
-  const parsed = arms.reduce((sum, arm) => sum + arm.keys.length, 0);
-  if (compared !== parsed)
+  if (compared.length > 0)
     throw new Error(
-      `${rel(TOOL_PAGE)} compares tool.slug ${compared} times; the arms parsed account for ${parsed}`,
+      `${rel(TOOL_PAGE)} compares tool.slug to ${compared.map((c) => `"${c}"`).join(", ")} — a panel dispatched outside the registry, which this reader does not model`,
+    );
+  if (indexed.length !== 1)
+    throw new Error(
+      `${rel(TOOL_PAGE)} subscripts ${indexed.length} things with tool.slug; expected exactly one registry`,
+    );
+  const access = indexed[0]!;
+  const registry = access.expression;
+  const hop = ts.isIdentifier(registry)
+    ? bindings.get(registry.text)
+    : undefined;
+  if (!ts.isIdentifier(registry) || !hop || hop.via !== "static")
+    throw new Error(
+      `${where(sf, access)}: ${registry.getText(sf)} is not a name imported from a module in this tree`,
+    );
+  let holder: TS.Node | undefined = access.parent;
+  while (holder && !ts.isVariableDeclaration(holder)) holder = holder.parent;
+  if (!holder || !ts.isIdentifier(holder.name))
+    throw new Error(
+      `${where(sf, access)}: ${registry.text}[tool.slug] is not assigned to a variable this reader can follow to the element that mounts it`,
+    );
+  const route = holder.name.text;
+  const props = new Set<string>();
+  const mounts = (n: TS.Node): void => {
+    if (
+      (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) &&
+      ts.isPropertyAccessExpression(n.tagName) &&
+      ts.isIdentifier(n.tagName.expression) &&
+      n.tagName.expression.text === route &&
+      hasAttribute(n, "tool")
+    )
+      props.add(n.tagName.name.text);
+    ts.forEachChild(n, mounts);
+  };
+  mounts(sf);
+  if (props.size !== 1)
+    throw new Error(
+      `${rel(TOOL_PAGE)} mounts ${props.size} components off ${route} (${registry.text}[tool.slug]) with a tool prop; expected exactly one`,
+    );
+  return { file: hop.file, name: hop.name, panelProp: [...props][0]! };
+}
+
+/**
+ * The route literals behind the registry: the one module-level array that
+ * the indexed export is built from (`WORKER_PANELS =
+ * Object.fromEntries(WORKER_PANEL_ROUTES.flatMap(…))`). FATAL if the export
+ * is missing or is built from no such array, or from two.
+ */
+function registryRoutes(registry: WorkerPanelRegistry): {
+  sf: TS.SourceFile;
+  routes: TS.ArrayLiteralExpression;
+} {
+  const { sf } = facts(registry.file);
+  const consts = new Map<string, TS.VariableDeclaration>();
+  for (const stmt of sf.statements) {
+    if (!ts.isVariableStatement(stmt)) continue;
+    for (const decl of stmt.declarationList.declarations)
+      if (ts.isIdentifier(decl.name)) consts.set(decl.name.text, decl);
+  }
+  const indexed = consts.get(registry.name);
+  if (!indexed?.initializer)
+    throw new Error(
+      `${rel(registry.file)} declares no ${registry.name} for ${rel(TOOL_PAGE)} to index`,
+    );
+  const arrays = new Set<string>();
+  const visit = (n: TS.Node): void => {
+    if (ts.isIdentifier(n)) {
+      const decl = consts.get(n.text);
+      if (
+        decl &&
+        decl !== indexed &&
+        decl.initializer &&
+        ts.isArrayLiteralExpression(unwrap(decl.initializer))
+      )
+        arrays.add(n.text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(indexed.initializer);
+  if (arrays.size !== 1)
+    throw new Error(
+      `${rel(registry.file)}: ${registry.name} is built from ${arrays.size} module-level route arrays (${[...arrays].join(", ")}); expected exactly one`,
+    );
+  const [name] = arrays;
+  return {
+    sf,
+    routes: unwrap(
+      consts.get(name!)!.initializer!,
+    ) as TS.ArrayLiteralExpression,
+  };
+}
+
+/** One worker-panel route, as the registry spells it. */
+export interface WorkerPanelArm extends DispatchArm {
+  /** The crash label of the error boundary the page wraps the panel in. */
+  boundary: string;
+}
+
+/**
+ * The page's worker panels: every route of the registry the page indexes
+ * ({@link workerPanelRegistry}), each `{ slugs: […], <panel>: X, boundary:
+ * "…" }` with X followed through the registry's bindings — the loader it
+ * imports, then the module that loader loads — to the module that defines
+ * the panel. Every entry must be read, or this throws: a spread, a computed
+ * entry, a non-literal slug list or boundary, or a panel that is not a name.
+ */
+export function workerPanelArms(): WorkerPanelArm[] {
+  const registry = workerPanelRegistry();
+  const { sf, routes } = registryRoutes(registry);
+  const arms: WorkerPanelArm[] = [];
+  for (const entry of routes.elements) {
+    if (!ts.isObjectLiteralExpression(entry))
+      throw new Error(
+        `${where(sf, entry)}: a registry entry that is not an object literal — this reader cannot see what it routes`,
+      );
+    const props = new Map<string, TS.Expression>();
+    for (const prop of entry.properties) {
+      if (
+        ts.isPropertyAssignment(prop) &&
+        (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+      )
+        props.set(prop.name.text, prop.initializer);
+      else if (ts.isShorthandPropertyAssignment(prop))
+        props.set(prop.name.text, prop.name);
+      else
+        throw new Error(
+          `${where(sf, prop)}: a registry entry property this reader cannot read (a spread, a method or a computed name)`,
+        );
+    }
+    const slugs = props.has("slugs") ? unwrap(props.get("slugs")!) : null;
+    if (
+      !slugs ||
+      !ts.isArrayLiteralExpression(slugs) ||
+      slugs.elements.length === 0 ||
+      !slugs.elements.every((el) => ts.isStringLiteral(el))
+    )
+      throw new Error(
+        `${where(sf, entry)}: a route whose slugs are not a non-empty array of string literals`,
+      );
+    const panel = props.get(registry.panelProp);
+    if (!panel || !ts.isIdentifier(panel))
+      throw new Error(
+        `${where(sf, entry)}: a route whose ${registry.panelProp} (what ${rel(TOOL_PAGE)} mounts) is not a component name`,
+      );
+    const boundary = props.get("boundary");
+    if (!boundary || !ts.isStringLiteral(boundary))
+      throw new Error(
+        `${where(sf, entry)}: a route whose boundary is not a string literal`,
+      );
+    arms.push({
+      keys: slugs.elements.map((el) => (el as TS.StringLiteral).text),
+      component: panel.text,
+      resolved: resolveComponent(registry.file, panel.text),
+      boundary: boundary.text,
+    });
+  }
+  if (arms.length === 0)
+    throw new Error(
+      `${rel(registry.file)}: ${registry.name}, which ${rel(TOOL_PAGE)} indexes, spells no routes`,
     );
   return arms;
 }
@@ -484,7 +656,7 @@ export function workerPanelArms(): DispatchArm[] {
 export interface PanelModule {
   file: string;
   name: string;
-  /** "runner" (registry kind → dispatcher case) or "worker" (page slug arm). */
+  /** "runner" (registry kind → dispatcher case) or "worker" (panel registry route). */
   dispatch: "runner" | "worker";
   /** The catalogue slugs whose page mounts it. */
   slugs: string[];
@@ -493,7 +665,7 @@ export interface PanelModule {
 /**
  * slug → the module its page mounts as its panel, or null (a page that mounts
  * neither a runner nor a worker panel: the upload zone or the worker preview).
- * Mirrors the page: a registry kind wins, the slug arms are the fallback.
+ * Mirrors the page: a runner kind wins, the panel registry is the fallback.
  * Throws on any broken link — see the module docblock.
  */
 export function ownPanelModules(): {
@@ -515,10 +687,12 @@ export function ownPanelModules(): {
     for (const slug of arm.keys) {
       if (!slugs.has(slug))
         throw new Error(
-          `${rel(TOOL_PAGE)} dispatches "${slug}", which is not a catalogue slug`,
+          `the worker-panel registry routes "${slug}", which is not a catalogue slug`,
         );
       if (bySlugArm.has(slug))
-        throw new Error(`${rel(TOOL_PAGE)} has two panel arms for "${slug}"`);
+        throw new Error(
+          `the worker-panel registry has two routes for "${slug}"`,
+        );
       bySlugArm.set(slug, arm);
     }
   const modules = new Map<string, PanelModule>();
@@ -564,7 +738,7 @@ export function ownPanelModules(): {
   const deadArms = workers.filter((a) => !reachedArms.has(a));
   if (deadArms.length > 0)
     throw new Error(
-      `page panel arms no catalogue page reaches (a registry kind wins over them): ${deadArms.map((a) => a.keys.join("|")).join(", ")}`,
+      `worker-panel routes no catalogue page reaches (a runner kind wins over them): ${deadArms.map((a) => a.keys.join("|")).join(", ")}`,
     );
   return { bySlug, modules: [...modules.values()] };
 }

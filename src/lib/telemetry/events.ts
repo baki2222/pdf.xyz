@@ -117,6 +117,27 @@ export function toolErrorReason(code: string | undefined): ToolErrorReason {
 }
 
 /**
+ * Where a suggestion was offered when someone opened it: the home desk, the
+ * ticket dialog, the command palette, the workspace, a result's Continue
+ * with, an error's remedy, a guide's desk, or an in-tool hint. A fixed enum,
+ * so a surface name can never carry anything a visitor typed.
+ */
+export const SUGGESTION_SOURCES = [
+  "desk",
+  "dialog",
+  "palette",
+  "workspace",
+  "continue",
+  "remedy",
+  "guide",
+  "hint",
+] as const;
+export type SuggestionSource = (typeof SUGGESTION_SOURCES)[number];
+
+/** A suggestion's position, coarsened: the top three, then the rest. */
+export type SuggestionRank = "1" | "2" | "3" | "4+";
+
+/**
  * The product-event union. Discriminated by `name`; each variant carries only
  * privacy-safe, low-cardinality fields. Extend by adding a variant here and its
  * name to {@link EVENT_NAMES} — both are required for `track` to accept it.
@@ -160,6 +181,18 @@ export type ProductEvent =
       fileCount: CountBucket;
     }
   | {
+      /**
+       * Someone opened a suggested tool. `carried` says whether their files
+       * went with it (a tool that cannot receive files opens empty and says
+       * so). The rank is coarse; the files themselves are never described.
+       */
+      name: "suggestion_opened";
+      toolSlug: string;
+      source: SuggestionSource;
+      rank: SuggestionRank;
+      carried: boolean;
+    }
+  | {
       /** The UI asked the honest worker-status endpoint what's available. */
       name: "worker_status_checked";
       mode: WorkerMode;
@@ -199,6 +232,7 @@ export const EVENT_NAMES = [
   "tool_completed",
   "tool_failed",
   "workspace_handoff_created",
+  "suggestion_opened",
   "worker_status_checked",
   "worker_operations_checked",
   "gated_tool_interest",
@@ -259,6 +293,33 @@ export function handoffCreatedEvent(input: {
     toolSlug: input.toolSlug,
     mode: input.mode,
     fileCount: countBucket(input.fileCount),
+  };
+}
+
+/**
+ * Build a `suggestion_opened` event, coarsening the 1-based position so the
+ * exact length of someone's suggestion list is never recorded.
+ */
+export function suggestionOpenedEvent(input: {
+  toolSlug: string;
+  source: SuggestionSource;
+  rank: number;
+  carried: boolean;
+}): Extract<ProductEvent, { name: "suggestion_opened" }> {
+  const rank: SuggestionRank =
+    input.rank === 1
+      ? "1"
+      : input.rank === 2
+        ? "2"
+        : input.rank === 3
+          ? "3"
+          : "4+";
+  return {
+    name: "suggestion_opened",
+    toolSlug: input.toolSlug,
+    source: input.source,
+    rank,
+    carried: input.carried,
   };
 }
 

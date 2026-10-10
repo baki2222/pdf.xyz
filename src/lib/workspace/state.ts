@@ -5,6 +5,7 @@
  * every id and timestamp is supplied by the caller, never generated in here.
  */
 
+import type { FileFacts } from "@/lib/intent/facts";
 import type {
   BatchQueue,
   WorkspaceAction,
@@ -32,6 +33,11 @@ export type WorkspaceEvent =
   | { type: "remove-file"; id: string }
   /** Attach a locally-parsed page count to a staged PDF (no-op if it's gone). */
   | { type: "set-page-count"; id: string; pageCount: number }
+  /**
+   * Attach what this tab measured about a staged file (no-op if it's gone);
+   * a PDF's page count comes with it, from the same probe.
+   */
+  | { type: "set-facts"; id: string; facts: FileFacts }
   /** Clear all staged files and the batch items, keeping tool preferences + log. */
   | { type: "clear-files" }
   /** Set (or clear) the highlighted tool. */
@@ -100,6 +106,23 @@ export function workspaceReducer(
         if (f.id !== event.id || f.pageCount === event.pageCount) return f;
         changed = true;
         return { ...f, pageCount: event.pageCount };
+      });
+      return changed ? { ...state, files } : state;
+    }
+
+    case "set-facts": {
+      const probe =
+        event.facts.pdf?.state === "checked" ? event.facts.pdf.probe : null;
+      const pages = probe?.pages ?? null;
+      let changed = false;
+      const files = state.files.map((f) => {
+        if (f.id !== event.id || f.facts === event.facts) return f;
+        changed = true;
+        return {
+          ...f,
+          facts: event.facts,
+          ...(pages !== null && pages > 0 ? { pageCount: pages } : {}),
+        };
       });
       return changed ? { ...state, files } : state;
     }

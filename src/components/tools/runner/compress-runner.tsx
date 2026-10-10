@@ -33,6 +33,7 @@ import {
   reportToolFailed,
 } from "@/lib/telemetry/tool-outcome";
 import { cn, formatBytes } from "@/lib/utils";
+import { NAME_WRAP } from "@/components/ui/name-wrap";
 import {
   ChipButton,
   DownloadCta,
@@ -50,6 +51,7 @@ import {
   HandoffLoadedBadge,
   HandoffLoading,
   HandoffProblem,
+  type Arrival,
 } from "./handoff-notice";
 import { FileHeader, SignedInputNotice } from "./single-pdf-runner";
 import { useSinglePdf, type LoadedPdf, type LockedPdf } from "./use-single-pdf";
@@ -100,27 +102,21 @@ export function CompressRunner() {
     setRejections([]);
   }, []);
 
-  const preloaded = handoff.status === "ready";
+  // Where the files came from, once they did — the badge's first sentence.
+  const arrival =
+    handoff.status === "ready"
+      ? { origin: handoff.origin, skipped: handoff.skipped }
+      : null;
 
   if (files.length >= 2) {
     return (
-      <CompressBatchRunner
-        files={files}
-        onReset={reset}
-        preloaded={preloaded}
-        skipped={handoff.skipped}
-      />
+      <CompressBatchRunner files={files} onReset={reset} arrival={arrival} />
     );
   }
 
   if (files.length === 1) {
     return (
-      <CompressSingle
-        file={files[0]!}
-        onReset={reset}
-        preloaded={preloaded}
-        skipped={handoff.skipped}
-      />
+      <CompressSingle file={files[0]!} onReset={reset} arrival={arrival} />
     );
   }
 
@@ -147,13 +143,11 @@ export function CompressRunner() {
 function CompressSingle({
   file,
   onReset,
-  preloaded,
-  skipped,
+  arrival,
 }: {
   file: File;
   onReset: () => void;
-  preloaded: boolean;
-  skipped: number;
+  arrival: Arrival | null;
 }) {
   // Opted in: Compress has a path that does not need pdf-lib to rewrite the
   // file (the secure worker), so an encrypted file is classified rather than
@@ -184,14 +178,20 @@ function CompressSingle({
   if (locked && !loading) {
     return (
       <div className="flex flex-col gap-4">
-        {preloaded && <HandoffLoadedBadge count={1} skipped={skipped} />}
+        {arrival && (
+          <HandoffLoadedBadge
+            origin={arrival.origin}
+            count={1}
+            skipped={arrival.skipped}
+          />
+        )}
         <CompressLocked locked={locked} onReset={onReset} />
       </div>
     );
   }
 
   if (!pdf || loading) {
-    return preloaded ? (
+    return arrival ? (
       <HandoffLoading />
     ) : (
       <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
@@ -203,7 +203,13 @@ function CompressSingle({
 
   return (
     <div data-single-pdf-runner="loaded" className="flex flex-col gap-4">
-      {preloaded && <HandoffLoadedBadge count={1} skipped={skipped} />}
+      {arrival && (
+        <HandoffLoadedBadge
+          origin={arrival.origin}
+          count={1}
+          skipped={arrival.skipped}
+        />
+      )}
       {/* Compress uses the single-file hook directly rather than
           SinglePdfRunner, so it carries the same notice itself. */}
       {pdf.digitalSignatures > 0 && (
@@ -1001,7 +1007,7 @@ function RejectionsNote({
       </div>
       <ul className="text-warn flex flex-col gap-1 pl-6 text-xs">
         {rejections.map((r, i) => (
-          <li key={`${r.name}-${i}`} className="list-disc">
+          <li key={`${r.name}-${i}`} className={cn("list-disc", NAME_WRAP)}>
             <span className="text-warn font-medium">{r.name}</span> — {r.reason}
           </li>
         ))}

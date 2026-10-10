@@ -1,5 +1,13 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, expect } from "@playwright/test";
-import { attachConsoleGuard, uploadFiles, writeTempPdf } from "./helpers";
+import {
+  attachConsoleGuard,
+  uploadFiles,
+  writeTempPdf,
+  writeTempScanPdf,
+} from "./helpers";
 
 /**
  * The Phase 9 promise: files staged in `/workspace` can be handed off to a live
@@ -140,3 +148,275 @@ test("clear session wipes staged files, remembered activity, and hand-offs", asy
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
+
+/**
+ * Hand-off v2, end to end: files dropped on the HOME page arrive saying they
+ * came from there — the badge used to say "from your workspace" for every
+ * arrival — and "Open in workspace" carries them into the workspace, which
+ * claims a hand-off addressed to it.
+ */
+test("files added on the home page arrive in Merge PDF saying where they came from", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("first.pdf", 1),
+    await writeTempPdf("second.pdf", 2),
+  ]);
+
+  // WAS a button named /merge pdf/; the desk's offers are links named for
+  // what they carry (WP-05).
+  await page
+    .getByRole("link", { name: /^open merge pdf with 2 files$/i })
+    .click();
+  await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
+  await expect(page.getByText("first.pdf")).toBeVisible();
+  await expect(page.getByText("second.pdf")).toBeVisible();
+  // WAS /loaded the 2 files you added/ — see the subset tests below.
+  await expect(page.getByText(/loaded 2 files you added/i)).toBeVisible();
+  // Control: the old wording, false for these files, is gone.
+  await expect(page.getByText(/from your workspace/i)).toHaveCount(0);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+test("Open in workspace carries the home page's files into the workspace", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("one.pdf", 1),
+    await writeTempPdf("two.pdf", 3),
+  ]);
+
+  await page.getByRole("button", { name: /open in workspace/i }).click();
+  await expect(page).toHaveURL(/\/workspace$/);
+
+  const staged = page.getByRole("list", { name: /staged files/i });
+  await expect(staged.getByText("one.pdf")).toBeVisible();
+  await expect(staged.getByText("two.pdf")).toBeVisible();
+  // Measured in this tab once they land: two.pdf has three pages.
+  await expect(staged.getByText(/3 pages/)).toBeVisible();
+  // WAS /loaded the 2 files you added/ — see the subset tests below.
+  await expect(page.getByText(/loaded 2 files you added/i)).toBeVisible();
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+/**
+ * FOUND IN REVIEW (2026-10-09): the drop badge said "Loaded the file you
+ * added." — a definite description, true only when every file added
+ * arrived. The gate trims what a tool cannot take: three PDFs sent to Sign
+ * PDF (one file) arrive as ONE, and the page claimed it was "the file you
+ * added" with nothing said of the other two. The badge now counts what
+ * loaded, which is true of any subset.
+ */
+test("three PDFs added on the home page and sent to a one-file tool: the badge counts what loaded", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("one.pdf", 1),
+    await writeTempPdf("two.pdf", 1),
+    await writeTempPdf("three.pdf", 1),
+  ]);
+
+  await page.getByRole("link", { name: /^open sign pdf with /i }).click();
+  await expect(page).toHaveURL(/\/tools\/sign-pdf$/);
+
+  // Health: the badge is there and is the drop's — a missing badge would
+  // pass the negative below.
+  const badge = page.getByRole("status").filter({ hasText: /you added/i });
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText(/loaded 1 file you added/i);
+  await expect(badge).not.toContainText(/the file you added/i);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+test("the same holds for a tool that takes several: two of three files reach Merge PDF", async ({
+  page,
+}) => {
+  const guard = attachConsoleGuard(page);
+  const dir = mkdtempSync(join(tmpdir(), "pdfxyz-e2e-"));
+  const docx = join(dir, "notes.docx");
+  writeFileSync(docx, Buffer.from("PK\u0003\u0004 not merged", "latin1"));
+  await page.goto("/");
+  await uploadFiles(page, [
+    await writeTempPdf("first.pdf", 1),
+    await writeTempPdf("second.pdf", 1),
+    docx,
+  ]);
+
+  await page
+    .getByRole("link", { name: /^open merge pdf with 2 files$/i })
+    .click();
+  await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
+  await expect(page.getByText("first.pdf")).toBeVisible();
+  await expect(page.getByText("second.pdf")).toBeVisible();
+
+  const badge = page.getByRole("status").filter({ hasText: /you added/i });
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText(/loaded 2 files you added/i);
+  await expect(badge).not.toContainText(/the 2 files you added/i);
+
+  expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+  expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+});
+
+/**
+ * FOUND IN THE WP-04 GATE (2026-10-10): the home page scrolled sideways at
+ * 390px with `quarterly-report-final-version-2026.pdf` added to its drop
+ * zone — scrollWidth 429 against 390, the hero's headline, copy and trust
+ * line all running off the right edge. The same defect /workspace had fixed
+ * the day before (workspace.spec.ts, "at 390px"), in the other host of a
+ * staged file's name: the drop zone's row is `truncate`, and nowrap text
+ * still counts toward min-content, so every `min-width: auto` ancestor up to
+ * the hero's one implicit grid column widened to fit it. Every home fixture
+ * before this one had a short name.
+ *
+ * Two names: an ordinary hyphenated one (the measured case), and a scan with
+ * no break opportunity beside another PDF, so a suggestion's reason that
+ * names the file is on screen too. At 390 and at 360, without mobile
+ * emulation (a phone browser zooms a too-wide page out, hiding the overflow
+ * from the scrollWidth check).
+ */
+const HOME_LONG_NAMES = [
+  "quarterly-report-final-version-2026.pdf",
+  "Scanned_Contract_ACME_Corporation_2026_10_09.pdf",
+];
+
+for (const width of [360, 390]) {
+  test.describe(`home at ${width}px with long file names`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    test("the drop zone keeps its names inside its panel, and the page never scrolls sideways", async ({
+      page,
+    }) => {
+      const guard = attachConsoleGuard(page);
+      const [long, scan] = HOME_LONG_NAMES as [string, string];
+      await page.goto("/");
+      await uploadFiles(page, [
+        await writeTempPdf(long, 1),
+        await writeTempScanPdf(scan, 1),
+      ]);
+      // The ticket's suggestions have arrived, so the desk is at its final
+      // width: the rows and Open in workspace are both there. (WAS the drop
+      // zone's "Continue with your files" list; the desk replaced it, WP-05.)
+      const ticket = page.getByRole("region", {
+        name: "What you can do with these files",
+      });
+      await expect(
+        ticket.getByRole("button", { name: /open in workspace/i }),
+      ).toBeVisible();
+      await expect(
+        ticket.locator('[data-slot="suggestions"] ol > li').first(),
+      ).toBeVisible();
+
+      const m = await page.evaluate((names) => {
+        const root = document.documentElement;
+        const zone = document
+          .querySelector('input[type="file"]')
+          ?.closest(".crop-marks");
+        const zoneBox = zone?.getBoundingClientRect();
+        // A staged name's row: the ticket lists each file as a <dt>.
+        const spans = names.map((n) =>
+          [...document.querySelectorAll("dt, span")].find(
+            (s) => s.textContent === n,
+          ),
+        );
+        // Where an element can be SEEN: its box, cut by every ancestor up to
+        // the panel that clips what overflows it. Refined 2026-10-10 (WP-05):
+        // the ticket's lines are cut short (`truncate`), and the words past
+        // the cut — still boxes, never painted — read as "running out" to the
+        // bare box check, which was written when every cut-short line was a
+        // single span. A line whose clip FAILED is still caught: its words
+        // are then painted past the panel and this reports them.
+        const visibleRight = (el: Element) => {
+          let right = el.getBoundingClientRect().right;
+          for (
+            let up = el.parentElement;
+            up && up !== zone;
+            up = up.parentElement
+          ) {
+            const overflow = getComputedStyle(up).overflowX;
+            if (overflow !== "visible")
+              right = Math.min(right, up.getBoundingClientRect().right);
+          }
+          return right;
+        };
+        const escaped = zone
+          ? [...zone.querySelectorAll("*")]
+              .filter((el) => {
+                const r = el.getBoundingClientRect();
+                return (
+                  r.width > 0 &&
+                  getComputedStyle(el).visibility !== "hidden" &&
+                  visibleRight(el) > zoneBox!.right + 0.5
+                );
+              })
+              .map(
+                (el) =>
+                  `<${el.tagName.toLowerCase()}> "${(el.textContent ?? "").trim().slice(0, 60)}"`,
+              )
+          : null;
+        return {
+          innerWidth: window.innerWidth,
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          zoneRight: zoneBox?.right ?? null,
+          found: spans.map((s) => !!s),
+          cut: spans.map((s) => (s ? s.scrollWidth > s.clientWidth : null)),
+          escaped,
+          // Positive control for the clip-aware check: the scan's facts line
+          // (long enough to be cut short) with its clip removed must be
+          // reported as running out of the panel.
+          control: (() => {
+            const facts = spans[1]?.nextElementSibling as HTMLElement | null;
+            if (!facts || !zone) return null;
+            const was = facts.style.overflow;
+            facts.style.overflow = "visible";
+            const out = [...facts.querySelectorAll("*")].some(
+              (el) => visibleRight(el) > zoneBox!.right + 0.5,
+            );
+            facts.style.overflow = was;
+            return out;
+          })(),
+        };
+      }, HOME_LONG_NAMES);
+      expect(
+        m.control,
+        "the clip-aware check cannot see a line that escapes",
+      ).toBe(true);
+
+      // Health: the width asked for is the width that painted, and the
+      // probe found the panel and both names' rows.
+      expect(m.innerWidth).toBe(width);
+      expect(m.zoneRight, "no drop panel found").not.toBeNull();
+      expect(m.found, "a staged name's row was not found").toEqual([
+        true,
+        true,
+      ]);
+
+      expect(
+        m.scrollWidth,
+        `the page is ${m.scrollWidth}px wide in a ${m.clientWidth}px viewport`,
+      ).toBeLessThanOrEqual(m.clientWidth);
+      expect(m.zoneRight!).toBeLessThanOrEqual(m.clientWidth);
+      expect(m.escaped, "these run out of the drop panel").toEqual([]);
+      // The names are cut short in their rows, not laid out in full.
+      expect(m.cut).toEqual([true, true]);
+
+      expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual(
+        [],
+      );
+      expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
+    });
+  });
+}

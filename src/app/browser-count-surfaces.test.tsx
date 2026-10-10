@@ -23,15 +23,31 @@
  *    of its partition and the total. 29 + 21 = 50 is checkable arithmetic a
  *    visitor can do, and 30 + 21 = 51 is what they were given.
  */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
+import { processingMeta } from "@/lib/tools/processing";
+import { whereItRuns } from "@/lib/tools/where-it-runs";
 import { supportedToolSlugs } from "@/lib/pdf/registry";
+import { ANNOUNCE_DELAY_MS } from "@/components/tools/tools-explorer";
+// In memory before /tools asks for it, so the page's own `import()` of the
+// search chunk resolves inside the test rather than racing it.
+import { rankTools } from "@/lib/tools/search-tools";
 import { CtaSection } from "@/components/sections/cta-section";
 import { StatsBand } from "@/components/sections/stats-band";
 import { PricingSection } from "@/components/sections/pricing-section";
 import PrivacyPage from "./privacy/page";
+import ToolsPage from "./tools/page";
 import StatusPage from "./status/page";
 
 const split = processingSplit();
@@ -69,15 +85,30 @@ function stubWorkerStatus() {
  */
 const COUNT_VOCABULARY = /tool|browser|upload|device|worker|of our|of them/i;
 
-function countClaims(node: HTMLElement): number[] {
-  const text = (node.textContent ?? "").replace(/\s+/g, " ");
+/**
+ * A number followed by a unit of time or size is a duration or a size, never
+ * a count of tools. Added 2026-10-09, the second time the set was wrong: the
+ * hand-off lifetime sentence on /privacy ("an unopened hand-off expires after
+ * 30 minutes and is deleted from this browser") sat in the vocabulary window
+ * and its 30 — the TTL — happened to equal the capability count. Both
+ * directions are pinned in "countClaims reads counts, not durations" below.
+ */
+const NOT_A_COUNT = /^\s*(?:minutes?|hours?|days?|seconds?|[KMG]B)\b/i;
+
+function countClaimsIn(raw: string): number[] {
+  const text = raw.replace(/\s+/g, " ");
   const claims: number[] = [];
   for (const m of text.matchAll(/\d+/g)) {
     const i = m.index ?? 0;
+    if (NOT_A_COUNT.test(text.slice(i + m[0].length))) continue;
     const around = text.slice(Math.max(0, i - 60), i + m[0].length + 60);
     if (COUNT_VOCABULARY.test(around)) claims.push(Number(m[0]));
   }
   return claims;
+}
+
+function countClaims(node: HTMLElement): number[] {
+  return countClaimsIn(node.textContent ?? "");
 }
 
 function renderSurface(ui: React.ReactElement): HTMLElement {
@@ -101,14 +132,114 @@ afterEach(() => {
  */
 interface Surface {
   name: string;
-  render: () => HTMLElement;
+  /** The module whose `processingSplit()` call this surface renders. */
+  module: string;
+  render: () => HTMLElement | Promise<HTMLElement>;
 }
 
-/** Privacy-framed surfaces that state a COUNT. */
+/**
+ * What /tools SAYS, not only what it paints first: the page rendered, then
+ * each "Where it runs" choice picked the way a reader picks it, with every
+ * announcement the live region makes after the pause. The radios' labels
+ * were the only count-bearing text this file read on /tools until the WP-06
+ * review (2026-10-10), and they were right — "Never uploads 29" — while the
+ * sentence spoken after choosing it said the 29 "work without uploading",
+ * which 30 tools do. A jsdom render never chose anything, so the live
+ * region was empty and the guard certified the label and never heard the
+ * sentence.
+ *
+ * And the sentences a filter emptied: for each browser-first tool, a search
+ * that finds it with "Never uploads" chosen — the announcement and the empty
+ * state's heading, which is where the false denial shipped.
+ *
+ * Returned as one element holding the page as first painted and every
+ * sentence it served, so each check below reads the labels and the
+ * sentences alike.
+ */
+async function toolsAsChosen(): Promise<HTMLElement> {
+  const container = renderSurface(<ToolsPage />);
+  const texts = [container.textContent ?? ""];
+  for (const { sentence } of await chooseEachPlace()) texts.push(sentence);
+  cleanup();
+  for (const tool of BROWSER_FIRST) {
+    texts.push(...(await servedNeverUploads(queryFor(tool.name))));
+    cleanup();
+  }
+  const corpus = document.createElement("div");
+  corpus.dataset.served = "";
+  for (const text of texts) {
+    const p = document.createElement("p");
+    p.textContent = text;
+    corpus.append(p);
+  }
+  return corpus;
+}
+
+/** The live region's words after the pause, read once the timers ran. */
+function announced(): string {
+  act(() => {
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+  });
+  return screen.getByRole("status").textContent ?? "";
+}
+
+/** Each "Where it runs" radio, chosen in turn: what the page announced. */
+async function chooseEachPlace(): Promise<
+  { choice: string; sentence: string }[]
+> {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const group = screen.getByRole("radiogroup", { name: "Where it runs" });
+    const radios = within(group).getAllByRole("radio");
+    // Health: All and a choice per place; a group of one would read nothing.
+    expect(radios.length).toBeGreaterThanOrEqual(3);
+    const served: { choice: string; sentence: string }[] = [];
+    // "All" last, so it is a change too and is announced.
+    for (const radio of [...radios.slice(1), radios[0]!]) {
+      fireEvent.click(radio);
+      const sentence = announced();
+      expect(sentence, "a choice was not announced").not.toBe("");
+      served.push({
+        choice: radio.closest("label")?.textContent ?? "",
+        sentence,
+      });
+    }
+    return served;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
+/**
+ * Privacy-framed surfaces that state a COUNT.
+ *
+ * `/tools` joined on 2026-10-10 (WP-06): its explorer's "Where it runs"
+ * radios name each choice with a count, and the first is "Never uploads" —
+ * a privacy sentence in two words, entitled to the never-upload count and to
+ * nothing else. The page computes the choices (the explorer receives slugs),
+ * so the page is what is rendered here.
+ */
 const COUNT_SURFACES: Surface[] = [
-  { name: "homepage CTA", render: () => renderSurface(<CtaSection />) },
-  { name: "homepage spec strip", render: () => renderSurface(<StatsBand />) },
-  { name: "/privacy", render: () => renderSurface(<PrivacyPage />) },
+  {
+    name: "homepage CTA",
+    module: "src/components/sections/cta-section.tsx",
+    render: () => renderSurface(<CtaSection />),
+  },
+  {
+    name: "homepage spec strip",
+    module: "src/components/sections/stats-band.tsx",
+    render: () => renderSurface(<StatsBand />),
+  },
+  {
+    name: "/privacy",
+    module: "src/app/privacy/page.tsx",
+    render: () => renderSurface(<PrivacyPage />),
+  },
+  {
+    name: "/tools",
+    module: "src/app/tools/page.tsx",
+    render: toolsAsChosen,
+  },
 ];
 
 /**
@@ -123,8 +254,58 @@ const COUNT_SURFACES: Surface[] = [
  */
 const PROMISE_SURFACES: Surface[] = [
   ...COUNT_SURFACES,
-  { name: "homepage pricing", render: () => renderSurface(<PricingSection />) },
+  {
+    name: "homepage pricing",
+    module: "src/components/sections/pricing-section.tsx",
+    render: () => renderSurface(<PricingSection />),
+  },
 ];
+
+/** `/status`, checked as a bounded subset below rather than for equality. */
+const STATUS_MODULE = "src/app/status/page.tsx";
+
+/**
+ * Callers this file cannot render, each bound BY NAME to the test that reads
+ * what it states — a relationship checked below, not a comment.
+ *
+ * `socialCardChips()` builds the shared share card's chips for Satori's
+ * ImageResponse, which jsdom cannot paint; `og-chips.test.ts` reads the
+ * chips it returns, and `card-pixels.test.ts` renders and decodes the card.
+ */
+const BOUND_ELSEWHERE: Record<string, { test: string; reads: string }> = {
+  "src/lib/og.tsx": {
+    test: "src/lib/og-chips.test.ts",
+    reads: "socialCardChips",
+  },
+};
+
+/** A CALL of the partition, not a mention of it in prose or an import. */
+const SPLIT_CALL = /\bprocessingSplit\s*\(/;
+
+const withoutComments = (source: string) =>
+  source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, "");
+
+/** Non-test modules under `src` that call `processingSplit()`, repo-relative. */
+function splitCallers(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(name) && !/\.(test|spec)\.tsx?$/.test(name)) {
+        const rel = path
+          .relative(process.cwd(), full)
+          .split(path.sep)
+          .join("/");
+        if (rel === "src/lib/tools/processing-split.ts") continue;
+        if (SPLIT_CALL.test(withoutComments(readFileSync(full, "utf8"))))
+          out.push(rel);
+      }
+    }
+  };
+  walk(path.join(process.cwd(), "src"));
+  return out.sort();
+}
 
 /**
  * Tools that may upload, which no "never leaves your device" sentence may name.
@@ -174,6 +355,83 @@ function sentenceEndingAt(text: string, end: number): string {
   return head.slice(head.lastIndexOf(".") + 1);
 }
 
+/**
+ * WHICH surfaces, discovered. Until 2026-10-10 the lists above were the whole
+ * story: typed by hand, so a new page calling `processingSplit()` — the /tools
+ * radios were the next — would have stated a count nothing here rendered.
+ * Now every non-test module that CALLS the partition must be rendered above,
+ * or be bound by name to the test that reads it; and every entry must still
+ * be a caller, so a stale row fails too.
+ */
+describe("every surface that states a partition count is rendered here", () => {
+  const callers = splitCallers();
+
+  it("health: the walk finds the callers, and the call pattern tells a call from a mention", () => {
+    expect(callers.length).toBeGreaterThanOrEqual(6);
+    expect(callers).toContain(STATUS_MODULE);
+    expect(SPLIT_CALL.test("const s = processingSplit();")).toBe(true);
+    expect(SPLIT_CALL.test("const s = processingSplit (tools);")).toBe(true);
+    expect(SPLIT_CALL.test('import { processingSplit } from "x";')).toBe(false);
+    expect(
+      withoutComments("// processingSplit() is called elsewhere\nconst a = 1;"),
+    ).not.toMatch(SPLIT_CALL);
+  });
+
+  it("every caller is rendered here or bound by name, and no entry is stale", () => {
+    const rendered = new Set([
+      ...PROMISE_SURFACES.map((s) => s.module),
+      STATUS_MODULE,
+    ]);
+    const unbound = callers.filter(
+      (file) => !rendered.has(file) && !(file in BOUND_ELSEWHERE),
+    );
+    expect(
+      unbound,
+      "these call processingSplit() and state what it returns somewhere this file never renders",
+    ).toEqual([]);
+    const stale = [...rendered, ...Object.keys(BOUND_ELSEWHERE)].filter(
+      (file) => !callers.includes(file),
+    );
+    expect(stale, "these no longer call processingSplit()").toEqual([]);
+  });
+
+  it("each bound caller's test really imports what it states from it", () => {
+    for (const [module, bound] of Object.entries(BOUND_ELSEWHERE)) {
+      const test = readFileSync(bound.test, "utf8");
+      const from = `./${path.posix
+        .relative(path.posix.dirname(bound.test), module)
+        .replace(/\.tsx?$/, "")}`;
+      const imported = [
+        ...test.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g),
+      ].some(
+        ([, names, specifier]) =>
+          specifier === from &&
+          names!.split(",").some((name) => name.trim() === bound.reads),
+      );
+      expect(
+        imported,
+        `${bound.test} does not import ${bound.reads} from ${from}`,
+      ).toBe(true);
+    }
+  });
+});
+
+describe("countClaims reads counts, not durations", () => {
+  it("a tool count beside the vocabulary is read; a duration beside it is not", () => {
+    expect(countClaimsIn("30 of our 50 tools run in your browser.")).toEqual([
+      30, 50,
+    ]);
+    expect(
+      countClaimsIn(
+        "An unopened hand-off expires after 30 minutes and is deleted from this browser.",
+      ),
+    ).toEqual([]);
+    expect(countClaimsIn("Images up to 25 MB each, in your browser.")).toEqual(
+      [],
+    );
+  });
+});
+
 describe("the count a reader is shown", () => {
   it("health: the two answers are still different numbers", () => {
     // If no browser-first tool exists, `neverUploads` and `hasBrowserPath`
@@ -190,20 +448,21 @@ describe("the count a reader is shown", () => {
 
   it.each(COUNT_SURFACES)(
     "$name states the never-upload count",
-    ({ render: renderIt }) => {
-      expect(countClaims(renderIt())).toContain(NEVER);
+    async ({ render: renderIt }) => {
+      expect(countClaims(await renderIt())).toContain(NEVER);
     },
   );
 
-  it("no privacy-framed surface shows the capability count", () => {
+  it("no privacy-framed surface shows the capability count", async () => {
     // Kept as one case rather than a parameterised one so the failure message
     // can name every offending surface at once, the way the split was actually
     // discovered — by reading two pages side by side.
-    const offenders = COUNT_SURFACES.filter(({ render: renderIt }) => {
-      const seen = countClaims(renderIt());
+    const offenders: string[] = [];
+    for (const { name, render: renderIt } of COUNT_SURFACES) {
+      const seen = countClaims(await renderIt());
       cleanup();
-      return seen.includes(HAS_PATH);
-    }).map((s) => s.name);
+      if (seen.includes(HAS_PATH)) offenders.push(name);
+    }
     expect(
       offenders,
       `these render ${HAS_PATH} — the count of tools with an in-browser path — ` +
@@ -211,7 +470,7 @@ describe("the count a reader is shown", () => {
     ).toEqual([]);
   });
 
-  it("no surface names an uploading tool inside a never-leaves promise", () => {
+  it("no surface names an uploading tool inside a never-leaves promise", async () => {
     // POSITIVE CONTROL, on the whole predicate rather than half of it: the
     // sentence that really shipped on the homepage at 60993e6 must still be
     // caught, both the promise and the tool it names. Two moving parts here —
@@ -236,7 +495,10 @@ describe("the count a reader is shown", () => {
 
     const offenders: string[] = [];
     for (const surface of PROMISE_SURFACES) {
-      const text = (surface.render().textContent ?? "").replace(/\s+/g, " ");
+      const text = ((await surface.render()).textContent ?? "").replace(
+        /\s+/g,
+        " ",
+      );
       cleanup();
       for (const m of text.matchAll(new RegExp(NEVER_LEAVES, "gi"))) {
         // THE SENTENCE, not the page. `/privacy` names Compress PDF on
@@ -292,5 +554,181 @@ describe("the count a reader is shown", () => {
       seen.filter((n) => n > split.neverUploads.length),
       "a count on /status exceeds the number of tools that never upload",
     ).toEqual([]);
+  });
+});
+
+/**
+ * A privacy set worded with a capability, at the point the reader hears it.
+ *
+ * The counts above bind a NUMBER to its set. They cannot see WORDS bound to
+ * the wrong set: "29 tools work without uploading" carries the right 29, and
+ * the label beside it, "Never uploads 29", is right too. But working without
+ * uploading is true of 30 tools — every one with an in-browser path, Compress
+ * PDF among them, whose analysis and lossless repack always run in the
+ * browser — so the sentence undercounted what it named; and with a query, the
+ * same words became a DENIAL of the tool the filter hid:
+ * `/tools?runs=never-uploads&q=compress` served "No tools for “compress” work
+ * without uploading. The filter hides 2 matches" and the heading "Nothing
+ * that works without uploading matches “compress”", both false of Compress
+ * PDF. Found reading the built page on the WP-06 review, 2026-10-10.
+ *
+ * So: words that are true of every tool with an in-browser path may not be
+ * said of the never-upload choice — in its announcement, in a query's, or in
+ * the empty state's heading — because some tool outside the choice (the
+ * browser-first one) has that path too.
+ */
+const IN_BROWSER_PATH: readonly RegExp[] = [
+  /\bworks? without uploading\b/i,
+  /\bin your browser\b/i,
+  /\bin-browser\b/i,
+];
+
+/**
+ * Sentences the product has shipped that state the in-browser path: the
+ * corpus the patterns answer to in BOTH directions (CLAUDE.md, Guards rule
+ * 1) — each sentence caught by some pattern, each pattern catching one.
+ */
+const SHIPPED_IN_BROWSER_PATH: readonly string[] = [
+  // /tools?runs=never-uploads&q=compress, as WP-06 served it before review.
+  "No tools for “compress” work without uploading. The filter hides 2 matches",
+  "Nothing that works without uploading matches “compress”",
+  // The plain announcement for the choice, same build.
+  "29 tools work without uploading",
+  // The in-browser mode's own words, as every card and tool page says them
+  // today — read from the module, so a reworded mode moves this corpus.
+  processingMeta.client.label,
+  processingMeta.client.short,
+];
+
+const inBrowserWording = (sentence: string) =>
+  IN_BROWSER_PATH.find((pattern) => pattern.test(sentence));
+
+/** The browser-first tools: an in-browser path, and a step that uploads. */
+const NEVER_SLUGS = new Set(split.neverUploads.map((t) => t.slug));
+const BROWSER_FIRST = split.hasBrowserPath.filter(
+  (t) => !NEVER_SLUGS.has(t.slug),
+);
+
+/**
+ * The query that finds a tool: its leading word where that word identifies
+ * it alone ("compress"), its full name otherwise.
+ */
+const queryFor = (name: string) => {
+  const lead = name.split(" ")[0]!.toLowerCase();
+  return leadCount.get(lead) === 1 ? lead : name.toLowerCase();
+};
+
+/**
+ * What /tools serves when a reader searches `query` and then chooses
+ * "Never uploads": the announcement and the empty state's heading.
+ */
+async function servedNeverUploads(query: string): Promise<string[]> {
+  window.history.replaceState(
+    null,
+    "",
+    `/tools?q=${encodeURIComponent(query)}`,
+  );
+  try {
+    renderSurface(<ToolsPage />);
+    // The ranked answer is in: the search chunk arrived.
+    await screen.findByRole("heading", {
+      level: 2,
+      name: new RegExp(`matches for “${escape(query)}”`, "i"),
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const group = screen.getByRole("radiogroup", { name: "Where it runs" });
+      fireEvent.click(
+        within(group).getByRole("radio", { name: /^Never uploads/ }),
+      );
+      const sentences = [announced()];
+      for (const h of screen.getAllByRole("heading", { level: 2 }))
+        if (/^(?:No tools?|Nothing)\b/.test(h.textContent ?? ""))
+          sentences.push(h.textContent ?? "");
+      return sentences;
+    } finally {
+      vi.useRealTimers();
+    }
+  } finally {
+    window.history.replaceState(null, "", "/");
+  }
+}
+
+describe("the never-upload choice is never worded with the in-browser path", () => {
+  it("health: every shipped in-browser sentence is caught, and every pattern catches one", () => {
+    for (const sentence of SHIPPED_IN_BROWSER_PATH)
+      expect(inBrowserWording(sentence), sentence).toBeDefined();
+    for (const pattern of IN_BROWSER_PATH)
+      expect(
+        SHIPPED_IN_BROWSER_PATH.some((s) => pattern.test(s)),
+        `${pattern} catches no shipped sentence`,
+      ).toBe(true);
+    // The case the rule exists for: a tool outside the choice with an
+    // in-browser path. Without one, "true of a tool outside it" is empty.
+    expect(BROWSER_FIRST.length).toBeGreaterThan(0);
+  });
+
+  it("health: the /tools corpus the count checks read holds what was served, not only the labels", async () => {
+    const corpus = await toolsAsChosen();
+    const sentences = [...corpus.querySelectorAll("p")]
+      .slice(1)
+      .map((p) => p.textContent ?? "");
+    // One announcement per choice, "All" included…
+    const radios = whereItRuns(split).length + 1;
+    expect(sentences.length).toBeGreaterThanOrEqual(radios);
+    // …and for each browser-first tool, a denial and the empty heading.
+    for (const tool of BROWSER_FIRST) {
+      const q = queryFor(tool.name);
+      expect(sentences.some((s) => s.startsWith(`No tools for “${q}”`))).toBe(
+        true,
+      );
+      expect(
+        sentences.some((s) => s.startsWith("Nothing") && s.includes(`“${q}”`)),
+      ).toBe(true);
+    }
+  });
+
+  it("the choice's own announcement on /tools", async () => {
+    renderSurface(<ToolsPage />);
+    const served = await chooseEachPlace();
+    const never = served.find((s) => s.choice.startsWith("Never uploads"));
+    expect(never, "Never uploads was not offered").toBeDefined();
+    // Health: this IS the never-upload count's sentence.
+    expect(countClaimsIn(never!.sentence)).toContain(NEVER);
+    expect(
+      inBrowserWording(never!.sentence),
+      `"${never!.sentence}" pairs the never-upload count (${NEVER}) with words true of all ${HAS_PATH} tools that have an in-browser path`,
+    ).toBeUndefined();
+  });
+
+  it.each(BROWSER_FIRST.map((tool) => [tool.name, tool] as const))(
+    "a search for %s with Never uploads chosen never denies it the path it has",
+    async (_, tool) => {
+      const query = queryFor(tool.name);
+      // Health: the query finds the tool, and the choice is what hides it —
+      // so whatever the page says next is said of a tool it hid.
+      const ranked = rankTools(query).ranked;
+      expect(ranked.map((t) => t.slug)).toContain(tool.slug);
+      const hidden = ranked.filter((t) => !NEVER_SLUGS.has(t.slug));
+      expect(hidden.map((t) => t.slug)).toContain(tool.slug);
+
+      const sentences = await servedNeverUploads(query);
+      // Health: something was said, and with nothing left, it is a denial.
+      expect(sentences[0]).not.toBe("");
+      if (ranked.every((t) => !NEVER_SLUGS.has(t.slug)))
+        expect(sentences.length, sentences.join(" | ")).toBe(2);
+      const offenders = sentences.filter((s) => inBrowserWording(s));
+      expect(
+        offenders,
+        `said with Never uploads chosen, while ${tool.name} — which the choice hid — has an in-browser path`,
+      ).toEqual([]);
+    },
+  );
+
+  it("positive control: the sentences WP-06 served for “compress” are caught by this predicate", () => {
+    const shipped = SHIPPED_IN_BROWSER_PATH.slice(0, 3);
+    expect(shipped.filter((s) => inBrowserWording(s))).toEqual(shipped);
+    // And the denial named a tool with that path: Compress PDF is one.
+    expect(BROWSER_FIRST.map((t) => queryFor(t.name))).toContain("compress");
   });
 });

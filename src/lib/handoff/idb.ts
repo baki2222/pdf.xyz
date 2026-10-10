@@ -10,48 +10,42 @@
  */
 
 import type { HandoffBackend } from "./backend";
+import { HANDOFF_DB_NAME, HANDOFF_STORE } from "./db-name";
+import { defaultFactory, finished, promisifyRequest } from "./idb-requests";
 import type { HandoffRecord } from "./types";
 
-const DB_NAME = "pdfxyz-handoff";
+/**
+ * The database's name lives in `./db-name` — registered in
+ * `src/lib/browser-storage.ts`, which `/privacy` renders and
+ * `browser-storage.test.ts` holds to every place the code opens it.
+ */
+export { HANDOFF_DB_NAME };
 const DB_VERSION = 1;
-const STORE = "handoffs";
 
 /** True when this runtime exposes a usable IndexedDB. */
 export function isIndexedDbAvailable(): boolean {
-  try {
-    return typeof indexedDB !== "undefined" && indexedDB !== null;
-  } catch {
-    // Accessing `indexedDB` can throw in sandboxed/partitioned contexts.
-    return false;
-  }
+  return defaultFactory() !== null;
 }
 
-/** Promisify an IDBRequest. */
-function promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(request.error ?? new Error("IndexedDB request failed"));
-  });
-}
-
-let dbPromise: Promise<IDBDatabase> | null = null;
+/** One open connection per factory (the page has one; tests make many). */
+const connections = new WeakMap<IDBFactory, Promise<IDBDatabase>>();
 
 /** Open (once) the handoff database, creating the object store on first use. */
-function openDb(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+function openDb(factory: IDBFactory): Promise<IDBDatabase> {
+  const open = connections.get(factory);
+  if (open) return open;
+  const opening = new Promise<IDBDatabase>((resolve, reject) => {
     let request: IDBOpenDBRequest;
     try {
-      request = indexedDB.open(DB_NAME, DB_VERSION);
+      request = factory.open(HANDOFF_DB_NAME, DB_VERSION);
     } catch (err) {
       reject(err);
       return;
     }
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(HANDOFF_STORE)) {
+        db.createObjectStore(HANDOFF_STORE, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -59,67 +53,70 @@ function openDb(): Promise<IDBDatabase> {
       reject(request.error ?? new Error("IndexedDB open failed"));
     request.onblocked = () => reject(new Error("IndexedDB open blocked"));
   }).catch((err) => {
-    // Reset so a later attempt can retry a transient failure.
-    dbPromise = null;
+    // Forget it so a later attempt can retry a transient failure.
+    connections.delete(factory);
     throw err;
   });
-  return dbPromise;
+  connections.set(factory, opening);
+  return opening;
 }
 
 /** Run `fn` inside a transaction on the handoff store and await completion. */
 async function withStore<T>(
+  factory: IDBFactory,
   mode: IDBTransactionMode,
   fn: (store: IDBObjectStore) => Promise<T> | T,
 ): Promise<T> {
-  const db = await openDb();
-  return new Promise<T>((resolve, reject) => {
-    let tx: IDBTransaction;
-    try {
-      tx = db.transaction(STORE, mode);
-    } catch (err) {
-      reject(err);
-      return;
-    }
-    const store = tx.objectStore(STORE);
-    let result: T;
-    Promise.resolve(fn(store))
-      .then((value) => {
-        result = value;
-      })
-      .catch(reject);
-    tx.oncomplete = () => resolve(result);
-    tx.onerror = () =>
-      reject(tx.error ?? new Error("IndexedDB transaction failed"));
-    tx.onabort = () =>
-      reject(tx.error ?? new Error("IndexedDB transaction aborted"));
-  });
+  const db = await openDb(factory);
+  const tx = db.transaction(HANDOFF_STORE, mode);
+  const done = finished(tx);
+  const result = await fn(tx.objectStore(HANDOFF_STORE));
+  await done;
+  return result;
 }
 
 /** IndexedDB implementation of {@link HandoffBackend}. */
 export class IndexedDbHandoffBackend implements HandoffBackend {
+  private readonly factory: IDBFactory | null;
+
+  /** `factory` is the browser's IndexedDB unless a test supplies one. */
+  constructor(factory: IDBFactory | null = defaultFactory()) {
+    this.factory = factory;
+  }
+
+  private store<T>(
+    mode: IDBTransactionMode,
+    fn: (store: IDBObjectStore) => Promise<T> | T,
+  ): Promise<T> {
+    if (!this.factory) return Promise.reject(new Error("no IndexedDB"));
+    return withStore(this.factory, mode, fn);
+  }
+
   async put(record: HandoffRecord): Promise<void> {
-    await withStore("readwrite", (store) =>
+    await this.store("readwrite", (store) =>
       promisifyRequest(store.put(record)),
     );
   }
 
   async get(id: string): Promise<HandoffRecord | undefined> {
-    return withStore("readonly", (store) =>
+    return this.store("readonly", (store) =>
       promisifyRequest<HandoffRecord | undefined>(store.get(id)),
     );
   }
 
   async delete(id: string): Promise<void> {
-    await withStore("readwrite", (store) => promisifyRequest(store.delete(id)));
+    await this.store("readwrite", (store) =>
+      promisifyRequest(store.delete(id)),
+    );
   }
 
   async getAll(): Promise<HandoffRecord[]> {
-    return withStore("readonly", (store) =>
+    return this.store("readonly", (store) =>
       promisifyRequest<HandoffRecord[]>(store.getAll()),
     );
   }
 
   async clear(): Promise<void> {
-    await withStore("readwrite", (store) => promisifyRequest(store.clear()));
+    await this.store("readwrite", (store) => promisifyRequest(store.clear()));
   }
 }

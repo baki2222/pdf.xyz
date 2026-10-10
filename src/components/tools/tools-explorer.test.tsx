@@ -21,6 +21,8 @@ import {
 import { UNSUPPORTED_FORMATS, toolAcceptsFormat } from "@/lib/intent/formats";
 import { categories, getToolsByCategory, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
+import { processingSplit } from "@/lib/tools/processing-split";
+import { runsChoices, whereItRuns } from "@/lib/tools/where-it-runs";
 import * as searchEngine from "@/lib/tools/search-tools";
 
 function headingLevels(container: HTMLElement): number[] {
@@ -606,5 +608,180 @@ describe("the search engine loads on demand, never with the page", () => {
       `Search could not load. Showing all ${tools.length} tools`,
     );
     expect(status().textContent).not.toBe(`${tools.length} tools`);
+  });
+});
+
+/**
+ * "Where it runs" — the filter a reader reaches for when the question is
+ * whether their file leaves the device. Radios, not toggle buttons: one
+ * choice at a time, arrow keys between them, and `getByRole("button",
+ * {name: /^AI/})` still resolves to the AI CATEGORY chip alone (the smoke
+ * e2e and the tests above select it that way).
+ *
+ * The choices and their counts are read from `whereItRuns(processingSplit())`
+ * at assertion time, never typed: a tool that changes where it runs moves a
+ * count here without this file changing.
+ */
+describe("ToolsExplorer: Where it runs", () => {
+  const options = whereItRuns(processingSplit());
+  /** What `app/tools/page.tsx` hands the explorer: the choices as slugs. */
+  const RUNS = runsChoices(options);
+  const group = () => screen.getByRole("radiogroup", { name: "Where it runs" });
+  const radio = (name: RegExp) => within(group()).getByRole("radio", { name });
+  const hrefsOf = (list: readonly { slug: string }[]) =>
+    list.map((t) => `/tools/${t.slug}`);
+
+  it("offers All, then one choice per place a tool runs, each named with its count", () => {
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
+    const expected = [
+      "All",
+      ...options.map((o) => `${o.label} ${o.tools.length}`),
+    ];
+    // Each name resolves to exactly one radio, and there are no others.
+    for (const name of expected) within(group()).getByRole("radio", { name });
+    expect(within(group()).getAllByRole("radio")).toHaveLength(expected.length);
+    expect(radio(/^All$/)).toBeChecked();
+    // Health: the never-upload choice is there and is not the whole catalogue.
+    expect(options[0]!.tools.length).toBeGreaterThan(0);
+    expect(options[0]!.tools.length).toBeLessThan(tools.length);
+  });
+
+  it("choosing a place shows exactly its tools, keeps the URL shareable, and says so", () => {
+    vi.useFakeTimers();
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
+    const never = options[0]!;
+    fireEvent.click(radio(/^Never uploads/));
+    expect(radio(/^Never uploads/)).toBeChecked();
+    expect(new Set(toolLinks())).toEqual(new Set(hrefsOf(never.tools)));
+    expect(window.location.search).toBe("?runs=never-uploads");
+    act(() => {
+      vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    });
+    expect(status().textContent).toBe(
+      `${never.tools.length} tools always keep your files on your device`,
+    );
+    // INVERTED (review of WP-06, 2026-10-10): this pinned "29 tools work
+    // without uploading" — words true of 30 tools (Compress PDF works without
+    // uploading too; only its optional worker step uploads) said of the 29
+    // that never upload.
+    expect(status().textContent).not.toMatch(/without uploading/);
+    fireEvent.click(radio(/^All$/));
+    expect(toolLinks()).toHaveLength(tools.length);
+    expect(window.location.search).toBe("");
+  });
+
+  it("a deep link checks its choice and filters, after hydration", () => {
+    window.history.replaceState(null, "", "/tools?runs=secure-worker");
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
+    const worker = options.find((o) => o.id === "secure-worker")!;
+    expect(radio(/^Secure worker/)).toBeChecked();
+    expect(new Set(toolLinks())).toEqual(new Set(hrefsOf(worker.tools)));
+  });
+
+  it("without choices from the page there is no such filter, and ?runs= filters nothing", () => {
+    window.history.replaceState(null, "", "/tools?runs=never-uploads");
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(toolLinks()).toHaveLength(tools.length);
+  });
+
+  it("negative control: an unknown ?runs= is All, never an empty grid", () => {
+    window.history.replaceState(null, "", "/tools?runs=bogus");
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
+    expect(radio(/^All$/)).toBeChecked();
+    expect(toolLinks()).toHaveLength(tools.length);
+  });
+
+  it("combines with a category, and an empty combination says which filters emptied it and resets them all", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/tools?category=ai&runs=never-uploads",
+    );
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
+    // Health: no AI tool never uploads, so this IS empty.
+    expect(options[0]!.tools.filter((t) => t.category === "ai")).toEqual([]);
+    // WAS "No tools work without uploading in AI Tools" (see RUNS_COPY).
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "No tools always keep your files on your device in AI Tools",
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /reset filters/i }));
+    expect(radio(/^All$/)).toBeChecked();
+    expect(toolLinks()).toHaveLength(tools.length);
+    expect(window.location.search).toBe("");
+  });
+
+  it("a query keeps the choice, and the count names it", async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/tools?runs=ai");
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
+    fireEvent.change(search(), { target: { value: "pdf" } });
+    await settle();
+    act(() => {
+      vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    });
+    const ai = hrefsOf(options.find((o) => o.id === "ai")!.tools);
+    expect(toolLinks().length).toBeGreaterThan(0);
+    expect(toolLinks().filter((h) => !ai.includes(h))).toEqual([]);
+    expect(status().textContent).toMatch(
+      /^\d+ tools? for “pdf” that uses? AI$/,
+    );
+    expect(window.location.search).toBe("?runs=ai&q=pdf");
+  });
+});
+
+describe("resultAnnouncement: where it runs", () => {
+  it("names the place as a verb, beside the other filters", () => {
+    // INVERTED, history kept: these read "work without uploading" until the
+    // WP-06 review (2026-10-10) — true of every tool with an in-browser
+    // path, Compress PDF among them, so "29 tools work without uploading"
+    // undercounted what it named, and a denial ("No tools for “compress”
+    // work without uploading") was false of the tool the filter hid. The
+    // choice's sentence now states the property only its own tools have.
+    expect(
+      resultAnnouncement(29, {
+        category: "all",
+        query: "",
+        runs: "never-uploads",
+      }),
+    ).toBe("29 tools always keep your files on your device");
+    expect(
+      resultAnnouncement(29, {
+        category: "all",
+        query: "",
+        runs: "never-uploads",
+      }),
+    ).not.toBe("29 tools work without uploading");
+    expect(
+      resultAnnouncement(1, {
+        category: "all",
+        query: "",
+        runs: "browser-first",
+      }),
+    ).toBe("1 tool runs browser-first");
+    expect(
+      resultAnnouncement(3, {
+        category: "organize",
+        query: "",
+        accepts: "PDF",
+        runs: "never-uploads",
+      }),
+    ).toBe(
+      "3 tools take PDF and always keep your files on your device in Organize",
+    );
+    expect(
+      resultAnnouncement(0, {
+        category: "ai",
+        query: "",
+        runs: "secure-worker",
+      }),
+    ).toBe("No tools run on a secure worker in AI Tools");
+    // Unchanged when no place is chosen: the sentences pinned above stand.
+    expect(
+      resultAnnouncement(0, { category: "ai", query: "", accepts: "DOCX" }),
+    ).toBe("No tools take DOCX in AI Tools");
   });
 });

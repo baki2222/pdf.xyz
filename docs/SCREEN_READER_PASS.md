@@ -129,18 +129,155 @@ list is announced as if it matched every word; the HEIC answer is not read; an
 empty list blames the query when a filter emptied it; or removing the filter
 drops focus to the document.
 
+Reload <https://pdf.xyz/tools>. `Tab` past the search field to the **Where it
+runs** group.
+
+**Must hear:** the group's name, _"Where it runs"_, and the checked choice —
+_"All, radio button, checked, 1 of 5"_. Press the right arrow once.
+
+**Must hear:** _"Never uploads 29, radio button, checked, 2 of 5"_ (the number
+is however many tools never upload today), then after the pause, once: _"29
+tools always keep your files on your device"_. Arrow down into the grid to the
+first card.
+
+(It said _"29 tools work without uploading"_ until 2026-10-10: true of 30 tools,
+because Compress PDF works without uploading too and only its optional worker
+step uploads. With **Never uploads** still chosen, type `compress` and pause.
+**Must hear:** _"No tools for “compress” always keep your files on your device.
+The filter hides 2 matches"_ — never that no tool for "compress" works without
+uploading, which denied Compress PDF what it does.)
+
+**Must hear:** the tool's name, its description, _"Takes PDF; makes PDF."_ and
+where it runs — the formats said as a sentence, never _"right arrow"_.
+
+**Fails if:** the group has no name; the arrow keys move focus without changing
+the choice (these must be radios, not buttons); the count is read before the
+pause; a mode's shape (● ◐ ○ ◆) is read aloud; or a card reads _"PDF right
+arrow PDF"_.
+
+---
+
+## 7. Suggestions for staged files, and files that arrive
+
+<https://pdf.xyz/workspace> — add two PDFs with **Add files**, then wait a
+moment without moving.
+
+**Must hear:** once, after a short pause, _"3 suggestions for your files. Best
+match: Merge PDF."_ Not before the files are listed, and not again when the
+pages are counted.
+
+Arrow to the list under **Suggested for your files**.
+
+**Must hear:** the first link as _"Open Merge PDF with 2 files"_, then its
+description: **2 PDFs**, the page count, and where it runs (**In-browser**).
+Press `Enter` on it.
+
+**Must hear:** Merge PDF's page, and near the top _"Loaded 2 files from your
+workspace. Still in this browser; nothing was uploaded."_
+
+Back in the workspace, clear the files and add a scanned PDF (pages that are
+pictures). Find **OCR PDF** in the list.
+
+**Must hear:** _"Open OCR PDF — you'll add the file there"_, then _"No
+selectable text on page 1"_ and _"uploads only when you start it"_.
+
+Then go to <https://pdf.xyz>, add two PDFs on the desk and press **Open in
+workspace** on the ticket.
+
+**Must hear:** the workspace, and _"Loaded 2 files you added. Still in this
+browser; nothing was uploaded."_ — never _"from your workspace"_ for files that
+came from the home page.
+
+**Fails if:** the suggestion count is read more than once for the same files;
+a link's name does not say what it carries; a worker tool's link implies the
+file goes with it; or files from the home page are said to come from the
+workspace.
+
+---
+
+## 8. The home desk, and the job ticket
+
+<https://pdf.xyz> — `Tab` from the top of the page.
+
+**Must hear:** after the header and the headline, _"Choose files, button"_ (or
+_"file upload"_), described by what it takes: _"PDF up to 100 MB · Word,
+Excel, PowerPoint up to 50 MB…"_. Keep tabbing.
+
+**Must hear:** **Try a sample PDF**, then the six tasks as links, each saying
+where its tool runs — _"Make a PDF smaller, Hybrid"_, _"Make a scan
+searchable, Secure worker"_ (on a phone the word is read even though only its
+shape is drawn).
+
+Go back to **Choose files**, press `Space`, pick two PDFs.
+
+**Must hear:** focus land on the ticket — _"What you can do with these files,
+region"_ — and then, once, after the pages are counted, _"Checked 2 files. 3
+suggestions. Best match: Merge PDF."_ Not before the files are listed, and not
+again when nothing has changed.
+
+Arrow through the ticket.
+
+**Must hear:** the files' line (_"2 PDFs · 15 pages · …"_), each file with its
+size and pages, then the first suggestion as _"Open Merge PDF with 2 files"_
+and its description (_"In-browser 2 PDFs · 15 pages"_). A row that carries
+less than all the files says so FIRST in its description — _"takes one file —
+contract.pdf"_, _"opens 2 of your 3 files"_, _"you'll add the file there"_ —
+before any count. **More for these files** is a button, _"collapsed"_; press
+it.
+
+**Must hear:** _"expanded"_; the next `Tab` is **Open in workspace**, and the
+one after it the first row under More — never the rows first and the
+workspace button last. A worker tool there says _"you'll add the file there"_
+and _"uploads only when you start it"_. Press **Clear**.
+
+**Must hear:** focus back on **Choose files**. The empty desk was never read
+twice: while the ticket is up, the desk under it is not announced at all.
+
+Press **Try a sample PDF**.
+
+**Must hear:** the ticket, with **pdfxyz-sample.pdf** marked _"pdf.xyz's
+sample"_ and **Fill Forms** first, because _"pdfxyz-sample.pdf has 2 form
+fields"_.
+
+Finally, drag a PDF from your file manager onto the page and drop it outside
+the desk (on the headline, say).
+
+**Must hear:** the same _"Checked 1 file…"_ announcement, and focus NOT moved —
+a drop announces; only a pick moves focus.
+
+Then drop a folder's worth: 22 PDFs.
+
+**Must hear:** _"Checked 5 of 22 files."_ — the files this tab actually
+opened, not the number dropped: the ticket probes five PDFs and keeps files
+past twenty for the workspace (fewer than five if long PDFs were still being
+read when the offers appeared). On screen, once the reading is done, _"+19
+more — 17 not checked here"_.
+
+**Fails if:** the desk's picker has no name or no description; a task link does
+not say where its tool runs; the ticket is announced twice for one set of
+files; it says it checked files it did not open; the empty desk is read while
+the ticket covers it; a drop moves focus; `Tab` leaves More's button for its
+rows before **Open in workspace**; or the browser opens the dropped PDF in the
+tab.
+
 ---
 
 ## Recording the result
 
-Note the browser, screen reader, and version, and for each of the six: heard /
+Note the browser, screen reader, and version, and for each of the eight: heard /
 not heard / heard but wrong. A partial pass is a finding, not a failure — write
 down what was actually said, because the wording is the deliverable.
 
 If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `src/components/tools/runner/runner-kit.tsx`, and `LiveRegion` in
 `src/components/a11y/live-region.tsx` — for check 6, `ToolsExplorer` and its
-`resultAnnouncement` in `src/components/tools/tools-explorer.tsx`. Each carries
+`resultAnnouncement` in `src/components/tools/tools-explorer.tsx`, and
+`FormatsLine` in `src/components/tools/formats-line.tsx`; for check 7,
+`FileSuggestions` in `src/app/workspace/file-suggestions.tsx` and
+`HandoffLoadedBadge` in `src/components/tools/runner/handoff-notice.tsx`; for check
+8, `HeroDesk` in `src/components/intent/hero-desk.tsx`, `TicketView` in
+`src/components/intent/ticket-view.tsx` and `DropSheet` in
+`src/components/upload/drop-sheet.tsx`. Each carries
 a docblock explaining what it is protecting against, which is usually faster
 than reading the logic.
 
