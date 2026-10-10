@@ -173,7 +173,13 @@ describe("the inventory names the images pdf.js decodes, page by page", () => {
    * variant must paint exactly what the unlocked file paints, or the
    * comparison below would be agreeing with a broken fixture.
    */
-  const CIPHERS = ["rc4-40", "rc4-128", "aes-128", "aes-256"] as const;
+  const CIPHERS = [
+    "rc4-40",
+    "rc4-128",
+    "aes-128",
+    "aes-256-r5",
+    "aes-256",
+  ] as const;
   it.each(
     CIPHERS.flatMap((cipher) =>
       [false, true].map((objectStreams) => [cipher, objectStreams] as const),

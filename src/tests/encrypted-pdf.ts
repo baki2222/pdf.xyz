@@ -115,11 +115,14 @@ function toHex(bytes: Uint8Array): string {
  * revision 3, the default and until 2026-10-11 the only one — is what pypdf
  * and many generators write; `rc4-40` is revision 2; `aes-128` is revision 4
  * with the AESV2 crypt filter; `aes-256` is revision 6 with AESV3, what
- * Acrobat and Word write today. Each is opened with pdf.js, an independent
+ * Acrobat and Word write today; `aes-256-r5` is the same cipher at
+ * revision 5 (Adobe's extension level 3, plain SHA-256), which Acrobat 9
+ * wrote. Each is opened with pdf.js, an independent
  * implementation of the same algorithms, before a test trusts it
  * (`page-inventory.test.ts`).
  */
-export type EncryptCipher = "rc4-40" | "rc4-128" | "aes-128" | "aes-256";
+export type EncryptCipher =
+  "rc4-40" | "rc4-128" | "aes-128" | "aes-256" | "aes-256-r5";
 
 export interface EncryptOptions {
   /** Password needed to OPEN the file. `""` means anyone can open it. */
@@ -221,7 +224,11 @@ function schemeFor(
   };
   const hex = (b: Uint8Array) => PDFHexString.of(toHex(b));
 
-  if (cipher === "aes-256") {
+  if (cipher === "aes-256" || cipher === "aes-256-r5") {
+    // Revision 5 hashes once with SHA-256; revision 6 with Algorithm 2.B.
+    const r5 = cipher === "aes-256-r5";
+    const derive = (pw: Uint8Array, salt: Uint8Array, udata: Uint8Array) =>
+      r5 ? sha("sha256", pw, salt, udata) : hash2B(pw, salt, udata);
     const fileKey = sha(
       "sha256",
       latin1(`pdf.xyz fixture key ${opts.ownerPassword}`),
@@ -233,10 +240,10 @@ function schemeFor(
     const none = new Uint8Array(0);
     const zero = new Uint8Array(16);
     // Algorithms 8 and 9: /U and /UE, then /O and /OE over the whole /U.
-    const U = concat([hash2B(user, salt("uv"), none), salt("uv"), salt("uk")]);
-    const UE = aes("cbc", hash2B(user, salt("uk"), none), zero, fileKey);
-    const O = concat([hash2B(owner, salt("ov"), U), salt("ov"), salt("ok")]);
-    const OE = aes("cbc", hash2B(owner, salt("ok"), U), zero, fileKey);
+    const U = concat([derive(user, salt("uv"), none), salt("uv"), salt("uk")]);
+    const UE = aes("cbc", derive(user, salt("uk"), none), zero, fileKey);
+    const O = concat([derive(owner, salt("ov"), U), salt("ov"), salt("ok")]);
+    const OE = aes("cbc", derive(owner, salt("ok"), U), zero, fileKey);
     // Algorithm 10: /Perms.
     const perms = new Uint8Array(16);
     new DataView(perms.buffer).setInt32(0, permissions, true);
@@ -245,7 +252,7 @@ function schemeFor(
       dict: ctx.obj({
         Filter: "Standard",
         V: 5,
-        R: 6,
+        R: r5 ? 5 : 6,
         Length: 256,
         CF: cryptFilters(ctx, "AESV3", 32),
         StmF: "StdCF",
