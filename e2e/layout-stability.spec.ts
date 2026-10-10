@@ -1691,13 +1691,12 @@ test.describe("the home desk as files arrive", () => {
         test(`${set.name}: the desk keeps its height, nothing around or under it moves, nothing inside it shifts, no slot overflows`, async ({
           page,
         }) => {
+          const m = await measureDeskArrival(page, set);
           // Health: the device applied (a `use` that did not would measure
           // the default page again, and pass for it).
-          await page.goto("about:blank");
           expect(await page.evaluate(() => window.innerWidth)).toBe(
             device.use.viewport.width,
           );
-          const m = await measureDeskArrival(page, set);
           // Health: the reading saw the hero's parts and what follows it
           // (kicker, title, desk, lede, actions, trust, next section).
           expect(m.witnesses).toBeGreaterThanOrEqual(7);
