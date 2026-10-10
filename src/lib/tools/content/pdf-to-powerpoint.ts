@@ -76,7 +76,16 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  * by the reviewer, and run once more on it before this copy was rewritten,
  * with the same figures each time.
  *
- * WHY THE COPY SAYS NEITHER "refuses" NOR "opens". `publish.yml` deploys both
+ * UPDATE 2026-10-10: THE COPY NOW SAYS "opens", AND ONLY THAT. The exit this
+ * paragraph set was a production download opening on a double-click with no
+ * repair prompt. The owner made that check: a .pptx made by the production
+ * worker (worker:prove-tools pdf-to-powerpoint, PASS, 10,539 bytes, one slide)
+ * opened by double-click in PowerPoint for Windows desktop, with no repair
+ * prompt and "Accessibility: Good to go". The copy says that, dated, and still
+ * says editing is untested and claims nothing about other apps. What follows
+ * is the reasoning that held the claim back until then.
+ *
+ * WHY THE COPY SAID NEITHER "refuses" NOR "opens". `publish.yml` deploys both
  * tiers from main on every push, so the six "refuses" sentences would turn
  * false with the first successful publish that carries 8920ee1b. "Opens"
  * would claim more than was measured: COM is not a double-click, and
@@ -146,7 +155,7 @@ const content: ToolContent = {
 
   intro: [
     "PDF to PowerPoint reads the words you can select in a PDF and packs them into a .pptx file, page by page: the first page's text goes on slide one, the second page's on slide two, and so on. Each slide holds a single text box, with one paragraph for every line of text found on that page. Pictures, charts, logos, colours, fonts, sizes and the position of each block stay behind, and a sentence the PDF wrapped over two lines arrives as two paragraphs.",
-    "What has been tested is narrow, so here it is in full. On 9 October 2026, PowerPoint for Windows was driven through its automation interface, with its alerts switched off, to open a .pptx this tool's export code built from a three-page test PDF: it opened the file read-only, found one slide per page and read every page's text back. Whether a downloaded file opens on a double-click without PowerPoint offering to repair it has not been checked, editing the slides has not been tested, and this page makes no claim about any other presentation app. If all you need is the words, PDF to Text copies them out in your browser, and nothing is uploaded.",
+    "What has been tested is narrow, so here it is in full. On 9 October 2026, PowerPoint for Windows was driven through its automation interface, with its alerts switched off, to open a .pptx this tool's export code built from a three-page test PDF: it opened the file read-only, found one slide per page and read every page's text back. On 10 October 2026, a .pptx downloaded from pdf.xyz was double-clicked on a Windows PC with PowerPoint 16.0: it opened without offering to repair the file. Editing the slides has not been tested, and this page makes no claim about any other presentation app. If all you need is the words, PDF to Text copies them out in your browser, and nothing is uploaded.",
     `A PDF made only of scanned images holds pictures of lettering rather than characters, so the export stops and points you to OCR as the first step. The reading is done by poppler's pdftotext on a server, not inside your browser: your PDF (one per run, ${CEILING_MB} MB at most) is uploaded over TLS to pdf.xyz's secure worker, where your input is deleted as each job finishes. The worker keeps the .pptx available for ${OUTPUT_TTL} minutes; after that its link fails, and a daily storage rule erases the stored copy.`,
   ],
 
@@ -187,7 +196,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the .pptx open in PowerPoint?",
-      a: "Only one route has been checked. On 9 October 2026, PowerPoint 16.0 for Windows opened a .pptx this tool made from a three-page test PDF through its automation interface, counted three slides and read each page's text back. That check switched PowerPoint's alerts off and opened the file read-only, so it would not have shown a repair prompt. No download has been opened with a double-click, and editing has not been tested, so pdf.xyz does not promise that PowerPoint opens the file without asking to repair it, or that the slides can be edited there. This page makes no claim about other presentation apps.",
+      a: "In PowerPoint for Windows, yes: two checks say so. On 9 October 2026, PowerPoint 16.0 for Windows opened a .pptx this tool made from a three-page test PDF through its automation interface, counted three slides and read each page's text back. That check switched PowerPoint's alerts off, so on its own it could not have shown a repair prompt. On 10 October 2026, a .pptx downloaded from pdf.xyz was double-clicked on a Windows PC with PowerPoint 16.0: it opened without offering to repair the file. Editing has not been tested, so pdf.xyz does not promise that the slides can be edited there. This page makes no claim about other presentation apps.",
     },
     {
       q: "Will the design, images and fonts of my PDF be kept?",
