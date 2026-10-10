@@ -288,6 +288,13 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "PDF to PowerPoint delivers the package its page reports PowerPoint for Windows opening through automation: one slide per page holding that page's text, with a slide master, layout and theme, not the slides-only package PowerPoint refused as corrupted",
     proves: provenByFlag,
   },
+  pptxPictures: {
+    label: "PowerPoint pictures",
+    promise:
+      // Added 2026-10-10, when the owner reported decks with no pictures.
+      "PDF to PowerPoint puts each picture of a page on its slide as a picture, where the page shows it, as its page says, not the slide of text alone it delivered until 2026-10-10",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

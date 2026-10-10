@@ -13,12 +13,14 @@
  *                export), under a name of your choosing. Repeatable.
  *   --renderer   what turns each deck back into a PDF. `libreoffice` (the
  *                default) is the importer the worker's PowerPoint to PDF runs,
- *                and the one the committed bound is calibrated against;
- *                `powerpoint` drives Microsoft PowerPoint over COM (Windows
- *                only) — a different engine, so its numbers are labelled and
- *                are NOT the bound's. It opens each deck READ-ONLY with alerts
- *                off, saves a PDF copy, closes it, puts DisplayAlerts back as
- *                it found it, and quits PowerPoint only if it had nothing open.
+ *                and the one `pnpm worker:pptx-fidelity-proof` holds to the
+ *                bound in the worker image; `powerpoint` drives Microsoft
+ *                PowerPoint over COM (Windows only), the renderer the bound
+ *                was SET from on 2026-10-10 (no LibreOffice was available
+ *                then; see FIDELITY_BOUND). Each is labelled in the output. It
+ *                opens each deck READ-ONLY with alerts off, saves a PDF copy,
+ *                closes it, puts DisplayAlerts back as it found it, and quits
+ *                PowerPoint only if it had nothing open.
  *   --keep       keep the round-trip PDFs (and the exported deck) in `dir`.
  *
  * Prints page scores and the bound's verdict: numbers only, never the
@@ -196,7 +198,7 @@ async function main(): Promise<void> {
 
   await render(decks);
   console.log(
-    `renderer: ${rendererName}; bound: page ≤ ${FIDELITY_BOUND.page}, mean ≤ ${FIDELITY_BOUND.mean}${rendererName === "libreoffice" ? "" : " (calibrated on LibreOffice, not this renderer)"}`,
+    `renderer: ${rendererName}; bound: page ≤ ${FIDELITY_BOUND.page}, mean ≤ ${FIDELITY_BOUND.mean} (set from PowerPoint 16 runs on 2026-10-10; the worker's proof holds LibreOffice to it)`,
   );
   const reports: [string, FidelityReport][] = [];
   for (const d of decks) {

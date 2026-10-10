@@ -177,3 +177,80 @@ describe("the in-image PDF to PowerPoint round-trip proof runs, from the workflo
     expect(file.getFullText()).toMatch(/PPTX_FIDELITY_FIXTURES\.map\(/);
   });
 });
+
+/**
+ * The PRODUCTION proof asks the deployed worker the same question: does the
+ * deck carry the page's picture, where the page shows it, and does it LOOK
+ * like the page through LibreOffice? Until 2026-10-10 its PDF to PowerPoint
+ * spec sent a text-only PDF and passed any deck that opened with the text,
+ * and its round trip passed any one-page PDF — both green on the deck the
+ * owner reported. Walked by AST, as above.
+ */
+describe("the production proof asks PDF to PowerPoint about pictures and fidelity", () => {
+  const FILE = "scripts/worker-prove-tools.ts";
+  const file = ts.createSourceFile(
+    FILE,
+    read(FILE),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+
+  /** Every object literal in the SPECS array. */
+  const specs: TS.ObjectLiteralExpression[] = [];
+  walk(file, (n) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      n.name.getText(file) === "SPECS" &&
+      n.initializer &&
+      ts.isArrayLiteralExpression(n.initializer)
+    )
+      for (const el of n.initializer.elements)
+        if (ts.isObjectLiteralExpression(el)) specs.push(el);
+  });
+  const prop = (node: TS.ObjectLiteralExpression, name: string) =>
+    node.properties.find(
+      (p): p is TS.PropertyAssignment =>
+        ts.isPropertyAssignment(p) && p.name.getText(file) === name,
+    );
+  const str = (node: TS.ObjectLiteralExpression, name: string) => {
+    const p = prop(node, name);
+    return p && ts.isStringLiteral(p.initializer) ? p.initializer.text : null;
+  };
+
+  it("health check: SPECS was found and is the size it plausibly is", () => {
+    expect(specs.length).toBeGreaterThan(15);
+    expect(specs.length).toBeLessThan(200);
+  });
+
+  it("the pdf-to-powerpoint spec sends the proof PDF and verifies the picture", () => {
+    const mine = specs.filter((s) => str(s, "tool") === "pdf-to-powerpoint");
+    expect(mine).toHaveLength(1);
+    const spec = mine[0]!;
+    expect(prop(spec, "make")?.initializer.getText(file)).toMatch(
+      /\bpptxProofPdf\(\)/,
+    );
+    expect(prop(spec, "verify")?.initializer.getText(file)).toMatch(
+      /\bpptxDeploymentVerdict\(/,
+    );
+    expect(importsOf(file).get("pptxDeploymentVerdict")).toBe(
+      "@/lib/workers/pdf-office-export/deployment-proof",
+    );
+    expect(importsOf(file).get("pptxProofPdf")).toBe(
+      "@/lib/workers/pdf-office-export/deployment-proof",
+    );
+  });
+
+  it("the round trip of that deck is judged by the fidelity instrument against the same proof PDF", () => {
+    const keptAs = specs
+      .filter((s) => str(s, "tool") === "pdf-to-powerpoint")
+      .map((s) => str(s, "keepArtifactAs"));
+    expect(keptAs).toHaveLength(1);
+    const trips = specs.filter((s) => str(s, "from") === keptAs[0]);
+    expect(trips).toHaveLength(1);
+    const verify = prop(trips[0]!, "verify")?.initializer.getText(file) ?? "";
+    expect(verify).toMatch(/\bcompareFidelity\(\s*await pptxProofPdf\(\)/);
+    expect(importsOf(file).get("compareFidelity")).toBe(
+      "@/lib/workers/pdf-office-export/fidelity",
+    );
+  });
+});

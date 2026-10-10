@@ -76,7 +76,11 @@ import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { linearizationVerdict } from "@/lib/pdf/linearization";
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
-import { pptxProofVerdict } from "@/lib/workers/pdf-office-export/validate-ooxml";
+import {
+  pptxDeploymentVerdict,
+  pptxProofPdf,
+} from "@/lib/workers/pdf-office-export/deployment-proof";
+import { compareFidelity } from "@/lib/workers/pdf-office-export/fidelity";
 import {
   readXlsxSheet,
   sheetGridProblems,
@@ -981,7 +985,7 @@ const SPECS: ProofSpec[] = [
   },
   {
     tool: "pdf-to-powerpoint",
-    make: textPdf,
+    make: async () => Buffer.from(await pptxProofPdf()),
     name: "doc.pdf",
     type: PDF_MIME,
     expect: isZipContainer,
@@ -994,17 +998,27 @@ const SPECS: ProofSpec[] = [
     // inspector the worker runs before delivery and in its capability probe),
     // here run on the bytes the deployment returned — then read the
     // fixture's text off a slide.
+    //
+    // AND, since 2026-10-10, the picture. Until then this sent `textPdf` and
+    // passed every deck that opened and carried the text — including the one
+    // with no pictures the owner reported. The proof PDF now paints a picture
+    // at a known box, and the verdict fails unless slide 1 carries it, as a
+    // picture, there, at its pixel size, on a slide the page's size
+    // (`deployment-proof.ts`, held to its controls by its test).
     // Keep a copy with PROOF_ARTIFACT_DIR and open it in PowerPoint with
     // `pnpm prove:pptx-opens --file`.
-    verify: (bytes) => pptxProofVerdict(bytes, "pdf.xyz deployment proof"),
+    verify: (bytes) => pptxDeploymentVerdict(bytes),
     keepArtifactAs: "pptx-from-pdf",
   },
   // A SECOND reader for the same deck: LibreOffice, through powerpoint-to-pdf
   // on the same worker. It is NOT the PowerPoint check and cannot stand in for
-  // `pptxProofVerdict` above: LibreOffice's importer is more forgiving than
+  // the verdict above: LibreOffice's importer is more forgiving than
   // PowerPoint's, and this round trip has never been shown to go red on a deck
   // PowerPoint refuses. What it adds is that a real office suite laid the deck
-  // out — one PDF page for the one-slide deck of the one-page fixture.
+  // out, and since 2026-10-10 that what it laid out LOOKS like the page: the
+  // PDF it returns is compared with the proof PDF by the fidelity instrument
+  // (`fidelity.ts`, the bound the in-image proof holds the fixtures to). Until
+  // then the verdict was "one page", which the deck with no pictures passed.
   {
     tool: "powerpoint-to-pdf",
     label: "powerpoint-to-pdf (round-trip)",
@@ -1014,13 +1028,11 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "PDF",
     verify: async (bytes) => {
-      const pages = (await PDFDocument.load(bytes)).getPageCount();
-      return pages === 1
-        ? { ok: true, detail: "LibreOffice laid the deck out as 1 page" }
-        : {
-            ok: false,
-            detail: `LibreOffice laid the 1-slide deck out as ${pages} page(s)`,
-          };
+      const report = await compareFidelity(await pptxProofPdf(), bytes);
+      return {
+        ok: report.pass,
+        detail: `LibreOffice laid the deck out as ${report.candidatePages} page(s); against the proof PDF: ${report.detail}`,
+      };
     },
   },
   {
