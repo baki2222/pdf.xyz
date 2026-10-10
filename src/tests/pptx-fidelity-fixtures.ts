@@ -23,7 +23,9 @@ import {
   drawObject,
   endPath,
   moveTo,
+  PDFDict,
   PDFDocument,
+  PDFName,
   popGraphicsState,
   pushGraphicsState,
   rectangle,
@@ -1164,6 +1166,189 @@ export async function cellGridPdf(cells: number): Promise<PptxFixture> {
       });
   }
   return { name: "cellGridPdf", pdf: await doc.save(), pages: [rec] };
+}
+
+/** Paint the XObject `name` (in the page's resources) so it fills `at`. */
+function drawNamed(page: PDFPage, name: string, at: Rect): void {
+  page.pushOperators(
+    pushGraphicsState(),
+    concatTransformationMatrix(
+      at.width,
+      0,
+      0,
+      at.height,
+      at.x,
+      page.getHeight() - at.y - at.height,
+    ),
+    drawObject(name),
+    popGraphicsState(),
+  );
+}
+
+/**
+ * Hang every page of `doc` off ONE /Resources dictionary, as some generators
+ * write a document: every font the pages already use, and `xobjects` by
+ * name. Call it after the pages' text is drawn (pdf-lib gives each page its
+ * own dictionary as it draws) and before their XObjects are painted.
+ */
+function shareResources(
+  doc: PDFDocument,
+  pages: readonly PDFPage[],
+  xobjects: ReadonlyMap<string, PDFRef>,
+): void {
+  const fontsDict = doc.context.obj({});
+  for (const p of pages) {
+    const own = p.node.Resources()?.lookupMaybe(PDFName.of("Font"), PDFDict);
+    for (const [k, v] of own?.entries() ?? []) fontsDict.set(k, v);
+  }
+  const xobjectDict = doc.context.obj({});
+  for (const [name, ref] of xobjects) xobjectDict.set(PDFName.of(name), ref);
+  const shared = doc.context.register(
+    doc.context.obj({ Font: fontsDict, XObject: xobjectDict }),
+  );
+  for (const p of pages) p.node.set(PDFName.of("Resources"), shared);
+}
+
+const flatPhotos = new Map<string, Uint8Array>();
+
+/**
+ * `count` pages under ONE /Resources dictionary that names every page's
+ * photo; each page paints its own `width` × `height` RGB photo, one flat
+ * colour per page (`colours[i]`, so a slide showing another page's photo is
+ * caught), under a caption. Every page DECLARES all `count` photos and
+ * DECODES one: a reader that cannot read the pages' content, and charges
+ * each page for what the dictionary declares, charges it for the book.
+ *
+ * Built for the encrypted owner-password files whose pages the page reader
+ * cannot read ahead (see `./encrypted-pdf`): until 2026-10-11 such a file
+ * lost every photo to the decode budget, and its note blamed their size.
+ */
+export async function sharedPhotosPdf(
+  count = 6,
+  width = 4000,
+  height = 3000,
+): Promise<PptxFixture & { colours: [number, number, number][] }> {
+  const doc = await PDFDocument.create();
+  const captions = Array.from(
+    { length: count },
+    (_, i) => `Photo ${i + 1} of ${count}`,
+  );
+  const f = await fonts(doc, captions);
+  const pages: PDFPage[] = [];
+  const recs: FixturePage[] = [];
+  const colours: [number, number, number][] = [];
+  const xobjects = new Map<string, PDFRef>();
+  for (let i = 0; i < count; i++) {
+    const page = doc.addPage([720, 540]);
+    const rec = emptyPage(720, 540);
+    text(page, rec.texts, captions[i]!, 60, 60, 24, f.bold, true);
+    const colour: [number, number, number] = [
+      (40 + 37 * i) & 0xff,
+      (200 - 29 * i) & 0xff,
+      (90 + 53 * i) & 0xff,
+    ];
+    const key = `${width}x${height}:${colour.join(",")}`;
+    let packed = flatPhotos.get(key);
+    if (!packed) {
+      const raw = Buffer.alloc(width * height * 3);
+      for (let p = 0; p < raw.length; p += 3) {
+        raw[p] = colour[0];
+        raw[p + 1] = colour[1];
+        raw[p + 2] = colour[2];
+      }
+      packed = deflateSync(raw, { level: 1 });
+      flatPhotos.set(key, packed);
+    }
+    xobjects.set(
+      `Photo${i + 1}`,
+      rawImageXObject(
+        doc,
+        {
+          Width: width,
+          Height: height,
+          BitsPerComponent: 8,
+          ColorSpace: "DeviceRGB",
+          Filter: "FlateDecode",
+        },
+        packed,
+      ),
+    );
+    pages.push(page);
+    recs.push(rec);
+    colours.push(colour);
+  }
+  shareResources(doc, pages, xobjects);
+  pages.forEach((page, i) => {
+    const shown: Rect = { x: 120, y: 100, width: 480, height: 360 };
+    drawNamed(page, `Photo${i + 1}`, shown);
+    recs[i]!.images.push({
+      shown,
+      pixelWidth: width,
+      pixelHeight: height,
+      source: "png",
+      alpha: false,
+    });
+  });
+  return {
+    name: "sharedPhotosPdf",
+    pdf: await doc.save({ useObjectStreams: false }),
+    pages: recs,
+    colours,
+  };
+}
+
+/**
+ * Two pages under ONE /Resources dictionary that declares two RGB pictures
+ * 8,000 px wide: one of exactly `pixels` pixels, one a row taller. Page 1
+ * paints the first, page 2 the second, and nothing else is on either page.
+ * Their data is DCT noise, so no pixels are ever held: a picture pdf.js
+ * tries to decode fails at once (it counts as undecodable), and one over
+ * pdf.js's ceiling is removed before it is read. So the pair shows, from
+ * both sides of `pixels`, which pictures the result can still name.
+ */
+export async function ceilingPairPdf(pixels: number): Promise<PptxFixture> {
+  const W = 8000;
+  if (!Number.isInteger(pixels / W) || pixels <= 0)
+    throw new Error(`ceilingPairPdf: ${pixels} is not a whole number of rows`);
+  const doc = await PDFDocument.create();
+  const noise = new Uint8Array(4096);
+  for (let i = 0; i < noise.length; i++) noise[i] = (i * 7919 + 13) & 0xff;
+  const pages = [doc.addPage([720, 540]), doc.addPage([720, 540])];
+  const recs = [emptyPage(720, 540), emptyPage(720, 540)];
+  const xobjects = new Map<string, PDFRef>();
+  [pixels / W, pixels / W + 1].forEach((h, i) =>
+    xobjects.set(
+      `Pic${i + 1}`,
+      rawImageXObject(
+        doc,
+        {
+          Width: W,
+          Height: h,
+          BitsPerComponent: 8,
+          ColorSpace: "DeviceRGB",
+          Filter: "DCTDecode",
+        },
+        noise,
+      ),
+    ),
+  );
+  shareResources(doc, pages, xobjects);
+  pages.forEach((page, i) => {
+    const shown: Rect = { x: 160, y: 120, width: 400, height: 300 };
+    drawNamed(page, `Pic${i + 1}`, shown);
+    recs[i]!.images.push({
+      shown,
+      pixelWidth: W,
+      pixelHeight: pixels / W + i,
+      source: "jpeg",
+      alpha: false,
+    });
+  });
+  return {
+    name: "ceilingPairPdf",
+    pdf: await doc.save({ useObjectStreams: false }),
+    pages: recs,
+  };
 }
 
 /**

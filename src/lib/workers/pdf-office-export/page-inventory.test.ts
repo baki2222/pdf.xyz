@@ -26,14 +26,20 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   bigPhotosPdf,
+  imageCaptionPdf,
   PPTX_FIDELITY_FIXTURES,
   undecodablePicturePdf,
 } from "@/tests/pptx-fidelity-fixtures";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
+import { encryptPdf } from "@/tests/encrypted-pdf";
+import { ownerOnlyObjectStreamPdf } from "@/tests/encrypted-pdf-fixture";
 import {
   contentOperators,
   decodedBytes,
+  documentImages,
+  inventoryOf,
   inventoryPages,
+  readInventory,
   type PageInventory,
 } from "./page-inventory";
 import { decodeBudgetPlan } from "./page-scan";
@@ -147,7 +153,58 @@ describe("the inventory names the images pdf.js decodes, page by page", () => {
   it("returns null for bytes pdf-lib cannot read", async () => {
     expect(await inventoryPages(new Uint8Array([1, 2, 3]))).toBeNull();
   });
+
+  /*
+   * 2026-10-11, the second review: the same owner-password lock in the
+   * layout Acrobat and Word write, the catalog and page tree inside an
+   * encrypted object stream. pdf-lib LOADS it and then has no catalog, and
+   * the walk threw "Cannot read properties of undefined (reading 'Pages')"
+   * — outside any try in the page scan, so the whole export failed.
+   */
+  it("has no inventory, and does not throw, when the page tree is inside an encrypted object stream", async () => {
+    const doc = await PDFDocument.load(ownerOnlyObjectStreamPdf(), LOAD);
+    // Health: loaded, encrypted, and the raw walk does throw on it — the
+    // shape the scan met, not a file pdf-lib refuses outright.
+    expect(doc.isEncrypted).toBe(true);
+    expect(() => inventoryOf(doc)).toThrow();
+    expect(readInventory(doc)).toBeNull();
+    expect(await inventoryPages(ownerOnlyObjectStreamPdf())).toBeNull();
+  });
+
+  it("still names every picture such a file holds, from the dictionaries left in the clear", async () => {
+    // An image is a stream, a stream is never inside an object stream, and
+    // encryption leaves a dictionary's names and numbers alone (ISO
+    // 32000-1 §7.5.7, §7.6.1): each picture's size is readable.
+    const fixture = await imageCaptionPdf();
+    const locked = await encryptPdf(fixture.pdf, {
+      userPassword: "",
+      ownerPassword: "owner",
+      objectStreams: true,
+    });
+    const doc = await PDFDocument.load(locked, LOAD);
+    expect(readInventory(doc)).toBeNull();
+    const plain = (await inventoryPages(fixture.pdf))!;
+    const distinct = new Map(
+      plain.flatMap((p) => p.images.map((i) => [i.ref, i] as const)),
+    );
+    const want = [...distinct.values()]
+      .map((i) => `${i.width}x${i.height}:${i.bytes}`)
+      .sort();
+    // Health: the unlocked file paints two distinct pictures.
+    expect(want).toHaveLength(2);
+    expect(
+      documentImages(doc)!
+        .map((i) => `${i.width}x${i.height}:${i.bytes}`)
+        .sort(),
+    ).toEqual(want);
+  });
 });
+
+const LOAD = {
+  ignoreEncryption: true,
+  updateMetadata: false,
+  throwOnInvalidObject: false,
+} as const;
 
 describe("the content lexer", () => {
   const ops = (src: string | Uint8Array) =>
@@ -232,6 +289,59 @@ describe("the decode budget", () => {
     expect(plan.pages[0]).toMatchObject({ tooLarge: 2, bytes: 1 });
     expect(plan.pages[0]!.cap).toBeLessThan(10_000);
     expect(plan.pages[0]!.cap).toBeGreaterThanOrEqual(100);
+  });
+
+  /*
+   * 2026-10-11, the second review. An INEXACT page — its content could not
+   * be read, so `images` is what its resources DECLARE — was budgeted like
+   * an exact one: its ceiling fell below the floor and every declared image
+   * over it was counted too large. An owner-password file of twelve 6-MP
+   * photos under one shared /Resources lost all twelve, and its note said
+   * 144 pictures were too large.
+   */
+  it("an inexact page never lowers the ceiling below the floor, and counts nothing it only declares", () => {
+    const declared = page([100, 100, 60], [100, 100, 60]);
+    const opts = { pageBytes: 100, floorPixels: 1_000_000 };
+    // Control: read exactly, the pair is over the budget, left out, counted.
+    const exact = decodeBudgetPlan([declared], opts);
+    expect(exact.pages[0]!.tooLarge).toBe(2);
+    expect(exact.pages[0]!.cap).toBeLessThan(10_000);
+    const plan = decodeBudgetPlan([{ ...declared, exact: false }], opts);
+    expect(plan.pages[0]!.cap).toBeGreaterThanOrEqual(1_000_000);
+    expect(plan.pages[0]!.tooLarge).toBe(0);
+  });
+
+  it("an inexact page is unverified exactly when it declares an image over its ceiling", () => {
+    const opts = { pageBytes: 100, floorPixels: 1_000_000 };
+    const big = page([2000, 1000, 60], [2000, 1000, 60]);
+    expect(
+      decodeBudgetPlan([{ ...big, exact: false }], opts).pages[0],
+    ).toMatchObject({ cap: 1_000_000, tooLarge: 0, unverified: true });
+    // Declared images that fit the budget whole are admitted whole.
+    expect(
+      decodeBudgetPlan([{ ...big, exact: false }], { ...opts, pageBytes: 1000 })
+        .pages[0],
+    ).toMatchObject({ cap: 2_000_000, tooLarge: 0, unverified: false });
+    // Under the floor: pdf.js removes nothing it could paint.
+    const small = page([100, 100, 60], [100, 100, 60]);
+    expect(
+      decodeBudgetPlan([{ ...small, exact: false }], opts).pages[0]!.unverified,
+    ).toBe(false);
+    // An exact page's losses are COUNTED, so it is never unverified.
+    expect(decodeBudgetPlan([big], opts).pages[0]).toMatchObject({
+      tooLarge: 2,
+      unverified: false,
+    });
+  });
+
+  it("refuses a document only for what its pages are SEEN to decode", () => {
+    const plan = decodeBudgetPlan(
+      [page([10, 10, 10]), { ...page([10, 10, 50]), exact: false }],
+      { pageBytes: 100, floorPixels: 1 },
+    );
+    // Control: both pages admitted what they hold.
+    expect(plan.pages.map((p) => p.bytes)).toEqual([10, 50]);
+    expect(plan.bytes).toBe(10);
   });
 
   it("gives every page that leaves nothing out one shared ceiling, at least the floor", () => {

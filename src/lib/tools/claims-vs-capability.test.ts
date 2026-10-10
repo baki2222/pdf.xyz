@@ -157,7 +157,13 @@ import {
 import { typefaceFor } from "@/lib/workers/pdf-office-export/deck-from-scan";
 import { getToolContent } from "./content";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
-import { linesPdf } from "@/tests/pptx-fidelity-fixtures";
+import {
+  cellGridPdf,
+  ceilingPairPdf,
+  linesPdf,
+} from "@/tests/pptx-fidelity-fixtures";
+import { encryptPdf } from "@/tests/encrypted-pdf";
+import { readDeck } from "@/tests/pptx-deck-read";
 import { TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
 import { runWorkerHtmlToPdf } from "@/lib/workers/html-render-client";
 import type { FetchLike } from "@/lib/workers/pdf-security-client";
@@ -1585,15 +1591,40 @@ describe("the replacement copy states what the output actually is", () => {
  *    a stencil mask is drawn into the drawing pictures, not placed alone.
  */
 describe("PDF to PowerPoint: the picture and font sentences hold of the engine", () => {
-  const ppt = getToolContent("pdf-to-powerpoint")!;
-  const pageText = () =>
-    [
+  /**
+   * Every string the tool's page and its structured data serve, each one
+   * whole (a paragraph, a step, an answer), through `toolContainer` — the
+   * accessors the page itself renders.
+   *
+   * CHANGED 2026-10-11 (the second review). This read the content module
+   * and `toolFacts("pdf-to-powerpoint")`, and `toolFacts` is EMPTY for this
+   * tool: the derived answer the page serves under "What goes on each
+   * slide?" (`workerFaq` in tool-facts.ts) was never read, so the review
+   * found it promising "a picture of its own" beside a page the engine
+   * draws as one picture, under a guard that could not see it.
+   */
+  const served = async () =>
+    (await toolContainer(getToolBySlug(PDF_TO_POWERPOINT_TOOL)!)).texts;
+  const pageText = async () => (await served()).join("\n");
+
+  it("the corpus holds the page's authored copy and its derived answers", async () => {
+    const texts = await served();
+    const ppt = getToolContent("pdf-to-powerpoint")!;
+    for (const part of [
       ...ppt.intro,
       ...ppt.useCases.map((u) => u.body),
-      ...ppt.steps.map((s) => s.body),
       ...ppt.faqs.map((f) => f.a),
-      ...toolFacts("pdf-to-powerpoint").map((f) => f.value),
-    ].join("\n");
+    ])
+      expect(texts, part.slice(0, 60)).toContain(part);
+    // A derived answer the content module does not hold.
+    const derived = pageFaq(getToolBySlug(PDF_TO_POWERPOINT_TOOL)!).filter(
+      (f) => !ppt.faqs.some((a) => a.q === f.question),
+    );
+    expect(derived.map((f) => f.question)).toContain(
+      "What goes on each slide?",
+    );
+    for (const f of derived) expect(texts).toContain(f.answer);
+  });
 
   /**
    * The faces Windows 10/11 and Microsoft 365 install: a fact about the
@@ -1639,7 +1670,7 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
     "Wingdings 3",
   ]);
 
-  it("every font the deck names is one Windows or Office ships; a free clone becomes the face it copies", () => {
+  it("every font the deck names is one Windows or Office ships; a free clone becomes the face it copies", async () => {
     const families = [
       ...OFFICE_METRIC_CLONES.flatMap((c) => [c.office, c.clone]),
       "DejaVu Sans",
@@ -1667,7 +1698,7 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
         c.clone,
       ).toBe(c.office);
     // The page says exactly that, and no longer says "likely to have".
-    const text = pageText();
+    const text = await pageText();
     expect(text).toMatch(/comes with Windows or Office[^.]*keeps its name/);
     expect(text).toMatch(/becomes the font it copies/);
     expect(text).not.toMatch(/likely to have/);
@@ -1737,7 +1768,7 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
     ).toBe(false);
     // The page names the limit, from the constant that applies it.
     const px = MAX_PICTURE_SIDE.toLocaleString("en-US");
-    const text = pageText();
+    const text = await pageText();
     expect(text).toMatch(new RegExp(`up to ${px} pixels[^;]*byte for byte`));
     expect(text).toMatch(new RegExp(`scaled down to ${px} pixels`));
     expect(text).not.toMatch(
@@ -1781,8 +1812,166 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
     // Health: the stencil is ON the slide — as drawing, not as a picture.
     expect(slide).toMatch(/name="Drawing /);
     expect(slide).not.toMatch(/name="Picture /);
-    expect(pageText()).not.toMatch(
+    expect(await pageText()).not.toMatch(
       /\bevery picture on (?:a|the) page (?:lands|is)\b/i,
     );
   });
+
+  /**
+   * A PAGE DRAWN AS ONE PICTURE (2026-10-11, the second review). Past
+   * MAX_LAYERS_PER_PAGE layers a page's slide is ONE picture of the page,
+   * its text in invisible boxes over it — a table of 40 cells, each painting
+   * its text before its border, is enough — while the page said pictures
+   * arrive "as separate pictures, not flattened into one image of the page"
+   * and every line of text is a box "in its size, weight and colour". Held
+   * both ways: the number the page states is run through the engine on
+   * each side of it, and every served entry that promises separate
+   * pictures or styled text carries the exception in the same entry.
+   */
+  it("a page drawn as one picture: the page states the engine's threshold beside every promise it breaks", async () => {
+    const OWN_PICTURE =
+      /\bpictures? of (?:its|their) own\b|\bseparate pictures\b|\bnot flattened\b/i;
+    const STYLED_TEXT =
+      /\btext box(?:es)? at (?:its|their) place\b[^.]*\bcolou?r\b/i;
+    const CLAIMS = [OWN_PICTURE, STYLED_TEXT];
+    const EXCEPTION =
+      /\bmore than ([\d,]+) (?:such )?pictures\b[^.]*\bone picture of the page\b[^.]*\binvisible text boxes\b/i;
+    const unqualified = (entries: readonly string[]) =>
+      entries.filter(
+        (e) => CLAIMS.some((re) => re.test(e)) && !EXCEPTION.test(e),
+      );
+    // The corpus, in both directions: what the page shipped until this
+    // change — each caught by a shape, each shape catching one — and each
+    // fails the rule (the positive control).
+    const SHIPPED = [
+      "A photo or screenshot on a page lands on its slide as a picture of its own, where the page shows it and at the size it is shown, cut to the shape the page shows it through",
+      "Every line of selectable text becomes a text box at its place, in its size, weight and colour, set in a font matched to the PDF's",
+      "Pictures arrive on their slides as separate pictures, not flattened into one image of the page.",
+      "A photo or screenshot on the page is a picture of its own on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied",
+      "Each slide is the shape of the first page, each picture sits where the page shows it, and each line of text is a text box at its place with its size, weight and colour.",
+    ];
+    for (const sentence of SHIPPED)
+      expect(
+        CLAIMS.some((re) => re.test(sentence)),
+        sentence,
+      ).toBe(true);
+    for (const re of CLAIMS)
+      expect(
+        SHIPPED.some((sentence) => re.test(sentence)),
+        String(re),
+      ).toBe(true);
+    expect(unqualified(SHIPPED)).toEqual(SHIPPED);
+
+    const texts = await served();
+    // Health: the page still makes these promises, so "none unqualified"
+    // is not "none made".
+    expect(
+      texts.filter((e) => CLAIMS.some((re) => re.test(e))).length,
+    ).toBeGreaterThanOrEqual(3);
+    expect(unqualified(texts)).toEqual([]);
+
+    // The number the page states, held to the engine from both sides.
+    const stated = new Set(
+      texts.flatMap((e) => {
+        const m = EXCEPTION.exec(e);
+        return m ? [Number(m[1]!.replace(/,/g, ""))] : [];
+      }),
+    );
+    expect([...stated], "the page states one threshold").toHaveLength(1);
+    const n = [...stated][0]!;
+    const deckFor = async (cells: number) => {
+      const run = await runPdfOfficeExport(
+        PDF_TO_POWERPOINT_TOOL,
+        (await cellGridPdf(cells)).pdf,
+        { extract: stubExtract(["0"]), scanPages: scanPdfPages },
+      );
+      if (!run.ok) throw new Error(run.message);
+      return { run, slide: (await readDeck(run.output)).slides[0]! };
+    };
+    const kept = await deckFor(n);
+    expect(kept.run.coverage).toMatchObject({ flattenedPageCount: 0 });
+    expect(kept.slide.pictures).toHaveLength(n);
+    expect(
+      kept.slide.texts.every((t) => t.runs.every((r) => !r.invisible)),
+    ).toBe(true);
+    const flat = await deckFor(n + 1);
+    expect(flat.run.coverage).toMatchObject({ flattenedPageCount: 1 });
+    expect(flat.slide.pictures).toHaveLength(1);
+    // Health: the text is on the slide, and none of it shows.
+    expect(flat.slide.texts.length).toBeGreaterThanOrEqual(n + 1);
+    expect(
+      flat.slide.texts.every((t) => t.runs.every((r) => r.invisible)),
+    ).toBe(true);
+  }, 60_000);
+
+  /**
+   * A PICTURE LEFT OUT WITH NO NOTE (2026-10-11, the second review). The
+   * page reader cannot read an encrypted file's page content, so where
+   * pdf.js removes a picture over its ceiling, nothing can say whether the
+   * page painted it, and the result — rightly — counts nothing it did not
+   * see. Every served sentence promising that the note names a page that
+   * lost a picture is then false of that file, unless it says so. Held
+   * through the engine at the number the page states: in both encrypted
+   * layouts, a picture of exactly that many pixels is named, and one a row
+   * larger is on no slide and named nowhere.
+   */
+  it("a picture the worker cannot see itself lose: the page says where, at the size the engine shows", async () => {
+    const NOTE =
+      /\b(?:left out|could not be put on its slide)\b[^.]*\bnote beside (?:the download|it) names\b/i;
+    const EXCEPTION =
+      /\b(?:encrypted|damaged)\b[^.]*\bover ([\d,]+) megapixels\b[^.]*\bno note\b/i;
+    const unqualified = (entries: readonly string[]) =>
+      entries.filter((e) => NOTE.test(e) && !EXCEPTION.test(e));
+    // The corpus: the promises shipped until this change, each caught, each
+    // failing the rule. A note sentence about pages with no text is not this
+    // promise (those pages are always found), and is not caught.
+    const SHIPPED = [
+      "a picture too large for the worker to handle, or one it cannot decode, is left out, and a note beside the download names its page.",
+      "If some pages had no selectable text, or a picture could not be put on its slide, a note beside it names those pages.",
+      "A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page.",
+    ];
+    for (const sentence of SHIPPED)
+      expect(NOTE.test(sentence), sentence).toBe(true);
+    expect(unqualified(SHIPPED)).toEqual(SHIPPED);
+    expect(
+      NOTE.test(
+        "its slide carries the page as a picture and those words are not editable text; the note beside the download names the pages it happened to.",
+      ),
+    ).toBe(false);
+
+    const texts = await served();
+    expect(texts.filter((e) => NOTE.test(e)).length).toBeGreaterThanOrEqual(2);
+    expect(unqualified(texts)).toEqual([]);
+
+    const stated = new Set(
+      texts.flatMap((e) => {
+        const m = EXCEPTION.exec(e);
+        return m ? [Number(m[1]!.replace(/,/g, ""))] : [];
+      }),
+    );
+    expect([...stated], "the page states one size").toHaveLength(1);
+    const megapixels = [...stated][0]!;
+    const fixture = await ceilingPairPdf(megapixels * 1_000_000);
+    for (const objectStreams of [false, true]) {
+      const locked = await encryptPdf(fixture.pdf, {
+        userPassword: "",
+        ownerPassword: "owner",
+        objectStreams,
+      });
+      const run = await runPdfOfficeExport(PDF_TO_POWERPOINT_TOOL, locked, {
+        extract: stubExtract(["", ""]),
+        scanPages: scanPdfPages,
+      });
+      if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+      const deck = await readDeck(run.output);
+      const where = objectStreams ? "object streams" : "classic";
+      // Neither picture is on a slide (their data is noise) ...
+      expect(
+        deck.slides.map((sl) => sl.pictures.length),
+        where,
+      ).toEqual([0, 0]);
+      // ... and only the one at the stated size is named.
+      expect(run.coverage?.pagesMissingPictures, where).toEqual([1]);
+    }
+  }, 60_000);
 });

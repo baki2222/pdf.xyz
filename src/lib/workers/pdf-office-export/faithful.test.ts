@@ -29,6 +29,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cellGridPdf,
+  ceilingPairPdf,
   circleClipPdf,
   CLIP_PHOTO_SIDE,
   drawingBits,
@@ -42,6 +43,7 @@ import {
   rotatedFramePdf,
   scannedPdf,
   scanPixels,
+  sharedPhotosPdf,
   undecodablePicturePdf,
   vectorShapesPdf,
   type ClippedPicturePage,
@@ -51,6 +53,8 @@ import {
 import { decodePng } from "@/lib/png-probe";
 import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
+import { encryptPdf } from "@/tests/encrypted-pdf";
+import { ownerOnlyObjectStreamPdf } from "@/tests/encrypted-pdf-fixture";
 import {
   contains,
   onSlide,
@@ -63,11 +67,14 @@ import {
 } from "@/tests/pptx-deck-read";
 import { runPdfOfficeExport, type PdfOfficeExportRun } from "./engine";
 import { pdfOfficeExportDeps } from "./native";
+import { decodedBytes } from "./page-inventory";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
   MAX_LAYERS_PER_PAGE,
+  PAGE_DECODE_BUDGET_BYTES,
   scanPdfPages,
 } from "./page-scan";
+import { MAX_DECODED_IMAGE_PIXELS } from "./pdfjs-node";
 import { inspectPptxPackage } from "./pptx-inspect";
 import { readPptx } from "./validate-ooxml";
 
@@ -403,7 +410,226 @@ describe("an owner-password PDF: encrypted, opens without a password, and conver
       "Owner locked but readable",
     ]);
   });
+
+  /*
+   * 2026-10-11, the second review: the SAME lock in the layout Acrobat and
+   * Word write — the catalog and page tree inside an encrypted object stream
+   * behind a cross-reference stream. pdf-lib LOADS that file
+   * (`ignoreEncryption`) and then has no catalog, so the page inventory,
+   * called outside any try, threw "Cannot read properties of undefined
+   * (reading 'Pages')", and every such file — which every viewer opens —
+   * became a generic, retryable `failed` job. The classic layout above never
+   * reached that line: its page tree is plaintext.
+   */
+  it("in the object-stream layout: a blank page is a slide, not a failed job", async () => {
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      ownerOnlyObjectStreamPdf(),
+      {
+        ...pdfOfficeExportDeps(),
+        extract: async () => ({
+          pageCount: 1,
+          pages: [{ pageNumber: 1, text: "", characterCount: 0 }],
+          text: "",
+          characterCount: 0,
+          hasText: false,
+        }),
+      },
+    );
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    expect((await readDeck(run.output)).slides).toHaveLength(1);
+    expect(run.coverage).toMatchObject({ pageCount: 1, picturesNotCarried: 0 });
+  });
+
+  it("in the object-stream layout: pictures and text land where the unlocked file's do", async () => {
+    const fixture = await imageCaptionPdf();
+    const plain = await deckOf(fixture);
+    const locked = await encryptPdf(fixture.pdf, {
+      userPassword: "",
+      ownerPassword: "owner",
+      objectStreams: true,
+    });
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", locked, {
+      ...pdfOfficeExportDeps(),
+      extract: async () => pdftotextStandIn(fixture),
+    });
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    const deck = await readDeck(run.output);
+    const box = ({ x, y, width, height }: DeckPicture) => ({
+      x: Math.round(x),
+      y: Math.round(y),
+      width: Math.round(width),
+      height: Math.round(height),
+    });
+    // Health: the unlocked file's slide carries the fixture's three
+    // pictures, so "the same as the unlocked one" is not "both empty".
+    expect(plain.slides[0]!.pictures).toHaveLength(
+      fixture.pages[0]!.images.length,
+    );
+    expect(deck.slides[0]!.pictures.map(box)).toEqual(
+      plain.slides[0]!.pictures.map(box),
+    );
+    expect(deck.slides[0]!.texts.map((t) => t.text).sort()).toEqual(
+      plain.slides[0]!.texts.map((t) => t.text).sort(),
+    );
+    expect(run.coverage).toMatchObject({
+      picturesNotCarried: 0,
+      emptySlideCount: 0,
+    });
+  });
 });
+
+/**
+ * WHAT A PAGE DECLARES IS NOT WHAT IT PAINTS (2026-10-11, the second
+ * review). For an encrypted file the page inventory cannot read the pages'
+ * content (its streams are ciphertext to pdf-lib), so it falls back to every
+ * image the page's resources DECLARE — and a document whose pages share one
+ * /Resources dictionary declares every photo on every page. The decode
+ * budget charged each page for all of them, set pdf.js's ceiling under
+ * their size, and pdf.js then REMOVED photos that would have decoded
+ * easily: an owner-password file of twelve 6-MP photos came back with no
+ * pictures and a note blaming 144 pictures' size. An inexact page may now
+ * neither lower the ceiling below pdf.js's old floor nor count a picture it
+ * did not see.
+ */
+describe("a page whose content cannot be read is charged for nothing it only declares", () => {
+  const LAYOUTS = [
+    ["classic cross-reference", false],
+    ["object streams", true],
+  ] as const;
+
+  it.each(LAYOUTS)(
+    "encrypted, %s: six photos under one shared /Resources, each on its own slide",
+    async (_, objectStreams) => {
+      const fixture = await sharedPhotosPdf();
+      const locked = await encryptPdf(fixture.pdf, {
+        userPassword: "",
+        ownerPassword: "owner",
+        objectStreams,
+      });
+      const deps = {
+        ...pdfOfficeExportDeps(),
+        extract: async () => pdftotextStandIn(fixture),
+      };
+      // Health, from the file and the production constant: what each page
+      // DECLARES is past the page budget, so this is the over-budget path,
+      // and each page decodes exactly one photo.
+      const declared = fixture.pages.length * decodedRgbBytes(4000, 3000);
+      expect(declared).toBeGreaterThan(PAGE_DECODE_BUDGET_BYTES);
+      expect(decodedRgbBytes(4000, 3000)).toBeLessThan(
+        PAGE_DECODE_BUDGET_BYTES,
+      );
+      for (const [name, pdf] of [
+        ["unlocked", fixture.pdf],
+        ["locked", locked],
+      ] as const) {
+        const run = await runPdfOfficeExport("pdf-to-powerpoint", pdf, deps);
+        if (!run.ok) throw new Error(`${name}: ${run.kind}: ${run.message}`);
+        const deck = await readDeck(run.output);
+        expect(deck.slides, name).toHaveLength(fixture.pages.length);
+        fixture.pages.forEach((page, i) => {
+          const want = onSlide(page.displayed, deck, page.images[0]!.shown);
+          const pictures = deck.slides[i]!.pictures;
+          expect(
+            pictures.map(({ x, y, width, height }) => ({
+              x,
+              y,
+              width,
+              height,
+            })),
+            `${name} p${i + 1}`,
+          ).toHaveLength(1);
+          const pic = pictures[0]!;
+          expect(contains(want, pic, 1) && contains(pic, want, 1)).toBe(true);
+          // Its own photo, not a neighbour's: the colour at its centre.
+          const hit = pictureAt(
+            deck.slides[i]!,
+            want.x + want.width / 2,
+            want.y + want.height / 2,
+          )[0];
+          expect(
+            hit?.rgba,
+            `${name} p${i + 1}: no decodable pixels`,
+          ).toBeTruthy();
+          const colour = fixture.colours[i]!;
+          expect(
+            Math.max(...colour.map((c, k) => Math.abs(c - hit!.rgba![k]!))),
+            `${name} p${i + 1}: ${hit!.rgba} is not ${colour}`,
+          ).toBeLessThanOrEqual(2);
+        });
+        expect(run.coverage, name).toMatchObject({
+          picturesNotCarried: 0,
+          picturesTooLarge: 0,
+          pagesMissingPictures: [],
+        });
+      }
+    },
+    90_000,
+  );
+
+  it.each(LAYOUTS)(
+    "encrypted, %s: the result names only the picture it saw lost, and calls no page empty",
+    async (_, objectStreams) => {
+      // Two pages declare the same two pictures; page 1 paints one of
+      // exactly pdf.js's floor ceiling (it tries to decode it, and fails:
+      // the data is noise), page 2 one a row over it, which pdf.js removes
+      // unread. The scan saw page 1's loss; it cannot see page 2's.
+      const fixture = await ceilingPairPdf(MAX_DECODED_IMAGE_PIXELS);
+      const locked = await encryptPdf(fixture.pdf, {
+        userPassword: "",
+        ownerPassword: "owner",
+        objectStreams,
+      });
+      const deps = {
+        ...pdfOfficeExportDeps(),
+        extract: async () => pdftotextStandIn(fixture),
+      };
+      // Control: unlocked, the reader sees each page's ONE picture, admits
+      // both, and both fail to decode — two named.
+      const plain = await runPdfOfficeExport(
+        "pdf-to-powerpoint",
+        fixture.pdf,
+        deps,
+      );
+      if (!plain.ok) throw new Error(`${plain.kind}: ${plain.message}`);
+      expect(plain.coverage).toMatchObject({
+        picturesNotCarried: 2,
+        picturesTooLarge: 0,
+        pagesMissingPictures: [1, 2],
+        emptySlideCount: 0,
+      });
+      const run = await runPdfOfficeExport("pdf-to-powerpoint", locked, deps);
+      if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+      // Page 2's picture is not on its slide and nothing counts it: the
+      // scan cannot tell whether the page paints it. That gap is stated on
+      // the tool's page (claims-vs-capability.test.ts holds the sentence to
+      // this run). What the result may not do is blame size for a picture
+      // a page only DECLARES, or call page 2 empty.
+      expect(run.coverage).toMatchObject({
+        picturesNotCarried: 1,
+        picturesTooLarge: 0,
+        pagesMissingPictures: [1],
+        emptySlideCount: 0,
+      });
+    },
+    60_000,
+  );
+});
+
+/** What pdf.js holds for a Flate DeviceRGB 8-bit image (`decodedBytes`). */
+function decodedRgbBytes(width: number, height: number): number {
+  return decodedBytes({
+    width,
+    height,
+    bpc: 8,
+    comps: 3,
+    mask: false,
+    alpha: null,
+    filter: "FlateDecode",
+    deviceRgb: true,
+    decode: false,
+  });
+}
 
 /* ------------------------------------------------------------------ *
  *  2026-10-11: what the review of the faithful export found
