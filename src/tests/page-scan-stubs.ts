@@ -59,8 +59,12 @@ export function textScan(
       width: 720,
       height: 540,
       items: lines.map((line, k) => stubLine(line, k)),
+      picturesTooLarge: 0,
+      picturesUndecoded: 0,
+      flattened: false,
     })),
     undecodedImages: 0,
+    tooLargeImages: 0,
   };
 }
 

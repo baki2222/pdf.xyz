@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ScanText } from "lucide-react";
+import { ImageOff, ScanText } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
 import { UNLOCK_TOOL_HREF } from "@/lib/pdf/encryption";
 import { errorNoteLinksUnlock } from "./runner/runner-kit";
@@ -124,6 +124,15 @@ function pageSpan(listed: readonly number[], total: number): string {
  * such a page as pictures, so for it the notice says THAT, but only when the
  * worker reported `picturePageCount`: an older worker's result has no such
  * field, its deck really did leave the page empty, and it gets the old words.
+ *
+ * PICTURES NOT CARRIED, since 2026-10-11. A picture the worker could not put
+ * on its slide (too large for its memory, or undecodable) used to leave no
+ * trace, and this notice then called its page EMPTY — "One page has nothing
+ * on it" about a page that held a full-page scan — and told a page with a
+ * stamp that its scan "comes through as a picture" when it had not. Now the
+ * result counts them, this notice says so, and neither sentence is said of
+ * such a page: the empty count is the worker's own (`emptySlideCount`), and
+ * the scan sentence is left out when a sparse page lost a picture.
  */
 export function OfficeExportCoverageNotice({
   job,
@@ -137,30 +146,42 @@ export function OfficeExportCoverageNotice({
   if (!report) return null;
   const missing = report.pageCount - report.textPageCount;
   const little = report.littleTextPageCount;
-  if (missing <= 0 && little <= 0) return null;
+  const powerpoint = tool === "pdf-to-powerpoint";
+  const lost = powerpoint ? (report.picturesNotCarried ?? 0) : 0;
+  const lostPages = report.pagesMissingPictures ?? [];
+  const flattened = powerpoint ? (report.flattenedPageCount ?? 0) : 0;
+  if (missing <= 0 && little <= 0 && lost <= 0 && flattened <= 0) return null;
   const pictures =
-    tool === "pdf-to-powerpoint" && report.picturePageCount !== undefined
+    powerpoint && report.picturePageCount !== undefined
       ? {
           count: report.picturePageCount,
           pages: report.pagesAsPictures ?? [],
-          blank: Math.max(0, missing - report.picturePageCount),
+          blank:
+            report.emptySlideCount ??
+            Math.max(0, missing - report.picturePageCount),
         }
       : null;
+  const sparseLostPicture = (report.pagesWithLittleText ?? []).some((p) =>
+    lostPages.includes(p),
+  );
 
   return (
     <div
       role="status"
       className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
     >
-      <p className="flex items-start gap-2">
-        <ScanText className="mt-0.5 size-4 shrink-0" aria-hidden />
-        <span>
-          <strong className="font-semibold">
-            Text found on {report.textPageCount} of {report.pageCount}{" "}
-            {report.pageCount === 1 ? "page" : "pages"}.
-          </strong>
-        </span>
-      </p>
+      {(missing > 0 || little > 0) && (
+        <p className="flex items-start gap-2">
+          <ScanText className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            <strong className="font-semibold">
+              Text found on {report.textPageCount} of {report.pageCount}{" "}
+              {report.pageCount === 1 ? "page" : "pages"}.
+            </strong>
+          </span>
+        </p>
+      )}
+      {lost > 0 && <PicturesNotCarried report={report} />}
       {missing > 0 && !pictures && (
         <p className="ml-6">
           No selectable text on {pageSpan(report.pagesWithoutText, missing)}, so
@@ -194,17 +215,67 @@ export function OfficeExportCoverageNotice({
           of selectable text. If{" "}
           {little === 1 ? "it is a scan" : "they are scans"} with a stamp or
           header on top,{" "}
-          {pictures
+          {pictures && !sparseLostPicture
             ? "the scan comes through as a picture: run OCR PDF first to have the rest as text."
             : "run OCR PDF first to include the rest."}
         </p>
       )}
-      <Link
-        href="/tools/ocr-pdf"
-        className="ml-6 self-start font-medium underline underline-offset-4"
-      >
-        Open OCR PDF
-      </Link>
+      {flattened > 0 && (
+        <p className="ml-6">
+          {pageSpan(report.pagesFlattened ?? [], flattened).replace(/^p/, "P")}{" "}
+          {flattened === 1 ? "has" : "have"} too much overlapping drawing to
+          rebuild piece by piece, so{" "}
+          {flattened === 1 ? "its slide is" : "their slides are"} one picture of
+          the page, with the text in invisible text boxes over it: you can
+          select and search it, not see or restyle it.
+        </p>
+      )}
+      {(missing > 0 || little > 0) && (
+        <Link
+          href="/tools/ocr-pdf"
+          className="ml-6 self-start font-medium underline underline-offset-4"
+        >
+          Open OCR PDF
+        </Link>
+      )}
     </div>
+  );
+}
+
+/**
+ * "2 pictures on page 3 are not on its slide: …" — the pictures a page
+ * paints that the worker could not carry, and why. Rendered only when the
+ * worker counted them (`picturesNotCarried`).
+ */
+function PicturesNotCarried({
+  report,
+}: {
+  report: NonNullable<NonNullable<Job["results"]>["officeExport"]>;
+}) {
+  const lost = report.picturesNotCarried ?? 0;
+  const tooLarge = Math.min(lost, report.picturesTooLarge ?? 0);
+  const undecoded = lost - tooLarge;
+  const pages = report.pagesMissingPictures ?? [];
+  const onePage = pages.length === 1;
+  const noun = lost === 1 ? "picture" : "pictures";
+  const where = `on ${pages.length > 0 ? pageSpan(pages, pages.length) : "the PDF's pages"}`;
+  const slides = onePage ? "its slide" : "their slides";
+  const reason =
+    undecoded === 0
+      ? `${lost === 1 ? "it was" : "they were"} too large for the worker to carry`
+      : tooLarge === 0
+        ? `${lost === 1 ? "its" : "their"} image data could not be decoded, and may be damaged`
+        : `${tooLarge} ${tooLarge === 1 ? "was" : "were"} too large for the worker to carry, and ${undecoded} could not be decoded`;
+  return (
+    <p className="flex items-start gap-2">
+      <ImageOff className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <span>
+        <strong className="font-semibold">
+          {lost} {noun} {where} {lost === 1 ? "is" : "are"} not on {slides}
+        </strong>
+        : {reason}. Check {onePage ? "that page" : "those pages"} against the
+        PDF.
+      </span>
+    </p>
   );
 }

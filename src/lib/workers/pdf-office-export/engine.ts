@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import { XLSX_SHEET_NAME } from "@/lib/jobs/pdf-office-export";
 import {
+  buildOfficeExportResultMeta,
   measureOfficeExportPages,
   type OfficeExportResultMeta,
 } from "@/lib/jobs/office-export-results";
@@ -21,6 +22,7 @@ import { deckFromScan } from "./deck-from-scan";
 import { classifyPdfTextFailure } from "./encryption";
 import { layoutGrid } from "./layout-grid";
 import {
+  PageScanDecodeBudgetError,
   PageScanTooLargeError,
   scannedPageText,
   type PdfPageScan,
@@ -377,6 +379,31 @@ function picturePages(scan: PdfPageScan): number[] {
 }
 
 /**
+ * What the slides do NOT carry that their pages paint, and which slides are
+ * empty because their page is — from the same scan the deck was written
+ * from. Until 2026-10-11 a picture the scan could not carry (too large for
+ * the worker's memory, or undecodable) left no trace: its page read as
+ * having "nothing on it", a sentence the panel said about a page that held a
+ * full-page scan.
+ */
+function losses(scan: PdfPageScan) {
+  const lost = (p: PdfPageScan["pages"][number]) =>
+    p.picturesTooLarge + p.picturesUndecoded;
+  const missing = scan.pages.filter((p) => lost(p) > 0);
+  const flattened = scan.pages.filter((p) => p.flattened);
+  return {
+    picturesNotCarried: scan.pages.reduce((n, p) => n + lost(p), 0),
+    picturesTooLarge: scan.pages.reduce((n, p) => n + p.picturesTooLarge, 0),
+    pagesMissingPictures: missing.map((p) => p.pageNumber),
+    emptySlideCount: scan.pages.filter(
+      (p) => p.items.length === 0 && lost(p) === 0,
+    ).length,
+    flattenedPageCount: flattened.length,
+    pagesFlattened: flattened.map((p) => p.pageNumber),
+  };
+}
+
+/**
  * The PPTX, since 2026-10-10: every page read by `./page-scan` and laid out
  * by `./deck-from-scan` — pictures where the page paints them, text in boxes
  * at its position, the rest of the ink as transparent pictures, in paint
@@ -418,11 +445,12 @@ async function renderPowerPoint(
       (n, page) => n + page.text.replace(/\n/g, "").length,
       0,
     ),
-    coverage: {
+    coverage: buildOfficeExportResultMeta({
       ...measureOfficeExportPages(scan.pageCount, pageTexts),
       picturePageCount: asPictures.length,
       pagesAsPictures: asPictures,
-    },
+      ...losses(scan),
+    }),
     output,
     filenameExt: "pptx",
     contentType:
@@ -494,6 +522,14 @@ export async function runPdfOfficeExport(
         kind: "too_large",
         limitBytes: error.limitBytes,
         message: "The exported Office file exceeds the worker size limit.",
+      };
+    if (error instanceof PageScanDecodeBudgetError)
+      return {
+        ok: false,
+        kind: "too_large",
+        limitBytes: error.limitBytes,
+        message:
+          "This PDF's pictures are too large in total for the worker to convert. Split it into smaller PDFs, or compress its images, then try again.",
       };
     return classifyFailure(error, input, deps);
   }

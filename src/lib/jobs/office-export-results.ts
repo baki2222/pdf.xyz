@@ -52,6 +52,34 @@ export interface OfficeExportResultMeta {
   picturePageCount?: number;
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesAsPictures?: number[];
+  /**
+   * PDF to PowerPoint only, since 2026-10-11: pictures the pages paint that
+   * are NOT on their slides — too large for the worker's memory budget, or
+   * data pdf.js could not decode. Before that date such a picture left no
+   * trace, and a page that held only a full-page scan was reported as having
+   * "nothing on it". Absent from older results: that engine did not count,
+   * and the panel must not read the absence as zero lost.
+   */
+  picturesNotCarried?: number;
+  /** Of those, how many were too large (the rest could not be decoded). */
+  picturesTooLarge?: number;
+  /** 1-based page numbers with such pictures, ascending, capped. */
+  pagesMissingPictures?: number[];
+  /**
+   * PDF to PowerPoint only, since 2026-10-11: slides with nothing on them
+   * because their page has nothing — no text, nothing drawn, no picture
+   * lost. Reported, not derived: "pages without text minus picture pages"
+   * also counted pages whose picture was lost.
+   */
+  emptySlideCount?: number;
+  /**
+   * PDF to PowerPoint only, since 2026-10-11: pages drawn as ONE picture,
+   * their text in invisible boxes over it, because rebuilding their drawing
+   * piece by piece in paint order would have taken too many layers.
+   */
+  flattenedPageCount?: number;
+  /** 1-based page numbers of those pages, ascending, capped. */
+  pagesFlattened?: number[];
 }
 
 /** True when a value plausibly came from the real office-export contract. */
@@ -103,6 +131,26 @@ export function buildOfficeExportResultMeta(
       ? {
           picturePageCount: count(raw.picturePageCount, withoutText),
           pagesAsPictures: pageList(raw.pagesAsPictures, pageCount),
+        }
+      : {}),
+    // The same rule for the losses: copied only when reported.
+    ...(raw.picturesNotCarried !== undefined
+      ? (() => {
+          const lost = count(raw.picturesNotCarried, 1_000_000);
+          return {
+            picturesNotCarried: lost,
+            picturesTooLarge: count(raw.picturesTooLarge, lost),
+            pagesMissingPictures: pageList(raw.pagesMissingPictures, pageCount),
+          };
+        })()
+      : {}),
+    ...(raw.emptySlideCount !== undefined
+      ? { emptySlideCount: count(raw.emptySlideCount, withoutText) }
+      : {}),
+    ...(raw.flattenedPageCount !== undefined
+      ? {
+          flattenedPageCount: count(raw.flattenedPageCount, pageCount),
+          pagesFlattened: pageList(raw.pagesFlattened, pageCount),
         }
       : {}),
   };

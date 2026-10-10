@@ -27,9 +27,12 @@
  *
  * It does not isolate the document from the process: pdf.js runs in the
  * daemon's own thread, like the pdf-lib repack Compress PDF's lossless path
- * runs. The bounds are a pixel ceiling on any one image (`maxImageSize`), no
- * system fonts, no XFA, and the caller's own deadline; this pdf.js release has
- * no `eval` path left to switch off (the option was removed with it). A single
+ * runs. Its memory is bounded by the CALLER, before pdf.js decodes anything:
+ * the page scan reads from the file what each page will decode and sets this
+ * module's pixel ceiling (`maxImageSize`) per page from a byte budget
+ * (`./page-scan`, `decodeBudgetPlan`). The other bounds are no system fonts,
+ * no XFA, and the caller's own deadline; this pdf.js release has no `eval`
+ * path left to switch off (the option was removed with it). A single
  * synchronous decode cannot be interrupted.
  *
  * ── WHY NOTHING HERE NAMES A PACKAGE TO THE BUNDLER ─────────────────────────
@@ -146,16 +149,29 @@ export function nodePdfjsAvailable(
   }
 }
 
-/** Pixel ceiling for one decoded image (width × height). Larger ones are skipped by pdf.js. */
+/**
+ * The pixel ceiling for one decoded image (width × height) when the caller
+ * knows nothing better. pdf.js REMOVES a larger image from the page without a
+ * word (`buildPaintImageXObject`: "Image exceeded maximum allowed size and was
+ * removed", a warning at most), so a caller that opens with this ceiling must
+ * know, from the file itself, which images it removed: the page scan reads
+ * that from `./page-inventory` and sets the ceiling per page from a BYTE
+ * budget (`decodeBudgetPlan`), with this as the floor for images the
+ * inventory did not see.
+ */
 export const MAX_DECODED_IMAGE_PIXELS = 64_000_000;
 
 /**
  * Open `bytes` with the legacy build. The loading task is handed to
  * `awaitPdfjsDocument`, so a password refusal or an unreadable file arrives as
  * the engine's typed error, not pdf.js's own.
+ *
+ * `maxImageSize` is pdf.js's own option: images of more pixels are removed
+ * from every page (see {@link MAX_DECODED_IMAGE_PIXELS}); -1 removes none.
  */
 export async function openNodePdf(
   bytes: Uint8Array,
+  { maxImageSize = MAX_DECODED_IMAGE_PIXELS }: { maxImageSize?: number } = {},
 ): Promise<{ pdfjs: NodePdfjs; doc: NodePdfDocument; close(): Promise<void> }> {
   const pdfjs = await loadNodePdfjs();
   const loadingTask = pdfjs.getDocument({
@@ -168,7 +184,7 @@ export async function openNodePdf(
     useWorkerFetch: false,
     isOffscreenCanvasSupported: false,
     enableXfa: false,
-    maxImageSize: MAX_DECODED_IMAGE_PIXELS,
+    maxImageSize,
   });
   const doc = await awaitPdfjsDocument(loadingTask);
   return {

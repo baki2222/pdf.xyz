@@ -115,6 +115,7 @@ describe("createProcessorRegistry", () => {
           pageCount: 0,
           pages: [],
           undecodedImages: 0,
+          tooLargeImages: 0,
         }),
       },
     });

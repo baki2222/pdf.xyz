@@ -29,11 +29,26 @@
  *               grouped into lines; invisible text (render mode 3, an OCR
  *               layer) is kept as invisible text
  *   pictures    `paintImageXObject` / `paintInlineImageXObject`, each its own
- *               picture at its CTM, cropped to its clip when axis-aligned; a
- *               plain DCT JPEG goes in byte for byte, anything else is
+ *               picture at its CTM; upright under an upright rectangular
+ *               clip, cropped by srcRect (a plain DCT JPEG then goes in byte
+ *               for byte); turned, or under any other clip, CUT to the
+ *               clip's shape (`./picture-pixels`); anything not copied is
  *               re-encoded from pdf.js's decoded pixels, capped in size
  *   other ink   every remaining painting op, rendered by pdf.js into
  *               transparent layers, omitted when blank
+ *
+ * ── WHAT IT WILL NOT DECODE, AND SAYS SO ────────────────────────────────────
+ *
+ * Before pdf.js touches a page, `./page-inventory` reads from the file what
+ * the page will make it decode, and {@link decodeBudgetPlan} admits the
+ * page's images up to {@link PAGE_DECODE_BUDGET_BYTES}. What it leaves out,
+ * pdf.js never decodes, and the page COUNTS (`picturesTooLarge`), as it
+ * counts an image pdf.js could not decode (`picturesUndecoded`) and a raster
+ * too large for pdf.js to paint ({@link PAINT_BUDGET_BYTES}). Until
+ * 2026-10-11 the first and last were silent, and a page holding only a
+ * 124 MP scan was reported as having "nothing on it". A page whose drawing
+ * would need more than {@link MAX_LAYERS_PER_PAGE} layers is drawn once, as
+ * one picture, with its text in invisible boxes (`flattened`).
  *
  * ── PAINT ORDER IS PRIVACY, NOT POLISH ──────────────────────────────────────
  *
@@ -47,24 +62,42 @@
  * ── LIMITS ──────────────────────────────────────────────────────────────────
  *
  * A shape filled AND used as a clip by one path keeps its clip only in its own
- * layer. Text used as a clip (render modes 4–7) clips nothing in the layers.
- * Image masks, repeated and grouped inline images are drawn into the layers,
- * not placed as pictures. Right-to-left text is written in the order it is
- * painted. Vertical text is approximated. Each is a rendering difference, not
- * a loss of content.
+ * layer. Text used as a clip (render modes 4–7) clips nothing in the layers or
+ * pictures. Image masks, repeated and grouped inline images are drawn into the
+ * layers, not placed as pictures. A line of TEXT is placed whole even where a
+ * clip cuts it. Right-to-left text is written in the order it is painted.
+ * Vertical text is approximated. Each is a rendering difference, not a loss
+ * of content.
  */
 import { PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef } from "pdf-lib";
 import { PdfEncryptedError, PdfEngineError } from "@/lib/pdf/engine";
 import { PdfTextOpenError } from "../pdf-text/errors";
 import {
   canvasFactoryOf,
+  MAX_DECODED_IMAGE_PIXELS,
   openNodePdf,
   type NodeCanvasAndContext,
   type NodeCanvasFactory,
   type NodePdfjs,
   type NodePdfPage,
 } from "./pdfjs-node";
+import { inventoryOf, type PageInventory } from "./page-inventory";
+import { MAX_BILEVEL_PICTURE_SIDE, MAX_PICTURE_SIDE } from "./picture-limits";
 import { encodePngImage } from "./png-encode";
+import {
+  applyClipCoverage,
+  asAxisRect,
+  containsRect,
+  fitWithin,
+  flattenPath,
+  isDecodedImage,
+  mapShape,
+  pngOf,
+  polysBox,
+  resampleImage,
+  type ClipShape,
+  type DecodedImage,
+} from "./picture-pixels";
 
 /* ------------------------------------------------------------------ *
  *  What a scan returns
@@ -146,13 +179,30 @@ export interface ScannedPage {
   height: number;
   /** In paint order: the first item is at the bottom of the slide. */
   items: ScannedItem[];
+  /**
+   * Pictures the page paints that are NOT on its slide because they were too
+   * large to decode or draw within the worker's memory budget
+   * ({@link decodeBudgetPlan}, {@link PAINT_BUDGET_BYTES}). The result says
+   * so; until 2026-10-11 they vanished and the page read as empty.
+   */
+  picturesTooLarge: number;
+  /** Pictures the page paints that pdf.js could not decode (damaged data). */
+  picturesUndecoded: number;
+  /**
+   * The page's drawing needed more than {@link MAX_LAYERS_PER_PAGE} separate
+   * layers to keep its paint order, so its slide is ONE picture of the page,
+   * with its text in invisible text boxes over it (selectable, not shown).
+   */
+  flattened: boolean;
 }
 
 export interface PdfPageScan {
   pageCount: number;
   pages: ScannedPage[];
-  /** Images pdf.js could not decode (it resolves them to null). */
+  /** Images pdf.js could not decode (it resolves them to null), all pages. */
   undecodedImages: number;
+  /** Pictures left out as too large, all pages. */
+  tooLargeImages: number;
 }
 
 export interface PageScanOptions {
@@ -160,6 +210,11 @@ export interface PageScanOptions {
   deadline?: number;
   /** Total media bytes allowed before the scan stops as too large. */
   maxMediaBytes?: number;
+  /**
+   * The per-page decode budget, when not {@link PAGE_DECODE_BUDGET_BYTES}:
+   * for tests that need a picture over it without decoding a gigabyte.
+   */
+  pageDecodeBudgetBytes?: number;
 }
 
 /**
@@ -192,14 +247,59 @@ export type PdfPageScanner = (
  *  Size bounds
  * ------------------------------------------------------------------ */
 
-/** Longest side, in pixels, of a colour or grey picture written to the deck. */
-export const MAX_PICTURE_SIDE = 2400;
-/** Bilevel scans stay crisp and small as 1-bit PNGs, so they get more room. */
-export const MAX_BILEVEL_PICTURE_SIDE = 3600;
+export { MAX_BILEVEL_PICTURE_SIDE, MAX_PICTURE_SIDE };
 /** Rendered layers: this resolution, unless the page would pass the cap. */
 export const LAYER_DPI = 200;
 /** JPEG quality for re-encoded photographs. */
 export const JPEG_QUALITY = 90;
+
+/**
+ * The bytes pdf.js may hold for ONE page's decoded images (as
+ * `./page-inventory` estimates them, buffers it decodes through included).
+ * A page whose images need more keeps the smallest that fit; the rest are
+ * left out BEFORE pdf.js decodes them, and the result counts them
+ * (`picturesTooLarge`). 512 MiB admits one 8000 × 8000 Flate RGB photo
+ * (384 MiB as pdf.js decodes it), a 70 MP A3 colour scan, and a 124 MP
+ * bilevel drawing (24 MiB) easily; it does not admit two of the photos. The
+ * estimates are calibrated against measured peaks in `./page-inventory`, and
+ * `page-scan.rss.test.ts` holds a fresh process's peak to this bound.
+ */
+export const PAGE_DECODE_BUDGET_BYTES = 512 * 1024 * 1024;
+/**
+ * The bytes all pages' admitted images may come to. Decoding is the slow
+ * part of a scan: measured 2026-10-11 on a desktop (Node 24, Windows), pdf.js
+ * decoded about 150 MB a second of this estimate for DCT photos and 400–500
+ * for Flate. At this many bytes even that machine could not finish inside
+ * the scan's 120 s deadline, and a timeout is retryable — three attempts at
+ * a job that can only time out. Past it the job is refused up front, as too
+ * large, which is not retried. A document under it can still time out on a
+ * slower worker; this catches only the ones that cannot finish anywhere.
+ */
+export const DOCUMENT_DECODE_BUDGET_BYTES = 16 * 1024 * 1024 * 1024;
+/**
+ * The canvas memory pdf.js may use to PAINT one raster itself — a stencil
+ * mask, a repeated image, or any picture on a page drawn as one picture. It
+ * paints at the raster's own resolution (4 bytes a pixel, plus the halving
+ * chain it scales down through), so a raster over this is left out of the
+ * drawing and counted, not painted.
+ */
+export const PAINT_BUDGET_BYTES = 256 * 1024 * 1024;
+/** Bytes a pdf.js raster paint costs per source pixel (see above). */
+const PAINT_BYTES_PER_PIXEL = 6;
+/**
+ * pdf.js keeps an image used on two or more pages in the document's shared
+ * pool until the document is cleaned up. Past this many bytes there, the scan
+ * cleans the document up between pages.
+ */
+export const SHARED_IMAGE_BYTES = 64 * 1024 * 1024;
+/**
+ * Render passes (layers) one page may take. Every layer is a full pass over
+ * the page's operators, so a page alternating text and drawing — a grid of
+ * cells, each text then its border — cost cells × operators: 1,440 cells was
+ * 17 s on one page. Past this the page is drawn ONCE, as one picture, with its
+ * text in invisible boxes over it.
+ */
+export const MAX_LAYERS_PER_PAGE = 32;
 
 /* ------------------------------------------------------------------ *
  *  Geometry
@@ -321,7 +421,15 @@ interface GlyphLike {
 
 interface State {
   ctm: Matrix;
+  /** The clip's bounds, device space. Exact when `clipShapes` is empty. */
   clip: Box;
+  /**
+   * Every clip in force that is NOT an axis-aligned rectangle on the page —
+   * a curve, a polygon, a rectangle turned with its form — as its own shape.
+   * The bounds above are only their box; a picture under one of these is cut
+   * to its shape (`./picture-pixels`), not to the box.
+   */
+  clipShapes: readonly ClipShape[];
   fill: string | null;
   stroke: string | null;
   fillAlpha: number;
@@ -347,6 +455,7 @@ function initialState(base: Matrix, page: Box): State {
   return {
     ctm: base,
     clip: page,
+    clipShapes: [],
     fill: "000000",
     stroke: "000000",
     fillAlpha: 1,
@@ -624,6 +733,7 @@ interface ImageElement {
   op: number;
   m: Matrix;
   clip: Box;
+  clipShapes: readonly ClipShape[];
   box: Box;
   objId: string | null;
   inline: unknown;
@@ -716,14 +826,33 @@ function walkPage(
   const stack: State[] = [];
   const marked: boolean[] = [];
   let visible = true;
-  let pendingClip = false;
+  let pendingClip: "nonzero" | "evenodd" | null = null;
   const save = () => {
     stack.push(st);
     st = { ...st };
   };
   const restore = () => {
     st = stack.pop() ?? st;
-    pendingClip = false;
+    pendingClip = null;
+  };
+  /** Clip to the unit-free box `b` under `m`: exact when it stays upright. */
+  const clipToBox = (m: Matrix, b: readonly number[]) => {
+    const upright =
+      (Math.abs(m[1]) < 1e-9 && Math.abs(m[2]) < 1e-9) ||
+      (Math.abs(m[0]) < 1e-9 && Math.abs(m[3]) < 1e-9);
+    st.clip = intersect(st.clip, boxOf(m, b)) ?? [0, 0, 0, 0];
+    if (!upright) {
+      const corners = [
+        apply(m, b[0]!, b[1]!),
+        apply(m, b[2]!, b[1]!),
+        apply(m, b[2]!, b[3]!),
+        apply(m, b[0]!, b[3]!),
+      ];
+      st.clipShapes = [
+        ...st.clipShapes,
+        { polys: [corners.flat()], evenOdd: false },
+      ];
+    }
   };
   const vector = (op: number, box: Box | null) => {
     const clipped = box ? intersect(box, st.clip) : st.clip;
@@ -834,8 +963,7 @@ function walkPage(
         save();
         const [matrix, bbox] = args as [number[] | null, number[] | null];
         if (matrix) st.ctm = mul(st.ctm, matrix);
-        if (bbox)
-          st.clip = intersect(st.clip, boxOf(st.ctm, bbox)) ?? [0, 0, 0, 0];
+        if (bbox) clipToBox(st.ctm, bbox);
         break;
       }
       case OPS.paintFormXObjectEnd:
@@ -848,10 +976,11 @@ function walkPage(
           bbox?: number[];
           matrix?: number[];
         };
-        if (group.bbox) {
-          const m = group.matrix ? mul(st.ctm, group.matrix) : st.ctm;
-          st.clip = intersect(st.clip, boxOf(m, group.bbox)) ?? [0, 0, 0, 0];
-        }
+        if (group.bbox)
+          clipToBox(
+            group.matrix ? mul(st.ctm, group.matrix) : st.ctm,
+            group.bbox,
+          );
         break;
       }
       case OPS.endGroup:
@@ -917,11 +1046,13 @@ function walkPage(
         st.stroke = null;
         break;
       case OPS.clip:
+        pendingClip = "nonzero";
+        break;
       case OPS.eoClip:
-        pendingClip = true;
+        pendingClip = "evenodd";
         break;
       case OPS.endPath:
-        pendingClip = false;
+        pendingClip = null;
         break;
       case OPS.constructPath: {
         const paintOp = args[0] as number;
@@ -940,8 +1071,20 @@ function walkPage(
           vector(i, local ? grow(local, stroked + 0.5) : null);
         }
         if (pendingClip) {
+          const data = (args[1] as unknown[] | undefined)?.[0];
+          const polys =
+            data && typeof (data as ArrayLike<number>).length === "number"
+              ? flattenPath(data as ArrayLike<number>, st.ctm)
+              : [];
           if (local) st.clip = intersect(st.clip, local) ?? [0, 0, 0, 0];
-          pendingClip = false;
+          // A rectangle on the page is all its box says; anything else is
+          // kept as its shape for the pictures it cuts.
+          if (polys.length > 0 && !asAxisRect(polys))
+            st.clipShapes = [
+              ...st.clipShapes,
+              { polys, evenOdd: pendingClip === "evenodd" },
+            ];
+          pendingClip = null;
         }
         break;
       }
@@ -1025,6 +1168,7 @@ function walkPage(
           op: i,
           m: st.ctm,
           clip: st.clip,
+          clipShapes: st.clipShapes,
           box,
           objId: fn === OPS.paintImageXObject ? String(args[0]) : null,
           inline: fn === OPS.paintInlineImageXObject ? args[0] : null,
@@ -1147,57 +1291,6 @@ export function planLayers(
  *  Pictures: pixels to media
  * ------------------------------------------------------------------ */
 
-interface DecodedImage {
-  width: number;
-  height: number;
-  /** pdf.js ImageKind: 1 = 1-bit grey, 2 = RGB, 3 = RGBA. */
-  kind: number;
-  data: Uint8Array | Uint8ClampedArray;
-  ref?: string;
-}
-
-function isDecodedImage(v: unknown): v is DecodedImage {
-  const o = v as DecodedImage | null;
-  return (
-    !!o &&
-    typeof o.width === "number" &&
-    typeof o.height === "number" &&
-    typeof o.kind === "number" &&
-    !!o.data &&
-    typeof (o.data as Uint8Array).length === "number"
-  );
-}
-
-/** RGBA, top row first, from any of pdf.js's three image kinds. */
-function toRgba(img: DecodedImage): Uint8ClampedArray {
-  const { width, height, kind, data } = img;
-  const out = new Uint8ClampedArray(width * height * 4);
-  if (kind === 3) {
-    out.set(data.subarray(0, out.length));
-    return out;
-  }
-  if (kind === 2) {
-    for (let p = 0, q = 0; q < out.length; p += 3, q += 4) {
-      out[q] = data[p]!;
-      out[q + 1] = data[p + 1]!;
-      out[q + 2] = data[p + 2]!;
-      out[q + 3] = 255;
-    }
-    return out;
-  }
-  // 1 bit per pixel, rows padded to a byte; a set bit is white.
-  const rowBytes = (width + 7) >> 3;
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) {
-      const bit = (data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7))) & 1;
-      const q = (y * width + x) * 4;
-      const v = bit ? 255 : 0;
-      out[q] = out[q + 1] = out[q + 2] = v;
-      out[q + 3] = 255;
-    }
-  return out;
-}
-
 /** The JPEG's SOF: its size and component count, or null if it has none. */
 function jpegFrame(
   bytes: Uint8Array,
@@ -1241,9 +1334,12 @@ interface RawImageSource {
   filterOf(ref: string): Promise<string | null>;
 }
 
-function rawImageSource(bytes: Uint8Array): RawImageSource {
+/** `bytes` parsed by pdf-lib once, shared by the inventory and the JPEG copy. */
+function pdfLibLoader(
+  bytes: Uint8Array,
+): () => Promise<import("pdf-lib").PDFDocument | null> {
   let doc: Promise<import("pdf-lib").PDFDocument | null> | undefined;
-  const load = () => {
+  return () => {
     doc ??= import("pdf-lib")
       .then(({ PDFDocument }) =>
         PDFDocument.load(bytes, {
@@ -1252,15 +1348,20 @@ function rawImageSource(bytes: Uint8Array): RawImageSource {
           throwOnInvalidObject: false,
         }),
       )
-      .then((d) => (d.isEncrypted ? null : d))
       .catch(() => null);
     return doc;
   };
+}
+
+function rawImageSource(
+  load: () => Promise<import("pdf-lib").PDFDocument | null>,
+): RawImageSource {
   const stream = async (ref: string): Promise<PDFRawStream | null> => {
     const m = /^(\d+)R(\d*)$/.exec(ref);
     if (!m) return null;
     const d = await load();
-    if (!d) return null;
+    // An encrypted file's streams are ciphertext here: nothing is copied raw.
+    if (!d || d.isEncrypted) return null;
     try {
       const obj = d.context.lookup(PDFRef.of(Number(m[1]), Number(m[2] || 0)));
       return obj instanceof PDFRawStream ? obj : null;
@@ -1331,94 +1432,37 @@ function canvasFrom(
 }
 
 /**
- * Shrink RGBA pixels to `width` × `height` by averaging each target pixel's
- * footprint, in premultiplied alpha so a transparent edge does not darken.
- *
- * Not the canvas's `drawImage`: measured on @napi-rs/canvas 1.0.2 (the one
- * pdf.js hands back), a canvas pdf.js created reads back transparent through
- * `getImageData` but is copied by `drawImage`, and encoded by `toBuffer`, as
- * OPAQUE white wherever it was transparent. A layer over a screenshot came
- * out as a white rectangle hiding it. Pixels leave the canvas through
- * `getImageData` only; PNGs are written by `./png-encode`.
- */
-export function downscaleRgba(
-  src: ArrayLike<number>,
-  sw: number,
-  sh: number,
-  width: number,
-  height: number,
-): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(width * height * 4);
-  const fx = sw / width;
-  const fy = sh / height;
-  for (let ty = 0; ty < height; ty++) {
-    const y0 = ty * fy;
-    const y1 = Math.min(sh, (ty + 1) * fy);
-    for (let tx = 0; tx < width; tx++) {
-      const x0 = tx * fx;
-      const x1 = Math.min(sw, (tx + 1) * fx);
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      let area = 0;
-      for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
-        const wy = Math.min(y + 1, y1) - Math.max(y, y0);
-        for (let x = Math.floor(x0); x < Math.ceil(x1); x++) {
-          const wx = Math.min(x + 1, x1) - Math.max(x, x0);
-          const w = wx * wy;
-          const p = (y * sw + x) * 4;
-          const alpha = src[p + 3]! / 255;
-          r += src[p]! * alpha * w;
-          g += src[p + 1]! * alpha * w;
-          b += src[p + 2]! * alpha * w;
-          a += alpha * w;
-          area += w;
-        }
-      }
-      const q = (ty * width + tx) * 4;
-      if (a > 0) {
-        out[q] = r / a;
-        out[q + 1] = g / a;
-        out[q + 2] = b / a;
-      }
-      out[q + 3] = (a / area) * 255;
-    }
-  }
-  return out;
-}
-
-function fitWithin(
-  width: number,
-  height: number,
-  max: number,
-): [number, number] {
-  const longest = Math.max(width, height);
-  if (longest <= max) return [width, height];
-  const s = max / longest;
-  return [
-    Math.max(1, Math.round(width * s)),
-    Math.max(1, Math.round(height * s)),
-  ];
-}
-
-/**
- * Encode a decoded picture: PNG for anything with transparency, flat colour
- * or two tones; JPEG for photographs (a lossy source, or a PNG that came out
- * heavier than four bits a pixel).
+ * Encode a decoded picture, or the part `region` of it (whole pixels), at
+ * most {@link MAX_PICTURE_SIDE} on its long side ({@link
+ * MAX_BILEVEL_PICTURE_SIDE} for a bilevel scan): PNG for anything with
+ * transparency, flat colour or two tones; JPEG for photographs (a lossy
+ * source, or a PNG that came out heavier than four bits a pixel). With
+ * `clips` (in the region's own pixels at full resolution), every pixel a clip
+ * hides is made transparent, and the result is always a PNG.
  */
 async function encodePicture(
   tools: CanvasTools,
   img: DecodedImage,
   sourceFilter: string | null,
-): Promise<Omit<ScannedMedia, "key" | "passthrough">> {
-  const bilevel = img.kind === 1;
-  const [w, h] = fitWithin(
+  region: readonly [number, number, number, number] = [
+    0,
+    0,
     img.width,
     img.height,
+  ],
+  clips: readonly ClipShape[] = [],
+): Promise<Omit<ScannedMedia, "key" | "passthrough">> {
+  const bilevel = img.kind === 1;
+  const rw = region[2] - region[0];
+  const rh = region[3] - region[1];
+  const [w, h] = fitWithin(
+    rw,
+    rh,
     bilevel ? MAX_BILEVEL_PICTURE_SIDE : MAX_PICTURE_SIDE,
   );
-  if (bilevel && w === img.width && h === img.height) {
+  const whole =
+    rw === img.width && rh === img.height && region[0] === 0 && region[1] === 0;
+  if (bilevel && whole && clips.length === 0 && w === rw && h === rh) {
     // pdf.js packs these 1 bit a pixel, set bit = white: a PNG's own
     // 1-bit grey layout, so the rows go in untouched.
     return {
@@ -1428,20 +1472,33 @@ async function encodePicture(
       pixelHeight: h,
     };
   }
-  let rgba = toRgba(img);
-  if (w !== img.width || h !== img.height)
-    rgba = downscaleRgba(rgba, img.width, img.height, w, h);
-  let opaque = true;
-  let grey = true;
-  for (let q = 0; q < rgba.length; q += 4) {
-    if (rgba[q + 3]! < 255) opaque = false;
-    if (rgba[q] !== rgba[q + 1] || rgba[q] !== rgba[q + 2]) grey = false;
-    if (!opaque && !grey) break;
+  const rgba = resampleImage(img, region, w, h);
+  if (clips.length > 0) {
+    const sx = w / rw;
+    const sy = h / rh;
+    applyClipCoverage(
+      rgba,
+      w,
+      h,
+      clips.map((c) => mapShape(c, [sx, 0, 0, sy, 0, 0])),
+    );
+    return {
+      bytes: pngOf(rgba, w, h),
+      ext: "png",
+      pixelWidth: w,
+      pixelHeight: h,
+    };
   }
+  let opaque = true;
+  for (let q = 3; q < rgba.length; q += 4)
+    if (rgba[q]! < 255) {
+      opaque = false;
+      break;
+    }
   const lossySource =
     sourceFilter === "/DCTDecode" || sourceFilter === "/JPXDecode";
   // JPEG only ever for opaque pixels, where the canvas's alpha handling
-  // (see `downscaleRgba`) has nothing to get wrong.
+  // (see `resampleImage`) has nothing to get wrong.
   const jpeg = () => {
     const cc = canvasFrom(tools, rgba, w, h);
     const bytes = cc.canvas.toBuffer("image/jpeg", JPEG_QUALITY);
@@ -1450,12 +1507,7 @@ async function encodePicture(
   };
   if (opaque && lossySource)
     return { ...jpeg(), pixelWidth: w, pixelHeight: h };
-  const png = encodePngImage(
-    w,
-    h,
-    opaque ? (grey ? "gray8" : "rgb8") : "rgba8",
-    rgba,
-  );
+  const png = pngOf(rgba, w, h);
   if (opaque && png.length > (w * h) / 2) {
     const j = jpeg();
     if (j.bytes.length < png.length)
@@ -1620,15 +1672,184 @@ function cropRgba(
   return out;
 }
 
+/* ------------------------------------------------------------------ *
+ *  The decode budget
+ * ------------------------------------------------------------------ */
+
+/** One page's share of the budget. */
+export interface PageDecodePlan {
+  /**
+   * pdf.js's `maxImageSize` for this page: images of more pixels are left
+   * out by pdf.js before it decodes them. Never below the floor for images
+   * the inventory did not see, unless the page needs it lower.
+   */
+  cap: number;
+  /** Images the page uses that the cap leaves out: too large to carry. */
+  tooLarge: number;
+  /** Bytes of the images it admits. */
+  bytes: number;
+}
+
 /**
- * Scan every page of `bytes`. Throws the engine's typed open errors for a file
- * pdf.js refuses, {@link PageScanTimeoutError} past the deadline and
- * {@link PageScanTooLargeError} past the media budget.
+ * Each page's pixel ceiling, from a BYTE budget over what it will decode.
+ *
+ * pdf.js has one knob — a pixel ceiling per document — and it removes larger
+ * images silently. So the ceiling is chosen per page from the inventory: the
+ * page's images, smallest first, are admitted while their bytes fit
+ * `pageBytes`; the ceiling sits between the largest admitted and the
+ * smallest left out, and the left-out ones are COUNTED, so the result can say
+ * a picture was not carried rather than that the page was empty. Images of
+ * one pixel count are admitted or left out together: the ceiling cannot tell
+ * them apart. Pages that leave nothing out share one ceiling, at least
+ * `floorPixels`, so a typical document opens pdf.js once.
  */
-export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
-  let opened: Awaited<ReturnType<typeof openNodePdf>>;
+export function decodeBudgetPlan(
+  pages: readonly PageInventory[],
+  {
+    pageBytes = PAGE_DECODE_BUDGET_BYTES,
+    floorPixels = MAX_DECODED_IMAGE_PIXELS,
+  }: { pageBytes?: number; floorPixels?: number } = {},
+): { pages: PageDecodePlan[]; bytes: number } {
+  const px = (i: { width: number; height: number }) => i.width * i.height;
+  const measured = pages.map((page) => {
+    const sorted = [...page.images].sort((a, b) => px(a) - px(b));
+    let total = 0;
+    let k = 0;
+    while (k < sorted.length) {
+      const size = px(sorted[k]!);
+      let j = k;
+      let group = 0;
+      while (j < sorted.length && px(sorted[j]!) === size)
+        group += sorted[j++]!.bytes;
+      if (total + group > pageBytes) break;
+      total += group;
+      k = j;
+    }
+    return {
+      admitted: k > 0 ? px(sorted[k - 1]!) : 0,
+      smallestOut: k < sorted.length ? px(sorted[k]!) : Infinity,
+      tooLarge: sorted.length - k,
+      bytes: total,
+    };
+  });
+  const shared = Math.max(
+    floorPixels,
+    ...measured.filter((m) => m.tooLarge === 0).map((m) => m.admitted),
+  );
+  return {
+    pages: measured.map((m) => ({
+      cap:
+        m.tooLarge === 0
+          ? shared
+          : Math.max(m.admitted, Math.min(floorPixels, m.smallestOut - 1)),
+      tooLarge: m.tooLarge,
+      bytes: m.bytes,
+    })),
+    bytes: measured.reduce((n, m) => n + m.bytes, 0),
+  };
+}
+
+/**
+ * The pictures alone would take more decoding than the worker allows for one
+ * document. Deterministic, and refused before any decoding.
+ */
+export class PageScanDecodeBudgetError extends Error {
+  constructor(
+    readonly bytes: number,
+    readonly limitBytes: number,
+  ) {
+    super(
+      `page scan would decode ${bytes} bytes of images, over ${limitBytes}`,
+    );
+    this.name = "PageScanDecodeBudgetError";
+  }
+}
+
+type ObjectPool = { has(id: string): boolean; get(id: string): unknown };
+
+function poolOf(page: NodePdfPage, id: string): ObjectPool {
+  return (id.startsWith("g_")
+    ? page.commonObjs
+    : page.objs) as unknown as ObjectPool;
+}
+
+/** Pixels pdf.js would paint itself, at native size, for op `i`; or null. */
+function rasterPaintPixels(
+  pdfjs: NodePdfjs,
+  page: NodePdfPage,
+  ol: OpList,
+  i: number,
+): number | null {
+  const { OPS } = pdfjs;
+  const fn = ol.fnArray[i]!;
+  const args = ol.argsArray[i] ?? [];
+  const dims = (v: unknown): number => {
+    const o = v as { width?: unknown; height?: unknown } | null;
+    return o && typeof o.width === "number" && typeof o.height === "number"
+      ? o.width * o.height
+      : 0;
+  };
+  const byId = (id: unknown): number => {
+    if (typeof id !== "string") return 0;
+    const pool = poolOf(page, id);
+    return pool.has(id) ? dims(pool.get(id)) : 0;
+  };
+  switch (fn) {
+    case OPS.paintImageXObject:
+      return typeof args[1] === "number" && typeof args[2] === "number"
+        ? args[1] * args[2]
+        : byId(args[0]);
+    case OPS.paintImageXObjectRepeat:
+      return byId(args[0]);
+    case OPS.paintInlineImageXObject:
+    case OPS.paintInlineImageXObjectGroup:
+    case OPS.paintImageMaskXObject:
+    case OPS.paintImageMaskXObjectRepeat:
+      return dims(args[0]);
+    case OPS.paintImageMaskXObjectGroup:
+      return Math.max(0, ...((args[0] ?? []) as unknown[]).map(dims));
+    default:
+      return null;
+  }
+}
+
+/** The image op `i`'s object id when pdf.js holds no pixels for it. */
+function undecodedAt(
+  pdfjs: NodePdfjs,
+  page: NodePdfPage,
+  ol: OpList,
+  i: number,
+): string | null {
+  const { OPS } = pdfjs;
+  const fn = ol.fnArray[i]!;
+  if (fn !== OPS.paintImageXObject && fn !== OPS.paintImageXObjectRepeat)
+    return null;
+  const id = ol.argsArray[i]?.[0];
+  if (typeof id !== "string") return null;
+  const pool = poolOf(page, id);
+  return pool.has(id) && !isDecodedImage(pool.get(id)) ? id : null;
+}
+
+/** Bytes of decoded images in pdf.js's document-wide pool. */
+function sharedImageBytes(page: NodePdfPage): number {
+  let total = 0;
+  for (const [, data] of page.commonObjs as unknown as Iterable<
+    [string, unknown]
+  >)
+    if (isDecodedImage(data)) total += data.data.length;
+  return total;
+}
+
+const yieldToLoop = () => new Promise<void>((r) => setImmediate(r));
+
+type Opened = Awaited<ReturnType<typeof openNodePdf>>;
+
+async function openClassified(
+  bytes: Uint8Array,
+  maxImageSize: number,
+): Promise<Opened> {
   try {
-    opened = await openNodePdf(bytes);
+    return await openNodePdf(bytes, { maxImageSize });
   } catch (error) {
     if (error instanceof PdfEncryptedError)
       throw new PdfTextOpenError("needs-password");
@@ -1636,7 +1857,53 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
       throw new PdfTextOpenError("unreadable");
     throw error;
   }
-  const { pdfjs, doc, close } = opened;
+}
+
+/**
+ * Scan every page of `bytes`. Throws the engine's typed open errors for a file
+ * pdf.js refuses, {@link PageScanTimeoutError} past the deadline,
+ * {@link PageScanTooLargeError} past the media budget and
+ * {@link PageScanDecodeBudgetError} past the document's decode budget.
+ *
+ * Before pdf.js decodes a page, `./page-inventory` says what it will decode,
+ * and {@link decodeBudgetPlan} sets the page's ceiling: what that leaves out
+ * is counted on the page (`picturesTooLarge`), never silently gone. A file
+ * pdf-lib cannot parse has no inventory and gets the floor ceiling, as before
+ * 2026-10-11, with nothing to count against it.
+ */
+export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
+  const loadLib = pdfLibLoader(bytes);
+  const lib = await loadLib();
+  const inventory = lib ? inventoryOf(lib) : null;
+  const budget = inventory
+    ? decodeBudgetPlan(inventory, {
+        ...(options.pageDecodeBudgetBytes !== undefined
+          ? { pageBytes: options.pageDecodeBudgetBytes }
+          : {}),
+      })
+    : null;
+  if (budget && budget.bytes > DOCUMENT_DECODE_BUDGET_BYTES)
+    throw new PageScanDecodeBudgetError(
+      budget.bytes,
+      DOCUMENT_DECODE_BUDGET_BYTES,
+    );
+  const capFor = (n: number) =>
+    budget?.pages[n - 1]?.cap ?? MAX_DECODED_IMAGE_PIXELS;
+
+  const first = await openClassified(bytes, capFor(1));
+  const { pdfjs } = first;
+  const pageCount = first.doc.numPages;
+  const instances = new Map<number, Opened>([[capFor(1), first]]);
+  const lastUse = new Map<number, number>();
+  for (let n = 1; n <= pageCount; n++) lastUse.set(capFor(n), n);
+  const instance = async (cap: number): Promise<Opened> => {
+    const known = instances.get(cap);
+    if (known) return known;
+    const opened = await openClassified(bytes, cap);
+    instances.set(cap, opened);
+    return opened;
+  };
+
   const media = new Map<string, ScannedMedia>();
   let mediaBytes = 0;
   const addMedia = (m: ScannedMedia): ScannedMedia => {
@@ -1651,25 +1918,34 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
     media.set(m.key, m);
     return m;
   };
-  let undecodedImages = 0;
   try {
-    const factory = canvasFactoryOf(doc);
-    const tools: CanvasTools = { factory };
-    const raw = rawImageSource(bytes);
+    const raw = rawImageSource(loadLib);
     const tables = opTables(pdfjs.OPS);
-    const oc = await doc.getOptionalContentConfig({ intent: "display" });
-    const isVisible = (props: unknown) => {
-      try {
-        return (oc as unknown as { isVisible(g: unknown): boolean }).isVisible(
-          props,
-        );
-      } catch {
-        return true;
-      }
+    const visibility = new Map<Opened, (props: unknown) => boolean>();
+    const isVisibleIn = async (o: Opened) => {
+      const known = visibility.get(o);
+      if (known) return known;
+      const oc = await o.doc.getOptionalContentConfig({ intent: "display" });
+      const fn = (props: unknown) => {
+        try {
+          return (
+            oc as unknown as { isVisible(g: unknown): boolean }
+          ).isVisible(props);
+        } catch {
+          return true;
+        }
+      };
+      visibility.set(o, fn);
+      return fn;
     };
     const pages: ScannedPage[] = [];
-    for (let n = 1; n <= doc.numPages; n++) {
+    for (let n = 1; n <= pageCount; n++) {
       checkDeadline(options.deadline);
+      const cap = capFor(n);
+      const opened = await instance(cap);
+      const { doc } = opened;
+      const factory = canvasFactoryOf(doc);
+      const tools: CanvasTools = { factory };
       const page = await doc.getPage(n);
       const viewport = page.getViewport({ scale: 1 });
       const base = Array.from(viewport.transform) as Matrix;
@@ -1681,42 +1957,43 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
         ol,
         base,
         pageBox,
-        isVisible,
+        await isVisibleIn(opened),
         tables,
       );
-      const plan = planLayers(elements);
-      const items: ScannedItem[] = [];
       const scale = Math.min(
         LAYER_DPI / 72,
         MAX_PICTURE_SIDE / Math.max(viewport.width, viewport.height),
       );
-      let firstLayer = true;
-      for (const step of plan) {
-        checkDeadline(options.deadline);
-        if (step.kind === "text") {
-          items.push((elements[step.element] as TextElement).line);
-          continue;
-        }
-        if (step.kind === "image") {
-          const el = elements[step.element] as ImageElement;
-          const pic = await placeImage(page, el, n, tools, raw, addMedia);
-          if (pic === "undecoded") undecodedImages++;
-          else if (pic) items.push(pic);
-          firstLayer = false;
-          continue;
-        }
-        const keep = new Set(step.ops.map((k) => elements[k]!.op));
-        const overWhite = firstLayer && items.length === 0;
-        firstLayer = false;
-        const region = step.ops
-          .map((k) => elements[k]!.box)
-          .reduce((u, b) => [
-            Math.min(u[0], b[0]),
-            Math.min(u[1], b[1]),
-            Math.max(u[2], b[2]),
-            Math.max(u[3], b[3]),
-          ]);
-        const layer = await renderLayer(
+      // Rasters pdf.js would have to paint itself past the paint budget are
+      // left out of every drawing, and counted; images it could not decode
+      // are counted once each.
+      const unpaintable = new Set<number>();
+      const undecoded = new Set<string>();
+      for (let i = 0; i < ol.fnArray.length; i++) {
+        const pixels = rasterPaintPixels(pdfjs, page, ol, i);
+        if (
+          pixels !== null &&
+          pixels * PAINT_BYTES_PER_PIXEL > PAINT_BUDGET_BYTES
+        )
+          unpaintable.add(i);
+        const lost = undecodedAt(pdfjs, page, ol, i);
+        if (lost) undecoded.add(lost);
+      }
+      const plan = planLayers(elements);
+      const layers = plan.filter((step) => step.kind === "layer").length;
+      const items: ScannedItem[] = [];
+      let tooLargeHere = budget?.pages[n - 1]?.tooLarge ?? 0;
+      const flattened = layers > MAX_LAYERS_PER_PAGE;
+      if (flattened) {
+        // One pass over the whole page, in its own paint order: what the page
+        // hides stays hidden by construction, and the cost is one render.
+        const keep = new Set<number>();
+        for (let i = 0; i < ol.fnArray.length; i++)
+          if (isPaint(tables, pdfjs.OPS, ol, i)) {
+            if (unpaintable.has(i)) tooLargeHere++;
+            else keep.add(i);
+          }
+        const picture = await layerPicture(
           pdfjs,
           page,
           factory,
@@ -1724,66 +2001,257 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
           tables,
           keep,
           scale,
-          grow(region, 1),
+          pageBox,
+          true,
+          `flat:${n}`,
+          addMedia,
         );
-        const local = inkBox(layer.data, layer.width, layer.height, overWhite);
-        const ink: [number, number, number, number] | null = local && [
-          local[0] + layer.originX,
-          local[1] + layer.originY,
-          local[2] + layer.originX,
-          local[3] + layer.originY,
-        ];
-        if (ink) {
-          const pixels = cropRgba(layer.data, layer.width, local!);
-          let opaque = true;
-          for (let q = 3; q < pixels.length; q += 4)
-            if (pixels[q]! < 255) {
-              opaque = false;
-              break;
-            }
-          const png = encodePngImage(
-            ink[2] - ink[0],
-            ink[3] - ink[1],
-            opaque ? "rgb8" : "rgba8",
-            pixels,
+        if (picture) items.push(picture);
+        for (const e of elements)
+          if (e.kind === "text")
+            items.push({
+              ...e.line,
+              runs: e.line.runs.map((r) => ({ ...r, invisible: true })),
+            });
+      } else {
+        let firstLayer = true;
+        for (const step of plan) {
+          checkDeadline(options.deadline);
+          if (step.kind === "text") {
+            items.push((elements[step.element] as TextElement).line);
+            continue;
+          }
+          if (step.kind === "image") {
+            const el = elements[step.element] as ImageElement;
+            const pic = await placeImage(page, el, n, tools, raw, addMedia);
+            if (pic === "undecoded") undecoded.add(el.objId ?? `op:${el.op}`);
+            else if (pic) items.push(pic);
+            firstLayer = false;
+            continue;
+          }
+          const keep = new Set<number>();
+          for (const k of step.ops) {
+            const op = elements[k]!.op;
+            if (unpaintable.has(op)) tooLargeHere++;
+            else keep.add(op);
+          }
+          const overWhite = firstLayer && items.length === 0;
+          firstLayer = false;
+          if (keep.size === 0) continue;
+          const region = step.ops
+            .map((k) => elements[k]!.box)
+            .reduce((u, b) => [
+              Math.min(u[0], b[0]),
+              Math.min(u[1], b[1]),
+              Math.max(u[2], b[2]),
+              Math.max(u[3], b[3]),
+            ]);
+          const picture = await layerPicture(
+            pdfjs,
+            page,
+            factory,
+            ol,
+            tables,
+            keep,
+            scale,
+            grow(region, 1),
+            overWhite,
+            `layer:${n}:${items.length}`,
+            addMedia,
           );
-          const m = addMedia({
-            key: `layer:${n}:${items.length}`,
-            bytes: png,
-            ext: "png",
-            pixelWidth: ink[2] - ink[0],
-            pixelHeight: ink[3] - ink[1],
-            passthrough: false,
-          });
-          items.push({
-            kind: "picture",
-            role: "layer",
-            media: m,
-            x: ink[0] / scale,
-            y: ink[1] / scale,
-            width: (ink[2] - ink[0]) / scale,
-            height: (ink[3] - ink[1]) / scale,
-            rotation: 0,
-            flipH: false,
-            flipV: false,
-          });
+          if (picture) items.push(picture);
+          // pdf.js runs a render to its end in microtasks: let the daemon's
+          // own timers (its heartbeat) run between layers.
+          await yieldToLoop();
         }
-        factory.destroy(layer.cc);
       }
       pages.push({
         pageNumber: n,
         width: viewport.width,
         height: viewport.height,
         items,
+        picturesTooLarge: tooLargeHere,
+        picturesUndecoded: undecoded.size,
+        flattened,
       });
+      const shared = sharedImageBytes(page);
       page.cleanup();
+      if (shared > SHARED_IMAGE_BYTES) await doc.cleanup();
+      if (lastUse.get(cap) === n && opened !== first) {
+        instances.delete(cap);
+        await opened.close();
+      }
     }
-    return { pageCount: doc.numPages, pages, undecodedImages };
+    return {
+      pageCount,
+      pages,
+      undecodedImages: pages.reduce((t, p) => t + p.picturesUndecoded, 0),
+      tooLargeImages: pages.reduce((t, p) => t + p.picturesTooLarge, 0),
+    };
   } finally {
-    await close();
+    for (const o of instances.values()) await o.close();
   }
 };
 
+/**
+ * Render the ops in `keep` (with every state op) over `region`, find the ink,
+ * and make it a picture; null when nothing shows. `overWhite`: at the bottom
+ * of the slide, where white on white is no ink.
+ */
+async function layerPicture(
+  pdfjs: NodePdfjs,
+  page: NodePdfPage,
+  factory: NodeCanvasFactory,
+  ol: OpList,
+  tables: OpTables,
+  keep: Set<number>,
+  scale: number,
+  region: Box,
+  overWhite: boolean,
+  key: string,
+  addMedia: (m: ScannedMedia) => ScannedMedia,
+): Promise<ScannedPicture | null> {
+  const layer = await renderLayer(
+    pdfjs,
+    page,
+    factory,
+    ol,
+    tables,
+    keep,
+    scale,
+    region,
+  );
+  try {
+    const local = inkBox(layer.data, layer.width, layer.height, overWhite);
+    if (!local) return null;
+    const ink: [number, number, number, number] = [
+      local[0] + layer.originX,
+      local[1] + layer.originY,
+      local[2] + layer.originX,
+      local[3] + layer.originY,
+    ];
+    const pixels = cropRgba(layer.data, layer.width, local);
+    let opaque = true;
+    for (let q = 3; q < pixels.length; q += 4)
+      if (pixels[q]! < 255) {
+        opaque = false;
+        break;
+      }
+    const png = encodePngImage(
+      ink[2] - ink[0],
+      ink[3] - ink[1],
+      opaque ? "rgb8" : "rgba8",
+      pixels,
+    );
+    const m = addMedia({
+      key,
+      bytes: png,
+      ext: "png",
+      pixelWidth: ink[2] - ink[0],
+      pixelHeight: ink[3] - ink[1],
+      passthrough: false,
+    });
+    return {
+      kind: "picture",
+      role: "layer",
+      media: m,
+      x: ink[0] / scale,
+      y: ink[1] / scale,
+      width: (ink[2] - ink[0]) / scale,
+      height: (ink[3] - ink[1]) / scale,
+      rotation: 0,
+      flipH: false,
+      flipV: false,
+    };
+  } finally {
+    factory.destroy(layer.cc);
+  }
+}
+
+/** The inverse of an affine matrix, or null when it has none. */
+function invert(m: readonly number[]): Matrix | null {
+  const det = m[0]! * m[3]! - m[1]! * m[2]!;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return null;
+  return [
+    m[3]! / det,
+    -m[1]! / det,
+    -m[2]! / det,
+    m[0]! / det,
+    (m[2]! * m[5]! - m[3]! * m[4]!) / det,
+    (m[1]! * m[4]! - m[0]! * m[5]!) / det,
+  ];
+}
+
+/**
+ * The clips a picture is painted through, in its own pixels (row 0 at the
+ * top): the clip's box, and every clip shape in force. `null` when none of
+ * them hides any of it; "hidden" when they hide all of it; otherwise the
+ * pixel rectangle they can show and the shapes that cut it, relative to that
+ * rectangle.
+ */
+function clipInPixels(
+  el: ImageElement,
+  width: number,
+  height: number,
+):
+  | null
+  | "hidden"
+  | {
+      region: [number, number, number, number];
+      shapes: ClipShape[];
+    } {
+  const inv = invert(el.m);
+  if (!inv) return "hidden";
+  // Unit square (v up) → pixels (row 0 at the top).
+  const toPixels = mul([width, 0, 0, -height, 0, height], inv);
+  const [x0, y0, x1, y1] = el.clip;
+  const all: ClipShape[] = [
+    { polys: [[x0, y0, x1, y0, x1, y1, x0, y1]], evenOdd: false },
+    ...el.clipShapes,
+  ].map((c) => mapShape(c, toPixels));
+  const picture: [number, number, number, number] = [0, 0, width, height];
+  const cutting = all.filter((c) => !containsRect(c, picture, 0.5));
+  if (cutting.length === 0) return null;
+  let region: [number, number, number, number] = [0, 0, width, height];
+  for (const c of cutting) {
+    const b = polysBox(c.polys);
+    region = [
+      Math.max(region[0], b[0]),
+      Math.max(region[1], b[1]),
+      Math.min(region[2], b[2]),
+      Math.min(region[3], b[3]),
+    ];
+  }
+  const r: [number, number, number, number] = [
+    Math.max(0, Math.floor(region[0])),
+    Math.max(0, Math.floor(region[1])),
+    Math.min(width, Math.ceil(region[2])),
+    Math.min(height, Math.ceil(region[3])),
+  ];
+  if (r[2] - r[0] < 1 || r[3] - r[1] < 1) return "hidden";
+  const local = [1, 0, 0, 1, -r[0], -r[1]];
+  const rect: [number, number, number, number] = [
+    0,
+    0,
+    r[2] - r[0],
+    r[3] - r[1],
+  ];
+  const shapes = cutting
+    .map((c) => mapShape(c, local))
+    .filter((c) => !containsRect(c, rect, 0.5));
+  return { region: r, shapes };
+}
+
+/**
+ * A picture op's picture: its decoded pixels as media, at its place.
+ *
+ * Upright and cut only by a rectangle on the page, it is the whole picture
+ * with a crop (srcRect), so a plain JPEG still goes in byte for byte and the
+ * crop can be undone in PowerPoint. Turned, or cut by anything that is not
+ * an upright rectangle, it is the part its clip can show, cut to the clip's
+ * shape (`./picture-pixels`), placed at its own angle: what the page hides is
+ * neither shown nor in the file.
+ */
 async function placeImage(
   page: NodePdfPage,
   el: ImageElement,
@@ -1805,6 +2273,43 @@ async function placeImage(
   if (!isDecodedImage(img)) return "undecoded";
   if (img.width < 1 || img.height < 1) return null;
   const placement = placementOf(el.m);
+  const ref = typeof img.ref === "string" ? img.ref : null;
+  if (!isAxisAligned(placement) || el.clipShapes.length > 0) {
+    const cut = clipInPixels(el, img.width, img.height);
+    if (cut === "hidden") return null;
+    if (cut) {
+      const [x0, y0, x1, y1] = cut.region;
+      const filter = ref ? await raw.filterOf(ref) : null;
+      const encoded = await encodePicture(
+        tools,
+        img,
+        filter,
+        cut.region,
+        cut.shapes,
+      );
+      const m = addMedia({
+        key: `img:${pageNumber}:${el.op}:cut`,
+        ...encoded,
+        passthrough: false,
+      });
+      // The unit square of the part shown, in the picture's unit square.
+      const part = [
+        (x1 - x0) / img.width,
+        0,
+        0,
+        (y1 - y0) / img.height,
+        x0 / img.width,
+        1 - y1 / img.height,
+      ];
+      return {
+        kind: "picture",
+        role: "image",
+        media: m,
+        ...placementOf(mul(el.m, part)),
+      };
+    }
+    // No clip hides any of it: the whole picture, at its angle.
+  }
   let crop: ScannedPicture["crop"];
   let box: Placement = placement;
   if (isAxisAligned(placement)) {
@@ -1834,7 +2339,6 @@ async function placeImage(
       };
     }
   }
-  const ref = typeof img.ref === "string" ? img.ref : null;
   const key = ref ? `ref:${ref}` : `img:${pageNumber}:${el.op}`;
   let m: ScannedMedia;
   const passthrough =
