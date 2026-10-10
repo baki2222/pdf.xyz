@@ -1,24 +1,49 @@
 /**
- * What the free daily AI allowance is, said once.
+ * What the free daily AI allowance is, said once — including WHO SHARES IT,
+ * which is read from the flag the rate limiter reads, never typed.
+ *
+ * ── TODAY (2026-10-10): ONE ALLOWANCE FOR EVERYONE ──────────────────────────
+ *
+ * Production reported `rateLimit.code = "remote-configured-shared"` at the
+ * wire on 2026-10-10 (`GET /api/worker/operations`): every request lands in
+ * `SHARED_BUCKET_TOKEN`, so the `ai.characters` bucket is ONE pool for the
+ * whole site. And since the same day per-client keying is impossible in every
+ * deployment until /privacy discloses it (`isTrustForwardedFor` requires
+ * `PER_CLIENT_KEYING_DISCLOSED`, in `@/lib/privacy/keying`). So the copy below
+ * selects its scope by that flag ({@link ALLOWANCE_SCOPE}): "shared by
+ * everyone using pdf.xyz" while it is false, "for your connection" once it is
+ * true — and `ratelimit/keying-disclosure.test.tsx` holds every rendered AI
+ * tool page and the served refusals to env → `resolveRateLimitConfig` →
+ * `deriveClientToken`, in both states.
+ *
+ * It did not, until review: the 2026-10-10 rewrite gated the limiter on the
+ * flag and bound /privacy §4 to it, and left every AI page saying "for your
+ * connection" — the same property stated a second time, by a module no guard
+ * read. What follows is the history, and it is the reason the scope is now an
+ * input rather than a sentence.
+ *
+ * ── HISTORY: THE SCOPE HAS FLIPPED TWICE UNDER THE COPY ────────────────────
  *
  * **The sentence was true when it was written and the system changed underneath
  * it.** `identity.ts` used to hand every caller `SHARED_BUCKET_TOKEN`, so there
  * genuinely was one bucket and three runs for the whole product — and the copy
  * said so: *"shared across everyone using pdf.xyz right now."* Then the limiter
  * was fixed. With the salt set and `PDFXYZ_RATE_LIMIT_TRUST_PROXY=true`, every
- * client gets its own bucket, and production reports
+ * client got its own bucket, and production reported (2026-08-11)
  * `rateLimit: { code: "remote-configured", enforced: true, distributed: true }` —
  * `remote-configured`, not `remote-configured-shared`.
  *
- * So each visitor has had their own three runs for some time, while the product
- * told them a stranger might have already spent them. `policy.ts` has said
- * `per client per day` in a comment the whole time; nothing made the copy read it.
+ * So each visitor had their own three runs for some time, while the product
+ * told them a stranger might have already spent them, and the copy moved to
+ * "for your connection". By 2026-10-10 production was shared again — the
+ * self-hosted move of 2026-08-28 is the likeliest point, not a recorded one —
+ * and "for your connection" was the stale sentence. Two flips, each found by
+ * reading the wire, neither by a guard: hence the flag.
  *
  * VERIFIED FROM THE CODE PATH, not inferred from the posture code: every action
  * goes through the same `deriveClientToken(request.headers, config)` in
- * `ratelimit/guard.ts`, with no per-action branch — so `ai.run` is bucketed
- * exactly like the policies proven with two clients (300 requests, ~242 allowed,
- * each client stopping at ~120).
+ * `ratelimit/guard.ts`, with no per-action branch — so `ai.characters` is
+ * bucketed exactly like every other policy, shared or per client together.
  *
  * WHY THE COPY LIVES HERE. The sentence existed in SIX places: four literal
  * duplicates in `tool-facts.ts`, the constant on line 320 those four ignored,
@@ -36,10 +61,11 @@
  * conduct**, and it is wrong for every visitor who shares an address with
  * whoever spent them.
  *
- * So the copy attributes the spend to the CONNECTION. That is true for one person
- * and true for fifty behind one address, and it keeps the information that
- * actually matters — this is not the whole world's three runs, which is what the
- * pre-2026-08-11 wording claimed.
+ * So the per-client copy attributes the spend to the CONNECTION. That is true
+ * for one person and true for fifty behind one address, and it keeps the
+ * information that actually matters. The shared copy attributes it to
+ * EVERYONE — which is what the counter does, and never a claim about the
+ * reader.
  *
  * WHAT IS DELIBERATELY NOT CLAIMED: that the allowance is guaranteed, isolated,
  * or unaffected by anything else. These sentences say what the allowance IS and
@@ -72,6 +98,67 @@ import {
   deliveryCapFor,
 } from "./delivery-cap";
 import { CHAT_TOOL_SLUG } from "./chat-with-pdf";
+import { PER_CLIENT_KEYING_DISCLOSED } from "@/lib/privacy/keying";
+
+/**
+ * Who shares one allowance: each connection, or everyone using pdf.xyz. Two
+ * values because the limiter has two keyings (`deriveClientToken`).
+ */
+export type AllowanceScope = "connection" | "everyone";
+
+/** The scope a limiter that does (or does not) key per client implies. */
+export function allowanceScopeFor(perClientKeyed: boolean): AllowanceScope {
+  return perClientKeyed ? "connection" : "everyone";
+}
+
+/**
+ * The scope the pages state: the one the privacy disclosure selects, which
+ * is also the condition per-client keying needs (`isTrustForwardedFor`).
+ *
+ * ONE-SIDED, stated rather than discovered. While the flag is false the
+ * limiter CANNOT key per client in any deployment, so "everyone" is true
+ * everywhere. Once it is true, keying also needs the three environment
+ * variables, which a prerendered page cannot read: a deployment that flips
+ * the flag without setting them is shared again while the pages say
+ * "connection". The posture reports exactly that state
+ * (`remote-configured-shared`) on /api/worker/operations; flipping the flag
+ * means reading it there, after the deploy.
+ */
+export const ALLOWANCE_SCOPE: AllowanceScope = allowanceScopeFor(
+  PER_CLIENT_KEYING_DISCLOSED,
+);
+
+/** The words each scope is stated in — the only place they are written. */
+const SCOPE_WORDS: Record<
+  AllowanceScope,
+  {
+    /** Appended to the offer's clause. */
+    readonly offer: string;
+    /** The refusal's subject. */
+    readonly allowance: string;
+    /** Who else draws on it, as a sentence. */
+    readonly whoShares: string;
+    /** The pool, as a noun phrase. */
+    readonly pool: string;
+  }
+> = {
+  connection: {
+    offer: " for your connection",
+    allowance: "The free AI allowance for this connection",
+    whoShares:
+      "It is counted per connection, so on a shared network other people's AI jobs count against it too.",
+    pool: "one pool per connection",
+  },
+  everyone: {
+    offer: ", shared by everyone using pdf.xyz",
+    // The who-shares sentence states the scope; saying it here too made the
+    // refusal say "shared by everyone" twice in four lines.
+    allowance: "The free AI allowance",
+    whoShares:
+      "It is one allowance for everyone using pdf.xyz, so every visitor's AI jobs count against it.",
+    pool: "one pool shared by everyone using pdf.xyz",
+  },
+};
 
 /**
  * The quantity, shared by both sentences — and the only part that can go stale,
@@ -301,9 +388,9 @@ export const AI_ALLOWANCE_CLAUSE = `${AI_ALLOWANCE_RUNS} a day`;
  * `per-character` tools (translate). Never publish this alone on a page whose
  * runs are priced `per-call`: use {@link aiAllowanceFactFor}.
  */
-export const AI_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection — the allowance resets daily.`;
+const factIn = (scope: AllowanceScope) =>
+  `${AI_ALLOWANCE_CLAUSE}${SCOPE_WORDS[scope].offer} — the allowance resets daily.`;
 
-/**
 /**
  * The most one Summarize, Chat or Extract run can take from the allowance, in
  * the browser's unit — the same unit as {@link AI_CHARACTER_ALLOWANCE_DELIVERED}.
@@ -332,7 +419,8 @@ export const AI_PER_CALL_RUN_CEILING = TRANSLATE_MAX_INPUT_CHARS;
  * every run cost the ceiling: three one-page summaries, or three chat
  * questions, against a published 30,774 characters.
  */
-export const AI_PER_CALL_ALLOWANCE_FACT = `${AI_ALLOWANCE_CLAUSE} for your connection. One run never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them, however long the document is, and the allowance resets daily.`;
+const perCallFactIn = (scope: AllowanceScope) =>
+  `${AI_ALLOWANCE_CLAUSE}${SCOPE_WORDS[scope].offer}. One run never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them, however long the document is, and the allowance resets daily.`;
 
 /**
  * What one chat question costs — the chat-specific half of its allowance.
@@ -377,14 +465,14 @@ const CHAT_QUESTION_COST_NOTE =
  * bucket, so "at least 3 summaries" alone would be false for anyone who
  * translated first — hence "if nothing else draws on it".
  */
-export function aiAllowanceFactFor(slug: string): string {
+function factForIn(slug: string, scope: AllowanceScope): string {
   if (AI_RUN_PRICING[slug] === "per-character") {
-    return `${AI_ALLOWANCE_FACT} The other AI tools draw on the same allowance.`;
+    return `${factIn(scope)} The other AI tools draw on the same allowance.`;
   }
   const unit = aiRunUnitFor(slug);
   const n = AI_PER_CALL_RUNS_PER_DAY_AT_LEAST;
   const chat = slug === CHAT_TOOL_SLUG ? ` ${CHAT_QUESTION_COST_NOTE}` : "";
-  return `${AI_PER_CALL_ALLOWANCE_FACT}${chat} However long the document, at least ${n} ${runsNoun(unit, n)} ${n === 1 ? "fits" : "fit"} in a day if nothing else draws on it. The other AI tools draw on the same allowance.`;
+  return `${perCallFactIn(scope)}${chat} However long the document, at least ${n} ${runsNoun(unit, n)} ${n === 1 ? "fits" : "fit"} in a day if nothing else draws on it. The other AI tools draw on the same allowance.`;
 }
 
 /** "a summary, a chat question or an extraction", from the pages' own table. */
@@ -396,17 +484,20 @@ const PER_CALL_UNITS = listed(
 /**
  * What a visitor is told when it runs out.
  *
- * It names the CONNECTION, never the reader. See the module docblock: the bucket
- * is an address, and an address is not a person. The first version of this fix
- * said "You have used your 3 free AI runs for today", which is a factual claim
- * about the reader's own past conduct and is false for everyone behind a shared
- * address who has run nothing.
+ * It names the SCOPE the limiter keys — the connection, or everyone using
+ * pdf.xyz ({@link ALLOWANCE_SCOPE}) — never the reader. See the module
+ * docblock: a bucket is an address or the whole site, and neither is a
+ * person. The first version of this fix said "You have used your 3 free AI
+ * runs for today", which is a factual claim about the reader's own past
+ * conduct and is false for everyone behind a shared address who has run
+ * nothing — and for every visitor while the bucket is shared.
  *
- * The shared-network sentence is the one addition beyond stating the scope:
- * "this connection" is accurate but leaves a blameless reader hunting for what
- * they did. Naming the shared-network case answers that without reinstating
- * the old "shared across everyone using pdf.xyz", which claimed one bucket for
- * the whole product and was false for every visitor.
+ * The who-shares sentence is the one addition beyond stating the scope: a
+ * scope alone leaves a blameless reader hunting for what they did. Per
+ * connection it names the shared-network case; shared, it says every
+ * visitor's AI jobs count. (Until 2026-10-10 this note called "shared across
+ * everyone using pdf.xyz" false for every visitor. It was, from 2026-08-11
+ * until production was shared again; it is true now — the module docblock.)
  *
  * NOT TOOL-AWARE: the route cannot say which tool is refused — it is one
  * constant, served by `rateLimitErrorResult` to every AI tool, and nothing
@@ -431,8 +522,55 @@ const PER_CALL_UNITS = listed(
  *    not only when the bucket is empty. "or too little of it is left for this
  *    document" says which of the two it can be without claiming to know
  *    (wave1/l01-page-leak, 2026-09-28).
+ *  - it said "The free AI allowance for this connection …" and "On a shared
+ *    network that can include AI work by someone else" while the bucket was
+ *    one pool for the whole site (review, 2026-10-10). Its scope now comes
+ *    from {@link SCOPE_WORDS}, like the offer's.
  * `ratelimit/allowance-copy.test.ts` holds it to every AI tool in the
- * catalogue (all of them or none), and `tools/ai-allowance-per-tool.test.ts`
- * holds its per-run clause to the pages' own units.
+ * catalogue (all of them or none), `tools/ai-allowance-per-tool.test.ts`
+ * holds its per-run clause to the pages' own units, and
+ * `ratelimit/keying-disclosure.test.tsx` holds its scope to the limiter.
  */
-export const AI_ALLOWANCE_USED_MESSAGE = `The free AI allowance for this connection is used up for today, or too little of it is left for this document. It covers ${AI_ALLOWANCE_CLAUSE}, shared across the AI tools: ${listed(Object.values(PER_CHARACTER_JOB_COST), "and")}, and ${PER_CALL_UNITS} never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them. On a shared network that can include AI work by someone else. The allowance resets daily.`;
+const usedMessageIn = (scope: AllowanceScope) =>
+  `${SCOPE_WORDS[scope].allowance} is used up for today, or too little of it is left for this document. It covers ${AI_ALLOWANCE_CLAUSE}, shared across the AI tools: ${listed(Object.values(PER_CHARACTER_JOB_COST), "and")}, and ${PER_CALL_UNITS} never counts more than ${AI_PER_CALL_RUN_CEILING.toLocaleString("en-US")} of them. ${SCOPE_WORDS[scope].whoShares} The allowance resets daily.`;
+
+/**
+ * Every allowance sentence, for one scope. The constants below are this, for
+ * {@link ALLOWANCE_SCOPE}; `ratelimit/keying-disclosure.test.tsx` runs it for
+ * the OTHER scope too, so a flipped flag ships sentences already read.
+ */
+export function aiAllowanceCopy(scope: AllowanceScope) {
+  return {
+    fact: factIn(scope),
+    perCallFact: perCallFactIn(scope),
+    usedMessage: usedMessageIn(scope),
+    whoShares: SCOPE_WORDS[scope].whoShares,
+    pool: SCOPE_WORDS[scope].pool,
+    factFor: (slug: string) => factForIn(slug, scope),
+  } as const;
+}
+
+const COPY = aiAllowanceCopy(ALLOWANCE_SCOPE);
+
+/** The offer in the per-character unit, for {@link ALLOWANCE_SCOPE}. */
+export const AI_ALLOWANCE_FACT = COPY.fact;
+
+/** The offer on the three `per-call` tools, for {@link ALLOWANCE_SCOPE}. */
+export const AI_PER_CALL_ALLOWANCE_FACT = COPY.perCallFact;
+
+/** The refusal, for {@link ALLOWANCE_SCOPE}. */
+export const AI_ALLOWANCE_USED_MESSAGE = COPY.usedMessage;
+
+/**
+ * Who shares the allowance, as a sentence — for copy that says it beside the
+ * clause (the AI tools' FAQ answers) instead of writing it by hand.
+ */
+export const AI_ALLOWANCE_WHO_SHARES = COPY.whoShares;
+
+/** The pool, as a noun phrase: "one pool shared by everyone using pdf.xyz". */
+export const AI_ALLOWANCE_POOL = COPY.pool;
+
+/** The allowance, stated for ONE tool, for {@link ALLOWANCE_SCOPE}. */
+export function aiAllowanceFactFor(slug: string): string {
+  return COPY.factFor(slug);
+}

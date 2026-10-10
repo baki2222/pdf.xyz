@@ -386,7 +386,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-10-10",
   },
   {
     slug: "how-to-convert-pdf-to-word",
@@ -475,7 +475,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-10-10",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -1192,7 +1192,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-17",
+    updated: "2026-10-10",
   },
   {
     slug: "how-to-password-protect-a-pdf",
@@ -1280,7 +1280,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-10-10",
   },
   {
     slug: "how-to-translate-a-pdf",
@@ -1373,7 +1373,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-10-10",
   },
   {
     slug: "how-to-delete-pages-from-a-pdf",
@@ -1688,7 +1688,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-10-10",
   },
   {
     slug: "how-to-add-page-numbers-to-a-pdf",
@@ -1985,6 +1985,6 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-10-10",
   },
 ];

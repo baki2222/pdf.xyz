@@ -542,8 +542,7 @@ describe("the policy pages do not promise what the product does not do", () => {
     const registries = [
       ...own.matchAll(/from "@\/lib\/privacy\/([\w-]+)"/g),
     ].map((m) => path.join(ROOT, "src", "lib", "privacy", `${m[1]}.ts`));
-    if (name === "privacy")
-      expect(registries.length).toBeGreaterThanOrEqual(5);
+    if (name === "privacy") expect(registries.length).toBeGreaterThanOrEqual(5);
     const source = [own, ...registries.map(read)]
       .map(withoutComments)
       .join(" \n ");

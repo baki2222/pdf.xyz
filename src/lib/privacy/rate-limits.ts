@@ -40,7 +40,13 @@ export const RATE_LIMIT_DISCLOSURE = PER_CLIENT_KEYING_DISCLOSED
 /**
  * What a "Notify me" press adds to the limiter, for §4's bullet about it:
  * nothing to say while the counters are shared.
+ *
+ * It read "The press also counts toward the rate limit for your network
+ * address, kept as a hash as described above." until review (2026-10-10),
+ * when the disclosed counterfactual (the flag flipped, privacy-truth run)
+ * put the bullet at 640 characters, past §4's 600-character bound. The
+ * per-client sentence above already says what is hashed and for how long.
  */
 export const INTEREST_RATE_LIMIT_NOTE = PER_CLIENT_KEYING_DISCLOSED
-  ? " The press also counts toward the rate limit for your network address, kept as a hash as described above."
+  ? " It also counts toward the per-address rate limit above."
   : "";

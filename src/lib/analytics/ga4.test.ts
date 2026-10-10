@@ -201,8 +201,13 @@ describe("page views carry the path, never the query", () => {
     sendGa4PageView("/tools/merge-pdf?handoff=tok_SECRET123#frag");
     sendGa4PageView("/tools/split-pdf");
     const locations = pageLocations();
+    // AMENDED 2026-10-10: each page view is now preceded by a `set` of the
+    // same query-free location (for the tag's own hits), so every location
+    // appears twice — the set, then the page_view — and none carries a query.
     expect(locations).toEqual([
       `${location.origin}/tools/merge-pdf`,
+      `${location.origin}/tools/merge-pdf`,
+      `${location.origin}/tools/split-pdf`,
       `${location.origin}/tools/split-pdf`,
     ]);
     expect(JSON.stringify(pushedCalls())).not.toContain("tok_SECRET123");

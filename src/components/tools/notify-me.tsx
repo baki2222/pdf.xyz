@@ -32,6 +32,13 @@ import { getToolBySlug } from "@/lib/tools";
  * `gated_tool_interest`, with Google's cookie id. Both disclosures — the line
  * under the button and the /privacy bullet — now say so
  * (`interest-disclosure.test.ts`).
+ *
+ * "ONLY THE NAME" IS A CLAIM ABOUT THE COUNT, not about the request (review,
+ * 2026-10-10). The line said "Pressing it sends us the tool's name — nothing
+ * about you" and the acknowledgement "We received only the tool's name",
+ * while /privacy §4 says — truly — that the request reaches us like any other
+ * and so appears in the ordinary logs, IP address and user-agent included.
+ * Both now scope the claim to the count and name the logs.
  */
 export function NotifyMe({
   toolName,
@@ -73,7 +80,7 @@ export function NotifyMe({
         <Check className="size-4 shrink-0" aria-hidden />
         Noted — one more ask for {toolName} counted.
         {tool
-          ? " We received only the tool's name — nothing about you or your files."
+          ? " We counted only the tool's name; the count holds nothing about you or your files."
           : " Nothing was sent from your device."}
       </p>
     );
@@ -107,8 +114,9 @@ export function NotifyMe({
         Notify me when this ships
       </button>
       <p className="text-muted text-xs leading-relaxed">
-        Pressing it sends us the tool&apos;s name — nothing about you. If you
-        allowed analytics, Google Analytics counts the press too.
+        The count holds only the tool&apos;s name; like any request, the press
+        appears in our ordinary server logs. If you allowed analytics, Google
+        Analytics counts the press too.
       </p>
     </div>
   );

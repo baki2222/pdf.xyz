@@ -271,19 +271,18 @@ describe("who shares the AI allowance is said the way the limiter keys it", () =
     const keyed = keyedPerClient();
     // The allowance refusal names its scope; the two generic ones must not
     // claim the connection while the count is shared.
-    expect(scopeOf(ALLOWANCE_REFUSAL)).toBe(
-      keyed ? "connection" : "everyone",
-    );
+    expect(scopeOf(ALLOWANCE_REFUSAL)).toBe(keyed ? "connection" : "everyone");
     expect(ALLOWANCE_REFUSAL).toBe(AI_ALLOWANCE_USED_MESSAGE);
     for (const generic of [RATE_LIMITED_MESSAGE, AI_CEILING_REACHED_MESSAGE])
-      expect(
-        [keyed ? "connection" : "everyone", "neither"],
-        generic,
-      ).toContain(scopeOf(generic));
+      expect([keyed ? "connection" : "everyone", "neither"], generic).toContain(
+        scopeOf(generic),
+      );
   });
 
   it("the copy module selects its words by the flag the limiter reads", () => {
-    expect(ALLOWANCE_SCOPE).toBe(allowanceScopeFor(PER_CLIENT_KEYING_DISCLOSED));
+    expect(ALLOWANCE_SCOPE).toBe(
+      allowanceScopeFor(PER_CLIENT_KEYING_DISCLOSED),
+    );
   });
 
   it("positive control: in the disclosed counterfactual, the words a flipped flag selects scope to the connection", () => {

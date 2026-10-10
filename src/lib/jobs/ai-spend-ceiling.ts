@@ -141,12 +141,19 @@ export function aiSpendTokens(usage: {
  * file or your own allowance", the shape the allowance guard bans: the limiter
  * counts a connection, not a person, so "your own" claims what it cannot know.
  * Neither was seen, because this module is outside the copy walk. The
- * allowance is now attributed to the connection, and
+ * allowance was then attributed to the connection, and
  * `ai-spend-ceiling.test.ts` runs both identity ban lists over this string,
  * with each earlier wording as a positive control.
+ *
+ * AND THE CONNECTION WAS A THIRD WRONG OWNER (review, 2026-10-10): the
+ * limiter keyed everyone together, so "the daily AI allowance for your
+ * connection" named a bucket that did not exist. It names no scope now —
+ * which allowance it is not is enough here, and the allowance's own copy says
+ * who shares it (`ai-allowance.ts`). `ratelimit/keying-disclosure.test.tsx`
+ * reads this string for a scope the limiter does not key by.
  */
 export const AI_CEILING_REACHED_MESSAGE =
-  "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side — not a problem with your file, and not the daily AI allowance for your connection. Please try again tomorrow; every other PDF tool is unaffected.";
+  "AI features are temporarily unavailable — the service has reached its daily processing limit. This is a limit on our side — not a problem with your file, and not the free daily AI allowance. Please try again tomorrow; every other PDF tool is unaffected.";
 
 /* ------------------------------------------------------------------ *
  *  The OTHER ceiling — the one outside this system.

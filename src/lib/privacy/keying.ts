@@ -12,9 +12,14 @@
  * Production keys nobody today: read at the wire on 2026-10-10,
  * `/api/worker/operations` reported `rateLimit.code =
  * "remote-configured-shared"`. To change that, flip this flag: /privacy then
- * renders the per-client sentence (`rate-limits.ts`), and the two ship in one
- * commit. `keying-disclosure.test.tsx` holds the rendered page and the
- * limiter's composed chain to each other both ways.
+ * renders the per-client sentence (`rate-limits.ts`), every AI tool page and
+ * the allowance refusal say "for your connection" instead of "shared by
+ * everyone using pdf.xyz" (`jobs/ai-allowance.ts`), and they ship in one
+ * commit. `keying-disclosure.test.tsx` holds the rendered pages and the
+ * limiter's composed chain to each other both ways — the AI pages since
+ * review (2026-10-10), when they were found still saying "connection" beside
+ * a limiter this flag had made shared. After a flip, read the posture at the
+ * wire: the pages cannot see whether the three variables are set.
  *
  * A leaf with no imports, so the limiter can read it without loading copy.
  */

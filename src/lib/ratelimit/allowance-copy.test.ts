@@ -42,7 +42,11 @@
  *
  * THE PROPERTY, stated once so a future rewrite can check itself against it:
  * **no sentence may assert what the reader personally did.** The allowance may
- * be attributed to the connection, which is what the limiter actually counts.
+ * be attributed to what the limiter actually counts: the connection while it
+ * keys by address, everyone using pdf.xyz while it keys everyone together —
+ * which production did on 2026-10-10, so three tests below that required
+ * "connection" are inverted with their history, and the scope is bound to
+ * the limiter by `keying-disclosure.test.tsx`.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";

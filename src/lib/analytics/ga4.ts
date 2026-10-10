@@ -191,6 +191,17 @@ export function sendGa4PageView(
   if (!enabled || !win?.gtag || !doc) return;
   const path = withoutQuery(pathname) || "/";
   const referrer = withoutQuery(doc.referrer ?? "");
+  // The tag's OWN hits — `user_engagement` when a page is left, and whatever
+  // a property's Enhanced Measurement adds — read their location from the
+  // tag's page state, which defaults to `location.href`. Setting it here,
+  // per route, gives them the same query-free address (review, 2026-10-10).
+  // What gtag.js does with it for those hits is Google's code and was not
+  // captured at the wire for this change, so /privacy promises "without its
+  // query string" only for the page views and events below.
+  win.gtag("set", {
+    page_location: `${win.location.origin}${path}`,
+    page_referrer: referrer,
+  });
   win.gtag("event", "page_view", {
     page_location: `${win.location.origin}${path}`,
     page_path: path,

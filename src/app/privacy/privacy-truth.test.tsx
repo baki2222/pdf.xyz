@@ -297,7 +297,9 @@ function freeTextFieldsIn(fileName: string, source: string): OptionsWalk {
   const returned = new Set<string>();
   const dispatchers: string[] = [];
   const fail = (what: string): never => {
-    throw new Error(`${fileName}: ${what} — the options walk cannot tell whether it is free text`);
+    throw new Error(
+      `${fileName}: ${what} — the options walk cannot tell whether it is free text`,
+    );
   };
 
   const parserReturns = (name: string, type: ts.TypeNode | undefined) => {
@@ -327,10 +329,7 @@ function freeTextFieldsIn(fileName: string, source: string): OptionsWalk {
         if (!ts.isIdentifier(d.name)) continue;
         if (d.initializer) consts.set(d.name.text, d.initializer);
         const init = d.initializer;
-        if (
-          init &&
-          (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
-        )
+        if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init)))
           parserReturns(d.name.text, init.type);
         else if (/^parse\w*Options$/.test(d.name.text))
           fail(`${d.name.text} is not a function this walk can read`);
@@ -364,7 +363,8 @@ function freeTextFieldsIn(fileName: string, source: string): OptionsWalk {
       if (type.operator === ts.SyntaxKind.KeyOfKeyword) return;
       return fail(`${at} uses an operator it cannot read`);
     }
-    if (ts.isArrayTypeNode(type)) return visit(type.elementType, `${at}[]`, seen);
+    if (ts.isArrayTypeNode(type))
+      return visit(type.elementType, `${at}[]`, seen);
     if (ts.isUnionTypeNode(type) || ts.isIntersectionTypeNode(type)) {
       for (const member of type.types) visit(member, at, seen);
       return;
@@ -384,16 +384,23 @@ function freeTextFieldsIn(fileName: string, source: string): OptionsWalk {
     if (ts.isTypeLiteralNode(type)) return walkMembers(type.members, at, seen);
     if (ts.isTypeQueryNode(type)) {
       if (isClosedConst(type.exprName.getText(sf))) return;
-      return fail(`${at} is typeof ${type.exprName.getText(sf)}, not a same-file constant`);
+      return fail(
+        `${at} is typeof ${type.exprName.getText(sf)}, not a same-file constant`,
+      );
     }
     if (ts.isIndexedAccessTypeNode(type)) {
       // `(typeof TABLE)[number]` and `(typeof TABLE)[number]["code"]`.
       let root: ts.TypeNode = type;
-      while (ts.isIndexedAccessTypeNode(root) || ts.isParenthesizedTypeNode(root))
+      while (
+        ts.isIndexedAccessTypeNode(root) ||
+        ts.isParenthesizedTypeNode(root)
+      )
         root = ts.isIndexedAccessTypeNode(root) ? root.objectType : root.type;
       if (ts.isTypeQueryNode(root) && isClosedConst(root.exprName.getText(sf)))
         return;
-      return fail(`${at} indexes something other than a same-file \`as const\` table`);
+      return fail(
+        `${at} indexes something other than a same-file \`as const\` table`,
+      );
     }
     if (ts.isTypeReferenceNode(type)) {
       const name = type.typeName.getText(sf);
@@ -438,7 +445,8 @@ function freeTextFieldsIn(fileName: string, source: string): OptionsWalk {
       for (const base of clause.types) {
         const name = base.expression.getText(sf);
         const parent = interfaces.get(name);
-        if (!parent) fail(`${prefix} extends ${name}, which is not declared in this file`);
+        if (!parent)
+          fail(`${prefix} extends ${name}, which is not declared in this file`);
         walkInterface(parent!, prefix, new Set([...seen, name]));
       }
     walkMembers(decl.members, prefix, seen);

@@ -28,6 +28,11 @@ import {
 } from "@/lib/privacy/analytics-events";
 import { ASKED_FOR } from "@/lib/privacy/asked-for";
 import {
+  JOB_RECORD_EXPIRY_NOTE,
+  JOB_RECORD_JOURNAL_NOTE,
+  TYPED_INPUT_QUEUE_LIFETIME,
+} from "@/lib/privacy/job-queue";
+import {
   INTEREST_RATE_LIMIT_NOTE,
   RATE_LIMIT_DISCLOSURE,
 } from "@/lib/privacy/rate-limits";
@@ -156,7 +161,7 @@ export default function PrivacyPage() {
           its name or its size — reaches our servers. The one exception is
           analytics, and only if you allow it: Google Analytics is then told
           which tool you used and a coarse size band of the result, never the
-          file, its name or its exact size (section 4 lists everything it
+          file, its name or its exact size (section 4 describes what it
           receives). Passing a file from one page to a tool keeps it in your
           browser for a short while: {HANDOFF_LIFETIME}
         </p>
@@ -170,29 +175,6 @@ export default function PrivacyPage() {
           storage provider, {STORAGE_PROVIDER}, scanned for malware, processed
           on our processing server, and then removed on this timetable:
         </p>
-        {/* The reconciliation sentence, and the reason the two groups above do
-            not simply add up wherever else you meet them. It renders only while
-            a browser-first tool exists, and both the count and the names come
-            from the catalogue, so retiring the hybrid tool removes the sentence
-            instead of leaving a dangling "0 of these". */}
-        {browserFirst > 0 && (
-          <p>
-            <strong className={strong}>
-              {/* One expression, for the reason recorded in retention-windows.ts:
-                  split across a JSX line break the space is eaten and the page
-                  renders "1of 21". And phrased about the GROUP rather than the
-                  tool, so the sentence stays grammatical whatever its size. */}
-              {`Counted here, but browser-first (${browserFirst} of ${onWorker}).`}
-            </strong>{" "}
-            This group — {split.browserFirst.map((t) => t.name).join(", ")} —
-            runs in your browser first and uploads only when the local attempt
-            cannot finish the job. Because an upload <em>can</em> happen, it is
-            counted with the worker tools above rather than with the {inBrowser}{" "}
-            that never upload. That is why a count of tools with an in-browser
-            mode is larger than the count that never send anything — same
-            catalogue, two different questions.
-          </p>
-        )}
         {/* "Scanned for malware" is true of production, observed at the wire
             (the live worker status reported scan.active = true on 2026-10-10),
             and /status renders that live answer. It is NOT guaranteed by the
@@ -231,13 +213,48 @@ export default function PrivacyPage() {
               for about {jobRecordWindow}
             </strong>{" "}
             so the system can report status, avoid duplicating work, and retry
-            safely. It does not contain your document&apos;s contents.
+            safely. It does not contain your document&apos;s contents.{" "}
+            {JOB_RECORD_JOURNAL_NOTE}
           </li>
           <li>
             Nothing here is used to train any model — not ours, and not a
             provider&apos;s.
           </li>
         </ul>
+        {/* The reconciliation sentence, and the reason the two groups above do
+            not simply add up wherever else you meet them. It renders only while
+            a browser-first tool exists, and both the count and the names come
+            from the catalogue, so retiring the hybrid tool removes the sentence
+            instead of leaving a dangling "0 of these". Below the timetable,
+            never between it and the colon that promises it (review,
+            2026-10-10: at 390 px a reader met twelve lines of counting caveat
+            before the deletion schedule; privacy-truth pins the order). */}
+        {browserFirst > 0 && (
+          <p>
+            <strong className={strong}>
+              {/* One expression, for the reason recorded in retention-windows.ts:
+                  split across a JSX line break the space is eaten and the page
+                  renders "1of 21". And phrased about the GROUP rather than the
+                  tool, so the sentence stays grammatical whatever its size. */}
+              {`Counted here, but browser-first (${browserFirst} of ${onWorker}).`}
+            </strong>{" "}
+            This group — {split.browserFirst.map((t) => t.name).join(", ")} —
+            runs in your browser first and uploads only when the local attempt
+            cannot finish the job. Because an upload <em>can</em> happen, it is
+            counted with the worker tools above rather than with the {inBrowser}{" "}
+            that never upload. That is why a count of tools with an in-browser
+            mode is larger than the count that never send anything — same
+            catalogue, two different questions.
+          </p>
+        )}
+        <p>
+          Every tool page states which of these two applies <em>before</em> you
+          choose a file, and{" "}
+          <Link href="/status" className={link}>
+            the status page
+          </Link>{" "}
+          lists the tools that run entirely in your browser.
+        </p>
         <p>
           Every upload is scanned for malware before any processor touches it,
           and{" "}
@@ -260,21 +277,19 @@ export default function PrivacyPage() {
         </p>
         <p>
           <strong className={strong}>What some tools ask you for.</strong>{" "}
-          {`${askingTools} of the worker and AI tools also take something you type, which travels with the job. This is all of it:`}
+          {`${askingTools} of the worker and AI tools also take something you type, which travels with the job. ${TYPED_INPUT_QUEUE_LIFETIME} This is all of it:`}
         </p>
+        {/* The queue's rule is said once, above; each item says only what
+            differs, after its tools in bold — the shape of the timetable.
+            Nothing after this list links to /status, which lists tools by
+            where they run, not by what they ask for (privacy-truth). */}
         <ul className="ml-5 flex list-disc flex-col gap-2">
           {ASKED_FOR.map((entry) => (
-            <li key={entry.tools.join("+")}>{entry.text}</li>
+            <li key={entry.tools.join("+")}>
+              <strong className={strong}>{entry.lead}</strong> {entry.text}
+            </li>
           ))}
         </ul>
-        <p>
-          Every tool page states which of these applies <em>before</em> you
-          choose a file, and{" "}
-          <Link href="/status" className={link}>
-            the status page
-          </Link>{" "}
-          lists them all.
-        </p>
       </LegalSection>
 
       <LegalSection id="ai" heading="3. Tools that use an AI model">
@@ -312,14 +327,13 @@ export default function PrivacyPage() {
         <ul className="ml-5 flex list-disc flex-col gap-2">
           <li>
             <strong className={strong}>Ordinary server logs.</strong> Every
-            request to this site passes through {CLOUDFLARE}, which sits in
-            front of our servers, and most also reach our own servers; both
-            record the technical details a web request produces — IP address,
-            time, the page or endpoint requested, browser user-agent. Our
-            storage provider receives the same details for uploads, which your
-            browser sends to it directly. These records are used to operate and
-            secure the service, including to detect abuse. How long they are
-            kept depends on {CLOUDFLARE}&apos;s retention and on our
+            request to this site passes through {CLOUDFLARE}, in front of our
+            servers, and most also reach our own servers; both record what a web
+            request carries — IP address, time, the page or endpoint requested,
+            browser user-agent. Our storage provider records the same for
+            uploads, which your browser sends to it directly. We use these
+            records to run and secure the service and to detect abuse. How long
+            they are kept depends on {CLOUDFLARE}&apos;s retention and our
             servers&apos; log settings; this policy does not yet promise a fixed
             period.
           </li>
@@ -332,30 +346,67 @@ export default function PrivacyPage() {
             create a job with a random identifier so your browser can poll for
             the result. It is not linked to you.
           </li>
-          <li>
-            <strong className={strong}>
-              Product analytics — only after you say yes.
-            </strong>{" "}
-            We use Google Analytics to count visits and see which tools are
-            used, and it is loaded only after you choose &ldquo;Allow
-            analytics&rdquo; in the banner. Until then — and always, if you
-            decline — no analytics code loads and nothing is sent to Google.
-            When allowed, Google receives, acting as our processor: coarse
-            browser and device information, an approximate location derived from
-            your IP address, the random identifier its cookie holds, and for
-            each page you view {PAGE_VIEW_DESCRIPTION}. It also receives the
-            events below, each with the fields shown, every one of them carrying
-            the page it happened on without its query string. It never sees your
-            documents: analytics events are stripped of filenames, links, and
-            query strings before they are sent, and file contents never pass
-            through this channel at all. How long Google keeps this data is set
-            by the retention setting of our Google Analytics property. There is
-            no advertising pixel and no error-tracking SDK, and you can change
-            your decision at any time in the{" "}
-            <a href="#cookies" className="text-fg underline underline-offset-2">
-              cookies section
-            </a>{" "}
-            below.
+          {/* One bullet, four short answers, each with its lead in bold: it was
+              a single 1,179-character paragraph (about 26 lines at 390 px),
+              with what is sent and for how long buried in its middle and at
+              its end. privacy-truth bounds every §4 block at 600 characters. */}
+          <li className="flex flex-col gap-2">
+            <p>
+              <strong className={strong}>
+                Product analytics — only after you say yes.
+              </strong>{" "}
+              We use Google Analytics to count visits and see which tools are
+              used, and it is loaded only after you choose &ldquo;Allow
+              analytics&rdquo; in the banner. Until then — and always, if you
+              decline — no analytics code loads and nothing is sent to Google.
+            </p>
+            <p>
+              <strong className={strong}>What Google receives</strong>, acting
+              as our processor:
+            </p>
+            <ul className="ml-5 flex list-disc flex-col gap-1.5">
+              <li>
+                coarse browser and device information, and an approximate
+                location derived from your IP address;
+              </li>
+              <li>the random identifier its cookie holds;</li>
+              <li>for each page you view, {PAGE_VIEW_DESCRIPTION};</li>
+              <li>
+                the events listed below, each with the fields shown. Every event
+                also carries the address of the page it happened on and, when
+                there is one, of the previous page, both without their query
+                strings;
+              </li>
+              <li>
+                measurements Google Analytics makes on its own for each visit:
+                that a visit started, whether it is your first visit, and how
+                long a page was in use. Depending on its &ldquo;enhanced
+                measurement&rdquo; setting in our Google Analytics property, it
+                can also record scrolling, clicks on links that lead off this
+                site (with the link&apos;s address), site searches and file
+                downloads.
+              </li>
+            </ul>
+            <p>
+              <strong className={strong}>What it never sees.</strong> Your
+              documents: file contents never pass through this channel at all,
+              and the events our code sends are stripped of filenames, links and
+              query strings before they are sent.
+            </p>
+            <p>
+              <strong className={strong}>How long.</strong> How long Google
+              keeps this data is set by the retention setting of our Google
+              Analytics property. There is no advertising pixel and no
+              error-tracking SDK, and you can change your decision at any time
+              in the{" "}
+              <a
+                href="#cookies"
+                className="text-fg underline underline-offset-2"
+              >
+                cookies section
+              </a>{" "}
+              below.
+            </p>
           </li>
         </ul>
         {/* Rendered from the registry typed by the event schema itself
@@ -612,11 +663,12 @@ export default function PrivacyPage() {
           if it never ran), the result stops being downloadable after{" "}
           {outputWindow} and its stored copy follows by the same rule, and the
           job record — the filename included — expires after about{" "}
-          {jobRecordWindow}. So a request about a document you processed is
-          usually a request about data that no longer exists. We are also often
-          unable to connect a request to a specific past request without
-          information that would identify you more than we currently do — we
-          will not create a record of you in order to answer.
+          {`${jobRecordWindow}, ${JOB_RECORD_EXPIRY_NOTE}`}. So a request about
+          a document you processed is usually a request about data that no
+          longer exists. We are also often unable to connect a request to a
+          specific past request without information that would identify you more
+          than we currently do — we will not create a record of you in order to
+          answer.
         </p>
         <p>
           If you are in the UK or EEA and you think we have handled your data

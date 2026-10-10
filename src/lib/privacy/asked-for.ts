@@ -11,13 +11,21 @@
  * The SUBJECTS are derived by `privacy-truth.test.tsx`: every free-text field
  * of every job-options interface a `parse…Options` function returns, by AST,
  * and every URL-input tool in the catalogue. A field added to a form without a
- * line here is red there. Tool names come from the catalogue, never retyped.
+ * line here is red there — for every type shape the options use, since that
+ * walk fails closed (review, 2026-10-10: it used to skip `string | null`,
+ * `readonly string[]` and `Array<string>` without a word). Tool names come
+ * from the catalogue, never retyped.
+ *
+ * WHAT THE QUEUE DOES WITH IT IS SAID ONCE, by the page's lead paragraph
+ * (`TYPED_INPUT_QUEUE_LIFETIME`, `./job-queue`). Until review each entry
+ * ended with the same sentence — five times, word for word, in one list —
+ * and the password, the most sensitive input, was the only one given no
+ * window. Each entry now says only what differs, after its tools in bold.
  *
  * Copy: walked by `copyFiles()` (`src/lib/privacy`).
  */
 import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
 import { getToolBySlug } from "@/lib/tools";
-import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import { AI_PROVIDER } from "./processors";
 
 function nameOf(slug: string): string {
@@ -26,44 +34,47 @@ function nameOf(slug: string): string {
   return tool.name;
 }
 
-/** How long what you typed waits in our job queue. */
-const inTheQueue = (pronoun: "it" | "them") =>
-  `Our job queue keeps ${pronoun} only until the job ends — or, if no worker ever runs the job, until the queue's retention lapses after ${RETENTION_WINDOWS.jobRecord}.`;
-
 export interface AskedFor {
   /** The tools, by catalogue name. */
   readonly tools: readonly string[];
-  /** What they ask for, and what becomes of it. */
+  /** The tools as the item's bold lead: "Protect PDF and Unlock PDF". */
+  readonly lead: string;
+  /** What they ask for, and what becomes of it — the sentence after the lead. */
   readonly text: string;
 }
 
+function entry(slugs: readonly string[], text: string): AskedFor {
+  const tools = slugs.map(nameOf);
+  return { tools, lead: tools.join(" and "), text };
+}
+
 export const ASKED_FOR: readonly AskedFor[] = [
-  {
-    tools: [nameOf("request-signatures")],
-    text: `${nameOf("request-signatures")} asks for the name and email address of each signer — up to ${MAX_REQUEST_SIGNERS} — and, if you add them, a title, a message for the signers and a label for each field. They are written into the package you download (its manifest), so they last as long as the result does. ${inTheQueue("them")} The tool sends no email to anyone.`,
-  },
-  {
-    tools: [nameOf("protect-pdf"), nameOf("unlock-pdf")],
-    text: `${nameOf("protect-pdf")} and ${nameOf("unlock-pdf")} ask for a password. What happens to it is set out under “One case worth naming” above.`,
-  },
-  {
-    tools: [nameOf("webpage-to-pdf")],
-    text: `${nameOf("webpage-to-pdf")} asks for the web address of the page you want. Our processing server fetches that page itself, so the site sees a request from our server, not from you. ${inTheQueue("it")} The result's file name is made from the address, so the address also appears in that name, which the job record keeps.`,
-  },
-  {
-    tools: [nameOf("chat-with-pdf")],
-    text: `${nameOf("chat-with-pdf")} takes your question and, for a follow-up, the conversation so far. Both are sent to ${AI_PROVIDER.name} with the document's text on every question, and the question is written into the answer you download, so it lasts as long as the result does. ${inTheQueue("them")}`,
-  },
-  {
-    tools: [nameOf("ai-extract")],
-    text: `${nameOf("ai-extract")} takes the instructions, or the names and descriptions of the fields, that you write. They are sent to ${AI_PROVIDER.name} with the document's text, and written into the result you download, so they last as long as it does. ${inTheQueue("them")}`,
-  },
-  {
-    tools: [nameOf("summarize-pdf")],
-    text: `${nameOf("summarize-pdf")} takes an optional focus you type. It is sent to ${AI_PROVIDER.name} with the document's text, and written into the result you download, so it lasts as long as the result does. ${inTheQueue("it")}`,
-  },
-  {
-    tools: [nameOf("translate-pdf")],
-    text: `${nameOf("translate-pdf")} takes optional instructions you type. They are sent to ${AI_PROVIDER.name} with the document's text, and written into the result you download, so they last as long as it does. ${inTheQueue("them")}`,
-  },
+  entry(
+    ["request-signatures"],
+    `asks for the name and email address of each signer — up to ${MAX_REQUEST_SIGNERS} — and, if you add them, a title, a message for the signers and a label for each field. They are written into the package you download (its manifest), so they last as long as the result does. The tool sends no email to anyone.`,
+  ),
+  entry(
+    ["protect-pdf", "unlock-pdf"],
+    "ask for a password. What happens to it is set out under “One case worth naming” above.",
+  ),
+  entry(
+    ["webpage-to-pdf"],
+    "asks for the web address of the page you want. Our processing server fetches that page itself, so the site sees a request from our server, not from you. The result's file name is made from the address, so the address also appears in that name, which the job record keeps.",
+  ),
+  entry(
+    ["chat-with-pdf"],
+    `takes your question and, for a follow-up, the conversation so far. Both are sent to ${AI_PROVIDER.name} with the document's text on every question, and the question is written into the answer you download, so it lasts as long as the result does.`,
+  ),
+  entry(
+    ["ai-extract"],
+    `takes the instructions, or the names and descriptions of the fields, that you write. They are sent to ${AI_PROVIDER.name} with the document's text, and written into the result you download, so they last as long as it does.`,
+  ),
+  entry(
+    ["summarize-pdf"],
+    `takes an optional focus you type. It is sent to ${AI_PROVIDER.name} with the document's text, and written into the result you download, so it lasts as long as the result does.`,
+  ),
+  entry(
+    ["translate-pdf"],
+    `takes optional instructions you type. They are sent to ${AI_PROVIDER.name} with the document's text, and written into the result you download, so they last as long as it does.`,
+  ),
 ];

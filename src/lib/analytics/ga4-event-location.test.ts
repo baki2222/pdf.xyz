@@ -118,7 +118,9 @@ describe("product events name their page without the query", () => {
     expect(set, "no set command").toBeGreaterThanOrEqual(0);
     expect(set).toBeLessThan(view);
     const params = all[set]![1] as Record<string, unknown>;
-    expect(params.page_location).toBe(`${window.location.origin}/tools/sign-pdf`);
+    expect(params.page_location).toBe(
+      `${window.location.origin}/tools/sign-pdf`,
+    );
     expect(JSON.stringify(all)).not.toContain(TOKEN);
   });
 });

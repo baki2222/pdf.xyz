@@ -127,11 +127,14 @@ describe("the interest counter never exists without its disclosures", () => {
     const button = readFileSync(
       path.join(ROOT, "src", "components", "tools", "notify-me.tsx"),
       "utf8",
-    ).replace(/\/\*[\s\S]*?\*\//g, " ")
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
       .replace(/^\s*\/\/.*$/gm, "");
     // Health: the source still holds an acknowledgement and a line to read.
     expect(button).toMatch(/one more ask for/);
-    expect(button).toMatch(/Google Analytics counts the press/);
+    // \s+, not a space: the line wraps in the source (a phrase search has a
+    // hole at every wrap — this one fell into it on its first run).
+    expect(button).toMatch(/Google\s+Analytics\s+counts\s+the\s+press/);
     expect(unscopedOnlyTheName(button)).toEqual([]);
     expect(unscopedOnlyTheName(renderedButtonLine())).toEqual([]);
   });
