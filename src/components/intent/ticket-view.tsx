@@ -813,10 +813,14 @@ export default function TicketView({
                 )}
                 aria-hidden
               />
+              {/* On the narrowest phones "for these files" is read, not
+                  drawn, so the count is not what gets cut. */}
               <span className="truncate">
-                {more.length > 0
-                  ? `More for these files (${more.length})`
-                  : "More about these files"}
+                More{" "}
+                <span className="max-[23rem]:sr-only">
+                  {more.length > 0 ? "for these files" : "about these files"}
+                </span>
+                {more.length > 0 && ` (${more.length})`}
               </span>
             </button>
           ) : (
