@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { getAllToolSlugs, getToolsByCategory } from "../src/lib/tools";
+import { getAllToolSlugs, getToolsByCategory, tools } from "../src/lib/tools";
 import { categories } from "../src/lib/tools/categories";
 import { categoryHref } from "../src/lib/tools/category-href";
 import { getRunnerKind } from "../src/lib/pdf/registry";
 import { processingSplit } from "../src/lib/tools/processing-split";
 import { whereItRuns } from "../src/lib/tools/where-it-runs";
-import { waitForHydration } from "./helpers";
+import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
+import { encodePng } from "./client-proof/fixtures";
 import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 
@@ -463,5 +464,221 @@ for (const width of [360, 390]) {
         ).toBeLessThanOrEqual(1);
       });
     }
+  });
+}
+
+/**
+ * Every tool page still fits a phone once a FILE is on it — a file named the
+ * way people name files: 66 characters and no break opportunity in them.
+ *
+ * WHAT SHIPPED (review of the batch-B merge, 2026-10-10, and on main before
+ * it): at 390px, 49 of the 50 tool pages scrolled sideways when such a file
+ * was refused — every one but Webpage to PDF, which takes a URL — at 486 to
+ * 568px, and Compare PDF did with a file it took (658px). The name sat in a
+ * flex item (the refusal note's message, the merge and compress "skipped"
+ * lists, Compare's file card) whose `min-width: auto` is the width of its
+ * longest word. "Every tool page fits a phone" above stayed green throughout:
+ * it never loads a file.
+ *
+ * THE SET IS DERIVED: every catalogue tool whose formats are files (not a
+ * URL). For each, the page is loaded fresh with the worker status answering
+ * ready (a worker panel mounts its picker only then), and given, through its
+ * first file input: a file it takes (the first of its formats a fixture is
+ * made for), a PDF when it does not take PDFs, and a file nothing takes
+ * (`.xyz`). Each load must show the name it was given — the load landed —
+ * before the page is measured, five times over 0.6s, widest kept.
+ */
+const LONG_STEM =
+  "Quarterly_Financial_Statement_Consolidated_Final_Approved_Version_2026";
+/** `<stem>.<ext>`, 66 characters, one unbroken word. */
+const longName = (ext: string) =>
+  `${LONG_STEM.slice(0, 65 - ext.length)}.${ext}`;
+
+interface Payload {
+  name: string;
+  mimeType: string;
+  buffer: Buffer;
+  /** Text a page that reads the file into an editor shows instead of its name. */
+  body?: string;
+}
+
+const ZIP_HEAD = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]);
+
+/** A fixture for one catalogue format, or null when none is made for it. */
+async function payloadFor(format: string): Promise<Payload | null> {
+  switch (format) {
+    case "PDF":
+      return {
+        name: longName("pdf"),
+        mimeType: "application/pdf",
+        buffer: Buffer.from(await makePdfBytes("long name", 1)),
+      };
+    case "PNG":
+      return {
+        name: longName("png"),
+        mimeType: "image/png",
+        buffer: encodePng(Buffer.alloc(8 * 8 * 3, 0x80), 8, 8),
+      };
+    case "DOCX":
+      return {
+        name: longName("docx"),
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        buffer: ZIP_HEAD,
+      };
+    case "XLSX":
+      return {
+        name: longName("xlsx"),
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        buffer: ZIP_HEAD,
+      };
+    case "PPTX":
+      return {
+        name: longName("pptx"),
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        buffer: ZIP_HEAD,
+      };
+    case "HTML":
+      return {
+        name: longName("html"),
+        mimeType: "text/html",
+        buffer: Buffer.from("<!doctype html><p>A page.</p>"),
+        body: "A page.",
+      };
+    case "MD":
+      return {
+        name: longName("md"),
+        mimeType: "text/markdown",
+        buffer: Buffer.from("# A title\n\nA paragraph.\n"),
+        body: "A paragraph.",
+      };
+    case "TXT":
+      return {
+        name: longName("txt"),
+        mimeType: "text/plain",
+        buffer: Buffer.from("A paragraph of plain text.\n"),
+        body: "A paragraph of plain text.",
+      };
+    default:
+      return null;
+  }
+}
+
+const REFUSED: Payload = {
+  name: longName("xyz"),
+  mimeType: "application/octet-stream",
+  buffer: Buffer.from("not a document"),
+};
+
+const FILE_TOOLS = tools.filter((t) => !t.accept.includes("URL"));
+
+/** What each page is given: its own format, a PDF if it refuses them, `.xyz`. */
+async function loadsFor(
+  tool: (typeof tools)[number],
+): Promise<{ label: string; payload: Payload }[]> {
+  let taken: Payload | null = null;
+  for (const format of tool.accept) {
+    taken = await payloadFor(format);
+    if (taken) break;
+  }
+  if (!taken)
+    throw new Error(
+      `${tool.slug}: no fixture is made for any of its formats (${tool.accept.join(", ")}) — add one to payloadFor`,
+    );
+  const loads = [{ label: `a ${tool.accept[0]} it takes`, payload: taken }];
+  if (!tool.accept.includes("PDF"))
+    loads.push({
+      label: "a PDF it refuses",
+      payload: (await payloadFor("PDF"))!,
+    });
+  loads.push({ label: "a file nothing takes", payload: REFUSED });
+  return loads;
+}
+
+/**
+ * The widest the document is over 0.6s, against the phone it is drawn on.
+ * NOT `window.innerWidth`: a phone zooms out to fit a page wider than its
+ * layout viewport, so innerWidth grows WITH the overflow (566 for a 566px
+ * page at 390 — the positive control below caught it). The layout width is
+ * the viewport asked for, and the root's clientWidth must agree with it.
+ */
+async function widest(page: Page) {
+  const phone = page.viewportSize()!.width;
+  let worst = { scrollWidth: 0, clientWidth: 0, phone };
+  for (let i = 0; i < 5; i++) {
+    const now = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    if (now.scrollWidth >= worst.scrollWidth) worst = { ...now, phone };
+    await page.waitForTimeout(150);
+  }
+  // Health: the page is laid out at the phone's width.
+  expect(worst.clientWidth).toBe(phone);
+  return worst;
+}
+
+test("health: the long-name set is every tool that takes a file — at least 45, and only URL tools left out", () => {
+  expect(FILE_TOOLS.length).toBeGreaterThanOrEqual(45);
+  const left = tools.filter((t) => !FILE_TOOLS.includes(t));
+  expect(left.every((t) => t.accept.join() === "URL")).toBe(true);
+  expect(left.length).toBeLessThanOrEqual(2);
+});
+
+test("positive control: an unbroken name in a row that does not let it break widens the page, and the measure sees it", async ({
+  page,
+}) => {
+  await page.goto("/tools/rotate-pdf");
+  const before = await widest(page);
+  expect(before.scrollWidth).toBeLessThanOrEqual(before.phone);
+  // The shape that shipped: a flex row whose item is as wide as its word.
+  await page.evaluate((name) => {
+    const row = document.createElement("p");
+    row.style.display = "flex";
+    const message = document.createElement("span");
+    message.textContent = `${name} isn't a PDF.`;
+    row.append(message);
+    document.querySelector("[data-tool-panel]")!.append(row);
+  }, longName("xyz"));
+  const after = await widest(page);
+  expect(after.scrollWidth).toBeGreaterThan(after.phone);
+});
+
+for (const tool of FILE_TOOLS) {
+  test(`/tools/${tool.slug}: a 66-character file name never widens the page — taken, and refused`, async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await planStatus(page, ["ready"]);
+    const wide: string[] = [];
+    for (const { label, payload } of await loadsFor(tool)) {
+      await page.goto(`/tools/${tool.slug}`);
+      const input = fileInput(page);
+      await waitForHydration(input);
+      await input.setInputFiles(payload);
+      // The load landed: the page shows the name it was given — or, for a
+      // text tool that reads the file into its editor, the file's text.
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              ({ name, body }) =>
+                (document.body.textContent?.includes(name) ?? false) ||
+                (!!body &&
+                  [...document.querySelectorAll("textarea")].some((t) =>
+                    t.value.includes(body),
+                  )),
+              { name: payload.name, body: payload.body },
+            ),
+          { message: `${label}: the page never showed ${payload.name}` },
+        )
+        .toBe(true);
+      const { scrollWidth, phone } = await widest(page);
+      if (scrollWidth > phone)
+        wide.push(`${label}: the page is ${scrollWidth}px wide at ${phone}px`);
+    }
+    expect(wide).toEqual([]);
   });
 }
