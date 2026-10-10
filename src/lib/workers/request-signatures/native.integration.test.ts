@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";

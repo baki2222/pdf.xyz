@@ -1,3 +1,4 @@
+// @native-canvas
 import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
 import {

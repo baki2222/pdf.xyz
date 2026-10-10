@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The round-trip fidelity instrument, held to its own controls before it is
  * allowed to judge an export (CLAUDE.md: every predicate gets a health check

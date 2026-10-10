@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The header/footer runner, in a browser whose locale writes dates in a script
  * pdf.xyz cannot draw.

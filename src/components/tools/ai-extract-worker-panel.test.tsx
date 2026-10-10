@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * AI Data Extraction refuses two fields with the same name IN THE PANEL, before
  * a byte is uploaded or a character of the allowance is reserved.

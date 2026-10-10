@@ -1,3 +1,4 @@
+// @native-canvas
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { provesPptxPictures, provesPptxPresentationChain } from "./capability";

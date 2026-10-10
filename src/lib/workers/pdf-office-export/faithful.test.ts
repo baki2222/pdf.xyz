@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * PDF to PowerPoint keeps the page: its size, every picture where the page
  * paints it, every line of text where it sits, the other ink — in the order

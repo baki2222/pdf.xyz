@@ -1,3 +1,4 @@
+// @native-canvas
 import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { PdfEngineError } from "./engine";

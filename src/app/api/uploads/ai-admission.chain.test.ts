@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * An AI upload whose job could not be admitted is refused BEFORE the bytes
  * move — and only then.

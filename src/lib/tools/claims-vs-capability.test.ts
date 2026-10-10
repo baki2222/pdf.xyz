@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * A tool page may not promise a capability the tool, as shipped, does not have.
  *

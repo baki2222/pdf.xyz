@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The Translate panel, read the way a user reads it: a real PDF dropped in,
  * the real browser extractor run over it, and the alert that comes back.

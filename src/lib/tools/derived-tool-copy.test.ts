@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The copy written to fill three thin tool pages, pinned to the behaviour it
  * describes.

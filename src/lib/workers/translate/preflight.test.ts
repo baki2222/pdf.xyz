@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The Translate panel's pre-upload refusal, run against REAL extractions.
  *

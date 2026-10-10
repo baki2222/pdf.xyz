@@ -1,7 +1,7 @@
 import { relative } from "node:path";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
-import base from "../../vitest.config";
+import base, { sharedTestOptions } from "../../vitest.config";
 
 /**
  * The config `pdfjs-load-order.test.ts` runs a child vitest with: the suite's
@@ -15,6 +15,12 @@ import base from "../../vitest.config";
  *
  * `pdfjs-load-order.probe.ts` is added to the setup files to record, per file,
  * whether `DOMMatrix` existed when the file started and when it ended.
+ *
+ * CHANGED 2026-10-11: the suite's config is two projects now, and the files
+ * this runs all load pdf.js's Node build — so the native canvas, which may
+ * not run in a worker thread (`./native-canvas.ts`). They run in ONE fork
+ * instead: the same shared module cache, which is the property under test,
+ * in a process that can unload a native module.
  */
 const ORDER = JSON.parse(process.env.PDFJS_LOAD_ORDER ?? "[]") as string[];
 
@@ -31,16 +37,18 @@ class ListedOrder extends BaseSequencer {
   }
 }
 
-const baseSetup = base.test?.setupFiles ?? [];
-
 export default defineConfig({
-  ...base,
+  plugins: base.plugins,
+  resolve: base.resolve,
   test: {
-    ...base.test,
+    ...sharedTestOptions,
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    pool: "forks",
+    isolate: false,
     // The worker-CLI precompile is for the CLI smoke tests; none run here.
     globalSetup: [],
     setupFiles: [
-      ...(Array.isArray(baseSetup) ? baseSetup : [baseSetup]),
+      ...sharedTestOptions.setupFiles,
       "./src/tests/pdfjs-load-order.probe.ts",
     ],
     sequence: { sequencer: ListedOrder, shuffle: false },

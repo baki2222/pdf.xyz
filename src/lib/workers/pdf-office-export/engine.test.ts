@@ -1,3 +1,4 @@
+// @native-canvas
 import JSZip from "jszip";
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";

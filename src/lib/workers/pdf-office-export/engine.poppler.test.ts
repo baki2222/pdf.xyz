@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * PDF to Office export through a REAL poppler `pdftotext`, with the production
  * deps builder, read back from the file a user downloads.

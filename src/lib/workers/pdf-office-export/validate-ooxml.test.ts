@@ -1,3 +1,4 @@
+// @native-canvas
 import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";

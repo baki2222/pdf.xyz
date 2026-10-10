@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * Summarize, Chat and Extract put a character count on the wire, and the route
  * prices the job by it — the seam from the client's call to the route's charge.

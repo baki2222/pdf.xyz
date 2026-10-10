@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * An AI tool refuses a PDF with no selectable text IN THE BROWSER, before a
  * byte is uploaded or a character of the allowance is reserved.

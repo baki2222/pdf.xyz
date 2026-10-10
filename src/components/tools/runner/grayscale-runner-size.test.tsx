@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * What the Grayscale PDF result screen tells a reader about size.
  *

@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * Grayscale PDF must produce a GRAYSCALE PDF — in the colour space, not just
  * in the pixels.

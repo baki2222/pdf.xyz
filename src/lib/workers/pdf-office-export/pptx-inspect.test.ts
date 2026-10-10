@@ -1,3 +1,4 @@
+// @native-canvas
 /**
  * The instrument that decides whether a .pptx has the chain PowerPoint needs,
  * tested in both directions (CLAUDE.md rule 1):

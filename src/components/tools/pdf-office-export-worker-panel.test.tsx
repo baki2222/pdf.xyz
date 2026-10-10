@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The PDF to Office panel, driven through the REAL browser client over a
  * stubbed network, with job records built by the REAL worker processor and

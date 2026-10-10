@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The page inventory — what each page will make pdf.js decode, read from the
  * file before pdf.js runs — held to what pdf.js ACTUALLY decodes.

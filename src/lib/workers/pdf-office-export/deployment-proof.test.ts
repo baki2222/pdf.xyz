@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The production proof's PDF to PowerPoint verdict, held to its controls
  * before it is allowed to judge a deployment: it must PASS the deck this

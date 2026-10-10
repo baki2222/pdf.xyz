@@ -1,3 +1,4 @@
+// @native-canvas
 import { describe, expect, it } from "vitest";
 import { canRunSummarize, runWorkerSummarize } from "./summarize-client";
 import type { WorkerStatus } from "./status";

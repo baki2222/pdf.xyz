@@ -1,3 +1,4 @@
+// @native-canvas
 import { describe, expect, it } from "vitest";
 import { canRunTranslate, runWorkerTranslate } from "./translate-client";
 import type { WorkerStatus } from "./status";

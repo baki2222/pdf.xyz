@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * ROUND TRIP: does the deck LOOK like the PDF? Every fixture through the real
  * engine, the deck back to PDF through LibreOffice (the importer PowerPoint to

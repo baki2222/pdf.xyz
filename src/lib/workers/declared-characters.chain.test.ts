@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The declared character count survives the whole path from the panel's call to
  * the route's contract — the seam, not the two ends.

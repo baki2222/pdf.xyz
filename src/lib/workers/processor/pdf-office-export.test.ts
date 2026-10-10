@@ -1,3 +1,4 @@
+// @native-canvas
 import { describe, expect, it, vi } from "vitest";
 import { sanitizeJobResults } from "@/lib/jobs/results";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";

@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The secure-worker tool pages, held to what their engines write.
  *

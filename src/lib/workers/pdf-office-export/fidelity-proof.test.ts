@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The round-trip proof's own logic, held to its controls without a
  * presentation engine: a stand-in "renderer" turns each deck back into the

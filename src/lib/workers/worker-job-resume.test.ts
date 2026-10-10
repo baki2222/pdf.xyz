@@ -1,3 +1,4 @@
+// @native-canvas
 /**
  * Every browser job client, driven through a job that outlives the wait.
  *

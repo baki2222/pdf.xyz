@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * Every read-bound AI panel sends the character count of the PDF the user
  * dropped with its job — started where a user starts, with a real file in a
