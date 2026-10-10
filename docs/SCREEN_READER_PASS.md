@@ -320,12 +320,15 @@ check 1, keyboard only.
 
 **Then read on from the outcome** (`Insert+Down` / `VO+A`).
 
-**Must hear,** after the title and summary: _"File PDF, Size …, Pages 5"_,
-then _"Re-opened and counted in this browser: 5 pages."_ (a moment after
-the outcome — the count is made by opening the file again, after the
-page draws). Then **Download merged PDF**, then **Back to adjust**, then
-a group _"Continue with"_ whose links read like _"Continue with Compress
-PDF, In-browser, carries merged.pdf"_, then **Start over**.
+**Must hear,** after the title and summary: _"File PDF, Size …, Pages 5,
+re-opened and counted in this browser"_ — once, as one fact (a moment
+after the outcome it may still read _"Pages, counting in this browser…"_:
+the count is made by opening the file again, after the page draws). Then
+**Download merged PDF**, then **Back to adjust**, then a group _"Continue
+with"_ whose links read like _"Continue with Compress PDF, In-browser,
+carries merged.pdf"_, then **Start over**. **Must not hear** the count a
+second time, or any of the receipt's other states (they are drawn
+invisible, to hold the space).
 
 `Tab` to **Back to adjust**, press `Enter`.
 
@@ -335,8 +338,15 @@ files still in the list, in the order you left them.
 Merge again, `Tab` to _"Continue with Compress PDF"_, press `Enter`.
 
 **Must hear:** Compress PDF's page, saying _"Loaded your result from Merge
-PDF."_ Then find the landmark _"Job steps"_ next to the privacy line: a list
-of two — _"Merge PDF (done)"_ and _"Compress PDF"_, the current step.
+PDF."_ Then find the landmark _"Job steps"_ on its own line under the
+privacy line: a list of two — _"Merge PDF (done)"_ and _"Compress PDF"_, the
+current step.
+
+<https://pdf.xyz/tools/protect-pdf> — protect a PDF on the worker.
+
+**Must hear,** in the result card after the download: _"This PDF is
+encrypted now, so the tools in your browser can't open it."_ — the reason
+nothing follows, where every other result offers its next steps.
 
 <https://pdf.xyz/tools/rotate-pdf> — add a password-protected PDF.
 

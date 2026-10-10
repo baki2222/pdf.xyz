@@ -77,9 +77,18 @@ export function failureCode(err: unknown): string | undefined {
  * The end of a result — its receipt and "Continue with" — is one on-demand
  * chunk (`@/components/intent/result-ending`): in the runner kit it would be
  * in every tool page's first load, for a screen most visits never reach.
- * Fetched the moment a run STARTS, so by the time the result draws it is
- * here and draws with it; a result that beats it draws the rest a moment
- * later, never instead of the Download.
+ * Fetched the moment a run STARTS, and a finished run WAITS for it
+ * ({@link endingReady}) before its result is drawn, so the receipt and the
+ * rows draw in the same commit as the result — never into a result already
+ * on screen, where each was a shift nothing had reserved space for (the
+ * receipt landed ABOVE Download; Compress's ending pushed its worker card
+ * off screen ~330 ms after the analysis painted, CLS +0.032 on a file pick,
+ * which has no input window: WP-08 review, 2026-10-10).
+ *
+ * The wait is bounded ({@link ENDING_WAIT_MS}). A result that outwaits it
+ * is drawn without its ending, and the ending, when it comes, is drawn
+ * BELOW the Download row (`ResultPanel`), where it moves nothing a hand is
+ * on its way to.
  */
 type Ending = typeof import("@/components/intent/result-ending");
 let ending: Ending | null = null;
@@ -94,6 +103,25 @@ export function warmEnding(): Promise<Ending> {
     },
   );
   return endingLoad;
+}
+
+/** The longest a finished run waits for its ending before it is drawn. */
+export const ENDING_WAIT_MS = 800;
+
+/**
+ * Settles when the ending is here, or after {@link ENDING_WAIT_MS} —
+ * whichever is first. Never rejects: an ending that failed to load costs the
+ * result its receipt, never the result.
+ */
+export function endingReady(): Promise<void> {
+  if (ending) return Promise.resolve();
+  return Promise.race([
+    warmEnding().then(
+      () => undefined,
+      () => undefined,
+    ),
+    new Promise<void>((resolve) => setTimeout(resolve, ENDING_WAIT_MS)),
+  ]);
 }
 
 function useEnding(): Ending | null {
@@ -130,11 +158,15 @@ export function useAsyncRun<T>() {
     const started = Date.now();
     try {
       const value = await task();
-      setResult(value);
       // Every browser runner's outcome passes through here, so this is where
       // it is reported — never the message, only a coarse reason from the
-      // error's TYPE. See `@/lib/telemetry/tool-outcome`.
+      // error's TYPE. See `@/lib/telemetry/tool-outcome`. Reported as the
+      // work finished, before the wait below, which is drawing, not work.
       reportToolCompleted({ elapsedMs: Date.now() - started });
+      // Drawn with its ending, not before it (`endingReady`): the run is
+      // still busy for the moment it waits, so nothing flashes.
+      await endingReady();
+      setResult(value);
       return value;
     } catch (err) {
       setError(errorMessage(err));
@@ -761,8 +793,10 @@ export const NO_OUTPUT = (reason: string): NoOutput => ({ noOutput: reason });
  * `result-output.test.ts` holds every call site to both.
  *
  * The receipt and "Continue with" are one on-demand chunk (`warmEnding`),
- * fetched as the run started; Download, Back to adjust and Start over are
- * here, and never wait for it.
+ * fetched as the run started and waited for before the result is drawn
+ * (`endingReady`, bounded), so they draw with the panel. Download, Back to
+ * adjust and Start over are here; if the chunk outwaited the run, what it
+ * brings is drawn under the Download row, never above it.
  *
  * Deliberately NOT a live region — it receives focus instead, and doing both
  * makes some screen readers read the outcome twice. See {@link useOutcomeFocus}.
@@ -815,6 +849,10 @@ export function ResultPanel({
   const id = useId();
   const run = useToolRun();
   const ending = useEnding();
+  // Was the ending here when the result was first drawn? It is, unless the
+  // run outwaited `endingReady` — and then it is drawn under the Download
+  // row when it comes, never above it.
+  const [late] = useState(() => ending === null);
   // Always `true`: this panel only ever renders on success, so its existence IS
   // the outcome. Surfaces that persist across runs pass a real condition.
   const outcome = useOutcomeFocus(true, announcement ?? title);
@@ -827,6 +865,16 @@ export function ResultPanel({
 
   const adjust = typeof onAdjust === "function" ? onAdjust : null;
   const made = "noOutput" in output ? null : output;
+  // The receipt; its count-mismatch warning is drawn under Download.
+  const receipt = ending && made && (
+    <ending.OutputFacts
+      output={made}
+      expectedPages={expectedPages}
+      inputBytes={inputBytes}
+      optimize={run?.category === "optimize"}
+      mismatch={false}
+    />
+  );
   const backToAdjust = () => {
     if (!adjust) return;
     // Found before the panel unmounts: the tool's panel, then its Run.
@@ -888,14 +936,7 @@ export function ResultPanel({
           )}
         </div>
       </div>
-      {ending && made && (
-        <ending.OutputFacts
-          output={made}
-          expectedPages={expectedPages}
-          inputBytes={inputBytes}
-          optimize={run?.category === "optimize"}
-        />
-      )}
+      {!late && receipt}
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         {children}
         {adjust && (
@@ -909,6 +950,11 @@ export function ResultPanel({
           </button>
         )}
       </div>
+      {late && receipt}
+      {/* After the count, so never above Download. */}
+      {ending && made && (
+        <ending.CountMismatch output={made} expectedPages={expectedPages} />
+      )}
       {ending && made && <ending.ContinueWith output={made} />}
       <button
         type="button"
@@ -934,6 +980,12 @@ export function ResultPanel({
  * `output`, when the card has the file in hand, adds the receipt and
  * "Continue with" under its contents, as {@link ResultPanel} does. Optional
  * until every worker panel has its file to give (redesign WP-10).
+ *
+ * Without one, a tool whose output nothing here should touch again (Protect
+ * PDF, PDF to PDF/A: `NO_CONTINUE`) still says why nothing follows — the
+ * page gives every worker panel its job (`ToolRunProvider`), and this card
+ * reads the reason from it. `result-ending.test.tsx` drives Protect PDF's
+ * panel to this card.
  */
 export function ResultCard({
   announce,
@@ -949,6 +1001,7 @@ export function ResultCard({
   inputBytes?: number;
 }) {
   const outcome = useOutcomeFocus(true, announce);
+  const none = useToolRun()?.plan.none;
   return (
     <div
       {...outcome}
@@ -960,12 +1013,21 @@ export function ResultCard({
       )}
     >
       {children}
-      {output && (
+      {output ? (
         <RunEnding
           output={output}
           inputBytes={inputBytes}
           className="border-ok/30 mt-2 border-t pt-4"
         />
+      ) : (
+        none && (
+          <p
+            data-no-continue=""
+            className="border-ok/30 text-muted mt-2 border-t pt-4 text-xs leading-5"
+          >
+            {none}
+          </p>
+        )
       )}
     </div>
   );

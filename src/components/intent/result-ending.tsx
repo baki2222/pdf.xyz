@@ -10,6 +10,6 @@
  * result most visits never reach. `lazy-chunks.test.ts` holds that no page
  * loads it up front, by the marker the receipt renders.
  */
-export { OutputFacts } from "./output-facts";
+export { CountMismatch, OutputFacts } from "./output-facts";
 export { ContinueWith } from "./continue-with";
 export { RESULT_ENDING_CHUNK } from "./result-ending-chunk";

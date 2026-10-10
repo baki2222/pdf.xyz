@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type MouseEvent } from "react";
+import { useId, useState, type MouseEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { ModeShape } from "@/components/tools/processing-badge";
@@ -10,13 +10,15 @@ import {
 } from "@/components/tools/runner/tool-context";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { eligibleFilesFor } from "@/lib/handoff/capability";
+import { HANDOFF_MAX_TOTAL_BYTES } from "@/lib/handoff/record";
+import { CONTINUE_SHOWN } from "@/lib/intent/continue-shown";
 import { launchWithFiles } from "@/lib/intent/launch";
 import { isPlainClick, toolHref } from "@/lib/intent/links";
-import { CONTINUE_SHOWN, type ContinueTarget } from "@/lib/intent/next-steps";
+import type { ContinueTarget } from "@/lib/intent/next-steps";
 import { outputFiles, type RunOutput } from "@/lib/intent/run-output";
 import { confirmLeave } from "@/lib/intent/unsaved";
 import { getProcessingMeta } from "@/lib/tools/processing";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 
 /**
  * "Continue with": the result carried to the next tool, in this browser.
@@ -34,6 +36,18 @@ import { cn } from "@/lib/utils";
  * plus this step), after the unsaved-work question. If the browser's
  * storage refuses the file, nothing navigates and the row says so, with
  * the plain link beside it — never an empty tool page with no word why.
+ *
+ * SIZE IS PART OF "OPENS THIS FILE". Two limits are known before any click,
+ * and each is said with its figure rather than discovered on arrival:
+ *  - a target's own ceiling (`ceilingBytes`, the figure its page states): a
+ *    120 MB merge is not offered to Add Page Numbers, which refuses a PDF
+ *    over 100 MB on arrival;
+ *  - what one hand-off carries at all (`HANDOFF_MAX_TOTAL_BYTES`): over it,
+ *    the stash refuses before storage is ever asked, so no row is offered,
+ *    and the reason given is that budget — not "this browser's storage is
+ *    unavailable", which is what any refused stash used to be called here,
+ *    whatever refused it (WP-08 review, 2026-10-10).
+ * So "Couldn't carry the file" is said only of a stash storage refused.
  */
 export function ContinueWith({ output }: { output: RunOutput }) {
   const run = useToolRun();
@@ -52,19 +66,45 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
   const several = files.length > 1;
   const carried = (target: ContinueTarget) =>
     eligibleFilesFor(target.slug, [...files]);
-  const targets = run.plan.targets
+  const opens = run.plan.targets
     .filter((t) => t.slug !== run.slug && !run.trail.includes(t.slug))
     .filter((t) => !several || t.combines)
-    .filter((t) => carried(t).length === files.length)
-    .slice(0, CONTINUE_SHOWN);
-
-  if (targets.length === 0) {
-    return run.plan.none ? (
-      <p className="text-muted text-xs leading-5">{run.plan.none}</p>
-    ) : null;
-  }
+    .filter((t) => carried(t).length === files.length);
+  const size = sizeOf(files);
+  // One hand-off carries this much at most; past it nothing travels.
+  const overBudget = size.total > HANDOFF_MAX_TOTAL_BYTES;
+  const fits = (t: ContinueTarget) =>
+    t.ceilingBytes === null || size.largest <= t.ceilingBytes;
+  const targets = overBudget ? [] : opens.filter(fits).slice(0, CONTINUE_SHOWN);
+  const refused = overBudget ? [] : opens.filter((t) => !fits(t));
 
   const what = several ? `${files.length} files` : files[0]!.name;
+
+  if (targets.length === 0) {
+    if (overBudget && opens.length > 0)
+      return (
+        <SizeNote>
+          At {formatBytes(size.total)},{" "}
+          {several ? "these files are" : "this file is"} more than the{" "}
+          {formatBytes(HANDOFF_MAX_TOTAL_BYTES, 0)} this browser carries from
+          one tool to the next. Download{" "}
+          {several ? "them, then open them" : "it, then open it"} in the next
+          tool.
+        </SizeNote>
+      );
+    if (refused.length > 0)
+      return (
+        <SizeNote>
+          Not offered: <TooLarge files={files} size={size} refused={refused} />{" "}
+          Download {several ? "them" : "it"} to keep {several ? "them" : "it"}.
+        </SizeNote>
+      );
+    return run.plan.none ? (
+      <p data-no-continue="" className="text-muted text-xs leading-5">
+        {run.plan.none}
+      </p>
+    ) : null;
+  }
 
   const open = async (
     event: MouseEvent<HTMLAnchorElement>,
@@ -149,6 +189,11 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
           );
         })}
       </ul>
+      {refused.length > 0 && (
+        <SizeNote>
+          Not offered: <TooLarge files={files} size={size} refused={refused} />
+        </SizeNote>
+      )}
       {failed && (
         <p
           role="alert"
@@ -166,5 +211,57 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
         </p>
       )}
     </div>
+  );
+}
+
+type OutputList = ReturnType<typeof outputFiles>;
+
+/** The output's total and its largest file: the two sizes a hand-off meets. */
+function sizeOf(files: OutputList) {
+  return {
+    total: files.reduce((sum, f) => sum + f.size, 0),
+    largest: files.reduce((max, f) => Math.max(max, f.size), 0),
+  };
+}
+
+/**
+ * "merged.pdf is 120.0 MB — Add Page Numbers and Watermark PDF open files
+ * up to 100 MB." The ceiling said is the largest among the refused, which
+ * is true of each of them.
+ */
+function TooLarge({
+  files,
+  size,
+  refused,
+}: {
+  files: OutputList;
+  size: { largest: number };
+  refused: readonly ContinueTarget[];
+}) {
+  const ceiling = Math.max(...refused.map((t) => t.ceilingBytes ?? 0));
+  const names = refused.map((t) => t.name);
+  const listed =
+    names.length <= 2
+      ? names.join(" and ")
+      : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  return (
+    <>
+      {files.length > 1 ? "the largest of these files" : files[0]!.name} is{" "}
+      {formatBytes(size.largest)} — {listed}{" "}
+      {names.length === 1 ? "opens" : "open"} files up to{" "}
+      {formatBytes(ceiling, 0)}.
+    </>
+  );
+}
+
+/** Why a row is not offered, when the reason is the file's size. */
+function SizeNote({ children }: { children: ReactNode }) {
+  return (
+    <p
+      data-continue-refused=""
+      className={cn("text-muted text-xs leading-5", NAME_WRAP)}
+    >
+      {children}
+    </p>
   );
 }

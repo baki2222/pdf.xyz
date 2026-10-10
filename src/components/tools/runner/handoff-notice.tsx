@@ -5,6 +5,7 @@ import { originPhrase, type HandoffOrigin } from "@/lib/handoff";
 import { acceptNoun } from "@/lib/intent/accept-noun";
 import { getToolBySlug } from "@/lib/tools";
 import { Spinner } from "./runner-kit";
+import { useBringingFiles } from "./tool-context";
 import type { ToolHandoff } from "./use-tool-handoff";
 
 /**
@@ -24,6 +25,9 @@ import type { ToolHandoff } from "./use-tool-handoff";
  */
 
 export function HandoffLoading() {
+  // Holds the page's job row open while this block is drawn, so the row is
+  // there before the job it shows is known (`TicketRail`).
+  useBringingFiles();
   return (
     <div
       role="status"

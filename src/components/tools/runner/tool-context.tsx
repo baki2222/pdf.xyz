@@ -4,7 +4,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -23,7 +25,10 @@ import type { ToolCategoryId } from "@/lib/tools/types";
  *    hand-off they arrived in (the runner's claim reports it here), so the
  *    page can draw the job's steps and "Continue with" can pass them on;
  *  - whether this step is DONE (a result is on screen), so the steps drawn
- *    tick this one too.
+ *    tick this one too;
+ *  - whether files are BEING BROUGHT OVER right now (the runner shows
+ *    "Bringing your files over…"), so the page can hold the job's row open
+ *    before it knows the job: see `useBringingFiles`.
  *
  * Composes with `ToolTelemetry`; it reports nothing itself (addendum WP-08
  * #2: a mount emitter here would count `tool_viewed` twice).
@@ -40,10 +45,14 @@ export interface ToolRun extends ToolRunInfo {
   readonly trail: readonly string[];
   /** A result for this step is on screen. */
   readonly done: boolean;
+  /** The runner is showing "Bringing your files over…". */
+  readonly bringing: boolean;
   /** The runner's hand-off arrived; this is the job it came from. */
   arrived(trail: readonly string[]): void;
   /** A result appeared (true) or was left (false). */
   finished(done: boolean): void;
+  /** "Bringing your files over…" was drawn (+1) or removed (−1). */
+  bring(delta: 1 | -1): void;
 }
 
 const ToolRunContext = createContext<ToolRun | null>(null);
@@ -64,16 +73,43 @@ export function ToolRunProvider({
 }) {
   const [trail, setTrail] = useState<readonly string[]>([]);
   const [done, setDone] = useState(false);
+  const [bringing, setBringing] = useState(false);
+  const bringers = useRef(0);
   const arrived = useCallback(
     (next: readonly string[]) => setTrail([...next]),
     [],
   );
   const finished = useCallback((value: boolean) => setDone(value), []);
+  const bring = useCallback((delta: 1 | -1) => {
+    bringers.current = Math.max(0, bringers.current + delta);
+    setBringing(bringers.current > 0);
+  }, []);
   const value = useMemo<ToolRun>(
-    () => ({ ...tool, plan, trail, done, arrived, finished }),
-    [tool, plan, trail, done, arrived, finished],
+    () => ({ ...tool, plan, trail, done, bringing, arrived, finished, bring }),
+    [tool, plan, trail, done, bringing, arrived, finished, bring],
   );
   return (
     <ToolRunContext.Provider value={value}>{children}</ToolRunContext.Provider>
   );
+}
+
+/**
+ * Marks the component that calls it as "Bringing your files over…" for the
+ * page's job row (`TicketRail`): the row is held open from the commit that
+ * draws that block to the commit that removes it.
+ *
+ * A LAYOUT effect, on purpose: its state update is applied before the
+ * browser paints, so the row opens in the SAME frame as the block appears
+ * and — when the files came with no job to show — closes in the same frame
+ * as the block gives way to the editor. Each of those frames already moves
+ * the runner (the block is not the editor's height); the row never moves it
+ * in a frame of its own. A passive effect would paint one frame without it.
+ */
+export function useBringingFiles(): void {
+  const bring = useToolRun()?.bring;
+  useLayoutEffect(() => {
+    if (!bring) return;
+    bring(1);
+    return () => bring(-1);
+  }, [bring]);
 }

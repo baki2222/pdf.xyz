@@ -6,7 +6,14 @@
  * provenance, and says so when it could not.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import { useEffect, type ReactElement } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
@@ -16,20 +23,48 @@ import {
   useToolRun,
   type ToolRunInfo,
 } from "@/components/tools/runner/tool-context";
+import { HandoffLoading } from "@/components/tools/runner/handoff-notice";
 import {
   __setHandoffStoreForTests,
   claimHandoff,
   HandoffStore,
   MemoryHandoffBackend,
 } from "@/lib/handoff";
-import { continueTargetsFor } from "@/lib/intent/next-steps";
-import { outputFile } from "@/lib/intent/run-output";
+import { HANDOFF_MAX_TOTAL_BYTES } from "@/lib/handoff/record";
+import { continueTargetsFor, NO_CONTINUE } from "@/lib/intent/next-steps";
+import { outputFile, type OutputFile } from "@/lib/intent/run-output";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { getToolBySlug, tools } from "@/lib/tools";
 import { formatBytes } from "@/lib/utils";
 import { ContinueWith } from "./continue-with";
-import { OutputFacts } from "./output-facts";
+import { CountMismatch, OutputFacts } from "./output-facts";
 import { TicketRail } from "./ticket-rail";
+
+/** An output of `size` bytes that is never read — sizes past what a test can allocate. */
+function sized(name: string, size: number): OutputFile {
+  return {
+    name,
+    type: "application/pdf",
+    size,
+    bytes: async () => new Uint8Array(),
+    file: () => new File([], name, { type: "application/pdf" }),
+  };
+}
+
+const MB = 1024 * 1024;
+
+/** Text as a line reads: the ring between figure and words is a space each side. */
+const flat = (text: string | null | undefined) =>
+  text?.replace(/\s+/g, " ").trim();
+
+/** The Pages fact's cell, and the state it shows now. */
+const pagesCell = () =>
+  document.querySelector<HTMLElement>("[data-receipt] [data-settles]");
+const shown = () =>
+  flat(
+    pagesCell()?.querySelector<HTMLElement>(":scope > [data-current]")
+      ?.textContent,
+  );
 
 async function pdfOf(pages: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -76,16 +111,51 @@ afterEach(() => {
 });
 
 describe("the receipt", () => {
-  it("re-opens the PDF and counts it: the figure and its proof", async () => {
+  it("re-opens the PDF and counts it: ONE statement — the figure, its ring and its words", async () => {
     const bytes = await pdfOf(5);
     render(<OutputFacts output={outputFile(bytes, "merged.pdf")} />);
-    expect(screen.getByText("counting…")).toBeTruthy();
+    expect(shown()).toBe("counting in this browser…");
+    await waitFor(() =>
+      expect(pagesCell()!.getAttribute("data-settles")).toBe("counted"),
+    );
+    // Heard as "5, re-opened and counted in this browser"; the ring between
+    // is drawn, and hidden from assistive tech (its words are beside it).
+    expect(shown()).toBe("5, re-opened and counted in this browser");
+    const receipt = document.querySelector<HTMLElement>("[data-receipt]")!;
+    // Once: not again in a line of its own, and the ring drawn once.
     expect(
-      await screen.findByText(
-        /re-opened and counted in this browser: 5 pages\./i,
-      ),
-    ).toBeTruthy();
+      receipt.textContent!.match(/counted in this browser/gi),
+    ).toHaveLength(1);
+    expect(receipt.querySelectorAll("svg circle")).toHaveLength(1);
+    expect(receipt.textContent).not.toMatch(/: 5 pages\./);
     expect(screen.getByText(formatBytes(bytes.byteLength))).toBeTruthy();
+  });
+
+  it("draws every state the count can settle to in one cell, from the first render", () => {
+    // The cell is sized by the largest of them, so the count settling
+    // repaints inside a box that was already its size (the e2e measures the
+    // Download button not moving; this holds the structure that does it).
+    render(
+      <OutputFacts output={sized("merged.pdf", 4096)} expectedPages={5} />,
+    );
+    const cell = pagesCell()!;
+    expect(cell.getAttribute("data-settles")).toBe("counting");
+    const states = [...cell.children] as HTMLElement[];
+    expect(states.map((s) => flat(s.textContent))).toEqual([
+      "counting in this browser…",
+      // Sized with the figure the runner expects, before it is counted.
+      "5, re-opened and counted in this browser",
+      "not re-counted",
+    ]);
+    for (const state of states) {
+      expect(state.style.gridArea).toBe("1 / 1");
+      const current = state.hasAttribute("data-current");
+      expect(state.classList.contains("invisible")).toBe(!current);
+      expect(state.getAttribute("aria-hidden")).toBe(current ? null : "true");
+    }
+    expect(states.filter((s) => s.hasAttribute("data-current"))).toHaveLength(
+      1,
+    );
   });
 
   it("says so when the count is not what the tool meant to write", async () => {
@@ -102,6 +172,27 @@ describe("the receipt", () => {
     );
   });
 
+  it("the result panel's split: the facts without the warning, the warning on its own — one count", async () => {
+    const bytes = await pdfOf(4);
+    const output = outputFile(bytes, "merged.pdf");
+    render(
+      <>
+        <OutputFacts output={output} expectedPages={5} mismatch={false} />
+        <hr data-download-row="" />
+        <CountMismatch output={output} expectedPages={5} />
+      </>,
+    );
+    const warning = await screen.findByRole("status");
+    // Drawn where the panel puts it — after the Download row — and only once.
+    expect(
+      document
+        .querySelector("[data-download-row]")!
+        .compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(shown()).toBe("4, re-opened and counted in this browser");
+  });
+
   it("POSITIVE CONTROL: no warning when the count agrees", async () => {
     const bytes = await pdfOf(5);
     render(
@@ -110,7 +201,9 @@ describe("the receipt", () => {
         expectedPages={5}
       />,
     );
-    await screen.findByText(/counted in this browser: 5 pages/i);
+    await waitFor(() =>
+      expect(shown()).toBe("5, re-opened and counted in this browser"),
+    );
     expect(screen.queryByRole("status")).toBeNull();
   });
 
@@ -123,11 +216,13 @@ describe("the receipt", () => {
       file: () => new File([], "huge.pdf"),
     };
     render(<OutputFacts output={big} />);
+    // Known before anything is re-opened: said at once, and never changes.
     expect(
-      await screen.findByText(
+      screen.getByText(
         `not re-counted (over ${formatBytes(MAX_PDF_BYTES, 0)})`,
       ),
     ).toBeTruthy();
+    expect(pagesCell()).toBeNull();
     expect(screen.queryByText(/re-opened and counted/i)).toBeNull();
   });
 
@@ -229,6 +324,69 @@ describe("Continue with", () => {
     expect(links[0]!.textContent).toMatch(/carries 2 files/);
   });
 
+  it("a file over the targets' ceiling is not offered to them, and the figure is said", () => {
+    // A merge of two 60 MB PDFs: every PDF tool here opens 100 MB at most,
+    // and each would refuse this on arrival.
+    onPage(
+      "merge-pdf",
+      <ContinueWith output={sized("merged.pdf", 120 * MB)} />,
+    );
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    const note = document.querySelector("[data-continue-refused]")!;
+    expect(note.textContent).toMatch(
+      new RegExp(
+        `^Not offered: merged\\.pdf is ${formatBytes(120 * MB).replace(".", "\\.")} — .+ open files up to ${formatBytes(MAX_PDF_BYTES, 0)}\\. Download it to keep it\\.$`,
+      ),
+    );
+    expect(note.textContent).not.toMatch(/storage/i);
+  });
+
+  it("CONTROL: the same output under the ceiling is offered as before", () => {
+    onPage("merge-pdf", <ContinueWith output={sized("merged.pdf", 90 * MB)} />);
+    const links = within(
+      screen.getByRole("group", { name: "Continue with" }),
+    ).getAllByRole("link");
+    expect(links[0]!.getAttribute("href")).toBe("/tools/compress-pdf");
+    expect(document.querySelector("[data-continue-refused]")).toBeNull();
+  });
+
+  it("past what one hand-off carries, nothing is offered — and the reason is the budget, not storage", () => {
+    // A compress batch of four 80 MB PDFs: each fits Merge PDF's ceiling,
+    // together they are over the 300 MB a hand-off carries, and the stash
+    // would refuse them before storage was ever asked.
+    const four = [1, 2, 3, 4].map((i) => sized(`part-${i}.pdf`, 80 * MB));
+    onPage("compress-pdf", <ContinueWith output={four} />);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    const note = document.querySelector("[data-continue-refused]")!;
+    expect(note.textContent).toBe(
+      `At ${formatBytes(320 * MB)}, these files are more than the ${formatBytes(HANDOFF_MAX_TOTAL_BYTES, 0)} this browser carries from one tool to the next. Download them, then open them in the next tool.`,
+    );
+    expect(note.textContent).not.toMatch(/storage/i);
+  });
+
+  it("CONTROL: the same batch under the budget goes to Merge PDF", () => {
+    const three = [1, 2, 3].map((i) => sized(`part-${i}.pdf`, 80 * MB));
+    onPage("compress-pdf", <ContinueWith output={three} />);
+    const links = within(
+      screen.getByRole("group", { name: "Continue with" }),
+    ).getAllByRole("link");
+    expect(links.map((l) => l.getAttribute("href"))).toEqual([
+      "/tools/merge-pdf",
+    ]);
+    expect(document.querySelector("[data-continue-refused]")).toBeNull();
+  });
+
+  it("after a tool whose output nothing here should open, the reason is said where the row would be", async () => {
+    const bytes = await pdfOf(1);
+    for (const slug of Object.keys(NO_CONTINUE)) {
+      onPage(slug, <ContinueWith output={outputFile(bytes, "out.pdf")} />);
+      const reason = document.querySelector("[data-no-continue]");
+      expect(reason?.textContent, slug).toBe(NO_CONTINUE[slug]);
+      expect(screen.queryByRole("group", { name: "Continue with" })).toBeNull();
+      cleanup();
+    }
+  });
+
   it("an output only an inverse opens offers nothing", () => {
     const text = new Blob(["x"], { type: "text/plain" });
     onPage("pdf-to-text", <ContinueWith output={outputFile(text, "a.txt")} />);
@@ -284,6 +442,54 @@ describe("the job's steps", () => {
   it("draws nothing for a visit that did not continue from a result", () => {
     onPage("compress-pdf", <TicketRail />);
     expect(screen.queryByRole("navigation", { name: "Job steps" })).toBeNull();
+  });
+
+  it("holds its row while files are brought over, before the job is known — and lets it go with them when there is none", () => {
+    const { rerender } = render(
+      <ToolRunProvider
+        tool={job("compress-pdf").info}
+        plan={job("compress-pdf").plan}
+      >
+        <TicketRail />
+        <HandoffLoading />
+      </ToolRunProvider>,
+    );
+    const slot = () => document.querySelector("[data-ticket-rail-slot]");
+    // The block and the row arrive in one commit; the row is empty.
+    expect(slot()).not.toBeNull();
+    expect(slot()!.childElementCount).toBe(0);
+    // The files came with no job (a home-page drop): the row goes WITH the
+    // block, in the same commit.
+    rerender(
+      <ToolRunProvider
+        tool={job("compress-pdf").info}
+        plan={job("compress-pdf").plan}
+      >
+        <TicketRail />
+      </ToolRunProvider>,
+    );
+    expect(slot()).toBeNull();
+  });
+
+  it("the job fills the held row, and the row stays when the block goes", () => {
+    const { info, plan } = job("compress-pdf");
+    const { rerender } = render(
+      <ToolRunProvider tool={info} plan={plan}>
+        <TicketRail />
+        <HandoffLoading />
+        <Arrived trail={["merge-pdf"]} />
+      </ToolRunProvider>,
+    );
+    const rail = () =>
+      document.querySelector("[data-ticket-rail-slot] [data-ticket-rail]");
+    expect(rail()).not.toBeNull();
+    rerender(
+      <ToolRunProvider tool={info} plan={plan}>
+        <TicketRail />
+        <Arrived trail={["merge-pdf"]} />
+      </ToolRunProvider>,
+    );
+    expect(rail()).not.toBeNull();
   });
 
   it("names each step the files came through, ticked, then this one as current", () => {

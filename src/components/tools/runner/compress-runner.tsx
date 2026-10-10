@@ -43,6 +43,7 @@ import {
   RunEnding,
   Spinner,
   WorkerRunButton,
+  endingReady,
   errorMessage,
   failureCode,
   outputFile,
@@ -390,11 +391,15 @@ function CompressEditor({
     // state rather than `useAsyncRun`'s, so it reports its own outcome (see
     // `@/lib/telemetry/tool-outcome`); a superseded run reports nothing.
     void analyzePdf(pdf.bytes)
-      .then((r) => {
-        if (active) {
-          setState({ result: r, error: null, busy: false });
-          reportToolCompleted({ elapsedMs: Date.now() - started });
-        }
+      .then(async (r) => {
+        if (!active) return;
+        reportToolCompleted({ elapsedMs: Date.now() - started });
+        // The analysis is drawn WITH its receipt and rows, not before them:
+        // a picked file has no input window, so an ending inserted after
+        // the analysis painted was a shift every visit paid for (it pushed
+        // the worker card below off screen). See `endingReady`.
+        await endingReady();
+        if (active) setState({ result: r, error: null, busy: false });
       })
       .catch((err) => {
         if (active) {
@@ -674,6 +679,8 @@ function WorkerDeepPanel({
         profile: "deep",
         targetDpi: dpi,
       });
+      // Its card draws with its ending (`endingReady`).
+      if (res.ok) await endingReady();
       setOutcome(res);
     } catch {
       // A rejected fetch — offline, DNS failure, a reset connection, CORS. There

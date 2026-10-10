@@ -15,7 +15,14 @@
  *     split, a flattened form sent to be filled);
  *  3. narrowed by policy where the output says so: after Sign PDF only the
  *     steps that finish a signed document; after Protect PDF and PDF to
- *     PDF/A nothing, with the reason said.
+ *     PDF/A nothing, with the reason said — on the result (`ContinueWith`,
+ *     or a worker panel's `ResultCard`, which the page gives the same job).
+ *
+ * "Opens this file" has a SIZE half the formats cannot see: every target
+ * carries its per-file ceiling (`ceilingBytes`, from `toolFileCeilingBytes`
+ * — the figure the target's own page states and its gate refuses above),
+ * and the row drops a target the output is larger than, saying why, rather
+ * than offer a tool that refuses the file on arrival.
  *
  * Text, Markdown, image and archive outputs end up with nothing by rule 2
  * alone: only their inverses take them. Nothing here says so by name.
@@ -34,8 +41,12 @@ import {
   type HandoffMode,
 } from "@/lib/handoff/capability";
 import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
+import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { ProcessingMode, Tool } from "@/lib/tools/types";
+import { CONTINUE_SHOWN } from "./continue-shown";
 import { toolAcceptsFormat, type FileFormat } from "./formats";
+
+export { CONTINUE_SHOWN };
 
 /** One tool a result may continue in — plain data, sent from the server. */
 export interface ContinueTarget {
@@ -49,6 +60,12 @@ export interface ContinueTarget {
    * kind of tool a run that produced several files may continue in.
    */
   readonly combines: boolean;
+  /**
+   * The largest file the target opens, in bytes (`toolFileCeilingBytes`);
+   * `null` when it takes no file of its own. A row whose output is larger
+   * is not offered.
+   */
+  readonly ceilingBytes: number | null;
 }
 
 export interface ContinuePlan {
@@ -58,8 +75,6 @@ export interface ContinuePlan {
   readonly none?: string;
 }
 
-/** How many a result's row shows. */
-export const CONTINUE_SHOWN = 4;
 /**
  * How many the server sends: enough that the trail and the run's own output
  * can drop some and still leave four, few enough to stay a short list.
@@ -197,6 +212,7 @@ export function continueTargetsFor(
         combines:
           mode === "collect" &&
           formatsOf(target.outputs).every((f) => accepted.includes(f)),
+        ceilingBytes: toolFileCeilingBytes(target),
       };
     }),
   };

@@ -365,9 +365,21 @@ export default async function ToolPage({
               className="self-start lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1"
             >
               {panel && (
-                <ErrorBoundary boundary={panel.boundary}>
-                  <panel.Panel tool={tool} />
-                </ErrorBoundary>
+                // The same job as the workbench's: the result card reads
+                // where its output can go next — or, after Protect PDF and
+                // PDF to PDF/A, why nowhere (`ResultCard`).
+                <ToolRunProvider
+                  tool={{
+                    slug: tool.slug,
+                    name: tool.name,
+                    category: tool.category,
+                  }}
+                  plan={continueTargetsFor(tool, tools)}
+                >
+                  <ErrorBoundary boundary={panel.boundary}>
+                    <panel.Panel tool={tool} />
+                  </ErrorBoundary>
+                </ToolRunProvider>
               )}
             </div>
 

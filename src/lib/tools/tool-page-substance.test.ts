@@ -330,10 +330,10 @@ describe("How it works says what the runner does", () => {
     // …while the runner's CODE, which the absence checks read, stays the
     // runner's: the ending's styles are not PDF to PNG's.
     expect(runnerSource("merge-pdf")).not.toContain(
-      "Re-opened and counted in this browser",
+      "re-opened and counted in this browser",
     );
     expect(runnerLabelSource("merge-pdf")).toContain(
-      "Re-opened and counted in this browser",
+      "re-opened and counted in this browser",
     );
     expect(read("src/components/tools/runner/runner-kit.tsx")).not.toMatch(
       />\s*Continue with\s*</,

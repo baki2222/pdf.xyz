@@ -13,7 +13,12 @@
  *  - no target is the tool itself, or its inverse (a converter's way back:
  *    PDF to JPG is never followed by JPG to PDF);
  *  - after Sign PDF only finishing steps; after Protect PDF and PDF to PDF/A
- *    none, with the reason said;
+ *    none, with the reason in the plan (that the reason reaches a reader —
+ *    the result card on those worker pages — is the composed chain
+ *    `no-continue-delivered.test.tsx` drives; this file once said "the
+ *    reason is said" of a value nothing drew: WP-08 review, 2026-10-10);
+ *  - every target carries the per-file ceiling its own page states, so the
+ *    row can refuse a file too large for it (`result-ending.test.tsx`);
  *  - a curated `next` leads, and names only real candidates.
  *
  * The positive control runs the same assertions over a plan built with the
@@ -25,6 +30,7 @@ import { handoffCapabilityFor } from "@/lib/handoff/capability";
 import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
 import { toolAcceptsFormat } from "@/lib/intent/formats";
 import { getToolBySlug, tools } from "@/lib/tools";
+import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
 import {
   CONTINUE_SHOWN,
@@ -127,6 +133,22 @@ describe("every target is a promise the catalogue keeps", () => {
       }
   });
 
+  it("carries the largest file it opens — the ceiling its own page states", () => {
+    let checked = 0;
+    for (const source of tools)
+      for (const t of plan(source.slug).targets) {
+        checked += 1;
+        expect(t.ceilingBytes, t.slug).toBe(toolFileCeilingBytes(tool(t.slug)));
+      }
+    // Health: real rows, and real ceilings among them (a plan of nulls
+    // would let the row offer anything to anyone).
+    expect(checked).toBeGreaterThan(50);
+    const ceilings = new Set(
+      tools.flatMap((s) => plan(s.slug).targets.map((t) => t.ceilingBytes)),
+    );
+    expect([...ceilings].filter((c) => c !== null).length).toBeGreaterThan(0);
+  });
+
   it("is never the tool itself", () => {
     const self = tools.filter((t) => slugsOf(plan(t.slug)).includes(t.slug));
     expect(self.map((t) => t.slug)).toEqual([]);
@@ -169,7 +191,7 @@ describe("the policy rows", () => {
     );
   });
 
-  it("after Protect PDF and PDF to PDF/A, nothing — and the reason is said", () => {
+  it("after Protect PDF and PDF to PDF/A, nothing — and the plan carries the reason", () => {
     for (const slug of ["protect-pdf", "pdf-to-pdfa"]) {
       expect(plan(slug).targets, slug).toEqual([]);
       expect(plan(slug).none, slug).toBe(NO_CONTINUE[slug]);
