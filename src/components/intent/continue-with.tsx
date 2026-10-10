@@ -99,12 +99,12 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
       <p id={headingId} className="kicker text-faint">
         Continue with
       </p>
-      <ul className="grid gap-2 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {targets.map((target, i) => {
           const mode = getProcessingMeta(target.processing);
           const busy = launching === target.slug;
           return (
-            <li key={target.slug}>
+            <li key={target.slug} className="min-w-0">
               {/* Named by its words, which say what the click does:
                   "Continue with Compress PDF · In-browser · carries
                   merged.pdf" — the visible label inside the name. */}
@@ -119,13 +119,18 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
                     <span className="sr-only">Continue with </span>
                     {target.name}
                   </span>
-                  <span className="text-muted flex min-w-0 items-center gap-1.5 text-xs">
-                    <ModeShape mode={target.processing} />
-                    <span className="shrink-0">{mode.short}</span>
+                  {/* Carries the visitor's file name: wrapped, never cut
+                      (NAME_WRAP) — a phone keeps it whole on its width. */}
+                  <span className={cn("text-muted text-xs", NAME_WRAP)}>
+                    <ModeShape
+                      mode={target.processing}
+                      className="mr-1.5 inline-block"
+                    />
+                    {mode.short}
                     <span aria-hidden className="text-faint">
-                      ·
+                      {" · "}
                     </span>
-                    <span className="truncate">carries {what}</span>
+                    carries {what}
                   </span>
                 </span>
                 {busy ? (
