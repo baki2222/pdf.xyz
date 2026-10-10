@@ -11,6 +11,11 @@
  */
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  activePageTarget,
+  registerPageTarget,
+  resetPageTargetsForTests,
+} from "@/lib/intent/page-target";
 import { createDragDepth, DropSheet, DropSheetPick } from "./drop-sheet";
 
 const files = (names: string[]) =>
@@ -21,6 +26,7 @@ const withFiles = (list: File[] = []) => ({
 
 afterEach(() => {
   window.location.hash = "";
+  resetPageTargetsForTests();
 });
 
 describe("createDragDepth", () => {
@@ -86,7 +92,19 @@ describe("DropSheet", () => {
     expect(root.hasAttribute("data-over")).toBe(false);
   });
 
-  it("a one-file sheet takes the first file only", () => {
+  /**
+   * INVERTED 2026-10-10 (WP-07). This held "a one-file sheet takes the first
+   * file only": the sheet sliced a drop to its first file before its owner
+   * saw it. Harmless while the home desk (which takes many) was its only
+   * owner — and wrong the day the runner kit's `Dropzone` became this sheet,
+   * because a drop is the one way past `multiple={false}` and the owner is
+   * the one place that can SAY so: OCR PDF keeps the first file and tells
+   * the visitor the others were not added ("Only the first file was
+   * added"), which a sheet that hid them made impossible. So `multiple`
+   * governs the picker, and a drop hands over every file; the owner keeps
+   * what it takes and says why.
+   */
+  it("a drop hands every file to a one-file sheet's owner, which says what it kept; the picker takes one", () => {
     const onFiles = vi.fn();
     const { container } = render(
       <DropSheet accept=".pdf" multiple={false} onFiles={onFiles} id="z" />,
@@ -97,7 +115,63 @@ describe("DropSheet", () => {
     );
     expect(onFiles.mock.calls[0]![0].map((f: File) => f.name)).toEqual([
       "a.pdf",
+      "b.pdf",
     ]);
+    for (const input of container.querySelectorAll('input[type="file"]'))
+      expect(input.hasAttribute("multiple")).toBe(false);
+  });
+
+  it("a drop that lists files but no types is a file drop (what every test that fires one sends)", () => {
+    const onFiles = vi.fn();
+    const { container } = render(
+      <DropSheet accept=".pdf" onFiles={onFiles} id="z" />,
+    );
+    const dropped = files(["a.pdf"]);
+    fireEvent.drop(container.querySelector("#z")!, {
+      dataTransfer: { files: dropped },
+    });
+    expect(onFiles).toHaveBeenCalledWith(dropped, "drop");
+  });
+
+  it("refuse: a refused file never reaches the owner, whichever way it came; the first reason is reported, and a clean arrival clears it", () => {
+    const onFiles = vi.fn();
+    const onRefusal = vi.fn();
+    const refuse = (file: File) =>
+      file.name.endsWith(".docx") ? `"${file.name}" isn't a PDF` : null;
+    const { container } = render(
+      <DropSheet
+        accept=".pdf"
+        onFiles={onFiles}
+        refuse={refuse}
+        onRefusal={onRefusal}
+        id="z"
+      />,
+    );
+    const root = container.querySelector<HTMLElement>("#z")!;
+    // A drop of one good file between two bad ones: the good one goes on.
+    fireEvent.drop(
+      root,
+      withFiles([
+        new File(["x"], "a.docx"),
+        ...files(["ok.pdf"]),
+        new File(["x"], "b.docx"),
+      ]),
+    );
+    expect(onFiles.mock.calls[0]![0].map((f: File) => f.name)).toEqual([
+      "ok.pdf",
+    ]);
+    expect(onRefusal).toHaveBeenLastCalledWith(`"a.docx" isn't a PDF`);
+    // A pick of only a bad file: nothing goes on.
+    const input = screen.getByLabelText(/drop your files here/i);
+    fireEvent.change(input, {
+      target: { files: [new File(["x"], "c.docx")] },
+    });
+    expect(onFiles).toHaveBeenCalledTimes(1);
+    expect(onRefusal).toHaveBeenLastCalledWith(`"c.docx" isn't a PDF`);
+    // A clean drop clears the reason.
+    fireEvent.drop(root, withFiles(files(["fine.pdf"])));
+    expect(onRefusal).toHaveBeenLastCalledWith(null);
+    expect(onFiles).toHaveBeenCalledTimes(2);
   });
 
   it("a drag of text or a link is not a file, and arms nothing", () => {
@@ -161,28 +235,110 @@ describe("DropSheet", () => {
     expect(document.activeElement).toBe(input);
   });
 
-  it("catchPageDrops: a file dropped anywhere on the page lands here, and the tab stays", () => {
+  /**
+   * WAS `catchPageDrops`: the sheet put listeners of its own on `window` and
+   * caught every drop on its page. That made the home desk the one surface
+   * on the site where a near-miss landed somewhere; on every other page a
+   * file released beside a drop zone was opened by the browser, in the tab.
+   * Since WP-07 a page's drops belong to the drop layer
+   * (`@/components/intent/drop-layer`), which hands them to the page's target
+   * through `@/lib/intent/page-target` — and a sheet becomes that target by
+   * REGISTERING. A release delivered to it takes the sheet's own path (its
+   * refusals, its `onFiles`), so it is indistinguishable from a drop on it.
+   * The layer's routing is `drop-layer.test.tsx`'s; this holds the sheet's
+   * half.
+   */
+  it("pageTarget: registered as the page's target while mounted — what the page hands it is a drop on it", () => {
     const onFiles = vi.fn();
-    const { container } = render(
-      <DropSheet accept=".pdf" onFiles={onFiles} id="z" catchPageDrops />,
+    const onIntent = vi.fn();
+    const { container, unmount } = render(
+      <DropSheet
+        accept="application/pdf"
+        onFiles={onFiles}
+        onIntent={onIntent}
+        id="z"
+        pageTarget={{ name: "Merge PDF", verb: "add" }}
+      />,
     );
-    const elsewhere = document.createElement("div");
-    document.body.appendChild(elsewhere);
-    fireEvent.dragEnter(elsewhere, withFiles());
-    expect(container.querySelector("#z")!.hasAttribute("data-armed")).toBe(
+    const root = container.querySelector<HTMLElement>("#z")!;
+    expect(root.hasAttribute("data-page-drop-target")).toBe(true);
+    const target = activePageTarget();
+    expect(target?.name).toBe("Merge PDF");
+    expect(target?.verb).toBe("add");
+    expect(target?.element()).toBe(root);
+    // What it opens is read from its own `accept`.
+    expect(target?.takes({ name: "a.pdf", type: "application/pdf" })).toBe(
       true,
     );
-    const over = new Event("dragover", { bubbles: true, cancelable: true });
-    Object.assign(over, withFiles());
-    elsewhere.dispatchEvent(over);
-    // Without this the browser would open the file in the tab on release.
-    expect(over.defaultPrevented).toBe(true);
+    expect(target?.takes({ name: "a.jpg", type: "image/jpeg" })).toBe(false);
+    // Armed by the page while a file is held: the marks grow, and what
+    // comes next is warmed.
+    act(() => target!.arm(true));
+    expect(root.hasAttribute("data-armed")).toBe(true);
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    act(() => target!.arm(false));
+    expect(root.hasAttribute("data-armed")).toBe(false);
     const dropped = files(["far.pdf"]);
-    fireEvent.drop(elsewhere, withFiles(dropped));
-    expect(onFiles).toHaveBeenCalledWith(dropped, "drop");
-    expect(container.querySelector("#z")!.hasAttribute("data-armed")).toBe(
-      false,
+    act(() => target!.receive(dropped, "paste"));
+    expect(onFiles).toHaveBeenCalledWith(dropped, "paste");
+    unmount();
+    expect(activePageTarget()).toBeNull();
+  });
+
+  it("pageTarget: a re-render keeps its place in the stack, and answers with its latest props", () => {
+    const { rerender } = render(
+      <DropSheet
+        accept=".pdf"
+        onFiles={() => {}}
+        pageTarget={{ name: "First", verb: "open" }}
+      />,
     );
-    elsewhere.remove();
+    const later = registerPageTarget({
+      name: "Later",
+      verb: "replace",
+      canReceive: () => true,
+      takes: () => true,
+      receive: () => {},
+      arm: () => {},
+      element: () => null,
+    });
+    rerender(
+      <DropSheet
+        accept=".pdf"
+        onFiles={() => {}}
+        pageTarget={{ name: "First, renamed", verb: "open" }}
+      />,
+    );
+    expect(activePageTarget()?.name).toBe("Later");
+    later();
+    expect(activePageTarget()?.name).toBe("First, renamed");
+  });
+
+  it("pageTarget.canReceive is asked at the moment of the drop, not at registration", () => {
+    let busy = false;
+    render(
+      <DropSheet
+        accept=".pdf"
+        onFiles={() => {}}
+        pageTarget={{
+          name: "Merge PDF",
+          verb: "add",
+          canReceive: () => !busy,
+        }}
+      />,
+    );
+    expect(activePageTarget()?.canReceive()).toBe(true);
+    busy = true;
+    expect(activePageTarget()?.canReceive()).toBe(false);
+  });
+
+  it("without pageTarget a sheet is not the page's target (a secondary zone)", () => {
+    const { container } = render(
+      <DropSheet accept=".pdf" onFiles={() => {}} id="z" />,
+    );
+    expect(activePageTarget()).toBeNull();
+    expect(
+      container.querySelector("#z")!.hasAttribute("data-page-drop-target"),
+    ).toBe(false);
   });
 });
