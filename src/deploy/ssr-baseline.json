@@ -1542,6 +1542,7 @@
         "/#security",
         "/guides",
         "/privacy",
+        "/privacy#files",
         "/status",
         "/terms",
         "/tools",
@@ -3174,6 +3175,7 @@
         "/guides/how-to-repair-a-damaged-pdf",
         "/guides/how-to-translate-a-pdf",
         "/privacy",
+        "/privacy#files",
         "/status",
         "/terms",
         "/tools",
@@ -3664,8 +3666,8 @@
       ]
     },
     "tools/pdf-to-powerpoint.html": {
-      "title": "PDF to PowerPoint (PPTX): Text Export by Page — pdf.xyz",
-      "description": "Export a PDF's selectable text to a .pptx: one slide per page, each holding that page's lines as plain paragraphs. Images, fonts and layout are not kept.",
+      "title": "PDF to PowerPoint: Slides with Pictures and Text — pdf.xyz",
+      "description": "Turn each PDF page into a slide the size of the page: pictures where the page shows them, each line of text in its own text box, other drawing kept as pictures.",
       "canonical": "https://pdf.xyz/tools/pdf-to-powerpoint",
       "robots": "index, follow",
       "h1": ["PDF to PowerPoint"],
