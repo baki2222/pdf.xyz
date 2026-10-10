@@ -42,12 +42,43 @@
  * PowerPoint is `scripts/prove-pptx-opens.ts`), that text is editable, or that
  * fonts match. It says the slides LOOK like the pages, within a stated
  * tolerance, through one real importer.
+ *
+ * ── NOT THE SAME EYES AS THE ENGINE (since 2026-10-11) ──────────────────────
+ *
+ * Until 2026-10-11 the source was rasterised through the engine's own reader
+ * (`openNodePdf`, with its 64-megapixel ceiling), so a picture the engine's
+ * pdf.js dropped was dropped from the SOURCE too: the review's 124 MP scan
+ * scored 0.000 for the blank deck and for the defective one alike, both
+ * PASS. Now this module opens every PDF with its own options (no pixel
+ * ceiling), and asks the file itself — `./page-inventory`, pdf-lib, not
+ * pdf.js — what each source page paints. A page that paints a picture or
+ * visible text, yet scores a blank slide within the bound, is a comparison
+ * that CANNOT CONCLUDE, and the verdict fails it.
+ *
+ * ── PICTURES ARE SCORED ON THEIR OWN (since 2026-10-11) ─────────────────────
+ *
+ * The page score averages over the page, so a defect confined to one picture
+ * is diluted by everything around it, and the page bound was set just above
+ * the font noise of text pages. Measured by the review: a picture stretched
+ * 10% or cropped 15% on one slide passed the whole deck. So every picture the
+ * source paints (its box from the inventory) is also scored on its own
+ * region, normalised by the region's own DETAIL — its mean grey change from
+ * one point to the next — so the score reads roughly as how many points the
+ * picture's content is out of place, against {@link FIDELITY_BOUND}'s
+ * `picture`. (Normalised by contrast instead, a screenshot with large flat
+ * areas scored a 10% stretch BELOW a competitor's faithful deck; by detail
+ * the two are 4× apart. The calibration is beside the constant.)
  */
+import { inventoryPages, type PageInventory } from "./page-inventory";
 import {
   canvasFactoryOf,
-  openNodePdf,
+  loadNodePdfjs,
+  nodePdfjsAssetDirs,
   type NodeCanvasAndContext,
+  type NodePdfDocument,
 } from "./pdfjs-node";
+import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
+import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 
 /** Raster resolution of the comparison. 72 dpi: one pixel per point. */
 export const FIDELITY_DPI = 72;
@@ -56,11 +87,12 @@ export const FIDELITY_BLUR_PT = 2;
 
 /**
  * The bound a faithful deck must meet: every page at most `page`, the
- * document's mean at most `mean`.
+ * document's mean at most `mean`, every picture at most `picture`.
  *
- * CALIBRATED 2026-10-10, with the deck turned back into a PDF by PowerPoint
- * 16.0 build 20430 (COM, read-only, `SaveAs` PDF) and both PDFs rasterised by
- * this module — `pnpm measure:pptx-fidelity --renderer powerpoint`:
+ * CALIBRATED 2026-10-10 (page, mean), with the deck turned back into a PDF by
+ * PowerPoint 16.0 build 20430 (COM, read-only, `SaveAs` PDF) and both PDFs
+ * rasterised by this module — `pnpm measure:pptx-fidelity --renderer
+ * powerpoint`:
  *
  *   owner's 33-page sample   page max   mean
  *     this export             0.204     0.034
@@ -69,16 +101,57 @@ export const FIDELITY_BLUR_PT = 2;
  *     blank deck              1.000     1.000
  *   committed fixtures       0.007 – 0.018 a page
  *
- * So the controls sit at ≥ 0.98 and the faithful export at ≤ 0.21: the bound
- * splits them with room on both sides. It is NOT yet calibrated on
- * LibreOffice — no LibreOffice was available where it was set — and
- * LibreOffice is what the worker and `pnpm worker:pptx-fidelity-proof` use,
- * with the Carlito and Liberation clones in place of Calibri and Arial. That
- * proof prints every page's score; its first run in the worker image is the
- * LibreOffice calibration, and a failure there is to be read from those
- * numbers before the bound is moved, never by moving it until green.
+ * So the GROSS controls sit at ≥ 0.98 and the faithful export at ≤ 0.21.
+ *
+ * `picture` CALIBRATED 2026-10-11, the same route, because the review found
+ * the page and mean bounds licensed a wrong picture: a 10% stretch or a 15%
+ * crop of ONE picture on one slide passed the whole deck (page 0.093 and
+ * 0.128 on the sample), since a page score averages a defect over its page.
+ * Each picture's region, scored alone ("points out of place", see
+ * `PictureScore`), max over all pictures:
+ *
+ *   faithful decks: owner's sample 0.522; committed fixtures 0.000 – 0.335
+ *     (the 65.6 MP drawing 0.199, the turned photo 0.190)
+ *   a competitor's deck of the sample: 0.770
+ *   PARTIAL CONTROLS, one picture on one slide moved 18 pt / stretched 10% /
+ *     cropped 15%: sample slides 4, 7, 32 through PowerPoint 3.43 / 3.05 /
+ *     3.73 at the least; mixedSizesPdf slides 1, 2, 4 through PowerPoint
+ *     4.69 / 2.38 / 3.58 at the least; and drawn as PDFs, with no
+ *     presentation engine (`fidelity.test.ts`), 4.69 / 2.38 / 3.56
+ *   gross controls: blank 8.76 and up, text-only 65.8 on the sample
+ *
+ * 1.5 is about three times the worst faithful deck and 1.6 times under the
+ * weakest partial control. NONE of these is calibrated on LibreOffice — no
+ * LibreOffice was available where they were set — and LibreOffice is what
+ * the worker and `pnpm worker:pptx-fidelity-proof` use, with the Carlito and
+ * Liberation clones in place of Calibri and Arial. That proof prints every
+ * page's and picture's score, and runs the partial controls; its first run
+ * in the worker image is the LibreOffice calibration, and a failure there is
+ * to be read from those numbers before the bound is moved, never by moving
+ * it until green.
  */
-export const FIDELITY_BOUND = { page: 0.25, mean: 0.15 } as const;
+export const FIDELITY_BOUND = {
+  page: 0.25,
+  mean: 0.15,
+  picture: 1.5,
+} as const;
+
+/** The bound's shape: every page, the mean, every picture. */
+export interface FidelityBound {
+  page: number;
+  mean: number;
+  /** Every source picture's region; absent, pictures are not scored. */
+  picture?: number;
+}
+
+/** Pictures smaller than this on either side (points) are not scored alone. */
+export const MIN_PICTURE_PT = 24;
+/**
+ * A region's detail — its mean grey change per point — is never taken below
+ * this: a flat picture has none, and any difference over it would be
+ * infinite.
+ */
+export const DETAIL_FLOOR = 1;
 
 export interface GrayPage {
   /** Pixels, row-major, top row first; 0 black … 255 white. */
@@ -130,6 +203,30 @@ function toGray(
 }
 
 /**
+ * Open a PDF for COMPARISON, with this module's own options: no pixel
+ * ceiling (`maxImageSize: -1`), so no picture is dropped on the source side
+ * because the engine's reader would drop it.
+ */
+async function openForComparison(
+  pdf: Uint8Array,
+): Promise<{ doc: NodePdfDocument; close(): Promise<void> }> {
+  const pdfjs = await loadNodePdfjs();
+  const task = pdfjs.getDocument({
+    data: pdf.slice(),
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...nodePdfjsAssetDirs(),
+    disableFontFace: true,
+    useSystemFonts: false,
+    useWorkerFetch: false,
+    isOffscreenCanvasSupported: false,
+    enableXfa: false,
+    maxImageSize: -1,
+  });
+  const doc = await awaitPdfjsDocument(task);
+  return { doc, close: () => task.destroy().catch(() => {}) };
+}
+
+/**
  * Rasterise every page of `pdf` to grey. With `onto`, page i is drawn INTO
  * the frame of `onto[i]` (its pixel size), through {@link fitCentred}: the
  * part of the candidate page where the source page sits, at the source's
@@ -140,7 +237,7 @@ export async function rasterizeGray(
   onto?: readonly GrayPage[],
   dpi = FIDELITY_DPI,
 ): Promise<GrayPage[]> {
-  const { doc, close } = await openNodePdf(pdf);
+  const { doc, close } = await openForComparison(pdf);
   try {
     const factory = canvasFactoryOf(doc);
     const out: GrayPage[] = [];
@@ -237,20 +334,48 @@ export function blur(
   return out;
 }
 
+/** One source picture's region, scored on its own. */
+export interface PictureScore {
+  page: number;
+  /** The region, source page points, top-left origin: x0, y0, x1, y1. */
+  box: [number, number, number, number];
+  /**
+   * Mean |source − candidate| over the region, divided by the region's
+   * DETAIL (its mean grey change from one point to the next). A picture
+   * shifted by d points, while d is small, differs by about d × its detail,
+   * so the score reads roughly as "points out of place".
+   */
+  score: number;
+  /** The region's detail: mean |∂source| per point, grey levels. */
+  detail: number;
+}
+
 export interface PageScore {
   page: number;
   /** Normalised difference: 0 identical, 1 as far as a blank page. */
   score: number;
   /** Mean grey difference from a blank page, before normalising. */
   ink: number;
+  /**
+   * Whether the source page paints a picture or visible text, by the file
+   * itself (`./page-inventory`), independent of the rasteriser. Absent when
+   * the file could not be read that way.
+   */
+  paints?: boolean;
+  /** Each picture the source page paints, scored alone. */
+  pictures?: PictureScore[];
 }
 
-/** Score one candidate page against its source page (same pixel frame). */
+/**
+ * Score one candidate page against its source page (same pixel frame), and
+ * each of `inventory`'s pictures on its own region.
+ */
 export function scorePage(
   source: GrayPage,
   candidate: GrayPage | undefined,
   page: number,
   dpi = FIDELITY_DPI,
+  inventory?: PageInventory,
 ): PageScore {
   const sigma = (FIDELITY_BLUR_PT * dpi) / 72;
   const a = blur(source.gray, source.width, source.height, sigma);
@@ -265,16 +390,64 @@ export function scorePage(
   }
   diff /= a.length;
   ink /= a.length;
-  return { page, score: diff / Math.max(ink, 1), ink };
+  const scored: PageScore = { page, score: diff / Math.max(ink, 1), ink };
+  if (!inventory) return scored;
+  const px = dpi / 72;
+  const pictures: PictureScore[] = [];
+  for (const placement of inventory.placements) {
+    const box: [number, number, number, number] = [
+      Math.max(0, placement.box[0]),
+      Math.max(0, placement.box[1]),
+      Math.min(inventory.width, placement.box[2]),
+      Math.min(inventory.height, placement.box[3]),
+    ];
+    if (box[2] - box[0] < MIN_PICTURE_PT || box[3] - box[1] < MIN_PICTURE_PT)
+      continue;
+    const x0 = Math.round(box[0] * px);
+    const y0 = Math.round(box[1] * px);
+    const x1 = Math.min(source.width, Math.round(box[2] * px));
+    const y1 = Math.min(source.height, Math.round(box[3] * px));
+    const w = source.width;
+    let n = 0;
+    let d = 0;
+    let detail = 0;
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = y * w + x;
+        d += Math.abs(a[i]! - (b ? b[i]! : 255));
+        // Per point: one pixel is 72 / dpi points.
+        const dx = x + 1 < x1 ? Math.abs(a[i + 1]! - a[i]!) : 0;
+        const dy = y + 1 < y1 ? Math.abs(a[i + w]! - a[i]!) : 0;
+        detail += ((dx + dy) / 2) * px;
+        n++;
+      }
+    if (n === 0) continue;
+    detail /= n;
+    pictures.push({
+      page,
+      box,
+      score: d / n / Math.max(detail, DETAIL_FLOOR),
+      detail,
+    });
+  }
+  const paints = inventory.images.length > 0 || inventory.visibleTextOps > 0;
+  return { ...scored, paints, pictures };
 }
 
 export interface FidelityReport {
   pages: PageScore[];
   mean: number;
   max: number;
+  /** Every scored picture, all pages. */
+  pictures: PictureScore[];
   /** Source and candidate page counts; a missing page scores as blank. */
   sourcePages: number;
   candidatePages: number;
+  /**
+   * Pages where a BLANK slide would pass, though the source paints a picture
+   * or visible text there: the comparison cannot see that page, and fails.
+   */
+  inconclusive: number[];
   pass: boolean;
   detail: string;
 }
@@ -283,17 +456,20 @@ export interface FidelityReport {
 export async function compareFidelity(
   source: Uint8Array,
   candidate: Uint8Array,
-  bound: { page: number; mean: number } = FIDELITY_BOUND,
+  bound: FidelityBound = FIDELITY_BOUND,
 ): Promise<FidelityReport> {
   const src = await rasterizeGray(source);
   const cand = await rasterizeGray(candidate, src);
   const candidatePages = await pageCount(candidate);
-  const pages = src.map((s, i) => scorePage(s, cand[i], i + 1));
+  const inventory = await inventoryPages(source);
+  const pages = src.map((s, i) =>
+    scorePage(s, cand[i], i + 1, FIDELITY_DPI, inventory?.[i]),
+  );
   return verdict(pages, src.length, candidatePages, bound);
 }
 
 async function pageCount(pdf: Uint8Array): Promise<number> {
-  const { doc, close } = await openNodePdf(pdf);
+  const { doc, close } = await openForComparison(pdf);
   try {
     return doc.numPages;
   } finally {
@@ -305,22 +481,58 @@ export function verdict(
   pages: PageScore[],
   sourcePages: number,
   candidatePages: number,
-  bound: { page: number; mean: number } = FIDELITY_BOUND,
+  bound: FidelityBound = FIDELITY_BOUND,
 ): FidelityReport {
   const scores = pages.map((p) => p.score);
   const mean = scores.reduce((a, b) => a + b, 0) / Math.max(1, scores.length);
   const max = Math.max(0, ...scores);
   const worst = pages.filter((p) => p.score > bound.page).map((p) => p.page);
   const countOk = candidatePages === sourcePages;
-  const pass = countOk && worst.length === 0 && mean <= bound.mean;
+  // A blank candidate page scores ink / max(ink, 1) by construction. Where
+  // that is within the page bound and the source paints something visible,
+  // the instrument cannot tell the export from an empty slide.
+  const inconclusive = pages
+    .filter((p) => p.paints && p.ink / Math.max(p.ink, 1) <= bound.page)
+    .map((p) => p.page);
+  const pictures = pages.flatMap((p) => p.pictures ?? []);
+  const badPictures =
+    bound.picture === undefined
+      ? []
+      : pictures.filter((p) => p.score > bound.picture!);
+  const pass =
+    countOk &&
+    worst.length === 0 &&
+    mean <= bound.mean &&
+    inconclusive.length === 0 &&
+    badPictures.length === 0;
+  const pictureMax = Math.max(0, ...pictures.map((p) => p.score));
   const detail = [
     `${sourcePages} page(s), mean ${mean.toFixed(3)} (bound ${bound.mean}), max ${max.toFixed(3)} (bound ${bound.page})`,
+    pictures.length > 0
+      ? `${pictures.length} picture(s), max ${pictureMax.toFixed(3)}${bound.picture === undefined ? "" : ` (bound ${bound.picture})`}`
+      : "",
     countOk ? "" : `candidate has ${candidatePages} page(s)`,
     worst.length ? `over the page bound: ${worst.join(", ")}` : "",
+    badPictures.length
+      ? `pictures over the bound: ${badPictures.map((p) => `p${p.page} ${p.score.toFixed(3)}`).join(", ")}`
+      : "",
+    inconclusive.length
+      ? `CANNOT CONCLUDE on page(s) ${inconclusive.join(", ")}: the source paints a picture or text there, yet a blank slide would pass`
+      : "",
   ]
     .filter(Boolean)
     .join("; ");
-  return { pages, mean, max, sourcePages, candidatePages, pass, detail };
+  return {
+    pages,
+    mean,
+    max,
+    pictures,
+    sourcePages,
+    candidatePages,
+    inconclusive,
+    pass,
+    detail,
+  };
 }
 
 /** A presentation engine that turns a .pptx into a PDF. */
@@ -331,7 +543,7 @@ export async function roundTripFidelity(
   source: Uint8Array,
   pptx: Uint8Array,
   toPdf: PptxToPdf,
-  bound: { page: number; mean: number } = FIDELITY_BOUND,
+  bound: FidelityBound = FIDELITY_BOUND,
 ): Promise<FidelityReport> {
   return compareFidelity(source, await toPdf(pptx), bound);
 }

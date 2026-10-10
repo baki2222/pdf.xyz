@@ -141,7 +141,8 @@ async function blankDeck(source: Uint8Array): Promise<Uint8Array> {
 }
 
 function summary(name: string, r: FidelityReport): string {
-  return `${name.padEnd(14)} ${r.pass ? "PASS" : "FAIL"}  mean ${r.mean.toFixed(3)}  max ${r.max.toFixed(3)}  pages ${r.candidatePages}/${r.sourcePages}`;
+  const pictures = Math.max(0, ...r.pictures.map((p) => p.score));
+  return `${name.padEnd(14)} ${r.pass ? "PASS" : "FAIL"}  mean ${r.mean.toFixed(3)}  max ${r.max.toFixed(3)}  pictures ${r.pictures.length} max ${pictures.toFixed(3)}  pages ${r.candidatePages}/${r.sourcePages}${r.inconclusive.length ? `  CANNOT CONCLUDE ${r.inconclusive.join(",")}` : ""}`;
 }
 
 async function main(): Promise<void> {
@@ -198,7 +199,7 @@ async function main(): Promise<void> {
 
   await render(decks);
   console.log(
-    `renderer: ${rendererName}; bound: page ≤ ${FIDELITY_BOUND.page}, mean ≤ ${FIDELITY_BOUND.mean} (set from PowerPoint 16 runs on 2026-10-10; the worker's proof holds LibreOffice to it)`,
+    `renderer: ${rendererName}; bound: page ≤ ${FIDELITY_BOUND.page}, mean ≤ ${FIDELITY_BOUND.mean}, picture ≤ ${FIDELITY_BOUND.picture} (set from PowerPoint 16 runs; the worker's proof holds LibreOffice to it)`,
   );
   const reports: [string, FidelityReport][] = [];
   for (const d of decks) {
@@ -217,6 +218,17 @@ async function main(): Promise<void> {
     console.log(
       `${String(i + 1).padStart(4)}  ${reports.map(([, r]) => r.pages[i]!.score.toFixed(3).padStart(11)).join("")}`,
     );
+  console.log(
+    `
+picture scores (each picture's region alone), per page: ${reports.map(([n]) => n).join(" | ")}`,
+  );
+  for (let i = 0; i < pages; i++) {
+    const cells = reports.map(([, r]) =>
+      (r.pages[i]!.pictures ?? []).map((p) => p.score.toFixed(3)).join(" "),
+    );
+    if (cells.some((c) => c))
+      console.log(`${String(i + 1).padStart(4)}  ${cells.join(" | ")}`);
+  }
 }
 
 main().catch((error: unknown) => {

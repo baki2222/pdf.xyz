@@ -13,11 +13,23 @@
  * workflow step to that call.
  *
  * Output is content-free: fixture names, page numbers and scores.
+ *
+ * ── PARTIAL CONTROLS (since 2026-10-11) ─────────────────────────────────────
+ *
+ * The blank and text-only decks are GROSS controls: both sit near 1.0, so a
+ * bound can fail them and still license a stretched or cropped picture. The
+ * review of 2026-10-11 found exactly that. So on every multi-page fixture the
+ * faithful deck is also altered in ONE picture on ONE slide — moved 18 pt,
+ * stretched 10%, cropped 15% — and each altered deck must FAIL. Each
+ * alteration is read back from the slide XML before it is trusted: a control
+ * whose mutation did not land is a green that should have been red.
  */
+import JSZip from "jszip";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
   FIDELITY_BOUND,
   roundTripFidelity,
+  type FidelityBound,
   type FidelityReport,
   type PptxToPdf,
 } from "./fidelity";
@@ -41,7 +53,87 @@ export interface PptxFidelityProofDeps {
   textOnlyDeck: (pages: ExtractedPdfText["pages"]) => Promise<Uint8Array>;
   /** NEGATIVE CONTROL: a deck of empty slides, one per page. */
   blankDeck: (pageCount: number) => Promise<Uint8Array>;
-  bound?: { page: number; mean: number };
+  bound?: FidelityBound;
+}
+
+/** The partial defects every multi-page fixture's deck is altered into. */
+export const PICTURE_ALTERATIONS = ["move18pt", "stretch10", "crop15"] as const;
+export type DeckAlteration = (typeof PICTURE_ALTERATIONS)[number];
+
+const EMU_PER_POINT = 12_700;
+
+/**
+ * The deck with the LARGEST picture on slide `slide` (1-based) altered one
+ * way, and whether the alteration is in the slide XML afterwards (read back,
+ * not assumed). Only that one `p:pic` changes.
+ */
+export async function alterDeckPicture(
+  pptx: Uint8Array,
+  slide: number,
+  kind: DeckAlteration,
+): Promise<{ bytes: Uint8Array; landed: boolean; detail: string }> {
+  const zip = await JSZip.loadAsync(pptx);
+  const part = `ppt/slides/slide${slide}.xml`;
+  const xml = (await zip.file(part)?.async("string")) ?? "";
+  const pics = xml.match(/<p:pic>[\s\S]*?<\/p:pic>/g) ?? [];
+  const area = (pic: string) => {
+    const ext = /<a:ext cx="(\d+)" cy="(\d+)"\/>/.exec(pic);
+    return ext ? Number(ext[1]) * Number(ext[2]) : 0;
+  };
+  const target = pics
+    .filter((p) => /<p:cNvPr [^>]*name="Picture /.test(p))
+    .sort((a, b) => area(b) - area(a))[0];
+  if (!target)
+    return {
+      bytes: pptx,
+      landed: false,
+      detail: `no picture on slide ${slide}`,
+    };
+  let altered = target;
+  let want = "";
+  if (kind === "move18pt") {
+    altered = target.replace(/<a:off x="(-?\d+)"/, (_, x: string) => {
+      want = `<a:off x="${Number(x) + 18 * EMU_PER_POINT}"`;
+      return want;
+    });
+  } else if (kind === "stretch10") {
+    altered = target.replace(/<a:ext cx="(\d+)"/, (_, cx: string) => {
+      want = `<a:ext cx="${Math.round(Number(cx) * 1.1)}"`;
+      return want;
+    });
+  } else {
+    const src = /<a:srcRect([^/]*)\/>/.exec(target);
+    const attr = (name: string) =>
+      Number(new RegExp(`${name}="(-?\\d+)"`).exec(src?.[1] ?? "")?.[1] ?? 0);
+    const [l, t, r, b] = ["l", "t", "r", "b"].map(attr) as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    // 15% more of what shows is cut from the right.
+    const right = Math.round(r + 0.15 * (100_000 - l - r));
+    want = `<a:srcRect l="${l}" t="${t}" r="${right}" b="${b}"/>`;
+    altered = src
+      ? target.replace(src[0], want)
+      : target.replace(
+          /(<a:blip [^>]*\/>|<a:blip [\s\S]*?<\/a:blip>)/,
+          `$1${want}`,
+        );
+  }
+  const next = xml.replace(target, altered);
+  zip.file(part, next);
+  const bytes = new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
+  const readBack =
+    (await (await JSZip.loadAsync(bytes)).file(part)?.async("string")) ?? "";
+  const landed = want !== "" && altered !== target && readBack.includes(want);
+  return {
+    bytes,
+    landed,
+    detail: landed
+      ? `${kind} on slide ${slide}`
+      : `${kind} did not land on slide ${slide}`,
+  };
 }
 
 export interface PptxFidelityProofResult {
@@ -50,13 +142,14 @@ export interface PptxFidelityProofResult {
 }
 
 const fmt = (r: FidelityReport) =>
-  `${r.pass ? "PASS" : "FAIL"} ${r.detail} [${r.pages.map((p) => p.score.toFixed(3)).join(" ")}]`;
+  `${r.pass ? "PASS" : "FAIL"} ${r.detail} [${r.pages.map((p) => p.score.toFixed(3)).join(" ")}]${r.pictures.length ? ` pictures [${r.pictures.map((p) => `p${p.page}:${p.score.toFixed(3)}`).join(" ")}]` : ""}`;
 
 export async function runPptxFidelityProof(
   deps: PptxFidelityProofDeps,
 ): Promise<PptxFidelityProofResult> {
   const bound = deps.bound ?? FIDELITY_BOUND;
   const lines: string[] = [];
+  let partials = 0;
   let ok = deps.fixtures.length >= 4;
   if (!ok)
     lines.push(
@@ -112,6 +205,37 @@ export async function runPptxFidelityProof(
         `${fixture.name}: the blank control PASSED — the bound cannot see an empty slide`,
       );
     }
+
+    // Partial controls: one picture on one slide, wrong in one way.
+    if (run.meta.pageCount < 2) continue;
+    partials++;
+    for (const kind of PICTURE_ALTERATIONS) {
+      const altered = await alterDeckPicture(run.output, 2, kind);
+      if (!altered.landed) {
+        ok = false;
+        lines.push(
+          `${fixture.name}: the ${kind} control is broken — ${altered.detail}`,
+        );
+        continue;
+      }
+      const report = await roundTripFidelity(
+        fixture.pdf,
+        altered.bytes,
+        deps.toPdf,
+        bound,
+      );
+      lines.push(`${fixture.name}: ${altered.detail} control ${fmt(report)}`);
+      if (report.pass) {
+        ok = false;
+        lines.push(
+          `${fixture.name}: the ${kind} control PASSED — the bound licenses a ${kind} picture`,
+        );
+      }
+    }
+  }
+  if (partials === 0) {
+    ok = false;
+    lines.push("no multi-page fixture: the partial controls never ran");
   }
   return { ok, lines };
 }
