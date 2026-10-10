@@ -373,6 +373,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         </div>
       ) : (
         <Dropzone
+          pageTarget
           refuse={(file) => pickRefusal(tool, file)}
           onFiles={(files) => {
             // An over-ceiling or non-HTML file never gets here: `refuse`

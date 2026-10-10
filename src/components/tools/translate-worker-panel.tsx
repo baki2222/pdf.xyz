@@ -409,6 +409,7 @@ function TranslateBuilder({
         </div>
       ) : (
         <Dropzone
+          pageTarget
           refuse={refuse}
           onFiles={(files) => {
             // `refuse` has already turned away a non-PDF (a drop is not

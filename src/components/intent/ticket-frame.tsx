@@ -105,3 +105,39 @@ export function TicketFrame({
     </div>
   );
 }
+
+/**
+ * The ticket while its chunk is still on the way (an arrival with no
+ * approach to warn of it — a pick made before the page hydrated, or the
+ * first drop that opens the ticket dialog): the
+ * same frame, so it is the ticket's height; the same heading, so the region
+ * is named; and the files' names at once.
+ */
+export function PendingTicket({
+  headingId,
+  names,
+}: {
+  headingId: string;
+  names: readonly string[];
+}) {
+  return (
+    <div aria-busy="true" className="flex flex-1 flex-col">
+      <TicketFrame
+        headingId={headingId}
+        files={
+          <ul className="flex flex-col">
+            {names.slice(0, TICKET_FILE_ROWS).map((name, i) => (
+              <li
+                key={`${i}-${name}`}
+                className="text-fg h-6 truncate text-[13px]"
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
+        }
+        suggestions={<span className="sr-only">Checking your files…</span>}
+      />
+    </div>
+  );
+}

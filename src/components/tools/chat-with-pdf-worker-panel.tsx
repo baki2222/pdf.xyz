@@ -489,6 +489,7 @@ function ChatBuilder({
         </div>
       ) : (
         <Dropzone
+          pageTarget
           refuse={refuse}
           onFiles={(files) => chooseFile(files[0] ?? null)}
           accept="application/pdf,.pdf"

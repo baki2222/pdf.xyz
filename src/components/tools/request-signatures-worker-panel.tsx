@@ -562,6 +562,7 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
         </div>
       ) : (
         <Dropzone
+          pageTarget
           refuse={refuse}
           onFiles={(files) => pickFile(files[0] ?? null)}
           accept="application/pdf,.pdf"

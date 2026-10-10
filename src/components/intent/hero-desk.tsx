@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -14,13 +15,14 @@ import {
   DropSheet,
   DropSheetPick,
   type DropVia,
+  type SheetTarget,
 } from "@/components/upload/drop-sheet";
 import type { HandoffOrigin } from "@/lib/handoff/origin";
 import { cn } from "@/lib/utils";
 import { DESK_ISLAND_MARKER } from "./desk-island-chunk";
 import { RecentsSlot } from "./recents-slot";
 import { SamplePdfButton } from "./sample-pdf-button";
-import { TICKET_FILE_ROWS, TicketFrame } from "./ticket-frame";
+import { PendingTicket, TicketFrame } from "./ticket-frame";
 import {
   loadTicketView,
   loadedTicketView,
@@ -126,6 +128,19 @@ export function HeroDesk({
     if (state.phase === "idle") focusPick();
     else regionRef.current?.focus({ preventScroll: true });
   }, [state.phase, focusPick]);
+  // The page's drop target: a file released anywhere on the home page lands
+  // here, whatever it is — the ticket says what it cannot use. Not while a
+  // launch is on its way out.
+  const launching = state.phase === "launching";
+  const deskTarget = useMemo<SheetTarget>(
+    () => ({
+      name: "the desk",
+      verb: "check",
+      canReceive: () => !launching,
+      takes: () => true,
+    }),
+    [launching],
+  );
   const onSample = useCallback(
     (file: File) => add([file], "pick", { sample: true }),
     [add],
@@ -157,7 +172,7 @@ export function HeroDesk({
         id={id}
         accept={accept}
         multiple
-        catchPageDrops
+        pageTarget={deskTarget}
         onFiles={onFiles}
         onIntent={prefetchTicket}
         onHashTarget={onHashTarget}
@@ -271,41 +286,6 @@ export function HeroDesk({
           </div>
         )}
       </DropSheet>
-    </div>
-  );
-}
-
-/**
- * The ticket while its chunk is still on the way (an arrival with no
- * approach to warn of it — a pick made before the page hydrated, say): the
- * same frame, so it is the ticket's height; the same heading, so the region
- * is named; and the files' names at once.
- */
-function PendingTicket({
-  headingId,
-  names,
-}: {
-  headingId: string;
-  names: readonly string[];
-}) {
-  return (
-    <div aria-busy="true" className="flex flex-1 flex-col">
-      <TicketFrame
-        headingId={headingId}
-        files={
-          <ul className="flex flex-col">
-            {names.slice(0, TICKET_FILE_ROWS).map((name, i) => (
-              <li
-                key={`${i}-${name}`}
-                className="text-fg h-6 truncate text-[13px]"
-              >
-                {name}
-              </li>
-            ))}
-          </ul>
-        }
-        suggestions={<span className="sr-only">Checking your files…</span>}
-      />
     </div>
   );
 }

@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FileText, ShieldAlert } from "lucide-react";
+import { useToolContext } from "@/components/tools/tool-context";
+import { usePageTarget } from "@/components/upload/use-page-target";
+import { takesByAccept } from "@/lib/intent/accept-match";
+import { confirmLeave } from "@/lib/intent/unsaved";
 import { formatBytes } from "@/lib/utils";
 import { Dropzone, ErrorNote, Spinner } from "./runner-kit";
 import {
@@ -11,6 +15,9 @@ import {
 } from "./handoff-notice";
 import { useSinglePdf, type LoadedPdf, type PdfReader } from "./use-single-pdf";
 import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
+
+/** What the open editor's "replace" target takes: a PDF, by type or by name. */
+const takesPdf = takesByAccept("application/pdf,.pdf");
 
 /**
  * Handles the shared "load one PDF" lifecycle — dropzone, reading state, and
@@ -22,6 +29,19 @@ import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
  * for that tool and pre-load its first PDF, or pass an already-claimed `handoff`
  * (when a parent decided single-vs-batch). Direct visits with no hand-off behave
  * exactly as before — a plain file picker.
+ *
+ * REPLACE. While a document is open, the editor is its page's drop target
+ * (`@/lib/intent/page-target`, verb "replace"): a PDF dropped or pasted
+ * anywhere on the page opens in its place, through the same `open` a pick
+ * uses — after `confirmLeave()`, so unsaved work is asked about first
+ * (the editors that register it are WP-08's). It is registered after the
+ * drop zone it replaced unmounted and before any secondary zone the editor
+ * renders, and secondary zones never register (`Dropzone`'s `pageTarget`
+ * is opt-in), so Sign PDF's signature-image zone cannot take the page's
+ * drops from it. It does not take a file while a run is in flight — read
+ * from the editor's own `aria-busy`, the statement a screen reader hears
+ * — and a file that is not a PDF goes to the ticket dialog rather than
+ * closing the editor on an error.
  *
  * A file that already carries digital signatures gets a notice above the
  * editor, before Run: every PDF a client tool saves is a full pdf-lib rewrite,
@@ -63,6 +83,28 @@ export function SinglePdfRunner({
   // Self-claim only when a parent hasn't already provided a claimed hand-off.
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);
   const handoff = providedHandoff ?? selfHandoff;
+  const tool = useToolContext();
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [armed, setArmed] = useState(false);
+
+  usePageTarget(
+    pdf
+      ? {
+          name: tool?.name ?? toolName,
+          verb: "replace",
+          current: pdf.file.name,
+          canReceive: () =>
+            !editorRef.current?.querySelector('[aria-busy="true"]'),
+          takes: takesPdf,
+          receive: (files) => {
+            const next = files.find((file) => takesPdf(file));
+            if (next && confirmLeave()) void open(next);
+          },
+          arm: setArmed,
+          element: () => editorRef.current,
+        }
+      : null,
+  );
 
   // Pre-load the first handed-off PDF exactly once.
   const openedRef = useRef(false);
@@ -80,7 +122,10 @@ export function SinglePdfRunner({
     return (
       <div
         key={key}
+        ref={editorRef}
         data-single-pdf-runner="loaded"
+        data-page-drop-target=""
+        data-armed={armed || undefined}
         className="flex flex-col gap-4"
       >
         {handoff.status === "ready" && (
@@ -117,6 +162,7 @@ export function SinglePdfRunner({
         </div>
       ) : (
         <Dropzone
+          pageTarget
           onFiles={(files) => files[0] && open(files[0])}
           multiple={false}
           hint={hint}

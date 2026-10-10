@@ -23,10 +23,10 @@ import {
   resetPageTargetsForTests,
   routeFor,
   subscribeTargets,
-  takesByAccept,
   type PageFallback,
   type PageTarget,
 } from "./page-target";
+import { takesByAccept } from "./accept-match";
 
 afterEach(() => resetPageTargetsForTests());
 
@@ -43,11 +43,11 @@ function target(over: Partial<PageTarget> = {}): PageTarget {
   };
 }
 
-function fallback(): PageFallback & {
-  receive: ReturnType<typeof vi.fn>;
-  pick: ReturnType<typeof vi.fn>;
-} {
-  return { receive: vi.fn(), pick: vi.fn() };
+function fallback() {
+  return {
+    receive: vi.fn<PageFallback["receive"]>(),
+    pick: vi.fn<PageFallback["pick"]>(),
+  };
 }
 
 const pdf = (name = "a.pdf") =>
@@ -104,9 +104,15 @@ describe("the target stack", () => {
     subscribeTargets(heard);
     registerPageTarget(target());
     registerFallback(fallback());
+    deliverToFallback([pdf()], "drop", { kind: "none" });
     resetPageTargetsForTests();
     expect(activePageTarget()).toBeNull();
-    expect(deliverFiles([pdf()], "drop")).toBe("nowhere");
+    expect(deliverFiles([pdf()], "drop")).toBe("waiting");
+    // …and what waited before the reset is gone: a fallback receives only
+    // the files that landed after it.
+    const after = fallback();
+    registerFallback(after);
+    expect(after.receive).toHaveBeenCalledTimes(1);
     registerPageTarget(target());
     expect(heard).toHaveBeenCalledTimes(1);
   });
@@ -176,14 +182,34 @@ describe("routing", () => {
     const files = [pdf()];
     expect(
       deliverToFallback(files, "drop", { kind: "refused", name: "Merge PDF" }),
-    ).toBe(true);
+    ).toBe("fallback");
     expect(t.receive).not.toHaveBeenCalled();
     expect(fb.receive).toHaveBeenCalledTimes(1);
   });
 
-  it("nothing to receive: says so, and drops nothing on the floor silently", () => {
-    expect(deliverFiles([pdf()], "drop")).toBe("nowhere");
-    expect(deliverToFallback([pdf()], "drop", { kind: "none" })).toBe(false);
+  /**
+   * WAS "nothing to receive: says so" — `"nowhere"`, and the files dropped.
+   * The page's fallback is the drop layer's, which arrives on idle (it is
+   * kept out of every page's first load), so a file can land before it: a
+   * pick on a guide's desk the moment the page paints. Now the files wait,
+   * and the fallback receives them first when it registers.
+   */
+  it("no fallback yet: the files wait for one, and it receives them first", () => {
+    const a = pdf("early.pdf");
+    expect(deliverFiles([a], "drop")).toBe("waiting");
+    expect(deliverToFallback([pdf("b.pdf")], "pick", { kind: "none" })).toBe(
+      "waiting",
+    );
+    const fb = fallback();
+    registerFallback(fb);
+    expect(fb.receive).toHaveBeenNthCalledWith(1, [a], "drop", {
+      kind: "none",
+    });
+    expect(fb.receive).toHaveBeenCalledTimes(2);
+    // Handed over once: a second fallback does not receive them again.
+    const second = fallback();
+    registerFallback(second);
+    expect(second.receive).not.toHaveBeenCalled();
   });
 
   it("an empty list goes nowhere", () => {

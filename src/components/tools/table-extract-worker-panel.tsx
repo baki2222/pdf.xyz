@@ -229,6 +229,7 @@ function TableExtractRunArea({ refuse }: { refuse: PickRefusal }) {
         </div>
       ) : (
         <Dropzone
+          pageTarget
           refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf,.pdf"

@@ -126,6 +126,7 @@ export function CompressRunner() {
     <div data-single-pdf-runner="empty" className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName="Compress PDF" />
       <Dropzone
+        pageTarget
         onFiles={addFiles}
         accept="application/pdf"
         multiple

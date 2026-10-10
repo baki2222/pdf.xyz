@@ -229,6 +229,8 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         />
       )}
       <Dropzone
+        pageTarget
+        busy={busy}
         onFiles={addFiles}
         accept={imagePickerAccept(kind)}
         multiple

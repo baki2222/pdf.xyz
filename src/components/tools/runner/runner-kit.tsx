@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -20,7 +21,6 @@ import {
   Loader2,
   RefreshCw,
   TriangleAlert,
-  UploadCloud,
   type LucideIcon,
 } from "lucide-react";
 import { PageRangeError } from "@/lib/pdf/ranges";
@@ -28,7 +28,8 @@ import { PdfEngineError } from "@/lib/pdf/engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
-import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
+import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
+import { useToolContext } from "@/components/tools/tool-context";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 import { cn } from "@/lib/utils";
 import {
@@ -115,7 +116,23 @@ export function Spinner({ className }: { className?: string }) {
   );
 }
 
-/** Big drop target used for the empty state; also usable as an "add more" tile. */
+/**
+ * A runner's or panel's drop zone: the one drop primitive (`DropSheet`) with
+ * the runners' defaults — a square sheet with crop marks around a dashed
+ * field, the title a "…, or" that the accent "browse" ends.
+ *
+ * `pageTarget`: this zone is where a file dropped or pasted ANYWHERE on its
+ * page lands (`@/lib/intent/page-target`) — the empty state's zone and the
+ * add-more tile. OFF by default: a secondary zone inside an editor (Sign
+ * PDF's signature image, Overlay PDF's overlay) must never take the page's
+ * drops from the editor's own "replace" target, and an opt-in cannot be
+ * forgotten in the direction that steals them (`drop-anywhere` e2e, and the
+ * discovery in `page-target-sites.test.ts`). The page names the tool from
+ * `ToolContextProvider`.
+ *
+ * `busy`: the zone's runner is at work; a file dropped on the PAGE then goes
+ * to the ticket dialog rather than into a run already started.
+ */
 export function Dropzone({
   onFiles,
   accept = "application/pdf",
@@ -126,6 +143,8 @@ export function Dropzone({
   compact = false,
   className,
   refuse,
+  pageTarget = false,
+  busy = false,
 }: {
   onFiles: (files: File[]) => void;
   accept?: string;
@@ -137,104 +156,64 @@ export function Dropzone({
   className?: string;
   /**
    * Why a picked file cannot be used, or `null` when it can. Runs on EVERY way
-   * a file arrives (drop, browse, a pick made before hydration) and before
-   * `onFiles`, so a refused file is never read or uploaded. A drop is not
-   * filtered by `accept`, which is why this exists. The worker panels pass
-   * `pickRefusal` from `@/lib/uploads/pick-check`.
+   * a file arrives (drop, browse, a pick made before hydration, a drop or a
+   * paste anywhere on the page) and before `onFiles`, so a refused file is
+   * never read or uploaded. A drop is not filtered by `accept`, which is why
+   * this exists. The worker panels pass `pickRefusal` from
+   * `@/lib/uploads/pick-check`.
    */
   refuse?: (file: File) => string | null;
+  pageTarget?: boolean;
+  busy?: boolean;
 }) {
-  const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
+  const tool = useToolContext();
   const [refusal, setRefusal] = useState<string | null>(null);
+  const busyNow = useRef(busy);
+  useEffect(() => {
+    busyNow.current = busy;
+  }, [busy]);
 
-  const emit = useCallback(
-    (list: FileList | null) => {
-      if (!list || list.length === 0) return;
-      const kept: File[] = [];
-      let first: string | null = null;
-      for (const file of Array.from(list)) {
-        const why = refuse ? refuse(file) : null;
-        if (why === null) kept.push(file);
-        else first ??= why;
-      }
-      setRefusal(first);
-      if (kept.length === 0) return;
+  const receive = useCallback(
+    (files: File[]) => {
       // The engine downloads the moment files arrive (including a pre-hydration
-      // pick adopted by useEarlyFilePick below), so by the time a hand reaches
-      // the run button the pdf-lib chunk is usually already here. Fire-and-
-      // forget; the operation's own await is the surface that reports failures.
+      // pick the sheet adopts), so by the time a hand reaches the run button
+      // the pdf-lib chunk is usually already here. Fire-and-forget; the
+      // operation's own await is the surface that reports failures.
       warmPdfLib();
-      onFiles(kept);
+      onFiles(files);
     },
-    [onFiles, refuse],
+    [onFiles],
   );
 
-  useEarlyFilePick(inputRef, emit);
+  const target = useMemo<SheetTarget | undefined>(
+    () =>
+      pageTarget
+        ? {
+            name: tool?.name ?? "this tool",
+            verb: multiple ? "add" : "open",
+            canReceive: () => !busyNow.current,
+          }
+        : undefined,
+    [pageTarget, tool?.name, multiple],
+  );
 
   const zone = (
-    <label
-      htmlFor={inputId}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragging(false);
-        emit(e.dataTransfer.files);
-      }}
-      className={cn(
-        "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[4px] border border-dashed text-center transition-colors duration-150",
-        compact ? "px-4 py-6" : "px-6 py-12",
-        dragging
-          ? "border-accent bg-accent/5"
-          : "border-line-strong bg-canvas hover:border-fg/40",
-        className,
-      )}
-    >
-      <input
-        id={inputId}
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        multiple={multiple}
-        className="sr-only"
-        onChange={(e) => {
-          emit(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      <UploadCloud
-        className={cn("text-muted", compact ? "size-5" : "size-6")}
-        strokeWidth={1.5}
-        aria-hidden
-      />
-      <span className="flex flex-col gap-1">
-        <span
-          className={cn(
-            "text-fg font-medium",
-            compact ? "text-sm" : "text-[15px]",
-          )}
-        >
-          {title}
-          {browse && (
-            <>
-              {" "}
-              <span className="text-accent underline underline-offset-4">
-                browse
-              </span>
-            </>
-          )}
-        </span>
-        {hint && <span className="text-muted text-xs">{hint}</span>}
-      </span>
-    </label>
+    <DropSheet
+      accept={accept}
+      multiple={multiple}
+      title={title}
+      browse={browse}
+      hint={hint}
+      variant={compact ? "compact" : "sheet"}
+      className={className}
+      refuse={refuse}
+      onRefusal={setRefusal}
+      pageTarget={target}
+      onFiles={receive}
+    />
   );
-  // Without a refusal the zone renders exactly as before: no wrapper, so the
-  // runners' layouts (which never pass `refuse`) are untouched.
+  // Without a refusal the zone renders alone: no wrapper, so the runners'
+  // layouts (which never pass `refuse`) are untouched.
   if (!refusal) return zone;
   return (
     <>

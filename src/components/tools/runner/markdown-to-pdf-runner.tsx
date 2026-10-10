@@ -158,6 +158,8 @@ function MarkdownToPdfEditor({
   return (
     <div className="flex flex-col gap-5">
       <Dropzone
+        pageTarget
+        busy={busy}
         onFiles={onFile}
         accept="text/markdown,text/x-markdown,.md,.markdown,.mdown"
         multiple={false}

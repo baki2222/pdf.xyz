@@ -232,6 +232,7 @@ export function MergeRunner() {
         {announcer}
         <HandoffProblem handoff={handoff} toolName="Merge PDF" />
         <Dropzone
+          pageTarget
           onFiles={addFiles}
           multiple
           hint="Add two or more PDFs · they stay on your device"
@@ -360,6 +361,8 @@ export function MergeRunner() {
       </RunnerSection>
 
       <Dropzone
+        pageTarget
+        busy={busy}
         onFiles={addFiles}
         multiple
         compact

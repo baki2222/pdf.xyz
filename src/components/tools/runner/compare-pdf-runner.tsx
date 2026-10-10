@@ -309,6 +309,8 @@ export function ComparePdfEditor({
   return (
     <div className="flex flex-col gap-5">
       <Dropzone
+        pageTarget
+        busy={busy}
         onFiles={onFiles}
         multiple
         title="Drop two PDFs here, or"

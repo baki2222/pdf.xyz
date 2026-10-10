@@ -471,6 +471,7 @@ function SecurityRunArea({
         </div>
       ) : (
         <Dropzone
+          pageTarget
           refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf"

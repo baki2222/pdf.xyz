@@ -270,6 +270,7 @@ function OfficeRunArea({
         </div>
       ) : (
         <Dropzone
+          pageTarget
           refuse={(file) => pickRefusal(catalogTool, file)}
           onFiles={(files) => {
             // An over-ceiling or wrong-format file never gets here: `refuse`

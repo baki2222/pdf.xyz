@@ -15,6 +15,7 @@ import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { FormatsLine } from "@/components/tools/formats-line";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { WORKER_PANELS } from "@/components/tools/worker-panels";
+import { ToolContextProvider } from "@/components/tools/tool-context";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
@@ -273,9 +274,11 @@ export default async function ToolPage({
                   ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
                   : "Runs in your browser — your file never leaves your device."}
               </div>
-              <ErrorBoundary boundary="tool-runner">
-                <ToolRunner kind={runnerKind} slug={tool.slug} />
-              </ErrorBoundary>
+              <ToolContextProvider slug={tool.slug} name={tool.name}>
+                <ErrorBoundary boundary="tool-runner">
+                  <ToolRunner kind={runnerKind} slug={tool.slug} />
+                </ErrorBoundary>
+              </ToolContextProvider>
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2">
@@ -333,9 +336,11 @@ export default async function ToolPage({
               className="self-start lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1"
             >
               {panel && (
-                <ErrorBoundary boundary={panel.boundary}>
-                  <panel.Panel tool={tool} />
-                </ErrorBoundary>
+                <ToolContextProvider slug={tool.slug} name={tool.name}>
+                  <ErrorBoundary boundary={panel.boundary}>
+                    <panel.Panel tool={tool} />
+                  </ErrorBoundary>
+                </ToolContextProvider>
               )}
             </div>
 
