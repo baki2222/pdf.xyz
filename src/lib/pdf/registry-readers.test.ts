@@ -14,10 +14,18 @@
  * to the code, both ways: a kind is in the set iff the runner the dispatcher
  * mounts for it passes `reader="pdfjs"` — the prop `single-pdf-reader.test.ts`
  * already binds to what each runner does with the bytes.
+ *
+ * The dispatcher's `case` arms are read by the shared AST reader
+ * (`@/tests/tool-panel-modules`), which follows each mounted component
+ * through its binding — a static import or a `next/dynamic` loader — to the
+ * module that defines it. WAS a regex over `import { X } from "./x";` lines
+ * in tool-runner.tsx: on the merge of #175 into WP-04..06 (fb90edbb) every
+ * runner had become a loader, the regex found none of the 27, and the file
+ * failed before collecting a test ("no import for <MergeRunner>").
  */
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { runnerArms } from "@/tests/tool-panel-modules";
 import {
   getRunnerKind,
   opensRestrictedPdfs,
@@ -26,35 +34,16 @@ import {
   type RunnerKind,
 } from "./registry";
 
-const RUNNER_DIR = path.join(
-  process.cwd(),
-  "src",
-  "components",
-  "tools",
-  "runner",
-);
-
-/** kind → the runner file the dispatcher mounts for it, read from its source. */
+/** kind → the runner module the dispatcher mounts for it (absolute path). */
 function runnerFiles(): Map<string, string> {
-  const source = readFileSync(path.join(RUNNER_DIR, "tool-runner.tsx"), "utf8");
-  const fileOf = new Map<string, string>();
-  for (const [, name, file] of source.matchAll(
-    /import \{ (\w+) \} from "\.\/([\w-]+)";/g,
-  ))
-    fileOf.set(name!, `${file}.tsx`);
   const out = new Map<string, string>();
-  for (const [, kind, component] of source.matchAll(
-    /case "([\w-]+)":\s*return <(\w+)/g,
-  )) {
-    const file = fileOf.get(component!);
-    if (!file) throw new Error(`no import for <${component}> (case ${kind})`);
-    out.set(kind!, file);
-  }
+  for (const arm of runnerArms())
+    for (const kind of arm.keys) out.set(kind, arm.resolved.file);
   return out;
 }
 
 const readsWithPdfjs = (file: string) =>
-  /\breader="pdfjs"/.test(readFileSync(path.join(RUNNER_DIR, file), "utf8"));
+  /\breader="pdfjs"/.test(readFileSync(file, "utf8"));
 
 describe("PDFJS_READER_KINDS is what the runners do", () => {
   const files = runnerFiles();
