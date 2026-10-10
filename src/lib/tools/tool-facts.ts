@@ -1408,11 +1408,15 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       // becomes an empty slide." — and the shared `scanned` answer, which
       // said such a PDF "is refused". Both were true of that engine and are
       // false of this one; worker-tool-answers.test.ts runs it to hold these.
+      // CHANGED 2026-10-11: "Every picture on the page is a picture on the
+      // slide" was not true of a stencil mask or a repeated tile (drawn into
+      // the drawing pictures), nor of a picture too large or undecodable
+      // (left out, then silently; now counted and named in the note).
       return [
         {
           question: "What goes on each slide?",
           answer:
-            "One slide per PDF page, in the same order, each the shape of the first page. Every picture on the page is a picture on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied; and the page's other drawing, such as lines, boxes and backgrounds, comes as pictures. A page with nothing on it becomes an empty slide.",
+            "One slide per PDF page, in the same order, each the shape of the first page. A photo or screenshot on the page is a picture of its own on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied; and the page's other drawing, such as lines, boxes, backgrounds and stencilled images, comes as pictures. A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page. A page with nothing on it becomes an empty slide.",
         },
         {
           question: `Can ${tool.name} convert a scanned PDF?`,
