@@ -5,9 +5,11 @@ type Size = "sm" | "md" | "lg";
 
 // `aria-disabled` is styled identically to `disabled` on purpose: a control that
 // stays focusable while it is unavailable (see `RunButton`) must still LOOK
-// unavailable, and the two must not drift apart.
+// unavailable, and the two must not drift apart. 65, not 60: a dimmed
+// primary's label is still read (every run's busy label, "Merging…"), and at
+// 60 it fell to 4.46:1 on the white panel (`design-tokens.test.ts`).
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-[3px] font-medium whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-not-allowed aria-disabled:opacity-60";
+  "inline-flex items-center justify-center gap-2 rounded-[3px] font-medium whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-65 aria-disabled:cursor-not-allowed aria-disabled:opacity-65";
 
 /**
  * Token-driven, theme-scoped. `primary` is the inverted ground of whatever

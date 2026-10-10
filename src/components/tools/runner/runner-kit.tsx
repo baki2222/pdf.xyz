@@ -674,7 +674,7 @@ export function WorkerRunButton({
       aria-disabled={blocked || undefined}
       aria-busy={busy}
       className={cn(
-        "inline-flex w-full items-center justify-center gap-2 rounded-[3px] border px-6 py-2.5 text-sm font-semibold transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-60 sm:w-auto sm:self-start",
+        "inline-flex w-full items-center justify-center gap-2 rounded-[3px] border px-6 py-2.5 text-sm font-semibold transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-65 sm:w-auto sm:self-start",
         WORKER_RUN_TONE[tone],
       )}
     >
