@@ -61,6 +61,7 @@
 
 import { PDFDocument } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { decodePng } from "@/lib/png-probe";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { runPdfOfficeExport } from "./engine";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
@@ -69,8 +70,13 @@ import { encodePngImage } from "./png-encode";
 
 const PROOF_LINES = [["Capability probe", "First page"], [], ["Third page"]];
 
-/** The probe's picture: 40 × 30 pixels, two flat colours. */
-const PROOF_PICTURE = { width: 40, height: 30 } as const;
+/** The probe's picture: 40 × 30 pixels, two flat colours, left and right. */
+const PROOF_PICTURE = {
+  width: 40,
+  height: 30,
+  left: [200, 40, 40],
+  right: [40, 80, 200],
+} as const;
 
 /** The probe's PDF, generated here: no file ships with the image for it. */
 export async function capabilityProbePdf(): Promise<Uint8Array> {
@@ -80,7 +86,7 @@ export async function capabilityProbePdf(): Promise<Uint8Array> {
   const pixels = new Uint8Array(width * height * 3);
   for (let p = 0; p < width * height; p++) {
     const left = p % width < width / 2;
-    pixels.set(left ? [200, 40, 40] : [40, 80, 200], p * 3);
+    pixels.set(left ? PROOF_PICTURE.left : PROOF_PICTURE.right, p * 3);
   }
   const picture = await embedRasterImage(
     doc,
@@ -151,6 +157,32 @@ export async function provesPptxPresentationChain(
   }
 }
 
+/**
+ * Is `png` the probe's picture: its size, and each half's colour (opaque,
+ * within 12 levels a channel) at the half's centre?
+ */
+function showsProofPicture(png: Uint8Array): boolean {
+  try {
+    const { width, height, data } = decodePng(png);
+    if (width !== PROOF_PICTURE.width || height !== PROOF_PICTURE.height)
+      return false;
+    const at = (x: number, y: number, want: readonly number[]) => {
+      const i = (y * width + x) * 4;
+      return (
+        data[i + 3] === 255 &&
+        want.every((c, k) => Math.abs(data[i + k]! - c) <= 12)
+      );
+    };
+    const y = Math.floor(height / 2);
+    return (
+      at(Math.floor(width / 4), y, PROOF_PICTURE.left) &&
+      at(Math.floor((width * 3) / 4), y, PROOF_PICTURE.right)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** The probe picture's placement on its slide, in EMU (12,700 a point). */
 const PROOF_PICTURE_EMU = {
   // Drawn at x 72 pt, from y 500 pt (bottom edge) up 120 pt, on a 792 pt
@@ -170,9 +202,14 @@ const PROOF_PICTURE_EMU = {
  * deck had no pictures — asked of the running image rather than of `main`.
  * The probe PDF's first page paints one 40 × 30 picture at a known box; the
  * deck must carry, on slide 1, a `p:pic` at that box (to a twentieth of a
- * point) whose blip resolves to a PNG of those pixel dimensions, in a package
- * the delivery inspector passes. A text-only deck, a picture flattened into a
- * page-sized background, or one moved or rescaled, all answer `false`.
+ * point) whose blip resolves to a PNG of those pixel dimensions AND those
+ * pixels — decoded (`@/lib/png-probe`, a reader that shares nothing with the
+ * writer) and sampled in each half, opaque and within a few levels of the
+ * probe's two colours — in a package the delivery inspector passes. A
+ * text-only deck, a picture flattened into a page-sized background, one moved
+ * or rescaled, or one of the right size with the wrong pixels (blank,
+ * transparent, black), all answer `false`. Until 2026-10-11 the pixels were
+ * not read: a deck whose every picture was transparent black passed.
  *
  * It does not say every PDF's pictures come through: the round trip
  * (`./fidelity`, `pnpm worker:pptx-fidelity-proof`) is the measure of how
@@ -219,16 +256,7 @@ export async function provesPptxPictures(
         ? await zip.file(`ppt/media/${target}`)?.async("uint8array")
         : undefined;
       if (!media || media[0] !== 0x89 || media[1] !== 0x50) continue;
-      const view = new DataView(
-        media.buffer,
-        media.byteOffset,
-        media.byteLength,
-      );
-      if (
-        view.getUint32(16) === PROOF_PICTURE.width &&
-        view.getUint32(20) === PROOF_PICTURE.height
-      )
-        return true;
+      if (showsProofPicture(media)) return true;
     }
     return false;
   } catch {

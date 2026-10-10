@@ -21,6 +21,7 @@ import JSZip from "jszip";
 import { PDFDocument } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
+import { decodePng } from "@/lib/png-probe";
 import { encodePngImage } from "./png-encode";
 import { pptxProofVerdict } from "./validate-ooxml";
 
@@ -37,6 +38,13 @@ export const PPTX_PROOF_PICTURE = {
   height: 160,
 } as const;
 
+/** Its three regions' colours: a band across the top, two halves below. */
+const PROOF_COLOURS = {
+  band: [40, 55, 90],
+  left: [230, 120, 40],
+  right: [60, 150, 200],
+} as const;
+
 const PAGE = { width: 595, height: 842 } as const;
 
 /** One A4 page: the proof's line of text and its picture. Deterministic. */
@@ -51,7 +59,11 @@ export async function pptxProofPdf(): Promise<Uint8Array> {
     const x = p % w;
     const y = Math.floor(p / w);
     pixels.set(
-      y < h / 4 ? [40, 55, 90] : x < w / 2 ? [230, 120, 40] : [60, 150, 200],
+      y < h / 4
+        ? PROOF_COLOURS.band
+        : x < w / 2
+          ? PROOF_COLOURS.left
+          : PROOF_COLOURS.right,
       p * 3,
     );
   }
@@ -75,10 +87,39 @@ const POINTS = 1;
 const EMU_PER_POINT = 12_700;
 
 /**
+ * Is `png` the proof's picture: its pixel size, and its three regions'
+ * colours (opaque, within 12 levels a channel) at each region's centre?
+ */
+function showsProofPicture(png: Uint8Array): boolean {
+  try {
+    const { width, height, data } = decodePng(png);
+    const box = PPTX_PROOF_PICTURE;
+    if (width !== box.pixelWidth || height !== box.pixelHeight) return false;
+    const at = (x: number, y: number, want: readonly number[]) => {
+      const i = (y * width + x) * 4;
+      return (
+        data[i + 3] === 255 &&
+        want.every((c, k) => Math.abs(data[i + k]! - c) <= 12)
+      );
+    };
+    const below = Math.floor((height * 5) / 8);
+    return (
+      at(Math.floor(width / 2), Math.floor(height / 8), PROOF_COLOURS.band) &&
+      at(Math.floor(width / 4), below, PROOF_COLOURS.left) &&
+      at(Math.floor((width * 3) / 4), below, PROOF_COLOURS.right)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The deployed deck, judged: the package readers (`pptxProofVerdict`: opens,
  * walks, carries the text) AND the picture — a `p:pic` on slide 1 at the
- * proof picture's box, whose image is the proof's pixel size. The slide is the
- * page's size, so page points are slide points.
+ * proof picture's box, whose image is the proof's picture: its pixel size
+ * and, decoded, its three colours. The slide is the page's size, so page
+ * points are slide points. Until 2026-10-11 only the size was read, and a
+ * deployed engine writing every picture blank passed.
  */
 export async function pptxDeploymentVerdict(
   bytes: Uint8Array,
@@ -124,18 +165,14 @@ export async function pptxDeploymentVerdict(
       ? await zip.file(`ppt/media/${media}`)?.async("uint8array")
       : undefined;
     if (!image || image[0] !== 0x89 || image[1] !== 0x50) continue;
-    const view = new DataView(image.buffer, image.byteOffset, image.byteLength);
-    if (
-      view.getUint32(16) === box.pixelWidth &&
-      view.getUint32(20) === box.pixelHeight
-    )
+    if (showsProofPicture(image))
       return {
         ok: true,
-        detail: `${structure.detail}; the page's picture is on slide 1 where the page shows it, at ${box.pixelWidth} × ${box.pixelHeight} px`,
+        detail: `${structure.detail}; the page's picture is on slide 1 where the page shows it, at ${box.pixelWidth} × ${box.pixelHeight} px, its colours decoded`,
       };
   }
   return {
     ok: false,
-    detail: `slide 1 carries no picture at the page's ${PPTX_PROOF_PICTURE.width} × ${PPTX_PROOF_PICTURE.height} pt box (pictures at x,y,w,h: ${found.join(" | ") || "none"})`,
+    detail: `slide 1 carries no picture at the page's ${PPTX_PROOF_PICTURE.width} × ${PPTX_PROOF_PICTURE.height} pt box showing its pixels (pictures at x,y,w,h: ${found.join(" | ") || "none"})`,
   };
 }
