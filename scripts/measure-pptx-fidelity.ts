@@ -27,8 +27,7 @@
  * document's text. A blank deck is always measured beside the others, as the
  * control that must score 1.0 on every page with ink.
  */
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -42,6 +41,7 @@ import { pptxPackage } from "@/lib/workers/pdf-office-export/pptx-package";
 import { slideSizeFor } from "@/lib/workers/pdf-office-export/deck-from-scan";
 import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
 import { openNodePdf } from "@/lib/workers/pdf-office-export/pdfjs-node";
+import { runPowerShellJson } from "@/tests/powershell-json";
 
 const SAVE_AS_PDF = String.raw`
 param([string]$ListPath)
@@ -74,33 +74,23 @@ function powerpoint(dir: string): Renderer {
   return async (decks) => {
     if (process.platform !== "win32")
       throw new Error("PowerPoint's COM server exists only on Windows.");
-    const script = path.join(dir, "save-as-pdf.ps1");
     const list = path.join(dir, "decks.txt");
-    writeFileSync(script, SAVE_AS_PDF, "utf8");
     writeFileSync(
       list,
       decks.map((d) => `${d.pptx}|${d.pdf}`).join("\r\n"),
       "utf8",
     );
-    const out = execFileSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        script,
-        "-ListPath",
-        list,
-      ],
-      { encoding: "utf8", timeout: 600_000 },
-    );
-    const report = JSON.parse(out.slice(out.indexOf("{"))) as {
+    // Through the helper: PowerShell's stdout is not UTF-8, so a deck path
+    // outside the console's code page would come back unparseable.
+    const report = runPowerShellJson<{
       saved: string[];
       alertsBefore: number;
       alertsAfter: number;
-    };
+    }>(SAVE_AS_PDF, ["-ListPath", list], {
+      dir,
+      name: "save-as-pdf.ps1",
+      timeout: 600_000,
+    });
     if (report.alertsAfter !== report.alertsBefore)
       throw new Error(
         `PowerPoint's DisplayAlerts was ${report.alertsBefore} and is now ${report.alertsAfter}`,
@@ -152,6 +142,9 @@ async function main(): Promise<void> {
   const keep = args.includes("--keep")
     ? args[args.indexOf("--keep") + 1]
     : undefined;
+  // `--keep` names a directory that may not exist yet; the first deck written
+  // into it would otherwise fail with ENOENT after the export already ran.
+  if (keep) mkdirSync(keep, { recursive: true });
   const dir = keep ?? mkdtempSync(path.join(tmpdir(), "pptx-fidelity-"));
   const rendererName = args.includes("--renderer")
     ? args[args.indexOf("--renderer") + 1]
