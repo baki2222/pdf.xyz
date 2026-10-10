@@ -174,6 +174,39 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * panel split into its own chunk — raw and gz each measured + the same margin
  * (+40 raw, +10 gz), see the rows — and joined by a derived ceiling over all
  * 50 tool pages, which stopped weighing the same that day.
+ *
+ * EVERY ROW RE-MEASURED 2026-10-10, on the merge of main 552bed45 (#173 the
+ * fallback faces, #175 the split) into design batch B 9b4affd4 (WP-04, -05,
+ * -06). One weigher over four builds, raw KB / gz KB — base is the merge base
+ * 1634c61a, where batch B left batch A:
+ *
+ *     row             base          main          batch B       merged
+ *     homepage        635 / 202.5   636 / 203.3   649 / 207.1   656 / 209.9
+ *     rotate-pdf     1239 / 371.3   777 / 251.3  1240 / 371.9   769 / 248.2
+ *     ocr-pdf        1239 / 371.3   780 / 250.8  1240 / 371.9   777 / 249.0
+ *     summarize-pdf  1239 / 371.3   788 / 256.2  1240 / 371.9   786 / 254.7
+ *     guide           625 / 198.4   626 / 199.1   626 / 198.8   633 / 201.6
+ *     404             635 / 202.5   636 / 203.3   630 / 200.1   637 / 202.9
+ *     /tools          685 / 217.1   686 / 218.0   691 / 219.2   697 / 222.4
+ *     /workspace      735 / 234.7   737 / 235.3   742 / 236.6   750 / 239.4
+ *
+ * Two sides that each fitted did not add up. Against main + batch B - base,
+ * every non-tool row came out +2.0-2.3 gz (+5-6 raw) heavier, and the tool
+ * rows 2.1-3.7 gz lighter (the weigher's other three tool pages 3.9-4.2). The excess is DUPLICATED bytes, not new code: the
+ * root layout's chunk grew 18.6 -> 23.9 KB raw (6.9 -> 8.9 gz) with its own
+ * copies of the button, lucide's icon base, cn() and the telemetry client,
+ * which main and batch B each loaded once, from a chunk the layout shared
+ * with the root error boundary and the pages (6946-*.js). In the merged graph
+ * webpack builds that shared chunk for the error boundary and the tool route
+ * alone (4032-*.js, which every page loads too), and the layout keeps its
+ * copies. It is not the request cap: Next's splitChunks with
+ * maxInitialRequests raised to 1,000 left every chunk's content hash as it
+ * was. It is the open lever on the five non-tool rows, ~2 gz each. The tool
+ * rows came out lighter because WP-06 took WorkerPreview (and the NotifyMe it
+ * rendered) and the upload zone off the tool route, which, split, no longer
+ * hides in a chunk every tool page loaded anyway.
+ *
+ * What the merge did to each ceiling is said on its row.
  */
 /**
  * Every tool page, not three of them. Until 2026-10-09 all 50 loaded the same
@@ -181,12 +214,23 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * range 765-815 KB raw / 246.9-268.0 gz, and a heavy runner on a page no row
  * names would grow unseen. Heaviest measured (markdown-to-pdf, 815 / 268.0) +
  * the same carried-over margin (+40 raw, +10 gz).
+ *
+ * RE-MEASURED 2026-10-10 on the merged build (see above): 760-816 raw /
+ * 244.2-267.8 gz, heaviest still markdown-to-pdf at 816 / 267.8 (main
+ * 552bed45: 768-818 / 247.7-268.8). Same rule, same margin: 855 / 278.0 ->
+ * 856 / 277.8.
  */
-const EVERY_TOOL_PAGE = { kb: 855, gzKb: 278.0 } as const;
+const EVERY_TOOL_PAGE = { kb: 856, gzKb: 277.8 } as const;
 const BUDGETS = [
   // TIGHTENED 700 -> 675 on 2026-10-08: the homepage weighs 635 KB once the
   // catalogue left it (b9ccf092). Same +40 KB margin as the tool pages; under
   // 700 the 40 KB catalogue leak fitted unnoticed, under 675 it cannot.
+  //
+  // MERGED 2026-10-10: 656 / 209.9, so 7.3 of the +8 gz allowance is spent
+  // (202.6 -> 209.9) — batch B +4.6 (the desk and ticket +3.7 of it, WP-05),
+  // main +0.8 (the split's runtime map, top of this file), the layout's
+  // duplicated copies +2.0 (above the rows). Both ceilings unchanged: the
+  // allowance was never raised, and 0.7 gz of it is left.
   { name: "homepage", html: "index.html", kb: 675, gzKb: 210.6 },
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
@@ -256,28 +300,42 @@ const BUDGETS = [
   // 1280 a tool page could have regained 400 KB with nothing failing. A
   // package that needs more raises its row here and names what grew. The
   // other 47 tool pages are bounded by the derived check below.
+  //
+  // LOWERED again 2026-10-10, to the merged build by the same rule (measured
+  // + 40 raw, + 10 gz, both carried over): the merged tool pages are lighter
+  // than main's, because WP-06 took WorkerPreview, its NotifyMe and the
+  // upload zone off the tool route (table above the rows). Keeping main's
+  // figures would hand that out.
+  //
+  //     row           main 552bed45   merged        ceiling (was)
+  //     rotate-pdf      777 / 251.3    769 / 248.2   809 / 258.2  (814 / 260.5)
+  //     ocr-pdf         780 / 250.8    777 / 249.0   817 / 259.0  (819 / 260.5)
+  //     summarize-pdf   788 / 256.2    786 / 254.7   826 / 264.7  (827 / 266.0)
   {
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
-    kb: 814,
-    gzKb: 260.5,
+    kb: 809,
+    gzKb: 258.2,
   },
   {
     name: "a worker tool page",
     html: "tools/ocr-pdf.html",
-    kb: 819,
-    gzKb: 260.5,
+    kb: 817,
+    gzKb: 259.0,
   },
   {
     name: "an AI tool page",
     html: "tools/summarize-pdf.html",
-    kb: 827,
-    gzKb: 266.0,
+    kb: 826,
+    gzKb: 264.7,
   },
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
   // runner into a route whose job is prose.
   // TIGHTENED 700 -> 665 on 2026-10-08 (625 KB measured), for the same reason.
+  //
+  // MERGED 2026-10-10: 633 / 201.6, 3.1 of the +5 gz spent, 2.1 of it the
+  // layout's duplicated copies. Unchanged.
   {
     name: "a guide page",
     html: "guides/how-to-merge-pdf-files.html",
@@ -287,13 +345,41 @@ const BUDGETS = [
   // NEW 2026-10-09. The root 404 ships with EVERY route, which is why the
   // catalogue riding it reached every page (b9ccf092); it had no budget of its
   // own. Measured 635 KB / 202.6 gz, the same chunk set as the homepage.
+  //
+  // MERGED 2026-10-10: 637 / 202.9, 0.3 of the +4 gz spent — batch B took
+  // 2.4 off it (WP-05: the home route chunk the 404 inherits lost the old
+  // upload zone), main added 0.8, the layout's duplicated copies 2.0.
+  // Unchanged.
   { name: "the 404 page", html: "_not-found.html", kb: 675, gzKb: 206.6 },
   // NEW 2026-10-09. Both are prerendered (they read nothing from the request;
   // pages-static.test.ts holds them to that), so they are weighed here like
   // every other page rather than in a browser. Measured 675 / 214.2 and
   // 732 / 234.0; both legitimately carry the catalogue (see NEEDS_CATALOGUE).
-  { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 219.2 },
-  { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 238.0 },
+  //
+  // RAISED 2026-10-10, gz only, and the redesign's allowance for both pages
+  // is SPENT — this is the merge's figure, not new room. Each side used the
+  // allowance on its own: batch B left /tools at exactly 219.2 and /workspace
+  // at 236.6 of 238.0 (WP-05's commit, before it: "the last two had no
+  // headroom left"), main added its own, and the merge added the layout's
+  // duplicated copies (table above the rows):
+  //
+  //   /tools      214.2 -> 222.4 gz, +8.2 of +5: +2.9 by the merge base
+  //               (batch A, main to 1634c61a), batch B +2.1 (WP-04/06; the
+  //               explorer's "Where it runs" filter and the cards' glyphs
+  //               and formats among it), main +0.9 (the split's runtime
+  //               map), duplicated copies +2.3.
+  //   /workspace  234.0 -> 239.4 gz, +5.4 of +4: +0.7 by the merge base,
+  //               batch B +1.9 (WP-04's suggestions read from the files and
+  //               the hand-off, less WP-05's 1.4), main +0.6, duplicated
+  //               copies +2.2.
+  //
+  // Ceiling = merged + 0.2 gz, which is not allowance: /workspace measures
+  // 239.424, 27 bytes from rounding up a tenth, and a gate on that edge fails
+  // on chunk-id churn between machines. Any growth a reader could notice is
+  // over it. Buying the room back is the duplicated copies (about 2.2 gz on
+  // each). The raw ceilings did not move (697 and 750 measured).
+  { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 222.6 },
+  { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 239.6 },
 ] as const;
 
 describe("client bundle budget", () => {
