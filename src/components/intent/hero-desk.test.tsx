@@ -45,9 +45,11 @@ import {
   readHandoffId,
 } from "@/lib/handoff";
 import { readOrigin } from "@/lib/handoff/origin";
+import { resetPageTargetsForTests } from "@/lib/intent/page-target";
 import { MAX_TICKET_FILES } from "@/lib/intent/ticket";
 import { getToolBySlug } from "@/lib/tools";
 import type { Evidence } from "@/lib/intent/evidence";
+import { DropLayer } from "./drop-layer";
 import { HeroDesk } from "./hero-desk";
 import { arrangeLine } from "./ticket-view";
 import { TICKET_PROBES, TICKET_SETTLE_MS } from "./use-ticket";
@@ -148,6 +150,7 @@ afterEach(() => {
   // this worker must get the real lazily-created one back.
   __setHandoffStoreForTests(null);
   resetAnnouncer();
+  resetPageTargetsForTests();
 });
 
 describe("the desk hands the staged files to the tool", () => {
@@ -318,14 +321,29 @@ describe("the desk's other ways in and out", () => {
   });
 
   /**
-   * "or drop them anywhere on this page" is true only while the desk passes
-   * `catchPageDrops` to its sheet. WAS held by no test where it is used:
-   * every drop in the suite landed ON the desk, and deleting the prop left
-   * 268 tests green (WP-05 review). Now the drop lands on the page outside
-   * the desk, and the sentence is rendered from the same value.
+   * "or drop them anywhere on this page" is true only while the desk is its
+   * page's drop target. WAS held by no test where it is used: every drop in
+   * the suite landed ON the desk, and deleting the prop that made it so
+   * (`catchPageDrops`) left 268 tests green (WP-05 review). Now the drop
+   * lands on the page outside the desk, and the sentence is rendered from
+   * the same value.
+   *
+   * WP-07 (2026-10-10): the page's drops are no longer the desk's own window
+   * listeners but the site's drop layer, which routes them to the page's
+   * registered target — so the chain is composed here as it is in the
+   * layout: the layer, the registry, the desk. Without the layer (the
+   * desk alone) the drag over the page is not accepted, which is what the
+   * first assertion below would then report.
    */
   it("a file dropped anywhere on the page lands on the desk — the sentence that says so, from the same value", async () => {
-    const { container } = render(withRouter(<Desk />));
+    const { container } = render(
+      withRouter(
+        <>
+          <Desk />
+          <DropLayer />
+        </>,
+      ),
+    );
     const outside = document.createElement("h1");
     outside.textContent = "Every PDF tool.";
     document.body.append(outside);
@@ -337,9 +355,12 @@ describe("the desk's other ways in and out", () => {
       // A drop the page did not accept is opened by the browser, in the tab.
       const refused = fireEvent.dragOver(outside, { dataTransfer });
       expect(refused, "the page did not accept the drag over it").toBe(false);
-      expect(
-        container.querySelector("#upload")?.hasAttribute("data-armed"),
-      ).toBe(true);
+      // Armed once the layer has the registry (fetched with the first drag).
+      await waitFor(() =>
+        expect(
+          container.querySelector("#upload")?.hasAttribute("data-armed"),
+        ).toBe(true),
+      );
       fireEvent.drop(outside, { dataTransfer });
       const ticket = await screen.findByRole(
         "region",

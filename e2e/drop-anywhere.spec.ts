@@ -301,12 +301,14 @@ test("Ctrl+V inside a text field is the field's: Text to PDF's editor takes no f
       },
       [clipboard, selector] as const,
     );
+  // A file the runner reads lands in the editor as its text.
+  await expect(field).toHaveValue("");
   await pasteOn("textarea");
   // Give a wrong delivery every chance to land; it must not.
   await page.waitForTimeout(300);
-  await expect(page.getByText("pasted-note-4127.txt")).toHaveCount(0);
+  await expect(field).toHaveValue("");
   await pasteOn("body");
-  await expect(page.getByText("pasted-note-4127.txt").first()).toBeVisible();
+  await expect(field).toHaveValue("pasted words");
 });
 
 test("Sign PDF: with the signature-image zone shown, a drop on the page replaces the PDF, and a drop on the zone is the zone's", async ({
@@ -359,11 +361,13 @@ test("Overlay PDF: with the overlay zone shown, a drop on the page replaces the 
 test("at most one page target on every page, and none where a drop belongs to the dialog", async ({
   page,
 }) => {
+  // A worker tool's panel shows its drop zone once the worker reports in,
+  // so there the count is 0 (this server has no worker) or 1 — never more.
   for (const [path, expected] of [
     ["/", 1],
     ["/tools/rotate-pdf", 1],
     ["/tools/merge-pdf", 1],
-    ["/tools/ocr-pdf", 1],
+    ["/tools/ocr-pdf", "at most 1"],
     ["/workspace", 1],
     ["/guides/how-to-merge-pdf-files", 1],
     ["/tools", 0],
@@ -372,10 +376,13 @@ test("at most one page target on every page, and none where a drop belongs to th
   ] as const) {
     await page.goto(path);
     await layerLive(page);
-    await expect(
-      page.locator("[data-page-drop-target]"),
-      `${path}: page targets`,
-    ).toHaveCount(expected);
+    const targets = page.locator("[data-page-drop-target]");
+    if (expected === "at most 1")
+      expect(
+        await targets.count(),
+        `${path}: page targets`,
+      ).toBeLessThanOrEqual(1);
+    else await expect(targets, `${path}: page targets`).toHaveCount(expected);
   }
 });
 

@@ -182,7 +182,7 @@ describe("an open editor is its page's drop target", SLOW, () => {
     dropOn(screen.getByRole("heading", { level: 1 }), [
       await pdfFile("second.pdf"),
     ]);
-    expect(confirm).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(confirm.mock.calls[0]![0]).toContain("your rotations in Rotate PDF");
     // Give a replace every chance to happen; it must not.
     await new Promise((r) => setTimeout(r, 200));

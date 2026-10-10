@@ -9,6 +9,7 @@ import { ConsentBanner } from "@/components/analytics/consent-banner";
 import { Ga4Gate } from "@/components/analytics/ga4-gate";
 import { LiveRegion } from "@/components/a11y/live-region";
 import { HandoffSweep } from "@/components/layout/handoff-sweep";
+import { DropLayer } from "@/components/intent/drop-layer";
 import { isTelemetryEnabled } from "@/lib/telemetry";
 import { cn } from "@/lib/utils";
 import "./globals.css";
@@ -175,6 +176,11 @@ export default function RootLayout({
         <SiteHeader />
         <main id="main">{children}</main>
         <SiteFooter />
+        {/* Drop and paste anywhere: a file released or pasted on any page
+            lands in that page's target, or in the ticket dialog — never in
+            the browser, in place of the page. After <main>, so its picker
+            (client-only) is never a page's first file input. */}
+        <DropLayer />
         {/* Deletes expired hand-off bytes on every page, on idle — what makes
             the privacy page's hand-off lifetime sentence true. Renders
             nothing; never creates storage for a visitor who has none. */}

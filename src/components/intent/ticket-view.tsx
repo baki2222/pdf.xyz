@@ -39,6 +39,7 @@ import { acceptsHref, isPlainClick, toolHref } from "@/lib/intent/links";
 import { holdOrder, rankForFiles, type Suggestion } from "@/lib/intent/rank";
 import { useRecents } from "@/lib/intent/recents";
 import { suggestionName } from "@/lib/intent/suggestion-name";
+import { confirmLeave } from "@/lib/intent/unsaved";
 import {
   checkedCount,
   ticketFiles,
@@ -170,7 +171,15 @@ export interface TicketViewProps {
   readonly source: SuggestionSource;
   readonly onEvent: Dispatch<TicketAction>;
   readonly onAddFiles: () => void;
+  /** `desk`: empty the ticket; `dialog`: close it (the same button, named for what it does). */
   readonly onClear: () => void;
+  /**
+   * A tool never offered: the tool page the dialog was opened on. A hand-off
+   * to the page already open would not be claimed (a runner claims on mount),
+   * so the row would go nowhere; the dialog says instead why the files did
+   * not go into it.
+   */
+  readonly exclude?: string | null;
 }
 
 /** One measured fact, drawn: a placeholder while it is being measured. */
@@ -467,6 +476,8 @@ function NoteLine({
  */
 export default function TicketView({
   state,
+  variant,
+  exclude = null,
   headingId,
   origin,
   source,
@@ -475,7 +486,10 @@ export default function TicketView({
   onClear,
 }: TicketViewProps) {
   const router = useRouter();
-  const index = useMemo(() => buildToolIndex(), []);
+  const index = useMemo(
+    () => buildToolIndex().filter((tool) => tool.slug !== exclude),
+    [exclude],
+  );
   const recents = useRecents();
   const recentSlugs = useMemo(() => recents.map((r) => r.slug), [recents]);
   const { entries, overflow, launching, failed } = state;
@@ -557,6 +571,7 @@ export default function TicketView({
       origin,
       suggestion: { source, rank },
       router,
+      confirmLeave,
     }).then(
       (result) => onEvent({ type: "launched", target: row.slug, result }),
       () => onEvent({ type: "launched", target: row.slug, result: "failed" }),
@@ -569,6 +584,7 @@ export default function TicketView({
       files: ticketFiles(state),
       origin,
       router,
+      confirmLeave,
     }).then(
       (result) => onEvent({ type: "launched", target: "workspace", result }),
       () =>
@@ -682,7 +698,7 @@ export default function TicketView({
             className="text-muted hover:text-fg hover:bg-wash rounded-ctl inline-flex h-7 items-center gap-1 px-2 text-xs font-medium transition-colors"
           >
             <X className="size-3.5" aria-hidden />
-            Clear
+            {variant === "dialog" ? "Close" : "Clear"}
           </button>
         </div>
       }

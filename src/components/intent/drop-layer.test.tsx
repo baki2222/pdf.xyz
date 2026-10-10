@@ -22,13 +22,15 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import { DropSheet } from "@/components/upload/drop-sheet";
 import {
+  carriesFiles as registryCarriesFiles,
   registerPageTarget,
   requestFilePick,
   resetPageTargetsForTests,
-  takesByAccept,
   type PageTarget,
 } from "@/lib/intent/page-target";
-import { DropLayer, veilWords } from "./drop-layer";
+import { takesByAccept } from "@/lib/intent/accept-match";
+import { carriesFiles as layerCarriesFiles, DropLayer } from "./drop-layer";
+import { veilWords } from "./drop-layer-view";
 
 const ROUTER = {
   push: vi.fn(),
@@ -39,8 +41,12 @@ const ROUTER = {
   refresh: () => {},
 } as never;
 
-function page(children?: ReactNode) {
-  return render(
+/**
+ * A page with the layer on it, its drawing already fetched — as it is by the
+ * first drag on a real page, where it arrives on idle after load.
+ */
+async function page(children?: ReactNode) {
+  const view = render(
     <AppRouterContext.Provider value={ROUTER}>
       <main>
         <h1>Merge PDF</h1>
@@ -51,9 +57,21 @@ function page(children?: ReactNode) {
       <LiveRegion />
     </AppRouterContext.Provider>,
   );
+  await act(async () => {
+    await import("./drop-layer-view");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return view;
 }
 
 beforeAll(() => {
+  // jsdom has no idle callback: the layer's "fetch the view when idle"
+  // runs at once, as an idle page would run it.
+  window.requestIdleCallback ??= ((cb: IdleRequestCallback) => {
+    cb({ didTimeout: false, timeRemaining: () => 50 });
+    return 0;
+  }) as typeof window.requestIdleCallback;
+  window.cancelIdleCallback ??= () => {};
   // jsdom has the element and not its modal methods.
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
     this.setAttribute("open", "");
@@ -87,24 +105,27 @@ function transfer(files: File[], { describe = true } = {}) {
   };
 }
 
-/** Fire a cancelable drag event on `el`; returns the event. */
-function drag(
+/**
+ * Fire a cancelable drag event on `el`; returns the event. Awaited: where a
+ * drag goes is the registry's, which the layer reaches through a promise.
+ */
+async function drag(
   type: "dragenter" | "dragleave" | "dragover" | "drop",
   el: Element,
   dataTransfer: object,
 ) {
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.assign(event, { dataTransfer });
-  act(() => {
+  await act(async () => {
     el.dispatchEvent(event);
   });
   return event;
 }
 
-function paste(el: Element, files: File[]) {
+async function paste(el: Element, files: File[]) {
   const event = new Event("paste", { bubbles: true, cancelable: true });
   Object.assign(event, { clipboardData: { files } });
-  act(() => {
+  await act(async () => {
     el.dispatchEvent(event);
   });
   return event;
@@ -127,13 +148,13 @@ function target(over: Partial<PageTarget> = {}) {
 const veil = () => document.querySelector<HTMLElement>("[data-drop-veil]");
 
 describe("a drag over the page", () => {
-  it("arms the page's target and says what a release does there; leaving undoes all of it", () => {
-    page();
+  it("arms the page's target and says what a release does there; leaving undoes all of it", async () => {
+    await page();
     const t = target();
     registerPageTarget(t);
     const h1 = screen.getByRole("heading");
     const files = [pdf("a.pdf"), pdf("b.pdf")];
-    drag("dragenter", h1, transfer(files));
+    await drag("dragenter", h1, transfer(files));
     expect(document.documentElement.hasAttribute("data-dragging")).toBe(true);
     expect(t.arm).toHaveBeenLastCalledWith(true);
     expect(veil()?.hasAttribute("data-open")).toBe(true);
@@ -144,44 +165,47 @@ describe("a drag over the page", () => {
     expect(veil()?.getAttribute("aria-hidden")).toBe("true");
     expect(veil()?.className).toContain("pointer-events-none");
     // The page accepts the drag — or the browser opens the file on release.
-    expect(drag("dragover", h1, transfer(files)).defaultPrevented).toBe(true);
-    drag("dragleave", h1, transfer(files));
+    expect((await drag("dragover", h1, transfer(files))).defaultPrevented).toBe(
+      true,
+    );
+    await drag("dragleave", h1, transfer(files));
     expect(document.documentElement.hasAttribute("data-dragging")).toBe(false);
     expect(t.arm).toHaveBeenLastCalledWith(false);
     expect(veil()?.hasAttribute("data-open")).toBe(false);
   });
 
-  it("crossing elements does not flicker it: it ends when the last element entered is left", () => {
-    page();
+  it("crossing elements does not flicker it: it ends when the last element entered is left", async () => {
+    await page();
     registerPageTarget(target());
     const h1 = screen.getByRole("heading");
     const notes = screen.getByRole("textbox");
     const t = transfer([pdf()]);
-    drag("dragenter", h1, t);
-    drag("dragenter", notes, t);
-    drag("dragleave", h1, t);
+    await drag("dragenter", h1, t);
+    await drag("dragenter", notes, t);
+    await drag("dragleave", h1, t);
     expect(veil()?.hasAttribute("data-open")).toBe(true);
-    drag("dragleave", notes, t);
+    await drag("dragleave", notes, t);
     expect(veil()?.hasAttribute("data-open")).toBe(false);
   });
 
-  it("a drag of text or a link is not a file: nothing arms, nothing is accepted", () => {
-    page();
+  it("a drag of text or a link is not a file: nothing arms, nothing is accepted", async () => {
+    await page();
     const t = target();
     registerPageTarget(t);
     const text = { types: ["text/plain"], files: [], dropEffect: "none" };
-    drag("dragenter", screen.getByRole("heading"), text);
+    await drag("dragenter", screen.getByRole("heading"), text);
     expect(t.arm).not.toHaveBeenCalled();
     expect(veil()).toBeNull();
     expect(
-      drag("dragover", screen.getByRole("heading"), text).defaultPrevented,
+      (await drag("dragover", screen.getByRole("heading"), text))
+        .defaultPrevented,
     ).toBe(false);
   });
 
-  it("a browser that does not describe the files (WebKit) gets no count, and is not held against the target", () => {
-    page();
+  it("a browser that does not describe the files (WebKit) gets no count, and is not held against the target", async () => {
+    await page();
     registerPageTarget(target());
-    drag(
+    await drag(
       "dragenter",
       screen.getByRole("heading"),
       transfer([pdf()], { describe: false }),
@@ -191,22 +215,22 @@ describe("a drag over the page", () => {
 });
 
 describe("a release, or a paste", () => {
-  it("a drop no zone claimed goes to the page's target, and the tab stays on the page", () => {
-    page();
+  it("a drop no zone claimed goes to the page's target, and the tab stays on the page", async () => {
+    await page();
     const t = target();
     registerPageTarget(t);
     const files = [pdf()];
     const h1 = screen.getByRole("heading");
-    drag("dragenter", h1, transfer(files));
-    const drop = drag("drop", h1, transfer(files));
+    await drag("dragenter", h1, transfer(files));
+    const drop = await drag("drop", h1, transfer(files));
     expect(drop.defaultPrevented).toBe(true);
     expect(t.receive).toHaveBeenCalledWith(files, "drop");
     expect(veil()?.hasAttribute("data-open")).toBe(false);
   });
 
-  it("a drop a zone claimed is that zone's: the page's target is not handed it too", () => {
+  it("a drop a zone claimed is that zone's: the page's target is not handed it too", async () => {
     const onFiles = vi.fn();
-    page(
+    await page(
       <DropSheet
         accept="image/png,image/jpeg"
         title="Drop a signature image, or"
@@ -218,46 +242,48 @@ describe("a release, or a paste", () => {
     registerPageTarget(t);
     const zone = document.getElementById("secondary")!;
     const files = [jpg()];
-    drag("dragenter", zone, transfer(files));
+    await drag("dragenter", zone, transfer(files));
     // Over a zone that takes its own drops the veil says nothing: the
     // zone's own highlight is what a release there does.
     expect(veil()?.textContent).toBe("");
-    drag("drop", zone, transfer(files));
+    await drag("drop", zone, transfer(files));
     expect(onFiles).toHaveBeenCalledWith(files, "drop");
     expect(t.receive).not.toHaveBeenCalled();
   });
 
-  it("a paste of files outside a text field goes where a drop would; inside one, it is the field's", () => {
-    page();
+  it("a paste of files outside a text field goes where a drop would; inside one, it is the field's", async () => {
+    await page();
     const t = target();
     registerPageTarget(t);
     const files = [pdf()];
-    const inField = paste(screen.getByRole("textbox"), files);
+    const inField = await paste(screen.getByRole("textbox"), files);
     expect(inField.defaultPrevented).toBe(false);
     expect(t.receive).not.toHaveBeenCalled();
-    const onPage = paste(screen.getByRole("heading"), files);
+    const onPage = await paste(screen.getByRole("heading"), files);
     expect(onPage.defaultPrevented).toBe(true);
     expect(t.receive).toHaveBeenCalledWith(files, "paste");
   });
 
-  it("a paste with no files (text) is left alone", () => {
-    page();
+  it("a paste with no files (text) is left alone", async () => {
+    await page();
     const t = target();
     registerPageTarget(t);
-    expect(paste(screen.getByRole("heading"), []).defaultPrevented).toBe(false);
+    expect(
+      (await paste(screen.getByRole("heading"), [])).defaultPrevented,
+    ).toBe(false);
     expect(t.receive).not.toHaveBeenCalled();
   });
 });
 
 describe("when the page's target does not take them, the ticket dialog does", () => {
   it("no target: the dialog opens with the files, named for what it shows", async () => {
-    page();
+    await page();
     const h1 = screen.getByRole("heading");
-    drag("dragenter", h1, transfer([pdf("lonely.pdf")]));
+    await drag("dragenter", h1, transfer([pdf("lonely.pdf")]));
     expect(veil()?.textContent).toContain(
       "Release to see what opens this file",
     );
-    drag("drop", h1, transfer([pdf("lonely.pdf")]));
+    await drag("drop", h1, transfer([pdf("lonely.pdf")]));
     const dialog = await screen.findByRole(
       "dialog",
       { name: "What you can do with these files" },
@@ -265,7 +291,7 @@ describe("when the page's target does not take them, the ticket dialog does", ()
     );
     expect(within(dialog).getByText("lonely.pdf")).toBeTruthy();
     // While it is open it is the page's target: the next file joins it.
-    paste(h1, [pdf("second.pdf")]);
+    await paste(h1, [pdf("second.pdf")]);
     expect(await within(dialog).findByText("second.pdf")).toBeTruthy();
     // Closing it ends it, and the page's drops are routed as before.
     const close = await within(dialog).findByRole(
@@ -278,14 +304,14 @@ describe("when the page's target does not take them, the ticket dialog does", ()
   });
 
   it("a target at work: the veil says so, the run is not interrupted, and the dialog says why", async () => {
-    page();
+    await page();
     const t = target({ canReceive: () => false });
     registerPageTarget(t);
     const h1 = screen.getByRole("heading");
-    drag("dragenter", h1, transfer([pdf()]));
+    await drag("dragenter", h1, transfer([pdf()]));
     expect(t.arm).not.toHaveBeenCalled();
     expect(veil()?.textContent).toContain("Merge PDF is working on a file");
-    drag("drop", h1, transfer([pdf()]));
+    await drag("drop", h1, transfer([pdf()]));
     expect(t.receive).not.toHaveBeenCalled();
     const dialog = await screen.findByRole("dialog", undefined, {
       timeout: 5000,
@@ -296,13 +322,13 @@ describe("when the page's target does not take them, the ticket dialog does", ()
   });
 
   it("a target that opens none of them: said before the release, and after", async () => {
-    page();
+    await page();
     const t = target();
     registerPageTarget(t);
     const h1 = screen.getByRole("heading");
-    drag("dragenter", h1, transfer([jpg()]));
+    await drag("dragenter", h1, transfer([jpg()]));
     expect(veil()?.textContent).toContain("Merge PDF can't open this file");
-    drag("drop", h1, transfer([jpg()]));
+    await drag("drop", h1, transfer([jpg()]));
     expect(t.receive).not.toHaveBeenCalled();
     const dialog = await screen.findByRole("dialog", undefined, {
       timeout: 5000,
@@ -312,8 +338,8 @@ describe("when the page's target does not take them, the ticket dialog does", ()
 });
 
 describe("Open files", () => {
-  it("with no target of its own, a page uses the layer's picker — after <main>, so never a page's first", () => {
-    const { container } = page();
+  it("with no target of its own, a page uses the layer's picker — after <main>, so never a page's first", async () => {
+    const { container } = await page();
     const click = vi
       .spyOn(HTMLInputElement.prototype, "click")
       .mockImplementation(() => {});
@@ -330,13 +356,42 @@ describe("Open files", () => {
 });
 
 describe("negative control: without the layer", () => {
-  it("the page does not accept a file dragged over it, so the browser would open it in the tab", () => {
+  it("the page does not accept a file dragged over it, so the browser would open it in the tab", async () => {
     render(<h1>Merge PDF</h1>);
     const h1 = screen.getByRole("heading");
-    expect(drag("dragover", h1, transfer([pdf()])).defaultPrevented).toBe(
+    expect(
+      (await drag("dragover", h1, transfer([pdf()]))).defaultPrevented,
+    ).toBe(false);
+    expect((await drag("drop", h1, transfer([pdf()]))).defaultPrevented).toBe(
       false,
     );
-    expect(drag("drop", h1, transfer([pdf()])).defaultPrevented).toBe(false);
+  });
+});
+
+/**
+ * The layer asks "does this drag carry files?" before the registry has
+ * arrived (it is kept out of the layout's chunk), so it holds its own copy
+ * of the question — and a sheet and the layer answering differently would
+ * be a drag one of them accepts and the other drops. One answer, over
+ * every shape a drag event comes in.
+ */
+describe("the layer and the registry agree on what carries files", () => {
+  it("over every shape, both answers present", () => {
+    const shapes = [
+      { dataTransfer: null },
+      { dataTransfer: { types: ["Files"], files: [] } },
+      { dataTransfer: { types: ["text/plain", "Files"], files: [pdf()] } },
+      { dataTransfer: { types: ["text/plain"], files: [] } },
+      { dataTransfer: { types: ["text/uri-list"], files: [] } },
+      { dataTransfer: { types: [], files: [pdf()] } },
+      { dataTransfer: { files: [pdf()] } },
+      { dataTransfer: { files: [] } },
+    ] as unknown as Parameters<typeof layerCarriesFiles>[0][];
+    const layer = shapes.map(layerCarriesFiles);
+    expect(layer).toEqual(shapes.map(registryCarriesFiles));
+    // Positive control: the corpus asks both questions.
+    expect(layer).toContain(true);
+    expect(layer).toContain(false);
   });
 });
 
@@ -356,6 +411,21 @@ describe("veilWords", () => {
       "Release to replace the file in Rotate PDF",
     );
     expect(veilWords(t("check"), 2).main).toBe("Release to check 2 files");
+    // A replace names the file it replaces, when the target says.
+    expect(
+      veilWords(
+        {
+          to: "target",
+          target: {
+            ...target(),
+            name: "Rotate PDF",
+            verb: "replace",
+            current: "contract.pdf",
+          },
+        },
+        1,
+      ).main,
+    ).toBe("Release to replace contract.pdf in Rotate PDF");
     expect(veilWords(t("check"), 0).main).toBe("Release to check these files");
     expect(veilWords({ to: "fallback", why: { kind: "none" } }, 0).main).toBe(
       "Release to see what opens these files",
