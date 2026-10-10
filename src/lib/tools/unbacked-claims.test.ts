@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Five sentences the site shipped that nothing in the product backs.
+ * Six sentences the site shipped that nothing in the product backs.
  *
  *  1. A QUANTITY THE CATALOGUE OWNS, UNDERSTATED. The FAQ said "a handful of
  *     heavy or AI-powered tools use encrypted, auto-deleting workers" and the
@@ -50,6 +50,21 @@
  *     change that brings a reload back inverts those two and lifts this in
  *     the same commit.
  *
+ *  6. SETTINGS YOU CAN CHANGE ONLY BY STARTING OVER. Page numbers said "Start
+ *     over clears the loaded file, so changing a setting afterwards means
+ *     picking the original again", and Watermark PDF "There is no preview,
+ *     so to change the settings press Start over and choose the file
+ *     again". Both were true until the result panel gained "Back to adjust"
+ *     (WP-08), which returns to the settings with the same file loaded —
+ *     and both were served as HowTo / FAQPage JSON-LD as well as visible
+ *     copy. No curly quotes, so only this corpus sees them (addendum WP-08
+ *     #8).
+ *     EXIT CONDITION, per tool and computed: a tool whose result passes
+ *     `NO_ADJUST` — nothing to go back to — may say starting over is the
+ *     way, so its content file is not read for this rule. The tool's runner
+ *     is found the way the page mounts it (registry, then the dispatcher's
+ *     arm), and its `onAdjust` read from the source.
+ *
  * THE CORPUS is every file the copy walk reaches (`copyFiles()`), comments
  * removed and JSX flattened to the text a reader sees — so a phrase broken by
  * a `<span>` or a `{" "}` is still one phrase. Each rule's shipped sentences
@@ -66,6 +81,8 @@ import {
 } from "./copy-surface";
 import { tools } from "./catalog";
 import { processingSplit } from "./processing-split";
+import { getRunnerKind } from "@/lib/pdf/registry";
+import { runnerArms } from "@/tests/tool-panel-modules";
 
 const ROOT = process.cwd();
 
@@ -74,6 +91,33 @@ interface Rule {
   patterns: readonly RegExp[];
   /** Verbatim, as shipped before 2026-10-09. */
   shipped: readonly string[];
+  /** Files the rule's exit condition lifts it from, computed. */
+  exempt?: (file: string) => boolean;
+}
+
+/**
+ * Does every result in this runner source offer a way back to the settings?
+ * `onAdjust={NO_ADJUST(…)}` is the declared absence; anything else is a
+ * function the panel calls. A source with no `onAdjust` at all answers no.
+ */
+export function offersAdjust(source: string): boolean {
+  const adjusts = [...source.matchAll(/\bonAdjust=\{\s*([^}]*)/g)].map((m) =>
+    m[1]!.trim(),
+  );
+  return adjusts.length > 0 && adjusts.every((a) => !/^NO_ADJUST\b/.test(a));
+}
+
+/** The content file of a tool whose result has nothing to go back to. */
+function withoutAdjust(file: string): boolean {
+  const m = /src\/lib\/tools\/content\/([a-z0-9-]+)\.ts$/.exec(
+    file.split(path.sep).join("/"),
+  );
+  if (!m) return false;
+  const kind = getRunnerKind(m[1]!);
+  if (!kind) return true; // no in-browser runner, no result panel
+  const arm = runnerArms().find((a) => a.keys.includes(kind));
+  if (!arm) throw new Error(`no dispatcher arm mounts kind "${kind}"`);
+  return !offersAdjust(readFileSync(arm.resolved.file, "utf8"));
 }
 
 /** At most one tool in ten: what "a handful" of a catalogue can honestly mean. */
@@ -129,6 +173,21 @@ const RULES: readonly Rule[] = [
       "Download comparison report saves the whole report as a text file named after both PDFs, for example draft-vs-final-comparison.txt. Start over reloads the page, which clears both slots for a new pair.",
     ],
   },
+  {
+    name: "settings that can be changed only by starting over",
+    // "changing a setting … means picking", "to change the settings press
+    // Start over", and the label-first order: "Start over … choose the file
+    // again". Bounded by the sentence.
+    patterns: [
+      /\bchang(?:e|ing)\s+(?:a|the|any)\s+settings?\b[^.]{0,60}?\b(?:start\s+over|pick(?:s|ing)?|choos(?:e|es|ing))\b/i,
+      /\bstart\s+over\b[^.]{0,80}?\b(?:pick(?:s|ing)?|choos(?:e|es|ing)|load(?:s|ing)?)\s+(?:the\s+)?(?:original|file|pdf)\s+again\b/i,
+    ],
+    shipped: [
+      "Start over clears the loaded file, so changing a setting afterwards means picking the original again.",
+      "There is no preview, so to change the settings press Start over and choose the file again.",
+    ],
+    exempt: withoutAdjust,
+  },
 ];
 
 /** Source as a reader sees it: no comments, no tags, no `{" "}`, one line. */
@@ -144,6 +203,7 @@ const rel = (f: string) => path.relative(ROOT, f).split(path.sep).join("/");
 
 function findings(rule: Rule): string[] {
   return copyFiles().flatMap((file) => {
+    if (rule.exempt?.(file)) return [];
     const text = readerText(readFileSync(file, "utf8"));
     return rule.patterns.flatMap((p) =>
       [...text.matchAll(new RegExp(p.source, `${p.flags}g`))].map(
@@ -184,8 +244,29 @@ describe("each rule's corpus, both ways", () => {
       "src/app/status/page.tsx",
       // Rule 5's sentence lived in a tool page's content file.
       "src/lib/tools/content/compare-pdf.ts",
+      // …and rule 6's two.
+      "src/lib/tools/content/page-numbers.ts",
+      "src/lib/tools/content/watermark-pdf.ts",
     ])
       expect(files).toContain(f);
+  });
+
+  it("rule 6's exit reads the runner: a way back lifts nothing, NO_ADJUST lifts it", () => {
+    // Positive controls on the source reader.
+    expect(offersAdjust(`<ResultPanel onAdjust={reset} />`)).toBe(true);
+    expect(
+      offersAdjust(`<ResultPanel onAdjust={NO_ADJUST("nothing to set")} />`),
+    ).toBe(false);
+    expect(offersAdjust(`<ResultPanel onReset={reset} />`)).toBe(false);
+    // On the real tree: the two tools whose sentences shipped go back to
+    // their settings, so the rule reads their content.
+    const rule = RULES.find((r) => r.exempt)!;
+    expect(rule.exempt!("src/lib/tools/content/page-numbers.ts")).toBe(false);
+    expect(rule.exempt!("src/lib/tools/content/watermark-pdf.ts")).toBe(false);
+    // A worker tool has no in-browser result to go back from.
+    expect(rule.exempt!("src/lib/tools/content/ocr-pdf.ts")).toBe(true);
+    // A file that is not a tool's content is always read.
+    expect(rule.exempt!("src/lib/faq.ts")).toBe(false);
   });
 });
 
