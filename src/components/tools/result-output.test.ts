@@ -82,12 +82,40 @@ function elementsIn(file: string, source: string, tag: string): Element[] {
   return out;
 }
 
+/**
+ * THE RULES, each one function the census AND its controls run through — a
+ * control that re-states a rule in an expression of its own proves the
+ * expression, not the rule. (It did: the control asserted
+ * `!attributes.includes("output")` beside an inline filter, and deleting the
+ * filter's `output` clause left all six tests green: WP-08 review,
+ * 2026-10-10.)
+ */
+
+/** Result panels that do not say what they made and how to go back. */
+export function missingEnding(elements: readonly Element[]): string[] {
+  return elements
+    .filter(
+      (p) =>
+        p.spread ||
+        !p.attributes.includes("output") ||
+        !p.attributes.includes("onAdjust"),
+    )
+    .map(where);
+}
+
+/** Run triggers outside the bar that docks them on a phone. */
+export function undocked(elements: readonly Element[]): string[] {
+  return elements.filter((b) => !b.ancestors.includes("RunBar")).map(where);
+}
+
 const files = ["src/components", "src/app"].flatMap(sources);
 const census = (tag: string) =>
   files.flatMap((file) =>
     elementsIn(file, readFileSync(path.join(ROOT, file), "utf8"), tag),
   );
-const where = (e: Element) => `${e.file}:${e.line}`;
+function where(e: Element) {
+  return `${e.file}:${e.line}`;
+}
 
 describe("the walk reads JSX, not text", () => {
   it("POSITIVE CONTROL: elements are found; comments and strings are not", () => {
@@ -124,27 +152,27 @@ describe("every result says what it produced and how to go back", () => {
   });
 
   it("each passes `output` and `onAdjust`, written out — never through a spread", () => {
-    const missing = panels
-      .filter(
-        (p) =>
-          p.spread ||
-          !p.attributes.includes("output") ||
-          !p.attributes.includes("onAdjust"),
-      )
-      .map(where);
     expect(
-      missing,
+      missingEnding(panels),
       "a result that does not say what it made cannot be re-opened, counted or carried on — pass `output` (the file) and `onAdjust` (`reset`, or NO_ADJUST(reason))",
     ).toEqual([]);
   });
 
-  it("POSITIVE CONTROL: a site without `output` fails the rule above", () => {
-    const [bare] = elementsIn(
-      "bare.tsx",
-      `export const X = () => <ResultPanel title="t" onAdjust={reset} onReset={r}><b /></ResultPanel>;`,
-      "ResultPanel",
+  it("POSITIVE CONTROLS, through the rule itself: each way to miss is flagged, a complete site is not", () => {
+    const site = (attributes: string) =>
+      elementsIn(
+        "fixture.tsx",
+        `export const X = () => <ResultPanel title="t" onReset={r} ${attributes}><b /></ResultPanel>;`,
+        "ResultPanel",
+      );
+    expect(missingEnding(site(`onAdjust={reset}`))).toEqual(["fixture.tsx:1"]);
+    expect(missingEnding(site(`output={o}`))).toEqual(["fixture.tsx:1"]);
+    expect(
+      missingEnding(site(`output={o} onAdjust={reset} {...rest}`)),
+    ).toEqual(["fixture.tsx:1"]);
+    expect(missingEnding(site(`output={o} onAdjust={NO_ADJUST("x")}`))).toEqual(
+      [],
     );
-    expect(bare!.attributes.includes("output")).toBe(false);
   });
 });
 
@@ -158,12 +186,19 @@ describe("every run trigger docks on a phone", () => {
   });
 
   it("each RunButton is inside a RunBar", () => {
-    const undocked = buttons
-      .filter((b) => !b.ancestors.includes("RunBar"))
-      .map(where);
     expect(
-      undocked,
+      undocked(buttons),
       "a run trigger outside RunBar scrolls away from a phone user configuring the run — wrap its action row in <RunBar>",
     ).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL, through the rule itself: a trigger outside the bar is flagged, one inside is not", () => {
+    const found = elementsIn(
+      "fixture.tsx",
+      `export const A = () => <div><RunButton onClick={go}>Go</RunButton></div>;
+       export const B = () => <RunBar><div><RunButton onClick={go}>Go</RunButton></div></RunBar>;`,
+      "RunButton",
+    );
+    expect(undocked(found)).toEqual(["fixture.tsx:1"]);
   });
 });
