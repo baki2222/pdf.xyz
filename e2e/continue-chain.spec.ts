@@ -16,6 +16,7 @@ import {
 import {
   attachConsoleGuard,
   fileInput,
+  makePdfBytes,
   uploadFiles,
   waitForHydration,
   writeTempPdf,
@@ -31,8 +32,11 @@ import {
   startFrames,
   stopFrames,
   throttle,
+  type Shift,
 } from "./frames";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
+import { RESULT_ENDING_CHUNK } from "../src/components/intent/result-ending-chunk";
+import { RECENTS_STORAGE_KEY } from "../src/lib/intent/recents-key";
 import { USER_PASSWORD_PDF_BASE64 } from "../src/tests/fixtures-encrypted";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 
@@ -530,29 +534,113 @@ test("G.7 row 2: merge 3 PDFs, then compress — five actions, no file picked tw
 });
 
 /**
- * The result is drawn WITH its ending. Compress PDF analyses a file the
- * moment it is picked, and a pick through the system dialog gives the page
- * no input window, so every shift after the analysis paints counts — at
- * 50b2a243 its receipt and Continue with arrived ~330 ms after it, pushing
- * the worker card below off screen (CLS +0.032 at 4x CPU and a slow
- * network; WP-08 review, 2026-10-10). Held here, frame by frame, on the
- * same slow network: from the first frame the analysis is on screen, its
- * receipt is too, and neither the Download button nor the worker card under
- * the receipt moves again — through the count settling. Read twice: the
- * elements' positions frame by frame, and the browser's own layout-shift
- * entries outside an input's window, none of whose sources may be either.
- *
- * Fails with the run's wait for its ending removed (`endingReady` in the
- * runner kit): the ending then arrives frames later and the card moves.
+ * Holds the result's ending — the script that carries `RESULT_ENDING_CHUNK`,
+ * found by its content, not by its hashed name — until `release()`. Every
+ * other script passes as it is. A drop zone fetches the ending the moment a
+ * file arrives, so left alone it is here long before Compress PDF's
+ * analysis is, and the run's wait for it (`endingReady`) is never used;
+ * held, it comes after the analysis is worked out, which is what that wait
+ * is for. `held` lists what was held: empty, the instrument saw nothing.
  */
-test("Compress PDF's analysis draws with its ending, and nothing under it moves after it paints", async ({
+async function holdEnding(page: Page) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const held: string[] = [];
+  await page.route("**/_next/static/chunks/**", async (route) => {
+    const response = await route.fetch();
+    const body = await response.body();
+    if (body.includes(RESULT_ENDING_CHUNK)) {
+      held.push(new URL(route.request().url()).pathname);
+      await gate;
+    }
+    await route.fulfill({ response, body });
+  });
+  return { held, release };
+}
+
+/**
+ * Compress PDF after a pick, 1280 x 900, 4x CPU, every shift outside an
+ * input's window summed (2026-10-11):
+ *
+ *   4de768a2, the re-review's run    0.1531  0.0174 "Analyzing…" + 0.1357
+ *   4de768a2, this test              0.1357  the About section thrown
+ *                                            648 px by the analysis and
+ *                                            its ending in one commit
+ *   the stage held, this test        0       one shift, in the frame the
+ *                                            file arrives
+ *
+ * A file set through the input the way the system dialog sets it
+ * (`setInputFiles` with a path) opens an input window in this Chromium, and
+ * the held stage's one shift falls inside it. One set from memory and
+ * dispatched by script does not, and then the pick's own shifts count too:
+ * 0.1685 at 4de768a2, 0.0587 held. So two ceilings: FROM THE PICK, the
+ * whole path, under 0.1 either way; FROM THE ANALYSIS'S FIRST FRAME, its
+ * arrival, which is to cost nothing.
+ */
+const PICK_CLS_CEILING = 0.075;
+const ARRIVAL_CLS_CEILING = 0.001;
+/** Past a pick's 500 ms input window, with a frame or two to spare. */
+const OUTSIDE_THE_PICK = 600;
+
+/**
+ * What the page's layout shifts add up to, outside an input's window, from
+ * `since` on — EVERY source, named or not: the figure a visit's CLS is made
+ * of. `listed` says each one and which named elements it moved.
+ */
+function shiftSum(shifts: readonly Shift[], since: number) {
+  const counted = shifts.filter((s) => !s.input && s.t >= since);
+  return {
+    sum: counted.reduce((total, s) => total + s.value, 0),
+    listed: counted
+      .map((s) => `${s.value.toFixed(4)} [${s.hits.join(", ") || "unnamed"}]`)
+      .join(" + "),
+  };
+}
+
+/**
+ * The result is drawn WITH its ending, into space held for it. Compress PDF
+ * analyses a file the moment it is picked, and on any real connection the
+ * analysis is drawn long after the pick's input window has closed, so every
+ * shift it causes counts.
+ *
+ * - At 50b2a243 the receipt and Continue with arrived ~330 ms after the
+ *   analysis, pushing the worker card off screen (+0.032; WP-08 review,
+ *   2026-10-10).
+ * - At 4de768a2 they came in one commit with it, which moved the worker card
+ *   no more — and threw the About section under the runner 648 px, 0.1357
+ *   on its own: the page's CLS after a pick went UP, 0.1234 -> 0.1531
+ *   (WP-08 re-review, 2026-10-11). The guard then counted only shifts that
+ *   moved the two elements it named, so the one that grew passed it.
+ *
+ * So the page is read whole first: the SUM of every layout shift outside
+ * an input's window, whatever moved — from the pick, and from the
+ * analysis's first frame (`PICK_CLS_CEILING`, `ARRIVAL_CLS_CEILING`). Then
+ * the named elements frame by frame, neither of which may move once painted.
+ *
+ * The ending is held until the analysis is worked out — its completion is
+ * recorded (the page's recents) as the work ends, before the wait — so the
+ * run's wait for it is what is under test, not a race the drop zone's early
+ * fetch now always wins (`holdEnding`). And no sooner than
+ * `OUTSIDE_THE_PICK` after the pick: a pick opens an input window, and a
+ * result drawn inside it has every shift it causes forgiven — the sums would
+ * pass whatever it moved. On the re-review's slow network it was drawn 8.4 s
+ * after the pick; held here, it is drawn after the window has closed, as on
+ * any connection slower than this machine's loopback.
+ *
+ * Fails with the stage not held (`stageHoldPx` in the Compress runner): both
+ * sums, the analysis's arrival alone past 0.1. Fails with the run's wait for
+ * its ending removed (`endingReady` in the runner kit): the ending then
+ * arrives frames after the analysis and moves the worker card, so its
+ * arrival is not free.
+ */
+test("Compress PDF's analysis draws with its ending into space held for it: after a pick the page moves once", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/tools/compress-pdf");
   const input = fileInput(page);
   await waitForHydration(input);
-  // Slow from here: the ending's chunk is fetched as the analysis starts.
+  const ending = await holdEnding(page);
   await throttle(page, { cpu: 4, latencyMs: 300, kbps: 200 });
   await startFrames(page, {
     tops: {
@@ -575,8 +663,21 @@ test("Compress PDF's analysis draws with its ending, and nothing under it moves 
       counted: '[data-receipt] [data-settles="counted"]',
     },
   });
+  const pickedAt = await page.evaluate(() => performance.now());
   // A file the repack shrinks a little: the Download and the receipt show.
   await input.setInputFiles(await writeTempPdf("report.pdf", 6));
+  // Worked out: the run's completion is recorded as its work ends.
+  await page.waitForFunction(
+    ([key, slug]) => (localStorage.getItem(key) ?? "").includes(`"${slug}"`),
+    [RECENTS_STORAGE_KEY, "compress-pdf"] as const,
+    { polling: "raf", timeout: 20_000 },
+  );
+  const early = pickedAt + OUTSIDE_THE_PICK;
+  await page.waitForFunction((t) => performance.now() >= t, early, {
+    polling: "raf",
+  });
+  const releasedAt = await page.evaluate(() => performance.now());
+  ending.release();
   await expect(
     page.locator('[data-receipt] [data-settles="counted"]'),
   ).toBeVisible({ timeout: 20_000 });
@@ -584,8 +685,30 @@ test("Compress PDF's analysis draws with its ending, and nothing under it moves 
   const shifts = await recordedShifts(page);
   const frames = await stopFrames(page);
 
+  // Health: the ending was seen and held, the browser reported the page's
+  // shifts at all (the pick moves what is under the runner), and the
+  // analysis painted.
+  expect(ending.held, "the ending's chunk was never seen").not.toEqual([]);
+  expect(shifts.length).toBeGreaterThan(0);
   const painted = frames.findIndex((f) => f.present.analysis);
   expect(painted, "the analysis never painted").toBeGreaterThanOrEqual(0);
+  // ...and painted after the pick's input window had closed, where the sums
+  // below can see what it moves.
+  expect(frames[painted]!.t - pickedAt).toBeGreaterThan(500);
+
+  // THE PAGE: everything that moved outside an input's window, whatever it
+  // was — after the pick, and after the analysis's first frame.
+  const fromPick = shiftSum(shifts, pickedAt);
+  expect(
+    fromPick.sum,
+    `CLS after the pick: ${fromPick.listed}`,
+  ).toBeLessThanOrEqual(PICK_CLS_CEILING);
+  const fromArrival = shiftSum(shifts, frames[painted]!.t);
+  expect(
+    fromArrival.sum,
+    `CLS from the analysis's first frame: ${fromArrival.listed}`,
+  ).toBeLessThanOrEqual(ARRIVAL_CLS_CEILING);
+
   for (const name of ["download", "worker"]) {
     const { first, tops } = positionsFrom(frames, name);
     expect(first, `${name} appeared before the analysis`).toBe(painted);
@@ -594,18 +717,75 @@ test("Compress PDF's analysis draws with its ending, and nothing under it moves 
       `${name} moved after it was painted: ${tops.join(" → ")}`,
     ).toEqual(new Set([tops[0]]));
   }
-  // The browser's account agrees: no shift outside an input's window, after
-  // the analysis painted, moved either. (Health: it recorded the page's
-  // shifts at all — the pick moves what is under the runner.)
-  expect(shifts.length).toBeGreaterThan(0);
-  expect(
-    shifts.filter(
-      (s) => !s.input && s.t >= frames[painted]!.t && s.hits.length > 0,
-    ),
-  ).toEqual([]);
-  // Drawn in one frame with its receipt — not into it later.
+  // Drawn in one frame with its receipt — not into it later — and after
+  // the ending came: the wait was used.
   expect(frames[painted]!.present.receipt).toBe(true);
+  expect(frames[painted]!.t).toBeGreaterThan(releasedAt);
   expect(frames.at(-1)!.present.counted).toBe(true);
+});
+
+/**
+ * A PDF Compress PDF's repack cannot shrink: already written the way the
+ * repack writes (object streams, the site's producer), so the analysis says
+ * "already lean" and offers no download — the shortest analysis there is.
+ */
+async function writeLeanPdf(name: string): Promise<string> {
+  const doc = await PDFDocument.load(await makePdfBytes(name, 2));
+  doc.setProducer("pdf.xyz");
+  doc.setCreator("pdf.xyz");
+  const dir = mkdtempSync(join(tmpdir(), "pdfxyz-e2e-"));
+  const path = join(dir, name);
+  writeFileSync(path, await doc.save({ useObjectStreams: true }));
+  return path;
+}
+
+/**
+ * The stage is held no taller than what is drawn in it (`STAGE_HOLD_REM`):
+ * the shortest analysis — nothing to download, the worker's card still
+ * asking, the widest layout, one line to a sentence — fills it, so a held
+ * stage never shows as a blank band under a result. At 1280 x 900 the room
+ * left on the screen (499 px) is more than the cap, so it is the cap that
+ * is held, and the cap that this reads.
+ */
+test("the shortest analysis fills the stage held for it: no blank band under a result", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  // Never answered: the worker's card stays at its shortest, "Checking…".
+  await page.route("**/api/worker/status", () => {});
+  await page.goto("/tools/compress-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles(await writeLeanPdf("lean.pdf"));
+  await expect(
+    page.getByRole("heading", { name: "This PDF is already lean" }),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByRole("button", { name: /download optimized pdf/i }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Checking whether a secure worker is available…"),
+  ).toBeVisible();
+
+  const stageBox = page.locator("[data-compress-stage]");
+  await expect(stageBox, "the file's stage is not drawn").toHaveCount(1);
+  const stage = await stageBox.evaluate((el) => {
+    const last = [...el.querySelectorAll("button")].at(-1)!;
+    return {
+      held: Number.parseFloat((el as HTMLElement).style.minHeight) || 0,
+      blank:
+        el.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom,
+      last: last.textContent,
+    };
+  });
+  // Health: the stage was held, at the cap (the screen had room for more).
+  expect(stage.last).toBe("Analyze another file");
+  expect(stage.held).toBeGreaterThan(0);
+  expect(stage.held).toBeLessThan(900 - 401);
+  expect(
+    stage.blank,
+    `a ${stage.held} px stage left ${stage.blank} px blank under its analysis`,
+  ).toBeLessThanOrEqual(0.5);
 });
 
 test("unapplied edits are asked about before a header link leaves the page", async ({
