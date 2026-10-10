@@ -321,8 +321,21 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * who has opened a tool has them cached). A bound of 16 would fail the day it
  * was written, and a bound chosen to pass is no bound; this one fails the
  * day the ticket grows, and raising it is a decision that says what grew.
+ *
+ * RAISED 21 -> 22 on 2026-10-10, and the ticket did NOT grow: what moved is
+ * the line between the catalogue (not counted) and the rest. On the merge of
+ * main (#175, the split) into this batch the count read 21.35 KB gz against
+ * 19.73 on batch B's last build. Every module the fetch carries, read off
+ * both builds' chunks, catalogue included: 93,965 bytes before, 93,969 after
+ * (+4, the processing glyph). But two of them, pdf-to-image's format tables
+ * (src/lib/pdf/pdf-to-image.ts) and the PDF file checks (src/lib/pdf/files.ts),
+ * left the catalogue's chunk for a new shared one (with the format list and
+ * the glyph) once #175 gave every runner its own chunk, and so moved into
+ * the count: +1.6. The whole fetch, catalogue included, went 31.8 -> 32.25
+ * gz, the cost of one more chunk. 22 sits just above 21.35, as 21 sat above
+ * the 19.2 it was written against.
  */
-const TICKET_FETCH_GZ_KB = 21;
+const TICKET_FETCH_GZ_KB = 22;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
