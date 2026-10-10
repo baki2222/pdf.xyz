@@ -245,11 +245,12 @@ const OUR_LAZY: LazyLibrary[] = [
   // counts the output, and "Continue with", which carries it on (the
   // hand-off launch and the page count come with them). Everything in the
   // runner kit is in every tool page's first load; these are fetched as a
-  // run starts and drawn when it ends, so no page may load them up front.
+  // run starts (Compress PDF's as its file arrives) and drawn when it ends,
+  // so no page may load them up front.
   {
     what: "the result's ending",
     marker: RESULT_ENDING_CHUNK,
-    why: "the runner kit fetches it when a run starts; a visit that never finishes a run never downloads it",
+    why: "the runner kit fetches it when a run starts, Compress PDF when its file arrives; a visit that never brings a file never downloads it",
     allowedAtLoad: {},
   },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load

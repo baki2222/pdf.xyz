@@ -77,13 +77,22 @@ export function failureCode(err: unknown): string | undefined {
  * The end of a result — its receipt and "Continue with" — is one on-demand
  * chunk (`@/components/intent/result-ending`): in the runner kit it would be
  * in every tool page's first load, for a screen most visits never reach.
- * Fetched the moment a run STARTS, and a finished run WAITS for it
+ * Fetched the moment a run STARTS (Compress PDF, whose analysis starts with
+ * its file, fetches it as the file arrives), and a finished run WAITS for it
  * ({@link endingReady}) before its result is drawn, so the receipt and the
  * rows draw in the same commit as the result — never into a result already
  * on screen, where each was a shift nothing had reserved space for (the
  * receipt landed ABOVE Download; Compress's ending pushed its worker card
- * off screen ~330 ms after the analysis painted, CLS +0.032 on a file pick,
- * which has no input window: WP-08 review, 2026-10-10).
+ * off screen ~330 ms after the analysis painted, CLS +0.032 after a file
+ * pick, long after the pick's input window had closed: WP-08 review,
+ * 2026-10-10).
+ *
+ * One commit is not, by itself, a page that holds still: one taller commit
+ * throws what is under the runner farther than two short ones did, and a
+ * layout shift is charged by the distance (Compress PDF after a pick,
+ * 0.0725 + 0.0325 became one 0.1357: WP-08 re-review, 2026-10-11). Where a
+ * result's size can be held before it comes, the runner holds it — Compress
+ * PDF's stage (`stageHoldPx` in its runner).
  *
  * The wait is bounded ({@link ENDING_WAIT_MS}). A result that outwaits it
  * is drawn without its ending, and the ending, when it comes, is drawn

@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -106,6 +114,15 @@ export function CompressRunner() {
     setRejections([]);
   }, []);
 
+  // The analysis starts with the file, so the result's ending is fetched as
+  // the file arrives — picked, dropped, pasted or handed over — not when the
+  // analysis starts: by the time it is worked out, the ending is here, and
+  // it is drawn without waiting (`endingReady`).
+  const hasFiles = files.length > 0;
+  useEffect(() => {
+    if (hasFiles) void warmEnding().catch(() => {});
+  }, [hasFiles]);
+
   // Where the files came from, once they did — the badge's first sentence.
   const arrival =
     handoff.status === "ready"
@@ -144,6 +161,85 @@ export function CompressRunner() {
   );
 }
 
+/**
+ * The most a picked file's stage holds, in rem: under the shortest analysis
+ * there is (an unsigned file with nothing to download, the worker's card
+ * still asking), so a held stage is never taller than what is drawn in it.
+ * That analysis's stage, measured on the production build 2026-10-11: 462 px
+ * at 1280, 1920 and 2560 wide (468 once the card answers), 508 at 1024 and
+ * 768, 555 at 640, 836 at 390; 28 rem is 448. `e2e/continue-chain.spec.ts`
+ * draws it and fails on a blank band under it.
+ */
+export const STAGE_HOLD_REM = 28;
+
+/**
+ * How tall a picked file's stage is held, in px, from the frame the file
+ * arrives: what is left of the screen below the stage's top, and no more
+ * than {@link STAGE_HOLD_REM}.
+ *
+ * WHY. The analysis is far taller than the "Reading…" and "Analyzing…"
+ * blocks before it, so whatever is under the runner (the About section,
+ * from 638 px down at 1280 × 900) moved when it was drawn — and on any real
+ * connection that is long after the pick's input window has closed, so the
+ * move counts. A layout shift is charged by the distance moved, even past
+ * the bottom of the screen: drawn with its ending in one commit, the
+ * analysis threw the About section 648 px, 0.1357 on its own (WP-08
+ * re-review, 2026-10-11).
+ *
+ * HELD, the content under the runner moves once, in the frame the file
+ * arrives — inside the pick's own input window when the dialog set the
+ * file — and the analysis is drawn into space already on screen. Held to
+ * the bottom of the screen and NOT to the analysis's full height: what is
+ * below the screen cannot be seen to move, but a shift's distance is
+ * counted all the same, so holding the off-screen part too charges the pick
+ * for a move nobody sees. Measured at 1280 × 900 on a pick that opens no
+ * input window (the worst case): held to the analysis's full 838 px, 0.1429;
+ * to the screen's edge, 0.0587; not held, 0.1685. A screen taller than the
+ * stage needs is held to the cap, which the shortest analysis fills.
+ */
+export function stageHoldPx({
+  top,
+  viewport,
+  rem,
+}: {
+  /** The stage's top, from the top of the screen. */
+  top: number;
+  /** The screen's height. */
+  viewport: number;
+  /** The root font size, in px. */
+  rem: number;
+}): number {
+  return Math.max(
+    0,
+    Math.round(Math.min(viewport - top, STAGE_HOLD_REM * rem)),
+  );
+}
+
+/**
+ * Holds the element it is given at {@link stageHoldPx} while `held`, from
+ * the commit it mounts in — a layout effect, so the frame the file arrives
+ * in is painted with the stage already its size. Measured once: the stage
+ * does not resize under a reader.
+ */
+function useStageHold(held: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const px = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    px.current ??= stageHoldPx({
+      top: el.getBoundingClientRect().top,
+      viewport: document.documentElement.clientHeight,
+      rem:
+        Number.parseFloat(
+          getComputedStyle(document.documentElement).fontSize,
+        ) || 16,
+    });
+    el.style.minHeight = held && px.current > 0 ? `${px.current}px` : "";
+  }, [held]);
+  return ref;
+}
+
 /** Load one File into the on-device analyzer. */
 function CompressSingle({
   file,
@@ -165,49 +261,74 @@ function CompressSingle({
     void open(file);
   }, [file, open]);
 
-  if (error) {
-    return (
-      <div className="flex flex-col gap-4">
-        <ErrorNote message={error.message} cause={error} />
-        <button
-          type="button"
-          onClick={onReset}
-          className="text-muted hover:text-fg self-start text-xs font-medium transition"
-        >
-          Try another file
-        </button>
-      </div>
-    );
-  }
-
-  if (locked && !loading) {
-    return (
-      <div className="flex flex-col gap-4">
-        {arrival && (
-          <HandoffLoadedBadge
-            origin={arrival.origin}
-            count={1}
-            skipped={arrival.skipped}
-          />
-        )}
-        <CompressLocked locked={locked} onReset={onReset} />
-      </div>
-    );
-  }
-
-  if (!pdf || loading) {
-    return arrival ? (
-      <HandoffLoading />
-    ) : (
-      <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
-        <Spinner />
-        Reading your PDF…
-      </div>
-    );
-  }
+  // The stage is held for the analysis (`stageHoldPx`). A file that cannot
+  // be analysed — unreadable, or locked — is not what it was held for, and
+  // is drawn at its own size.
+  const lockedNow = Boolean(locked && !loading);
+  const stage = useStageHold(!error && !lockedNow);
 
   return (
-    <div data-single-pdf-runner="loaded" className="flex flex-col gap-4">
+    <div ref={stage} data-compress-stage="" className="flex flex-col">
+      {error ? (
+        <div className="flex flex-col gap-4">
+          <ErrorNote message={error.message} cause={error} />
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-muted hover:text-fg self-start text-xs font-medium transition"
+          >
+            Try another file
+          </button>
+        </div>
+      ) : lockedNow && locked ? (
+        <div className="flex flex-col gap-4">
+          {arrival && (
+            <HandoffLoadedBadge
+              origin={arrival.origin}
+              count={1}
+              skipped={arrival.skipped}
+            />
+          )}
+          <CompressLocked locked={locked} onReset={onReset} />
+        </div>
+      ) : !pdf || loading ? (
+        arrival ? (
+          <HandoffLoading />
+        ) : (
+          <Pending>Reading your PDF…</Pending>
+        )
+      ) : (
+        <CompressLoaded pdf={pdf} onReset={onReset} arrival={arrival} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A file's stage while it is read or analysed: the block fills the held
+ * stage (`stageHoldPx`), so the space the analysis will be drawn into is
+ * what is on screen while it is worked out.
+ */
+function Pending({ children }: { children: ReactNode }) {
+  return (
+    <div className="border-line bg-wash text-muted flex flex-1 items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
+      <Spinner />
+      {children}
+    </div>
+  );
+}
+
+function CompressLoaded({
+  pdf,
+  onReset,
+  arrival,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+  arrival: Arrival | null;
+}) {
+  return (
+    <div data-single-pdf-runner="loaded" className="flex flex-1 flex-col gap-4">
       {arrival && (
         <HandoffLoadedBadge
           origin={arrival.origin}
@@ -395,9 +516,11 @@ function CompressEditor({
         if (!active) return;
         reportToolCompleted({ elapsedMs: Date.now() - started });
         // The analysis is drawn WITH its receipt and rows, not before them:
-        // a picked file has no input window, so an ending inserted after
-        // the analysis painted was a shift every visit paid for (it pushed
-        // the worker card below off screen). See `endingReady`.
+        // it is drawn after the pick's input window has closed, so an
+        // ending inserted after it painted was a shift every visit paid for
+        // (it pushed the worker card below off screen). See `endingReady`.
+        // Drawn into the stage held since the file arrived (`stageHoldPx`),
+        // so the wait is the "Analyzing…" block's, and moves nothing.
         await endingReady();
         if (active) setState({ result: r, error: null, busy: false });
       })
@@ -437,12 +560,9 @@ function CompressEditor({
 
   if (busy) {
     return (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-1 flex-col gap-5">
         <FileHeader pdf={pdf} />
-        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
-          <Spinner />
-          Analyzing your PDF…
-        </div>
+        <Pending>Analyzing your PDF…</Pending>
       </div>
     );
   }
