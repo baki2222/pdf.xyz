@@ -168,10 +168,6 @@ export function Dropzone({
 }) {
   const tool = useToolContext();
   const [refusal, setRefusal] = useState<string | null>(null);
-  const busyNow = useRef(busy);
-  useEffect(() => {
-    busyNow.current = busy;
-  }, [busy]);
 
   const receive = useCallback(
     (files: File[]) => {
@@ -185,16 +181,17 @@ export function Dropzone({
     [onFiles],
   );
 
+  // Rebuilt when `busy` changes: the page asks the latest one.
   const target = useMemo<SheetTarget | undefined>(
     () =>
       pageTarget
         ? {
             name: tool?.name ?? "this tool",
             verb: multiple ? "add" : "open",
-            canReceive: () => !busyNow.current,
+            canReceive: () => !busy,
           }
         : undefined,
-    [pageTarget, tool?.name, multiple],
+    [pageTarget, tool?.name, multiple, busy],
   );
 
   const zone = (

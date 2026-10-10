@@ -180,6 +180,12 @@ export interface TicketViewProps {
    * not go into it.
    */
   readonly exclude?: string | null;
+  /**
+   * A tool offered FIRST when it takes the files: the tool a guide is about,
+   * which cannot be handed them (no in-browser runner), so its row says the
+   * files are added there (`stage`).
+   */
+  readonly pin?: string | null;
 }
 
 /** One measured fact, drawn: a placeholder while it is being measured. */
@@ -478,6 +484,7 @@ export default function TicketView({
   state,
   variant,
   exclude = null,
+  pin: pinSlug = null,
   headingId,
   origin,
   source,
@@ -508,9 +515,10 @@ export default function TicketView({
     () =>
       rankForFiles(facts, index, {
         recents: recentSlugs,
+        currentTool: pinSlug,
         topCount: overflow.length > 0 ? TOP - 1 : TOP,
       }),
-    [facts, index, recentSlugs, overflow.length],
+    [facts, index, recentSlugs, overflow.length, pinSlug],
   );
   const nameOf = useCallback(
     (id: string) => entries.find((e) => e.id === id)?.file.name ?? "your file",

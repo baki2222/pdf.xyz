@@ -5,7 +5,6 @@ import { FileText, ShieldAlert } from "lucide-react";
 import { useToolContext } from "@/components/tools/tool-context";
 import { usePageTarget } from "@/components/upload/use-page-target";
 import { takesByAccept } from "@/lib/intent/accept-match";
-import { confirmLeave } from "@/lib/intent/unsaved";
 import { formatBytes } from "@/lib/utils";
 import { Dropzone, ErrorNote, Spinner } from "./runner-kit";
 import {
@@ -34,7 +33,8 @@ const takesPdf = takesByAccept("application/pdf,.pdf");
  * (`@/lib/intent/page-target`, verb "replace"): a PDF dropped or pasted
  * anywhere on the page opens in its place, through the same `open` a pick
  * uses — after `confirmLeave()`, so unsaved work is asked about first
- * (the editors that register it are WP-08's). It is registered after the
+ * (the editors that register it are WP-08's; the question is fetched with
+ * the file, not with the page). It is registered after the
  * drop zone it replaced unmounted and before any secondary zone the editor
  * renders, and secondary zones never register (`Dropzone`'s `pageTarget`
  * is opt-in), so Sign PDF's signature-image zone cannot take the page's
@@ -42,6 +42,11 @@ const takesPdf = takesByAccept("application/pdf,.pdf");
  * from the editor's own `aria-busy`, the statement a screen reader hears
  * — and a file that is not a PDF goes to the ticket dialog rather than
  * closing the editor on an error.
+ *
+ * A REPLACE IS SAID, AND FOCUS SURVIVES IT — "Replaced alpha.pdf with
+ * beta.pdf in Rotate PDF.", and focus that was inside the old editor moves
+ * into the new one (`./replace-open-file`, fetched with the file, not with
+ * the page; `replace-target.test.tsx`).
  *
  * A file that already carries digital signatures gets a notice above the
  * editor, before Run: every PDF a client tool saves is a full pdf-lib rewrite,
@@ -86,11 +91,12 @@ export function SinglePdfRunner({
   const tool = useToolContext();
   const editorRef = useRef<HTMLDivElement>(null);
   const [armed, setArmed] = useState(false);
+  const name = tool?.name ?? toolName;
 
   usePageTarget(
     pdf
       ? {
-          name: tool?.name ?? toolName,
+          name,
           verb: "replace",
           current: pdf.file.name,
           canReceive: () =>
@@ -98,7 +104,17 @@ export function SinglePdfRunner({
           takes: takesPdf,
           receive: (files) => {
             const next = files.find((file) => takesPdf(file));
-            if (next && confirmLeave()) void open(next);
+            if (!next) return;
+            const from = pdf.file.name;
+            void import("./replace-open-file").then(({ replaceOpenFile }) =>
+              replaceOpenFile({
+                next,
+                from,
+                name,
+                open,
+                editor: () => editorRef.current,
+              }),
+            );
           },
           arm: setArmed,
           element: () => editorRef.current,
@@ -215,7 +231,10 @@ export function FileHeader({
   aside?: ReactNode;
 }) {
   return (
-    <div className="bg-panel border-line flex items-center gap-3 rounded-[4px] border px-3.5 py-3">
+    <div
+      data-file-header=""
+      className="bg-panel border-line flex items-center gap-3 rounded-[4px] border px-3.5 py-3"
+    >
       <FileText className="text-accent size-4 shrink-0" aria-hidden />
       <span className="text-fg min-w-0 flex-1 truncate text-sm">
         {pdf.file.name}

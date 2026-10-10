@@ -9,7 +9,13 @@
  * require the state to hold, and the control below runs the old rule over
  * the same events to show the test can tell the difference.
  */
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   activePageTarget,
@@ -227,13 +233,11 @@ describe("DropSheet", () => {
     expect(inputs[1]!.getAttribute("tabindex")).toBe("-1");
   });
 
-  it("a hashchange to the sheet's id focuses its picker", () => {
-    render(<DropSheet accept=".pdf" onFiles={() => {}} id="upload-here" />);
-    const input = screen.getByLabelText(/drop your files here/i);
-    window.location.hash = "#upload-here";
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-    expect(document.activeElement).toBe(input);
-  });
+  // MOVED 2026-10-10: "a hashchange to the sheet's id focuses its picker"
+  // was the sheet's, and the home desk was the only sheet a link names (the
+  // colophon's #start). The listener moved into the desk, so every other
+  // page stopped loading it; the property is held where it lives now —
+  // hero-desk.test.tsx, "a hashchange to the desk's id focuses its picker".
 
   /**
    * WAS `catchPageDrops`: the sheet put listeners of its own on `window` and
@@ -248,7 +252,7 @@ describe("DropSheet", () => {
    * The layer's routing is `drop-layer.test.tsx`'s; this holds the sheet's
    * half.
    */
-  it("pageTarget: registered as the page's target while mounted — what the page hands it is a drop on it", () => {
+  it("pageTarget: registered as the page's target while mounted — what the page hands it is a drop on it", async () => {
     const onFiles = vi.fn();
     const onIntent = vi.fn();
     const { container, unmount } = render(
@@ -262,7 +266,13 @@ describe("DropSheet", () => {
     );
     const root = container.querySelector<HTMLElement>("#z")!;
     expect(root.hasAttribute("data-page-drop-target")).toBe(true);
-    const target = activePageTarget();
+    // The registry is fetched on mount, not with the page: the sheet is in
+    // the stack once it arrives.
+    const target = await waitFor(() => {
+      const t = activePageTarget();
+      if (!t) throw new Error("not registered yet");
+      return t;
+    });
     expect(target?.name).toBe("Merge PDF");
     expect(target?.verb).toBe("add");
     expect(target?.element()).toBe(root);
@@ -285,7 +295,7 @@ describe("DropSheet", () => {
     expect(activePageTarget()).toBeNull();
   });
 
-  it("pageTarget: a re-render keeps its place in the stack, and answers with its latest props", () => {
+  it("pageTarget: a re-render keeps its place in the stack, and answers with its latest props", async () => {
     const { rerender } = render(
       <DropSheet
         accept=".pdf"
@@ -293,6 +303,7 @@ describe("DropSheet", () => {
         pageTarget={{ name: "First", verb: "open" }}
       />,
     );
+    await waitFor(() => expect(activePageTarget()?.name).toBe("First"));
     const later = registerPageTarget({
       name: "Later",
       verb: "replace",
@@ -314,7 +325,7 @@ describe("DropSheet", () => {
     expect(activePageTarget()?.name).toBe("First, renamed");
   });
 
-  it("pageTarget.canReceive is asked at the moment of the drop, not at registration", () => {
+  it("pageTarget.canReceive is asked at the moment of the drop, not at registration", async () => {
     let busy = false;
     render(
       <DropSheet
@@ -327,15 +338,18 @@ describe("DropSheet", () => {
         }}
       />,
     );
-    expect(activePageTarget()?.canReceive()).toBe(true);
+    await waitFor(() => expect(activePageTarget()?.canReceive()).toBe(true));
     busy = true;
     expect(activePageTarget()?.canReceive()).toBe(false);
   });
 
-  it("without pageTarget a sheet is not the page's target (a secondary zone)", () => {
+  it("without pageTarget a sheet is not the page's target (a secondary zone)", async () => {
     const { container } = render(
       <DropSheet accept=".pdf" onFiles={() => {}} id="z" />,
     );
+    // Given the registry every chance to have arrived: still nothing.
+    await import("@/lib/intent/page-target");
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(activePageTarget()).toBeNull();
     expect(
       container.querySelector("#z")!.hasAttribute("data-page-drop-target"),

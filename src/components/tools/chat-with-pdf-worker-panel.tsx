@@ -37,6 +37,7 @@ import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import { Dropzone, WorkerRunButton } from "./runner/runner-kit";
+import { ChosenFileTarget } from "./chosen-file-target";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { TruncationNotice } from "./truncation-notice";
@@ -477,16 +478,26 @@ function ChatBuilder({
       </p>
 
       {file ? (
-        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
-          <span className="truncate">{file.name}</span>
-          <button
-            type="button"
-            onClick={() => chooseFile(null)}
-            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
-          >
-            Remove
-          </button>
-        </div>
+        <ChosenFileTarget
+          file={file}
+          accept="application/pdf,.pdf"
+          busy={busy}
+          refuse={refuse}
+          onReplace={(files) => {
+            chooseFile(files[0] ?? null);
+          }}
+        >
+          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+            <span className="truncate">{file.name}</span>
+            <button
+              type="button"
+              onClick={() => chooseFile(null)}
+              className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
+            >
+              Remove
+            </button>
+          </div>
+        </ChosenFileTarget>
       ) : (
         <Dropzone
           pageTarget

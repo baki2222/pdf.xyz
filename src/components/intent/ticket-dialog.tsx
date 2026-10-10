@@ -40,6 +40,9 @@ export function whyLine(why: Unrouted, count: number): string | null {
       return `${why.name} is still working on a file, so ${them} did not go in.`;
     case "refused":
       return `${why.name} can't open ${them}.`;
+    // Its row says it, first: "Open PDF to Word — you'll add … there".
+    case "stage":
+      return null;
     default: {
       const unhandled: never = why;
       return unhandled;
@@ -132,11 +135,14 @@ export default function TicketDialog({
     };
   }, [View]);
 
-  const launching = state.phase === "launching";
+  // While it is open it is the page's target, and takes whatever arrives:
+  // the ticket says what it cannot use. Never "busy" — a file that lands
+  // while a tool is opening is not added (the ticket takes no file then)
+  // and the page is about to leave; routed as busy, it would replace this
+  // dialog with one saying "these files is still working".
   const target: SheetTarget = {
-    name: "this ticket",
+    name: "these files",
     verb: "add",
-    canReceive: () => !launching,
     takes: () => true,
   };
   const onFiles = useCallback(
@@ -202,6 +208,7 @@ export default function TicketDialog({
                   origin={ORIGIN}
                   source="dialog"
                   exclude={exclude}
+                  pin={why.kind === "stage" ? why.slug : null}
                   onEvent={dispatch}
                   onAddFiles={api.pick}
                   onClear={close}

@@ -15,7 +15,7 @@
  * real `DataTransfer`s on real pages, and the dialog launching a tool — is
  * `e2e/drop-anywhere.spec.ts`.
  */
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -23,14 +23,22 @@ import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import { DropSheet } from "@/components/upload/drop-sheet";
 import { Dropzone } from "@/components/tools/runner/runner-kit";
 import {
-  carriesFiles as registryCarriesFiles,
+  activePageTarget,
   registerPageTarget,
   requestFilePick,
   resetPageTargetsForTests,
   type PageTarget,
 } from "@/lib/intent/page-target";
 import { takesByAccept } from "@/lib/intent/accept-match";
-import { carriesFiles as layerCarriesFiles, DropLayer } from "./drop-layer";
+import {
+  carriesFiles as sheetCarriesFiles,
+  describeDrag as sheetDescribeDrag,
+} from "@/lib/intent/drag";
+import {
+  carriesFiles as layerCarriesFiles,
+  describeDrag as layerDescribeDrag,
+  DropLayer,
+} from "./drop-layer";
 import { veilWords } from "./drop-layer-view";
 
 const ROUTER = {
@@ -107,6 +115,17 @@ function transfer(files: File[], { describe = true } = {}) {
 }
 
 /**
+ * Let the layer route: the registry arrives by a promise, and the layer
+ * routes a turn after it does (every registration is in by then) — so two
+ * turns from here: this one's timer is queued before the layer's.
+ */
+const turn = () => new Promise((resolve) => setTimeout(resolve, 0));
+const routed = async () => {
+  await turn();
+  await turn();
+};
+
+/**
  * Fire a cancelable drag event on `el`; returns the event. Awaited: where a
  * drag goes is the registry's, which the layer reaches through a promise.
  */
@@ -119,6 +138,7 @@ async function drag(
   Object.assign(event, { dataTransfer });
   await act(async () => {
     el.dispatchEvent(event);
+    await routed();
   });
   return event;
 }
@@ -128,6 +148,7 @@ async function paste(el: Element, files: File[]) {
   Object.assign(event, { clipboardData: { files } });
   await act(async () => {
     el.dispatchEvent(event);
+    await routed();
   });
   return event;
 }
@@ -339,6 +360,168 @@ describe("when the page's target does not take them, the ticket dialog does", ()
 });
 
 /**
+ * The veil and the release say the same thing ON a zone as beside it.
+ *
+ * WAS (WP-07 review, reproduced on the served build at 1440): a JPG held
+ * over Rotate PDF's own drop zone — the page's target — lit the zone (its
+ * accent border, its 18px marks) while the veil said "Rotate PDF can't open
+ * this file / Release to see what can"; and released there, the zone
+ * claimed it, handed it to the runner, and the runner said "photo.jpg isn't
+ * a PDF". The zone is where a person is most likely to let go, so the veil
+ * was false exactly where it was most needed. Each row's control is the
+ * same gesture with a file the zone does take.
+ */
+describe("a release on a zone goes where the veil said it would", () => {
+  const registered = () =>
+    waitFor(() => {
+      if (!activePageTarget()) throw new Error("not registered yet");
+    });
+
+  it("a kind the page's zone does not take: the zone is not lit, and the release opens the dialog saying so — the zone's owner never hears of it", async () => {
+    const onFiles = vi.fn();
+    await page(
+      <DropSheet
+        accept="application/pdf"
+        multiple={false}
+        title="Drop your PDF here, or"
+        onFiles={onFiles}
+        id="zone"
+        pageTarget={{ name: "Rotate PDF", verb: "open" }}
+      />,
+    );
+    await registered();
+    const zone = document.getElementById("zone")!;
+    await drag("dragenter", zone, transfer([jpg()]));
+    expect(veil()?.textContent).toContain("Rotate PDF can't open this file");
+    expect(zone.hasAttribute("data-armed")).toBe(false);
+    expect(zone.hasAttribute("data-over")).toBe(false);
+    const drop = await drag("drop", zone, transfer([jpg()]));
+    // Not claimed by the zone: the layer took it, and routed it.
+    expect(drop.defaultPrevented).toBe(true);
+    const dialog = await screen.findByRole("dialog", undefined, {
+      timeout: 5000,
+    });
+    expect(dialog.textContent).toContain("Rotate PDF can't open it.");
+    expect(onFiles).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("control: a kind it takes lights the zone and is the zone's", async () => {
+    const onFiles = vi.fn();
+    await page(
+      <DropSheet
+        accept="application/pdf"
+        multiple={false}
+        title="Drop your PDF here, or"
+        onFiles={onFiles}
+        id="zone"
+        pageTarget={{ name: "Rotate PDF", verb: "open" }}
+      />,
+    );
+    await registered();
+    const zone = document.getElementById("zone")!;
+    const files = [pdf("scan.pdf")];
+    await drag("dragenter", zone, transfer(files));
+    expect(veil()?.textContent).toContain("Release to open in Rotate PDF");
+    expect(zone.hasAttribute("data-armed")).toBe(true);
+    expect(zone.hasAttribute("data-over")).toBe(true);
+    await drag("drop", zone, transfer(files));
+    expect(onFiles).toHaveBeenCalledWith(files, "drop");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("the page's zone at work: a release on it is not taken mid-run, and the dialog says why", async () => {
+    const onFiles = vi.fn();
+    await page(
+      <DropSheet
+        accept="application/pdf"
+        title="Drop your PDFs here, or"
+        onFiles={onFiles}
+        id="zone"
+        pageTarget={{
+          name: "Merge PDF",
+          verb: "add",
+          canReceive: () => false,
+        }}
+      />,
+    );
+    await registered();
+    const zone = document.getElementById("zone")!;
+    await drag("dragenter", zone, transfer([pdf()]));
+    expect(veil()?.textContent).toContain("Merge PDF is working on a file");
+    expect(zone.hasAttribute("data-armed")).toBe(false);
+    await drag("drop", zone, transfer([pdf()]));
+    const dialog = await screen.findByRole("dialog", undefined, {
+      timeout: 5000,
+    });
+    expect(dialog.textContent).toContain(
+      "Merge PDF is still working on a file, so it did not go in.",
+    );
+    expect(onFiles).not.toHaveBeenCalled();
+  });
+
+  it("a zone of its own (not the page's) that does not take the kind is no landing place: the veil and the release are the page's target's", async () => {
+    const onFiles = vi.fn();
+    await page(
+      <DropSheet
+        accept="image/png,image/jpeg"
+        title="Drop a signature image, or"
+        onFiles={onFiles}
+        id="secondary"
+      />,
+    );
+    const t = target({ name: "Sign PDF", verb: "replace", current: "a.pdf" });
+    registerPageTarget(t);
+    const zone = document.getElementById("secondary")!;
+    const files = [pdf("countersigned.pdf")];
+    await drag("dragenter", zone, transfer(files));
+    // Not the zone's silence: the page's route, in words.
+    expect(veil()?.textContent).toContain(
+      "Release to replace a.pdf in Sign PDF",
+    );
+    expect(zone.hasAttribute("data-armed")).toBe(false);
+    await drag("drop", zone, transfer(files));
+    expect(t.receive).toHaveBeenCalledWith(files, "drop");
+    expect(onFiles).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * WAS (WP-07 review, both schemes, 390 and 1440): a second file dragged
+ * while the dialog was open drew the veil BEHIND the modal — the dialog is
+ * in the top layer, the veil a z-[80] element — so its dimming and its
+ * sentence ("Release to add to this ticket") sat under the backdrop as
+ * ghost text below the dialog.
+ */
+describe("while the ticket dialog is open", () => {
+  it("a drag draws no veil; the dialog's own sheet is armed (control: before it opened, the same drag drew one)", async () => {
+    await page();
+    const h1 = screen.getByRole("heading");
+    // Control: no dialog, the veil is drawn.
+    await drag("dragenter", h1, transfer([pdf("first.pdf")]));
+    expect(veil()?.hasAttribute("data-open")).toBe(true);
+    await drag("drop", h1, transfer([pdf("first.pdf")]));
+    const dialog = await screen.findByRole("dialog", undefined, {
+      timeout: 5000,
+    });
+    await waitFor(() => {
+      if (!activePageTarget()) throw new Error("the dialog is not the target");
+    });
+    await drag("dragenter", dialog, transfer([pdf("second.pdf")]));
+    expect(
+      document.querySelectorAll("[data-drop-veil]"),
+      "a veil drawn under the open dialog",
+    ).toHaveLength(0);
+    expect(
+      dialog.querySelector("[data-drop-sheet]")!.hasAttribute("data-armed"),
+    ).toBe(true);
+    // And the file joins the ticket.
+    await drag("drop", dialog, transfer([pdf("second.pdf")]));
+    expect(await within(dialog).findByText("second.pdf")).toBeTruthy();
+  });
+});
+
+/**
  * Addendum WP-07 #2: "a routed whole-page drop on a worker tool must never
  * reach onFiles with a refused file", and what the page does when EVERY
  * routed file is refused is one choice, tested. The choice, by the reason:
@@ -391,7 +574,8 @@ describe("Open files", () => {
       .mockImplementation(() => {});
     try {
       expect(requestFilePick()).toBe("fallback");
-      expect(click).toHaveBeenCalledTimes(1);
+      // Made by the layer's view, which is here by a click.
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
       const input = click.mock.contexts[0] as HTMLInputElement;
       expect(input.type).toBe("file");
       expect(input.isConnected).toBe(true);
@@ -419,14 +603,38 @@ describe("negative control: without the layer", () => {
 });
 
 /**
- * The layer asks "does this drag carry files?" before the registry has
- * arrived (it is kept out of the layout's chunk), so it holds its own copy
- * of the question — and a sheet and the layer answering differently would
- * be a drag one of them accepts and the other drops. One answer, over
- * every shape a drag event comes in.
+ * The layer asks "does this drag carry files?" and "what does it describe?"
+ * synchronously, in the layout's chunk, so it holds its own copies of the
+ * questions the sheets ask (`@/lib/intent/drag`) — and a sheet and the
+ * layer answering differently would be a drag one of them accepts and the
+ * other drops, or a sheet lit for a file the veil says it refuses. One
+ * answer, over every shape a drag event comes in. (WAS held to the
+ * registry's copy; the registry left every page's first load, 2026-10-10.)
  */
-describe("the layer and the registry agree on what carries files", () => {
-  it("over every shape, both answers present", () => {
+describe("the layer and the sheets agree on what a drag carries", () => {
+  it("what describes the files: over every shape, both answers present", () => {
+    const shapes = [
+      null,
+      undefined,
+      {},
+      { items: [] },
+      { items: [{ kind: "file", type: "image/jpeg" }] },
+      {
+        items: [
+          { kind: "string", type: "text/plain" },
+          { kind: "file", type: "" },
+          { kind: "file", type: "application/pdf" },
+        ],
+      },
+    ] as unknown as Parameters<typeof layerDescribeDrag>[0][];
+    const layer = shapes.map(layerDescribeDrag);
+    expect(layer).toEqual(shapes.map(sheetDescribeDrag));
+    // Positive control: the corpus has empty and described answers.
+    expect(layer.some((kinds) => kinds.length === 0)).toBe(true);
+    expect(layer.some((kinds) => kinds.length === 2)).toBe(true);
+  });
+
+  it("what carries files: over every shape, both answers present", () => {
     const shapes = [
       { dataTransfer: null },
       { dataTransfer: { types: ["Files"], files: [] } },
@@ -438,7 +646,7 @@ describe("the layer and the registry agree on what carries files", () => {
       { dataTransfer: { files: [] } },
     ] as unknown as Parameters<typeof layerCarriesFiles>[0][];
     const layer = shapes.map(layerCarriesFiles);
-    expect(layer).toEqual(shapes.map(registryCarriesFiles));
+    expect(layer).toEqual(shapes.map(sheetCarriesFiles));
     // Positive control: the corpus asks both questions.
     expect(layer).toContain(true);
     expect(layer).toContain(false);

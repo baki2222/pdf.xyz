@@ -3,18 +3,20 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
-import { DropSheet, type DropVia } from "@/components/upload/drop-sheet";
-import type { HandoffOrigin } from "@/lib/handoff/origin";
+import {
+  DropSheet,
+  type DropVia,
+  type SheetTarget,
+} from "@/components/upload/drop-sheet";
+import { takesByAccept } from "@/lib/intent/accept-match";
 import type { LaunchRouter } from "@/lib/intent/launch";
-import { toolHref } from "@/lib/intent/links";
-import { deliverToFallback } from "@/lib/intent/page-target";
-import { confirmLeave } from "@/lib/intent/unsaved";
+import { GUIDE_DESK_STATUS_CLASS, guideDeskTitle } from "./guide-desk-words";
 
 const noSubscription = () => () => {};
 
@@ -34,9 +36,6 @@ function RouterInto({
   return null;
 }
 
-/** Where a guide desk's files came from, for the tool page to say. */
-const ORIGIN: HandoffOrigin = { kind: "drop", surface: "guide" };
-
 export interface GuideDeskProps {
   /** The guide's primary tool. */
   readonly tool: { readonly slug: string; readonly name: string };
@@ -53,7 +52,19 @@ export interface GuideDeskProps {
   readonly accept: string;
   /** `stagingHint(tool)`: what it accepts and the cap it refuses above. */
   readonly hint: string;
+  /** Files picked in the shell before this desk arrived (`GuideDeskSlot`). */
+  readonly early?: readonly File[];
+  /** Focus was on the shell's picker: it goes to this desk's. */
+  readonly refocus?: boolean;
 }
+
+type DeskState =
+  | { readonly phase: "idle" }
+  | { readonly phase: "launching" | "failed"; readonly count: number };
+
+/** "your file", "your 2 files" — what is on its way, counted. */
+const yours = (count: number) =>
+  count === 1 ? "your file" : `your ${count} files`;
 
 /**
  * A guide's own drop sheet: the file the guide teaches about goes straight
@@ -61,19 +72,47 @@ export interface GuideDeskProps {
  * opens with it" (redesign G.7, "Guide: merge").
  *
  * The guide page's drop target (a file dropped or pasted anywhere on the
- * article lands here). Server-rendered with the page, so its picker works
- * before hydration; it holds no catalogue — everything about the tool
- * arrives as props, and the hand-off code is fetched when a file does.
+ * article lands here). NOT in the guide's first load: the server draws its
+ * shell (`./guide-desk-shell`, whose picker works before any code arrives)
+ * and `./guide-desk-slot` fetches this as the page mounts, swaps it in, and
+ * hands it what was picked meanwhile (`early`). It holds no catalogue —
+ * everything about the tool arrives as props, and the hand-off code is
+ * fetched when a file does.
  *
  * WHAT IT PROMISES is decided by the tool's runner, not by the guide: a
  * tool with no in-browser runner (PDF to Word, OCR, Protect, Translate,
  * Repair, Unlock) cannot be handed a file, so its desk says "see which
- * tools open it" and opens the ticket dialog, never "open PDF to Word with
- * it". And a file the tool does not take — read through the hand-off's own
- * gate (`eligibleFilesFor`), the one a launch passes, so the desk cannot
- * disagree with it — goes to the dialog too.
+ * tools open it" and opens the ticket dialog — with that tool FIRST, as the
+ * row that says the file is added there (`stage`), never "open PDF to Word
+ * with it". WAS: the dialog ranked it like any other tool, about 26th of
+ * 42 under "More", below Compress, Sign and Edit (WP-07 review).
+ *
+ * WHAT IT TAKES is what the tool takes: its `accept`, the sheet's default.
+ * WAS `takes: () => true` on every desk — so a JPG held over the Merge PDF
+ * guide was routed to the desk, the veil said "Release to open in Merge
+ * PDF", and the release opened the dialog saying "Merge PDF can't open it."
+ * (WP-07 review). Only the desk of a tool with no runner takes everything:
+ * it opens nothing itself, and checks whatever arrives. A file that passes
+ * the `accept` is read once more through the hand-off's own gate
+ * (`eligibleFilesFor`), the one a launch passes, so the desk cannot
+ * disagree with it.
+ *
+ * WHAT IT SAYS while a launch is on its way, and if it fails, sits in ONE
+ * slot that is always there at a fixed height, counted ("with your 2
+ * files"). WAS a paragraph mounted with the launch: it grew the desk by
+ * 24px and moved everything under it (CLS 0.0167 at 390, measured by the
+ * WP-07 review), and a live region mounted already holding its words is
+ * one several screen readers never read.
  */
-export function GuideDesk({ tool, opens, noun, accept, hint }: GuideDeskProps) {
+export function GuideDesk({
+  tool,
+  opens,
+  noun,
+  accept,
+  hint,
+  early,
+  refocus,
+}: GuideDeskProps) {
   const live = useSyncExternalStore(
     noSubscription,
     () => true,
@@ -83,51 +122,83 @@ export function GuideDesk({ tool, opens, noun, accept, hint }: GuideDeskProps) {
   const keepRouter = useCallback((r: LaunchRouter) => {
     router.current = r;
   }, []);
-  const [state, setState] = useState<"idle" | "launching" | "failed">("idle");
+  const [state, setState] = useState<DeskState>({ phase: "idle" });
+  const takes = useMemo(() => takesByAccept(accept), [accept]);
 
   const onFiles = useCallback(
-    async (files: File[], via: DropVia) => {
-      if (opens === null) {
-        deliverToFallback(files, via, { kind: "none" });
-        return;
-      }
-      setState("launching");
-      try {
-        const [{ launchWithFiles }, { eligibleFilesFor }] = await Promise.all([
-          import("@/lib/intent/launch"),
-          import("@/lib/handoff/capability"),
-        ]);
-        if (!router.current) throw new Error("no router yet");
-        if (eligibleFilesFor(tool.slug, files).length === 0) {
-          setState("idle");
-          deliverToFallback(files, via, { kind: "refused", name: tool.name });
-          return;
-        }
-        const result = await launchWithFiles({
-          toolSlug: tool.slug,
-          files,
-          origin: ORIGIN,
-          suggestion: { source: "guide", rank: 1 },
-          router: router.current,
-          confirmLeave,
+    (files: File[], via: DropVia) => {
+      // Counted now, from the same `accept` the sheet took them by; the
+      // hand-off's gate has the last word (`onCount`).
+      if (opens !== null)
+        setState({
+          phase: "launching",
+          count: opens === "one" ? 1 : Math.max(1, files.filter(takes).length),
         });
-        setState(result === "failed" ? "failed" : "idle");
-      } catch {
-        setState("failed");
-      }
+      import("./guide-desk-carry")
+        .then(({ carryToGuideTool }) =>
+          carryToGuideTool({
+            files,
+            via,
+            tool,
+            opens,
+            router: router.current,
+            onCount: (count) => setState({ phase: "launching", count }),
+          }),
+        )
+        .then(
+          (result) =>
+            setState((s) =>
+              result === "failed" && s.phase !== "idle"
+                ? { phase: "failed", count: s.count }
+                : { phase: "idle" },
+            ),
+          // Offline, or a deploy replaced the chunk.
+          () =>
+            setState((s) =>
+              s.phase === "idle" ? s : { phase: "failed", count: s.count },
+            ),
+        );
     },
-    [opens, tool.slug, tool.name],
+    [opens, takes, tool],
   );
 
-  const title =
-    opens === "many"
-      ? `Drop your ${noun.many} to open ${tool.name} with them, or`
-      : opens === "one"
-        ? `Drop ${noun.one} to open ${tool.name} with it, or`
-        : `Drop ${noun.one} to see which tools open it, or`;
+  const title = guideDeskTitle({ tool, opens, noun });
 
+  // Arrived over the server's shell (`GuideDeskSlot`): what was picked there
+  // is this desk's, and focus that was on its picker is on this one — once.
+  const root = useRef<HTMLDivElement>(null);
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (arrived.current) return;
+    arrived.current = true;
+    if (refocus)
+      root.current
+        ?.querySelector<HTMLElement>('input[type="file"]:not([hidden])')
+        ?.focus({ preventScroll: true });
+    // As an arrival, not in this render's effect pass.
+    if (early && early.length > 0)
+      queueMicrotask(() => onFiles([...early], "early"));
+  }, [early, refocus, onFiles]);
+
+  // The page's target. A desk whose tool opens files takes what the tool
+  // takes (the sheet's `accept`); one whose tool opens none checks anything.
+  const launching = state.phase === "launching";
+  const target = useMemo<SheetTarget>(
+    () =>
+      opens
+        ? { name: tool.name, verb: "open", canReceive: () => !launching }
+        : {
+            name: tool.name,
+            verb: "check",
+            canReceive: () => !launching,
+            takes: () => true,
+          },
+    [opens, tool.name, launching],
+  );
+
+  const them = state.phase !== "idle" && state.count !== 1 ? "them" : "it";
   return (
-    <div className="flex w-full flex-col gap-2" data-guide-desk="">
+    <div ref={root} className="flex w-full flex-col gap-2" data-guide-desk="">
       {live && <RouterInto onRouter={keepRouter} />}
       <DropSheet
         variant="compact"
@@ -136,39 +207,34 @@ export function GuideDesk({ tool, opens, noun, accept, hint }: GuideDeskProps) {
         title={title}
         hint={hint}
         onFiles={onFiles}
-        pageTarget={{
-          name: tool.name,
-          verb: opens ? "open" : "check",
-          canReceive: () => state !== "launching",
-          // Whatever arrives is answered: the tool, or the dialog that says
-          // what opens it instead.
-          takes: () => true,
-        }}
+        pageTarget={target}
         className="w-full"
       />
-      {state === "launching" && (
-        <p role="status" className="text-muted text-xs">
-          Opening {tool.name} with your file…
-        </p>
-      )}
-      {state === "failed" && (
-        <p
-          role="alert"
-          className="text-muted flex items-start gap-2 text-xs leading-snug"
-        >
-          <AlertTriangle className="text-warn size-3.5 shrink-0" aria-hidden />
-          <span>
-            Couldn&apos;t carry your file to {tool.name} in this browser.{" "}
+      {/* Always here, at the height of its longest sentence (two lines of
+          the failure at 360px), so what it says never moves the page. */}
+      <p
+        role="status"
+        data-slot="guide-desk-status"
+        className={GUIDE_DESK_STATUS_CLASS}
+      >
+        {state.phase === "launching" &&
+          `Opening ${tool.name} with ${yours(state.count)}…`}
+        {state.phase === "failed" && (
+          <>
+            <span aria-hidden className="text-warn font-semibold">
+              !{" "}
+            </span>
+            Couldn&apos;t carry {yours(state.count)} here —{" "}
             <a
-              href={toolHref(tool.slug)}
+              href={`/tools/${tool.slug}`}
               className="text-fg underline underline-offset-4"
             >
-              Open {tool.name}
+              open {tool.name}
             </a>{" "}
-            and add it there.
-          </span>
-        </p>
-      )}
+            and add {them} there.
+          </>
+        )}
+      </p>
     </div>
   );
 }

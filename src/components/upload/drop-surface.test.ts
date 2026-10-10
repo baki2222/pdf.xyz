@@ -10,7 +10,12 @@
  * a paste land anywhere. The runner kit's `Dropzone` and the workspace's
  * label each answered differently from the home desk's sheet (redesign
  * WP-07). So the input lives in ONE module, `drop-sheet.tsx`, and every
- * surface that takes files is built on it.
+ * surface that takes files is built on it — and in the sheet's SHELL,
+ * `drop-sheet-shell.tsx`: the same sheet as the server draws it for a page
+ * whose sheet's code arrives after the page (a guide's desk), drawn from the
+ * same face (`drop-sheet-face.tsx`) and held to the sheet's markup by
+ * `drop-sheet-shell.test.tsx`. It only ever holds a pick until the live
+ * sheet takes it over.
  *
  * THE SET IS DISCOVERED, never typed: every non-test `.ts`/`.tsx` under
  * `src/components` and `src/app`, read for every spelling of a file input a
@@ -24,11 +29,12 @@
  *  - `edit-runner.tsx`: the editor's "insert an image" picker chooses a
  *    picture to PLACE on a page already open — not a document arriving, so
  *    not a drop target, and a page drop must never land in it;
- *  - `drop-layer.tsx`: the picker behind the header's "Open files" when the
- *    page has no target of its own — made when it is asked for and appended
- *    to the end of `<body>`, never rendered with the page, so
+ *  - `drop-layer-view.tsx`: the picker behind the header's "Open files"
+ *    when the page has no target of its own — made when it is asked for and
+ *    appended to the end of `<body>`, never rendered with the page, so
  *    `e2e/helpers.ts`'s `fileInput()` (the first input on the page) always
- *    finds the page's own sheet.
+ *    finds the page's own sheet. (In `drop-layer.tsx` until 2026-10-10: it
+ *    left every page's first load for the layer's lazily loaded view.)
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -38,10 +44,12 @@ import { withoutComments } from "@/lib/tools/copy-surface";
 const ROOT = process.cwd();
 const ROOTS = ["src/components", "src/app"];
 const HOME = "src/components/upload/drop-sheet.tsx";
+/** The primitive's server-drawn shell (see above). */
+const SHELL = "src/components/upload/drop-sheet-shell.tsx";
 const EXEMPT: Record<string, string> = {
   "src/components/tools/runner/edit-runner.tsx":
     "the editor's image-insert picker places a picture on an open page; it is not a document arriving",
-  "src/components/intent/drop-layer.tsx":
+  "src/components/intent/drop-layer-view.tsx":
     "the header's Open files picker when a page has no target: made when asked for, at the end of <body>",
 };
 
@@ -100,6 +108,8 @@ describe("every file input is the drop primitive's", () => {
     // The primitive itself is found — two inputs: the sheet's own label
     // input and the hidden one behind `pick()`.
     expect(found.get(HOME)).toBeGreaterThanOrEqual(2);
+    // …and its shell, one: the native picker it draws.
+    expect(found.get(SHELL)).toBe(1);
   });
 
   it("positive control: the detector sees every spelling, and not a selector", () => {
@@ -121,7 +131,7 @@ describe("every file input is the drop primitive's", () => {
 
   it("no surface outside the primitive renders a file input of its own", () => {
     const offenders = [...found.keys()].filter(
-      (file) => file !== HOME && !(file in EXEMPT),
+      (file) => file !== HOME && file !== SHELL && !(file in EXEMPT),
     );
     expect(
       offenders,

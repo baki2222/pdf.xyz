@@ -4,7 +4,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useId,
   useMemo,
   useRef,
@@ -13,20 +12,23 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
-import { UploadCloud } from "lucide-react";
-import {
-  carriesFiles,
-  type DropVia,
-  type FileKind,
-  type PageTarget,
-  type TargetVerb,
+import type {
+  DropVia,
+  FileKind,
+  PageTarget,
+  TargetVerb,
 } from "@/lib/intent/page-target";
 import { takesByAccept } from "@/lib/intent/accept-match";
-import { cn } from "@/lib/utils";
+import { carriesFiles, describeDrag } from "@/lib/intent/drag";
+import { faceClass, SheetFace, sheetClass } from "./drop-sheet-face";
 import { useEarlyFilePick } from "./use-early-file-pick";
 import { usePageTarget } from "./use-page-target";
 
 export type { DropVia } from "@/lib/intent/page-target";
+
+/** Whether the page's drop layer is listening (it marks `<html>` once it is). */
+const layerListening = () =>
+  document.documentElement.hasAttribute("data-drop-layer");
 
 /** What a desk body needs to place its own controls. */
 export interface DropSheetApi {
@@ -121,10 +123,27 @@ export interface SheetTarget {
  * STATES, each an attribute the stylesheet reads:
  *  - `data-live`: "pending" until React is listening, then "on" — the crop
  *    marks draw in at that moment (M1), because that is when a drop works;
- *  - `data-over`: a file is being dragged over the sheet itself;
+ *  - `data-over`: a file the sheet takes is being dragged over the sheet;
  *  - `data-armed`: a file is being dragged anywhere over the page, and this
  *    sheet is where it will land — the marks grow (M2);
  *  - `data-page-drop-target`: it is registered as the page's target.
+ *
+ * WHAT IT TAKES, IT TAKES; WHAT IT DOES NOT, IT LEAVES TO THE PAGE. A drag
+ * of files the sheet does not take (a JPG over Rotate PDF's PDF zone, a PDF
+ * over Sign PDF's signature-image zone), or any file while its owner is at
+ * work, neither lights the sheet nor is claimed by it on release: the drop
+ * goes on to the page's drop layer, which routes it as it routes a release
+ * anywhere else — to the ticket dialog, saying why, or to the page's
+ * target. WAS: every sheet claimed every drop on it. Over Rotate PDF's own
+ * zone a JPG lit the zone while the veil said "Rotate PDF can't open this
+ * file — release to see what can", and the release then showed the
+ * runner's own error instead: the veil was false exactly where a person is
+ * most likely to let go (WP-07 review). The answer for the drag and for the
+ * release is one predicate (`fits`), and the layer reads the drag's half
+ * from `data-drop-refuses`, set in this sheet's handler — which runs before
+ * the layer's window listener — because React's state would come too late.
+ * With no layer listening (a component rendered alone) the sheet keeps
+ * every drop, as a sheet must where nothing else would.
  *
  * VARIANTS. `sheet` and `compact` are a whole-surface label: drop or click
  * anywhere. `desk` is a sheet whose body is its owner's (`children`), with a
@@ -150,7 +169,6 @@ export function DropSheet({
   hint,
   onFiles,
   onIntent,
-  onHashTarget,
   pageTarget,
   refuse,
   onRefusal,
@@ -170,8 +188,6 @@ export function DropSheet({
   onFiles(files: File[], via: DropVia): void;
   /** A file is on its way (a drag carrying one): warm what is next. */
   onIntent?(): void;
-  /** `#id` became the URL's fragment; default: focus the picker. */
-  onHashTarget?(): void;
   /** Be the page's drop target while mounted (`@/lib/intent/page-target`). */
   pageTarget?: SheetTarget;
   /** Why a file cannot be used here, or null when it can. */
@@ -190,9 +206,17 @@ export function DropSheet({
   // State, not a ref: `pick` travels to the desk's body during render, and a
   // ref read through it is what the hooks rules forbid.
   const [hidden, setHidden] = useState<HTMLInputElement | null>(null);
-  const [over, setOver] = useState(false);
+  // Over the sheet: null, or whether what is held fits it.
+  const [over, setOver] = useState<"fits" | "refuses" | null>(null);
   const [armed, setArmed] = useState(false);
-  const overDepth = useRef(createDragDepth(setOver));
+  const verdict = useRef<"fits" | "refuses">("fits");
+  // Made on the first drag, in a handler: the counter reads the verdict.
+  const counter = useRef<ReturnType<typeof createDragDepth> | null>(null);
+  const overDepth = () =>
+    (counter.current ??= createDragDepth((inside) => {
+      setOver(inside ? verdict.current : null);
+      if (!inside) rootRef.current?.removeAttribute("data-drop-refuses");
+    }));
 
   const emit = useCallback(
     (list: FileList | readonly File[] | null, via: DropVia) => {
@@ -211,13 +235,24 @@ export function DropSheet({
   );
   const pick = useCallback(() => hidden?.click(), [hidden]);
 
-  const takes = useMemo(() => takesByAccept(accept), [accept]);
+  const byAccept = useMemo(() => takesByAccept(accept), [accept]);
+  const takes = pageTarget?.takes ?? byAccept;
+  /**
+   * Whether files of these kinds land HERE: some of them is a kind it takes
+   * (a drag that describes none is held against nothing), and, as the
+   * page's target, it is not at work. The page's route asks the same two
+   * questions of it (`routeFor`), so a release on the sheet and a release
+   * beside it end in the same place.
+   */
+  const fits = (kinds: readonly FileKind[]) =>
+    (kinds.length === 0 || kinds.some(takes)) &&
+    (pageTarget?.canReceive?.() ?? true);
   const target: PageTarget | null = pageTarget
     ? {
         name: pageTarget.name,
         verb: pageTarget.verb,
         canReceive: () => pageTarget.canReceive?.() ?? true,
-        takes: pageTarget.takes ?? takes,
+        takes,
         receive: (files, via) => emit(files, via),
         pick,
         arm: (on) => {
@@ -229,27 +264,22 @@ export function DropSheet({
     : null;
   usePageTarget(target);
 
-  // A link to `#id` lands on the control that starts, not just on the sheet.
-  useEffect(() => {
-    if (!id) return;
-    const onHash = () => {
-      if (window.location.hash !== `#${id}`) return;
-      if (onHashTarget) return onHashTarget();
-      rootRef.current
-        ?.querySelector<HTMLElement>('input[type="file"]:not([hidden])')
-        ?.focus({ preventScroll: true });
-    };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, [id, onHashTarget]);
-
   const onDragEnter = (e: DragEvent<HTMLDivElement>) => {
     if (!carriesFiles(e)) return;
-    if (!armed && overDepth.current.depth === 0) onIntent?.();
-    overDepth.current.enter();
+    if (overDepth().depth === 0) {
+      verdict.current = fits(describeDrag(e.dataTransfer)) ? "fits" : "refuses";
+      // Said on the element now, for the drop layer's listener after this
+      // one; cleared when the drag leaves the sheet or ends.
+      e.currentTarget.toggleAttribute(
+        "data-drop-refuses",
+        verdict.current === "refuses",
+      );
+      if (verdict.current === "fits" && !armed) onIntent?.();
+    }
+    overDepth().enter();
   };
   const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    if (carriesFiles(e)) overDepth.current.leave();
+    if (carriesFiles(e)) overDepth().leave();
   };
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
     if (!carriesFiles(e)) return;
@@ -257,11 +287,15 @@ export function DropSheet({
     e.dataTransfer.dropEffect = "copy";
   };
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
-    overDepth.current.reset();
+    overDepth().reset();
     if (!carriesFiles(e)) return;
+    const files = Array.from(e.dataTransfer.files ?? []);
+    // Not this sheet's: left to the page, which routes it — when there is
+    // a page listening.
+    if (!fits(files) && layerListening()) return;
     // Claimed here, so the page's drop layer knows a sheet took it.
     e.preventDefault();
-    emit(e.dataTransfer.files, "drop");
+    emit(files, "drop");
   };
 
   const context: SheetContext = {
@@ -283,61 +317,26 @@ export function DropSheet({
         id={id}
         data-drop-sheet=""
         data-live={live ? "on" : "pending"}
-        data-over={over || undefined}
-        data-armed={armed || over || undefined}
+        data-over={over === "fits" || undefined}
+        data-armed={armed || over === "fits" || undefined}
         data-page-drop-target={pageTarget ? "" : undefined}
         onDragEnter={onDragEnter}
         onDragLeave={onDragLeave}
         onDragOver={onDragOver}
         onDrop={onDrop}
-        className={cn(
-          "crop-marks group/sheet rounded-sheet relative scroll-mt-24",
-          !desk && "flex flex-col",
-          className,
-        )}
+        className={sheetClass(variant, className)}
       >
         {desk ? (
           children?.(context)
         ) : (
-          <DropSheetPick
-            className={cn(
-              "rounded-sheet flex cursor-pointer flex-col items-center justify-center gap-3 border border-dashed text-center transition-colors duration-150",
-              variant === "compact" ? "px-4 py-6" : "px-6 py-12",
-              "border-line-strong bg-canvas hover:border-fg/40 group-data-[armed]/sheet:border-accent group-data-[over]/sheet:bg-accent/5",
-              "has-[:focus-visible]:border-accent has-[:focus-visible]:ring-accent/40 has-[:focus-visible]:ring-2",
-            )}
-          >
-            <UploadCloud
-              className={cn(
-                "text-muted group-data-[armed]/sheet:text-accent transition-colors",
-                variant === "compact" ? "size-5" : "size-6",
-              )}
-              strokeWidth={1.5}
-              aria-hidden
+          <DropSheetPick className={faceClass(variant)}>
+            <SheetFace
+              variant={variant}
+              title={title}
+              browse={browse}
+              hint={hint}
+              hintId={hintId}
             />
-            <span className="flex flex-col gap-1">
-              <span
-                className={cn(
-                  "text-fg font-medium",
-                  variant === "compact" ? "text-sm" : "text-[15px]",
-                )}
-              >
-                {title}
-                {browse && (
-                  <>
-                    {" "}
-                    <span className="text-accent underline underline-offset-4">
-                      browse
-                    </span>
-                  </>
-                )}
-              </span>
-              {hint && (
-                <span id={hintId} className="text-muted text-xs">
-                  {hint}
-                </span>
-              )}
-            </span>
           </DropSheetPick>
         )}
         {/* Behind `pick()`: for a control that is a button, not a label, and

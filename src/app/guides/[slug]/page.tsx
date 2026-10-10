@@ -12,7 +12,8 @@ import { proseMeasure } from "@/components/ui/prose";
 import { cn } from "@/lib/utils";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
-import { GuideDesk } from "@/components/intent/guide-desk";
+import { GuideDeskShell } from "@/components/intent/guide-desk-shell";
+import { GuideDeskSlot } from "@/components/intent/guide-desk-slot";
 import { guideDeskProps } from "@/lib/guides/desk";
 import {
   articleSchema,
@@ -167,7 +168,11 @@ export default async function GuidePage({
                 {paragraph}
               </p>
             ))}
-            {primary && <GuideDesk {...guideDeskProps(primary)} />}
+            {primary && (
+              <GuideDeskSlot desk={guideDeskProps(primary)}>
+                <GuideDeskShell {...guideDeskProps(primary)} />
+              </GuideDeskSlot>
+            )}
             {primary && <OpenToolButton tool={primary} />}
           </div>
 

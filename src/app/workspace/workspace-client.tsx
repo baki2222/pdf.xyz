@@ -33,7 +33,6 @@ import {
 import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
 import { originPhrase } from "@/lib/handoff/origin";
 import { factWords, type FactWord } from "@/lib/intent/fact-words";
-import { requestFilePick } from "@/lib/intent/page-target";
 import { cn, formatBytes } from "@/lib/utils";
 import {
   FILE_FAMILIES,
@@ -483,8 +482,15 @@ export function WorkspaceClient({
               <button
                 type="button"
                 // The drop panel is this page's target, so "Open files"
-                // and this open the same picker — the panel's own.
-                onClick={() => void requestFilePick()}
+                // and this open the same picker — the panel's own. The
+                // registry is not in the page's first load; by a click it
+                // is here (the panel registered through it on mount), and a
+                // picker opened within the click's activation still opens.
+                onClick={() =>
+                  void import("@/lib/intent/page-target").then((registry) =>
+                    registry.requestFilePick(),
+                  )
+                }
                 className={buttonVariants({ variant: "outline", size: "sm" })}
               >
                 Add files

@@ -16,10 +16,20 @@
  * file dropped on any page is opened by the browser in the tab, and none
  * lands where it cannot be used.
  *
- * Free of React and of the catalogue: the drop layer that routes through
- * this is in every page's first load. Module-level state (a stack and a set
- * of listeners, never a single slot), so tests start from
- * {@link resetPageTargetsForTests} — vitest shares one module cache.
+ * NOT IN ANY PAGE'S FIRST LOAD. Free of React and of the catalogue, and
+ * fetched only when a page first needs it: by the drop layer on idle (or
+ * with the first file), and by a target's registration on mount
+ * (`usePageTarget`, which imports it). Nothing a page renders imports it
+ * statically — the sheet reads a drag through `./drag` — so the layer and
+ * every target reach the one copy through the same `import()`, and a
+ * registration made on mount is in the stack before any delivery the layer
+ * routes through that import (its callback was attached first). Was a static
+ * import of every drop sheet, the hook and the guide desk: 1.2 KB raw in the
+ * first load of every page with a drop target (WP-07 review, 2026-10-10).
+ *
+ * Module-level state (a stack and a set of listeners, never a single slot),
+ * so tests start from {@link resetPageTargetsForTests} — vitest shares one
+ * module cache.
  */
 import type { TicketVia } from "./ticket";
 
@@ -59,7 +69,14 @@ export interface PageTarget {
 export type Unrouted =
   | { readonly kind: "none" }
   | { readonly kind: "busy"; readonly name: string }
-  | { readonly kind: "refused"; readonly name: string };
+  | { readonly kind: "refused"; readonly name: string }
+  /**
+   * The page is about a tool that takes the files but cannot be handed them
+   * (it has no in-browser runner — a guide to PDF to Word): the fallback
+   * offers that tool FIRST, as a row that says the files are added there,
+   * and the tools that open them after it.
+   */
+  | { readonly kind: "stage"; readonly slug: string; readonly name: string };
 
 export interface PageFallback {
   receive(files: File[], via: DropVia, why: Unrouted): void;
@@ -109,6 +126,39 @@ const top = <T>(stack: readonly Entry<T>[]): T | null =>
 /** Make `target` the page's while it is registered; returns the unregister. */
 export function registerPageTarget(target: PageTarget): () => void {
   return push(targets, target, notify);
+}
+
+/**
+ * Register whatever `latest` holds at each question — a React surface's
+ * target, re-rendered with new props (a name, a busy state) but registered
+ * ONCE, so a re-render never moves it above a target that mounted after it
+ * (the stack's last registration wins). Asked through `usePageTarget`.
+ */
+export function registerLatest(latest: {
+  readonly current: PageTarget | null;
+}): () => void {
+  const now = () => latest.current;
+  return registerPageTarget({
+    get name() {
+      return now()?.name ?? "";
+    },
+    get verb() {
+      return now()?.verb ?? "open";
+    },
+    get current() {
+      return now()?.current;
+    },
+    canReceive: () => now()?.canReceive() ?? false,
+    takes: (file) => now()?.takes(file) ?? false,
+    receive: (files, via) => now()?.receive(files, via),
+    // Present only while the target has a picker of its own, so "Open
+    // files" falls back to the page's when it has none.
+    get pick() {
+      return now()?.pick ? () => now()?.pick?.() : undefined;
+    },
+    arm: (on) => now()?.arm(on),
+    element: () => now()?.element() ?? null,
+  });
 }
 
 /** The page's target: the last one registered, or null. */
@@ -201,23 +251,6 @@ export function requestFilePick(): "target" | "fallback" | "nowhere" {
   if (!fallback) return "nowhere";
   fallback.pick();
   return "fallback";
-}
-
-/**
- * Does this drag carry files (not text, not a link)? Here, not beside the
- * drop sheet: the drop layer asks it on every page, and the sheet is not on
- * every page. A browser lists
- * "Files" among the drag's types from the moment it enters; a drop event
- * built by hand (every test that fires one) may list the files alone.
- */
-export function carriesFiles(event: {
-  dataTransfer: Pick<DataTransfer, "types" | "files"> | null;
-}): boolean {
-  const transfer = event.dataTransfer;
-  if (!transfer) return false;
-  if (transfer.types && Array.from(transfer.types).includes("Files"))
-    return true;
-  return (transfer.files?.length ?? 0) > 0;
 }
 
 /** Empty every stack and listener (vitest shares one module cache). */

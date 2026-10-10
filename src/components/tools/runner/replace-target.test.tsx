@@ -18,6 +18,10 @@
  *    replaces; anything else goes to the ticket dialog;
  *  - a drop lands mid-run or over unsaved work: the editor's own
  *    `aria-busy` refuses it, and `confirmLeave` asks first.
+ *
+ * And what a replace says (the last block): it is announced, naming both
+ * files, and focus that was inside the old editor — gone with it, since the
+ * editor is keyed by its file — moves into the new one.
  */
 import {
   act,
@@ -29,6 +33,7 @@ import {
 } from "@testing-library/react";
 import { PDFDocument } from "pdf-lib";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
 import { DropLayer } from "@/components/intent/drop-layer";
 import { ToolContextProvider } from "@/components/tools/tool-context";
 import {
@@ -54,6 +59,7 @@ afterEach(() => {
   cleanup();
   resetPageTargetsForTests();
   resetUnsavedForTests();
+  resetAnnouncer();
   vi.restoreAllMocks();
 });
 
@@ -96,6 +102,7 @@ async function openTool(kind: "rotate" | "sign", slug: string, name: string) {
           <ToolRunner kind={kind} slug={slug} />
         </ToolContextProvider>
         <DropLayer />
+        <LiveRegion />
       </>,
     ),
   );
@@ -122,6 +129,9 @@ async function openTool(kind: "rotate" | "sign", slug: string, name: string) {
       ).not.toBeNull(),
     { timeout: 20_000 },
   );
+  // The editor is the page's target once the registry (fetched on mount,
+  // not with the page) has it.
+  await waitFor(() => expect(activePageTarget()?.verb).toBe("replace"));
   return view;
 }
 
@@ -235,3 +245,77 @@ describe(
     });
   },
 );
+
+/** Paste `files` with focus on `el`, as Ctrl+V does: the event is the focused element's. */
+function pasteOn(el: Element, files: File[]) {
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.assign(event, { clipboardData: { files } });
+  act(() => {
+    el.dispatchEvent(event);
+  });
+}
+
+const liveText = () =>
+  document.querySelector('[aria-live="polite"][aria-atomic="true"]')
+    ?.textContent ?? "";
+
+/**
+ * WAS (WP-07 review, measured on the served build): with alpha.pdf open in
+ * Rotate PDF and focus on one of its buttons, a paste of beta.pdf remounted
+ * the editor, focus fell to <body>, and the live region stayed empty — the
+ * new file's name and the loss of the old were never said. A drop said only
+ * "Rendering previews… 0/1". Ctrl+V outside a text field is a new keyboard
+ * path to throwing the open document away, so it must be heard.
+ */
+describe("a replace is said, and focus survives it", SLOW, () => {
+  it("a paste with focus inside the editor: announced by both names, and focus moves into the new editor (control: the old editor, focus's home, is gone)", async () => {
+    const { container } = await openTool("rotate", "rotate-pdf", "Rotate PDF");
+    const before = container.querySelector(
+      '[data-single-pdf-runner="loaded"]',
+    )!;
+    const button = before.querySelector<HTMLButtonElement>("button")!;
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    pasteOn(button, [await pdfFile("second.pdf", 2)]);
+    await waitFor(() => expect(openName(container)).toContain("second.pdf"), {
+      timeout: 5000,
+    });
+    // Control: the editor that held focus is gone — without the move, focus
+    // would be on <body>.
+    expect(before.isConnected).toBe(false);
+    await waitFor(() =>
+      expect(liveText()).toBe(
+        "Replaced first.pdf with second.pdf in Rotate PDF.",
+      ),
+    );
+    const after = container.querySelector('[data-single-pdf-runner="loaded"]')!;
+    expect(after.contains(document.activeElement)).toBe(true);
+    // Its file header: the name and the pages, read where focus lands.
+    expect(document.activeElement?.textContent).toContain("second.pdf");
+    expect(document.activeElement?.textContent).toContain("2 pages");
+  });
+
+  it("focus outside the editor stays where it is; the replace is still said", async () => {
+    const { container } = await openTool("rotate", "rotate-pdf", "Rotate PDF");
+    const outside = document.createElement("button");
+    outside.textContent = "Elsewhere";
+    document.body.append(outside);
+    try {
+      outside.focus();
+      dropOn(screen.getByRole("heading", { level: 1 }), [
+        await pdfFile("third.pdf"),
+      ]);
+      await waitFor(() => expect(openName(container)).toContain("third.pdf"), {
+        timeout: 5000,
+      });
+      await waitFor(() =>
+        expect(liveText()).toBe(
+          "Replaced first.pdf with third.pdf in Rotate PDF.",
+        ),
+      );
+      expect(document.activeElement).toBe(outside);
+    } finally {
+      outside.remove();
+    }
+  });
+});

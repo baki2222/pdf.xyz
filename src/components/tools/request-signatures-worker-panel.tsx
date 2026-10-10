@@ -51,6 +51,7 @@ import {
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
+import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
@@ -543,23 +544,33 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
       </p>
 
       {file ? (
-        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
-          <span className="truncate">{file.name}</span>
-          <span className="text-muted flex shrink-0 items-center gap-3 text-xs">
-            {reading
-              ? "Reading…"
-              : pageCount !== null
-                ? `${pageCount} ${pageCount === 1 ? "page" : "pages"}`
-                : null}
-            <button
-              type="button"
-              onClick={() => pickFile(null)}
-              className="text-muted hover:text-fg font-medium transition"
-            >
-              Remove
-            </button>
-          </span>
-        </div>
+        <ChosenFileTarget
+          file={file}
+          accept="application/pdf,.pdf"
+          busy={busy}
+          refuse={refuse}
+          onReplace={(files) => {
+            pickFile(files[0] ?? null);
+          }}
+        >
+          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+            <span className="truncate">{file.name}</span>
+            <span className="text-muted flex shrink-0 items-center gap-3 text-xs">
+              {reading
+                ? "Reading…"
+                : pageCount !== null
+                  ? `${pageCount} ${pageCount === 1 ? "page" : "pages"}`
+                  : null}
+              <button
+                type="button"
+                onClick={() => pickFile(null)}
+                className="text-muted hover:text-fg font-medium transition"
+              >
+                Remove
+              </button>
+            </span>
+          </div>
+        </ChosenFileTarget>
       ) : (
         <Dropzone
           pageTarget

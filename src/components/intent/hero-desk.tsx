@@ -124,10 +124,19 @@ export function HeroDesk({
     (files: File[], via: DropVia) => add(files, via),
     [add],
   );
-  const onHashTarget = useCallback(() => {
-    if (state.phase === "idle") focusPick();
-    else regionRef.current?.focus({ preventScroll: true });
-  }, [state.phase, focusPick]);
+  // A link to `#id` (the colophon's "Choose files") lands on the control
+  // that starts: the picker while the desk is empty, the ticket after.
+  // Here, not in the sheet: the desk is the only sheet a link names, and
+  // every other page's sheet loaded the listener for nothing.
+  useEffect(() => {
+    const onHash = () => {
+      if (window.location.hash !== `#${id}`) return;
+      if (idle) focusPick();
+      else regionRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [id, idle, focusPick]);
   // The page's drop target: a file released anywhere on the home page lands
   // here, whatever it is — the ticket says what it cannot use. Not while a
   // launch is on its way out.
@@ -175,7 +184,6 @@ export function HeroDesk({
         pageTarget={deskTarget}
         onFiles={onFiles}
         onIntent={prefetchTicket}
-        onHashTarget={onHashTarget}
         className="border-line bg-panel shadow-sheet data-[armed]:border-accent flex flex-col border p-4 sm:p-5"
       >
         {(api) => (

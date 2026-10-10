@@ -8,32 +8,48 @@ import type { DragState, DropTicket } from "./drop-layer-view";
 /*
  * NOTHING HERE IS IMPORTED AT RUN TIME BUT REACT AND NEXT. This module is in
  * the root layout's chunk, and a module the layout shares with a page's own
- * chunks is downloaded twice on that page (`first-load-duplicates.test.ts`):
- * the registry (`@/lib/intent/page-target`) is every drop sheet's too, so
- * the layer takes it from its lazily loaded view (`./drop-layer-view`, which
- * re-exports it) — on idle, or with the first file — and the types above
- * erase. The one thing it must answer synchronously, whether a drag carries
- * files, is `carriesFiles` below, held to the registry's by a test.
+ * chunks is downloaded twice on that page (`first-load-duplicates.test.ts`).
+ * So the layer fetches the rest: the REGISTRY (`@/lib/intent/page-target`,
+ * where files go), through the same `import()` a page's targets register
+ * with — one chunk, one module, and a registration made on mount is in the
+ * stack before a file routed through it — and the VIEW (`./drop-layer-view`:
+ * the veil, the dialog's host), on idle or with the first file. The types
+ * above erase. The two questions it must answer synchronously, whether a
+ * drag carries files and what it describes, are its own copies of
+ * `@/lib/intent/drag`'s, held to them by a test.
  */
 
+type Registry = typeof import("@/lib/intent/page-target");
 type Engine = typeof import("./drop-layer-view");
-let engineModule: Promise<Engine> | null = null;
 
-/** The registry, the veil and the dialog's host — fetched once. */
-function loadEngine(): Promise<Engine> {
-  engineModule ??= import("./drop-layer-view").catch((error) => {
-    // A failed fetch is not remembered: the next file retries.
-    engineModule = null;
-    throw error;
-  });
-  return engineModule;
+/** Fetched once; a failed fetch is not remembered — the next file retries. */
+function once<T>(load: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | null = null;
+  return () =>
+    (pending ??= load().catch((error: unknown) => {
+      pending = null;
+      throw error;
+    }));
 }
+const loadRegistry = once(() => import("@/lib/intent/page-target"));
+const loadEngine = once(() => import("./drop-layer-view"));
+
+/**
+ * The registry, once every registration already asked for is in it. A
+ * target registers through its own `import()` of the registry, and once the
+ * module is here every such import resolves within the same turn — so one
+ * macrotask later, every target whose effect ran before this file arrived
+ * is in the stack, whichever of the two imports a module loader happened to
+ * settle first. Without it, a file dropped while the registry was still on
+ * its way could be routed to a page with no target.
+ */
+const settled = (registry: Registry) =>
+  new Promise<Registry>((resolve) => setTimeout(() => resolve(registry), 0));
 
 /**
  * Does this drag carry files (not text, not a link)? The layer's own copy of
- * the registry's `carriesFiles` — asked on every `dragover`, before the
- * registry may have arrived; `drop-layer.test.tsx` holds the two to one
- * answer over every shape.
+ * `@/lib/intent/drag`'s — asked on every `dragover`, synchronously;
+ * `drop-layer.test.tsx` holds the two to one answer over every shape.
  */
 export function carriesFiles(event: {
   dataTransfer: Pick<DataTransfer, "types" | "files"> | null;
@@ -46,38 +62,13 @@ export function carriesFiles(event: {
 }
 
 /** What a drag says about its files before release (Chromium: their types). */
-function describeDrag(transfer: DataTransfer | null) {
+export function describeDrag(
+  transfer: Pick<DataTransfer, "items"> | null | undefined,
+) {
   if (!transfer?.items) return [];
   return Array.from(transfer.items)
     .filter((item) => item.kind === "file")
     .map((item) => ({ name: "", type: item.type }));
-}
-
-/** The tool page a file was dropped on, from its route — never offered back to itself. */
-function toolOfPath(path: string | null): string | null {
-  const match = /^\/tools\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/.exec(path ?? "");
-  return match && match[1] !== "category" ? match[1]! : null;
-}
-
-/**
- * The picker of last resort: a file input made on demand, at the end of
- * <body>, never a tab stop and never announced — the control that asked
- * for it is. Its files are routed like a drop.
- */
-function makePicker(onFiles: (files: File[]) => void): HTMLInputElement {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.multiple = true;
-  input.hidden = true;
-  input.tabIndex = -1;
-  input.setAttribute("aria-hidden", "true");
-  input.addEventListener("change", () => {
-    const files = Array.from(input.files ?? []);
-    input.value = "";
-    onFiles(files);
-  });
-  document.body.append(input);
-  return input;
 }
 
 /** Input types a paste is typed into; every other input is a control. */
@@ -111,8 +102,8 @@ function editable(target: EventTarget | null): boolean {
  * nothing: the zone's own highlight is what a release there does.
  *
  * It is also the page's picker of last resort (`requestFilePick`): an input
- * made at the moment it is asked for and appended to the end of `<body>`,
- * whose files are routed like a drop. Not rendered with the page: React 19
+ * the view makes at the moment it is asked for and appends to the end of
+ * `<body>`, whose files are routed like a drop. Not rendered with the page: React 19
  * reveals a prerendered page's content a moment after the shell hydrates,
  * and in that moment a layer input already in the DOM was the page's FIRST
  * file input — a pick meant for the workspace's sheet went to the dialog
@@ -127,7 +118,8 @@ function editable(target: EventTarget | null): boolean {
  */
 export function DropLayer() {
   const path = usePathname();
-  const picker = useRef<HTMLInputElement | null>(null);
+  // The view, once it is here: it owns the picker of last resort.
+  const engine = useRef<Engine | null>(null);
   const [View, setView] = useState<Engine["default"] | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [ticket, setTicket] = useState<DropTicket | null>(null);
@@ -143,13 +135,25 @@ export function DropLayer() {
   const close = useCallback(() => setTicket(null), []);
   const lost = useCallback(() => setUnreachable(true), []);
 
-  // The engine, once: loaded on idle or by the first file, and on arrival
-  // registered as the page's fallback — the dialog, and the picker of last
-  // resort. `engine()` resolves only after that registration.
-  const ready = useRef<Promise<Engine> | null>(null);
+  // What draws — the veil, the dialog's host — once, on idle or with the
+  // first file or drag.
+  const view = useCallback(
+    (): Promise<Engine> =>
+      loadEngine().then((mod) => {
+        engine.current = mod;
+        setView(() => mod.default);
+        return mod;
+      }),
+    [],
+  );
+
+  // Where files go, once: on arrival registered as the page's fallback —
+  // the dialog, and the picker of last resort. `registry()` resolves only
+  // after that registration.
+  const ready = useRef<Promise<Registry> | null>(null);
   const unregister = useRef<(() => void) | null>(null);
-  const engine = useCallback((): Promise<Engine> => {
-    ready.current ??= loadEngine().then(
+  const registry = useCallback((): Promise<Registry> => {
+    ready.current ??= loadRegistry().then(
       (mod) => {
         let seq = 0;
         unregister.current = mod.registerFallback({
@@ -157,15 +161,18 @@ export function DropLayer() {
             seq += 1;
             setUnreachable(false);
             setTicket({ key: seq, files, via, why });
+            // The dialog's host is the view's: fetched now if it is not here.
+            void view().catch(() => setUnreachable(true));
           },
           pick() {
-            picker.current ??= makePicker((files) =>
-              mod.deliverFiles(files, "header"),
+            // The view is here by a click (fetched on idle); a picker
+            // opened within the click's activation still opens.
+            void view().then(
+              (v) => v.pickFiles((files) => mod.deliverFiles(files, "header")),
+              () => setUnreachable(true),
             );
-            picker.current.click();
           },
         });
-        setView(() => mod.default);
         return mod;
       },
       (error: unknown) => {
@@ -176,7 +183,7 @@ export function DropLayer() {
       },
     );
     return ready.current;
-  }, []);
+  }, [view]);
 
   // Leaving takes everything the layer put on the page with it: its place
   // as the fallback, and the picker it appended to <body>.
@@ -185,36 +192,40 @@ export function DropLayer() {
       unregister.current?.();
       unregister.current = null;
       ready.current = null;
-      picker.current?.remove();
-      picker.current = null;
+      engine.current?.removePicker();
     },
     [],
   );
 
-  // Fetch it while the page is idle, so the first drag draws at once.
+  // Fetch both while the page is idle, so the first drag draws at once.
   useEffect(() => {
-    const warm = () => void engine().catch(() => {});
+    const warm = () => {
+      void registry().catch(() => {});
+      void view().catch(() => {});
+    };
     if (typeof window.requestIdleCallback === "function") {
       const handle = window.requestIdleCallback(warm, { timeout: 5000 });
       return () => window.cancelIdleCallback(handle);
     }
     const timer = window.setTimeout(warm, 2000);
     return () => window.clearTimeout(timer);
-  }, [engine]);
+  }, [registry, view]);
 
   // Files that landed: where they go is the registry's, as soon as it is here.
   const deliver = useCallback(
     (files: File[], via: DropVia) => {
       if (files.length === 0) return;
       setUnreachable(false);
-      void engine().then(
-        (mod) => mod.deliverFiles(files, via),
-        // Offline, or a deploy replaced the chunk: the files went nowhere,
-        // and the page says so rather than nothing.
-        () => setUnreachable(true),
-      );
+      void registry()
+        .then(settled)
+        .then(
+          (mod) => mod.deliverFiles(files, via),
+          // Offline, or a deploy replaced the chunk: the files went nowhere,
+          // and the page says so rather than nothing.
+          () => setUnreachable(true),
+        );
     },
-    [engine],
+    [registry],
   );
 
   // The page's drags, drops and pastes.
@@ -242,21 +253,26 @@ export function DropLayer() {
       kinds = describeDrag(transfer);
       count = kinds.length;
       html.setAttribute("data-dragging", "");
-      void engine().then(
-        (mod) => {
-          if (depth === 0) return;
-          route = mod.routeFor(kinds);
-          if (route.to === "target") {
-            armed = route.target;
-            armed.arm(true);
-          } else {
-            // The dialog is where this is going: fetch it while the hand moves.
-            void mod.loadDialog().catch(() => {});
-          }
-          show();
-        },
-        () => {},
-      );
+      void view().catch(() => {});
+      void registry()
+        .then(settled)
+        .then(
+          (mod) => {
+            if (depth === 0) return;
+            route = mod.routeFor(kinds);
+            if (route.to === "target") {
+              armed = route.target;
+              armed.arm(true);
+            } else {
+              // The dialog is where this is going: fetch it while the hand moves.
+              void view()
+                .then((engine) => engine.loadDialog())
+                .catch(() => {});
+            }
+            show();
+          },
+          () => {},
+        );
     };
     const end = () => {
       depth = 0;
@@ -272,11 +288,16 @@ export function DropLayer() {
       if (!carriesFiles(e)) return;
       depth += 1;
       if (depth === 1) start(e.dataTransfer);
-      // A zone that takes its own drops, under the pointer: the veil clears
-      // it and says nothing — a release there is that zone's.
+      // A zone that takes its own drops, under the pointer, and takes what
+      // is held (it marked itself `data-drop-refuses` in its own handler,
+      // which runs first, when it does not): the veil clears it and says
+      // nothing — a release there is that zone's. A zone that does not take
+      // it is not a landing place, and the page's route stands.
       const zone =
         e.target instanceof Element
-          ? e.target.closest("[data-drop-sheet]:not([data-page-drop-target])")
+          ? e.target.closest(
+              "[data-drop-sheet]:not([data-page-drop-target]):not([data-drop-refuses])",
+            )
           : null;
       if (zone !== local) {
         local = zone;
@@ -311,28 +332,27 @@ export function DropLayer() {
       deliver(files, "paste");
     };
 
-    window.addEventListener("dragenter", onEnter);
-    window.addEventListener("dragleave", onLeave);
-    window.addEventListener("dragover", onOver);
-    window.addEventListener("drop", onDrop);
-    window.addEventListener("dragend", end);
-    window.addEventListener("blur", end);
-    window.addEventListener("paste", onPaste);
+    const listeners = {
+      dragenter: onEnter,
+      dragleave: onLeave,
+      dragover: onOver,
+      drop: onDrop,
+      dragend: end,
+      blur: end,
+      paste: onPaste,
+    } as unknown as Record<string, EventListener>;
+    for (const type in listeners)
+      window.addEventListener(type, listeners[type]!);
     // Said on the page, so a test (and anyone debugging) can tell the page
     // is taking its drops before it drops anything.
     html.setAttribute("data-drop-layer", "");
     return () => {
       html.removeAttribute("data-drop-layer");
-      window.removeEventListener("dragenter", onEnter);
-      window.removeEventListener("dragleave", onLeave);
-      window.removeEventListener("dragover", onOver);
-      window.removeEventListener("drop", onDrop);
-      window.removeEventListener("dragend", end);
-      window.removeEventListener("blur", end);
-      window.removeEventListener("paste", onPaste);
+      for (const type in listeners)
+        window.removeEventListener(type, listeners[type]!);
       html.removeAttribute("data-dragging");
     };
-  }, [engine, deliver]);
+  }, [registry, view, deliver]);
 
   return (
     <>
@@ -340,7 +360,7 @@ export function DropLayer() {
         <View
           drag={drag}
           ticket={ticket}
-          exclude={toolOfPath(path)}
+          path={path}
           onClose={close}
           onUnreachable={lost}
         />

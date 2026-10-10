@@ -2,26 +2,16 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import type { DropVia, Route, Unrouted } from "@/lib/intent/page-target";
-
-/**
- * The registry, for the layer: it arrives with this chunk rather than in the
- * layout's, which every drop sheet's page would then download twice (see
- * `./drop-layer`).
- */
-export {
-  deliverFiles,
-  registerFallback,
-  routeFor,
-} from "@/lib/intent/page-target";
 import { cn } from "@/lib/utils";
 
 /**
  * What the drop layer draws — the veil while a file is held over the page,
  * and the ticket dialog for files the page's target does not take — in a
  * chunk of its own. The layer (`./drop-layer`) is in every page's first
- * load and keeps only what must answer at once: the listeners, the routing,
- * the picker. This arrives on idle after the page loads, or with the first
- * drag, and with it the words and the geometry.
+ * load and keeps only what must answer at once: the listeners and the
+ * picker; where files go is the registry's, fetched beside this. This
+ * arrives on idle after the page loads, or with the first drag, and with it
+ * the words and the geometry.
  */
 
 /** A drag over the page, as the layer saw it. */
@@ -96,6 +86,8 @@ export function veilWords(
         main: `${why.name} can't open ${count > 1 ? "these files" : files}`,
         sub: "Release to see what can",
       };
+    case "stage":
+      return { main: `Release to see what opens ${files}`, sub: STAYS };
     default: {
       const unhandled: never = why;
       return unhandled;
@@ -125,6 +117,46 @@ function holeAround(element: Element | null): Hole | null {
   };
 }
 
+let picker: HTMLInputElement | null = null;
+let pickedTo: ((files: File[]) => void) | null = null;
+
+/**
+ * The page's picker of last resort (the drop layer's, for "Open files" on a
+ * page with no target of its own): a file input made at the moment it is
+ * asked for, at the end of <body>, never a tab stop and never announced —
+ * the control that asked for it is. Not rendered with the page: React 19
+ * reveals a prerendered page's content a moment after the shell hydrates,
+ * and in that moment a layer input already in the DOM was the page's FIRST
+ * file input — a pick meant for the workspace's sheet went to the dialog
+ * (e2e/workspace.spec.ts, caught on WP-07's first run).
+ */
+export function pickFiles(onFiles: (files: File[]) => void): void {
+  pickedTo = onFiles;
+  if (!picker) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.hidden = true;
+    input.tabIndex = -1;
+    input.setAttribute("aria-hidden", "true");
+    input.addEventListener("change", () => {
+      const files = Array.from(input.files ?? []);
+      input.value = "";
+      pickedTo?.(files);
+    });
+    document.body.append(input);
+    picker = input;
+  }
+  picker.click();
+}
+
+/** The layer left: the picker goes with it. */
+export function removePicker(): void {
+  picker?.remove();
+  picker = null;
+  pickedTo = null;
+}
+
 type DialogModule = typeof import("./ticket-dialog");
 let dialogModule: Promise<DialogModule> | null = null;
 
@@ -138,29 +170,41 @@ export function loadDialog(): Promise<DialogModule> {
   return dialogModule;
 }
 
+/** The tool page a file was dropped on, from its route — never offered back to itself. */
+export function toolOfPath(path: string | null): string | null {
+  const match = /^\/tools\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/.exec(path ?? "");
+  return match && match[1] !== "category" ? match[1]! : null;
+}
+
 export default function DropLayerView({
   drag,
   ticket,
-  exclude,
+  path,
   onClose,
   onUnreachable,
 }: {
   readonly drag: DragState | null;
   readonly ticket: DropTicket | null;
-  /** The tool page it is on, never offered back to itself. */
-  readonly exclude: string | null;
+  /** The page's route: a tool page's own tool is never offered back to it. */
+  readonly path: string | null;
   readonly onClose: () => void;
   /** The dialog's chunk could not be fetched: the layer says so. */
   readonly onUnreachable: () => void;
 }) {
   return (
     <>
-      {drag && <VeilView drag={drag} />}
+      {/* Not while the dialog is open. It is in the top layer, over anything
+          this draws however high its z-index, so the veil's dimming and its
+          sentence sat UNDER the dialog's backdrop — ghost words below the
+          modal (WP-07 review, both schemes, 390 and 1440). A file dragged
+          over the open dialog is the dialog's: its sheet is the page's
+          target, and is armed. */}
+      {drag && !ticket && <VeilView drag={drag} />}
       {ticket && (
         <TicketHost
           key={ticket.key}
           ticket={ticket}
-          exclude={exclude}
+          exclude={toolOfPath(path)}
           onClose={onClose}
           onUnreachable={onUnreachable}
         />
