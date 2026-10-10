@@ -11,11 +11,14 @@
 import { describe, expect, it } from "vitest";
 import { quickFacts, type FileFacts } from "./facts";
 import {
+  checkedCount,
   EMPTY_TICKET,
   isMeasured,
   MAX_TICKET_FILES,
   ticketFiles,
   ticketReducer,
+  uncheckedAmong,
+  wasChecked,
   type TicketAction,
   type TicketState,
 } from "./ticket";
@@ -147,6 +150,55 @@ describe("checking → ready", () => {
         pdf: null,
       }),
     ).toBe(true);
+  });
+});
+
+/**
+ * What the ticket may say it CHECKED: counted from the facts. WAS the list's
+ * length — "Checked 22 files" for 22 PDFs of which this tab had probed 5 and
+ * never read 2 — and "+19 more — 2 not checked here" beside it, which
+ * counted only the 2 past the ticket's limit.
+ */
+describe("what the ticket says it checked", () => {
+  const notChecked = (id: string, name: string): FileFacts => ({
+    ...quick(id, name),
+    bytes: "PDF",
+    pdf: { state: "not-checked", reason: "limit" },
+  });
+  const names = (n: number) => Array.from({ length: n }, (_, i) => `f${i}.pdf`);
+
+  it("counts the files whose facts are complete and whose contents were read — never the list's length", () => {
+    // 22 arrive: 20 are ticketed, 2 are kept for the workspace unread; 5 are
+    // probed, 15 are past the probe limit.
+    const all = names(MAX_TICKET_FILES + 2);
+    let s = run([add(all)]);
+    s.entries.forEach((e, i) => {
+      s = ticketReducer(s, {
+        type: "facts",
+        facts:
+          i < 5 ? measured(e.id, e.file.name) : notChecked(e.id, e.file.name),
+      });
+    });
+    expect(s.overflow).toHaveLength(2);
+    expect(s.entries.filter(wasChecked)).toHaveLength(5);
+    expect(checkedCount(s)).toEqual({ checked: 5, total: 22 });
+    // Under "+N more" (the rows after the first three): 2 checked, 15 past
+    // the probes, and the 2 the ticket never held.
+    expect(uncheckedAmong(s.entries.slice(3), s.overflow)).toBe(17);
+  });
+
+  it("positive control: one probed PDF is one checked file of one", () => {
+    let s = run([add(["a.pdf"])]);
+    s = ticketReducer(s, { type: "facts", facts: measured("f0", "a.pdf") });
+    expect(checkedCount(s)).toEqual({ checked: 1, total: 1 });
+    expect(uncheckedAmong(s.entries, s.overflow)).toBe(0);
+  });
+
+  it("a file still being measured is not checked yet, and not 'not checked' either", () => {
+    let s = run([add(["a.pdf", "b.pdf"])]);
+    s = ticketReducer(s, { type: "facts", facts: quick("f1", "b.pdf") });
+    expect(checkedCount(s)).toEqual({ checked: 0, total: 2 });
+    expect(uncheckedAmong(s.entries, s.overflow)).toBe(0);
   });
 });
 

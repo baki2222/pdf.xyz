@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { DESK_ISLAND_MARKER } from "./desk-island-chunk";
 import { RecentsSlot } from "./recents-slot";
 import { SamplePdfButton } from "./sample-pdf-button";
+import { TICKET_FILE_ROWS, TicketFrame } from "./ticket-frame";
 import {
   loadTicketView,
   loadedTicketView,
@@ -48,7 +49,7 @@ function focusOrphaned(): boolean {
  * this island imports neither the list nor the catalogue), and the six task
  * links are the server's own markup, passed through.
  *
- * WITH FILES, the box's content swaps in place (fixed height, so nothing
+ * WITH FILES, the box's content swaps in place (one height, so nothing
  * below moves): the rows land at once, the ticket's chunk is fetched if the
  * approach did not already fetch it, the files are measured in this tab, and
  * the suggestions appear when the facts are in. Nothing is uploaded; a tool
@@ -163,17 +164,31 @@ export function HeroDesk({
         className="border-line bg-panel shadow-sheet data-[armed]:border-accent flex flex-col border p-4 sm:p-5"
       >
         {(api) => (
-          // ONE BOX FOR BOTH STATES. The empty desk stays laid out under the
-          // ticket — invisible, inert, and out of the accessibility tree —
-          // in the same grid cell, so the box is as tall as the taller of the
-          // two and the swap changes what is drawn, not the height. No height
-          // is typed anywhere: one typed per breakpoint and pointer drifted
-          // from the content it was measured on in the first draft.
+          // ONE BOX FOR EVERY STATE. Three layers share one grid cell: the
+          // empty desk, an empty ticket frame (`ghost`), and — once files
+          // arrive — the ticket. The first two are laid out from the server
+          // render on, so the box is as tall as the taller of them before any
+          // file arrives; the ticket fills the same frame, whose every slot
+          // has a height its content cannot change, so it is exactly that
+          // tall whatever was dropped. WAS two layers, the empty desk and the
+          // ticket: the box was the taller of the empty desk and a ticket
+          // that grew with its content, and moved the page below it by up to
+          // 110px (WP-05 review, measured on the served build). No height is
+          // typed anywhere: one typed per breakpoint and pointer drifted from
+          // the content it was measured on in the first draft.
           <div
             ref={deskRef}
             data-desk=""
             className="grid flex-1 grid-cols-[minmax(0,1fr)] *:col-start-1 *:row-start-1"
           >
+            <div
+              aria-hidden
+              inert
+              data-desk-ghost=""
+              className="invisible flex flex-col"
+            >
+              <TicketFrame ghost />
+            </div>
             <div
               ref={idleRef}
               className={cn("flex flex-col", !idle && "invisible")}
@@ -198,9 +213,13 @@ export function HeroDesk({
                 <FilePlus className="size-4" aria-hidden />
                 Choose files
               </DropSheetPick>
-              <p className="text-muted mt-2 hidden text-center text-xs pointer-fine:block">
-                or drop them anywhere on this page
-              </p>
+              {/* Said only while it is true: from the same value that makes
+                  the sheet catch the page's drops. */}
+              {api.catchesPageDrops && (
+                <p className="text-muted mt-2 hidden text-center text-xs pointer-fine:block">
+                  or drop them anywhere on this page
+                </p>
+              )}
               <p
                 id={api.hintId}
                 className="text-muted mt-3 text-xs leading-snug"
@@ -259,7 +278,8 @@ export function HeroDesk({
 /**
  * The ticket while its chunk is still on the way (an arrival with no
  * approach to warn of it — a pick made before the page hydrated, say): the
- * same heading, so the region is named, and the files' names at once.
+ * same frame, so it is the ticket's height; the same heading, so the region
+ * is named; and the files' names at once.
  */
 function PendingTicket({
   headingId,
@@ -269,22 +289,23 @@ function PendingTicket({
   names: readonly string[];
 }) {
   return (
-    <div aria-busy="true" className="flex flex-col">
-      <p className="kicker text-faint">Job ticket</p>
-      <h2
-        id={headingId}
-        className="font-display text-fg mt-1.5 text-lg leading-snug font-semibold tracking-tight"
-      >
-        What you can do with these files
-      </h2>
-      <ul className="mt-3 flex flex-col">
-        {names.slice(0, 3).map((name, i) => (
-          <li key={`${i}-${name}`} className="text-fg h-6 truncate text-[13px]">
-            {name}
-          </li>
-        ))}
-      </ul>
-      <span className="sr-only">Checking your files…</span>
+    <div aria-busy="true" className="flex flex-1 flex-col">
+      <TicketFrame
+        headingId={headingId}
+        files={
+          <ul className="flex flex-col">
+            {names.slice(0, TICKET_FILE_ROWS).map((name, i) => (
+              <li
+                key={`${i}-${name}`}
+                className="text-fg h-6 truncate text-[13px]"
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
+        }
+        suggestions={<span className="sr-only">Checking your files…</span>}
+      />
     </div>
   );
 }

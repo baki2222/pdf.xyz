@@ -219,9 +219,16 @@ Arrow through the ticket.
 
 **Must hear:** the files' line (_"2 PDFs · 15 pages · …"_), each file with its
 size and pages, then the first suggestion as _"Open Merge PDF with 2 files"_
-and its description (_"2 PDFs · 15 pages · In-browser"_). A worker tool in
-**More for these files** says _"you'll add the file there"_ and _"uploads only
-when you start it"_. Press **Clear**.
+and its description (_"In-browser 2 PDFs · 15 pages"_). A row that carries
+less than all the files says so FIRST in its description — _"takes one file —
+contract.pdf"_, _"opens 2 of your 3 files"_, _"you'll add the file there"_ —
+before any count. **More for these files** is a button, _"collapsed"_; press
+it.
+
+**Must hear:** _"expanded"_; the next `Tab` is **Open in workspace**, and the
+one after it the first row under More — never the rows first and the
+workspace button last. A worker tool there says _"you'll add the file there"_
+and _"uploads only when you start it"_. Press **Clear**.
 
 **Must hear:** focus back on **Choose files**. The empty desk was never read
 twice: while the ticket is up, the desk under it is not announced at all.
@@ -238,10 +245,20 @@ the desk (on the headline, say).
 **Must hear:** the same _"Checked 1 file…"_ announcement, and focus NOT moved —
 a drop announces; only a pick moves focus.
 
+Then drop a folder's worth: 22 PDFs.
+
+**Must hear:** _"Checked 5 of 22 files."_ — the files this tab actually
+opened, not the number dropped: the ticket probes five PDFs and keeps files
+past twenty for the workspace (fewer than five if long PDFs were still being
+read when the offers appeared). On screen, once the reading is done, _"+19
+more — 17 not checked here"_.
+
 **Fails if:** the desk's picker has no name or no description; a task link does
 not say where its tool runs; the ticket is announced twice for one set of
-files; the empty desk is read while the ticket covers it; a drop moves focus;
-or the browser opens the dropped PDF in the tab.
+files; it says it checked files it did not open; the empty desk is read while
+the ticket covers it; a drop moves focus; `Tab` leaves More's button for its
+rows before **Open in workspace**; or the browser opens the dropped PDF in the
+tab.
 
 ---
 

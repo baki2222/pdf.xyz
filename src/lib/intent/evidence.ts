@@ -144,6 +144,30 @@ export function renderEvidence(e: Evidence): string {
   }
 }
 
+/**
+ * Why a pinned suggestion is first, said in full where there is room for it
+ * (the ticket's note slot) rather than cut short at the end of a row: the
+ * fact behind the pin, and how many tools open the file only after the
+ * pinned one — the rows that wait under "More", each saying "after …".
+ */
+export interface PinNote {
+  /** The fact the pin rests on: a lock, or a PDF this tab could not read. */
+  readonly fact: Extract<Evidence, { kind: "lock" } | { kind: "unreadable" }>;
+  /** The pinned tool. */
+  readonly tool: string;
+  /** Tools that open the file only after it. */
+  readonly waiting: number;
+}
+
+/** "locked.pdf needs a password to open — 31 other tools open it after Unlock PDF." */
+export function renderPin(pin: PinNote): string {
+  const why = renderEvidence(pin.fact);
+  if (pin.waiting === 0) return `${why}.`;
+  const tools = plural(pin.waiting, "other tool");
+  const open = pin.waiting === 1 ? "opens" : "open";
+  return `${why} — ${tools} ${open} it ${renderEvidence({ kind: "after", tool: pin.tool })}.`;
+}
+
 /** What a ranking could not offer, and why — said once per cause. */
 export type RankNote =
   /** No tool opens this format: the /tools answer, alternative included. */

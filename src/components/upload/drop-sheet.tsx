@@ -25,6 +25,12 @@ export interface DropSheetApi {
   pick(): void;
   /** The id of the sentence that describes what the sheet takes. */
   readonly hintId: string;
+  /**
+   * Whether a file dropped anywhere on the page lands here
+   * (`catchPageDrops`) — for a body that says so, from the same value that
+   * makes it true, so the sentence cannot outlive the behaviour.
+   */
+  readonly catchesPageDrops: boolean;
 }
 
 interface SheetContext extends DropSheetApi {
@@ -241,6 +247,7 @@ export function DropSheet({
     emit,
     pick,
     hintId,
+    catchesPageDrops: catchPageDrops,
     // A desk's body renders the hint itself, under `hintId`.
     described: variant === "desk" || hint != null,
   };

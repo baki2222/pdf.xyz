@@ -45,8 +45,12 @@ import {
   readHandoffId,
 } from "@/lib/handoff";
 import { readOrigin } from "@/lib/handoff/origin";
+import { MAX_TICKET_FILES } from "@/lib/intent/ticket";
 import { getToolBySlug } from "@/lib/tools";
+import type { Evidence } from "@/lib/intent/evidence";
 import { HeroDesk } from "./hero-desk";
+import { arrangeLine } from "./ticket-view";
+import { TICKET_PROBES, TICKET_SETTLE_MS } from "./use-ticket";
 
 const push = vi.fn<(href: string) => void>();
 const ROUTER = {
@@ -278,8 +282,15 @@ describe("the desk's other ways in and out", () => {
         container.querySelector('input[type="file"]:not([hidden])'),
       ),
     );
-    // The empty desk is live again (it waited under the ticket, inert).
-    expect(container.querySelector("[inert]")).toBeNull();
+    // The empty desk is live again (it waited under the ticket, inert). The
+    // only inert layer left is the empty frame that holds the ticket's
+    // height, which is never live.
+    expect(input.closest("[inert]")).toBeNull();
+    expect(
+      [...container.querySelectorAll("[inert]")].map((el) =>
+        el.hasAttribute("data-desk-ghost"),
+      ),
+    ).toEqual([true]);
     expect(
       screen.queryByRole("region", {
         name: "What you can do with these files",
@@ -306,6 +317,50 @@ describe("the desk's other ways in and out", () => {
     );
   });
 
+  /**
+   * "or drop them anywhere on this page" is true only while the desk passes
+   * `catchPageDrops` to its sheet. WAS held by no test where it is used:
+   * every drop in the suite landed ON the desk, and deleting the prop left
+   * 268 tests green (WP-05 review). Now the drop lands on the page outside
+   * the desk, and the sentence is rendered from the same value.
+   */
+  it("a file dropped anywhere on the page lands on the desk — the sentence that says so, from the same value", async () => {
+    const { container } = render(withRouter(<Desk />));
+    const outside = document.createElement("h1");
+    outside.textContent = "Every PDF tool.";
+    document.body.append(outside);
+    try {
+      expect(container.contains(outside)).toBe(false);
+      const file = await pdf("far.pdf", 1);
+      const dataTransfer = { files: [file], types: ["Files"], dropEffect: "" };
+      fireEvent.dragEnter(outside, { dataTransfer });
+      // A drop the page did not accept is opened by the browser, in the tab.
+      const refused = fireEvent.dragOver(outside, { dataTransfer });
+      expect(refused, "the page did not accept the drag over it").toBe(false);
+      expect(
+        container.querySelector("#upload")?.hasAttribute("data-armed"),
+      ).toBe(true);
+      fireEvent.drop(outside, { dataTransfer });
+      const ticket = await screen.findByRole(
+        "region",
+        { name: "What you can do with these files" },
+        { timeout: 5000 },
+      );
+      expect(within(ticket).getByText("far.pdf")).toBeTruthy();
+      // …and the desk says it, because it is so.
+      await act(async () => {
+        fireEvent.click(
+          within(ticket).getByRole("button", { name: /^clear/i }),
+        );
+      });
+      expect(
+        screen.getByText("or drop them anywhere on this page"),
+      ).toBeTruthy();
+    } finally {
+      outside.remove();
+    }
+  });
+
   it("a drag that only carries text arms nothing", () => {
     const { container } = render(withRouter(<Desk />));
     const desk = container.querySelector("[data-desk]")!;
@@ -315,5 +370,241 @@ describe("the desk's other ways in and out", () => {
     expect(container.querySelector("#upload")?.hasAttribute("data-armed")).toBe(
       false,
     );
+  });
+});
+
+/**
+ * What the ticket says it checked, counted from the facts.
+ *
+ * WAS `entries.length + overflow.length`: with 22 one-page PDFs the live
+ * region said "Checked 22 files" while the ticket had probed 5 and never read
+ * the 2 past its limit, and the screen beside it said "+19 more — 2 not
+ * checked here", which counted only those 2 (WP-05 review, on the served
+ * build). Both numbers now come from the files' facts.
+ */
+describe("the ticket's counts are the facts'", () => {
+  /**
+   * The settle timer offers what is known after {@link TICKET_SETTLE_MS};
+   * here it is held back, so the ticket settles when every file is measured
+   * and the facts it counts are final — the count is then a number the test
+   * can know, not a race with a 1.5 s timer on a loaded machine.
+   */
+  function holdSettle() {
+    const real = globalThis.setTimeout;
+    return vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((fn: () => void, ms?: number, ...args: unknown[]) =>
+        real(
+          fn,
+          ms === TICKET_SETTLE_MS ? 600_000 : ms,
+          ...args,
+        )) as unknown as typeof setTimeout);
+  }
+
+  it(`${MAX_TICKET_FILES + 2} PDFs: "Checked ${TICKET_PROBES} of ${MAX_TICKET_FILES + 2}", and the hidden ones not checked are counted`, async () => {
+    const held = holdSettle();
+    try {
+      const total = MAX_TICKET_FILES + 2;
+      const files = await Promise.all(
+        Array.from({ length: total }, (_, i) => pdf(`f${i + 1}.pdf`, 1)),
+      );
+      const { container } = render(withRouter(<Desk />));
+      stage(container, files);
+      const ticket = await suggestions();
+      // The first TICKET_PROBES PDFs are probed; every other PDF says "not
+      // checked"; the 2 past the ticket's limit are never read.
+      await waitFor(
+        () =>
+          expect(screen.getByRole("status").textContent).toBe(
+            `Checked ${TICKET_PROBES} of ${total} files. 2 suggestions. Best match: ${getToolBySlug("merge-pdf")!.name}.`,
+          ),
+        { timeout: 10_000 },
+      );
+      // Under "+N more": the files after the first three, of which every one
+      // past the probes, and every one past the limit, was not checked.
+      const hidden = total - 3;
+      const unchecked =
+        MAX_TICKET_FILES - TICKET_PROBES + (total - MAX_TICKET_FILES);
+      expect(ticket.textContent).toContain(
+        `+${hidden} more — ${unchecked} not checked here`,
+      );
+      // And the line about all of them counts all of them.
+      expect(ticket.textContent).toContain(`${total} PDFs`);
+    } finally {
+      held.mockRestore();
+    }
+  }, 20_000);
+
+  it("positive control: one PDF, checked, is said as checked", async () => {
+    const held = holdSettle();
+    try {
+      const { container } = render(withRouter(<Desk />));
+      stage(container, [await pdf("one.pdf", 2)]);
+      await suggestions();
+      await waitFor(() =>
+        expect(screen.getByRole("status").textContent).toMatch(
+          /^Checked 1 file\. 3 suggestions\. Best match: /,
+        ),
+      );
+    } finally {
+      held.mockRestore();
+    }
+  });
+});
+
+/**
+ * What a row SHOWS first: the words that limit what its click carries, so a
+ * row cut short still says it. (Whether it is cut is the browser's to say —
+ * `e2e/home-desk.mobile.spec.ts` reads it at 390px.)
+ */
+describe("each row leads with what the click carries", () => {
+  it("a Word file and two PDFs: Merge PDF says it opens 2 of the 3, before the counts", async () => {
+    const doc = new File(["PK\u0003\u0004 docx"], "report.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    const { container } = render(withRouter(<Desk />));
+    stage(container, [
+      doc,
+      await pdf("contract.pdf", 3),
+      await pdf("annex.pdf", 1),
+    ]);
+    const ticket = await suggestions();
+    const rows = [
+      ...ticket.querySelectorAll<HTMLAnchorElement>(
+        '[data-slot="suggestions"] a[data-suggestion]',
+      ),
+    ];
+    expect(rows[0]?.dataset.suggestion).toBe("merge-pdf");
+    const lead = rows[0]!.querySelector("[data-lead]");
+    expect(lead?.textContent).toBe("opens 2 of your 3 files");
+    // The line begins with it; the counts come after.
+    expect(lead?.parentElement?.textContent).toMatch(
+      /^opens 2 of your 3 files\u00a0· 2 PDFs/,
+    );
+  });
+
+  it("two PDFs: a one-file tool's row names the file it takes before anything else", async () => {
+    const { container } = render(withRouter(<Desk />));
+    stage(container, [await pdf("contract.pdf", 3), await pdf("annex.pdf", 1)]);
+    const ticket = await suggestions();
+    const oneFile = [
+      ...ticket.querySelectorAll<HTMLAnchorElement>("a[data-suggestion]"),
+    ].filter((a) =>
+      /^Open .+ with contract\.pdf$/.test(a.getAttribute("aria-label") ?? ""),
+    );
+    // Health: a one-file tool was offered for two PDFs at all.
+    expect(oneFile.length).toBeGreaterThanOrEqual(1);
+    for (const row of oneFile)
+      expect(row.querySelector("[data-lead]")?.textContent).toBe(
+        "takes one file — contract.pdf",
+      );
+  });
+});
+
+describe("arrangeLine: the one fact that leads, and the order of the rest", () => {
+  const line = (evidence: Evidence[], omit?: Evidence) => {
+    const { lead, rest } = arrangeLine(evidence, omit);
+    return [...lead.map((t) => `[${t}]`), ...rest].join(" | ");
+  };
+
+  it("the most limiting qualifier leads; counts come last", () => {
+    // Word to PDF in a Word + 2 PDF drop: it carries nothing, and opens 1.
+    expect(
+      line([
+        { kind: "count", count: 1, noun: "file", format: "DOCX" },
+        { kind: "partial", opens: 1, total: 3 },
+        { kind: "add-there", count: 1 },
+        { kind: "uploads" },
+      ]),
+    ).toBe(
+      "[you'll add the file there] | opens 1 of your 3 files | uploads only when you start it | 1 DOCX file",
+    );
+    // A row waiting under More.
+    expect(
+      line([
+        { kind: "count", count: 1, noun: "pdf", format: "PDF" },
+        { kind: "after", tool: "Unlock PDF" },
+      ]),
+    ).toBe("[after Unlock PDF] | 1 PDF");
+  });
+
+  it("'takes only that file' follows the fact that names the file, which leads", () => {
+    expect(
+      line([
+        { kind: "fields", name: "annex.pdf", count: 4 },
+        { kind: "one-file", name: "annex.pdf", named: true },
+        { kind: "partial", opens: 2, total: 3 },
+      ]),
+    ).toBe(
+      "[annex.pdf has 4 form fields] | takes only that file | opens 2 of your 3 files",
+    );
+  });
+
+  it("a fact said in full elsewhere is left out — and a qualifier that leaned on it names the file", () => {
+    const lock: Evidence = {
+      kind: "lock",
+      name: "locked.pdf",
+      lock: "password-required",
+    };
+    expect(
+      line([lock, { kind: "add-there", count: 1 }, { kind: "uploads" }], lock),
+    ).toBe("[you'll add the file there] | uploads only when you start it");
+    expect(
+      line([lock, { kind: "one-file", name: "locked.pdf", named: true }], lock),
+    ).toBe("[takes one file — locked.pdf]");
+  });
+
+  it("with no qualifier, the reason leads, then the counts", () => {
+    expect(
+      line([
+        { kind: "no-text", name: null, from: 1, to: 2 },
+        { kind: "count", count: 1, noun: "pdf", format: "PDF" },
+      ]),
+    ).toBe("[No selectable text on pages 1–2] | 1 PDF");
+  });
+});
+
+/**
+ * The note slot holds ONE thing at a fixed height — so what it has no room
+ * for must still be somewhere a visitor can read it whole. (The pin's reason
+ * in the slot is read in a browser — `e2e/home-desk.mobile.spec.ts` — where
+ * pdf.js can be asked about a locked file; under jsdom its password
+ * exception escapes as an unhandled rejection.)
+ */
+describe("the note slot, and where the rest goes", () => {
+  it("two notes: the first in the slot, the second under More, whole", async () => {
+    const heic = new File(
+      [
+        Uint8Array.from([
+          0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63,
+        ]),
+      ],
+      "photo.heic",
+      { type: "image/heic" },
+    );
+    const stray = new File(["plain words"], "notes.xyz", { type: "" });
+    const { container } = render(withRouter(<Desk />));
+    stage(container, [
+      await pdf("a.pdf", 1),
+      await pdf("b.pdf", 1),
+      heic,
+      stray,
+    ]);
+    const ticket = await suggestions();
+    const slot = ticket.querySelector('[data-slot="note"]')!;
+    expect(slot.textContent).toMatch(/^No tool here opens HEIC photos\./);
+    expect(slot.textContent).not.toContain("notes.xyz");
+
+    await act(async () => {
+      fireEvent.click(
+        within(ticket).getByRole("button", { name: /^More for these files/ }),
+      );
+    });
+    const rest = within(ticket).getByRole("list", {
+      name: "More about your files",
+    });
+    expect(rest.textContent).toBe("No tool here opens notes.xyz.");
+    // Whole: not clamped where it has room.
+    expect(rest.querySelector(".line-clamp-2")).toBeNull();
   });
 });

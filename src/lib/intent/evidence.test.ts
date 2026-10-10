@@ -38,7 +38,9 @@ import {
   NOTE_KINDS,
   renderEvidence,
   renderNote,
+  renderPin,
   type Evidence,
+  type PinNote,
   type RankNote,
 } from "./evidence";
 
@@ -233,6 +235,61 @@ describe("renderNote", () => {
       return offences(text, n).map((o) => `${text} — ${o}`);
     });
     expect(found).toEqual([]);
+  });
+});
+
+/**
+ * Why a pinned row is first, in full — the ticket's note slot, where it
+ * wraps. WAS the end of the row's single line, cut at 390px before the reason
+ * ("you'll add the file there · uploads only when …").
+ */
+describe("renderPin", () => {
+  const PINS: readonly PinNote[] = [
+    {
+      fact: { kind: "lock", name: "locked.pdf", lock: "password-required" },
+      tool: "Unlock PDF",
+      waiting: 31,
+    },
+    {
+      fact: { kind: "lock", name: "statement.pdf", lock: "restricted" },
+      tool: "Unlock PDF",
+      waiting: 1,
+    },
+    {
+      fact: { kind: "lock", name: "odd.pdf", lock: "unknown" },
+      tool: "Unlock PDF",
+      waiting: 0,
+    },
+    {
+      fact: { kind: "unreadable", name: "broken.pdf" },
+      tool: "Repair PDF",
+      waiting: 12,
+    },
+  ];
+
+  it("says the pin's fact, then how many tools wait for the pinned one", () => {
+    expect(renderPin(PINS[0]!)).toBe(
+      "locked.pdf needs a password to open — 31 other tools open it after Unlock PDF.",
+    );
+    expect(renderPin(PINS[1]!)).toBe(
+      "statement.pdf has editing restrictions — 1 other tool opens it after Unlock PDF.",
+    );
+    // Nothing waits: the fact alone, no claim about other tools.
+    expect(renderPin(PINS[2]!)).toBe("odd.pdf is encrypted.");
+  });
+
+  it("every rendered pin passes the predicates, and prints only its own numbers", () => {
+    const found = PINS.flatMap((pin) => {
+      const text = renderPin(pin);
+      return offences(text, { name: pin.fact.name, waiting: pin.waiting }).map(
+        (o) => `${text} — ${o}`,
+      );
+    });
+    expect(found).toEqual([]);
+    // Only a file that needs a password is said to need one.
+    for (const pin of PINS)
+      if (/password/i.test(renderPin(pin)))
+        expect(pin.fact).toMatchObject({ lock: "password-required" });
   });
 });
 

@@ -102,6 +102,44 @@ export function isMeasured(facts: FileFacts | null): boolean {
 const allMeasured = (entries: readonly TicketEntry[]) =>
   entries.every((e) => isMeasured(e.facts));
 
+/**
+ * Whether this tab CHECKED a file: its facts are complete, and — a PDF — its
+ * contents were probed. A PDF past the probe limit has its first bytes read
+ * and nothing else; the ticket calls that "not checked", and so does every
+ * count it states.
+ */
+export function wasChecked(entry: TicketEntry): boolean {
+  return isMeasured(entry.facts) && entry.facts?.pdf?.state !== "not-checked";
+}
+
+/**
+ * How many of the ticket's files this tab has checked, out of every file it
+ * holds — the files past {@link MAX_TICKET_FILES} included, which are never
+ * read. WAS `entries.length + overflow.length` said as "Checked 22 files":
+ * 17 of those 22 had not been opened. Counted from the facts, never from the
+ * list's length.
+ */
+export function checkedCount(state: TicketState): {
+  readonly checked: number;
+  readonly total: number;
+} {
+  return {
+    checked: state.entries.filter(wasChecked).length,
+    total: state.entries.length + state.overflow.length,
+  };
+}
+
+/** Files the ticket says it did not check: past the probes, or past the ticket. */
+export function uncheckedAmong(
+  entries: readonly TicketEntry[],
+  overflow: readonly File[],
+): number {
+  return (
+    entries.filter((e) => e.facts?.pdf?.state === "not-checked").length +
+    overflow.length
+  );
+}
+
 export function ticketReducer(
   state: TicketState,
   action: TicketAction,
