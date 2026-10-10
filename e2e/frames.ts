@@ -16,6 +16,13 @@ import type { CDPSession, Page } from "@playwright/test";
  * Runs in the page's own `requestAnimationFrame`, so it samples exactly the
  * frames the browser paints, and keeps running across a client-side
  * navigation (Continue with is one).
+ *
+ * Beside it, the browser's own account: every `layout-shift` entry, with
+ * whether it came within an input's window and which of the named elements
+ * moved in it — a source that IS the element or CONTAINS it; a source
+ * inside it is the element's own content reflowing, not the element
+ * moving ({@link recordedShifts}). The instrument a CLS figure is made
+ * from, read per element.
  */
 
 export interface FrameProbe {
@@ -38,6 +45,15 @@ export interface FrameProbe {
   readonly present: Readonly<Record<string, string>>;
 }
 
+export interface Shift {
+  readonly t: number;
+  readonly value: number;
+  /** Within 500 ms of an input: excluded from CLS. */
+  readonly input: boolean;
+  /** The named elements among this shift's sources. */
+  readonly hits: readonly string[];
+}
+
 export interface Frame {
   readonly t: number;
   readonly path: string;
@@ -49,9 +65,11 @@ export async function startFrames(page: Page, probe: FrameProbe) {
   await page.evaluate((probe) => {
     const w = window as unknown as {
       __frames: unknown[];
+      __shifts: unknown[];
       __framesStop?: boolean;
     };
     w.__frames = [];
+    w.__shifts = [];
     w.__framesStop = false;
     const find = (spec: {
       selector: string;
@@ -74,6 +92,35 @@ export async function startFrames(page: Page, probe: FrameProbe) {
         top += node.offsetTop;
       return top;
     };
+    new PerformanceObserver((list) => {
+      if (w.__framesStop) return;
+      for (const entry of list.getEntries()) {
+        const shift = entry as PerformanceEntry & {
+          value: number;
+          hadRecentInput: boolean;
+          sources?: { node?: Node | null }[];
+        };
+        const hits: string[] = [];
+        for (const [name, spec] of Object.entries(probe.tops)) {
+          const el = find(spec);
+          if (
+            el &&
+            (shift.sources ?? []).some(
+              (source) =>
+                source.node != null &&
+                (source.node === el || source.node.contains(el)),
+            )
+          )
+            hits.push(name);
+        }
+        w.__shifts.push({
+          t: shift.startTime,
+          value: shift.value,
+          input: shift.hadRecentInput,
+          hits,
+        });
+      }
+    }).observe({ type: "layout-shift" });
     const tick = (t: number) => {
       if (w.__framesStop) return;
       const tops: Record<string, number | null> = {};
@@ -100,6 +147,13 @@ export async function stopFrames(page: Page): Promise<Frame[]> {
     w.__framesStop = true;
     return w.__frames;
   });
+}
+
+/** The layout shifts the browser reported since {@link startFrames}. */
+export async function recordedShifts(page: Page): Promise<Shift[]> {
+  return page.evaluate(
+    () => (window as unknown as { __shifts: Shift[] }).__shifts,
+  );
 }
 
 /**

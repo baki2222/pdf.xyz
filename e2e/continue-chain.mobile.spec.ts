@@ -64,16 +64,18 @@ test("Download stays where it was painted while the receipt counts the pages", a
   const frames = await stopFrames(page);
 
   const { first, tops } = positionsFrom(frames, "download");
-  // The receipt is drawn in the panel's own frame — not into it later.
-  expect(frames[first]!.present.receipt).toBe(true);
-  // …it was still counting then, so the count settled in a later frame…
-  expect(frames[first]!.present.counted).toBe(false);
-  expect(frames.at(-1)!.present.counted).toBe(true);
-  // …and Download never moved: not when the count settled, not after.
+  // Download never moved: not when the receipt came, not when the count
+  // settled, not after…
   expect(
     new Set(tops),
     `Download moved after it was painted: ${tops.join(" → ")}`,
   ).toEqual(new Set([tops[0]]));
+  // …the receipt was drawn in the panel's own frame — not into it later…
+  expect(frames[first]!.present.receipt).toBe(true);
+  // …and it was still counting then, so the count settled in a later frame:
+  // the test saw the very change it holds still.
+  expect(frames[first]!.present.counted).toBe(false);
+  expect(frames.at(-1)!.present.counted).toBe(true);
 });
 
 test("the job's row is held before the job is known: the runner never moves when it fills", async ({

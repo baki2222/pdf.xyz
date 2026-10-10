@@ -25,7 +25,13 @@ import {
   pdfPageTexts,
   pdfRotations,
 } from "./client-proof/artifacts";
-import { positionsFrom, startFrames, stopFrames, throttle } from "./frames";
+import {
+  positionsFrom,
+  recordedShifts,
+  startFrames,
+  stopFrames,
+  throttle,
+} from "./frames";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { USER_PASSWORD_PDF_BASE64 } from "../src/tests/fixtures-encrypted";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
@@ -532,7 +538,9 @@ test("G.7 row 2: merge 3 PDFs, then compress — five actions, no file picked tw
  * network; WP-08 review, 2026-10-10). Held here, frame by frame, on the
  * same slow network: from the first frame the analysis is on screen, its
  * receipt is too, and neither the Download button nor the worker card under
- * the receipt moves again — through the count settling.
+ * the receipt moves again — through the count settling. Read twice: the
+ * elements' positions frame by frame, and the browser's own layout-shift
+ * entries outside an input's window, none of whose sources may be either.
  *
  * Fails with the run's wait for its ending removed (`endingReady` in the
  * runner kit): the ending then arrives frames later and the card moves.
@@ -573,12 +581,11 @@ test("Compress PDF's analysis draws with its ending, and nothing under it moves 
     page.locator('[data-receipt] [data-settles="counted"]'),
   ).toBeVisible({ timeout: 20_000 });
   await page.waitForTimeout(500);
+  const shifts = await recordedShifts(page);
   const frames = await stopFrames(page);
 
   const painted = frames.findIndex((f) => f.present.analysis);
   expect(painted, "the analysis never painted").toBeGreaterThanOrEqual(0);
-  // Drawn in one frame with its receipt — not into it later.
-  expect(frames[painted]!.present.receipt).toBe(true);
   for (const name of ["download", "worker"]) {
     const { first, tops } = positionsFrom(frames, name);
     expect(first, `${name} appeared before the analysis`).toBe(painted);
@@ -587,6 +594,17 @@ test("Compress PDF's analysis draws with its ending, and nothing under it moves 
       `${name} moved after it was painted: ${tops.join(" → ")}`,
     ).toEqual(new Set([tops[0]]));
   }
+  // The browser's account agrees: no shift outside an input's window, after
+  // the analysis painted, moved either. (Health: it recorded the page's
+  // shifts at all — the pick moves what is under the runner.)
+  expect(shifts.length).toBeGreaterThan(0);
+  expect(
+    shifts.filter(
+      (s) => !s.input && s.t >= frames[painted]!.t && s.hits.length > 0,
+    ),
+  ).toEqual([]);
+  // Drawn in one frame with its receipt — not into it later.
+  expect(frames[painted]!.present.receipt).toBe(true);
   expect(frames.at(-1)!.present.counted).toBe(true);
 });
 
