@@ -38,6 +38,7 @@ import {
   errorNoteLinksUnlock,
   outputFile,
 } from "./runner-kit";
+import { withAppRouter } from "@/tests/app-router";
 import { ToolRunProvider } from "./tool-context";
 import { useUnsavedGuard } from "./use-unsaved-guard";
 
@@ -51,18 +52,32 @@ afterEach(() => {
 
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
 
+/**
+ * A tool page as a runner sees it: the job's context, and the App Router
+ * (Continue with navigates with it). The router matters: a result draws its
+ * ending as soon as the ending's chunk is in — at once, when another test in
+ * the worker already loaded it (vitest `isolate: false`) — and an ending
+ * with no router to navigate by is not a page that exists.
+ */
 function onToolPage(slug: string, ui: React.ReactNode) {
-  const tool = getToolBySlug(slug)!;
-  return render(
-    <div data-tool-panel="">
-      <ToolRunProvider
-        tool={{ slug, name: tool.name, category: tool.category }}
-        plan={continueTargetsFor(tool, tools)}
-      >
-        {ui}
-      </ToolRunProvider>
-    </div>,
-  );
+  const view = (inner: React.ReactNode) => {
+    const tool = getToolBySlug(slug)!;
+    return withAppRouter(
+      <div data-tool-panel="">
+        <ToolRunProvider
+          tool={{ slug, name: tool.name, category: tool.category }}
+          plan={continueTargetsFor(tool, tools)}
+        >
+          {inner}
+        </ToolRunProvider>
+      </div>,
+    );
+  };
+  const rendered = render(view(ui));
+  return {
+    ...rendered,
+    rerender: (inner: React.ReactNode) => rendered.rerender(view(inner)),
+  };
 }
 
 /** A runner in the shape every one has: an editor, then its result. */
@@ -334,17 +349,7 @@ describe("unsaved edits", () => {
   it("the question goes with the edits", () => {
     const { rerender } = onToolPage("edit-pdf", <Editor dirty />);
     expect(unsavedLabels()).toHaveLength(1);
-    const tool = getToolBySlug("edit-pdf")!;
-    rerender(
-      <div data-tool-panel="">
-        <ToolRunProvider
-          tool={{ slug: tool.slug, name: tool.name, category: tool.category }}
-          plan={continueTargetsFor(tool, tools)}
-        >
-          <Editor dirty={false} />
-        </ToolRunProvider>
-      </div>,
-    );
+    rerender(<Editor dirty={false} />);
     expect(unsavedLabels()).toEqual([]);
   });
 });
