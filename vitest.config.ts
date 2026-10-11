@@ -140,6 +140,15 @@ export default defineConfig({
           // graph cold: `src/tests/runner-mounted.ts` waits for that.
           pool: "forks",
           isolate: true,
+          // ...and pdf.js cold, inside the first test that calls it — up to
+          // 1.3 s, against testing-library's 1 s waits, under parallel load
+          // (2026-10-11). This project alone loads pdf.js before each file's
+          // tests; `src/tests/native-canvas-warm.test.ts` has the defect and
+          // checks the state each file begins in.
+          setupFiles: [
+            ...sharedTestOptions.setupFiles,
+            "./src/tests/native-canvas-warm.ts",
+          ],
         },
       },
     ],
