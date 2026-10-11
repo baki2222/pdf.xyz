@@ -169,8 +169,36 @@ export function CompressRunner() {
  * at 1280, 1920 and 2560 wide (468 once the card answers), 508 at 1024 and
  * 768, 555 at 640, 836 at 390; 28 rem is 448. `e2e/continue-chain.spec.ts`
  * draws it and fails on a blank band under it.
+ *
+ * Then main's privacy rewrite (#178) took "encrypted, " out of the worker
+ * card's sentence, and at 1280 and wider it lost a line. The same stage,
+ * re-measured on the merge's build the same day with the hold lifted, the
+ * card asking: 439.25 px at 1280, 1920 and 2560, 482 at 1024 and 768,
+ * 529.25 at 640, 736.75 at 390 (once this server's "disabled" answers:
+ * 445.25, 507.5, 554.75, 813.25). Putting the old sentence back in that
+ * page reads 462 again at 1280 and wider, so the line is the whole
+ * difference. 28 rem then read "a 448 px stage left 8.75 px blank under its
+ * analysis" (the spec, red on the merge).
+ *
+ * BOUNDED FROM BOTH SIDES, by two tests in that spec, at 1280 x 900:
+ * - no more than the shortest analysis, 439.25 px, or a blank band shows
+ *   under it ("the shortest analysis fills the stage held for it");
+ * - no less than the screen left under the stage once the gap to what
+ *   follows is counted — the stage's top at 400.5 px, the About grid 61 px
+ *   under its bottom, so 900 - 461.5 = 438.5 px — or the top of that grid
+ *   is on screen when the analysis arrives and moves with it. 27 rem
+ *   (432 px) read "CLS from the analysis's first frame: 0.0019 [unnamed]"
+ *   ("Compress PDF's analysis draws with its ending into space held for
+ *   it"), against a ceiling of 0.001.
+ * The window is [438.5, 439.25] px on Windows, where it was [438.5, 462]
+ * before the shorter sentence; 27.4375 rem is 439 px, the one whole pixel
+ * in it. Linux Chromium sets text taller, which moves the stage's top down
+ * the page and lengthens the analysis, so both margins only widen there.
+ * A window under a pixel wide is a constant fitted to copy on both sides:
+ * the next line gained or lost in that analysis, or above the stage, turns
+ * one of the two tests red, which is what they are for.
  */
-export const STAGE_HOLD_REM = 28;
+export const STAGE_HOLD_REM = 27.4375;
 
 /**
  * How tall a picked file's stage is held, in px, from the frame the file

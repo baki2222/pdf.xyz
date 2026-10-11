@@ -750,6 +750,16 @@ async function writeLeanPdf(name: string): Promise<string> {
  * left on the screen (499 px) is more than the cap, so it is the cap that
  * is held, and the cap that this reads. Mutation-checked: at 30 rem, "a 480
  * px stage left 18 px blank under its analysis".
+ *
+ * And caught for real on the merge of main (2026-10-11): #178 shortened the
+ * worker card's sentence by a line at this width, the analysis drew 439.25
+ * px under a cap fitted to 462, and this read "a 448 px stage left 8.75 px
+ * blank under its analysis" while every other guard stayed green. The cap
+ * is a constant fitted to copy, so any copy change in that analysis can
+ * move it; this is the test that sees it. Its other side is the arrival
+ * test above: the cap lowered to 27 rem (432 px) put the top of the About
+ * grid on screen under the held stage, and that test read "CLS from the
+ * analysis's first frame: 0.0019 [unnamed]". Between the two, 439 px.
  */
 test("the shortest analysis fills the stage held for it: no blank band under a result", async ({
   page,

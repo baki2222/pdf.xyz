@@ -188,8 +188,16 @@ describe("stageHoldPx", () => {
   });
 
   it("the cap is in rem: a larger root font holds proportionally more", () => {
+    // In whole pixels, as every hold is (the last case below). Until the
+    // merge of main (2026-10-11) the cap was 28 rem, whole at any root
+    // size, and this read `STAGE_HOLD_REM * 20` bare; at 27.4375 rem (the
+    // one pixel both continue-chain bounds allow) that is 548.75, and a
+    // hold of 548.75 px would be the sub-pixel min-height that case bans.
     expect(stageHoldPx({ top: 0, viewport: 4000, rem: 20 })).toBe(
-      STAGE_HOLD_REM * 20,
+      Math.round(STAGE_HOLD_REM * 20),
+    );
+    expect(stageHoldPx({ top: 0, viewport: 4000, rem: 20 })).toBeGreaterThan(
+      stageHoldPx({ top: 0, viewport: 4000, rem: 16 }),
     );
   });
 
