@@ -82,8 +82,8 @@ import {
  *        first with the worker's Repair PDF engine and converted from the
  *        rebuilt copy, with a note saying so, or — when it cannot be rebuilt
  *        into a file the reader can read — not converted, with a message
- *        that names Repair PDF. The FAQ "What happens to a damaged PDF?"
- *        says both; claims-vs-capability.test.ts holds it to engine runs;
+ *        that names Repair PDF. The FAQ "Can I convert a password-protected
+ *        or damaged PDF?" says both (one entry: the page holds 4–6 FAQs); claims-vs-capability.test.ts holds it to engine runs;
  *      · everything else drawn (lines, boxes, arrows, fills, backgrounds) is
  *        rendered into transparent pictures, in paint order with the rest;
  *      · a page with no text is NOT refused: it is a slide of pictures, and
@@ -253,12 +253,8 @@ const content: ToolContent = {
       a: "Each line of the PDF becomes its own text box, placed where that line sits, so a paragraph wrapped over five lines arrives as five boxes and a page set in two columns keeps its columns apart. A symbol drawn in a symbol font, such as an arrow, gets a box of its own so the words after it stay where the page has them.",
     },
     {
-      q: "Can I convert a password-protected PDF?",
-      a: "Not if the PDF asks for a password when you open it. The worker is given no password, so the job stops with a message saying the PDF is password-protected, and the page links you to Unlock PDF. If you know the password, remove it there (Unlock PDF cannot recover a password you lack), then convert the unlocked copy here.",
-    },
-    {
-      q: "What happens to a damaged PDF?",
-      a: "If its structure cannot be read, the worker first rebuilds the file the way Repair PDF does and converts the rebuilt copy, and the note beside the download says so. If it cannot be rebuilt into a file the worker can read, it is not converted, and the message suggests Repair PDF. A PDF whose structure reads but whose page content is damaged is converted, and on such a page a picture can be left out with no note.",
+      q: "Can I convert a password-protected or damaged PDF?",
+      a: "Not if the PDF asks for a password when you open it. The worker is given no password, so the job stops with a message saying the PDF is password-protected, and the page links you to Unlock PDF. If you know the password, remove it there (Unlock PDF cannot recover a password you lack), then convert the unlocked copy here. A damaged PDF is different. If its structure cannot be read, the worker first rebuilds the file the way Repair PDF does and converts the rebuilt copy, and the note beside the download says so. If it cannot be rebuilt into a file the worker can read, it is not converted, and the message suggests Repair PDF. A PDF whose structure reads but whose page content is damaged is converted, and on such a page a picture can be left out with no note.",
     },
     {
       q: "Is my PDF kept after the conversion?",
