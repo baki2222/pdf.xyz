@@ -53,7 +53,7 @@ import {
  * 2026-10-10 — phone at 360px 366.5px, `sm` at 640px 288.5px, `lg` at 1024px
  * 308px — plus 4px, to the half rem.
  */
-const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[18.5rem] lg:min-h-[19.5rem]";
+const STATUS_SLOT = "min-h-[24rem] sm:min-h-[18.5rem] lg:min-h-[19.5rem]";
 
 type Phase = WorkerPhase;
 type Mode = "html" | "url";
@@ -118,7 +118,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             Chromium renders{" "}

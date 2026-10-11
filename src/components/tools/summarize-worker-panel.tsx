@@ -56,7 +56,7 @@ import {
  * 565.5px — plus 4px, to the half rem. The run state includes the daily
  * allowance note, which only a panel that can run says.
  */
-const STATUS_SLOT = "min-h-[47rem] sm:min-h-[34.5rem] lg:min-h-[36rem]";
+const STATUS_SLOT = "min-h-[48.5rem] sm:min-h-[34.5rem] lg:min-h-[36rem]";
 
 type Phase = WorkerPhase;
 
@@ -110,7 +110,7 @@ export function SummarizeWorkerPanel({ tool }: { tool: Tool }) {
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             The worker extracts your PDF&apos;s selectable text and asks a

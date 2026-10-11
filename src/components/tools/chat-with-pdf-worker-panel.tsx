@@ -58,7 +58,7 @@ import {
  * 598.5px — plus 4px, to the half rem. The run state includes the daily
  * allowance note, which only a panel that can run says.
  */
-const STATUS_SLOT = "min-h-[45rem] sm:min-h-[36.5rem] lg:min-h-[38rem]";
+const STATUS_SLOT = "min-h-[49rem] sm:min-h-[36.5rem] lg:min-h-[38rem]";
 
 type Phase = WorkerPhase;
 
@@ -131,7 +131,7 @@ export function ChatWithPdfWorkerPanel({
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             The worker extracts your PDF&apos;s selectable text and asks a

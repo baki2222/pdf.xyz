@@ -36,17 +36,11 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { buildLifecyclePolicy } from "@/lib/workers/lifecycle/policy";
 import { DEFAULT_RETENTION_SETTINGS } from "@/lib/workers/lifecycle/retention";
 import { DEFAULT_JOB_TTL_SECONDS } from "@/lib/workers/queue/redis-config";
+import { JOB_RECORD_WINDOW } from "@/lib/privacy/job-queue";
 
 /** `n` and its unit, singular when `n` is 1 — "1 day", "24 hours". */
 function quantity(n: number, unit: string): string {
   return `${n} ${unit}${n === 1 ? "" : "s"}`;
-}
-
-/** A seconds TTL in the largest whole unit that states it exactly. */
-function secondsWindow(seconds: number): string {
-  if (seconds % 3600 === 0) return quantity(seconds / 3600, "hour");
-  if (seconds % 60 === 0) return quantity(seconds / 60, "minute");
-  return quantity(seconds, "second");
 }
 
 /**
@@ -67,8 +61,13 @@ export const RETENTION_WINDOWS = {
   inputStorageRule: quantity(policy.derivedFrom.inputBackstopDays, "day"),
   /** The same, for a produced result's stored bytes. */
   outputStorageRule: quantity(policy.derivedFrom.artifactBackstopDays, "day"),
-  /** How long the job record — including the filename — lives. */
-  jobRecord: secondsWindow(DEFAULT_JOB_TTL_SECONDS),
+  /**
+   * How long the job record — including the filename — lives. Derived in
+   * `@/lib/privacy/job-queue`, beside the queue-lifetime sentences that
+   * state it (and the on-disk journal it does not bound), so the Protect/
+   * Unlock panel can say it without loading the lifecycle policy.
+   */
+  jobRecord: JOB_RECORD_WINDOW,
 } as const;
 
 /**

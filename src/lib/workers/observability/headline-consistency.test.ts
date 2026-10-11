@@ -18,12 +18,20 @@
  * says. A new subsystem inherits the rule without anyone remembering to add it
  * — which is the only reason this kind of guard survives.
  */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import {
   collectWebOperationsSnapshot,
   type SnapshotRateLimitCode,
 } from "./snapshot";
 import { evaluateOperationsAlerts } from "./alerts";
+
+// Per-client keying is gated on the privacy disclosure (ratelimit/config.ts,
+// 2026-10-10). These tests exercise it, so they run in the disclosed
+// counterfactual; src/tests/setup.ts restores the real flag after each test.
+beforeEach(() => {
+  discloseKeyingForTests(true);
+});
 
 /**
  * A deployment with storage, queue AND a validated lifecycle backstop wired,

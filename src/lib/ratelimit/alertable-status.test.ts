@@ -18,11 +18,19 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import { RATE_LIMIT_ENV } from "./config";
 import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import { resolveRateLimitStatus, statusForDecision } from "./status";
 import type { RateLimitDecision } from "./types";
+
+// Per-client keying is gated on the privacy disclosure (ratelimit/config.ts,
+// 2026-10-10). These tests exercise it, so they run in the disclosed
+// counterfactual; src/tests/setup.ts restores the real flag after each test.
+beforeEach(() => {
+  discloseKeyingForTests(true);
+});
 
 /**
  * A deployment enforcing PER CLIENT — which needs the trust flag, not just a

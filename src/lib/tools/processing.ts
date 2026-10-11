@@ -70,7 +70,7 @@ export interface ProcessingMeta {
  * can take it. `hybrid-copy.test.ts` holds the shipped sentences as its corpus.
  */
 export const HYBRID_WORKER_STEP =
-  "An optional, clearly labeled step uploads the file to an encrypted secure worker — only when you start it, and only after the page confirms a worker is available.";
+  "An optional, clearly labeled step uploads the file to a secure worker — only when you start it, and only after the page confirms a worker is available.";
 
 /** The whole hybrid story in two sentences: the default path, then the step. */
 export const HYBRID_SUMMARY = `The main work runs in your browser, and on that path the file stays on your device. ${HYBRID_WORKER_STEP}`;
@@ -99,7 +99,7 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
     label: "Secure worker",
     short: "Secure worker",
     description:
-      "Files are processed on an encrypted, isolated worker and permanently deleted shortly after.",
+      "Files are processed on a secure worker, which deletes the upload when the job ends and serves the result for a limited time.",
     shape: "ring",
     hue: {
       ink: "text-blue-600",

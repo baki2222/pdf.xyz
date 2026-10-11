@@ -67,7 +67,7 @@ function statusContent(
         // Says what is TRUE from here (this tool uploads; the batch path is
         // browser-only) instead of asserting the worker is off, which this
         // component cannot observe — see the optgroup comment below.
-        body: `${name} runs on an encrypted worker, so your file is uploaded rather than processed on your device. Open the tool to see exactly what happens to your files first.`,
+        body: `${name} runs on a secure worker, so your file is uploaded rather than processed on your device. Open the tool to see exactly what happens to your files first.`,
       };
     default:
       return {

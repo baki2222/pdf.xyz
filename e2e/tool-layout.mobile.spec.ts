@@ -59,7 +59,15 @@ test("/tools: the first tool card starts above 560px", async ({ page }) => {
   expect(top!).toBeLessThan(560);
 });
 
-test("/: the toolbox section is at most 1,100px tall, and still links every tool", async ({
+/**
+ * The design target is about 1,100px. The bound carries the platform spread,
+ * measured 2026-10-10 on the same build: Windows Chromium 1,083px and CI's
+ * Linux Chromium 1,103px. Text metrics differ by platform. A bound set on one
+ * of them fails the other for no change in the layout.
+ */
+const TOOLBOX_MAX_PX = 1120;
+
+test(`/: the toolbox section is at most ${TOOLBOX_MAX_PX}px tall, and still links every tool`, async ({
   page,
 }) => {
   await page.goto("/");
@@ -67,7 +75,7 @@ test("/: the toolbox section is at most 1,100px tall, and still links every tool
   const height = await toolbox.evaluate((el) =>
     Math.round(el.getBoundingClientRect().height),
   );
-  expect(height).toBeLessThanOrEqual(1100);
+  expect(height).toBeLessThanOrEqual(TOOLBOX_MAX_PX);
   // Hidden on a phone is not removed: every tool is still linked in the HTML.
   const hrefs = await toolbox
     .locator('a[href^="/tools/"]')
@@ -407,10 +415,46 @@ async function planStatus(page: Page, plan: StatusStep[]): Promise<void> {
   );
 }
 
+/**
+ * The slot's height as reserved, and the height its content needs with the
+ * reserve lifted, both read once the fonts have loaded. Without that wait the
+ * reading depended on whether the face had arrived: CI read chat-with-pdf's
+ * run area 731.5px tall against a 720px reserve on one run, and within the
+ * reserve on the run before it. Late-font shift is layout-stability's job.
+ */
 const slotHeight = (page: Page) =>
-  page
-    .locator('[data-slot="worker-status"]')
-    .evaluate((el) => Math.round(el.getBoundingClientRect().height * 10) / 10);
+  page.locator('[data-slot="worker-status"]').evaluate(async (el) => {
+    await document.fonts.ready;
+    const box = el as HTMLElement;
+    const reserved = box.getBoundingClientRect().height;
+    const prev = box.style.minHeight;
+    box.style.minHeight = "0px";
+    const natural = box.getBoundingClientRect().height;
+    box.style.minHeight = prev;
+    return {
+      reserved: Math.round(reserved * 10) / 10,
+      natural: Math.round(natural * 10) / 10,
+    };
+  });
+
+/**
+ * Room a reserve must leave above its content. Linux Chromium sets the same
+ * text about 2.2% taller than Windows (measured 2026-10-10 on #176: AI
+ * Extract's run area 877 -> 896.5px, chat-with-pdf's 715.5 -> 731.5px at
+ * 360). A reserve fitted on Windows with less than that room passed
+ * 393/393 here and failed on CI. So off Linux a reserve must clear its
+ * content by 3%, which leaves about 1% once Linux adds its 2.2%; on Linux,
+ * 1%. Every STATUS_SLOT was refitted to at least 3.5% on Windows the same day.
+ *
+ * A percentage is the wrong unit when Linux wraps one more LINE: #178's
+ * longer Notify-me text set PDF to PowerPoint's off state 327.5px tall on
+ * Windows and 366.5px on Linux (+12%), chat-with-pdf 715.5 -> 751px. So the
+ * base reserves are fitted to the larger of both platforms' SLOT_NATURAL
+ * lines (this test prints them; CI's log is the Linux column), x1.035,
+ * rounded up to the half-rem. The off-Linux 3% check is a coarse local
+ * alarm; CI's run is the real check.
+ */
+const SLOT_HEADROOM = process.platform === "linux" ? 1.01 : 1.03;
 
 for (const width of [360, 390]) {
   test.describe(`${width}px`, () => {
@@ -432,13 +476,13 @@ for (const width of [360, 390]) {
         await page.goto(`/tools/${slug}`);
         await waitForHydration(slot);
         await expect(slot).toHaveAttribute("data-state", "loading");
-        const loading = await slotHeight(page);
+        const loadingM = await slotHeight(page);
         await page.evaluate(() => window.__releaseStatus?.());
         await expect(slot).toHaveAttribute("data-state", "error");
-        const failed = await slotHeight(page);
+        const failedM = await slotHeight(page);
         await slot.getByRole("button", { name: /check again/i }).click();
         await expect(slot).toHaveAttribute("data-state", "off");
-        const off = await slotHeight(page);
+        const offM = await slotHeight(page);
         // A ready deployment, on a fresh page.
         const ready = await page.context().newPage();
         await planStatus(ready, ["ready"]);
@@ -446,7 +490,7 @@ for (const width of [360, 390]) {
         await expect(
           ready.locator('[data-slot="worker-status"]'),
         ).toHaveAttribute("data-state", "run");
-        const run = await slotHeight(ready);
+        const runM = await slotHeight(ready);
         const widths = await ready.evaluate(() => ({
           inner: window.innerWidth,
           page: document.documentElement.scrollWidth,
@@ -455,13 +499,40 @@ for (const width of [360, 390]) {
         // Health: the width asked for, and a ready run area that fits it
         // (AI Extract's did not: 473px at 390, until this package).
         expect(widths).toEqual({ inner: width, page: width });
+        const [loading, failed, off, run] = [loadingM, failedM, offM, runM].map(
+          (m) => m.reserved,
+        ) as [number, number, number, number];
         const heights = { loading, failed, off, run };
+        // Every run prints each state's natural height, so CI's Linux numbers
+        // can be read from its log. Fitting a reserve needs both platforms,
+        // and Linux is only reachable through CI here (no WSL or Docker).
+        console.log(
+          `SLOT_NATURAL ${slug} ${width} ${JSON.stringify({
+            loading: loadingM.natural,
+            failed: failedM.natural,
+            off: offM.natural,
+            run: runM.natural,
+            reserve: loading,
+          })}`,
+        );
+        const content = Math.max(
+          loadingM.natural,
+          failedM.natural,
+          offM.natural,
+          runM.natural,
+        );
         expect(loading, "no slot on screen").toBeGreaterThan(100);
         expect(
           Math.max(loading, failed, off, run) -
             Math.min(loading, failed, off, run),
           `${slug} at ${width}px: ${JSON.stringify(heights)} — re-measure this panel's STATUS_SLOT`,
         ).toBeLessThanOrEqual(1);
+        // Health: the content was measured with the reserve lifted.
+        expect(content, "no content height read").toBeGreaterThan(100);
+        expect(
+          content * SLOT_HEADROOM,
+          `${slug} at ${width}px: content ${content}px leaves less than ${Math.round((SLOT_HEADROOM - 1) * 100)}% under the ${loading}px reserve — another platform's text will overflow it; refit this panel's STATUS_SLOT`,
+        ).toBeLessThanOrEqual(loading);
       });
     }
   });

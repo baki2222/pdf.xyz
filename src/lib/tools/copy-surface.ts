@@ -126,6 +126,11 @@ export function copyFiles(): string[] {
     // its phrase code was never outside the guards. Same rule: no trailing
     // unit comments in its files.
     path.join(ROOT, "src", "lib", "intent"),
+    // What /privacy says about processors, analytics events, what tools ask
+    // for, rate limits and site security (2026-10-10): the registries the
+    // policy renders. A directory root, so a sixth module is walked on
+    // arrival. Same rule: no trailing unit comments in its files.
+    path.join(ROOT, "src", "lib", "privacy"),
     ...Object.keys(PENDING_COPY_ROOTS).map((root) => path.join(ROOT, root)),
   ];
   const out: string[] = [

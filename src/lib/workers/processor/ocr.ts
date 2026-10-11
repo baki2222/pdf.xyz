@@ -146,7 +146,7 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
         tools: [OCR_TOOL],
         ready,
         detail: ready
-          ? `OCR ready on ${engine}, on an encrypted, auto-deleting secure worker.`
+          ? `OCR ready on ${engine}, on an auto-deleting secure worker.`
           : unavailableDetail,
       };
     },

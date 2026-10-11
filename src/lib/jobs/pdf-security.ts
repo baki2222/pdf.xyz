@@ -8,9 +8,10 @@
  * parsers — no Next.js, no storage, no qpdf. It defines exactly what a protect /
  * unlock request may ask for (a password, and for protect an optional owner
  * password + encryption strength) so the UI, the worker processor, and the docs
- * share one honest source of truth. It depends only on `./responses` and
- * `./filenames`, so a client component can import a validator without pulling in
- * a Node built-in or the tools catalog.
+ * share one honest source of truth. It depends only on `./responses`,
+ * `./filenames` and the password-lifetime sentence (`@/lib/privacy/job-queue`,
+ * itself one constant deep), so a client component can import a validator
+ * without pulling in a Node built-in or the tools catalog.
  *
  * Password honesty rules (load-bearing — see docs/SECURITY.md):
  *  - A password lives ONLY in the validated options object, which exists purely to
@@ -33,6 +34,28 @@ import {
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
+
+/**
+ * How long a typed password waits on our side — said by the Protect/Unlock
+ * panel AND by /privacy §2, from this one constant.
+ *
+ * Until 2026-10-10 the two disagreed: the panel said this; /privacy said the
+ * password "sits in that job record for the same 24 hours". It sits in the
+ * job's instructions (the executor spec), which the queue's FINALIZE step
+ * deletes when the job ends; the job record's window bounds it only for a job
+ * no worker ever finalises.
+ *
+ * Then review (2026-10-10) found the replacement — "It waits in our job queue
+ * only until the job finishes or is cancelled (or, if no worker picks it up,
+ * until the queue's retention lapses), then it is deleted." — wrong twice: no
+ * figure for the window a signer's email address got, and no word for the
+ * queue's on-disk journal, which keeps a deleted key until it is compacted.
+ * The sentence lives with the other queue lifetimes now
+ * (`@/lib/privacy/job-queue`), re-exported here so both readers are unchanged.
+ * That module imports only a constant, so a client component importing a
+ * validator from this one still pulls in no Node built-in and no catalogue.
+ */
+export { PASSWORD_QUEUE_LIFETIME } from "@/lib/privacy/job-queue";
 
 /**
  * Maximum password length, in UTF-8 bytes. This is the PDF 2.0 / AES-256 (R6)

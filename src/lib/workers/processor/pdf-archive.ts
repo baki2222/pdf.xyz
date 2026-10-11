@@ -113,7 +113,7 @@ export function createPdfArchiveProcessor(deps: PdfArchiveDeps): Processor {
         tools: [PDF_TO_PDFA_TOOL],
         ready,
         detail: ready
-          ? "PDF/A conversion ready: Ghostscript converts PDFs on an encrypted, auto-deleting secure worker."
+          ? "PDF/A conversion ready: Ghostscript converts PDFs on an auto-deleting secure worker."
           : "PDF/A conversion needs the native Ghostscript engine and its sRGB colour profile, which aren't installed on this worker.",
       };
     },

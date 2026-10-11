@@ -28,9 +28,14 @@ import {
  * Retry-After header. See docs/SECURITY.md." The wait is still in that
  * header, for API clients, and the browser clients now read it and say it in
  * words (`@/lib/workers/read-error`).
+ *
+ * It said "Too many requests from this connection" until 2026-10-10, while
+ * the limiter counted every visitor in one shared bucket (production read
+ * `remote-configured-shared`). It names no scope now: true however the
+ * limiter keys, and `ratelimit/keying-disclosure.test.tsx` reads it for one.
  */
 export const RATE_LIMITED_MESSAGE =
-  "Too many requests from this connection right now. Please wait a little and try again.";
+  "Too many requests right now. Please wait a little and try again.";
 
 /**
  * The AI-allowance refusal names the true reason. A user who hits the free

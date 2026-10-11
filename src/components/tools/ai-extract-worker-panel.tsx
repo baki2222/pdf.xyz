@@ -78,8 +78,13 @@ import {
  * run area. Merged, the ready state outgrew the reserve by 165px at 360 and
  * 110px at 390, and e2e/tool-layout.mobile.spec.ts ("the worker status slot
  * is one box") failed by name with the four heights.
+ *
+ * The base step was 55.5rem (888px), from 877px measured on Windows. CI's
+ * Linux Chromium sets the same run area 896.5px tall at 360 (#176's first CI
+ * run), because text metrics differ by platform, so 57rem (912px) holds
+ * both. 640 and 1024 passed on both platforms as they were.
  */
-const STATUS_SLOT = "min-h-[55.5rem] sm:min-h-[41rem] lg:min-h-[44.5rem]";
+const STATUS_SLOT = "min-h-[58rem] sm:min-h-[41rem] lg:min-h-[44.5rem]";
 
 type Phase = WorkerPhase;
 
@@ -121,7 +126,7 @@ export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             The worker extracts your PDF&apos;s selectable text and asks a

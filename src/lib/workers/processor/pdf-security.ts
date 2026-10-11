@@ -139,7 +139,7 @@ export function createPdfSecurityProcessor(deps: PdfSecurityDeps): Processor {
         tools: [...PDF_SECURITY_TOOLS],
         ready,
         detail: ready
-          ? "PDF password protection ready: encrypt and unlock with qpdf on an encrypted, auto-deleting secure worker."
+          ? "PDF password protection ready: encrypt and unlock with qpdf on an auto-deleting secure worker."
           : "PDF password protection needs the native qpdf engine, which isn't installed on this worker.",
       };
     },

@@ -22,6 +22,7 @@ import sitemap from "./sitemap";
 import robots from "./robots";
 import { siteConfig } from "@/lib/site";
 import { guides } from "@/lib/guides";
+import { LEGAL_UPDATED } from "@/lib/legal";
 
 async function indexXml(): Promise<string> {
   return await GET().text();
@@ -94,12 +95,15 @@ describe("the sitemap index points at a sitemap that exists", () => {
       .at(-1);
     expect(newestInChild, "the child serves no lastmod at all").toBeTruthy();
     expect(lastmod).toBe(newestInChild);
-    // Still a date a human recorded: today, that is a guide's edit date.
-    const newestGuideEdit = guides
-      .map((guide) => guide.updated)
+    // Still a date a human recorded — the newest of them. This said "today,
+    // that is a guide's edit date" and compared against the guides alone,
+    // which held until 2026-10-10, when the policies' own date
+    // (`LEGAL_UPDATED`, which /privacy and /terms print and the child serves)
+    // became the newest. Same relationship, the whole set of recorded dates.
+    const newestRecorded = [LEGAL_UPDATED, ...guides.map((g) => g.updated)]
       .sort()
       .at(-1);
-    expect(lastmod.startsWith(newestGuideEdit!)).toBe(true);
+    expect(lastmod.startsWith(newestRecorded!)).toBe(true);
   });
 
   it("serves the content type and cache window crawlers need", async () => {

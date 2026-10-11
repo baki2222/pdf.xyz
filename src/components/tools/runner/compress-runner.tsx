@@ -828,8 +828,8 @@ function WorkerDeepPanel({
           </div>
           <p className="text-muted text-sm leading-relaxed">
             Aggressive image downsampling and re-encoding can&apos;t be done
-            reliably in the browser, so it runs on an encrypted, auto-deleting
-            worker. The analysis above stays 100% on your device.
+            reliably in the browser, so it runs on an auto-deleting worker. The
+            analysis above stays 100% on your device.
           </p>
           {signatureCount === null && (
             <p className="text-warn text-xs leading-relaxed">
