@@ -637,13 +637,29 @@ test("at most one page target on every page, and none where a drop belongs to th
  * The page's first file input — the one `fileInput` hands every spec, and
  * the one a pick through it reaches: whether it is inside <main>, and
  * whether it is the page's own drop target's.
+ *
+ * Read AS IT STAYS: once the page's own target is live (each page this is
+ * asked of has exactly one, "at most one page target" above) — a guide's
+ * desk replaces its server-drawn shell after the page is live — and in ONE
+ * question to the page, so the node read is the node asked. WAS
+ * `fileInput(page).evaluate(...)`, two round trips: it could resolve the
+ * shell's input and ask it after the desk had replaced it, and a detached
+ * node is in no <main> (the control below).
  */
 async function firstFileInput(page: Page) {
-  await expect(fileInput(page), "a file input").toBeAttached();
-  return fileInput(page).evaluate((el) => ({
-    inMain: !!el.closest("main"),
-    inTarget: !!el.closest("[data-page-drop-target]"),
-  }));
+  await expect(
+    page.locator("[data-page-drop-target]"),
+    "the page's own target never went live",
+  ).toHaveCount(1);
+  return page.evaluate(() => {
+    const input = document.querySelector('input[type="file"]');
+    return input
+      ? {
+          inMain: !!input.closest("main"),
+          inTarget: !!input.closest("[data-page-drop-target]"),
+        }
+      : null;
+  });
 }
 
 /**
@@ -711,15 +727,31 @@ test("a guide whose desk arrives late: its first file input is read once the des
   page,
 }) => {
   const desk = await holdGuideDesk(page);
-  await page.goto("/guides/how-to-merge-pdf-files");
-  await layerLive(page);
-  // Health: the page is live and its desk is not — the shell's picker is
-  // the page's first file input now.
-  expect(desk.held, "the desk's chunk was never seen").toHaveLength(1);
-  await expect(
-    page.locator("[data-guide-desk] [data-drop-sheet-shell]"),
-  ).toHaveCount(1);
-  await expect(page.locator("[data-page-drop-target]")).toHaveCount(0);
-  setTimeout(desk.release, 1000);
-  expect(await firstFileInput(page)).toEqual({ inMain: true, inTarget: true });
+  try {
+    // Not to "load": the desk's chunk is a script the page inserted, and a
+    // held one can hold the load event with it (it did, once in 25 runs).
+    await page.goto("/guides/how-to-merge-pdf-files", {
+      waitUntil: "domcontentloaded",
+    });
+    await layerLive(page);
+    // Health: the page is live, its desk's chunk was asked for and is held,
+    // and the desk is not live — the shell's picker is the page's first
+    // file input now.
+    await expect
+      .poll(() => desk.held.length, {
+        message: "the desk's chunk was never seen",
+      })
+      .toBe(1);
+    await expect(
+      page.locator("[data-guide-desk] [data-drop-sheet-shell]"),
+    ).toHaveCount(1);
+    await expect(page.locator("[data-page-drop-target]")).toHaveCount(0);
+    setTimeout(desk.release, 1000);
+    expect(await firstFileInput(page)).toEqual({
+      inMain: true,
+      inTarget: true,
+    });
+  } finally {
+    desk.release();
+  }
 });
