@@ -17,7 +17,16 @@
  * has why). Never in `sharedTestOptions` either, which
  * `pdfjs-load-order.vitest.config.ts` reuses for a run whose subject is a
  * file that loads pdf.js with no `DOMMatrix`.
+ *
+ * Last, the pdf.js the encryption probe opens files with — whatever
+ * `./setup.ts` registered, read back through the seam and put straight back.
+ * It names the same module by a file URL, which vitest resolves on its own
+ * first call however warm Node's cache is: that first call took 89–1,384 ms
+ * inside `worker-panel-ceiling-refusal.test.tsx` with everything above
+ * already loaded (2026-10-11, a copy-restored timer in `classifyPdfAccess`).
  */
+import { setPdfjsForAccessSource } from "@/lib/pdf/encryption";
+
 await import("pdfjs-dist/legacy/build/pdf.mjs");
 await import(
   // @ts-expect-error -- pdfjs-dist ships no type declarations for its worker.
@@ -25,4 +34,8 @@ await import(
 );
 await import("pdfjs-dist");
 
-export {};
+const registered = setPdfjsForAccessSource(async () => {
+  throw new Error("native-canvas-warm.ts is reading the registered source");
+});
+setPdfjsForAccessSource(registered);
+await registered();

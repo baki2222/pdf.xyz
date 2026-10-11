@@ -50,10 +50,13 @@
  * `pdfjs-load-order.test.ts` takes every file that does for a driver of the
  * browser build, and ran this one, red, in a child with no warm-up.
  *
- * Not checked here, because Node offers no way to ask its ES module cache:
- * that the warm-up also loaded pdf.js's BROWSER build, which `loadPdfjs`
- * takes once `DOMMatrix` exists. Its first import measured 0–58 ms before the
- * warm-up, so it is warmed for completeness, not because it was the cause.
+ * Not checked here, because neither Node's ES module cache nor vitest's
+ * module runner can be asked: that the warm-up also loaded pdf.js's BROWSER
+ * build, which `loadPdfjs` takes once `DOMMatrix` exists (its first import
+ * measured 0–58 ms before the warm-up, so it is warmed for completeness), and
+ * that vitest has resolved the encryption probe's file-URL import of the
+ * Node build (89–1,384 ms on its first call before; 0 ms after, in 3 runs).
+ * Those were measured with copy-restored timers, as the warm-up records.
  */
 import { createRequire } from "node:module";
 import { isMainThread } from "node:worker_threads";
