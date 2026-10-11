@@ -167,12 +167,25 @@ export { MAX_DECODED_IMAGE_PIXELS };
  * the engine's typed error, not pdf.js's own.
  *
  * `maxImageSize` is pdf.js's own option: images of more pixels are removed
- * from every page (see {@link MAX_DECODED_IMAGE_PIXELS}); -1 removes none.
+ * from every page (see {@link MAX_DECODED_IMAGE_PIXELS}). REQUIRED, and a
+ * finite count of pixels: pdf.js reads -1 as "no ceiling", and until
+ * 2026-10-11 a defaulted option let a caller decode without choosing one.
+ * `image-ceiling.test.ts` finds every `getDocument` in the export and holds
+ * each to a finite ceiling.
  */
 export async function openNodePdf(
   bytes: Uint8Array,
-  { maxImageSize = MAX_DECODED_IMAGE_PIXELS }: { maxImageSize?: number } = {},
+  options: { maxImageSize: number },
 ): Promise<{ pdfjs: NodePdfjs; doc: NodePdfDocument; close(): Promise<void> }> {
+  const maxImageSize = options?.maxImageSize;
+  if (
+    typeof maxImageSize !== "number" ||
+    !Number.isFinite(maxImageSize) ||
+    maxImageSize <= 0
+  )
+    throw new Error(
+      `pdf.js needs a finite per-image ceiling here, not ${String(maxImageSize)}`,
+    );
   const pdfjs = await loadNodePdfjs();
   const loadingTask = pdfjs.getDocument({
     // pdf.js may detach the buffer it is given; the caller's bytes stay whole.

@@ -23,6 +23,16 @@
  * stretched 10%, cropped 15% — and each altered deck must FAIL. Each
  * alteration is read back from the slide XML before it is trusted: a control
  * whose mutation did not land is a green that should have been red.
+ *
+ * ── A DAMAGED PDF (since 2026-10-11) ────────────────────────────────────────
+ *
+ * A file the page reader cannot read ahead is rebuilt with the worker's own
+ * Repair PDF engine (qpdf) before it is scanned, or refused. The image is
+ * the one CI place qpdf runs, so the proof converts a damaged fixture here —
+ * a committed fixture pdf-lib cannot load — and requires that it was REBUILT
+ * (a fixture that converts without a rebuild proves nothing), that the
+ * rebuilt deck is faithful to the intact fixture, and, as the control, that
+ * the same file with no repair engine is refused as damaged.
  */
 import JSZip from "jszip";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
@@ -40,12 +50,19 @@ export interface ProofFixture {
   pdf: Uint8Array;
 }
 
+/** A fixture damaged so the page reader cannot read it, and its original. */
+export interface DamagedProofFixture extends ProofFixture {
+  source: ProofFixture;
+}
+
 export interface PptxFidelityProofDeps {
   /** The engine's deps, as the worker builds them. */
   exportDeps: PdfOfficeExportDeps;
   /** The presentation engine that turns a deck back into a PDF. */
   toPdf: PptxToPdf;
   fixtures: readonly ProofFixture[];
+  /** Converted through `exportDeps.repairPdf`, and refused without it. */
+  damaged: DamagedProofFixture;
   /**
    * NEGATIVE CONTROL: the text-only deck this tool shipped until 2026-10-10,
    * built from the same extraction. It must FAIL on every fixture.
@@ -237,5 +254,63 @@ export async function runPptxFidelityProof(
     ok = false;
     lines.push("no multi-page fixture: the partial controls never ran");
   }
+  if (!(await damagedRun(deps, bound, lines))) ok = false;
   return { ok, lines };
+}
+
+/** The damaged fixture, rebuilt and faithful; refused with no repair engine. */
+async function damagedRun(
+  deps: PptxFidelityProofDeps,
+  bound: FidelityBound,
+  lines: string[],
+): Promise<boolean> {
+  const { damaged } = deps;
+  let ok = true;
+  if (!deps.exportDeps.repairPdf) {
+    lines.push(
+      `${damaged.name}: no repair engine is wired — a damaged PDF would be refused, not rebuilt`,
+    );
+    ok = false;
+  } else {
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      damaged.pdf,
+      deps.exportDeps,
+    );
+    if (!run.ok) {
+      lines.push(`${damaged.name}: export FAILED (${run.kind})`);
+      ok = false;
+    } else if (run.coverage.repairedBeforeConversion !== true) {
+      lines.push(
+        `${damaged.name}: converted without being rebuilt — the reader read it after all, so it proves nothing`,
+      );
+      ok = false;
+    } else {
+      const report = await roundTripFidelity(
+        damaged.source.pdf,
+        run.output,
+        deps.toPdf,
+        bound,
+      );
+      lines.push(`${damaged.name}: rebuilt deck ${fmt(report)}`);
+      if (!report.pass) ok = false;
+    }
+  }
+  // CONTROL: the same file with no repair engine is refused, not scanned.
+  const { repairPdf: _unused, ...withoutRepair } = deps.exportDeps;
+  void _unused;
+  const refused = await runPdfOfficeExport(
+    "pdf-to-powerpoint",
+    damaged.pdf,
+    withoutRepair,
+  );
+  if (!refused.ok && refused.kind === "unreadable")
+    lines.push(`${damaged.name}: with no repair engine, refused as damaged`);
+  else {
+    lines.push(
+      `${damaged.name}: with no repair engine it was ${refused.ok ? "converted" : refused.kind}, not refused as damaged`,
+    );
+    ok = false;
+  }
+  return ok;
 }

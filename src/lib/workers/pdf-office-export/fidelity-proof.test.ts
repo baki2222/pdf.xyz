@@ -193,7 +193,7 @@ describe("the round-trip proof reads its controls right", () => {
     const result = await runPptxFidelityProof(deps);
     expect(
       result.lines.filter((l) =>
-        /control PASSED|broken|never ran|export FAILED|no repair engine|proves nothing|not refused/.test(
+        /control PASSED|broken|never ran|export FAILED|no repair engine is wired|proves nothing|not refused as damaged/.test(
           l,
         ),
       ),

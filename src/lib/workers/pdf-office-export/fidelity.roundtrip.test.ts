@@ -16,8 +16,10 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  junkAfterEofPdf,
   pdftotextStandIn,
   PPTX_FIDELITY_FIXTURES,
+  repairStandIn,
 } from "@/tests/pptx-fidelity-fixtures";
 import { pptxTextOnly20261010 } from "@/tests/pptx-text-only-2026-10-10";
 import { nativeOfficeConversionDeps } from "../office-conversion/native";
@@ -44,15 +46,27 @@ suite(label, () => {
     );
     const standIn = new Map(fixtures.map((f) => [f.name, pdftotextStandIn(f)]));
     const byPdf = new Map(fixtures.map((f) => [f.pdf, f.name]));
+    const source = fixtures[0]!;
+    const damaged = junkAfterEofPdf(source.pdf);
+    byPdf.set(damaged, source.name);
+    const native = pdfOfficeExportDeps();
     const result = await runPptxFidelityProof({
       exportDeps: {
-        ...pdfOfficeExportDeps(),
+        ...native,
         // pdftotext stood in for where poppler is absent; the page reader
         // and the presentation engine are the real ones.
         extract: async (pdf) => standIn.get(byPdf.get(pdf)!)!,
+        // qpdf where it is installed; a stand-in for its rewrite of this
+        // damage where it is not (the image proof runs the real one).
+        repairPdf: native.repairPdf ?? repairStandIn,
       },
       toPdf: (pptx) => LIBREOFFICE!.convertToPdf(pptx, "round-trip.pptx"),
       fixtures: fixtures.map((f) => ({ name: f.name, pdf: f.pdf })),
+      damaged: {
+        name: `${source.name} (junk after %%EOF)`,
+        pdf: damaged,
+        source: { name: source.name, pdf: source.pdf },
+      },
       textOnlyDeck: (pages) => pptxTextOnly20261010(pages),
       blankDeck: (n) =>
         pptxTextOnly20261010(

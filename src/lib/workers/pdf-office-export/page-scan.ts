@@ -53,6 +53,11 @@
  * An encrypted page is read like any other: `./page-inventory` decrypts it
  * as a viewer does with no password (`./standard-security`).
  *
+ * A file it cannot plan at all — pdf-lib cannot load it, or pdf.js finds a
+ * page the page tree does not hold — it does not scan
+ * ({@link PageScanUnreadableError}); the engine rebuilds it the way Repair
+ * PDF does, or refuses it.
+ *
  * What it cannot count it does not count, and it bounds it all the same. A
  * page whose content the inventory still cannot read (a damaged stream) is
  * known only by what it DECLARES — an upper bound on what it paints — so it
@@ -215,9 +220,9 @@ export interface ScannedPage {
   /**
    * pdf.js may have removed a picture this page paints, and nothing here
    * could count it: the page's content could not be read (a damaged file),
-   * and a picture it can reach is over its ceiling — or the file had no
-   * inventory at all ({@link PageDecodePlan.unverified}). Such a page is
-   * never reported as having nothing on it.
+   * and a picture it can reach is over its ceiling
+   * ({@link PageDecodePlan.unverified}). Such a page is never reported as
+   * having nothing on it.
    */
   picturesUnverified: boolean;
   /**
@@ -257,6 +262,22 @@ export class PageScanTimeoutError extends Error {
   constructor() {
     super("page scan passed its deadline");
     this.name = "PageScanTimeoutError";
+  }
+}
+/**
+ * The page reader cannot know, before pdf.js decodes a page, what that page
+ * will decode — so it does not scan the file at all. Thrown before pdf.js
+ * opens a page: pdf-lib cannot load the file, its objects cannot be walked,
+ * or pdf.js finds a page the page tree pdf-lib walks does not hold. A file
+ * like that is damaged, and the engine rebuilds it (the way Repair PDF does)
+ * or refuses it; until 2026-10-11 the scan drew such pages at pdf.js's floor
+ * ceiling with no bound, and one page of six 8000² photos decoded 2.2 GB.
+ * Deterministic; its message is the log's.
+ */
+export class PageScanUnreadableError extends Error {
+  constructor(readonly reason: string) {
+    super(`the page reader cannot read this file ahead: ${reason}`);
+    this.name = "PageScanUnreadableError";
   }
 }
 /**
@@ -1811,44 +1832,33 @@ export function decodeBudgetPlan(
 }
 
 /**
- * A page the scan knows nothing about before pdf.js reads it: pdf-lib could
- * not load the file at all, or pdf.js finds more pages than pdf-lib did.
- * The floor ceiling, as before 2026-10-11, nothing counted, and nothing
- * certified — and NO decode bound: with nothing known of its images, no
- * ceiling can bound how many it paints. An open defect, not a design
- * (`picture-limits.ts` says where it stands).
- */
-const UNKNOWN_PAGE: PageDecodePlan = {
-  cap: MAX_DECODED_IMAGE_PIXELS,
-  tooLarge: 0,
-  bytes: 0,
-  unverified: true,
-};
-
-/**
  * What the scan knows, before pdf.js runs, about each page's pictures: the
  * page inventory when pdf-lib can read the page tree (an encrypted file's
  * once its object streams are read, {@link unlockObjectStreams}); otherwise
  * every image the file holds, as one inexact page that stands for each of
- * them (its images' dictionaries are top-level, in the clear); otherwise
- * nothing.
+ * them (its images' dictionaries are top-level, in the clear). `forPage` is
+ * null for a page the inventory does not hold. A file pdf-lib cannot load,
+ * or whose objects cannot be walked, has no plan at all:
+ * {@link PageScanUnreadableError}, before pdf.js is opened.
  */
 async function planPages(
   lib: import("pdf-lib").PDFDocument | null,
   pageBytes: number | undefined,
-): Promise<{ forPage(n: number): PageDecodePlan; bytes: number }> {
+): Promise<{ forPage(n: number): PageDecodePlan | null; bytes: number }> {
+  if (!lib) throw new PageScanUnreadableError("pdf-lib cannot load the file");
   const opts = pageBytes !== undefined ? { pageBytes } : {};
-  if (lib) await unlockObjectStreams(lib);
-  const inventory = lib ? readInventory(lib) : null;
+  await unlockObjectStreams(lib);
+  const inventory = readInventory(lib);
   if (inventory) {
     const plan = decodeBudgetPlan(inventory, opts);
     return {
-      forPage: (n) => plan.pages[n - 1] ?? UNKNOWN_PAGE,
+      forPage: (n) => plan.pages[n - 1] ?? null,
       bytes: plan.bytes,
     };
   }
-  const images = lib ? documentImages(lib) : null;
-  if (!images) return { forPage: () => UNKNOWN_PAGE, bytes: 0 };
+  const images = documentImages(lib);
+  if (!images)
+    throw new PageScanUnreadableError("the file's objects cannot be walked");
   const plan = decodeBudgetPlan(
     [
       {
@@ -1989,11 +1999,12 @@ async function openClassified(
  * be read is held to the page budget over all it can reach, and is
  * `picturesUnverified` where that leaves a picture out. A file whose page
  * tree pdf-lib cannot read is planned from every image it holds
- * ({@link planPages}); one pdf-lib cannot parse at all gets the floor
- * ceiling, as before 2026-10-11, with nothing counted, nothing certified and
- * nothing bounded ({@link UNKNOWN_PAGE}). No inventory is never a failed
- * job: until 2026-10-11 an owner-password file in the object-stream layout
- * threw here, outside any try.
+ * ({@link planPages}). A file the reader cannot plan at all — pdf-lib
+ * cannot load it, or pdf.js finds a page the inventory does not hold — is
+ * not scanned: {@link PageScanUnreadableError}, before any page is drawn.
+ * (Until 2026-10-11 such a page was drawn at the floor ceiling, with no
+ * bound.) An owner-password file in the object-stream layout is planned
+ * like any other: until 2026-10-11 it threw here, outside any try.
  */
 export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
   const loadLib = pdfLibLoader(bytes);
@@ -2006,11 +2017,27 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
       budget.bytes,
       DOCUMENT_DECODE_BUDGET_BYTES,
     );
-  const capFor = (n: number) => budget.forPage(n).cap;
-
-  const first = await openClassified(bytes, capFor(1));
+  // Opening a document decodes no image; the first page's ceiling, or the
+  // smallest, until every page is known to have a plan.
+  const first = await openClassified(bytes, budget.forPage(1)?.cap ?? 1);
   const { pdfjs } = first;
   const pageCount = first.doc.numPages;
+  // Every page pdf.js will draw has a plan before ANY page is drawn: one it
+  // finds beyond the page tree pdf-lib walked has none, and is not drawn
+  // without a bound — the whole file is handed back as unreadable.
+  const plans: PageDecodePlan[] = [];
+  for (let n = 1; n <= pageCount; n++) {
+    const plan = budget.forPage(n);
+    if (!plan) {
+      await first.close();
+      throw new PageScanUnreadableError(
+        `pdf.js reads ${pageCount} pages, the page tree holds ${n - 1}`,
+      );
+    }
+    plans.push(plan);
+  }
+  const planFor = (n: number) => plans[n - 1]!;
+  const capFor = (n: number) => planFor(n).cap;
   const instances = new Map<number, Opened>([[capFor(1), first]]);
   const lastUse = new Map<number, number>();
   for (let n = 1; n <= pageCount; n++) lastUse.set(capFor(n), n);
@@ -2100,7 +2127,7 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
       const plan = planLayers(elements);
       const layers = plan.filter((step) => step.kind === "layer").length;
       const items: ScannedItem[] = [];
-      let tooLargeHere = budget.forPage(n).tooLarge;
+      let tooLargeHere = planFor(n).tooLarge;
       const flattened = layers > MAX_LAYERS_PER_PAGE;
       if (flattened) {
         // One pass over the whole page, in its own paint order: what the page
@@ -2190,7 +2217,7 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
         items,
         picturesTooLarge: tooLargeHere,
         picturesUndecoded: undecoded.size,
-        picturesUnverified: budget.forPage(n).unverified,
+        picturesUnverified: planFor(n).unverified,
         flattened,
       });
       const shared = sharedImageBytes(page);

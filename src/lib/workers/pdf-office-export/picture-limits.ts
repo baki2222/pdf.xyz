@@ -39,8 +39,10 @@ export const MAX_LAYERS_PER_PAGE = 32;
  * re-review the same day found that size was the floor of a ceiling with
  * no bound under it, and the page no longer states one.
  *
- * Still unbounded: a file pdf-lib cannot load at all (twenty bytes of junk
- * after %%EOF will do, and pdf.js reads it) gets this ceiling on every page
- * and nothing counted (`UNKNOWN_PAGE` in `./page-scan`). An open defect.
+ * Until later the same day, a file pdf-lib cannot load at all (25 bytes of
+ * junk after %%EOF will do, and pdf.js reads it) got this ceiling on every
+ * page and nothing counted, with no bound. It is no longer scanned: the
+ * engine rebuilds it the way Repair PDF does, or refuses it
+ * (`PageScanUnreadableError` in `./page-scan`, `page-scan.rss.test.ts`).
  */
 export const MAX_DECODED_IMAGE_PIXELS = 64_000_000;

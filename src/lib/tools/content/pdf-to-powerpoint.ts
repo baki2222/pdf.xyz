@@ -76,6 +76,14 @@ import {
  *        page decoded 2.2 GB), and an unreadable page is now held to the
  *        page budget, which promises no size. What is left is a page the
  *        worker cannot read before it is drawn, as in a damaged PDF;
+ *      · CHANGED again the same day: a PDF the reader cannot read ahead at
+ *        all (pdf-lib cannot load it, or pdf.js finds a page its page tree
+ *        does not hold) was scanned with no decode bound. It is now rebuilt
+ *        first with the worker's Repair PDF engine and converted from the
+ *        rebuilt copy, with a note saying so, or — when it cannot be rebuilt
+ *        into a file the reader can read — not converted, with a message
+ *        that names Repair PDF. The FAQ "What happens to a damaged PDF?"
+ *        says both; claims-vs-capability.test.ts holds it to engine runs;
  *      · everything else drawn (lines, boxes, arrows, fills, backgrounds) is
  *        rendered into transparent pictures, in paint order with the rest;
  *      · a page with no text is NOT refused: it is a slide of pictures, and
@@ -247,6 +255,10 @@ const content: ToolContent = {
     {
       q: "Can I convert a password-protected PDF?",
       a: "Not if the PDF asks for a password when you open it. The worker is given no password, so the job stops with a message saying the PDF is password-protected, and the page links you to Unlock PDF. If you know the password, remove it there (Unlock PDF cannot recover a password you lack), then convert the unlocked copy here.",
+    },
+    {
+      q: "What happens to a damaged PDF?",
+      a: "If its structure cannot be read, the worker first rebuilds the file the way Repair PDF does and converts the rebuilt copy, and the note beside the download says so. If it cannot be rebuilt into a file the worker can read, it is not converted, and the message suggests Repair PDF. A PDF whose structure reads but whose page content is damaged is converted, and on such a page a picture can be left out with no note.",
     },
     {
       q: "Is my PDF kept after the conversion?",

@@ -40,7 +40,10 @@ import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import { pptxPackage } from "@/lib/workers/pdf-office-export/pptx-package";
 import { slideSizeFor } from "@/lib/workers/pdf-office-export/deck-from-scan";
 import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
-import { openNodePdf } from "@/lib/workers/pdf-office-export/pdfjs-node";
+import {
+  MAX_DECODED_IMAGE_PIXELS,
+  openNodePdf,
+} from "@/lib/workers/pdf-office-export/pdfjs-node";
 import { runPowerShellJson } from "@/tests/powershell-json";
 
 const SAVE_AS_PDF = String.raw`
@@ -114,7 +117,10 @@ function libreoffice(): Renderer {
 }
 
 async function blankDeck(source: Uint8Array): Promise<Uint8Array> {
-  const { doc, close } = await openNodePdf(source);
+  // Only page sizes are read; the ceiling is the engine's, as everywhere.
+  const { doc, close } = await openNodePdf(source, {
+    maxImageSize: MAX_DECODED_IMAGE_PIXELS,
+  });
   try {
     const first = (await doc.getPage(1)).getViewport({ scale: 1 });
     const size = slideSizeFor(first.width, first.height);

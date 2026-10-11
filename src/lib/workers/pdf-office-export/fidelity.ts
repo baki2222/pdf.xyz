@@ -49,8 +49,9 @@
  * (`openNodePdf`, with its 64-megapixel ceiling), so a picture the engine's
  * pdf.js dropped was dropped from the SOURCE too: the review's 124 MP scan
  * scored 0.000 for the blank deck and for the defective one alike, both
- * PASS. Now this module opens every PDF with its own options (no pixel
- * ceiling), and asks the file itself — `./page-inventory`, pdf-lib, not
+ * PASS. Now this module opens every PDF with its own options (a pixel
+ * ceiling of its own, {@link COMPARISON_MAX_IMAGE_PIXELS}, twice the
+ * engine's and above every fixture picture), and asks the file itself — `./page-inventory`, pdf-lib, not
  * pdf.js — what each source page paints. A page that paints a picture or
  * visible text, yet scores a blank slide within the bound, is a comparison
  * that CANNOT CONCLUDE, and the verdict fails it.
@@ -73,6 +74,7 @@ import { inventoryPages, type PageInventory } from "./page-inventory";
 import {
   canvasFactoryOf,
   loadNodePdfjs,
+  MAX_DECODED_IMAGE_PIXELS,
   nodePdfjsAssetDirs,
   type NodeCanvasAndContext,
   type NodePdfDocument,
@@ -203,9 +205,18 @@ function toGray(
 }
 
 /**
- * Open a PDF for COMPARISON, with this module's own options: no pixel
- * ceiling (`maxImageSize: -1`), so no picture is dropped on the source side
- * because the engine's reader would drop it.
+ * pdf.js's per-image ceiling when the instrument opens a PDF to COMPARE it:
+ * twice the scan's floor, so no fixture picture is dropped on the source
+ * side because the engine's reader would drop it (one fixture is over the
+ * floor on purpose) — and finite. Until 2026-10-11 this was -1, no ceiling
+ * at all; `image-ceiling.test.ts` holds it above every fixture picture.
+ */
+export const COMPARISON_MAX_IMAGE_PIXELS = 2 * MAX_DECODED_IMAGE_PIXELS;
+
+/**
+ * Open a PDF for COMPARISON, with this module's own options: a ceiling
+ * above the engine's ({@link COMPARISON_MAX_IMAGE_PIXELS}), so no picture is
+ * dropped on the source side because the engine's reader would drop it.
  */
 async function openForComparison(
   pdf: Uint8Array,
@@ -220,7 +231,7 @@ async function openForComparison(
     useWorkerFetch: false,
     isOffscreenCanvasSupported: false,
     enableXfa: false,
-    maxImageSize: -1,
+    maxImageSize: COMPARISON_MAX_IMAGE_PIXELS,
   });
   const doc = await awaitPdfjsDocument(task);
   return { doc, close: () => task.destroy().catch(() => {}) };

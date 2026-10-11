@@ -45,11 +45,18 @@ import {
   type PageInventory,
 } from "./page-inventory";
 import { decodeBudgetPlan } from "./page-scan";
+import { COMPARISON_MAX_IMAGE_PIXELS } from "./fidelity";
 import { openNodePdf } from "./pdfjs-node";
 
-/** "w×h" of every raster pdf.js paints on each page, opened with no ceiling. */
+/**
+ * "w×h" of every raster pdf.js paints on each page, opened with a ceiling
+ * above every fixture picture. (CHANGED 2026-10-11: "with no ceiling", -1,
+ * until `openNodePdf` stopped accepting one — `image-ceiling.test.ts`.)
+ */
 async function pdfjsImages(pdf: Uint8Array): Promise<string[][]> {
-  const { pdfjs, doc, close } = await openNodePdf(pdf, { maxImageSize: -1 });
+  const { pdfjs, doc, close } = await openNodePdf(pdf, {
+    maxImageSize: COMPARISON_MAX_IMAGE_PIXELS,
+  });
   try {
     const out: string[][] = [];
     for (let n = 1; n <= doc.numPages; n++) {

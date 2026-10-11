@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ImageOff, ScanText } from "lucide-react";
+import { ImageOff, ScanText, Wrench } from "lucide-react";
 import type { Job } from "@/lib/jobs/types";
 import { UNLOCK_TOOL_HREF } from "@/lib/pdf/encryption";
 import { errorNoteLinksUnlock } from "./runner/runner-kit";
@@ -150,7 +150,9 @@ export function OfficeExportCoverageNotice({
   const lost = powerpoint ? (report.picturesNotCarried ?? 0) : 0;
   const lostPages = report.pagesMissingPictures ?? [];
   const flattened = powerpoint ? (report.flattenedPageCount ?? 0) : 0;
-  if (missing <= 0 && little <= 0 && lost <= 0 && flattened <= 0) return null;
+  const rebuilt = powerpoint && report.repairedBeforeConversion === true;
+  if (missing <= 0 && little <= 0 && lost <= 0 && flattened <= 0 && !rebuilt)
+    return null;
   const pictures =
     powerpoint && report.picturePageCount !== undefined
       ? {
@@ -178,6 +180,16 @@ export function OfficeExportCoverageNotice({
               Text found on {report.textPageCount} of {report.pageCount}{" "}
               {report.pageCount === 1 ? "page" : "pages"}.
             </strong>
+          </span>
+        </p>
+      )}
+      {rebuilt && (
+        <p className="flex items-start gap-2">
+          <Wrench className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            This PDF looked damaged, so pdf.xyz rebuilt it first, the way Repair
+            PDF does, and converted the rebuilt copy. Check the slides against
+            the PDF.
           </span>
         </p>
       )}

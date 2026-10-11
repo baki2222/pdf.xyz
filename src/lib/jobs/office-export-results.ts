@@ -80,6 +80,12 @@ export interface OfficeExportResultMeta {
   flattenedPageCount?: number;
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesFlattened?: number[];
+  /**
+   * PDF to PowerPoint only, since 2026-10-11: the page reader could not read
+   * the PDF ahead (it looked damaged), so the worker rebuilt it the way
+   * Repair PDF does and converted the rebuilt copy. Present only as `true`.
+   */
+  repairedBeforeConversion?: true;
 }
 
 /** True when a value plausibly came from the real office-export contract. */
@@ -152,6 +158,10 @@ export function buildOfficeExportResultMeta(
           flattenedPageCount: count(raw.flattenedPageCount, pageCount),
           pagesFlattened: pageList(raw.pagesFlattened, pageCount),
         }
+      : {}),
+    // Only `true` is a claim; anything else is dropped, not coerced.
+    ...(raw.repairedBeforeConversion === true
+      ? { repairedBeforeConversion: true as const }
       : {}),
   };
 }

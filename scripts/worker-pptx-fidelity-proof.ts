@@ -4,7 +4,9 @@
  * (poppler's pdftotext, pdf.js), the deck back to PDF through the real
  * LibreOffice runner PowerPoint to PDF uses, and the pages compared. The
  * text-only deck the tool shipped until 2026-10-10 and a blank deck must both
- * FAIL the same bound. See `src/lib/workers/pdf-office-export/fidelity-proof.ts`.
+ * FAIL the same bound. A damaged fixture (pdf-lib cannot load it) must be
+ * rebuilt by the image's own qpdf, through the Repair PDF engine, and
+ * converted faithfully. See `src/lib/workers/pdf-office-export/fidelity-proof.ts`.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not available
  * in this image. Run by `.github/workflows/container.yml`; no secret, queue,
@@ -13,15 +15,18 @@
 import { runPptxFidelityProof } from "@/lib/workers/pdf-office-export/fidelity-proof";
 import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
-import { PPTX_FIDELITY_FIXTURES } from "@/tests/pptx-fidelity-fixtures";
+import {
+  junkAfterEofPdf,
+  PPTX_FIDELITY_FIXTURES,
+} from "@/tests/pptx-fidelity-fixtures";
 import { pptxTextOnly20261010 } from "@/tests/pptx-text-only-2026-10-10";
 
 async function main(): Promise<number> {
   const exportDeps = pdfOfficeExportDeps(process.env);
   const libreoffice = nativeOfficeConversionDeps(process.env).libreoffice;
-  if (!exportDeps.extract || !libreoffice) {
+  if (!exportDeps.extract || !libreoffice || !exportDeps.repairPdf) {
     console.log(
-      `CANNOT CONCLUDE — ${!exportDeps.extract ? "pdftotext" : "LibreOffice"} is not available in this image.`,
+      `CANNOT CONCLUDE — ${!exportDeps.extract ? "pdftotext" : !libreoffice ? "LibreOffice" : "qpdf (the repair engine)"} is not available in this image.`,
     );
     return 2;
   }
@@ -35,6 +40,12 @@ async function main(): Promise<number> {
     exportDeps,
     toPdf: (pptx) => libreoffice.convertToPdf(pptx, "fidelity-proof.pptx"),
     fixtures,
+    // A committed fixture that pdf-lib cannot load: 25 bytes after %%EOF.
+    damaged: {
+      name: `${fixtures[0]!.name} (junk after %%EOF)`,
+      pdf: junkAfterEofPdf(fixtures[0]!.pdf),
+      source: fixtures[0]!,
+    },
     textOnlyDeck: (pages) => pptxTextOnly20261010(pages),
     blankDeck: (pageCount) =>
       pptxTextOnly20261010(

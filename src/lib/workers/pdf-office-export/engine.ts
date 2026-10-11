@@ -23,6 +23,7 @@ import { classifyPdfTextFailure } from "./encryption";
 import { layoutGrid } from "./layout-grid";
 import {
   PageScanDecodeBudgetError,
+  PageScanUnreadableError,
   PageScanTooLargeError,
   scannedPageText,
   type PdfPageScan,
@@ -85,6 +86,14 @@ export interface PdfOfficeExportDeps {
    * with no pictures is the defect this replaced, not a lesser success.
    */
   scanPages?: PdfPageScanner;
+  /**
+   * The worker's Repair PDF engine (qpdf's rewrite, `../pdf-structure`), as
+   * PDF to PowerPoint uses it: the rebuilt PDF, or null when it could not be
+   * rebuilt. Asked only for a file the page reader cannot read ahead
+   * (`PageScanUnreadableError`); absent where qpdf is, and then such a file
+   * is refused.
+   */
+  repairPdf?: (bytes: Uint8Array) => Promise<Uint8Array | null>;
   /**
    * The PowerPoint writer. Defaults to `./pptx-package`; injectable so a test
    * can hand the engine a writer that regressed and see what it delivers.
@@ -222,6 +231,25 @@ const UNSUPPORTED: Failure = {
   message:
     "PDF to Office export requires the PDF text extractor, which is not available in this environment.",
 };
+/**
+ * A PDF the page reader cannot read ahead (`PageScanUnreadableError`) is not
+ * scanned: until 2026-10-11 it was, with no decode bound. These are what the
+ * user reads instead. Deterministic, so `unreadable`: the panel links Repair
+ * PDF by that code (`OFFICE_EXPORT_NEXT_STEPS`).
+ */
+const DAMAGED: Failure = {
+  ok: false,
+  kind: "unreadable",
+  message:
+    "This PDF looks damaged: its structure could not be read, so it was not converted. Repair PDF can often rebuild it; then convert the repaired file.",
+};
+const DAMAGED_NOT_REBUILT: Failure = {
+  ok: false,
+  kind: "unreadable",
+  message:
+    "This PDF looks damaged: its structure could not be read, and rebuilding it the way Repair PDF does did not make it readable, so it was not converted.",
+};
+
 const NO_TEXT: Failure = {
   ok: false,
   kind: "no_text",
@@ -424,12 +452,33 @@ async function renderPowerPoint(
 ): Promise<Rendered | Failure> {
   await extract(input);
   const timeout = deps.limits?.scanTimeoutMs;
-  const scan = await scanPages(input, {
+  const options = {
     ...(timeout !== undefined ? { deadline: Date.now() + timeout } : {}),
     ...(deps.limits?.maxOutputBytes !== undefined
       ? { maxMediaBytes: deps.limits.maxOutputBytes }
       : {}),
-  });
+  };
+  // A file the page reader cannot read ahead is rebuilt first, the way
+  // Repair PDF does, and the rebuilt copy scanned — bounded, like any other.
+  // With nothing to rebuild it, or a rebuild the reader still cannot read,
+  // it is refused: never scanned without a bound.
+  let scan: PdfPageScan;
+  let repaired = false;
+  try {
+    scan = await scanPages(input, options);
+  } catch (error) {
+    if (!(error instanceof PageScanUnreadableError)) throw error;
+    if (!deps.repairPdf) return DAMAGED;
+    const rebuilt = await deps.repairPdf(input).catch(() => null);
+    if (!rebuilt) return DAMAGED_NOT_REBUILT;
+    try {
+      scan = await scanPages(rebuilt, options);
+    } catch (again) {
+      if (again instanceof PageScanUnreadableError) return DAMAGED_NOT_REBUILT;
+      throw again;
+    }
+    repaired = true;
+  }
   const deck = deckFromScan(scan);
   const output = await (deps.writePptx ?? pptxPackage)(deck);
   const planned = deck.slides.reduce(
@@ -454,6 +503,7 @@ async function renderPowerPoint(
       picturePageCount: asPictures.length,
       pagesAsPictures: asPictures,
       ...losses(scan),
+      ...(repaired ? { repairedBeforeConversion: true } : {}),
     }),
     output,
     filenameExt: "pptx",
