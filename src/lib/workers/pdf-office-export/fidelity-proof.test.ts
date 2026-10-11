@@ -34,6 +34,7 @@ import {
   runPptxFidelityProof,
 } from "./fidelity-proof";
 import { pdfOfficeExportDeps } from "./native";
+import { scanPdfPages } from "./page-scan";
 
 async function blankLike(pdf: Uint8Array): Promise<Uint8Array> {
   const src = await PDFDocument.load(pdf);
@@ -280,5 +281,31 @@ describe("the round-trip proof reads its controls right", () => {
     const result = await runPptxFidelityProof(deps);
     expect(result.ok).toBe(false);
     expect(result.lines.some((l) => /proves nothing/.test(l))).toBe(true);
+  }, 120_000);
+
+  it("FAILS when the damaged file is converted with no repair engine: the control saw no refusal", async () => {
+    // A reader that mends the file itself before scanning: the regression
+    // where a damaged PDF is read anyway. With no repair engine the control
+    // must then see a conversion, and the proof must fail on it.
+    const fixtures = await Promise.all(
+      [imageCaptionPdf, scannedPdf, paintOrderPdf, () => mixedSizesPdf()].map(
+        (b) => b(),
+      ),
+    );
+    const { deps } = await setUp(fixtures);
+    const lenient: typeof scanPdfPages = async (bytes, options) =>
+      scanPdfPages((await repairStandIn(bytes)) ?? bytes, options);
+    const result = await runPptxFidelityProof({
+      ...deps,
+      exportDeps: { ...deps.exportDeps, scanPages: lenient },
+    });
+    expect(result.ok).toBe(false);
+    expect(
+      result.lines.some((l) =>
+        /with no repair engine it was converted, not refused as damaged/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
   }, 120_000);
 });
