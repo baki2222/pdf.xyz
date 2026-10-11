@@ -44,7 +44,8 @@ export function cliExclude(argv: readonly string[]): string[] {
 const CLI_EXCLUDE = cliExclude(process.argv);
 
 /**
- * What every project runs with; each project adds only its pool. Exported for
+ * What every project runs with; each project adds its pool, and the
+ * native-canvas project one setup file of its own. Exported for
  * `src/tests/pdfjs-load-order.vitest.config.ts`, which runs a child vitest
  * with the suite's own options.
  */
