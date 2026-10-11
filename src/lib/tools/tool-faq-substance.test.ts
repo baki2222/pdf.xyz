@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * Every tool page answers a question of its own, and every such answer is what
  * the engine behind it does.

@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * What the extraction MODEL receives, for a job that declares its characters
  * and for one that does not — driven through every tier a real job crosses.

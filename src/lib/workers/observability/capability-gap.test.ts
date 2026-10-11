@@ -176,6 +176,7 @@ describe("the 2026-08-12 worker, as it actually was", () => {
         deliveryCap: true,
         aiReadCap: true,
         pptxPresentationChain: true,
+        pptxPictures: true,
       },
     });
     const row = collectWebOperationsSnapshot(DRAINABLE_ENV, {
@@ -287,6 +288,7 @@ describe("the build fingerprint reaches the operator, or says it could not", () 
           chunkedTranslate: chunked,
           deliveryCap: chunked,
           pptxPresentationChain: chunked,
+          pptxPictures: chunked,
         },
       }),
     );

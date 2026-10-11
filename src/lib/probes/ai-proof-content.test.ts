@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The AI proofs read what is INSIDE the package, and a wrong-but-plausible
  * package fails them.

@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The copy written to fill three thin tool pages, pinned to the behaviour it
  * describes.
@@ -45,7 +46,7 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { getToolBySlug } from "@/lib/tools";
 import { EMBEDDED_TEXT_ONLY, howToSteps, toolFacts } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
@@ -64,6 +65,8 @@ import {
   PDF_OFFICE_EXPORT_TOOLS,
   runPdfOfficeExport,
 } from "@/lib/workers/pdf-office-export/engine";
+import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
+import { scannedPdf } from "@/tests/pptx-fidelity-fixtures";
 import type { ExtractedPdfLines } from "@/lib/pdf/text";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
@@ -227,21 +230,41 @@ describe("tools that read only embedded text say scans need OCR, and never promi
    * `extract` it answers `unsupported` before reading anything — so the one
    * tool asked stopped proving the property for all three.
    */
-  async function officeRefusesTextless(): Promise<boolean> {
-    let asked = 0;
+  /**
+   * The office exports that REFUSE a text-less PDF, measured by running each
+   * on one. INVERTED 2026-10-10: this was `officeRefusesTextless`, which
+   * required all three to refuse, and the set took all three on that proof.
+   * PDF to PowerPoint now keeps a scan's pages as pictures, so a scan does
+   * NOT give it nothing: it leaves the set by the same measurement that put
+   * it there, and the set's scanned-PDF answer (`scannedFallbackEntry`,
+   * "Only once the scan has a text layer") would now be false on its page.
+   * Each tool gets the input that asks it the question: Word and Excel their
+   * stand-in extraction of nothing, PowerPoint a real scanned page through
+   * its real page reader.
+   */
+  let officeRefusers: string[] = [];
+  let officeAsked = 0;
+  beforeAll(async () => {
+    const scan = await scannedPdf();
+    officeRefusers = [];
+    officeAsked = 0;
     for (const tool of PDF_OFFICE_EXPORT_TOOLS) {
-      const run = await runPdfOfficeExport(tool, new Uint8Array([1]), {
-        extract: async () => extracted([""], false),
-        extractFlow: async () => ({
-          pageCount: 1,
-          pages: [{ pageNumber: 1, paragraphs: [] }],
-        }),
-      });
-      if (run.ok || run.kind !== "no_text") return false;
-      asked += 1;
+      const run = await runPdfOfficeExport(
+        tool,
+        tool === "pdf-to-powerpoint" ? scan.pdf : new Uint8Array([1]),
+        {
+          extract: async () => extracted([""], false),
+          extractFlow: async () => ({
+            pageCount: 1,
+            pages: [{ pageNumber: 1, paragraphs: [] }],
+          }),
+          scanPages: scanPdfPages,
+        },
+      );
+      officeAsked += 1;
+      if (!run.ok && run.kind === "no_text") officeRefusers.push(tool);
     }
-    return asked >= 3;
-  }
+  });
 
   /**
    * The extractors `@/lib/pdf/text` exports, read off the module — every one
@@ -285,7 +308,7 @@ describe("tools that read only embedded text say scans need OCR, and never promi
       const file = runnerFileForSlug(slug);
       return file ? readsEmbeddedText(withoutComments(read(file))) : false;
     });
-    return [...client, ...PDF_OFFICE_EXPORT_TOOLS];
+    return [...client, ...officeRefusers];
   }
 
   it("the use detector follows the import, not the spelling of a call", () => {
@@ -329,12 +352,14 @@ describe("tools that read only embedded text say scans need OCR, and never promi
 
   it("the set is discovered and plausibly sized", async () => {
     const set = embeddedTextOnly();
-    // pdf-to-text, pdf-to-markdown, compare-pdf + the three office exports.
+    // pdf-to-text, pdf-to-markdown, compare-pdf + the two office exports
+    // that refuse a scan (three until 2026-10-10).
     expect(set.length).toBeGreaterThanOrEqual(5);
     expect(set.length).toBeLessThanOrEqual(10);
     // The office half is in the set because the engine REFUSES a text-less
-    // PDF — shown by running it.
-    expect(await officeRefusesTextless()).toBe(true);
+    // PDF — shown by running it. Health: every office export was asked.
+    expect(officeAsked).toBe(PDF_OFFICE_EXPORT_TOOLS.length);
+    expect(officeRefusers).toEqual(["pdf-to-word", "pdf-to-excel"]);
   });
 
   it("the typed EMBEDDED_TEXT_ONLY set in tool-facts is exactly the discovered one", () => {

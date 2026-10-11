@@ -112,6 +112,11 @@ const ALLOWED = new Set(
     // barrel. (Added at the wave-1 L03 merge: L03 wrote it against a
     // direct-importers check; this closure check sees the transitive edge.)
     "src/tests/table-extract-fixtures.ts",
+    // Spawns Windows PowerShell for the two PowerPoint instruments
+    // (`scripts/prove-pptx-opens.ts`, `scripts/measure-pptx-fidelity.ts`) and
+    // its own `*.test.ts`; nothing on a route, a component or a barrel
+    // reaches it. (Added 2026-10-11, when this check named it on first run.)
+    "src/tests/powershell-json.ts",
   ].map((rel) => path.join(ROOT, rel)),
 );
 

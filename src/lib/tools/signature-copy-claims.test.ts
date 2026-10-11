@@ -1,3 +1,4 @@
+// @native-canvas
 /**
  * The signature pages describe the placement and the image cleanup that ship.
  *

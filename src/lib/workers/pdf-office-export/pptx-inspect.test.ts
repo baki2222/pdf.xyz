@@ -1,3 +1,4 @@
+// @native-canvas
 /**
  * The instrument that decides whether a .pptx has the chain PowerPoint needs,
  * tested in both directions (CLAUDE.md rule 1):
@@ -23,6 +24,7 @@ import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { runPdfOfficeExport } from "./engine";
+import { scanPdfPages } from "./page-scan";
 import {
   inspectPptxPackage,
   PPTX_CHECKS,
@@ -30,6 +32,7 @@ import {
 } from "./pptx-inspect";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
+import { linesPdf, pdftotextStandIn } from "@/tests/pptx-fidelity-fixtures";
 import { xmlWellFormedness } from "@/tests/xml-well-formed";
 
 const POWERPOINT_AUTHORED = new Uint8Array(
@@ -41,20 +44,19 @@ const PAGES = [
   { pageNumber: 2, text: "Two", characterCount: 3 },
 ];
 
+/**
+ * The engine's deck for a real two-page PDF whose first page carries a
+ * picture, through the real page reader — so the picture checks below have a
+ * `p:pic`, a blip, an image relationship and a media part to mutate. Until
+ * 2026-10-10 this fed the engine a stub extraction of two text pages, and the
+ * deck it made had no picture for any check to look at.
+ */
 async function engineDeck(): Promise<Uint8Array> {
-  const run = await runPdfOfficeExport(
-    "pdf-to-powerpoint",
-    new Uint8Array([1]),
-    {
-      extract: async () => ({
-        pageCount: 2,
-        pages: PAGES,
-        text: "One\n\nTwo",
-        characterCount: 6,
-        hasText: true,
-      }),
-    },
-  );
+  const fixture = await linesPdf([["One"], ["Two"]], { picture: true });
+  const run = await runPdfOfficeExport("pdf-to-powerpoint", fixture.pdf, {
+    extract: async () => pdftotextStandIn(fixture),
+    scanPages: scanPdfPages,
+  });
   if (!run.ok) throw new Error(run.message);
   return run.output;
 }
@@ -121,6 +123,8 @@ const MASTER_RELS = "ppt/slideMasters/_rels/slideMaster1.xml.rels";
 const LAYOUT = "ppt/slideLayouts/slideLayout1.xml";
 const LAYOUT_RELS = "ppt/slideLayouts/_rels/slideLayout1.xml.rels";
 const CT = "[Content_Types].xml";
+const SLIDE1 = "ppt/slides/slide1.xml";
+const SLIDE1_RELS = "ppt/slides/_rels/slide1.xml.rels";
 
 type Mutation = (base: Uint8Array) => Promise<Uint8Array>;
 const edit =
@@ -211,6 +215,42 @@ const FIRES: Record<PptxCheck, Mutation> = {
     replaceIn(z, PRES, /<p:sldId id="257" r:id="[^"]*"\/>/, ""),
   ),
   "no-slide-size": edit((z) => replaceIn(z, PRES, /<p:sldSz [^>]*\/>/, "")),
+  // Half an inch wide: under the inch PowerPoint takes.
+  "slide-size-range": edit((z) =>
+    replaceIn(z, PRES, /(<p:sldSz cx=")\d+"/, '$1457200"'),
+  ),
+  // The picture keeps its blip element but loses the attribute naming it.
+  "picture-without-blip": edit((z) =>
+    replaceIn(z, SLIDE1, /<a:blip r:embed="[^"]*"/, "<a:blip"),
+  ),
+  // The blip names the slide's LAYOUT relationship: one that exists, of the
+  // wrong type.
+  "picture-reference": edit(async (z) =>
+    replaceIn(
+      z,
+      SLIDE1,
+      /<a:blip r:embed="[^"]*"/,
+      `<a:blip r:embed="${await relIdOfType(z, SLIDE1_RELS, "slideLayout")}"`,
+    ),
+  ),
+  // The media part's extension is declared as something that is not an image.
+  "picture-content-type": edit((z) =>
+    replaceIn(
+      z,
+      CT,
+      /<Default Extension="(png|jpeg)" ContentType="image\/(png|jpeg)"\/>/,
+      '<Default Extension="$1" ContentType="application/octet-stream"/>',
+    ),
+  ),
+  // The bytes behind the image are not an image at all.
+  "picture-format": edit(async (z) => {
+    const media = Object.keys(z.files).filter(
+      (n) => n.startsWith("ppt/media/") && !z.files[n]!.dir,
+    );
+    if (media.length === 0)
+      throw new Error("mutation target: the deck has no media part");
+    z.file(media[0]!, "this is not an image");
+  }),
   "master-theme": edit((z) =>
     replaceIn(z, MASTER_RELS, /<Relationship [^>]*\/theme"[^>]*\/>/, ""),
   ),
@@ -308,6 +348,7 @@ describe("inspectPptxPackage", () => {
       layouts: 1,
       themes: 1,
       slides: 1,
+      pictures: 0,
     });
   });
 
@@ -334,6 +375,7 @@ describe("inspectPptxPackage", () => {
       layouts: 1,
       themes: 1,
       slides: 1,
+      pictures: 0,
     });
   });
 
@@ -346,6 +388,8 @@ describe("inspectPptxPackage", () => {
       themes: 1,
       slides: 2,
     });
+    // Health: the picture checks have a picture to check.
+    expect(inspection.counts.pictures).toBeGreaterThanOrEqual(1);
   });
 
   it("EVERY CHECK FIRES on the mutation written for it", async () => {
@@ -407,8 +451,12 @@ describe("inspectPptxPackage", () => {
       }
     }
     // 1 root + 4 presentation (master, theme, two slides) + 2 master (layout,
-    // theme) + 1 layout + 1 per slide: ten relationships in a two-page deck.
-    expect(swept).toBe(10);
+    // theme) + 1 layout + 1 per slide: ten relationships in a two-page deck,
+    // and one per distinct picture on its slide since 2026-10-10 (the first
+    // page's picture, and the slide's drawing layer when the page has one).
+    const pictures = (await inspect(base)).counts.pictures;
+    expect(pictures).toBeGreaterThanOrEqual(1);
+    expect(swept).toBe(10 + pictures);
     // THE ONE EXCEPTION, AND WHY IT IS ALLOWED: PowerPoint writes a
     // presentation → theme relationship, but on 2026-09-27 (16.0 build 20326)
     // it opened the engine's file through COM with that relationship removed —

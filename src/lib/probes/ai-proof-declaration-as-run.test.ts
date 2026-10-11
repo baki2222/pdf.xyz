@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * Each AI proof's declaration, made the way `scripts/worker-prove-tools.ts`
  * makes it: a Node `Buffer`, the default extractor, plain Node.

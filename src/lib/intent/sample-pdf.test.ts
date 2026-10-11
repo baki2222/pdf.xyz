@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The sample PDF is a real PDF with the facts its button promises: three
  * pages, text a reader can select, and a form with two fields — read back

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * A file a worker tool cannot take is refused at the pick, in the panel, in
  * the page's own words, and before anything uploads.

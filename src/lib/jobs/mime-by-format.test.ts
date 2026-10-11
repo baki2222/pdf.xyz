@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The browser's job client declares every file type the server accepts.
  *

@@ -1,3 +1,4 @@
+// @native-canvas
 import { describe, expect, it } from "vitest";
 import { crc32, deflateSync } from "node:zlib";
 import { PDFDocument, PDFName, PDFRawStream } from "pdf-lib";

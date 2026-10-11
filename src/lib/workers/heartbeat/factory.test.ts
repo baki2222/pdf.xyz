@@ -116,6 +116,7 @@ describe("createHeartbeatPublisher", () => {
         deliveryCap: true,
         aiReadCap: true,
         pptxPresentationChain: true,
+        pptxPictures: true,
       },
       deps: { client: fake, now: () => 1_000 },
     });
@@ -155,6 +156,7 @@ describe("createHeartbeatReader / readWorkerHeartbeatLiveness", () => {
             deliveryCap: true,
             aiReadCap: true,
             pptxPresentationChain: true,
+            pptxPictures: true,
           },
           at: now,
         }),

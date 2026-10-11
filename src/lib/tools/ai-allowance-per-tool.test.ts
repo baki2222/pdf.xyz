@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * Each AI tool's page publishes the allowance in the unit the route charges IT.
  *

@@ -1,9 +1,13 @@
+// @native-canvas
 import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { handBuiltPptx } from "@/tests/pptx-fixture";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { pptxProofVerdict, readPptx, xmlProblems } from "./validate-ooxml";
+import { runPdfOfficeExport } from "./engine";
+import { scanPdfPages } from "./page-scan";
+import { linesPdf, pdftotextStandIn } from "@/tests/pptx-fidelity-fixtures";
 
 /**
  * The checker PDF to PowerPoint's unit tests AND its deployment proof share.
@@ -284,5 +288,94 @@ describe("pptxProofVerdict — what the deployment proof prints", () => {
     const verdict = await pptxProofVerdict(broken, "pdf.xyz proof");
     expect(verdict.ok).toBe(false);
     expect(verdict.detail).toMatch(/^PowerPoint cannot open this deck/);
+  });
+});
+
+describe("readPptx — pictures (since 2026-10-10, when decks began carrying them)", () => {
+  /** The engine's deck for a real page with a picture, through the real reader. */
+  async function pictureDeck(): Promise<Uint8Array> {
+    const fixture = await linesPdf([["A page with a picture"]], {
+      picture: true,
+    });
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", fixture.pdf, {
+      extract: async () => pdftotextStandIn(fixture),
+      scanPages: scanPdfPages,
+    });
+    if (!run.ok) throw new Error(run.message);
+    return run.output;
+  }
+
+  it("POSITIVE CONTROL: passes the engine's deck, picture and all", async () => {
+    const deck = await pictureDeck();
+    expect((await readPptx(deck)).problems).toEqual([]);
+    // Health: there IS a picture for the checks below to see.
+    const zip = await JSZip.loadAsync(deck);
+    expect(await zip.file("ppt/slides/slide1.xml")!.async("string")).toMatch(
+      /<p:pic>/,
+    );
+  });
+
+  it.each([
+    [
+      "a picture with its parts out of order",
+      "ppt/slides/slide1.xml",
+      (x: string) =>
+        x.replace(
+          /(<p:pic>)(<p:nvPicPr>[\s\S]*?<\/p:nvPicPr>)(<p:blipFill>[\s\S]*?<\/p:blipFill>)/,
+          "$1$3$2",
+        ),
+      /pic holds \[blipFill, nvPicPr, spPr\]/,
+    ],
+    [
+      "a picture with no cNvPicPr",
+      "ppt/slides/slide1.xml",
+      (x: string) => x.replace(/<p:cNvPicPr>[\s\S]*?<\/p:cNvPicPr>/, ""),
+      /nvPicPr holds \[cNvPr, nvPr\]/,
+    ],
+    [
+      "a blipFill that does not start with its blip",
+      "ppt/slides/slide1.xml",
+      (x: string) =>
+        x.replace(
+          /(<p:blipFill>)(<a:blip [^>]*\/>)(<a:stretch>[\s\S]*?<\/a:stretch>)/,
+          "$1$3$2",
+        ),
+      /blipFill does not start with a:blip/,
+    ],
+    [
+      "a blip pointing at the slide's layout relationship",
+      "ppt/slides/slide1.xml",
+      (x: string) =>
+        x.replace(/<a:blip r:embed="[^"]*"/, '<a:blip r:embed="rId1"'),
+      /a:blip r:embed="rId1" is not an image relationship/,
+    ],
+    [
+      "a picture offset that is not a number",
+      "ppt/slides/slide1.xml",
+      (x: string) => x.replace(/(<p:pic>[\s\S]*?<a:off x=")\d+/, "$1left"),
+      /a:off x="left" is not a whole number/,
+    ],
+    [
+      "a picture extent that is negative",
+      "ppt/slides/slide1.xml",
+      (x: string) => x.replace(/(<p:pic>[\s\S]*?<a:ext cx=")(\d+)/, "$1-$2"),
+      /a:ext cx="-\d+" is not a whole, non-negative number/,
+    ],
+    [
+      "an image part declared as something other than an image",
+      "[Content_Types].xml",
+      (x: string) =>
+        x.replace(
+          /<Default Extension="(png|jpeg)" ContentType="image\/(png|jpeg)"\/>/,
+          '<Default Extension="$1" ContentType="application/octet-stream"/>',
+        ),
+      /is an image relationship, but ppt\/media\/image1\.\w+ is declared application\/octet-stream/,
+    ],
+  ])("NEGATIVE CONTROL: sees %s", async (_, part, edit, want) => {
+    const broken = await mutate(await pictureDeck(), part, edit);
+    const { problems } = await readPptx(broken);
+    expect(problems).toEqual(
+      expect.arrayContaining([expect.stringMatching(want)]),
+    );
   });
 });

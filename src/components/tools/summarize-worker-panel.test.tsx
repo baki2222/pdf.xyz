@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * Summarize PDF checks the document BEFORE anything is uploaded or charged.
  *

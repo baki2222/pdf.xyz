@@ -23,6 +23,10 @@ export async function runnerMounted(container: HTMLElement): Promise<void> {
       if (!container.firstElementChild)
         throw new Error("the dispatched runner has not rendered yet");
     },
-    { timeout: 5000 },
+    // 20 s, not 5: in the native-canvas project (vitest.config.ts) each
+    // file runs in a fresh process, so the runner's module graph is imported
+    // cold here, and on Node 22 under load 5 s ran out in 6 of 42 runs. The
+    // tests that wait here allow 30 s or more themselves.
+    { timeout: 20_000 },
   );
 }

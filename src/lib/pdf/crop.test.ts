@@ -1,3 +1,4 @@
+// @native-canvas
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { PDFDocument, degrees } from "pdf-lib";

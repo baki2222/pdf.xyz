@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The Translate panel, rendered: what it SHOWS when a run fails before the
  * job exists, and how long it waits for a job it did create.
