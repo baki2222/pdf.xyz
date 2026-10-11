@@ -95,7 +95,7 @@ describe("vitest assigns the files that load it to the forks pool", () => {
       ]);
       const native = byProject.get("native-canvas")!;
       const threads = byProject.get("threads")!;
-      expect(native.pool).toBe("forks");
+      expect(native).toMatchObject({ pool: "forks", isolate: true });
       expect(threads.pool).toBe("threads");
       // The runtime half is wired into both, or it observes nothing.
       for (const project of vitest.projects)

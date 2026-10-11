@@ -129,13 +129,17 @@ export default defineConfig({
           // the run (exit 139: 3 times in 100 as measured when these tests
           // arrived; 1 in 100 re-measured on Node 22 on 2026-10-11).
           //
-          // NOT isolated, on purpose: these files were written for the shared
-          // module cache the threads project keeps (see its comment, and
-          // `src/tests/runner-mounted.ts`). Run one process per file, every
-          // file imported its graph cold, and on Node 22 the runner tests'
-          // 5 s wait for a lazily loaded runner ran out in 6 of 42 runs.
+          // One process PER FILE, and that is load-bearing. pdf.js's Node
+          // build polyfills `DOMMatrix` on globalThis as it loads, and
+          // `loadPdfjs` (src/lib/pdf/pdfjs.ts) takes the BROWSER build
+          // wherever `DOMMatrix` exists — so in a process shared with an
+          // earlier pdf.js user, a later file is handed the browser build and
+          // its fake worker cannot start. Every file here uses pdf.js; shared
+          // (isolate: false), `ai-read-declaration.chain.test.ts` failed that
+          // way in 4 of 25 runs on Node 22. Isolated, each file imports its
+          // graph cold: `src/tests/runner-mounted.ts` waits for that.
           pool: "forks",
-          isolate: false,
+          isolate: true,
         },
       },
     ],
