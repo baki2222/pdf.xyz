@@ -318,6 +318,85 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
   });
 });
 
+/*
+ * INVERTED 2026-10-11. Until then `./compress-runner.test.ts` held a picked
+ * file's stage to `stageHoldPx`: from the commit the file arrived in, a
+ * layout effect set the stage's min-height to what was left of the screen
+ * below it, capped at `STAGE_HOLD_REM`. That moved the content under the
+ * runner at the pick, and a file dropped, pasted or handed over opens no
+ * input window, so the move was counted (page CLS 0.0567 at 1280 x 900,
+ * 0.1212 at 768 x 1024). The page holds the first screen now
+ * (`data-first-screen`), and the stage only grows into it.
+ */
+describe(
+  "Compress: the stage a picked file is analysed on",
+  { timeout: 30_000 },
+  () => {
+    it("is never held by script — no state sets its height — and grows into the panel it is drawn in", async () => {
+      // A screen with room for a hold, so one would show: jsdom lays
+      // nothing out, and on a screen 0 px tall the old hold computed 0
+      // and set nothing either — this test would have passed against it.
+      const html = document.documentElement;
+      const real = Object.getOwnPropertyDescriptor(html, "clientHeight");
+      Object.defineProperty(html, "clientHeight", {
+        configurable: true,
+        value: 900,
+      });
+      try {
+        answerWorkerStatus();
+        const { container } = render(withRouter(<CompressRunner />));
+        const heights: string[] = [];
+        const states = new Set<string>();
+        const read = () => {
+          const stage = container.querySelector<HTMLElement>(
+            "[data-compress-stage]",
+          );
+          if (!stage) return;
+          heights.push(stage.style.minHeight);
+          const text = stage.textContent ?? "";
+          states.add(
+            stage.querySelector('[aria-label^="Analysis complete"]')
+              ? "analysis"
+              : text.includes("Analyzing")
+                ? "analyzing"
+                : text.includes("Reading")
+                  ? "reading"
+                  : "other",
+          );
+        };
+        const observer = new MutationObserver(read);
+        observer.observe(container, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ["style"],
+        });
+        await drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
+        await screen.findByRole(
+          "button",
+          { name: /download optimized pdf/i },
+          { timeout: 10_000 },
+        );
+        read();
+        observer.disconnect();
+        // Health: the stage was read through the run, to the analysis.
+        expect(states.has("analysis"), [...states].join(", ")).toBe(true);
+        expect(heights.length).toBeGreaterThan(1);
+        expect(
+          heights.filter(Boolean),
+          "a state of the stage set its height",
+        ).toEqual([]);
+        expect(
+          container.querySelector("[data-compress-stage]")!.classList,
+        ).toContain("grow");
+      } finally {
+        if (real) Object.defineProperty(html, "clientHeight", real);
+        else delete (html as { clientHeight?: number }).clientHeight;
+      }
+    });
+  },
+);
+
 describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
   it("warns that the signatures will break, and gates both outputs behind a confirmation", async () => {
     answerWorkerStatus();

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkerStatus } from "@/lib/workers/status";
-import {
-  STAGE_HOLD_REM,
-  canRunDeepCompression,
-  stageHoldPx,
-} from "./compress-runner";
+import { canRunDeepCompression } from "./compress-runner";
 
 function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
   return {
@@ -166,51 +162,15 @@ describe("canRunDeepCompression", () => {
   });
 });
 
-/**
- * How tall a picked file's stage is held (`stageHoldPx`): to the bottom of
- * the screen, never past it and never past the cap. The browser half — one
- * shift after a pick, and the shortest analysis filling the stage — is
+/*
+ * `stageHoldPx` was tested here until 2026-10-11: how tall a picked file's
+ * stage was held — to the bottom of the screen, never past the cap
+ * (`STAGE_HOLD_REM`), in whole pixels. The hold is gone (its history is in
+ * `./compress-runner.tsx`, above `CompressSingle`): it moved the content
+ * under the runner at the pick, where a file dropped or handed over opens
+ * no input window. The test that inverts these — the stage is never held
+ * by script, in any state — renders the runner, in
+ * `./compress-runner.dom.test.tsx` ("the stage a picked file is analysed
+ * on"); the page that holds the first screen instead is measured by
  * `e2e/continue-chain.spec.ts`.
  */
-describe("stageHoldPx", () => {
-  const rem = 16;
-  const cap = STAGE_HOLD_REM * rem;
-
-  it("holds what is left of the screen below the stage when that is less than the cap", () => {
-    // 1280 x 720: the stage starts 401 px down, 319 px are left.
-    expect(stageHoldPx({ top: 401, viewport: 720, rem })).toBe(319);
-    expect(stageHoldPx({ top: 401, viewport: 720, rem })).toBeLessThan(cap);
-  });
-
-  it("holds no more than the cap on a screen with room to spare", () => {
-    expect(stageHoldPx({ top: 401, viewport: 900, rem })).toBe(cap);
-    expect(stageHoldPx({ top: 401, viewport: 1440, rem })).toBe(cap);
-  });
-
-  it("the cap is in rem: a larger root font holds proportionally more", () => {
-    // In whole pixels, as every hold is (the last case below). Until the
-    // merge of main (2026-10-11) the cap was 28 rem, whole at any root
-    // size, and this read `STAGE_HOLD_REM * 20` bare; at 27.4375 rem (the
-    // one pixel both continue-chain bounds allow) that is 548.75, and a
-    // hold of 548.75 px would be the sub-pixel min-height that case bans.
-    expect(stageHoldPx({ top: 0, viewport: 4000, rem: 20 })).toBe(
-      Math.round(STAGE_HOLD_REM * 20),
-    );
-    expect(stageHoldPx({ top: 0, viewport: 4000, rem: 20 })).toBeGreaterThan(
-      stageHoldPx({ top: 0, viewport: 4000, rem: 16 }),
-    );
-  });
-
-  it("a stage below the screen, or at its edge, is not held", () => {
-    expect(stageHoldPx({ top: 900, viewport: 900, rem })).toBe(0);
-    expect(stageHoldPx({ top: 1200, viewport: 900, rem })).toBe(0);
-  });
-
-  it("a stage scrolled partly above the screen is held to the cap, not to the screen plus the part above it", () => {
-    expect(stageHoldPx({ top: -300, viewport: 900, rem })).toBe(cap);
-  });
-
-  it("whole pixels: a fractional top does not leave a sub-pixel min-height", () => {
-    expect(stageHoldPx({ top: 401.4, viewport: 720, rem })).toBe(319);
-  });
-});

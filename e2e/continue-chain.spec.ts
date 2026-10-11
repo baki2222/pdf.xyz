@@ -34,8 +34,10 @@ import {
   throttle,
   type Shift,
 } from "./frames";
+import { CASES } from "./client-proof/cases";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { RESULT_ENDING_CHUNK } from "../src/components/intent/result-ending-chunk";
+import { supportedToolSlugs } from "../src/lib/pdf/registry";
 import { RECENTS_STORAGE_KEY } from "../src/lib/intent/recents-key";
 import { USER_PASSWORD_PDF_BASE64 } from "../src/tests/fixtures-encrypted";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
@@ -568,16 +570,20 @@ async function holdEnding(page: Page) {
  *                                            its ending in one commit
  *   the stage held, this test        0       one shift, in the frame the
  *                                            file arrives
+ *   the first screen held            0       no shift: nothing under the
+ *                                            runner is on screen
  *
  * A file set through the input the way the system dialog sets it
  * (`setInputFiles` with a path) opens an input window in this Chromium, and
- * the held stage's one shift falls inside it. One set from memory and
+ * the held stage's one shift fell inside it. One set from memory and
  * dispatched by script does not, and then the pick's own shifts count too:
- * 0.1685 at 4de768a2, 0.0587 held. So two ceilings: FROM THE PICK, the
- * whole path, under 0.1 either way; FROM THE ANALYSIS'S FIRST FRAME, its
- * arrival, which is to cost nothing.
+ * 0.1685 at 4de768a2, 0.0587 held — so this ceiling was 0.075 while the
+ * stage was held. The first screen held (`data-first-screen`), a pick moves
+ * nothing either way, and both ceilings are the page's: FROM THE PICK, the
+ * whole path, `PAGE_CLS_CEILING` (and from memory at eight sizes, below);
+ * FROM THE ANALYSIS'S FIRST FRAME, its arrival, which is to cost nothing.
  */
-const PICK_CLS_CEILING = 0.075;
+const PICK_CLS_CEILING = 0.01;
 const ARRIVAL_CLS_CEILING = 0.001;
 /** Past a pick's 500 ms input window, with a frame or two to spare. */
 const OUTSIDE_THE_PICK = 600;
@@ -598,7 +604,7 @@ function shiftSum(shifts: readonly Shift[], since: number) {
 }
 
 /**
- * The result is drawn WITH its ending, into space held for it. Compress PDF
+ * The result is drawn WITH its ending, into room on screen. Compress PDF
  * analyses a file the moment it is picked, and on any real connection the
  * analysis is drawn long after the pick's input window has closed, so every
  * shift it causes counts.
@@ -634,7 +640,7 @@ function shiftSum(shifts: readonly Shift[], since: number) {
  * analysis's first frame: 0.0325 [worker]" — the ending drawn into the
  * analysis after it painted, the WP-08 review's own +0.032, back.
  */
-test("Compress PDF's analysis draws with its ending into space held for it: after a pick the page moves once", async ({
+test("Compress PDF's analysis draws with its ending, and after a pick nothing on the page moves", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -664,6 +670,7 @@ test("Compress PDF's analysis draws with its ending into space held for it: afte
       counted: '[data-receipt] [data-settles="counted"]',
     },
   });
+  const ownAt = await shiftOfOurOwn(page);
   const pickedAt = await page.evaluate(() => performance.now());
   // A file the repack shrinks a little: the Download and the receipt show.
   await input.setInputFiles(await writeTempPdf("report.pdf", 6));
@@ -687,10 +694,15 @@ test("Compress PDF's analysis draws with its ending into space held for it: afte
   const frames = await stopFrames(page);
 
   // Health: the ending was seen and held, the browser reported the page's
-  // shifts at all (the pick moves what is under the runner), and the
-  // analysis painted.
+  // shifts at all, and the analysis painted. WAS "the pick moves what is
+  // under the runner" (`shifts.length > 0`): with the first screen held
+  // the pick moves nothing, so the instrument's own shift is the proof it
+  // is listening (`shiftOfOurOwn`).
   expect(ending.held, "the ending's chunk was never seen").not.toEqual([]);
-  expect(shifts.length).toBeGreaterThan(0);
+  expect(
+    shiftsBetween(shifts, ownAt, pickedAt).length,
+    "the instrument saw no shift of its own making",
+  ).toBeGreaterThan(0);
   const painted = frames.findIndex((f) => f.present.analysis);
   expect(painted, "the analysis never painted").toBeGreaterThanOrEqual(0);
 
@@ -728,6 +740,455 @@ test("Compress PDF's analysis draws with its ending into space held for it: afte
 });
 
 /**
+ * The screens the page's CLS after a pick is held at: two phones, a tablet,
+ * and the desktops from the shortest to the tallest the review measured.
+ */
+const SCREENS = [
+  { width: 360, height: 800 },
+  { width: 390, height: 844 },
+  { width: 768, height: 1024 },
+  { width: 1280, height: 720 },
+  { width: 1280, height: 900 },
+  { width: 1366, height: 768 },
+  { width: 1920, height: 1080 },
+  { width: 2560, height: 1440 },
+] as const;
+type Screen = (typeof SCREENS)[number];
+
+/** Google's line for a "good" CLS is 0.1; this page is held to a tenth of it. */
+const PAGE_CLS_CEILING = 0.01;
+
+/**
+ * A layout shift the test makes itself, before the file arrives: a fixed
+ * box with words in it, moved down a quarter of the screen by script. Seen
+ * in the record (`shiftsBetween`), it proves the browser is reporting this
+ * page's shifts at this size at all — a sum of nothing is the strongest
+ * possible pass, and a dead observer would read 0 at every screen.
+ * Returns when it was made.
+ */
+async function shiftOfOurOwn(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const box = document.createElement("div");
+        box.textContent = "instrument check";
+        box.style.cssText =
+          "position:fixed;left:0;top:0;width:40vw;height:20vh;z-index:9999;background:Canvas;color:CanvasText";
+        document.body.append(box);
+        const at = performance.now();
+        const frame = () => new Promise((r) => requestAnimationFrame(r));
+        void frame()
+          .then(frame)
+          .then(() => {
+            box.style.top = "25vh";
+          })
+          .then(frame)
+          .then(frame)
+          .then(() => {
+            box.remove();
+            resolve(at);
+          });
+      }),
+  );
+}
+
+/** Every shift outside an input's window in [from, to). */
+function shiftsBetween(shifts: readonly Shift[], from: number, to: number) {
+  return shifts.filter((s) => !s.input && s.t >= from && s.t < to);
+}
+
+/**
+ * A file set on the page's picker FROM MEMORY: built in the page and
+ * dispatched by script, the way a drop, a paste or a hand-off delivers one.
+ * Unlike a file the system dialog sets, it opens no input window, so every
+ * shift it causes is counted — the worst case for a pick (WP-08 repair,
+ * 2026-10-11).
+ */
+async function pickFromMemory(page: Page, name: string, bytes: Uint8Array) {
+  await fileInput(page).evaluate(
+    (input, { name, b64 }) => {
+      const bin = atob(b64);
+      const data = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+      const dt = new DataTransfer();
+      dt.items.add(new File([data], name, { type: "application/pdf" }));
+      (input as HTMLInputElement).files = dt.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    { name, b64: Buffer.from(bytes).toString("base64") },
+  );
+}
+
+/** A stylesheet in every document of the page, proven landed by the caller. */
+async function injectStyle(page: Page, css: string) {
+  await page.addInitScript((text) => {
+    const add = () => {
+      const style = document.createElement("style");
+      style.dataset.probe = "";
+      style.textContent = text;
+      document.head.append(style);
+    };
+    if (document.head) add();
+    else document.addEventListener("DOMContentLoaded", add);
+  }, css);
+}
+
+/**
+ * What the CONTROLS take away: the first screen's reservation — the tool's
+ * name, its facts and its panel held to the bottom of the screen from the
+ * first paint, so nothing that follows the runner is on screen to be moved.
+ */
+const UNRESERVED = "[data-first-screen]{min-height:0 !important}";
+
+/** Health of a control: the reservation exists, and the injection took it away. */
+async function reservationRemoved(page: Page) {
+  await expect(page.locator("style[data-probe]")).toHaveCount(1);
+  const first = page.locator("[data-first-screen]");
+  await expect(
+    first,
+    "no first screen to take the reservation from",
+  ).toHaveCount(1);
+  expect(
+    await first.evaluate((el) => getComputedStyle(el).minHeight),
+    "the control's stylesheet did not take the reservation away",
+  ).toBe("0px");
+}
+
+/** The section after the runner: About this tool, by its heading. */
+const ABOUT = {
+  selector: "main h2",
+  text: "About this tool",
+  closest: "div.grid",
+} as const;
+
+/** Where the About section's top was, against the bottom of the screen. */
+const aboutTop = (page: Page) =>
+  page.locator("main h2", { hasText: "About this tool" }).evaluate((h2) => {
+    const grid = h2.closest("div.grid") ?? h2;
+    return {
+      top: Math.round(grid.getBoundingClientRect().top),
+      fold: window.innerHeight,
+    };
+  });
+
+/**
+ * Compress PDF after a pick, as the WP-08 repair measured it: the
+ * production build, 4x CPU, 300 ms and 200 KB/s, a 6-page PDF set from
+ * memory, and everything that moved outside an input's window from the pick
+ * until the receipt has counted and the worker's card has answered.
+ */
+async function compressAfterPick(page: Page, screen: Screen) {
+  await page.setViewportSize(screen);
+  await page.goto("/tools/compress-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await page.evaluate(() => document.fonts.ready);
+  await throttle(page, { cpu: 4, latencyMs: 300, kbps: 200 });
+  await startFrames(page, {
+    tops: { about: ABOUT },
+    present: {
+      analysis: '[aria-label^="Analysis complete"]',
+      counted: '[data-receipt] [data-settles="counted"]',
+    },
+  });
+  const before = await aboutTop(page);
+  const ownAt = await shiftOfOurOwn(page);
+  const pickedAt = await page.evaluate(() => performance.now());
+  await pickFromMemory(page, "report.pdf", await makePdfBytes("report.pdf", 6));
+  await expect(
+    page.locator('[data-receipt] [data-settles="counted"]'),
+  ).toBeVisible({ timeout: 30_000 });
+  // The worker's card answers after the analysis on a slow line; its answer
+  // is part of what a visit pays.
+  await expect(
+    page.getByText("Checking whether a secure worker is available…"),
+  ).toHaveCount(0, { timeout: 20_000 });
+  await page.waitForTimeout(500);
+  const shifts = await recordedShifts(page);
+  const frames = await stopFrames(page);
+  const counted = shiftsBetween(shifts, pickedAt, Infinity);
+  return {
+    before,
+    own: shiftsBetween(shifts, ownAt, pickedAt),
+    cls: counted.reduce((sum, s) => sum + s.value, 0),
+    listed:
+      counted
+        .map(
+          (s) =>
+            `${s.value.toFixed(4)} @${Math.round(s.t - pickedAt)}ms [${s.hits.join(", ")} :: ${s.sources.join(" | ")}]`,
+        )
+        .join(" + ") || "none",
+    frames,
+  };
+}
+
+/**
+ * THE PAGE AFTER A PICK, AT EVERY SCREEN (2026-10-11). The held stage
+ * (`stageHoldPx`, a cap fitted to the analysis's copy) moved the content
+ * under the runner once, at the pick — and a pick from memory opens no
+ * input window, so that move was counted. Measured on 06ecd2da, this
+ * function at each screen:
+ *
+ *   360 x 800 0.0321    390 x 844 0.0613    768 x 1024 0.1212 (over 0.1)
+ *   1280 x 720 0.0121   1280 x 900 0.0567   1366 x 768 0.0211
+ *   1920 x 1080 0.0557  2560 x 1440 0.0530
+ *
+ * every one of them the About section, which sat on screen under the drop
+ * sheet at all eight. The bound is the property, at every screen: a tenth
+ * of Google's "good" line, whatever moved.
+ */
+for (const screen of SCREENS) {
+  test(`Compress PDF at ${screen.width} x ${screen.height}: from a pick from memory to the counted receipt, page CLS ≤ ${PAGE_CLS_CEILING}`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const m = await compressAfterPick(page, screen);
+    // Health: the browser reported a shift we made, at this size; the
+    // analysis painted; the receipt counted.
+    expect(
+      m.own.length,
+      "the instrument saw no shift of its own making",
+    ).toBeGreaterThan(0);
+    expect(m.frames.some((f) => f.present.analysis)).toBe(true);
+    expect(m.frames.at(-1)!.present.counted).toBe(true);
+    expect(
+      m.cls,
+      `CLS after the pick at ${screen.width} x ${screen.height}: ${m.listed} (About at ${m.before.top} on a ${m.before.fold} px screen)`,
+    ).toBeLessThanOrEqual(PAGE_CLS_CEILING);
+  });
+}
+
+/**
+ * POSITIVE CONTROL, through the same measurement: the reservation taken
+ * away, the About section is on screen under the runner and the pick moves
+ * it — at the two screens where it cost the most.
+ */
+for (const screen of [
+  { width: 768, height: 1024 },
+  { width: 1280, height: 900 },
+] as const) {
+  test(`CONTROL: Compress PDF at ${screen.width} x ${screen.height}, the first screen unreserved — the bound sees the About section move`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await injectStyle(page, UNRESERVED);
+    const m = await compressAfterPick(page, screen);
+    await reservationRemoved(page);
+    expect(m.before.top, "the About section was not on screen").toBeLessThan(
+      m.before.fold,
+    );
+    expect(m.cls, m.listed).toBeGreaterThan(PAGE_CLS_CEILING);
+    expect(m.listed).toContain("about");
+  });
+}
+
+/**
+ * THE SAME SHIFT ON EVERY TOOL WITH AN ENDING. Derived, never listed: every
+ * tool the registry dispatches to an in-browser runner
+ * (`supportedToolSlugs`, what `/tools/[slug]` calls `getRunnerKind`
+ * against), each driven to its result by its own proof case
+ * (`./client-proof/cases`) — and each held, AT THE POINT OF CONSUMPTION, to
+ * having drawn the ending this is about: a result whose receipt is on the
+ * page (`[data-receipt]`).
+ *
+ * The ending's chunk arrives `ENDING_LATE_MS` after it is asked for, so the
+ * result is drawn after the Run press's input window has closed, as on any
+ * connection slower than loopback: on loopback it is drawn inside it, and
+ * every shift it causes is forgiven.
+ *
+ * Each run is read in two parts, split at the reader's last Run press:
+ *
+ *  - FROM THE PRESS TO THE ENDING: everything that moved, whatever it was.
+ *    The reader is wherever the case's own steps left the page — a tall
+ *    editor is scrolled to reach Run, and then what follows the runner IS
+ *    on screen. Measured on the first-screen build before the stage was
+ *    held from the press (`./stage-hold`): Sign PDF 0.2765 at 1280 x 720,
+ *    Edit PDF 0.8974 at 390 x 844 (a tall editor replaced by a short
+ *    result: the About section thrown up the screen); Merge PDF 0.1221 at
+ *    390 x 844 (a short editor, a taller result: About pushed down) — 103 of
+ *    240 over the bound, every one of them a run read while scrolled.
+ *  - FROM THE PICK TO THE PRESS: the shifts that moved the About section —
+ *    the runner moving what follows it, which the first screen holds still.
+ *    What moved INSIDE an editor as it opened (its file rows filling in, a
+ *    page drawn) moved nothing outside the runner, is not this shift, and
+ *    is reported in the test's annotations rather than held here.
+ */
+const ENDING_LATE_MS = 700;
+const ENDING_SET = [...supportedToolSlugs].sort();
+
+async function lateEnding(page: Page) {
+  const late: string[] = [];
+  await page.route("**/_next/static/chunks/**", async (route) => {
+    const response = await route.fetch();
+    const body = await response.body();
+    if (body.includes(RESULT_ENDING_CHUNK)) {
+      late.push(new URL(route.request().url()).pathname);
+      await new Promise((resolve) => setTimeout(resolve, ENDING_LATE_MS));
+    }
+    await route.fulfill({ response, body });
+  });
+  return late;
+}
+
+interface RunWatch {
+  /** Each press of a live Run button: when, and how far down the page. */
+  runs: { t: number; y: number }[];
+  /** Each height the page held the runner's stage at, and what it computed to. */
+  holds: { inline: string; computed: string }[];
+}
+
+async function runToEnding(page: Page, slug: string, screen: Screen) {
+  await page.setViewportSize(screen);
+  const late = await lateEnding(page);
+  await page.goto(`/tools/${slug}`);
+  await waitForHydration(fileInput(page));
+  await page.evaluate(() => document.fonts.ready);
+  await startFrames(page, {
+    tops: { about: ABOUT },
+    present: { receipt: "[data-receipt]" },
+  });
+  const before = await aboutTop(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __watch: RunWatch };
+    w.__watch = { runs: [], holds: [] };
+    document.addEventListener(
+      "click",
+      (event) => {
+        const trigger = (event.target as Element | null)?.closest?.(
+          "[data-run-trigger]",
+        );
+        if (trigger && trigger.getAttribute("aria-disabled") !== "true")
+          w.__watch.runs.push({ t: performance.now(), y: Math.round(scrollY) });
+      },
+      true,
+    );
+    const stage = document.querySelector<HTMLElement>("[data-runner-stage]");
+    if (stage)
+      new MutationObserver(() => {
+        if (stage.style.minHeight)
+          w.__watch.holds.push({
+            inline: stage.style.minHeight,
+            computed: getComputedStyle(stage).minHeight,
+          });
+      }).observe(stage, { attributes: true, attributeFilter: ["style"] });
+  });
+  const ownAt = await shiftOfOurOwn(page);
+  const startedAt = await page.evaluate(() => performance.now());
+  await CASES[slug]!.run({ page, data: {} });
+  await page.waitForTimeout(300);
+  const shifts = await recordedShifts(page);
+  const frames = await stopFrames(page);
+  const watch = await page.evaluate(
+    () => (window as unknown as { __watch: RunWatch }).__watch,
+  );
+  // Compress PDF has no Run press: its run starts with its file.
+  const ranAt = watch.runs.at(-1)?.t ?? startedAt;
+  const sum = (list: readonly Shift[]) =>
+    list.reduce((total, s) => total + s.value, 0);
+  const describe = (list: readonly Shift[]) =>
+    list
+      .map(
+        (s) =>
+          `${s.value.toFixed(4)} @${Math.round(s.t - startedAt)}ms [${s.hits.join(", ") || s.sources.join(" | ")}]`,
+      )
+      .join(" + ") || "none";
+  const picking = shiftsBetween(shifts, startedAt, ranAt);
+  const pickAbout = picking.filter((s) => s.hits.includes("about"));
+  const running = shiftsBetween(shifts, ranAt, Infinity);
+  return {
+    late,
+    before,
+    watch,
+    scrolled: watch.runs.at(-1)?.y ?? 0,
+    own: shiftsBetween(shifts, ownAt, startedAt),
+    running: sum(running),
+    runListed: describe(running),
+    pickAbout: sum(pickAbout),
+    pickAboutListed: describe(pickAbout),
+    pickInside: sum(picking.filter((s) => !s.hits.includes("about"))),
+    pickListed: describe(picking),
+    frames,
+  };
+}
+
+test("health: the set of tools with an ending is the registry's, every one has a case, and it is not implausibly small", () => {
+  expect(ENDING_SET.length).toBeGreaterThanOrEqual(25);
+  expect(ENDING_SET.filter((slug) => !(slug in CASES))).toEqual([]);
+});
+
+for (const slug of ENDING_SET) {
+  for (const screen of SCREENS) {
+    test(`${slug} at ${screen.width} x ${screen.height}: from Run to its ending page CLS ≤ ${PAGE_CLS_CEILING}, and the pick moves nothing after the runner`, async ({
+      page,
+    }, testInfo) => {
+      test.setTimeout(120_000);
+      const m = await runToEnding(page, slug, screen);
+      testInfo.annotations.push({
+        type: "inside the editor as it opened",
+        description: `${m.pickInside.toFixed(4)}: ${m.pickListed}`,
+      });
+      // Health: our own shift was seen, the ending's chunk was the one
+      // held back, and the result drew its ending — the receipt.
+      expect(
+        m.own.length,
+        "the instrument saw no shift of its own making",
+      ).toBeGreaterThan(0);
+      expect(m.late, "the ending's chunk was never asked for").not.toEqual([]);
+      expect(
+        m.frames.some((f) => f.present.receipt),
+        `${slug} drew no receipt: not a tool with an ending`,
+      ).toBe(true);
+      expect(
+        m.running,
+        `CLS from the Run press to ${slug}'s ending at ${screen.width} x ${screen.height}, scrolled ${m.scrolled} px: ${m.runListed}`,
+      ).toBeLessThanOrEqual(PAGE_CLS_CEILING);
+      expect(
+        m.pickAbout,
+        `CLS from the pick to the Run press that moved what follows ${slug}'s runner at ${screen.width} x ${screen.height}: ${m.pickAboutListed} (About at ${m.before.top} on a ${m.before.fold} px screen)`,
+      ).toBeLessThanOrEqual(PAGE_CLS_CEILING);
+    });
+  }
+}
+
+/**
+ * POSITIVE CONTROLS, through the same measurement, each taking one
+ * mechanism away: the stage's hold from the Run press, where a scrolled
+ * reader's result moved the most; and the first screen, where a pick moved
+ * the About section.
+ */
+test("CONTROL: Sign PDF at 1280 x 720, the stage not held from the press — the bound sees the result move what is on screen", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await injectStyle(page, "[data-runner-stage]{min-height:0 !important}");
+  const m = await runToEnding(page, "sign-pdf", { width: 1280, height: 720 });
+  await expect(page.locator("style[data-probe]")).toHaveCount(1);
+  // Health: the page did hold the stage, and the control took it away.
+  expect(m.watch.holds, "the page never held the stage").not.toEqual([]);
+  expect(new Set(m.watch.holds.map((h) => h.computed))).toEqual(
+    new Set(["0px"]),
+  );
+  expect(m.scrolled, "the run was not read scrolled").toBeGreaterThan(0);
+  expect(m.running, m.runListed).toBeGreaterThan(PAGE_CLS_CEILING);
+});
+
+test("CONTROL: Merge PDF at 1280 x 900, the first screen unreserved — the bound sees the pick move what follows the runner", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await injectStyle(page, UNRESERVED);
+  const m = await runToEnding(page, "merge-pdf", {
+    width: 1280,
+    height: 900,
+  });
+  await reservationRemoved(page);
+  expect(m.before.top, "the About section was not on screen").toBeLessThan(
+    m.before.fold,
+  );
+  expect(m.pickAbout, m.pickListed).toBeGreaterThan(PAGE_CLS_CEILING);
+});
+
+/**
  * A PDF Compress PDF's repack cannot shrink: already written the way the
  * repack writes (object streams, the site's producer), so the analysis says
  * "already lean" and offers no download — the shortest analysis there is.
@@ -743,25 +1204,34 @@ async function writeLeanPdf(name: string): Promise<string> {
 }
 
 /**
- * The stage is held no taller than what is drawn in it (`STAGE_HOLD_REM`):
- * the shortest analysis — nothing to download, the worker's card still
- * asking, the widest layout, one line to a sentence — fills it, so a held
- * stage never shows as a blank band under a result. At 1280 x 900 the room
- * left on the screen (499 px) is more than the cap, so it is the cap that
- * is held, and the cap that this reads. Mutation-checked: at 30 rem, "a 480
- * px stage left 18 px blank under its analysis".
+ * INVERTED 2026-10-11 — this was "the shortest analysis fills the stage
+ * held for it: no blank band under a result", and its history is kept:
  *
- * And caught for real on the merge of main (2026-10-11): #178 shortened the
- * worker card's sentence by a line at this width, the analysis drew 439.25
- * px under a cap fitted to 462, and this read "a 448 px stage left 8.75 px
- * blank under its analysis" while every other guard stayed green. The cap
- * is a constant fitted to copy, so any copy change in that analysis can
- * move it; this is the test that sees it. Its other side is the arrival
- * test above: the cap lowered to 27 rem (432 px) put the top of the About
- * grid on screen under the held stage, and that test read "CLS from the
- * analysis's first frame: 0.0019 [unnamed]". Between the two, 439 px.
+ *   The stage is held no taller than what is drawn in it (`STAGE_HOLD_REM`):
+ *   the shortest analysis — nothing to download, the worker's card still
+ *   asking, the widest layout, one line to a sentence — fills it, so a held
+ *   stage never shows as a blank band under a result. Mutation-checked: at
+ *   30 rem, "a 480 px stage left 18 px blank under its analysis". And caught
+ *   for real on the merge of main: #178 shortened the worker card's
+ *   sentence by a line at this width, and this read "a 448 px stage left
+ *   8.75 px blank under its analysis" while every other guard stayed green.
+ *   Its other side was the arrival test above: the cap lowered to 27 rem put
+ *   the top of the About grid on screen under the held stage. Between the
+ *   two, 439 px — a constant fitted to copy on both sides.
+ *
+ * The hold is gone (the history is in the Compress runner, above
+ * `CompressSingle`): sized at the pick, it moved the About section at the
+ * pick, where a file dropped or handed over opens no input window. The page
+ * holds the first screen instead (`data-first-screen`), and the stage grows
+ * into it. So the shortest analysis draws from the stage's top, and what is
+ * under it on screen is the panel's own surface, to the panel's edge at the
+ * bottom of the screen — with the About section below the screen, where no
+ * line gained or lost in the analysis can bring it into view, because
+ * nothing is fitted to the analysis any more. What this reads: the stage is
+ * not held by script, it fills the panel, the panel ends at the bottom of
+ * the screen, and nothing follows the runner on it.
  */
-test("the shortest analysis fills the stage held for it: no blank band under a result", async ({
+test("the shortest analysis: an unheld stage fills the panel to the bottom of the screen, and nothing follows the runner on screen", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -783,23 +1253,53 @@ test("the shortest analysis fills the stage held for it: no blank band under a r
 
   const stageBox = page.locator("[data-compress-stage]");
   await expect(stageBox, "the file's stage is not drawn").toHaveCount(1);
-  const stage = await stageBox.evaluate((el) => {
+  const m = await stageBox.evaluate((el) => {
     const last = [...el.querySelectorAll("button")].at(-1)!;
+    const panel = el.closest<HTMLElement>("[data-tool-panel]")!;
+    const box = getComputedStyle(panel);
+    const pad =
+      Number.parseFloat(box.paddingBottom) +
+      Number.parseFloat(box.borderBottomWidth);
+    const about = [...document.querySelectorAll("main h2")]
+      .find((h) => h.textContent === "About this tool")
+      ?.closest("div.grid");
     return {
-      held: Number.parseFloat((el as HTMLElement).style.minHeight) || 0,
-      blank:
-        el.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom,
+      held: (el as HTMLElement).style.minHeight,
       last: last.textContent,
+      lastBottom: last.getBoundingClientRect().bottom,
+      stageBottom: el.getBoundingClientRect().bottom,
+      panelInner: panel.getBoundingClientRect().bottom - pad,
+      panelBottom: panel.getBoundingClientRect().bottom,
+      aboutTop: about ? about.getBoundingClientRect().top : null,
+      fold: window.innerHeight,
     };
   });
-  // Health: the stage was held, at the cap (the screen had room for more).
-  expect(stage.last).toBe("Analyze another file");
-  expect(stage.held).toBeGreaterThan(0);
-  expect(stage.held).toBeLessThan(900 - 401);
+  // Health: this is the shortest analysis, and it is shorter than the room
+  // — the case where a band of panel shows under it at all.
+  expect(m.last).toBe("Analyze another file");
+  expect(m.lastBottom).toBeLessThan(m.stageBottom);
+  expect(m.aboutTop, "no About section to keep off the screen").not.toBeNull();
+  // Not held by script: no height of its own.
+  expect(m.held, "the stage was held by script").toBe("");
+  // It fills the panel, the panel ends at the bottom of the screen, and
+  // the About section starts below it. (A pixel past it, measured: the
+  // header's 1 px rule is outside `--sf-header-h`.)
   expect(
-    stage.blank,
-    `a ${stage.held} px stage left ${stage.blank} px blank under its analysis`,
+    Math.abs(m.panelInner - m.stageBottom),
+    `the stage ends ${m.panelInner - m.stageBottom} px short of the panel`,
   ).toBeLessThanOrEqual(0.5);
+  expect(
+    m.panelBottom,
+    `the panel ends at ${m.panelBottom}, short of a ${m.fold} px screen`,
+  ).toBeGreaterThanOrEqual(m.fold - 0.5);
+  expect(
+    m.panelBottom,
+    `the panel ends at ${m.panelBottom}, past a ${m.fold} px screen`,
+  ).toBeLessThanOrEqual(m.fold + 1.5);
+  expect(
+    m.aboutTop!,
+    `the About section is on screen, at ${m.aboutTop}`,
+  ).toBeGreaterThanOrEqual(m.fold);
 });
 
 test("unapplied edits are asked about before a header link leaves the page", async ({

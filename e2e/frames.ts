@@ -52,6 +52,12 @@ export interface Shift {
   readonly input: boolean;
   /** The named elements among this shift's sources. */
   readonly hits: readonly string[];
+  /**
+   * Every source, described for a failure message: its tag, its first
+   * classes or data attribute, and its top before and after — so a shift
+   * that moved nothing named still says what it moved.
+   */
+  readonly sources: readonly string[];
 }
 
 export interface Frame {
@@ -98,9 +104,28 @@ export async function startFrames(page: Page, probe: FrameProbe) {
         const shift = entry as PerformanceEntry & {
           value: number;
           hadRecentInput: boolean;
-          sources?: { node?: Node | null }[];
+          sources?: {
+            node?: Node | null;
+            previousRect: DOMRectReadOnly;
+            currentRect: DOMRectReadOnly;
+          }[];
         };
         const hits: string[] = [];
+        const sources = (shift.sources ?? []).map((source) => {
+          const node = source.node;
+          const el = node instanceof Element ? node : null;
+          const data = el
+            ? [...el.attributes].find((a) => a.name.startsWith("data-"))
+            : undefined;
+          const name = el
+            ? `${el.tagName.toLowerCase()}${data ? `[${data.name}]` : ""}${
+                typeof el.className === "string" && el.className
+                  ? "." + el.className.trim().split(/\s+/).slice(0, 3).join(".")
+                  : ""
+              }`
+            : (node?.nodeName ?? "?");
+          return `${name} ${Math.round(source.previousRect.top)}→${Math.round(source.currentRect.top)}`;
+        });
         for (const [name, spec] of Object.entries(probe.tops)) {
           const el = find(spec);
           if (
@@ -118,6 +143,7 @@ export async function startFrames(page: Page, probe: FrameProbe) {
           value: shift.value,
           input: shift.hadRecentInput,
           hits,
+          sources,
         });
       }
     }).observe({ type: "layout-shift" });
