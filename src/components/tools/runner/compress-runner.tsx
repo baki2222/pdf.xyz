@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -66,6 +65,7 @@ import {
   type Arrival,
 } from "./handoff-notice";
 import { FileHeader, SignedInputNotice } from "./single-pdf-runner";
+import { holdRunnerStage } from "./stage-hold";
 import { useSinglePdf, type LoadedPdf, type LockedPdf } from "./use-single-pdf";
 import { useToolHandoff } from "./use-tool-handoff";
 
@@ -161,112 +161,32 @@ export function CompressRunner() {
   );
 }
 
-/**
- * The most a picked file's stage holds, in rem: under the shortest analysis
- * there is (an unsigned file with nothing to download, the worker's card
- * still asking), so a held stage is never taller than what is drawn in it.
- * That analysis's stage, measured on the production build 2026-10-11: 462 px
- * at 1280, 1920 and 2560 wide (468 once the card answers), 508 at 1024 and
- * 768, 555 at 640, 836 at 390; 28 rem is 448. `e2e/continue-chain.spec.ts`
- * draws it and fails on a blank band under it.
+/*
+ * A PICKED FILE'S STAGE IS NOT HELD BY THIS RUNNER (2026-10-11). It was:
+ * from the commit the file arrived in, a layout effect set the stage's
+ * min-height to what was left of the screen below it, capped at
+ * `STAGE_HOLD_REM` (28 rem, then 27.4375 — 439 px, the one whole pixel
+ * between the shortest analysis and the top of the About section, refitted
+ * once already when #178 shortened the worker card's sentence by a line).
+ * The analysis then drew into space already on screen, and its arrival
+ * moved nothing (0.1357 -> 0 at 1280 x 900).
  *
- * Then main's privacy rewrite (#178) took "encrypted, " out of the worker
- * card's sentence, and at 1280 and wider it lost a line. The same stage,
- * re-measured on the merge's build the same day with the hold lifted, the
- * card asking: 439.25 px at 1280, 1920 and 2560, 482 at 1024 and 768,
- * 529.25 at 640, 736.75 at 390 (once this server's "disabled" answers:
- * 445.25, 507.5, 554.75, 813.25). Putting the old sentence back in that
- * page reads 462 again at 1280 and wider, so the line is the whole
- * difference. 28 rem then read "a 448 px stage left 8.75 px blank under its
- * analysis" (the spec, red on the merge).
+ * But the hold moved the About section ITSELF, at the pick: from under the
+ * drop sheet to under the held stage, off the bottom of the screen. Through
+ * the system dialog that move falls in the pick's input window; a file
+ * dropped, pasted or handed over opens none, and it was counted — page CLS
+ * after a pick 0.0567 at 1280 x 900, 0.1212 at 768 x 1024 (over Google's
+ * 0.1), and every one of the eight sizes over 0.01. A hold sized at the
+ * pick can only choose WHEN the content under the runner moves, never
+ * whether.
  *
- * BOUNDED FROM BOTH SIDES, by two tests in that spec, at 1280 x 900:
- * - no more than the shortest analysis, 439.25 px, or a blank band shows
- *   under it ("the shortest analysis fills the stage held for it");
- * - no less than the screen left under the stage once the gap to what
- *   follows is counted — the stage's top at 400.5 px, the About grid 61 px
- *   under its bottom, so 900 - 461.5 = 438.5 px — or the top of that grid
- *   is on screen when the analysis arrives and moves with it. 27 rem
- *   (432 px) read "CLS from the analysis's first frame: 0.0019 [unnamed]"
- *   ("Compress PDF's analysis draws with its ending into space held for
- *   it"), against a ceiling of 0.001.
- * The window is [438.5, 439.25] px on Windows, where it was [438.5, 462]
- * before the shorter sentence; 27.4375 rem is 439 px, the one whole pixel
- * in it. Linux Chromium sets text taller, which moves the stage's top down
- * the page and lengthens the analysis, so both margins only widen there.
- * A window under a pixel wide is a constant fitted to copy on both sides:
- * the next line gained or lost in that analysis, or above the stage, turns
- * one of the two tests red, which is what they are for.
+ * Now the page holds the first screen (`data-first-screen` in
+ * `app/tools/[slug]/page.tsx`): the panel reaches the bottom of the screen
+ * from the first paint, so nothing under the runner is on screen to move,
+ * and this stage grows into the panel it is drawn in — "Reading…" and
+ * "Analyzing…" fill it, as the drop sheet did, and the analysis draws from
+ * its top. `e2e/continue-chain.spec.ts` holds the page at eight sizes.
  */
-export const STAGE_HOLD_REM = 27.4375;
-
-/**
- * How tall a picked file's stage is held, in px, from the frame the file
- * arrives: what is left of the screen below the stage's top, and no more
- * than {@link STAGE_HOLD_REM}.
- *
- * WHY. The analysis is far taller than the "Reading…" and "Analyzing…"
- * blocks before it, so whatever is under the runner (the About section,
- * from 638 px down at 1280 × 900) moved when it was drawn — and on any real
- * connection that is long after the pick's input window has closed, so the
- * move counts. A layout shift is charged by the distance moved, even past
- * the bottom of the screen: drawn with its ending in one commit, the
- * analysis threw the About section 648 px, 0.1357 on its own (WP-08
- * re-review, 2026-10-11).
- *
- * HELD, the content under the runner moves once, in the frame the file
- * arrives — inside the pick's own input window when the dialog set the
- * file — and the analysis is drawn into space already on screen. Held to
- * the bottom of the screen and NOT to the analysis's full height: what is
- * below the screen cannot be seen to move, but a shift's distance is
- * counted all the same, so holding the off-screen part too charges the pick
- * for a move nobody sees. Measured at 1280 × 900 on a pick that opens no
- * input window (the worst case): held to the analysis's full 838 px, 0.1429;
- * to the screen's edge, 0.0587; not held, 0.1685. A screen taller than the
- * stage needs is held to the cap, which the shortest analysis fills.
- */
-export function stageHoldPx({
-  top,
-  viewport,
-  rem,
-}: {
-  /** The stage's top, from the top of the screen. */
-  top: number;
-  /** The screen's height. */
-  viewport: number;
-  /** The root font size, in px. */
-  rem: number;
-}): number {
-  return Math.max(
-    0,
-    Math.round(Math.min(viewport - top, STAGE_HOLD_REM * rem)),
-  );
-}
-
-/**
- * Holds the element it is given at {@link stageHoldPx} while `held`, from
- * the commit it mounts in — a layout effect, so the frame the file arrives
- * in is painted with the stage already its size. Measured once: the stage
- * does not resize under a reader.
- */
-function useStageHold(held: boolean) {
-  const ref = useRef<HTMLDivElement>(null);
-  const px = useRef<number | null>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    px.current ??= stageHoldPx({
-      top: el.getBoundingClientRect().top,
-      viewport: document.documentElement.clientHeight,
-      rem:
-        Number.parseFloat(
-          getComputedStyle(document.documentElement).fontSize,
-        ) || 16,
-    });
-    el.style.minHeight = held && px.current > 0 ? `${px.current}px` : "";
-  }, [held]);
-  return ref;
-}
 
 /** Load one File into the on-device analyzer. */
 function CompressSingle({
@@ -289,14 +209,11 @@ function CompressSingle({
     void open(file);
   }, [file, open]);
 
-  // The stage is held for the analysis (`stageHoldPx`). A file that cannot
-  // be analysed — unreadable, or locked — is not what it was held for, and
-  // is drawn at its own size.
   const lockedNow = Boolean(locked && !loading);
-  const stage = useStageHold(!error && !lockedNow);
 
+  // The stage grows into the panel's first screen; see above.
   return (
-    <div ref={stage} data-compress-stage="" className="flex flex-col">
+    <div data-compress-stage="" className="flex grow flex-col">
       {error ? (
         <div className="flex flex-col gap-4">
           <ErrorNote message={error.message} cause={error} />
@@ -333,9 +250,9 @@ function CompressSingle({
 }
 
 /**
- * A file's stage while it is read or analysed: the block fills the held
- * stage (`stageHoldPx`), so the space the analysis will be drawn into is
- * what is on screen while it is worked out.
+ * A file's stage while it is read or analysed: the block fills the stage,
+ * which fills the rest of the panel's first screen, so it stands where the
+ * drop sheet stood and the analysis draws from the same top.
  */
 function Pending({ children }: { children: ReactNode }) {
   return (
@@ -547,8 +464,7 @@ function CompressEditor({
         // it is drawn after the pick's input window has closed, so an
         // ending inserted after it painted was a shift every visit paid for
         // (it pushed the worker card below off screen). See `endingReady`.
-        // Drawn into the stage held since the file arrived (`stageHoldPx`),
-        // so the wait is the "Analyzing…" block's, and moves nothing.
+        // The wait is the "Analyzing…" block's, and moves nothing.
         await endingReady();
         if (active) setState({ result: r, error: null, busy: false });
       })
@@ -817,6 +733,9 @@ function WorkerDeepPanel({
   const canRunDeep = canRunDeepCompression(status);
 
   async function run() {
+    // Held from the press, like every runner's (`./stage-hold`): the card
+    // this run draws is under a reader who scrolled down to the worker.
+    const settled = holdRunnerStage();
     setBusy(true);
     setOutcome(null);
     void warmEnding().catch(() => {});
@@ -840,6 +759,7 @@ function WorkerDeepPanel({
       });
     } finally {
       setBusy(false);
+      settled();
     }
   }
 

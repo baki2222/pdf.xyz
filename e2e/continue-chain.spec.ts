@@ -638,7 +638,13 @@ function shiftSum(shifts: readonly Shift[], since: number) {
  * and the same from the analysis's first frame. The run's wait for its
  * ending removed (`endingReady` in the runner kit): "CLS from the
  * analysis's first frame: 0.0325 [worker]" — the ending drawn into the
- * analysis after it painted, the WP-08 review's own +0.032, back.
+ * analysis after it painted, the WP-08 review's own +0.032, back. And the
+ * first screen's reservation removed from the page (the same day, the
+ * stage hold already gone): "CLS after the pick: 0.1310 [unnamed]", 4 of 4
+ * alone — but GREEN once in a 252-test run under twelve workers. This test
+ * leans on a path pick's input window and a release timed against it, so
+ * load can move what it reads; the from-memory guards below at eight
+ * sizes lean on neither, and were red at all eight on that build.
  */
 test("Compress PDF's analysis draws with its ending, and after a pick nothing on the page moves", async ({
   page,
@@ -935,7 +941,14 @@ async function compressAfterPick(page: Page, screen: Screen) {
  *
  * every one of them the About section, which sat on screen under the drop
  * sheet at all eight. The bound is the property, at every screen: a tenth
- * of Google's "good" line, whatever moved.
+ * of Google's "good" line, whatever moved. With the first screen held
+ * (`data-first-screen`), 0 at all eight.
+ *
+ * Mutation-checked on the build (2026-10-11): the first screen's
+ * min-height taken out of the page, all eight red — 0.1944, 0.2684,
+ * 0.2553, 0.0656, 0.1638, 0.0845, 0.1019, 0.0779, the About section moved
+ * three or four times (by "Reading…", "Analyzing…" and the analysis). The
+ * controls below do the same through a stylesheet, on every run.
  */
 for (const screen of SCREENS) {
   test(`Compress PDF at ${screen.width} x ${screen.height}: from a pick from memory to the counted receipt, page CLS ≤ ${PAGE_CLS_CEILING}`, async ({
@@ -1012,6 +1025,11 @@ for (const screen of [
  *    What moved INSIDE an editor as it opened (its file rows filling in, a
  *    page drawn) moved nothing outside the runner, is not this shift, and
  *    is reported in the test's annotations rather than held here.
+ *
+ * Mutation-checked on the build (2026-10-11): `holdRunnerStage` returning
+ * at once — 96 of the 240 red, every one on the Run press's part; the
+ * first screen's min-height taken out of the page — 216 red, 208 of them
+ * on the pick's part.
  */
 const ENDING_LATE_MS = 700;
 const ENDING_SET = [...supportedToolSlugs].sort();

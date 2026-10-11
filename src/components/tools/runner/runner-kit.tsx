@@ -37,6 +37,7 @@ import {
   reportToolCompleted,
   reportToolFailed,
 } from "@/lib/telemetry/tool-outcome";
+import { holdRunnerStage } from "./stage-hold";
 import { useToolRun } from "./tool-context";
 
 export {
@@ -90,9 +91,11 @@ export function failureCode(err: unknown): string | undefined {
  * One commit is not, by itself, a page that holds still: one taller commit
  * throws what is under the runner farther than two short ones did, and a
  * layout shift is charged by the distance (Compress PDF after a pick,
- * 0.0725 + 0.0325 became one 0.1357: WP-08 re-review, 2026-10-11). Where a
- * result's size can be held before it comes, the runner holds it — Compress
- * PDF's stage (`stageHoldPx` in its runner).
+ * 0.0725 + 0.0325 became one 0.1357: WP-08 re-review, 2026-10-11). So on a
+ * tool page nothing is under the runner on screen: the panel holds the
+ * first screen from the first paint (`data-first-screen` in
+ * `app/tools/[slug]/page.tsx`), and a result grows the panel downwards,
+ * past the bottom of the screen, moving nothing a reader can see.
  *
  * The wait is bounded ({@link ENDING_WAIT_MS}). A result that outwaits it
  * is drawn without its ending, and the ending, when it comes, is drawn
@@ -161,6 +164,9 @@ export function useAsyncRun<T>() {
   const [result, setResult] = useState<T | null>(null);
 
   const run = useCallback(async (task: () => Promise<T>) => {
+    // The stage the result will be drawn into, held from the press, in the
+    // press's own handler (`./stage-hold`).
+    const settled = holdRunnerStage();
     setBusy(true);
     setError(null);
     void warmEnding().catch(() => {});
@@ -183,6 +189,7 @@ export function useAsyncRun<T>() {
       return null;
     } finally {
       setBusy(false);
+      settled();
     }
   }, []);
 
@@ -227,6 +234,10 @@ export function Spinner({ className }: { className?: string }) {
  *
  * `busy`: the zone's runner is at work; a file dropped on the PAGE then goes
  * to the ticket dialog rather than into a run already started.
+ *
+ * On a tool page the sheet takes the room the first screen leaves it, while
+ * it is all its runner shows: the rule is the runner stage's
+ * (`data-runner-stage` in `app/tools/[slug]/page.tsx`), not this zone's.
  */
 export function Dropzone({
   onFiles,

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -30,6 +37,7 @@ import {
   outputFile,
   warmEnding,
 } from "./runner-kit";
+import { holdRunnerStage } from "./stage-hold";
 import { useBatchRunner, type BatchUnit } from "./use-batch-runner";
 import { useZipDownload } from "./use-zip-download";
 
@@ -114,6 +122,15 @@ export function CompressBatchRunner({
     useBatchRunner<CompressResult>(units, process);
 
   const settled = state.phase === "done" || state.phase === "canceled";
+  // The stage is held from the press until the batch settles and the reader
+  // presses again (`./stage-hold`): the rows and the ending it draws come
+  // long after the press.
+  const settleHold = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!settled) return;
+    settleHold.current?.();
+    settleHold.current = null;
+  }, [settled]);
   const totalSaved = state.items.reduce(
     (sum, item) => sum + (item.result?.savedBytes ?? 0),
     0,
@@ -287,6 +304,7 @@ export function CompressBatchRunner({
               <button
                 type="button"
                 onClick={() => {
+                  settleHold.current = holdRunnerStage();
                   void warmEnding().catch(() => {});
                   start();
                 }}

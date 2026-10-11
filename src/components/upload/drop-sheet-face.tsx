@@ -15,10 +15,11 @@ import { UploadCloud } from "lucide-react";
  * The picker's label on a `sheet` or `compact` face: the whole surface.
  * Joined as written, not through `cn`: nothing here conflicts, so merging
  * returned the same string (checked when it changed, WP-07 re-review) for
- * more code on every tool page.
+ * more code on every tool page. `grow`: a sheet given room (a tool page's
+ * own, `Dropzone`) is all face, its words centred in it.
  */
 export const faceClass = (variant: "sheet" | "compact") =>
-  `rounded-sheet flex cursor-pointer flex-col items-center justify-center gap-3 border border-dashed text-center transition-colors duration-150 ${variant === "compact" ? "px-4 py-6" : "px-6 py-12"} border-line-strong bg-canvas hover:border-fg/40 group-data-[armed]/sheet:border-accent group-data-[over]/sheet:bg-accent/5 has-[:focus-visible]:border-accent has-[:focus-visible]:ring-accent/40 has-[:focus-visible]:ring-2`;
+  `rounded-sheet flex grow cursor-pointer flex-col items-center justify-center gap-3 border border-dashed text-center transition-colors duration-150 ${variant === "compact" ? "px-4 py-6" : "px-6 py-12"} border-line-strong bg-canvas hover:border-fg/40 group-data-[armed]/sheet:border-accent group-data-[over]/sheet:bg-accent/5 has-[:focus-visible]:border-accent has-[:focus-visible]:ring-accent/40 has-[:focus-visible]:ring-2`;
 
 /** The words and the mark on a `sheet` or `compact` face, inside its label. */
 export function SheetFace({

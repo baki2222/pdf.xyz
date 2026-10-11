@@ -362,6 +362,15 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * file arrives (`stageHoldPx`) and the ending fetched then, both in its
  * own runner's chunk.
  *
+ * THE FIRST SCREEN, 2026-10-11 (page CLS after a pick held at eight sizes,
+ * on every tool with an ending). Same weigher, 06ecd2da's build against
+ * this one's, every tool page: +570 B raw / +223 B gz of script — the
+ * runner stage's hold from a Run press (`stage-hold`, in the shared runner
+ * kit). Compress PDF +210 / +35 in all: the same, less its own stage hold.
+ * Every other page ±0 raw (-1 to -5 B gz: chunk names in the runtime).
+ * The first screen's and the stage's rules are stylesheet, which this
+ * weigher does not count.
+ *
  * WHAT IS STILL TO COME is held against every row by the test after
  * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
  * fails. The one row the layout's remaining growth cannot reach is /tools,
