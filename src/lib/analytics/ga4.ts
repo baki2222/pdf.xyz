@@ -22,6 +22,12 @@
  * server-side "Enhanced measurement" setting; that switch lives in the GA4
  * admin, not in code, and must be off.)
  *
+ * AND THE EVENTS DID NOT, until 2026-10-10: "everything GA4 sees has been
+ * through redactValue" was true of the event's own fields and silent about
+ * the `page_location` gtag.js adds to each one from `location.href`. A
+ * `tool_viewed` fired on `?handoff=<token>` carried the token (captured at
+ * the wire). Every event now carries {@link pageOf}'s query-free location.
+ *
  * The measurement id is public by design: it is served in the page source of
  * every consenting visitor, exactly like every other GA4 site. Keeping it a
  * source constant (not a NEXT_PUBLIC_ bake) means `container.yml`'s
@@ -140,8 +146,32 @@ export function enableGa4(
 
   configureTelemetry((event) => {
     const { name, ...params } = event;
-    gtag("event", name, params);
+    gtag("event", name, { ...params, ...pageOf(win, doc) });
   });
+}
+
+/**
+ * The page an event happened on, as GA4 is allowed to see it: origin + path,
+ * and the referrer the same way. Attached to EVERY product event, because
+ * gtag.js fills a missing `page_location` from `location.href`.
+ *
+ * Until 2026-10-10 the events carried neither, and gtag did exactly that:
+ * captured at the wire against a production build, the `tool_viewed` of a
+ * workspace hand-off went to Google as
+ * `dl=…/tools/sign-pdf?handoff=h_794b80b9…` — the key to a file waiting in
+ * that browser — while /privacy promised events were stripped of query
+ * strings. Page views were already stripped (`sendGa4PageView`); the events
+ * beside them were not.
+ */
+function pageOf(
+  win: GtagWindow,
+  doc: Document,
+): { page_location: string; page_referrer?: string } {
+  const referrer = withoutQuery(doc.referrer ?? "");
+  return {
+    page_location: `${win.location.origin}${withoutQuery(win.location.pathname) || "/"}`,
+    ...(referrer ? { page_referrer: referrer } : {}),
+  };
 }
 
 /**
@@ -161,6 +191,17 @@ export function sendGa4PageView(
   if (!enabled || !win?.gtag || !doc) return;
   const path = withoutQuery(pathname) || "/";
   const referrer = withoutQuery(doc.referrer ?? "");
+  // The tag's OWN hits — `user_engagement` when a page is left, and whatever
+  // a property's Enhanced Measurement adds — read their location from the
+  // tag's page state, which defaults to `location.href`. Setting it here,
+  // per route, gives them the same query-free address (review, 2026-10-10).
+  // What gtag.js does with it for those hits is Google's code and was not
+  // captured at the wire for this change, so /privacy promises "without its
+  // query string" only for the page views and events below.
+  win.gtag("set", {
+    page_location: `${win.location.origin}${path}`,
+    page_referrer: referrer,
+  });
   win.gtag("event", "page_view", {
     page_location: `${win.location.origin}${path}`,
     page_path: path,

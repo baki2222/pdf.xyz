@@ -38,10 +38,15 @@ import { PdfANotes } from "./pdfa-notes";
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
  * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 — phone at 360px 308px, `sm` at 640px 269px, `lg` at 1024px
- * 269px — plus 4px, to the half rem.
+ * 2026-10-10 on Windows: phone at 360px 327.5px, `sm` at 640px 269px,
+ * `lg` at 1024px 269px.
+ * The worker-off state grew when its notice gained the logs-and-analytics
+ * disclosure (fix/privacy-truth, 2026-10-10), so the phone reserve is refitted
+ * to clear the tallest state by at least 3.5%, to the half rem: the headroom
+ * Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
+ * e2e/tool-layout.mobile.spec.ts).
  */
-const STATUS_SLOT = "min-h-[20rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
+const STATUS_SLOT = "min-h-[22.5rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
 
 type Phase = WorkerPhase;
 
@@ -106,7 +111,7 @@ export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             PDF/A conversion uses Ghostscript on the isolated worker to create
@@ -248,7 +253,7 @@ function ArchiveRunArea({
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker on this machine."
-          : "Running this uploads your file to the encrypted secure worker, converts it with Ghostscript, and wipes the input after processing."}
+          : "Running this uploads your file to the secure worker, converts it with Ghostscript, and wipes the input after processing."}
       </p>
       {file ? (
         <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">

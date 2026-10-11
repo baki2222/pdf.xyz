@@ -16,7 +16,12 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { createElement, type ComponentType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import PrivacyPage from "@/app/privacy/page";
+import TermsPage from "@/app/terms/page";
+import { BROWSER_STORAGE } from "@/lib/browser-storage";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
 import { tools } from "@/lib/tools";
@@ -36,6 +41,19 @@ const FOOTER = path.join(
 const SITEMAP = path.join(ROOT, "src", "app", "sitemap.ts");
 
 const read = (file: string) => readFileSync(file, "utf8");
+
+/** A page as the text a reader receives: tags out, entities decoded, one space. */
+function renderedText(Page: ComponentType): string {
+  return renderToStaticMarkup(createElement(Page))
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;|&apos;|&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 /**
  * Source with comments removed.
  *
@@ -79,15 +97,20 @@ const DURATION_SHAPE =
  * clamd answers. A test asserting the sentence exists beside a constant would
  * restate the claim, not check it — the decoration problem.
  *
- * It is true by construction instead: `PDFXYZ_WORKER_REQUIRE_SCAN` arms a
- * guardrail that refuses to start a deployment with no scanner configured, and
- * `worker:release-gate` runs `ops-check`, which exits 4 when scanning is
- * required but not active — so a promotion cannot carry the claim past a dead
- * scanner.
+ * THIS NOTE USED TO SAY THE CLAIM WAS "TRUE BY CONSTRUCTION", and that was the
+ * defect (legal-pages sweep, 2026-10-10, row 7). It said
+ * `PDFXYZ_WORKER_REQUIRE_SCAN` refuses to start a deployment with no scanner,
+ * and that `worker:release-gate` stops a promotion past a dead scanner. The
+ * flag is OPT-IN and strict mode does not imply it (`guardrails.ts`), and the
+ * release gate reads committed blueprints and fixtures, never the live worker
+ * (`docs/DEPLOYMENT.md`). The page repeated the first half to readers — "a
+ * deployment with no scanner refuses to start" — and it is banned below.
  *
- * If you came here to add a guard for that sentence: the honest one is
- * operational, not a unit test. Check the guardrail is still armed and the gate
- * still runs before promotion.
+ * What holds the claim today is production itself: the live worker status
+ * reported `scan.active = true` at the wire on 2026-10-10, and /privacy points
+ * readers to /status, which renders that live answer. That is an observation,
+ * not a construction; `privacy-truth.test.tsx` keeps the page from promising
+ * more than `evaluateGuardrails` enforces.
  */
 describe("the policy pages exist and are reachable", () => {
   it.each([
@@ -247,7 +270,7 @@ describe("the policy pages do not promise what the product does not do", () => {
    * support. Each is paired with what is actually true, so a failure explains
    * itself rather than just forbidding a word.
    */
-  const OVERCLAIMS: { pattern: RegExp; instead: string }[] = [
+  const OVERCLAIMS: { pattern: RegExp; instead: string; shipped?: string }[] = [
     {
       pattern: /\bend-to-end encrypt/i,
       instead:
@@ -369,20 +392,192 @@ describe("the policy pages do not promise what the product does not do", () => {
       instead:
         "analytics cookies exist after consent; say when they are set and that declining sets none",
     },
+    // ------------------------------------------------------------------ //
+    // The entries below were on /privacy until 2026-10-10, when a sweep of
+    // the legal pages against the code (the Art. 30 record, the pack's §5
+    // rows 1-18) found each one false or unsupported. Each carries the
+    // sentence it was written from in `shipped`, and the corpus test below
+    // requires the pattern to catch it (house rule 1, both directions).
+    // `privacy-truth.test.tsx` holds the page to the code in the positive
+    // direction; these keep the old words from coming back anywhere the list
+    // is read, which includes the marketing walk.
+    // ------------------------------------------------------------------ //
+    {
+      // Row 12. script-src carries 'unsafe-inline' and 'wasm-unsafe-eval'
+      // (next.config.mjs). Exit — the PROPERTY: the served script-src allows
+      // neither; privacy-truth.test.tsx reads the header itself.
+      pattern: /\bstrict\s+Content\s+Security\s+Policy\b/i,
+      instead:
+        "the CSP allows inline scripts; describe what it limits, and say that it allows inline scripts",
+      shipped:
+        "The site sets a strict Content Security Policy and related protections against common web attacks.",
+    },
+    {
+      // Row 7. PDFXYZ_WORKER_REQUIRE_SCAN is opt-in and strict mode does not
+      // imply it. Exit — the PROPERTY: a worker with no active scanner cannot
+      // start in PRODUCTION, observed there (not a flag in source).
+      pattern:
+        /\b(?:with\s+no\s+scanner|without\s+a\s+scanner|scanner-less)[^.]{0,40}\brefuses?\s+to\s+(?:start|run)\b/i,
+      instead:
+        "say that uploads are scanned and point to /status for the live answer; nothing in the code makes a scanner-less worker refuse to start",
+      shipped:
+        "a deployment with no scanner refuses to start, so this is not a setting that can quietly lapse.",
+    },
+    {
+      // Rows 6 and 3. Uploads and results sit in Cloudflare R2, a processor.
+      pattern: /\b(?:storage|infrastructure)\s+we\s+(?:control|own)\b/i,
+      instead:
+        "name the storage provider (Cloudflare R2); it is a processor, not storage we control",
+      shipped:
+        "your file is uploaded over an encrypted connection to storage we control, scanned for malware, processed",
+    },
+    {
+      // Row 4. No retention period for any log is configured or recorded.
+      pattern: /\bretained\s+for\s+a\s+short\s+period\b/i,
+      instead:
+        "say who keeps logs (Cloudflare, the storage provider, our own servers) and that no fixed period is promised",
+      shipped:
+        "are used to operate and secure the service, including to detect abuse, and are retained for a short period by those providers.",
+    },
+    {
+      // Row 13. True only of the dormant Anthropic adapter; production uses
+      // OpenAI, which may keep inputs for up to 30 days for abuse monitoring.
+      pattern: /\bminutes,\s+not\s+days\b/i,
+      instead:
+        "state what the production AI provider may keep, and for how long (src/lib/privacy/processors.ts)",
+      shipped:
+        "The provider holds it in a short-lived cache, which lowers the cost of processing the repeat rather than avoiding it; that cache lasts minutes, not days.",
+    },
+    {
+      // Row 14. Whether Cloudflare sets cookies is not ours to rule out.
+      pattern: /\bthe\s+one\s+kind\s+of\s+cookie\b/i,
+      instead:
+        "say our own code sets no cookies, Google Analytics sets its own after consent, and Cloudflare may set its own",
+      shipped:
+        "The one kind of cookie on this site belongs to Google Analytics, and it is set only after you allow analytics in the consent banner",
+    },
+    {
+      // Row 5. Request Signatures asks for signers' names and emails;
+      // Protect and Unlock ask for a password. Every verb, every order.
+      pattern:
+        /\b(?:do\s+not|don't|never)\s+ask\s+(?:you\s+)?for\s+(?:a\s+|your\s+)?(?:name|e-?mail|password)/i,
+      instead:
+        "there are no accounts, but some tools ask for a name, an email address or a password; say which",
+      shipped:
+        "We do not ask for a name, an email address, or a password to use the tools, so we hold no profile of you to lose.",
+    },
+    {
+      // Row 8. The password sits in the job's instructions (the executor
+      // spec), which is deleted when the job ends — not in the job record for
+      // the record's whole window.
+      pattern: /\bsits\s+in\s+that\s+job\s+record\b/i,
+      instead:
+        "say what the Protect/Unlock panel says: it waits in the queue until the job finishes or is cancelled",
+      shipped:
+        "the password you type is part of the instruction sent to the worker, and it sits in that job record for the same",
+    },
+    {
+      // Rows 1 and 4. Logs carry IP addresses; the legitimate-interest
+      // signals are not identifier-free.
+      pattern: /\bcarry\s+no\s+identifiers\b/i,
+      instead: "say what each signal carries; request logs hold IP addresses",
+      shipped:
+        "We have considered your rights in reaching that balance, which is why these signals carry no identifiers and no document contents.",
+    },
+    {
+      // Review of the 2026-10-10 rewrite. The queue is a self-hosted Redis
+      // with append-only persistence (`--appendonly yes`), so what FINALIZE
+      // deletes stays in the on-disk journal until it is rewritten, and no
+      // rewrite interval is recorded. "Only until" is the word that makes the
+      // sentence false; privacy-truth.test.tsx requires every queue lifetime
+      // the page states to name the journal.
+      pattern: /\bonly\s+until\s+the\s+job\s+(?:ends|finishes|is\s+done)\b/i,
+      instead:
+        "say the job queue removes it when the job ends, and that the queue's on-disk journal can keep a copy until it is next compacted (src/lib/privacy/job-queue.ts)",
+      shipped:
+        "Our job queue keeps them only until the job ends — or, if no worker ever runs the job, until the queue's retention lapses after 24 hours.",
+    },
   ];
 
+  it("each 2026-10-10 entry catches the sentence it was written from", () => {
+    const withCorpus = OVERCLAIMS.filter((o) => o.shipped !== undefined);
+    // Health: the corpus did not quietly shrink.
+    expect(withCorpus.length).toBeGreaterThanOrEqual(10);
+    for (const o of withCorpus)
+      expect(
+        o.shipped!,
+        `${String(o.pattern)} misses its own sentence`,
+      ).toMatch(o.pattern);
+  });
+
   it.each([
-    ["privacy", PRIVACY],
-    ["terms", TERMS],
-  ])("/%s makes no unsupported claim", (name, file) => {
-    const source = withoutComments(read(file));
-    const found = OVERCLAIMS.filter((o) => o.pattern.test(source)).map(
-      (o) => `${String(o.pattern)} — ${o.instead}`,
-    );
+    ["privacy", PRIVACY, PrivacyPage],
+    ["terms", TERMS, TermsPage],
+  ] as const)("/%s makes no unsupported claim", (name, file, Page) => {
+    // TWO READINGS, because each sees what the other cannot.
+    //
+    // THE RENDERED PAGE — what a reader receives. Until review (2026-10-10)
+    // this read the page's source plus every `@/lib/privacy/*` module it
+    // imports, matched by that typed path prefix — and its comment said the
+    // modules were "found by following the page's imports, not by a list". A
+    // prefix IS a list. /privacy also renders words from browser-storage,
+    // retention-windows, legal, the tool catalogue, the legal-page frame and
+    // the analytics choices; none were read. Mutation A: "permanently
+    // deleted" planted in BROWSER_STORAGE's consent `lasts` rendered in §5,
+    // and every guard stayed green. The render reads every module the page
+    // draws on, because that is what rendering is.
+    //
+    // THE SOURCE — the page and the `src/lib/privacy` registries it imports —
+    // because a branch a flag does not render today (the per-client
+    // rate-limit sentence in `rate-limits.ts`) is on no rendered page and
+    // still ships the day the flag flips. It is a narrower set on purpose:
+    // the branches, not the reach.
+    const rendered = renderedText(Page);
+    // Health: the render is not blind, and it reaches beyond src/lib/privacy.
+    expect(rendered.length).toBeGreaterThan(2000);
+    if (name === "privacy")
+      expect(rendered).toContain(BROWSER_STORAGE[0]!.lasts);
+    else expect(rendered).toContain(LEGAL_ENTITY.name);
+    const own = read(file);
+    const registries = [
+      ...own.matchAll(/from "@\/lib\/privacy\/([\w-]+)"/g),
+    ].map((m) => path.join(ROOT, "src", "lib", "privacy", `${m[1]}.ts`));
+    if (name === "privacy") expect(registries.length).toBeGreaterThanOrEqual(5);
+    const source = [own, ...registries.map(read)]
+      .map(withoutComments)
+      .join(" \n ");
+    const found = [
+      ...OVERCLAIMS.filter((o) => o.pattern.test(rendered)).map(
+        (o) => `rendered: ${String(o.pattern)} — ${o.instead}`,
+      ),
+      ...OVERCLAIMS.filter((o) => o.pattern.test(source)).map(
+        (o) => `source: ${String(o.pattern)} — ${o.instead}`,
+      ),
+    ];
     expect(
       found,
       `${name} contains a claim this product cannot support:\n  ${found.join("\n  ")}`,
     ).toEqual([]);
+  });
+
+  it("positive control: an overclaim in a registry outside src/lib/privacy reaches the rendered scan", () => {
+    // Mutation A, as an executable control: the consent store's `lasts` is
+    // rendered by /privacy §5 from `@/lib/browser-storage`. The same scan the
+    // test above runs, over the rendered page with that sentence replaced.
+    const lasts = BROWSER_STORAGE[0]!.lasts;
+    const rendered = renderedText(PrivacyPage);
+    expect(rendered).toContain(lasts);
+    const planted = rendered.replace(
+      lasts,
+      "Until you change it here; then it is permanently deleted.",
+    );
+    expect(planted).not.toBe(rendered);
+    expect(OVERCLAIMS.filter((o) => o.pattern.test(rendered))).toEqual([]);
+    expect(
+      OVERCLAIMS.filter((o) => o.pattern.test(planted)).map((o) =>
+        String(o.pattern),
+      ),
+    ).toEqual([String(/\bpermanently (?:delet|eras|destroy|wip|remov|purg)/i)]);
   });
 
   it("neither does the marketing copy the legal pages sit one click from", () => {

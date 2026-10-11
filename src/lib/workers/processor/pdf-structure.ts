@@ -142,7 +142,7 @@ export function createPdfStructureProcessor(deps: PdfStructureDeps): Processor {
         tools: [...PDF_STRUCTURE_TOOLS],
         ready,
         detail: ready
-          ? "PDF repair and web optimization ready: qpdf rewrites and linearizes PDFs on an encrypted, auto-deleting secure worker."
+          ? "PDF repair and web optimization ready: qpdf rewrites and linearizes PDFs on an auto-deleting secure worker."
           : "PDF repair and web optimization need the native qpdf engine, which isn't installed on this worker.",
       };
     },

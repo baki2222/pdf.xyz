@@ -20,6 +20,7 @@
  */
 
 import type { FieldError } from "@/lib/jobs";
+import { PER_CLIENT_KEYING_DISCLOSED } from "@/lib/privacy/keying";
 import type { RateLimitProviderId } from "./types";
 
 type EnvSource = Record<string, string | undefined>;
@@ -147,10 +148,37 @@ export function resolveRateLimitProviderId(
   return "disabled";
 }
 
-/** True when the proxy forwarding header is trusted for client attribution. */
+/** Set only by tests: see {@link discloseKeyingForTests}. */
+let keyingDisclosedForTests: boolean | undefined;
+
+/**
+ * TEST SEAM: run as if /privacy did (or did not) disclose per-client keying.
+ * Per-client keying is impossible in every real deployment until the
+ * disclosure flips, so the tests that exercise it need a counterfactual; this
+ * is it. `undefined` restores the real flag, and `src/tests/setup.ts` does so
+ * after every test. No non-test source may call it — `keying-disclosure.test.tsx`
+ * searches `src` and `scripts` for a caller.
+ */
+export function discloseKeyingForTests(disclosed: boolean | undefined): void {
+  keyingDisclosedForTests = disclosed;
+}
+
+/**
+ * True when the proxy forwarding header is trusted for client attribution —
+ * which needs the operator's flag AND the privacy policy's disclosure.
+ *
+ * The second condition since 2026-10-10. Per-client keying stores a salted
+ * hash of each visitor's address with its counter for up to a day; /privacy
+ * did not say so, and three environment variables could switch it on without
+ * any copy changing. Reading the disclosure here makes that impossible: until
+ * `PER_CLIENT_KEYING_DISCLOSED` flips — and with it the sentence /privacy
+ * renders — every request lands in the shared bucket, and the posture says
+ * `remote-configured-shared`.
+ */
 export function isTrustForwardedFor(env: EnvSource = process.env): boolean {
   const value = read(env, RATE_LIMIT_ENV.trustForwardedFor)?.toLowerCase();
-  return value !== undefined && TRUTHY.has(value);
+  const disclosed = keyingDisclosedForTests ?? PER_CLIENT_KEYING_DISCLOSED;
+  return value !== undefined && TRUTHY.has(value) && disclosed;
 }
 
 /** Resolve the full guard configuration, with a name-only diagnostic when needed. */

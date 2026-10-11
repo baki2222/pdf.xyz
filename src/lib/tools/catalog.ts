@@ -906,7 +906,7 @@ export const tools: Tool[] = [
     seoTitle: "Password Protect PDF — AES Encryption",
     tagline: "Encrypt with a password.",
     description:
-      "Password-protect a PDF with AES encryption, so only people with the password can open it. Encryption runs on an encrypted, auto-deleting secure worker.",
+      "Password-protect a PDF with AES encryption, so only people with the password can open it. Encryption runs on an auto-deleting secure worker.",
     category: "security",
     icon: "protect",
     processing: "server",

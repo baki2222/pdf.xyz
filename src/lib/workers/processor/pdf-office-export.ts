@@ -142,7 +142,7 @@ export function createPdfOfficeExportProcessor(
         tools: PDF_OFFICE_EXPORT_TOOLS,
         ready,
         detail: ready
-          ? "PDF to Office export ready: selectable PDF text is packaged into DOCX, XLSX, or PPTX on an encrypted, auto-deleting secure worker."
+          ? "PDF to Office export ready: selectable PDF text is packaged into DOCX, XLSX, or PPTX on an auto-deleting secure worker."
           : "PDF to Office export needs the PDF text extractor, which isn't available on this worker.",
       };
     },

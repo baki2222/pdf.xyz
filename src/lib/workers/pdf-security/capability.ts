@@ -71,7 +71,7 @@ export function buildSecurityCapability(
       available: true,
       operations: [...QPDF_OPERATIONS],
       detail:
-        "Protect, Unlock, Repair, and Optimize for Web run on qpdf, on an encrypted, auto-deleting secure worker — inputs are wiped right after processing.",
+        "Protect, Unlock, Repair, and Optimize for Web run on qpdf, on an auto-deleting secure worker — inputs are wiped right after processing.",
     };
   }
   return {

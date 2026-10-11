@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   RATE_LIMIT_ENV,
+  discloseKeyingForTests,
   isTrustForwardedFor,
   resolveRateLimitConfig,
   resolveRateLimitProviderId,
@@ -59,7 +60,20 @@ describe("resolveRateLimitProviderId", () => {
 });
 
 describe("isTrustForwardedFor", () => {
-  it("is off unless explicitly truthy", () => {
+  it("is off while /privacy does not disclose per-client keying, whatever the env says", () => {
+    // INVERTED 2026-10-10. The env alone used to switch per-client keying on;
+    // it stores a salted hash of each address, which /privacy did not say.
+    // The real flag (`PER_CLIENT_KEYING_DISCLOSED`) is false: no value of the
+    // operator's variable turns trust on.
+    for (const value of ["1", "true", "on", "yes", "enabled"]) {
+      expect(
+        isTrustForwardedFor(env({ [RATE_LIMIT_ENV.trustForwardedFor]: value })),
+      ).toBe(false);
+    }
+  });
+
+  it("is off unless explicitly truthy (with the disclosure in place)", () => {
+    discloseKeyingForTests(true);
     expect(isTrustForwardedFor(env({}))).toBe(false);
     expect(
       isTrustForwardedFor(env({ [RATE_LIMIT_ENV.trustForwardedFor]: "false" })),

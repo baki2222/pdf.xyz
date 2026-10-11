@@ -4,7 +4,12 @@ import { buildMetadata } from "@/lib/seo";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
 import { JOB_LIMITS } from "@/lib/jobs/types";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
-import { LEGAL_CONTACT, LEGAL_ENTITY, LEGAL_UPDATED } from "@/lib/legal";
+import {
+  LEGAL_CONTACT,
+  LEGAL_ENTITY,
+  LEGAL_UPDATED,
+  MINIMUM_AGE,
+} from "@/lib/legal";
 
 export const metadata: Metadata = buildMetadata({
   title: "Terms of Service",
@@ -65,9 +70,9 @@ export default function TermsPage() {
 
       <LegalSection id="who" heading="2. Who may use it">
         <p>
-          You must be at least 13 years old. If you are using pdf.xyz for an
-          organisation, you confirm you are allowed to accept these terms on its
-          behalf.
+          You must be at least {MINIMUM_AGE} years old. If you are using pdf.xyz
+          for an organisation, you confirm you are allowed to accept these terms
+          on its behalf.
         </p>
       </LegalSection>
 

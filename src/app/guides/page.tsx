@@ -31,7 +31,7 @@ export default function GuidesPage() {
           as="h1"
           eyebrow="Guides"
           title="PDF guides"
-          description="Practical walkthroughs for everyday PDF tasks. Every guide names the tool it uses and says plainly where the processing runs — in your browser, or on an encrypted, auto-deleting worker."
+          description="Practical walkthroughs for everyday PDF tasks. Every guide names the tool it uses and says plainly where the processing runs — in your browser, or on an auto-deleting worker."
         />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {guides.map((guide) => {
