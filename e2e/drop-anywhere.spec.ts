@@ -633,7 +633,44 @@ test("at most one page target on every page, and none where a drop belongs to th
   }
 });
 
-test("the first file input on a page is inside <main>", async ({ page }) => {
+/**
+ * The page's first file input — the one `fileInput` hands every spec, and
+ * the one a pick through it reaches: whether it is inside <main>, and
+ * whether it is the page's own drop target's.
+ */
+async function firstFileInput(page: Page) {
+  await expect(fileInput(page), "a file input").toBeAttached();
+  return fileInput(page).evaluate((el) => ({
+    inMain: !!el.closest("main"),
+    inTarget: !!el.closest("[data-page-drop-target]"),
+  }));
+}
+
+/**
+ * Holds every script that carries a guide's live desk — found by what it
+ * draws (`data-guide-desk`) and what it says while it opens a tool
+ * ("Opening "), not by its hashed name — until `release()`. `held` lists
+ * what was held: empty, the instrument saw nothing.
+ */
+async function holdGuideDesk(page: Page) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const held: string[] = [];
+  await page.route("**/_next/static/chunks/**", async (route) => {
+    const response = await route.fetch();
+    const body = await response.body();
+    if (body.includes("data-guide-desk") && body.includes("Opening ")) {
+      held.push(new URL(route.request().url()).pathname);
+      await gate;
+    }
+    await route.fulfill({ response, body });
+  });
+  return { held, release };
+}
+
+test("the first file input on a page is inside <main>, and is the page's own target's", async ({
+  page,
+}) => {
   for (const path of [
     "/",
     "/tools/rotate-pdf",
@@ -642,10 +679,47 @@ test("the first file input on a page is inside <main>", async ({ page }) => {
   ]) {
     await page.goto(path);
     await layerLive(page);
-    await expect(fileInput(page), `${path}: a file input`).toBeAttached();
-    const insideMain = await fileInput(page).evaluate(
-      (el) => !!el.closest("main"),
-    );
-    expect(insideMain, path).toBe(true);
+    expect(await firstFileInput(page), path).toEqual({
+      inMain: true,
+      inTarget: true,
+    });
   }
+});
+
+/**
+ * WHY THE GUIDE WAS FLAKY (failed once in a full run, 4/4 alone). A
+ * guide's desk is lazy: the server draws a shell with its own native
+ * picker, and the live desk REPLACES it when its chunk arrives
+ * (`GuideDeskSlot`) — after the page is hydrated and the drop layer is
+ * listening, which is all `layerLive` waits for. A read that resolved the
+ * first file input and then asked it a question in a second round trip
+ * (Playwright's `locator.evaluate`) could resolve the shell's input and ask
+ * after the swap: `closest("main")` of a detached node is null. Replayed
+ * step by step with the desk's chunk held between the two steps:
+ * "evaluate on the resolved node: inside main = false, connected = false",
+ * while the page asked in one question said true. The page itself never
+ * had a first file input outside <main>: watched after every mutation and
+ * every frame on all four pages, the guide went "shell's, in main" ->
+ * "the desk's, in main" in one commit.
+ *
+ * So the condition the test means is the page's input AS IT STAYS: read
+ * once the page's own target is live, in one question. Here the desk is
+ * held until a second after the page is live, so a read that does not wait
+ * for it reads the shell's picker, which is no drop target.
+ */
+test("a guide whose desk arrives late: its first file input is read once the desk is live — never the shell the desk replaces", async ({
+  page,
+}) => {
+  const desk = await holdGuideDesk(page);
+  await page.goto("/guides/how-to-merge-pdf-files");
+  await layerLive(page);
+  // Health: the page is live and its desk is not — the shell's picker is
+  // the page's first file input now.
+  expect(desk.held, "the desk's chunk was never seen").toHaveLength(1);
+  await expect(
+    page.locator("[data-guide-desk] [data-drop-sheet-shell]"),
+  ).toHaveCount(1);
+  await expect(page.locator("[data-page-drop-target]")).toHaveCount(0);
+  setTimeout(desk.release, 1000);
+  expect(await firstFileInput(page)).toEqual({ inMain: true, inTarget: true });
 });
