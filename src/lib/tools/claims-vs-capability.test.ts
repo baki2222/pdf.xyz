@@ -163,7 +163,10 @@ import {
   cellGridPdf,
   ceilingPairPdf,
   damageContentStreams,
+  imageCaptionPdf,
+  junkAfterEofPdf,
   linesPdf,
+  repairStandIn,
 } from "@/tests/pptx-fidelity-fixtures";
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { readDeck } from "@/tests/pptx-deck-read";
@@ -2008,5 +2011,52 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
       )),
     ])
       expect(await run(pdf)).toEqual({ pictures: [0, 0], named: [1, 2] });
+  }, 60_000);
+
+  /**
+   * A DAMAGED PDF (2026-10-11, after the second re-review). A file the page
+   * reader cannot read ahead — pdf-lib cannot load it, or pdf.js finds a page
+   * its page tree does not hold — was scanned with no decode bound. Now it
+   * is rebuilt first, the way Repair PDF does, and converted from the rebuilt
+   * copy with a note saying so; and if it cannot be rebuilt into a file the
+   * reader can read, it is refused, pointing to Repair PDF. The page says
+   * both, and each sentence is held to a run: the junk-after-%%EOF file
+   * through the engine with a rebuild (a stand-in for qpdf) and without one.
+   */
+  it("a damaged PDF: the page says it is rebuilt first or not converted, and the engine does exactly that", async () => {
+    const REBUILT =
+      /\brebuilds?\b[^.]*\bthe way Repair PDF does\b[^.]*\bnote\b[^.]*\bsays so\b/i;
+    const REFUSED = /\bnot converted\b[^.]*\bRepair PDF\b/i;
+    const texts = await served();
+    expect(
+      texts.some((e) => REBUILT.test(e)),
+      "the rebuild",
+    ).toBe(true);
+    expect(
+      texts.some((e) => REFUSED.test(e)),
+      "the refusal",
+    ).toBe(true);
+
+    const fixture = await imageCaptionPdf();
+    const damaged = junkAfterEofPdf(fixture.pdf);
+    const deps = {
+      extract: stubExtract(["Open the portal"]),
+      scanPages: scanPdfPages,
+    };
+    const rebuilt = await runPdfOfficeExport(PDF_TO_POWERPOINT_TOOL, damaged, {
+      ...deps,
+      repairPdf: repairStandIn,
+    });
+    if (!rebuilt.ok) throw new Error(`${rebuilt.kind}: ${rebuilt.message}`);
+    expect(rebuilt.coverage.repairedBeforeConversion).toBe(true);
+    const refused = await runPdfOfficeExport(
+      PDF_TO_POWERPOINT_TOOL,
+      damaged,
+      deps,
+    );
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.kind).toBe("unreadable");
+    expect(refused.message).toMatch(/\bRepair PDF\b/);
   }, 60_000);
 });

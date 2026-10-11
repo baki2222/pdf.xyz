@@ -1393,6 +1393,69 @@ export async function damageContentStreams(
 }
 
 /**
+ * What makes pdf-lib refuse a file pdf.js still reads: an object after
+ * `%%EOF` that never reaches `endobj`. pdf-lib parses the body front to back
+ * and throws at the end; pdf.js finds the cross-reference table from the
+ * file's end and never looks at the tail. Twenty-five bytes.
+ */
+export const UNTERMINATED_TAIL = "\n999 0 obj\n<< /Type /Junk\n";
+
+/**
+ * `pdf` with {@link UNTERMINATED_TAIL} appended: a damaged file pdf-lib cannot
+ * load at all. Found by the second re-review of 2026-10-11, when the page
+ * scan met such a file with no decode bound and one page of six 8000² photos
+ * decoded 2.2 GB. Callers check both halves (pdf-lib refuses, pdf.js reads).
+ */
+export function junkAfterEofPdf(pdf: Uint8Array): Uint8Array {
+  const tail = new TextEncoder().encode(UNTERMINATED_TAIL);
+  const out = new Uint8Array(pdf.length + tail.length);
+  out.set(pdf);
+  out.set(tail, pdf.length);
+  return out;
+}
+
+/**
+ * A stand-in for qpdf's rewrite of exactly the damage
+ * {@link junkAfterEofPdf} does: the file up to its last `%%EOF`. Null when
+ * there is none — the stand-in, like qpdf, cannot rebuild every file. For
+ * tests where qpdf is not installed; the worker image's proof
+ * (`pnpm worker:pptx-fidelity-proof`) runs the real one.
+ */
+export async function repairStandIn(
+  pdf: Uint8Array,
+): Promise<Uint8Array | null> {
+  const text = new TextDecoder("latin1").decode(pdf);
+  const at = text.lastIndexOf("%%EOF");
+  return at < 0 ? null : pdf.slice(0, at + "%%EOF".length + 1);
+}
+
+/**
+ * `pdf` with its LAST page dictionary's `/Type /Page` blanked out (the same
+ * byte count, spaces): pdf-lib walks the page tree and skips a kid that is
+ * not typed a page, while pdf.js takes an untyped kid with no /Kids for a
+ * page and opens it. So pdf.js reads one page more than the page inventory
+ * knows — the page tree of a damaged file, and on 2026-10-11 a page the scan
+ * would have decoded with no bound. Callers check both counts.
+ */
+export async function typelessLastPagePdf(
+  pdf: Uint8Array,
+): Promise<Uint8Array> {
+  // Every object in the clear first: a page dictionary packed into an object
+  // stream has no bytes here to blank.
+  const classic = await (
+    await PDFDocument.load(pdf, { updateMetadata: false })
+  ).save({ useObjectStreams: false });
+  const text = new TextDecoder("latin1").decode(classic);
+  const re = /\/Type\s*\/Page(?![s\w])/g;
+  let last: RegExpExecArray | null = null;
+  for (let m = re.exec(text); m; m = re.exec(text)) last = m;
+  if (!last) throw new Error("typelessLastPagePdf: no page dictionary found");
+  const out = classic.slice();
+  out.fill(0x20, last.index, last.index + last[0].length);
+  return out;
+}
+
+/**
  * What `pdftotext -layout` would say about a fixture, for tests that run the
  * engine where poppler is not installed: the page count, and each page's
  * VISIBLE and invisible text, one line per drawn string. The engine reads it

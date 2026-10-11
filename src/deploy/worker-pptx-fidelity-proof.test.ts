@@ -130,6 +130,11 @@ describe("the in-image PDF to PowerPoint round-trip proof runs, from the workflo
     expect(imports.get("pptxTextOnly20261010")).toBe(
       "@/tests/pptx-text-only-2026-10-10",
     );
+    // 2026-10-11: the damaged fixture, made from a committed fixture by the
+    // same damage the unit tests use (pdf-lib cannot load it).
+    expect(imports.get("junkAfterEofPdf")).toBe(
+      "@/tests/pptx-fidelity-fixtures",
+    );
 
     const calls: TS.CallExpression[] = [];
     walk(file, (n) => {
@@ -151,6 +156,7 @@ describe("the in-image PDF to PowerPoint round-trip proof runs, from the workflo
       "exportDeps",
       "toPdf",
       "fixtures",
+      "damaged",
       "textOnlyDeck",
       "blankDeck",
     ])
@@ -175,6 +181,10 @@ describe("the in-image PDF to PowerPoint round-trip proof runs, from the workflo
     );
     // Every fixture, not a hand-picked few: derived from the fixtures list.
     expect(file.getFullText()).toMatch(/PPTX_FIDELITY_FIXTURES\.map\(/);
+    // The damaged fixture is a committed fixture, damaged — and the image's
+    // own repair engine is required: no qpdf, no conclusion.
+    expect(props.get("damaged")!.getText(file)).toMatch(/junkAfterEofPdf\(/);
+    expect(file.getFullText()).toMatch(/!exportDeps\.repairPdf/);
   });
 });
 

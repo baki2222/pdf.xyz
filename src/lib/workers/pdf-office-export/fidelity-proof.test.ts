@@ -16,9 +16,11 @@ import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   imageCaptionPdf,
+  junkAfterEofPdf,
   mixedSizesPdf,
   paintOrderPdf,
   pdftotextStandIn,
+  repairStandIn,
   scannedPdf,
   vectorShapesPdf,
   type PictureAlteration,
@@ -68,11 +70,33 @@ async function alterationOf(
   return null;
 }
 
-async function setUp(fixtures: PptxFixture[], { honest = true } = {}) {
+async function setUp(
+  fixtures: PptxFixture[],
+  {
+    honest = true,
+    repair = true,
+    damage = junkAfterEofPdf,
+  }: {
+    honest?: boolean;
+    /** Wire a repair engine (a stand-in for qpdf) into the export's deps. */
+    repair?: boolean;
+    /** How the damaged fixture is made from the first fixture. */
+    damage?: (pdf: Uint8Array) => Uint8Array;
+  } = {},
+) {
+  // The damaged fixture: the first fixture, damaged, standing for it.
+  const source = fixtures[0]!;
+  const damaged = damage(source.pdf);
   const standIn = new Map(fixtures.map((f) => [f.pdf, pdftotextStandIn(f)]));
+  standIn.set(damaged, pdftotextStandIn(source));
+  const owner = new Map<Uint8Array, PptxFixture>(
+    fixtures.map((f) => [f.pdf, f]),
+  );
+  owner.set(damaged, source);
   const exportDeps = {
     ...pdfOfficeExportDeps(),
     extract: async (pdf: Uint8Array) => standIn.get(pdf)!,
+    ...(repair ? { repairPdf: repairStandIn } : {}),
   };
   // The faithful deck of each fixture, to tell an altered deck from it.
   const faithful = new Map<string, Uint8Array>();
@@ -91,7 +115,7 @@ async function setUp(fixtures: PptxFixture[], { honest = true } = {}) {
       exportDeps: {
         ...exportDeps,
         extract: async (pdf: Uint8Array) => {
-          current = fixtures.find((f) => f.pdf === pdf) ?? current;
+          current = owner.get(pdf) ?? current;
           return standIn.get(pdf)!;
         },
       },
@@ -110,6 +134,11 @@ async function setUp(fixtures: PptxFixture[], { honest = true } = {}) {
         return fixture.pdf;
       },
       fixtures: fixtures.map((f) => ({ name: f.name, pdf: f.pdf })),
+      damaged: {
+        name: `${source.name} (damaged)`,
+        pdf: damaged,
+        source: { name: source.name, pdf: source.pdf },
+      },
       textOnlyDeck: pptxTextOnly20261010,
       blankDeck: (n: number) =>
         pptxTextOnly20261010(
@@ -164,9 +193,25 @@ describe("the round-trip proof reads its controls right", () => {
     const result = await runPptxFidelityProof(deps);
     expect(
       result.lines.filter((l) =>
-        /control PASSED|broken|never ran|export FAILED/.test(l),
+        /control PASSED|broken|never ran|export FAILED|no repair engine|proves nothing|not refused/.test(
+          l,
+        ),
       ),
     ).toEqual([]);
+    // The damaged fixture was rebuilt, converted, and faithful to its source;
+    // and with no repair engine the same file was refused.
+    expect(
+      result.lines.some((l) =>
+        /^imageCaptionPdf \(damaged\): rebuilt deck PASS/.test(l),
+      ),
+    ).toBe(true);
+    expect(
+      result.lines.some((l) =>
+        /^imageCaptionPdf \(damaged\): with no repair engine, refused as damaged/.test(
+          l,
+        ),
+      ),
+    ).toBe(true);
     for (const kind of PICTURE_ALTERATIONS)
       expect(
         result.lines.some((l) =>
@@ -203,5 +248,37 @@ describe("the round-trip proof reads its controls right", () => {
     expect(result.lines).toContain(
       "no multi-page fixture: the partial controls never ran",
     );
+  }, 120_000);
+
+  /*
+   * 2026-10-11, after the second re-review: a PDF the page reader cannot
+   * read is rebuilt with the worker's Repair PDF engine (qpdf) before it is
+   * scanned. The image is the one place qpdf runs under CI, so the proof
+   * converts a damaged fixture there too — and fails where it cannot.
+   */
+  it("FAILS when no repair engine is wired: a damaged PDF would be refused, not rebuilt", async () => {
+    const fixtures = await Promise.all(
+      [imageCaptionPdf, scannedPdf, paintOrderPdf, () => mixedSizesPdf()].map(
+        (b) => b(),
+      ),
+    );
+    const { deps } = await setUp(fixtures, { repair: false });
+    const result = await runPptxFidelityProof(deps);
+    expect(result.ok).toBe(false);
+    expect(result.lines.some((l) => /no repair engine is wired/.test(l))).toBe(
+      true,
+    );
+  }, 120_000);
+
+  it("FAILS when the 'damaged' fixture converts without a rebuild: it would prove nothing", async () => {
+    const fixtures = await Promise.all(
+      [imageCaptionPdf, scannedPdf, paintOrderPdf, () => mixedSizesPdf()].map(
+        (b) => b(),
+      ),
+    );
+    const { deps } = await setUp(fixtures, { damage: (pdf) => pdf.slice() });
+    const result = await runPptxFidelityProof(deps);
+    expect(result.ok).toBe(false);
+    expect(result.lines.some((l) => /proves nothing/.test(l))).toBe(true);
   }, 120_000);
 });

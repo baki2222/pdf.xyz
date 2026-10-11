@@ -27,6 +27,7 @@
  * The round trip through a real presentation engine, which asks whether the
  * slides LOOK like the pages, is `fidelity.roundtrip.test.ts`.
  */
+import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   cellGridPdf,
@@ -37,15 +38,18 @@ import {
   drawingBits,
   gradientPixels,
   imageCaptionPdf,
+  junkAfterEofPdf,
   mixedSizesPdf,
   oversizeScanPdf,
   paintOrderPdf,
   pdftotextStandIn,
   PPTX_FIDELITY_FIXTURES,
+  repairStandIn,
   rotatedFramePdf,
   scannedPdf,
   scanPixels,
   sharedPhotosPdf,
+  typelessLastPagePdf,
   undecodablePicturePdf,
   vectorShapesPdf,
   type ClippedPicturePage,
@@ -69,14 +73,14 @@ import {
 } from "@/tests/pptx-deck-read";
 import { runPdfOfficeExport, type PdfOfficeExportRun } from "./engine";
 import { pdfOfficeExportDeps } from "./native";
-import { decodedBytes } from "./page-inventory";
+import { decodedBytes, inventoryPages } from "./page-inventory";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
   MAX_LAYERS_PER_PAGE,
   PAGE_DECODE_BUDGET_BYTES,
   scanPdfPages,
 } from "./page-scan";
-import { MAX_DECODED_IMAGE_PIXELS } from "./pdfjs-node";
+import { MAX_DECODED_IMAGE_PIXELS, openNodePdf } from "./pdfjs-node";
 import { inspectPptxPackage } from "./pptx-inspect";
 import { readPptx } from "./validate-ooxml";
 
@@ -1001,5 +1005,170 @@ describe("a re-encoded picture is the source's pixels", () => {
     }
     expect(opaque).toBe(source.length);
     expect(worst).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * A PDF THE PAGE READER CANNOT READ AHEAD (2026-10-11, after the second
+ * re-review). The scan's decode bound stands on the page inventory, which
+ * pdf-lib reads. Two damaged shapes gave it nothing to stand on, and pdf.js
+ * then decoded with no bound: a file pdf-lib cannot load at all (25 bytes
+ * after %%EOF — `junkAfterEofPdf`), and a page pdf.js reads that the page
+ * tree pdf-lib walks does not hold (`typelessLastPagePdf`). One page of six
+ * 8000² photos took the daemon to 2.2 GB (`page-scan.rss.test.ts`).
+ *
+ * Now the engine rebuilds such a file first, the way Repair PDF does
+ * (`repairPdf`: qpdf in the worker, a stand-in here — `repairStandIn` mends
+ * exactly the junk-after-%%EOF damage), and converts the rebuilt copy,
+ * saying so; and a file it cannot rebuild into one the reader can read is
+ * REFUSED, as damaged, pointing to Repair PDF — never scanned unbounded.
+ */
+describe("a PDF the page reader cannot read ahead: rebuilt first, or refused", () => {
+  const deps = (fixture: PptxFixture) => ({
+    ...pdfOfficeExportDeps(),
+    extract: async () => pdftotextStandIn(fixture),
+  });
+  const boxes = (deck: Deck) =>
+    deck.slides.map((s) =>
+      s.pictures.map(({ x, y, width, height }) =>
+        [x, y, width, height].map(Math.round).join(","),
+      ),
+    );
+
+  it("health: the junk-after-%%EOF file is refused by pdf-lib and read by pdf.js; the stand-in mends it", async () => {
+    const fixture = await imageCaptionPdf();
+    const junk = junkAfterEofPdf(fixture.pdf);
+    await expect(
+      PDFDocument.load(junk, {
+        ignoreEncryption: true,
+        updateMetadata: false,
+        throwOnInvalidObject: false,
+      }),
+    ).rejects.toThrow();
+    const opened = await openNodePdf(junk, {
+      maxImageSize: MAX_DECODED_IMAGE_PIXELS,
+    });
+    expect(opened.doc.numPages).toBe(fixture.pages.length);
+    await opened.close();
+    const mended = (await repairStandIn(junk))!;
+    expect((await PDFDocument.load(mended)).getPageCount()).toBe(
+      fixture.pages.length,
+    );
+  });
+
+  it("health: pdf.js reads one page more of the typeless file than the page inventory holds", async () => {
+    const fixture = await mixedSizesPdf();
+    const typeless = await typelessLastPagePdf(fixture.pdf);
+    const inventory = (await inventoryPages(typeless))!;
+    const opened = await openNodePdf(typeless, {
+      maxImageSize: MAX_DECODED_IMAGE_PIXELS,
+    });
+    expect(opened.doc.numPages).toBe(fixture.pages.length);
+    expect(inventory).toHaveLength(fixture.pages.length - 1);
+    await opened.close();
+  });
+
+  it("with no way to rebuild it: refused as damaged, naming Repair PDF", async () => {
+    const fixture = await imageCaptionPdf();
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      junkAfterEofPdf(fixture.pdf),
+      { ...deps(fixture), repairPdf: undefined },
+    );
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("unreadable");
+    expect(run.message).toMatch(/\bdamaged\b/);
+    expect(run.message).toMatch(/\bRepair PDF\b/);
+  });
+
+  it("rebuilt first: the deck is the intact file's, and the result says it was rebuilt", async () => {
+    const fixture = await imageCaptionPdf();
+    const intact = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      fixture.pdf,
+      deps(fixture),
+    );
+    if (!intact.ok) throw new Error(intact.message);
+    // Control: an intact file is not rebuilt, and does not say so.
+    expect(intact.coverage.repairedBeforeConversion).toBeUndefined();
+    const asked: number[] = [];
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      junkAfterEofPdf(fixture.pdf),
+      {
+        ...deps(fixture),
+        repairPdf: async (bytes: Uint8Array) => {
+          asked.push(bytes.length);
+          return repairStandIn(bytes);
+        },
+      },
+    );
+    if (!run.ok) throw new Error(`${run.kind}: ${run.message}`);
+    expect(asked).toHaveLength(1);
+    expect(run.coverage.repairedBeforeConversion).toBe(true);
+    // Health: the intact deck has pictures, so "the same" is not "both empty".
+    expect(boxes(await readDeck(intact.output)).flat().length).toBeGreaterThan(
+      0,
+    );
+    expect(boxes(await readDeck(run.output))).toEqual(
+      boxes(await readDeck(intact.output)),
+    );
+  });
+
+  it("an intact file is never sent to be rebuilt", async () => {
+    const fixture = await imageCaptionPdf();
+    let asked = 0;
+    const run = await runPdfOfficeExport("pdf-to-powerpoint", fixture.pdf, {
+      ...deps(fixture),
+      repairPdf: async (bytes: Uint8Array) => {
+        asked++;
+        return bytes;
+      },
+    });
+    expect(run.ok).toBe(true);
+    expect(asked).toBe(0);
+  });
+
+  it("the rebuild fails: refused as damaged, saying the rebuild did not help", async () => {
+    const fixture = await imageCaptionPdf();
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      junkAfterEofPdf(fixture.pdf),
+      { ...deps(fixture), repairPdf: async () => null },
+    );
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("unreadable");
+    expect(run.message).toMatch(/\bdamaged\b/);
+    expect(run.message).toMatch(/\brebuil/);
+    expect(run.message).toMatch(/\bRepair PDF\b/);
+  });
+
+  it("rebuilt, and still a page the reader cannot know: refused, not scanned unbounded", async () => {
+    // The stand-in leaves the typeless page as it was, as a rebuild may.
+    const fixture = await mixedSizesPdf();
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      await typelessLastPagePdf(fixture.pdf),
+      { ...deps(fixture), repairPdf: repairStandIn },
+    );
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("unreadable");
+    expect(run.message).toMatch(/\brebuil/);
+  });
+
+  it("a page beyond the inventory, with no way to rebuild: refused before its page is drawn", async () => {
+    const fixture = await mixedSizesPdf();
+    const run = await runPdfOfficeExport(
+      "pdf-to-powerpoint",
+      await typelessLastPagePdf(fixture.pdf),
+      { ...deps(fixture), repairPdf: undefined },
+    );
+    expect(run.ok).toBe(false);
+    if (run.ok) return;
+    expect(run.kind).toBe("unreadable");
+    expect(run.message).toMatch(/\bRepair PDF\b/);
   });
 });

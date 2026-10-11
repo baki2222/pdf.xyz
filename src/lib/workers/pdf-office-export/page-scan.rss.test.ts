@@ -31,6 +31,7 @@ import { encryptPdf } from "@/tests/encrypted-pdf";
 import {
   bigPhotosPdf,
   damageContentStreams,
+  junkAfterEofPdf,
 } from "@/tests/pptx-fidelity-fixtures";
 import { PAGE_DECODE_BUDGET_BYTES } from "./page-scan";
 
@@ -41,9 +42,11 @@ const dir = mkdtempSync(path.join(tmpdir(), "pptx-rss-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 interface Measured {
+  mode: string;
   warmMb: number;
   peakMb: number;
   ms: number;
+  outcome: string;
   tooLarge?: number;
   pictures: number;
 }
@@ -56,10 +59,11 @@ let files = 0;
 async function measure(
   count: number,
   variant: Variant = asBuilt,
+  mode = "scan",
 ): Promise<Measured> {
   const file = path.join(dir, `photos-${count}-${files++}.pdf`);
   writeFileSync(file, await variant((await bigPhotosPdf(count)).pdf));
-  const out = execFileSync(process.execPath, [TSX_CLI, SCRIPT, file], {
+  const out = execFileSync(process.execPath, [TSX_CLI, SCRIPT, file, mode], {
     cwd: ROOT,
     encoding: "utf8",
     maxBuffer: 1024 * 1024,
@@ -136,4 +140,41 @@ describe("one page's decoding is bounded before pdf.js decodes it", () => {
     },
     300_000,
   );
+
+  /*
+   * 2026-10-11, after the second re-review. A file pdf-lib cannot LOAD — the
+   * fixture appends 25 bytes after %%EOF, an object that never ends; pdf.js
+   * reads the file as before — gave the scan no inventory, and it then
+   * opened pdf.js at the floor ceiling with no bound. The control below is
+   * that path, kept as the instrument's proof that it sees the growth.
+   * Now such a file is rebuilt first, the way Repair PDF does (`repairPdf`,
+   * qpdf in the worker; a stand-in here), and scanned bounded; and with no
+   * way to rebuild it, it is REFUSED before pdf.js decodes anything.
+   */
+  const junk: Variant = async (pdf) => junkAfterEofPdf(pdf);
+
+  it("CONTROL: six 8000² photos behind junk after %%EOF, decoded the old way, take the daemon past two gigabytes", async () => {
+    const six = await measure(6, junk, "floor-decode");
+    expect(six.outcome, JSON.stringify(six)).toBe("decoded");
+    expect(six.peakMb - six.warmMb, JSON.stringify(six)).toBeGreaterThan(1500);
+  }, 300_000);
+
+  it("the same file, no way to rebuild it: refused as damaged, and the peak barely moves", async () => {
+    const six = await measure(6, junk, "engine");
+    expect(six.outcome, JSON.stringify(six)).toBe("unreadable");
+    expect(six.peakMb - six.warmMb, JSON.stringify(six)).toBeLessThan(150);
+  }, 300_000);
+
+  it("the same file, rebuilt first: converted, its photos counted, and bounded like the intact page", async () => {
+    // Positive control: one photo, rebuilt and placed — the measure sees a
+    // decode, and the rebuilt file is really scanned.
+    const one = await measure(1, junk, "engine-repair");
+    expect(one.outcome, JSON.stringify(one)).toBe("repaired");
+    expect(one.tooLarge, JSON.stringify(one)).toBe(0);
+    expect(one.peakMb - one.warmMb, JSON.stringify(one)).toBeGreaterThan(200);
+    const six = await measure(6, junk, "engine-repair");
+    expect(six.outcome, JSON.stringify(six)).toBe("repaired");
+    expect(six.tooLarge, JSON.stringify(six)).toBe(6);
+    expect(six.peakMb - six.warmMb, JSON.stringify(six)).toBeLessThan(150);
+  }, 300_000);
 });

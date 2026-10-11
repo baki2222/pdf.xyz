@@ -24,14 +24,19 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { createPdfOfficeExportProcessor } from "@/lib/workers/processor/pdf-office-export";
-import type { PdfFlowExtractor } from "@/lib/workers/pdf-office-export/engine";
+import type {
+  PdfFlowExtractor,
+  PdfOfficeExportDeps,
+} from "@/lib/workers/pdf-office-export/engine";
 import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { PDFDocument } from "pdf-lib";
 import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
 import {
   imageCaptionPdf,
+  junkAfterEofPdf,
   linesPdf,
+  repairStandIn,
   scannedPdf,
   undecodablePicturePdf,
 } from "@/tests/pptx-fidelity-fixtures";
@@ -441,11 +446,13 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
   async function pptxJobFor(
     pdf: Uint8Array,
     scanPages: typeof scanPdfPages = scanPdfPages,
+    extra: Partial<PdfOfficeExportDeps> = {},
   ) {
     const result = await createPdfOfficeExportProcessor({
       extract: layoutExtract,
       extractFlow: pages(SENTENCE),
       scanPages,
+      ...extra,
     }).process({
       tool: "pdf-to-powerpoint",
       options: {},
@@ -531,5 +538,31 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
     expect(
       within(box).queryByRole("link", { name: "Open OCR PDF" }),
     ).toBeNull();
+  });
+
+  /*
+   * 2026-10-11: a PDF the page reader cannot read is rebuilt first, the way
+   * Repair PDF does, and converted from the rebuilt copy (a stand-in for
+   * qpdf here). The deck is the rebuilt file's; the reader is told, beside
+   * the download, so a slide that differs from the PDF is not a mystery.
+   */
+  it("a damaged PDF rebuilt before conversion is said so beside the download", async () => {
+    const pdf = junkAfterEofPdf((await imageCaptionPdf()).pdf);
+    stubNetwork(
+      await pptxJobFor(pdf, scanPdfPages, { repairPdf: repairStandIn }),
+    );
+    await exportPptx();
+    const sentence = await screen.findByText(/looked damaged/);
+    const box = sentence.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(
+      /rebuilt it first, the way Repair PDF does, and converted the rebuilt copy/,
+    );
+  });
+
+  it("POSITIVE CONTROL: an intact PDF says nothing about rebuilding", async () => {
+    stubNetwork(await pptxJobFor((await imageCaptionPdf()).pdf));
+    await exportPptx();
+    await screen.findByText(/Your PPTX file is ready/);
+    expect(screen.queryByText(/looked damaged/)).toBeNull();
   });
 });
