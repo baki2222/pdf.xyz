@@ -124,13 +124,18 @@ export default defineConfig({
           name: "native-canvas",
           include: NATIVE_CANVAS,
           exclude: [...configDefaults.exclude, ...CLI_EXCLUDE],
-          // A child process per file: the native module is unloaded with a
-          // process, never at a worker thread's teardown — where it crashed
+          // Child processes, not threads: the native module is unloaded with
+          // a process, never at a worker thread's teardown — where it crashed
           // the run (exit 139: 3 times in 100 as measured when these tests
-          // arrived; 1 in 100 re-measured on Node 22 on 2026-10-11). Fresh
-          // per file, so no file inherits another's module state either.
+          // arrived; 1 in 100 re-measured on Node 22 on 2026-10-11).
+          //
+          // NOT isolated, on purpose: these files were written for the shared
+          // module cache the threads project keeps (see its comment, and
+          // `src/tests/runner-mounted.ts`). Run one process per file, every
+          // file imported its graph cold, and on Node 22 the runner tests'
+          // 5 s wait for a lazily loaded runner ran out in 6 of 42 runs.
           pool: "forks",
-          isolate: true,
+          isolate: false,
         },
       },
     ],
