@@ -1252,7 +1252,11 @@ async function writeLeanPdf(name: string): Promise<string> {
 test("the shortest analysis: an unheld stage fills the panel to the bottom of the screen, and nothing follows the runner on screen", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
+  // 1280 wide, where the shortest analysis was measured (439.25 px on
+  // Windows); 1080 tall, so the room under the stage (about 650 px) clears
+  // it with ~200 px to spare on both platforms — Linux Chromium sets text
+  // taller, which both lengthens the analysis and moves the stage down.
+  await page.setViewportSize({ width: 1280, height: 1080 });
   // Never answered: the worker's card stays at its shortest, "Checking…".
   await page.route("**/api/worker/status", () => {});
   await page.goto("/tools/compress-pdf");
@@ -1292,6 +1296,8 @@ test("the shortest analysis: an unheld stage fills the panel to the bottom of th
       fold: window.innerHeight,
     };
   });
+  // For CI's Linux, where text sets taller: what this read, in full.
+  console.log(`FIRST_SCREEN shortest-analysis 1280x1080 ${JSON.stringify(m)}`);
   // Health: this is the shortest analysis, and it is shorter than the room
   // — the case where a band of panel shows under it at all.
   expect(m.last).toBe("Analyze another file");
