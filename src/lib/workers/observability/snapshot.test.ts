@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import { resolveDaemonReadiness } from "../daemon/readiness";
 import { resolveDeploymentReadiness } from "../deploy";
 import { LIFECYCLE_ENV } from "../lifecycle";
@@ -14,6 +15,13 @@ import {
   type RuntimeSnapshotSource,
   type SnapshotRateLimitCode,
 } from "./index";
+
+// Per-client keying is gated on the privacy disclosure (ratelimit/config.ts,
+// 2026-10-10). These tests exercise it, so they run in the disclosed
+// counterfactual; src/tests/setup.ts restores the real flag after each test.
+beforeEach(() => {
+  discloseKeyingForTests(true);
+});
 
 /** Build a content-free {@link HeartbeatLiveness} fixture for a given state. */
 function liveness(

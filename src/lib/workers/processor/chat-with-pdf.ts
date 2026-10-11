@@ -135,7 +135,7 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
         tools: [CHAT_TOOL],
         ready,
         detail: ready
-          ? "Chat with PDF ready: the PDF's selectable text is sent to a configured AI provider which answers from ONLY that text (with page-level [p.N] citations when page metadata is present), packaged as an answer ZIP (answer.md + answer.txt + manifest) on an encrypted, auto-deleting secure worker."
+          ? "Chat with PDF ready: the PDF's selectable text is sent to a configured AI provider which answers from ONLY that text (with page-level [p.N] citations when page metadata is present), packaged as an answer ZIP (answer.md + answer.txt + manifest) on an auto-deleting secure worker."
           : deps.extract == null
             ? "Chat with PDF needs the PDF text extractor, which isn't available on this worker."
             : "Chat with PDF needs a configured AI provider (PDFXYZ_AI_PROVIDER + API key). None is configured, so it fails honestly as not-implemented.",

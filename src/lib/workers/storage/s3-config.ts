@@ -302,7 +302,7 @@ export function s3StorageCapability(): StorageCapability {
     signedDownloads: true,
     deleteNow: true,
     detail:
-      "S3-compatible object storage is configured and ready: the app mints short-lived, signed upload and download URLs and can delete objects on demand. Files transfer directly between the browser and encrypted storage — never through this app server.",
+      "S3-compatible object storage is configured and ready: the app mints short-lived, signed upload and download URLs and can delete objects on demand. Files transfer directly between the browser and object storage — never through this app server.",
   };
 }
 

@@ -135,7 +135,7 @@ const QUEUE_READY_NO_WORKER = {
  */
 const QUEUE_READY_WORKER_OBSERVED = {
   processorDetail:
-    "A job queue is configured and a worker is observed running against it, so submitted jobs are claimed and processed on an encrypted, auto-deleting secure worker.",
+    "A job queue is configured and a worker is observed running against it, so submitted jobs are claimed and processed on an auto-deleting secure worker.",
   executor: {
     mode: "worker",
     ready: true,

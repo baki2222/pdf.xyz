@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { readNotoTtf } from "@/lib/pdf/noto-source";
 import { setFontByteSource } from "@/lib/pdf/unicode-font";
+import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import {
   setPdfjsForAccessSource,
   type PdfjsForAccess,
@@ -53,4 +54,13 @@ setPdfjsForAccessSource(
 // worker tests nothing is ever rendered, so cleanup() is a harmless no-op.
 afterEach(() => {
   cleanup();
+});
+
+// Per-client rate-limit keying is gated on the privacy disclosure
+// (`ratelimit/config.ts`). A test that needs the counterfactual sets
+// `discloseKeyingForTests(true)`; restoring it here, after EVERY test, means a
+// file that forgets cannot hand the next file in its worker a world where the
+// limiter keys by address while /privacy says it does not.
+afterEach(() => {
+  discloseKeyingForTests(undefined);
 });

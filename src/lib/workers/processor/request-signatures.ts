@@ -99,7 +99,7 @@ export function createRequestSignaturesProcessor(
         tools: [REQUEST_SIGNATURES_TOOL],
         ready,
         detail: ready
-          ? "Request Signatures ready: a PDF is prepared with real fillable fields for each signer and packaged as a signature-request ZIP (prepared PDF + manifest + audit trail) on an encrypted, auto-deleting secure worker. Delivery/collection needs a configured e-signature provider."
+          ? "Request Signatures ready: a PDF is prepared with real fillable fields for each signer and packaged as a signature-request ZIP (prepared PDF + manifest + audit trail) on an auto-deleting secure worker. Delivery/collection needs a configured e-signature provider."
           : "Request Signatures needs the PDF form preparer, which isn't available on this worker.",
       };
     },

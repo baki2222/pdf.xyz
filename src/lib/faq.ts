@@ -19,7 +19,7 @@ export const faqs: FaqItem[] = [
     // upload. And the tools that DO upload are not "a handful" — they are
     // most of the rest — so they are named by kind, not by a quantifier
     // (unbacked-claims.test.ts).
-    a: "For most tools, no. Merge, split, rotate, image conversions and more run entirely in your browser, so your files never leave your device. Compress does too unless you choose its secure-worker option. The rest — Office conversions, OCR, PDF/A, password protection and the AI tools among them — use encrypted, auto-deleting workers, and each tool clearly labels where it runs.",
+    a: "For most tools, no. Merge, split, rotate, image conversions and more run entirely in your browser, so your files never leave your device. Compress does too unless you choose its secure-worker option. The rest — Office conversions, OCR, PDF/A, password protection and the AI tools among them — use auto-deleting workers, and each tool clearly labels where it runs.",
   },
   {
     q: "Do I need to create an account?",

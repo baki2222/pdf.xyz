@@ -574,9 +574,10 @@ describe("PDF to PowerPoint: the deck is the page's sentence", () => {
    * rejects it" sentences beside them were never this ban's business. They
    * left the page on 2026-10-09, when a real job's file opened through
    * PowerPoint's COM interface, and capability-hedges.test.ts keeps all six
-   * as fixtures. The page now claims neither "refuses" nor "opens"; the
-   * content file's exit for an "opens" claim is a production download opening
-   * on a double-click with no repair prompt.
+   * as fixtures. Until 2026-10-10 the page claimed neither "refuses" nor
+   * "opens". The content file's exit for an "opens" claim, a production
+   * download opening on a double-click with no repair prompt, was met that
+   * day, and the page now says so, dated.
    */
   const SHIPPED_MISSING_MASTER = [
     "The package holds the slides and their text but none of the slide master, slide layout and theme parts that a presentation normally contains.",

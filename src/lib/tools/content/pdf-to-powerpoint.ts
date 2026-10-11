@@ -142,6 +142,15 @@ import {
  * The copy states that, dated, and says what was not checked. It does not say
  * "editable": nobody has edited a slide.
  *
+ * THE OWNER'S DOUBLE-CLICK (2026-10-10) WAS OF THE OLD DECK. Main recorded
+ * that a production .pptx opened by double-click in PowerPoint for Windows
+ * with no repair prompt (worker:prove-tools pdf-to-powerpoint, 10,539 bytes,
+ * one text-only slide), and the copy said "opens" on that evidence. That file
+ * was the text-only structure this branch replaces: pictures, media parts and
+ * positioned boxes are new parts PowerPoint has not been seen to open on a
+ * double-click. So the copy below states only the automation measurements
+ * until the owner double-clicks a deck the new engine made in production.
+ *
  * WHICH IMAGE IT IS TRUE OF. The measurements are of the engine on this branch,
  * and the copy says "this tool's export code", so it is true of a download only
  * while production runs an image carrying it; merging is not shipping (#167's

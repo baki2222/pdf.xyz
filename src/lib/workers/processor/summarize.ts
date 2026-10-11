@@ -114,7 +114,7 @@ export function createSummarizeProcessor(deps: SummarizeDeps): Processor {
         tools: [SUMMARIZE_TOOL],
         ready,
         detail: ready
-          ? "Summarize PDF ready: the PDF's selectable text is summarized by a configured AI provider and packaged as a summary ZIP (summary.md + summary.txt + manifest) on an encrypted, auto-deleting secure worker."
+          ? "Summarize PDF ready: the PDF's selectable text is summarized by a configured AI provider and packaged as a summary ZIP (summary.md + summary.txt + manifest) on an auto-deleting secure worker."
           : deps.extract == null
             ? "Summarize PDF needs the PDF text extractor, which isn't available on this worker."
             : "Summarize PDF needs a configured AI provider (PDFXYZ_AI_PROVIDER + API key). None is configured, so it fails honestly as not-implemented.",

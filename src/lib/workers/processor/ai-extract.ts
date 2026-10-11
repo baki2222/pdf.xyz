@@ -126,7 +126,7 @@ export function createAiExtractProcessor(deps: AiExtractDeps): Processor {
         tools: [AI_EXTRACT_TOOL],
         ready,
         detail: ready
-          ? "AI Data Extraction ready: the PDF's selectable text is sent to a configured AI provider which returns structured JSON, packaged as an extraction ZIP (extraction.json + model-output.json + extraction.md + manifest) on an encrypted, auto-deleting secure worker."
+          ? "AI Data Extraction ready: the PDF's selectable text is sent to a configured AI provider which returns structured JSON, packaged as an extraction ZIP (extraction.json + model-output.json + extraction.md + manifest) on an auto-deleting secure worker."
           : deps.extract == null
             ? "AI Data Extraction needs the PDF text extractor, which isn't available on this worker."
             : "AI Data Extraction needs a configured AI provider (PDFXYZ_AI_PROVIDER + API key). None is configured, so it fails honestly as not-implemented.",

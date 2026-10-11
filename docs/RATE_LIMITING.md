@@ -60,6 +60,17 @@ AND `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER` names the one header the edge writes.
 Without all three, `uploads.create` is 60 per hour in total — not 60 each —
 and the character allowance is one allowance for everyone combined.
 
+**And the three are not enough on their own (since 2026-10-10).** Per-client
+keying stores a salted hash of each visitor's address with its counter for
+up to a day, which /privacy must describe before it happens. So the limiter
+also reads `PER_CLIENT_KEYING_DISCLOSED` in `src/lib/privacy/keying.ts`:
+while it is `false`, every request lands in the shared bucket whatever the
+environment says, and the posture reports `remote-configured-shared`. To key
+per client, flip that flag in a commit — /privacy then renders the per-client
+sentence from `src/lib/privacy/rate-limits.ts` — and set the three variables
+when that build is live. `src/lib/ratelimit/keying-disclosure.test.tsx` holds
+the page and the limiter to each other.
+
 A refused request gets `429` with a `Retry-After`, not a silent drop.
 
 ---
@@ -210,7 +221,9 @@ which is the right command asked of the wrong quantity.
 ## Step 5 — ask whether the AI allowance is gone, without spending it
 
 The probes above answer "is throttling on". This one answers a different
-question — **has this connection used up its free daily AI characters** — and it
+question — **is the free daily AI allowance used up** (one allowance for
+everyone while the limiter keys everyone together, as production does today;
+one per connection once per-client keying is disclosed) — and it
 costs 4 characters of the 123,096.
 
 ```bash
@@ -225,12 +238,12 @@ curl -sS -w '\n%{http_code}\n' \
 **Read the body, not the status.** `POST /api/jobs` returns `429` for two
 unrelated reasons and they are told apart only by the message:
 
-| you get                                                                                                                                      | it means                                                          |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `429` + _"The free AI allowance for this connection is used up for today, or too little of it is left for this document. It covers 30,774…"_ | the **allowance** is spent                                        |
-| `429` + _"Too many requests. This endpoint is rate-limited…"_                                                                                | you hit `jobs.create` (60/hour); the allowance is unknown         |
-| `202`                                                                                                                                        | the allowance had room, and you just spent **4** characters of it |
-| anything else (`503`, `500`)                                                                                                                 | no job was created, so nothing was charged                        |
+| you get                                                                                                                  | it means                                                          |
+| ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `429` + _"The free AI allowance is used up for today, or too little of it is left for this document. It covers 30,774…"_ | the **allowance** is spent                                        |
+| `429` + _"Too many requests right now. Please wait a little…"_                                                           | you hit `jobs.create` (60/hour); the allowance is unknown         |
+| `202`                                                                                                                    | the allowance had room, and you just spent **4** characters of it |
+| anything else (`503`, `500`)                                                                                             | no job was created, so nothing was charged                        |
 
 ### Why it costs almost nothing, and why the obvious version does not work
 
@@ -327,8 +340,9 @@ removing.
   every request shares one bucket unless client identity is trusted.
   Per-client accounting needs ALL THREE of `PDFXYZ_RATE_LIMIT_TRUST_PROXY`,
   `PDFXYZ_RATE_LIMIT_KEY_SALT` and `PDFXYZ_RATE_LIMIT_CLIENT_IP_HEADER`, on an
-  origin only the edge can reach. Any one missing lands in the shared bucket
-  and says so.
+  origin only the edge can reach, AND the privacy disclosure flag described
+  under the policy table. Any one missing lands in the shared bucket and says
+  so.
 
 <!-- gap-while-absent: /sliding[- ]?window/i in src/lib/ratelimit -->
 <!-- The marker above pins "fixed windows": if a sliding-window implementation

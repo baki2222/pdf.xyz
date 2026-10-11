@@ -66,11 +66,15 @@ import {
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
  * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 — phone at 360px 651px, `sm` at 640px 507px, `lg` at 1024px
- * 507px — plus 4px, to the half rem. The run state includes the daily
- * allowance note, which only a panel that can run says.
+ * 2026-10-10 on Windows: phone at 360px 670.5px, `sm` at 640px 507px,
+ * `lg` at 1024px 507px. The run state includes the daily allowance note,
+ * which only a panel that can run says. That note grew 19.5px at 360px when
+ * it began saying who shares the allowance (fix/privacy-truth, 2026-10-10),
+ * so the phone reserve is refitted to clear it by at least 3.5%, to the half
+ * rem: the headroom Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM
+ * in e2e/tool-layout.mobile.spec.ts).
  */
-const STATUS_SLOT = "min-h-[42.5rem] sm:min-h-[32rem] lg:min-h-[32rem]";
+const STATUS_SLOT = "min-h-[43.5rem] sm:min-h-[32rem] lg:min-h-[32rem]";
 
 type Phase = WorkerPhase;
 
@@ -143,7 +147,7 @@ export function TranslateWorkerPanel({
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             The worker extracts your PDF&apos;s selectable text and asks a

@@ -107,7 +107,13 @@ describe("enableGa4", () => {
     expect(calls[configIndex]![1]).toBe(GA4_MEASUREMENT_ID);
   });
 
-  it("routes track() events to gtag with the redacted payload", () => {
+  it("routes track() events to gtag with the redacted payload and a query-free page_location", () => {
+    // INVERTED 2026-10-10. This expected EXACTLY `{ toolSlug, capability }` —
+    // and so pinned the defect: with no `page_location` in the params, gtag.js
+    // filled it from `location.href`, and a `tool_viewed` fired on
+    // `/tools/x?handoff=<token>` carried the token to Google (captured at the
+    // wire, see ga4-event-location.test.ts). The payload is still exactly the
+    // redacted event — plus the page, origin + path, nothing after it.
     enableGa4();
     const before = win.dataLayer!.length;
     track({
@@ -122,7 +128,11 @@ describe("enableGa4", () => {
       [
         "event",
         "gated_tool_interest",
-        { toolSlug: "translate-pdf", capability: "ai" },
+        {
+          toolSlug: "translate-pdf",
+          capability: "ai",
+          page_location: `${window.location.origin}${window.location.pathname}`,
+        },
       ],
     ]);
   });
@@ -191,8 +201,13 @@ describe("page views carry the path, never the query", () => {
     sendGa4PageView("/tools/merge-pdf?handoff=tok_SECRET123#frag");
     sendGa4PageView("/tools/split-pdf");
     const locations = pageLocations();
+    // AMENDED 2026-10-10: each page view is now preceded by a `set` of the
+    // same query-free location (for the tag's own hits), so every location
+    // appears twice — the set, then the page_view — and none carries a query.
     expect(locations).toEqual([
       `${location.origin}/tools/merge-pdf`,
+      `${location.origin}/tools/merge-pdf`,
+      `${location.origin}/tools/split-pdf`,
       `${location.origin}/tools/split-pdf`,
     ]);
     expect(JSON.stringify(pushedCalls())).not.toContain("tok_SECRET123");

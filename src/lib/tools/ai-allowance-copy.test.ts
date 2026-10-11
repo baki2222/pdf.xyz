@@ -17,6 +17,15 @@
  *     literal duplicates, the constant those four ignored, and a third
  *     independent copy in a different module. A constant used by one of its six
  *     call sites is not a source of truth; it is a seventh copy.
+ *
+ * AND THEN THE POLICY MOVED BACK (2026-10-10). Production reported
+ * `remote-configured-shared` at the wire, and the same day per-client keying
+ * was made impossible until /privacy discloses it — so there is ONE bucket
+ * again, and the "connection" these tests required was the false scope. The
+ * tests that pinned it are inverted below, with their history: the scope is
+ * now read from the flag the limiter reads (`ALLOWANCE_SCOPE`), and
+ * `ratelimit/keying-disclosure.test.tsx` binds that flag to the env chain and
+ * to every rendered AI tool page.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -28,74 +37,104 @@ import {
   AI_ALLOWANCE_USED_MESSAGE,
   AI_CHARACTER_ALLOWANCE_DELIVERED,
   aiAllowanceFactFor,
+  ALLOWANCE_SCOPE,
 } from "@/lib/jobs/ai-allowance";
 import { flattenForPhraseSearch, withoutComments } from "./copy-surface";
+import { SCOPES_TO_EVERYONE, scopeOf } from "@/tests/allowance-scope";
 
 const ROOT = process.cwd();
 
-/** Every non-test source file, walked. A list is the thing that drifts. */
+/**
+ * Every non-test source file, walked. A list is the thing that drifts.
+ *
+ * `src/tests` is left out, and ONLY it: it is test support — fixtures, the
+ * vitest setup, and the ban lists' own corpora (`identity-claims.ts`,
+ * `allowance-scope.ts`), which quote the sentences these walks forbid so a
+ * pattern can be held to them. No page imports it. Measured 2026-10-10:
+ * with it included, the corpus module was the only file either walk below
+ * reported.
+ */
 function sourceFiles(): string[] {
   const out: string[] = [];
+  const tests = path.join(ROOT, "src", "tests");
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
+      if (entry.isDirectory()) {
+        if (full !== tests) walk(full);
+      } else if (/\.tsx?$/.test(entry.name) && !entry.name.includes(".test."))
         out.push(full);
     }
   };
   walk(path.join(ROOT, "src"));
+  // Health: the walk still reads the builder and a tool's content.
+  const names = out.map((f) => f.replace(/\\/g, "/"));
+  if (!names.some((f) => f.endsWith("src/lib/jobs/ai-allowance.ts")))
+    throw new Error("the source walk lost the allowance builder");
+  if (!names.some((f) => f.endsWith("src/lib/tools/content/ai-extract.ts")))
+    throw new Error("the source walk lost the tool content");
   return out.filter((f) => statSync(f).isFile());
 }
 
 describe("the words match the enforced policy", () => {
-  it("does not claim the allowance is shared", () => {
-    // The exact claim that went stale. `policy.ts` has said `per client per day`
-    // in a comment the whole time; nothing made the copy read it.
+  /*
+   * INVERTED 2026-10-10, history kept. This was "does not claim the allowance
+   * is shared": written when production keyed per connection, it banned
+   * "shared across everyone" — and so pinned the copy to the false side once
+   * production keyed everyone together again. The scope is now the limiter's.
+   * The clause and the quantity carry no scope at all; the conduct hedge stays
+   * banned in every state.
+   */
+  it("claims the scope the limiter keys by, and only in the sentences that state one", () => {
+    for (const text of [AI_ALLOWANCE_FACT, AI_ALLOWANCE_USED_MESSAGE])
+      expect(scopeOf(text), text).toBe(ALLOWANCE_SCOPE);
+    for (const text of [AI_ALLOWANCE_CLAUSE, AI_ALLOWANCE_RUNS])
+      expect(scopeOf(text), text).toBe("neither");
     for (const text of [
       AI_ALLOWANCE_FACT,
       AI_ALLOWANCE_USED_MESSAGE,
       AI_ALLOWANCE_CLAUSE,
       AI_ALLOWANCE_RUNS,
-    ]) {
-      expect(text.toLowerCase()).not.toContain("shared across everyone");
+    ])
       expect(text.toLowerCase()).not.toContain("may not reflect your own");
-    }
   });
 
-  it("the stale claim appears nowhere in the source tree", () => {
-    // The one assertion here that can fail against the shipped code: the exact
-    // words were in six files. Asserted over the WALKED tree rather than the
-    // constants, because the constants are new and a test that can only pass is
-    // not evidence of anything.
-    // Comments stripped first: the docblock explaining this defect quotes the
-    // very sentence it forbids, and a guard that cries wolf is a guard the
-    // next person weakens. Only what a user can read counts.
-    // Flattened first: the phrase is long enough that prettier splits it across
-    // lines as `"…everyone " + "using pdf.xyz…"`, and a literal search walks
-    // straight past that. Demonstrated 2026-08-11 — this assertion stayed green
-    // with the banned sentence sitting in a walked file, split at a space.
-    const offenders = sourceFiles().filter((file) =>
-      /shared across everyone using pdf\.xyz/.test(
-        flattenForPhraseSearch(withoutComments(readFileSync(file, "utf8"))),
-      ),
+  /*
+   * INVERTED 2026-10-10, history kept. This was "the stale claim appears
+   * nowhere in the source tree": a walk banning "shared across everyone using
+   * pdf.xyz" in every source file, because the claim was false then. It is
+   * true now, and what must hold in BOTH states is that it is written in one
+   * place — the builder that reads the keying flag — so a flipped flag cannot
+   * leave a hand-written copy behind. Same walk, same flattening (prettier
+   * splits the phrase across lines; demonstrated 2026-08-11, this assertion
+   * stayed green with the sentence split at a space), every spelling.
+   */
+  it("the shared claim is written nowhere but the builder", () => {
+    const offenders = sourceFiles().filter(
+      (file) =>
+        !file.replace(/\\/g, "/").endsWith("jobs/ai-allowance.ts") &&
+        SCOPES_TO_EVERYONE.test(
+          flattenForPhraseSearch(withoutComments(readFileSync(file, "utf8"))),
+        ),
     );
     expect(
       offenders.map((f) => path.relative(ROOT, f)),
-      "These still say the AI allowance is shared across all visitors. It is " +
-        "per client — `policy.ts` says `per client per day`, production reports " +
-        "`remote-configured` rather than `remote-configured-shared`, and every " +
-        "action derives its bucket from the same `deriveClientToken`.",
+      "These write who shares the AI allowance by hand. Import it from " +
+        "@/lib/jobs/ai-allowance, which selects it by the keying flag.",
     ).toEqual([]);
   });
 
-  it("attributes the allowance to the connection, and derives the number", () => {
+  it("attributes the allowance to its scope, and derives the number", () => {
     // NOT "your own three runs" — that shipped for one commit and was a claim
-    // about the reader's conduct. The counter keys on a forwarded address, so
-    // the connection is the largest thing it can honestly name. The banned
-    // shapes and their corpus live in `ratelimit/allowance-copy.test.ts`.
-    expect(AI_ALLOWANCE_FACT).toContain("connection");
-    expect(AI_ALLOWANCE_USED_MESSAGE).toContain("connection");
+    // about the reader's conduct. The banned shapes and their corpus live in
+    // `ratelimit/allowance-copy.test.ts`.
+    //
+    // AMENDED 2026-10-10: these two lines required "connection" — the largest
+    // thing the counter could honestly name while it keyed by address, and
+    // false once it keyed everyone together. They now require the scope the
+    // limiter keys by (`ALLOWANCE_SCOPE`, bound in keying-disclosure.test.tsx).
+    expect(scopeOf(AI_ALLOWANCE_FACT)).toBe(ALLOWANCE_SCOPE);
+    expect(scopeOf(AI_ALLOWANCE_USED_MESSAGE)).toBe(ALLOWANCE_SCOPE);
     // AMENDED TWICE, and the second time is the instructive one.
     //
     // The unit moved from runs to characters when chunking made a run a

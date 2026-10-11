@@ -63,7 +63,7 @@ export const CAPABILITY_DESCRIPTORS: Record<
     // the deletion. Live scanning status is reported separately, from the worker's
     // own heartbeat — see `workerPipelineStages`.
     summary:
-      "Runs on an encrypted, isolated worker that processes and then permanently deletes your files.",
+      "Runs on a secure worker, which deletes your upload when the job ends and serves the result for a limited time.",
     uploadsFiles: true,
   },
   hybrid: {
@@ -194,7 +194,7 @@ export function workerPipelineStages(
       id: "upload",
       title: "Encrypted upload",
       description:
-        "Your file is uploaded directly to short-lived, encrypted storage over a pre-signed URL.",
+        "Your file is uploaded directly to short-lived object storage over a pre-signed URL.",
     },
     checksStage(malwareScanActive, tool),
     capabilityForMode(tool.processing) === "ai" ? AI_PROCESS : WORKER_PROCESS,

@@ -145,7 +145,7 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
         tools: [HTML_TO_PDF_TOOL, WEBPAGE_TO_PDF_TOOL],
         ready,
         detail: ready
-          ? "HTML and webpage conversion ready: Chromium renders PDFs on an encrypted, auto-deleting secure worker."
+          ? "HTML and webpage conversion ready: Chromium renders PDFs on an auto-deleting secure worker."
           : "HTML and webpage conversion need the native Chromium renderer, which isn't installed on this worker.",
       };
     },

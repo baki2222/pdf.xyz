@@ -1732,7 +1732,7 @@ export function modeFaq(tool: Tool): readonly ToolFaqEntry[] {
         const where =
           capability === "ai"
             ? "Our processing server extracts the PDF's selectable text and sends that text — not the file — to a third-party AI provider to produce the result."
-            : "The file is processed on an encrypted, isolated worker.";
+            : "The file is processed on a secure worker.";
         entries.push({
           question: `What happens to my file after ${tool.name} runs?`,
           answer: `${where} Inputs are wiped when the job finishes, ${retention}`,

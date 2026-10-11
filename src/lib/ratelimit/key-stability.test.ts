@@ -14,11 +14,19 @@
  * stability cannot disagree. (a) is its unit-level companion — necessary, but
  * it pins the parameter, and the parameter was never the thing that broke.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import { SHARED_BUCKET_TOKEN } from "./identity";
 import { RATE_LIMIT_ENV, resolveRateLimitConfig } from "./config";
 import { RATE_LIMIT_REDIS_ENV } from "./redis-config";
 import { resolveRateLimitStatus } from "./status";
+
+// Per-client keying is gated on the privacy disclosure (ratelimit/config.ts,
+// 2026-10-10). These tests exercise it, so they run in the disclosed
+// counterfactual; src/tests/setup.ts restores the real flag after each test.
+beforeEach(() => {
+  discloseKeyingForTests(true);
+});
 
 const headers = (address: string) =>
   new Headers({ "cf-connecting-ip": address });

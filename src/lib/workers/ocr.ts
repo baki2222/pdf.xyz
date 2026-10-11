@@ -151,7 +151,7 @@ export function buildOcrCapability(
       available: true,
       engine,
       languages: [...languages],
-      detail: `OCR runs on ${engine} on an encrypted, auto-deleting secure worker — inputs are wiped right after processing.`,
+      detail: `OCR runs on ${engine} on an auto-deleting secure worker — inputs are wiped right after processing.`,
     };
   }
 

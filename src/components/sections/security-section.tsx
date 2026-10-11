@@ -13,7 +13,7 @@ const pillars = [
   {
     icon: Lock,
     title: "Encrypted when it leaves",
-    body: "Tools that need a server — Office conversions, OCR and the AI tools among them — use TLS in transit and encrypted, isolated workers.",
+    body: "Tools that need a server — Office conversions, OCR and the AI tools among them — use TLS in transit and isolated workers.",
   },
   {
     icon: Trash2,

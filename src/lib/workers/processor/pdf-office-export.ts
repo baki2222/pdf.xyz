@@ -144,7 +144,7 @@ export function createPdfOfficeExportProcessor(
         tools: PDF_OFFICE_EXPORT_TOOLS,
         ready,
         detail: ready
-          ? "PDF to Office export ready: selectable PDF text is packaged into DOCX or XLSX, and each page's pictures, text and drawing into PPTX slides, on an encrypted, auto-deleting secure worker."
+          ? "PDF to Office export ready: selectable PDF text is packaged into DOCX or XLSX, and each page's pictures, text and drawing into PPTX slides, on an auto-deleting secure worker."
           : deps.extract == null || deps.extractFlow == null
             ? "PDF to Office export needs the PDF text extractor, which isn't available on this worker."
             : "PDF to PowerPoint needs the page reader (pdf.js and its canvas), which isn't available on this worker.",

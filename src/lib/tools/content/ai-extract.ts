@@ -10,6 +10,7 @@ import {
 } from "@/lib/jobs/ai-extract";
 import {
   AI_ALLOWANCE_CLAUSE,
+  AI_ALLOWANCE_POOL,
   AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
   AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
@@ -194,7 +195,7 @@ const content: ToolContent = {
     },
     {
       q: "How many extractions can I run a day?",
-      a: `Every AI tool on pdf.xyz spends from one pool per connection, ${AI_ALLOWANCE_CLAUSE}. One extraction never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or hundreds, so at least ${EXTRACTIONS_PHRASE} ${EXTRACTIONS_PHRASE_FIT} in a day if no other AI job has used the pool. The charge is taken when the job is submitted, after the upload, and a job the worker then refuses or that fails still uses it. A PDF this page can already tell has no selectable text is stopped before upload and costs nothing. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
+      a: `Every AI tool on pdf.xyz spends from ${AI_ALLOWANCE_POOL}, ${AI_ALLOWANCE_CLAUSE}. One extraction never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or hundreds, so at least ${EXTRACTIONS_PHRASE} ${EXTRACTIONS_PHRASE_FIT} in a day if no other AI job has used the pool. The charge is taken when the job is submitted, after the upload, and a job the worker then refuses or that fails still uses it. A PDF this page can already tell has no selectable text is stopped before upload and costs nothing. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
     },
     {
       q: "What happens with a very long PDF?",

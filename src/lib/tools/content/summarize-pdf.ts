@@ -12,6 +12,7 @@ import {
 } from "@/lib/jobs/summarize-pdf";
 import {
   AI_ALLOWANCE_CLAUSE,
+  AI_ALLOWANCE_WHO_SHARES,
   AI_PER_CALL_RUNS_PER_DAY_AT_LEAST,
   AI_PER_CALL_RUN_CEILING,
 } from "@/lib/jobs/ai-allowance";
@@ -252,7 +253,7 @@ const content: ToolContent = {
     },
     {
       q: "How many PDFs can I summarize per day?",
-      a: `Summaries draw on ${AI_ALLOWANCE_CLAUSE} per connection, the same pool used by ${OTHER_AI_TOOLS}. One summary never costs more than ${RUN_CEILING} characters of that pool, however long the PDF is, so at least ${SUMMARIES_PHRASE} ${SUMMARIES_PHRASE_FIT} in a day when nothing else has drawn on it. The charge is taken when the job is submitted, so a job the worker refuses or that fails still uses it, and on a shared office or campus network other people's AI jobs count too. Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone until the next day.`,
+      a: `Summaries draw on ${AI_ALLOWANCE_CLAUSE}, the same pool used by ${OTHER_AI_TOOLS}. ${AI_ALLOWANCE_WHO_SHARES} One summary never costs more than ${RUN_CEILING} characters of that pool, however long the PDF is, so at least ${SUMMARIES_PHRASE} ${SUMMARIES_PHRASE_FIT} in a day when nothing else has drawn on it. The charge is taken when the job is submitted, so a job the worker refuses or that fails still uses it. Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone until the next day.`,
     },
     {
       q: "Can I rely on the summary being accurate?",

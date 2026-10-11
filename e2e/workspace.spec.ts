@@ -170,8 +170,21 @@ test("batch queue is honest about secure-worker tools", async ({ page }) => {
   await batch.getByRole("button", { name: /add all staged/i }).click();
 
   // Secure-worker tools do not fake a local handoff; they route to the honest
-  // worker preview instead.
-  await expect(batch.getByText(/runs on a secure worker/i)).toBeVisible();
+  // worker preview instead: the status says where the tool runs, and the
+  // note says what that means for the file.
+  //
+  // The status line was found by `/runs on a secure worker/i` alone until
+  // fix/privacy-truth (2026-10-10), which was unambiguous only because the
+  // note said "an encrypted worker". Dropping that unsupported "encrypted"
+  // made the note match too, so each is now pinned by what it alone says.
+  await expect(
+    batch.getByText("Runs on a secure worker", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    batch.getByText(
+      /^OCR PDF runs on a secure worker, so your file is uploaded rather than processed on your device\./,
+    ),
+  ).toBeVisible();
   await expect(
     batch.getByRole("link", { name: /see how it works/i }),
   ).toHaveAttribute("href", "/tools/ocr-pdf");

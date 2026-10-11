@@ -243,7 +243,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on an encrypted secure worker
+            {tool.name} runs on a secure worker
           </h2>
           <p className="text-muted text-sm leading-relaxed">
             Optical character recognition needs a native OCR engine, so it runs
@@ -466,9 +466,10 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
 
         <p className="text-muted text-xs leading-relaxed">
           No account required. OCR runs on a separate processing server, not in
-          your browser: files are encrypted in transit and at rest, recognized
-          in a temporary per-job folder that is erased when the job ends, and
-          deleted automatically. It&apos;s enabled per deployment; the{" "}
+          your browser: files travel over an encrypted connection, are
+          recognized in a temporary per-job folder that is erased when the job
+          ends, and are deleted automatically. It&apos;s enabled per deployment;
+          the{" "}
           <Link
             href="/privacy#files"
             className="text-accent underline underline-offset-4"
@@ -570,7 +571,7 @@ function OcrRunArea({
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
           ? "This runs on your local-dev worker — the file is processed in-process on this machine, not sent to any third party."
-          : "Running this uploads your file to the encrypted secure worker, which recognizes text and then deletes the input."}
+          : "Running this uploads your file to the secure worker, which recognizes text and then deletes the input."}
       </p>
 
       {file ? (
