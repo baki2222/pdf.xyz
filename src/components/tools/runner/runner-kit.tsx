@@ -6,6 +6,7 @@ import {
   useId,
   useRef,
   useState,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import Link from "next/link";
@@ -28,6 +29,7 @@ import { PdfEngineError } from "@/lib/pdf/engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { remedyFor, type Remedy, type RemedyInput } from "@/lib/pdf/remedies";
 import type { RunOutput } from "@/lib/intent/run-output";
+import { registerUnkeptResult } from "@/lib/intent/unsaved";
 import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
@@ -770,20 +772,57 @@ export function DownloadCta({
     className,
   );
   const icon = <Download className="size-4" aria-hidden />;
+  // `data-download`: what keeps a result (`useUnkeptResult`).
   if (href !== undefined) {
     return (
-      <a href={href} download={download} className={classes}>
+      <a href={href} download={download} className={classes} data-download="">
         {icon}
         {children}
       </a>
     );
   }
   return (
-    <button type="button" onClick={onClick} className={classes}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={classes}
+      data-download=""
+    >
       {icon}
       {children}
     </button>
   );
+}
+
+/**
+ * A result on screen that has not been KEPT — downloaded, or carried on
+ * (a Continue row) — registered for as long as it is, so a paste that
+ * would replace the document asks first (`confirmReplaceResult`,
+ * `@/lib/intent/unsaved`). An in-browser download keeps it wherever its
+ * button is (`downloadBlob`); the click handler returned, for the result's
+ * box in the capture phase, keeps it for a link that downloads and a
+ * Continue row.
+ */
+function useUnkeptResult(active: boolean) {
+  const release = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    const done = registerUnkeptResult();
+    release.current = done;
+    return () => {
+      done();
+      release.current = null;
+    };
+  }, [active]);
+  return useCallback((event: MouseEvent<HTMLElement>) => {
+    const target = event.target as Element | null;
+    // An in-browser Download keeps it through `downloadBlob`; these are the
+    // ones that do not: a link to the file, and a Continue row.
+    if (
+      target?.closest?.("[data-download], a[download], [data-continue-with] a")
+    )
+      release.current?.();
+  }, []);
 }
 
 /**
@@ -891,6 +930,7 @@ export function ResultPanel({
 
   const adjust = typeof onAdjust === "function" ? onAdjust : null;
   const made = "noOutput" in output ? null : output;
+  const keep = useUnkeptResult(made !== null);
   // The receipt; its count-mismatch warning is drawn under Download.
   const receipt = ending && made && (
     <ending.OutputFacts
@@ -923,6 +963,7 @@ export function ResultPanel({
       data-tone={tone}
       data-result-panel=""
       data-motion-ui=""
+      onClickCapture={keep}
       className={cn(
         "rounded-panel motion-safe:animate-rise flex flex-col gap-5 border p-6 outline-none focus-visible:ring-2",
         tone === "warn"
@@ -1028,11 +1069,13 @@ export function ResultCard({
 }) {
   const outcome = useOutcomeFocus(true, announce);
   const none = useToolRun()?.plan.none;
+  const keep = useUnkeptResult(output !== undefined);
   return (
     <div
       {...outcome}
       role="group"
       aria-label={announce}
+      onClickCapture={keep}
       className={cn(
         "border-ok/30 bg-ok/10 focus-visible:ring-ok/50 flex flex-col gap-2 rounded-[4px] border p-4 outline-none focus-visible:ring-2",
         className,

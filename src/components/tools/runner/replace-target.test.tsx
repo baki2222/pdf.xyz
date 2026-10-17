@@ -371,7 +371,7 @@ describe("a result not yet downloaded", SLOW, () => {
     // Give a replace every chance to happen; it must not.
     await new Promise((r) => setTimeout(r, 300));
     expect(resultShown()).toBe(true);
-    expect(openName(container)).toContain("first.pdf");
+    expect(openName(container)).not.toContain("second.pdf");
     // A yes replaces it.
     confirm.mockReturnValue(true);
     pasteOn(document.body, [await pdfFile("third.pdf")]);

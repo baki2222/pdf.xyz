@@ -80,8 +80,57 @@ export function confirmLeave(
 /** A "yes" given in this task: the same gesture is not asked twice. */
 let agreed = false;
 
+/**
+ * A RESULT NOT YET KEPT — on screen, not downloaded, not carried on by
+ * Continue with — is the open document's, so a file that replaces the
+ * document throws it away. An editor's unsaved-work guard lets go once a
+ * result exists (`useUnsavedGuard(... && !result)`): nothing above asks.
+ * A drop is told first by its veil ("Release to replace contract.pdf in
+ * Sign PDF"); a PASTE has no veil, and replaced a signed PDF never
+ * downloaded with no word (PR #180 review). So a paste that would replace
+ * one asks ({@link confirmReplaceResult}); the result panels register
+ * (`useUnkeptResult` in the runner kit), and a download keeps them —
+ * through `downloadBlob` ({@link resultsKept}), or a link that downloads,
+ * or a Continue row, clicked inside the result.
+ */
+const unkept: object[] = [];
+
+/** A result on screen that is not downloaded yet; returns the release. */
+export function registerUnkeptResult(): () => void {
+  const entry = {};
+  unkept.push(entry);
+  return () => {
+    const at = unkept.indexOf(entry);
+    if (at >= 0) unkept.splice(at, 1);
+  };
+}
+
+/**
+ * Every result on screen is kept: a file was handed to the browser to save
+ * (`downloadBlob`, which every in-browser Download goes through).
+ */
+export function resultsKept(): void {
+  unkept.length = 0;
+}
+
+/**
+ * True when no result would be lost, or the visitor agreed to replace it
+ * with `next` — the question names the tool and the file.
+ */
+export function confirmReplaceResult(
+  next: string,
+  tool: string,
+  ask: (question: string) => boolean = (question) => window.confirm(question),
+): boolean {
+  if (unkept.length === 0) return true;
+  return ask(
+    `Your result in ${tool} is not downloaded yet. Replace it with ${next}?`,
+  );
+}
+
 /** Forget every registration (vitest shares one module cache). */
 export function resetUnsavedForTests(): void {
   dirty.length = 0;
+  unkept.length = 0;
   agreed = false;
 }

@@ -6,7 +6,8 @@ import { ErrorNote } from "@/components/tools/runner/runner-kit";
 import { useDropBox, sheetEmit } from "@/components/upload/use-drop-box";
 import { takesByAccept } from "@/lib/intent/accept-match";
 import { toolNameAt } from "@/lib/intent/drop-engine";
-import { confirmLeave } from "@/lib/intent/unsaved";
+import { confirmLeave, confirmReplaceResult } from "@/lib/intent/unsaved";
+import type { DropVia } from "@/lib/intent/page-target";
 
 /**
  * A tool page's "replace" targets: a file dropped or pasted anywhere on a
@@ -28,8 +29,10 @@ import { confirmLeave } from "@/lib/intent/unsaved";
  * takes it.
  *
  * Unsaved work is asked about first (`confirmLeave`; which editors register
- * it is WP-08's). Then the swap is SAID — "Replaced alpha.pdf with beta.pdf
- * in Rotate PDF.", the tool as its page names it (`data-tool-name`) — and,
+ * it is WP-08's), and a PASTE over a result not yet downloaded too
+ * (`confirmReplaceResult`): a drop is told by its veil, a paste by nothing.
+ * Then the swap is SAID — "Replaced alpha.pdf with beta.pdf in Rotate
+ * PDF.", the tool as its page names it (`data-tool-name`) — and,
  * in an editor, focus SURVIVES it.
  */
 
@@ -83,9 +86,10 @@ export function EditorBox({
       current: from,
       canReceive: () => !editor.current?.querySelector('[aria-busy="true"]'),
     },
-    emit: (files) =>
+    emit: (files, via) =>
       void replaceOpenFile({
         files,
+        via,
         from,
         toolName,
         open,
@@ -136,8 +140,8 @@ export default function ChosenFileLive({
   const [chip, setChip] = useState<HTMLElement | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const emit = sheetEmit(
-    (kept) =>
-      replaceChosenFile({ files: kept, from: file.name, chip, onReplace }),
+    (kept, via) =>
+      replaceChosenFile({ files: kept, via, from: file.name, chip, onReplace }),
     refuse,
     setRefusal,
   );
@@ -189,6 +193,7 @@ export default function ChosenFileLive({
  */
 export async function replaceOpenFile({
   files,
+  via,
   from,
   toolName,
   open,
@@ -196,6 +201,8 @@ export async function replaceOpenFile({
 }: {
   /** The files arriving. */
   readonly files: readonly File[];
+  /** How: a paste over a result not yet downloaded asks first. */
+  readonly via?: DropVia;
   /** The name of the file it replaces. */
   readonly from: string;
   /** The tool, when the page does not name it. */
@@ -206,9 +213,11 @@ export async function replaceOpenFile({
   readonly editor: () => HTMLElement | null;
 }): Promise<void> {
   const next = files.find((file) => takesPdf(file));
-  if (!next || !confirmLeave()) return;
+  if (!next) return;
   const before = editor();
   const name = named(before, toolName);
+  if (via === "paste" && !confirmReplaceResult(next.name, name)) return;
+  if (!confirmLeave()) return;
   const active = document.activeElement;
   const focusInside = !!active && !!before?.contains(active);
   await open(next);
@@ -229,12 +238,15 @@ export async function replaceOpenFile({
  */
 export function replaceChosenFile({
   files,
+  via,
   from,
   chip,
   onReplace,
 }: {
   /** The files that passed the panel's own `refuse`. */
   readonly files: File[];
+  /** How: a paste over a result not yet downloaded asks first. */
+  readonly via?: DropVia;
   /** The name of the file chosen now. */
   readonly from: string;
   /** The chip on the page now. */
@@ -242,8 +254,10 @@ export function replaceChosenFile({
   /** What the panel's zone does with files, after whatever Remove resets. */
   readonly onReplace: (files: File[]) => void;
 }): void {
-  if (files.length === 0 || !confirmLeave()) return;
+  if (files.length === 0) return;
   const name = named(chip, "this tool");
+  if (via === "paste" && !confirmReplaceResult(files[0]!.name, name)) return;
+  if (!confirmLeave()) return;
   onReplace(files);
   announceOutcome(`Replaced ${from} with ${files[0]!.name} in ${name}.`);
 }
