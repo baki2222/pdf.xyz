@@ -203,6 +203,24 @@ describe("PDF to Word keeps the pictures", () => {
     expect(docxPageOf(612, 792)).toMatchObject({ width: 612, height: 792 });
   }, 60_000);
 
+  it("a first page larger (or smaller) than Word allows keeps its shape: scaled to Word's limits, not clamped side by side", () => {
+    // The review of 2026-10-17: an A0 page came out a 22-inch SQUARE.
+    const a0 = docxPageOf(2384, 3370);
+    expect(a0.height).toBeCloseTo(1584, 6);
+    expect(a0.width / a0.height).toBeCloseTo(2384 / 3370, 6);
+    const strip = docxPageOf(100, 5000);
+    expect(strip.width).toBeCloseTo(31.68, 6);
+    expect(strip.height).toBeCloseTo(1584, 6);
+    const stamp = docxPageOf(3, 6);
+    expect(stamp.width).toBeCloseTo(7.2, 6);
+    expect(stamp.height).toBeCloseTo(14.4, 6);
+    // Inside the limits, the page is the PDF's own.
+    expect(docxPageOf(842, 1191)).toMatchObject({ width: 842, height: 1191 });
+    expect(getToolContent("pdf-to-word")!.intro.join(" ")).toMatch(
+      /\bscaled to fit, its shape kept, when it is larger than Word allows\b/,
+    );
+  });
+
   it("a paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not make the sentence bold", async () => {
     const { pdf, paragraph } = await boldItalicPdf();
     const xml = await (
