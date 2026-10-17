@@ -376,6 +376,80 @@ test("a lean merge carried to Compress PDF still ends in a fork: the file as it 
   expect(pages[3]).toContain("beta.pdf — page 1");
 });
 
+/**
+ * WHAT A SCREEN READER HEARS OF THE ENDING (2026-10-17), read as the
+ * browser computes it (PR #180 review):
+ *  - a Continue row was "Continue with Delete Pages In-browsercarries
+ *    alpha-merged.pdf" — the " · " between where it runs and what it
+ *    carries is drawn aria-hidden, so the two words ran together. The
+ *    row's own comment promised "Continue with Compress PDF · In-browser ·
+ *    carries merged.pdf"; that is now its name;
+ *  - the receipt's count was "5 , re-opened and counted in this browser":
+ *    the comma heard after the figure sat in a box of its own.
+ */
+test("the ending as it is heard: each Continue row by its words with their separators, and the count without a stray space", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await mergeAlphaBeta(page);
+  const rows = continueRow(page).getByRole("link");
+  await expect(rows.first()).toBeVisible();
+  const count = await rows.count();
+  expect(count).toBeGreaterThan(0);
+  // Soft: both halves are read and reported, whichever fails.
+  for (let i = 0; i < count; i++)
+    await expect
+      .soft(rows.nth(i))
+      .toHaveAccessibleName(
+        /^Continue with [^·]+ · [^·]+ · carries alpha-merged\.pdf$/,
+      );
+  await expect
+    .soft(rows.first())
+    .toHaveAccessibleName(/^Continue with Compress PDF · /);
+  await receiptCount(page);
+  const facts = await page.locator("[data-receipt] dl").first().ariaSnapshot();
+  expect(facts).toContain(
+    "definition: 5, re-opened and counted in this browser",
+  );
+});
+
+/**
+ * WHERE FOCUS GOES WHEN A CONTINUE ROW IS TAKEN BY KEYBOARD (2026-10-17).
+ * Enter on a row navigates; the row is gone with its page, and focus fell
+ * to <body> (PR #180 review) — a keyboard reader started the next tool
+ * from the top of the document. Now, as a replaced file does
+ * (`replaceOpenFile`), focus moves to what arrived: the file's header in
+ * the new tool, its name and pages.
+ */
+test("Enter on a Continue row: focus arrives on the carried file's header in the next tool, not on <body>", async ({
+  page,
+}) => {
+  await mergeAlphaBeta(page);
+  // To an editor (a single-PDF runner, nothing of its own to focus as it
+  // opens — Compress PDF's analysis takes an orphaned focus itself).
+  const numbers = continueRow(page).getByRole("link", {
+    name: /add page numbers/i,
+  });
+  await numbers.focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/tools\/page-numbers$/);
+  await expect(
+    page.getByText("Loaded your result from Merge PDF."),
+  ).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const a = document.activeElement;
+          return a && a !== document.body
+            ? `${a.tagName.toLowerCase()}${a.hasAttribute("data-file-header") ? "[data-file-header]" : ""}: ${(a.textContent ?? "").replace(/\s+/g, " ").trim()}`
+            : "body";
+        }),
+      { timeout: 10_000 },
+    )
+    .toMatch(/\[data-file-header\]: .*alpha-merged\.pdf/);
+});
+
 test("a job of three: merge, then page numbers, and the file holds both", async ({
   page,
 }) => {
