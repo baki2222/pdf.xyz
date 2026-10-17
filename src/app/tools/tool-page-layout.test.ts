@@ -144,3 +144,71 @@ describe("the template's own marks", () => {
     expect(source).toMatch(/\brounded-tag\b/);
   });
 });
+
+/**
+ * Where an element that opens at `at` (a `<div`) closes, by counting the
+ * divs between: React's markup is well formed, so they balance.
+ */
+function divEnd(html: string, at: number): number {
+  const tag = /<div\b|<\/div>/g;
+  tag.lastIndex = at;
+  let depth = 0;
+  for (let m = tag.exec(html); m; m = tag.exec(html)) {
+    depth += m[0] === "</div>" ? -1 : 1;
+    if (depth === 0) return m.index + m[0].length;
+  }
+  throw new Error("unbalanced markup: the element never closes");
+}
+
+describe("the workbench's first screen", () => {
+  it("POSITIVE CONTROL: the span of an element is read by its own closing tag, nested divs and all", () => {
+    const html = `<main><div data-first-screen=""><div><h1>T</h1></div><div data-tool-panel=""></div></div><div><h2>About this tool</h2></div></main>`;
+    const at = html.indexOf("<div data-first-screen");
+    const end = divEnd(html, at);
+    expect(html.slice(at, end)).toContain("data-tool-panel");
+    expect(html.slice(at, end)).not.toContain("About this tool");
+    expect(html.slice(end)).toContain("About this tool");
+  });
+
+  /*
+   * The runner's first screen (`data-first-screen`) is what keeps the
+   * About section off the screen under the runner, so a pick, a result or
+   * its ending moves nothing a reader sees (2026-10-11). The property is
+   * measured in a browser, at eight sizes, by `e2e/continue-chain.spec.ts`;
+   * this holds what that measurement stands on, on every runner page as
+   * served: one first screen, holding the breadcrumb, the name and the
+   * panel with its stage — and the About section after it, never inside.
+   */
+  it("every runner page holds its breadcrumb, name and panel in one first screen, and its About section after it", () => {
+    const runners = tools.filter((t) => getRunnerKind(t.slug));
+    expect(runners.length).toBeGreaterThanOrEqual(25);
+    for (const tool of runners) {
+      const html = markup.get(tool.slug)!;
+      const at = once(html, "data-first-screen", tool.slug);
+      const open = html.lastIndexOf("<div", at);
+      const end = divEnd(html, open);
+      const screen = html.slice(open, end);
+      for (const mark of [
+        'aria-label="Breadcrumb"',
+        "<h1",
+        "data-tool-panel",
+        "data-runner-stage",
+      ])
+        expect(screen, `${tool.slug}: ${mark}`).toContain(mark);
+      expect(visibleText(screen), tool.slug).not.toContain("About this tool");
+      expect(visibleText(html.slice(end)), tool.slug).toContain(
+        "About this tool",
+      );
+    }
+  });
+
+  // Only the workbench draws one: the worker layout (head, panel, details;
+  // the panel sticky beside the details from lg) is its own, and is
+  // measured on its own by `e2e/layout-stability.spec.ts`.
+  it("a worker tool's page draws no first screen", () => {
+    for (const tool of tools.filter((t) => !getRunnerKind(t.slug)))
+      expect(markup.get(tool.slug)!, tool.slug).not.toContain(
+        "data-first-screen",
+      );
+  });
+});

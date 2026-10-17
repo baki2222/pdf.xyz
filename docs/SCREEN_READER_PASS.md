@@ -260,11 +260,130 @@ the ticket covers it; a drop moves focus; `Tab` leaves More's button for its
 rows before **Open in workspace**; or the browser opens the dropped PDF in the
 tab.
 
+## 9. A file dropped or pasted anywhere, the ticket dialog, and a guide's desk
+
+<https://pdf.xyz/tools/rotate-pdf> — drag a PDF from your file manager over the
+page and drop it on the headline, not on the drop zone.
+
+**Must hear:** nothing while you drag (the page dims and says _"Release to open
+in Rotate PDF"_ on screen only — a drag is a pointer gesture), then only the
+editor's own progress, _"Rendering previews…"_, as after a pick: nothing
+announces the file itself. Put focus on one of the editor's buttons, copy a
+second PDF in your file manager, and paste it (`Ctrl V` / `⌘ V`).
+
+**Must hear:** _"Replaced first.pdf with second.pdf in Rotate PDF."_ (your two
+files' names), and focus on the new file's header — its name, its pages and its
+size — not on the page. Now drop a JPG.
+
+**Must hear:** a dialog — _"What you can do with these files, dialog"_ — with
+_"Rotate PDF can't open it."_ at its top, and focus inside it. `Tab` goes round
+the dialog and never reaches the page behind it. The suggestions are the
+ticket's (check 8), and Rotate PDF is not among them. Press `Escape`.
+
+**Must hear:** the dialog gone, and focus back where it was before the drop.
+
+<https://pdf.xyz/tools> — paste a file you copied in your file manager (`Ctrl
+V` / `⌘ V`) with focus on the page, not in the search field.
+
+**Must hear:** the same dialog. Close it, put focus in **Search tools**, and
+paste again: the search field takes the paste, and no dialog opens.
+
+<https://pdf.xyz/guides/how-to-merge-pdf-files> — `Tab` past the introduction.
+
+**Must hear:** _"Drop your PDFs to open Merge PDF with them, or browse"_, a
+file upload, described by _"Accepts PDF · Max … MB per file"_, then **Open
+Merge PDF**. Pick two PDFs.
+
+**Must hear:** _"Opening Merge PDF with your 2 files…"_, then Merge PDF, saying
+_"Loaded 2 files you added."_
+
+<https://pdf.xyz/guides/how-to-convert-pdf-to-word> — the same desk says
+_"Drop a PDF to see which tools open it, or browse"_; it never offers to open
+PDF to Word with the file, which no browser runner can. Pick a PDF.
+
+**Must hear:** the dialog, and as its first suggestion _"Open PDF to Word —
+you'll add report.pdf there"_ (your file's name).
+
+**Fails if:** a dropped or pasted file opens in the tab; a drop beside the
+editor does not replace the file, or a JPG closes it; a replace is not said, or
+leaves focus on the page; the dialog is not named, lets `Tab` out, or keeps
+focus after `Escape`; a paste into a text field opens the dialog; a guide whose
+tool runs on a worker promises to open it with the file, or leaves that tool out
+of the dialog's first row; or the desk says "your file" for two.
+
+---
+
+## 10. Every ending is a fork: the receipt, Back to adjust, Continue with
+
+<https://pdf.xyz/tools/merge-pdf> — merge a 3-page and a 2-page PDF, as in
+check 1, keyboard only.
+
+**Then read on from the outcome** (`Insert+Down` / `VO+A`).
+
+**Must hear,** after the title and summary: _"File PDF, Size …, Pages 5,
+re-opened and counted in this browser"_ — once, as one fact (a moment
+after the outcome it may still read _"Pages, counting in this browser…"_:
+the count is made by opening the file again, after the page draws). Then
+**Download merged PDF**, then **Back to adjust**, then a group _"Continue
+with"_ whose links read like _"Continue with Compress PDF, In-browser,
+carries merged.pdf"_, then **Start over**. **Must not hear** the count a
+second time, or any of the receipt's other states (they are drawn
+invisible, to hold the space).
+
+`Tab` to **Back to adjust**, press `Enter`.
+
+**Must hear:** **Merge 2 PDFs** — focus on the run button again, with both
+files still in the list, in the order you left them.
+
+Merge again, `Tab` to _"Continue with Compress PDF"_, press `Enter`.
+
+**Must hear:** Compress PDF's page, saying _"Loaded your result from Merge
+PDF."_ Then find the landmark _"Job steps"_ on its own line under the
+privacy line: a list of two — _"Merge PDF (done)"_ and _"Compress PDF"_, the
+current step.
+
+<https://pdf.xyz/tools/protect-pdf> — protect a PDF on the worker.
+
+**Must hear,** in the result card after the download: _"This PDF is
+encrypted now, so the tools in your browser can't open it."_ — the reason
+nothing follows, where every other result offers its next steps.
+
+<https://pdf.xyz/tools/rotate-pdf> — add a password-protected PDF.
+
+**Must hear:** the alert — _"This PDF is password-protected. Remove the
+password with Unlock PDF first, then try again."_ — with **one** link,
+_"Open Unlock PDF"_, followed by _"with the password that opens it."_ and
+where the file goes there (_"…it uploads to the secure worker only when you
+start it."_). Two Unlock links in the alert is a failure.
+
+<https://pdf.xyz/tools/grayscale-pdf> — on a phone (or a narrow window),
+convert a long PDF.
+
+**Must hear:** the run button's busy label, then progress only by the
+quarter — _"25% — 6 of 24 pages"_, _"50% — …"_ — never a page at a time.
+`Tab` through the options above the Run bar: the bar is docked at the
+bottom of the screen, and the control you land on is never hidden behind
+it, or behind the consent banner while that is open.
+
+<https://pdf.xyz/tools/edit-pdf> — add an edit and do not apply it, then
+follow a link in the header.
+
+**Must hear:** the browser's question, _"You have unsaved changes: your
+edits in Edit PDF. Discard them?"_ Choose **Cancel**: the page stays, with
+the edit.
+
+**Fails if:** the receipt reads a page count before saying it was counted,
+or never says it; **Back to adjust** lands focus on the page or loses the
+files; a Continue link does not say what it carries; Compress PDF does not
+say where the file came from; the remedy is a second Unlock link, or tells
+you to leave the password blank; progress speaks every page; the dock hides
+a focused control; or a header link drops unapplied edits without asking.
+
 ---
 
 ## Recording the result
 
-Note the browser, screen reader, and version, and for each of the eight: heard /
+Note the browser, screen reader, and version, and for each of the ten: heard /
 not heard / heard but wrong. A partial pass is a finding, not a failure — write
 down what was actually said, because the wording is the deliverable.
 
@@ -276,8 +395,17 @@ If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 `FileSuggestions` in `src/app/workspace/file-suggestions.tsx` and
 `HandoffLoadedBadge` in `src/components/tools/runner/handoff-notice.tsx`; for check
 8, `HeroDesk` in `src/components/intent/hero-desk.tsx`, `TicketView` in
-`src/components/intent/ticket-view.tsx` and `DropSheet` in
-`src/components/upload/drop-sheet.tsx`. Each carries
+`src/components/intent/ticket-view.tsx` and `DropDesk` in
+`src/components/upload/drop-desk.tsx`; for check 9, `DropLayer` in
+`src/components/intent/drop-layer.tsx`, `TicketDialog` in
+`src/components/intent/ticket-dialog.tsx` and `GuideDesk` in
+`src/components/intent/guide-desk.tsx`; for check 10, `ResultPanel`,
+`ErrorNote` and `RunButton` in `src/components/tools/runner/runner-kit.tsx`,
+`OutputFacts` in `src/components/intent/output-facts.tsx`, `ContinueWith`
+in `src/components/intent/continue-with.tsx`, `TicketRail` in
+`src/components/intent/ticket-rail.tsx`, `RunBar` in
+`src/components/tools/runner/run-bar.tsx` and `useUnsavedGuard` in
+`src/components/tools/runner/use-unsaved-guard.ts`. Each carries
 a docblock explaining what it is protecting against, which is usually faster
 than reading the logic.
 

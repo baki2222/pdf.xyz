@@ -244,10 +244,12 @@ export function fileOverCeilingMessage(
  * from that tool's own gate rather than from the widest kind on the homepage.
  *
  * It lives here, not inline in a page, so it can be RENDERED through the drop
- * primitive (`DropSheet`) by a test for all fifty tools. No page shows it
- * today — the tool page's staging branch rendered for no tool and was
- * removed (WP-06), and the home page's zone became the desk (WP-05) — so a
- * check that waited for a page to render it would be checking nothing at all.
+ * primitive (a guide's desk) by a test for all fifty tools. Shown under every
+ * guide's desk since WP-07 (`src/app/guides/[slug]/page.tsx`), for the tool
+ * the guide teaches; before that no page showed it — the
+ * tool page's staging branch rendered for no tool and was removed (WP-06),
+ * and the home page's zone became the desk (WP-05) — which is why the test
+ * renders it for every tool rather than waiting for a page to.
  */
 export function stagingHint(tool: Tool): string {
   const formats = tool.accept.join(", ");

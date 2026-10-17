@@ -10,7 +10,7 @@ import {
   type BatchSeed,
   type BatchState,
 } from "@/lib/batch";
-import { errorMessage, failureCode } from "./runner-kit";
+import { endingReady, errorMessage, failureCode } from "./runner-kit";
 import {
   reportToolCompleted,
   reportToolFailed,
@@ -107,16 +107,22 @@ export function useBatchRunner<R>(
     abortRef.current = controller;
     dispatch({ type: "start" });
 
-    for (const unit of unitsRef.current) {
+    const units = unitsRef.current;
+    for (const [index, unit] of units.entries()) {
       if (controller.signal.aborted || !mountedRef.current) break;
       dispatch({ type: "item-start", id: unit.id });
       const started = Date.now();
+      // The last file's settle is the batch's result: it is drawn with the
+      // result's ending (the receipt, Continue with), not before it — see
+      // `endingReady` in the runner kit.
+      const last = index === units.length - 1;
       try {
         const result = await process(unit.file, controller.signal);
         // Each file is one run of the tool, reported as it settles — the
         // batch holds its own state rather than `useAsyncRun`'s, so it must
         // (see `@/lib/telemetry/tool-outcome`).
         reportToolCompleted({ elapsedMs: Date.now() - started });
+        if (last) await endingReady();
         if (!mountedRef.current) return;
         dispatch({ type: "item-success", id: unit.id, result });
       } catch (err) {
@@ -124,6 +130,7 @@ export function useBatchRunner<R>(
         if (!controller.signal.aborted && !isAbort(err)) {
           reportToolFailed({ code: failureCode(err) });
         }
+        if (last) await endingReady();
         if (!mountedRef.current) return;
         dispatch({ type: "item-error", id: unit.id, error: errorMessage(err) });
       }

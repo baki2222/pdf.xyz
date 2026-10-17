@@ -36,8 +36,11 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
+import { useUnsavedGuard } from "./use-unsaved-guard";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
   NumberField,
@@ -214,12 +217,13 @@ function AnnotateEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<AnnotateResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<AnnotateResult>();
   const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
   const [markups, setMarkups] = useState<Markup[]>([]);
   const [draft, setDraft] = useState<Draft>(DEFAULT_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  useUnsavedGuard(markups.length > 0 && !result, "your markups");
   const idRef = useRef(0);
 
   // Displayed page sizes — the page as a reader sees it, turned by any
@@ -310,6 +314,9 @@ function AnnotateEditor({
         title="Annotated PDF ready"
         summary={`${result.annotationCount} markup${result.annotationCount === 1 ? "" : "s"} flattened across ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result.bytes, annotatedOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -414,17 +421,19 @@ function AnnotateEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={markups.length === 0 || !pageSizes}
-          busyLabel="Applying…"
-        >
-          <Layers className="size-4" aria-hidden />
-          Apply {markups.length} markup{markups.length === 1 ? "" : "s"}
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={markups.length === 0 || !pageSizes}
+            busyLabel="Applying…"
+          >
+            <Layers className="size-4" aria-hidden />
+            Apply {markups.length} markup{markups.length === 1 ? "" : "s"}
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

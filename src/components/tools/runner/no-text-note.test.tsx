@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { getToolBySlug } from "@/lib/tools";
 import { withoutComments } from "@/lib/tools/copy-surface";
-import { ResultPanel } from "./runner-kit";
+import { NO_ADJUST, NO_OUTPUT, ResultPanel } from "./runner-kit";
 import {
   NoSelectableTextNote,
   OCR_TOOL_HREF,
@@ -37,6 +37,8 @@ describe("the no-text outcome has a way forward", () => {
         title="No selectable text found"
         tone="warn"
         onReset={() => {}}
+        output={NO_OUTPUT("no text")}
+        onAdjust={NO_ADJUST("no settings")}
       >
         <span />
       </ResultPanel>,
@@ -46,7 +48,12 @@ describe("the no-text outcome has a way forward", () => {
     ).toBe("warn");
     unmount();
     const ok = render(
-      <ResultPanel title="Text extracted" onReset={() => {}}>
+      <ResultPanel
+        title="Text extracted"
+        onReset={() => {}}
+        output={NO_OUTPUT("a fixture")}
+        onAdjust={NO_ADJUST("no settings")}
+      >
         <span />
       </ResultPanel>,
     );

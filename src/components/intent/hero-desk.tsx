@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -11,16 +12,17 @@ import {
 import { FilePlus } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import {
-  DropSheet,
+  DropDesk,
   DropSheetPick,
   type DropVia,
-} from "@/components/upload/drop-sheet";
+  type SheetTarget,
+} from "@/components/upload/drop-desk";
 import type { HandoffOrigin } from "@/lib/handoff/origin";
 import { cn } from "@/lib/utils";
 import { DESK_ISLAND_MARKER } from "./desk-island-chunk";
 import { RecentsSlot } from "./recents-slot";
 import { SamplePdfButton } from "./sample-pdf-button";
-import { TICKET_FILE_ROWS, TicketFrame } from "./ticket-frame";
+import { PendingTicket, TicketFrame } from "./ticket-frame";
 import {
   loadTicketView,
   loadedTicketView,
@@ -122,10 +124,32 @@ export function HeroDesk({
     (files: File[], via: DropVia) => add(files, via),
     [add],
   );
-  const onHashTarget = useCallback(() => {
-    if (state.phase === "idle") focusPick();
-    else regionRef.current?.focus({ preventScroll: true });
-  }, [state.phase, focusPick]);
+  // A link to `#id` (the colophon's "Choose files") lands on the control
+  // that starts: the picker while the desk is empty, the ticket after.
+  // Here, not in the sheet: the desk is the only sheet a link names, and
+  // every other page's sheet loaded the listener for nothing.
+  useEffect(() => {
+    const onHash = () => {
+      if (window.location.hash !== `#${id}`) return;
+      if (idle) focusPick();
+      else regionRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [id, idle, focusPick]);
+  // The page's drop target: a file released anywhere on the home page lands
+  // here, whatever it is — the ticket says what it cannot use. Not while a
+  // launch is on its way out.
+  const launching = state.phase === "launching";
+  const deskTarget = useMemo<SheetTarget>(
+    () => ({
+      name: "the desk",
+      verb: "check",
+      canReceive: () => !launching,
+      takes: () => true,
+    }),
+    [launching],
+  );
   const onSample = useCallback(
     (file: File) => add([file], "pick", { sample: true }),
     [add],
@@ -152,15 +176,13 @@ export function HeroDesk({
         data-sheet="mid"
         className="border-line bg-panel absolute -top-[5px] right-2 left-2 h-16 border"
       />
-      <DropSheet
-        variant="desk"
+      <DropDesk
         id={id}
         accept={accept}
         multiple
-        catchPageDrops
+        pageTarget={deskTarget}
         onFiles={onFiles}
         onIntent={prefetchTicket}
-        onHashTarget={onHashTarget}
         className="border-line bg-panel shadow-sheet data-[armed]:border-accent flex flex-col border p-4 sm:p-5"
       >
         {(api) => (
@@ -270,42 +292,7 @@ export function HeroDesk({
             )}
           </div>
         )}
-      </DropSheet>
-    </div>
-  );
-}
-
-/**
- * The ticket while its chunk is still on the way (an arrival with no
- * approach to warn of it — a pick made before the page hydrated, say): the
- * same frame, so it is the ticket's height; the same heading, so the region
- * is named; and the files' names at once.
- */
-function PendingTicket({
-  headingId,
-  names,
-}: {
-  headingId: string;
-  names: readonly string[];
-}) {
-  return (
-    <div aria-busy="true" className="flex flex-1 flex-col">
-      <TicketFrame
-        headingId={headingId}
-        files={
-          <ul className="flex flex-col">
-            {names.slice(0, TICKET_FILE_ROWS).map((name, i) => (
-              <li
-                key={`${i}-${name}`}
-                className="text-fg h-6 truncate text-[13px]"
-              >
-                {name}
-              </li>
-            ))}
-          </ul>
-        }
-        suggestions={<span className="sr-only">Checking your files…</span>}
-      />
+      </DropDesk>
     </div>
   );
 }

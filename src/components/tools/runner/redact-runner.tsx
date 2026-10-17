@@ -33,10 +33,12 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
-  Spinner,
   UndecodedImagesNotice,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
+import { useUnsavedGuard } from "./use-unsaved-guard";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { NumberField, PrivacyLine, SegmentedControl } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
@@ -65,7 +67,7 @@ function RedactEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<RedactResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<RedactResult>();
   const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [draft, setDraft] = useState<RedactionRect>({
@@ -73,6 +75,7 @@ function RedactEditor({
   });
   const [fill, setFill] = useState<RedactionFill>("black");
   const [presetId, setPresetId] = useState<string>(DEFAULT_REDACT_PRESET_ID);
+  useUnsavedGuard(boxes.length > 0 && !result, "your redaction areas");
   const [formError, setFormError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{
     done: number;
@@ -159,6 +162,9 @@ function RedactEditor({
         title="Redacted PDF ready"
         summary={`${result.redactionCount} area${result.redactionCount === 1 ? "" : "s"} redacted across ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result.bytes, redactedOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         {result.undecodedImages > 0 && (
           <UndecodedImagesNotice count={result.undecodedImages} redaction />
@@ -306,26 +312,26 @@ function RedactEditor({
         />
       </div>
 
-      {busy && progress && (
-        <RenderProgress done={progress.done} total={progress.total} />
-      )}
       {error && <ErrorNote message={error} />}
 
       <PrivacyLine>
         Redaction happens on your device — your PDF never leaves the browser.
       </PrivacyLine>
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={boxes.length === 0 || !pageSizes}
-          busyLabel="Redacting…"
-        >
-          <EyeOff className="size-4" aria-hidden />
-          Redact PDF
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={boxes.length === 0 || !pageSizes}
+            busyLabel="Redacting pages…"
+            progress={progress && { ...progress, unit: "pages" }}
+          >
+            <EyeOff className="size-4" aria-hidden />
+            Redact PDF
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }
@@ -453,26 +459,6 @@ function RasterWarning() {
         of them. That flattening is exactly what makes the redaction permanent —
         nothing stays hidden underneath the boxes.
       </p>
-    </div>
-  );
-}
-
-function RenderProgress({ done, total }: { done: number; total: number }) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  return (
-    <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-      <span className="text-muted inline-flex items-center gap-1.5 text-xs">
-        <Spinner className="size-3" /> Redacting pages… {done}/{total}
-      </span>
-      <span
-        className="bg-wash h-1 w-full overflow-hidden rounded-full"
-        aria-hidden
-      >
-        <span
-          className="bg-accent block h-full rounded-full transition-[width] duration-300"
-          style={{ width: `${pct}%` }}
-        />
-      </span>
     </div>
   );
 }

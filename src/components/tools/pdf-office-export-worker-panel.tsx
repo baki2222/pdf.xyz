@@ -21,6 +21,7 @@ import {
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
+import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
@@ -31,10 +32,8 @@ import {
   WorkerStatusSlot,
   workerSlotState,
 } from "./worker-status";
-import {
-  OfficeExportCoverageNotice,
-  OfficeExportNextStep,
-} from "./office-export-notices";
+import { OfficeExportCoverageNotice } from "./office-export-coverage";
+import { OfficeExportNextStep } from "./office-export-notices";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
@@ -291,21 +290,33 @@ function PdfOfficeRunArea({
         {EXPORT_COPY[tool].note}
       </p>
       {file ? (
-        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
-          <span className="truncate">{file.name}</span>
-          <button
-            type="button"
-            onClick={() => {
-              setFile(null);
-              setOutcome(null);
-            }}
-            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
-          >
-            Remove
-          </button>
-        </div>
+        <ChosenFileTarget
+          file={file}
+          accept="application/pdf,.pdf"
+          busy={busy}
+          refuse={refuse}
+          onReplace={(files) => {
+            setOutcome(null);
+            setFile(files[0] ?? null);
+          }}
+        >
+          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+            <span className="truncate">{file.name}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setFile(null);
+                setOutcome(null);
+              }}
+              className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
+            >
+              Remove
+            </button>
+          </div>
+        </ChosenFileTarget>
       ) : (
         <Dropzone
+          pageTarget
           refuse={refuse}
           onFiles={(files) => setFile(files[0] ?? null)}
           accept="application/pdf,.pdf"

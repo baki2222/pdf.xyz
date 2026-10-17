@@ -52,6 +52,7 @@ import {
   ResultCard,
   WorkerRunButton,
 } from "./runner/runner-kit";
+import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import {
@@ -575,22 +576,35 @@ function OcrRunArea({
       </p>
 
       {file ? (
-        <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
-          <span className="truncate">{file.name}</span>
-          <button
-            type="button"
-            onClick={() => {
-              setFile(null);
-              setDiscarded(0);
-              setOutcome(null);
-            }}
-            className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
-          >
-            Remove
-          </button>
-        </div>
+        <ChosenFileTarget
+          file={file}
+          accept="application/pdf,image/jpeg,image/png"
+          busy={busy}
+          refuse={refuse}
+          onReplace={(files) => {
+            setOutcome(null);
+            setFile(files[0] ?? null);
+            setDiscarded(Math.max(0, files.length - OCR_MAX_INPUT_FILES));
+          }}
+        >
+          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+            <span className="truncate">{file.name}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setFile(null);
+                setDiscarded(0);
+                setOutcome(null);
+              }}
+              className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
+            >
+              Remove
+            </button>
+          </div>
+        </ChosenFileTarget>
       ) : (
         <Dropzone
+          pageTarget
           refuse={refuse}
           onFiles={(files) => {
             setFile(files[0] ?? null);

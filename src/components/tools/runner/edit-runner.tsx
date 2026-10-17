@@ -43,8 +43,11 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
+import { useUnsavedGuard } from "./use-unsaved-guard";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
   NumberField,
@@ -296,13 +299,16 @@ export function EditRunner() {
 }
 
 function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
-  const { busy, error, result, run } = useAsyncRun<EditResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<EditResult>();
   const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
   const [edits, setEdits] = useState<Edit[]>([]);
   const [draft, setDraft] = useState<Draft>(DEFAULT_DRAFT);
   const [image, setImage] = useState<LoadedImage | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Edits placed but not yet applied are lost by leaving; applied, they are
+  // in the result.
+  useUnsavedGuard(edits.length > 0 && !result, "your edits");
   const idRef = useRef(0);
 
   // Displayed page sizes (the visible CropBox, turned by any /Rotate) back the
@@ -413,6 +419,9 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         title="Edited PDF ready"
         summary={`${result.opCount} edit${result.opCount === 1 ? "" : "s"} flattened across ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result.bytes, editedOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -532,17 +541,19 @@ function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={edits.length === 0 || !pageSizes}
-          busyLabel="Applying…"
-        >
-          <Layers className="size-4" aria-hidden />
-          Apply {edits.length} edit{edits.length === 1 ? "" : "s"}
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={edits.length === 0 || !pageSizes}
+            busyLabel="Applying…"
+          >
+            <Layers className="size-4" aria-hidden />
+            Apply {edits.length} edit{edits.length === 1 ? "" : "s"}
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

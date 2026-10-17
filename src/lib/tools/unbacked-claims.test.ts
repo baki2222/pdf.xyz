@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Five sentences the site shipped that nothing in the product backs.
+ * Six sentences the site shipped that nothing in the product backs.
  *
  *  1. A QUANTITY THE CATALOGUE OWNS, UNDERSTATED. The FAQ said "a handful of
  *     heavy or AI-powered tools use encrypted, auto-deleting workers" and the
@@ -49,6 +49,30 @@
  *     unchanged) now hold false, so this rule has no automatic exit: a
  *     change that brings a reload back inverts those two and lifts this in
  *     the same commit.
+ *
+ *  6. SETTINGS YOU CAN CHANGE ONLY BY STARTING OVER. Page numbers said "Start
+ *     over clears the loaded file, so changing a setting afterwards means
+ *     picking the original again", and Watermark PDF "There is no preview,
+ *     so to change the settings press Start over and choose the file
+ *     again". Both were true until the result panel gained "Back to adjust"
+ *     (WP-08), which returns to the settings with the same file loaded —
+ *     and both were served as HowTo / FAQPage JSON-LD as well as visible
+ *     copy. No curly quotes, so only this corpus sees them (addendum WP-08
+ *     #8).
+ *     NO EXIT CONDITION: every tool's content is read for this rule.
+ *     There was one — a tool whose runner passed `NO_ADJUST` had its whole
+ *     content file lifted, and so did a tool with no in-browser runner. The
+ *     marker is a MECHANISM; the property it was standing for is "no control
+ *     in the result returns to the settings with the same file", and the
+ *     first runner it lifted, PDF to Image, has exactly such a control
+ *     ("Change resolution" returns to the chips with the same file), so on
+ *     day one it licensed the false sentence on PDF to JPG and PDF to PNG.
+ *     Nor does a worker panel lose its file when it shows a result. Both
+ *     lifts licensed no shipped sentence (measured: the corpus is green with
+ *     neither), so both went — CLAUDE.md rule 2, a guard that can license a
+ *     defect is worse than none (WP-08 review, 2026-10-10). If a tool ever
+ *     needs the sentence, key its exit on that property, measured from its
+ *     result — never on a marker.
  *
  * THE CORPUS is every file the copy walk reaches (`copyFiles()`), comments
  * removed and JSX flattened to the text a reader sees — so a phrase broken by
@@ -129,6 +153,20 @@ const RULES: readonly Rule[] = [
       "Download comparison report saves the whole report as a text file named after both PDFs, for example draft-vs-final-comparison.txt. Start over reloads the page, which clears both slots for a new pair.",
     ],
   },
+  {
+    name: "settings that can be changed only by starting over",
+    // "changing a setting … means picking", "to change the settings press
+    // Start over", and the label-first order: "Start over … choose the file
+    // again". Bounded by the sentence.
+    patterns: [
+      /\bchang(?:e|ing)\s+(?:a|the|any)\s+settings?\b[^.]{0,60}?\b(?:start\s+over|pick(?:s|ing)?|choos(?:e|es|ing))\b/i,
+      /\bstart\s+over\b[^.]{0,80}?\b(?:pick(?:s|ing)?|choos(?:e|es|ing)|load(?:s|ing)?)\s+(?:the\s+)?(?:original|file|pdf)\s+again\b/i,
+    ],
+    shipped: [
+      "Start over clears the loaded file, so changing a setting afterwards means picking the original again.",
+      "There is no preview, so to change the settings press Start over and choose the file again.",
+    ],
+  },
 ];
 
 /** Source as a reader sees it: no comments, no tags, no `{" "}`, one line. */
@@ -142,15 +180,26 @@ function readerText(source: string): string {
 
 const rel = (f: string) => path.relative(ROOT, f).split(path.sep).join("/");
 
-function findings(rule: Rule): string[] {
-  return copyFiles().flatMap((file) => {
-    const text = readerText(readFileSync(file, "utf8"));
-    return rule.patterns.flatMap((p) =>
-      [...text.matchAll(new RegExp(p.source, `${p.flags}g`))].map(
-        (m) => `${rel(file)}: …${m[0]}…`,
-      ),
-    );
-  });
+/** What `rule` catches in one file's source, as a reader sees it. */
+function matches(rule: Rule, file: string, source: string): string[] {
+  const text = readerText(source);
+  return rule.patterns.flatMap((p) =>
+    [...text.matchAll(new RegExp(p.source, `${p.flags}g`))].map(
+      (m) => `${rel(file)}: …${m[0]}…`,
+    ),
+  );
+}
+
+/**
+ * Every finding of `rule` across the copy walk. `read` is the source of each
+ * file — the disk, unless a control plants a sentence in one: the control
+ * then runs through the whole detector, walk included, not a part of it.
+ */
+function findings(
+  rule: Rule,
+  read: (file: string) => string = (file) => readFileSync(file, "utf8"),
+): string[] {
+  return copyFiles().flatMap((file) => matches(rule, file, read(file)));
 }
 
 describe("each rule's corpus, both ways", () => {
@@ -184,8 +233,38 @@ describe("each rule's corpus, both ways", () => {
       "src/app/status/page.tsx",
       // Rule 5's sentence lived in a tool page's content file.
       "src/lib/tools/content/compare-pdf.ts",
+      // …and rule 6's two.
+      "src/lib/tools/content/page-numbers.ts",
+      "src/lib/tools/content/watermark-pdf.ts",
     ])
       expect(files).toContain(f);
+  });
+
+  it("rule 6 has no exit: every tool's content is read, NO_ADJUST and worker tools alike", () => {
+    const rule = RULES.find((r) => r.name.startsWith("settings that"))!;
+    // PDF to JPG's runner passes NO_ADJUST and still returns to its
+    // resolution chips with the same file; OCR PDF is a worker panel, which
+    // keeps its file beside its result. Neither may say otherwise — so the
+    // shipped sentence planted in either file is a finding, through the
+    // whole detector (the walk, the reader, the patterns).
+    for (const f of [
+      "src/lib/tools/content/pdf-to-jpg.ts",
+      "src/lib/tools/content/ocr-pdf.ts",
+    ]) {
+      expect(copyFiles().map(rel)).toContain(f);
+      for (const sentence of rule.shipped) {
+        const planted = findings(rule, (file) => {
+          const source = readFileSync(file, "utf8");
+          return rel(file) === f
+            ? `${source}\nexport const X = "${sentence}";`
+            : source;
+        });
+        expect(
+          planted.filter((x) => x.startsWith(`${f}:`)),
+          f,
+        ).not.toEqual([]);
+      }
+    }
   });
 });
 

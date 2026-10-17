@@ -26,6 +26,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { buttonVariants } from "@/components/ui/button";
 import { compositeOver, contrastRatio, parseColor } from "@/lib/a11y/contrast";
 import { parseCss, type CssBlock } from "@/lib/motion/contract";
 
@@ -246,5 +247,59 @@ describe("the radius vocabulary describes corners the tree renders", () => {
 
   it("positive control: the 6px control radius that shipped renders nowhere", () => {
     expect(sites("ctl-retired", "6px")).toBe(0);
+  });
+});
+
+describe("an unavailable or busy primary button keeps its label at AA", () => {
+  /**
+   * `RunButton` stays on screen while it cannot run — before a file is
+   * picked on Image to PDF and Compare PDF, and through EVERY run as
+   * "Merging…", "Creating PDF…" — dimmed by the button's own opacity
+   * utility. A busy label is information, not an inactive control, so it is
+   * held to AA like any text. On 2026-10-11 the WP-08 gate's contrast audit
+   * (`--all-tools`, light) measured "Create PDF" and "Compare PDFs" at
+   * 4.498:1 there: `opacity-60` dims the ink ground until the label falls
+   * through 4.5 on the white panel.
+   *
+   * Measured the way the audit measures it — the label's full colour over
+   * the dimmed ground composited onto each ground a button sits on — which
+   * is the stricter reading: the browser dims the label too, toward the
+   * ground, which only lightens a light label. The opacity is read from the
+   * shipped `buttonVariants()`, never restated.
+   */
+  const GROUNDS = ["canvas", "panel", "wash"] as const;
+  const classes = buttonVariants();
+  const dims = [
+    ...classes.matchAll(/(?:^|\s)((?:aria-)?disabled):opacity-(\d+)(?=\s|$)/g),
+  ];
+
+  it("health check: the dimming is found, once per state, and the two agree", () => {
+    expect(dims.map((m) => m[1]).sort()).toEqual(["aria-disabled", "disabled"]);
+    expect(new Set(dims.map((m) => m[2])).size).toBe(1);
+  });
+
+  const opacity = Number(dims[0]?.[2]) / 100;
+  const worst = (tokens: Map<string, string>, a: number) => {
+    const button = colour(tokens, "invert");
+    const label = colour(tokens, "fg-invert");
+    return Math.min(
+      ...GROUNDS.map((g) =>
+        contrastRatio(
+          label,
+          compositeOver({ ...button, a }, colour(tokens, g)),
+        ),
+      ),
+    );
+  };
+
+  it.each([...SCOPES.keys()])("%s", (name) => {
+    expect(
+      worst(SCOPES.get(name)!, opacity),
+      `the dimmed primary's label in ${name}, at opacity ${opacity}`,
+    ).toBeGreaterThanOrEqual(AA);
+  });
+
+  it("positive control: a button dimmed to half fails on the light panel", () => {
+    expect(worst(SCOPES.get("light paper")!, 0.5)).toBeLessThan(AA);
   });
 });

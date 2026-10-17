@@ -33,6 +33,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { inspectFormFields, type FormInspection } from "@/lib/pdf/forms";
+import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import {
   ORPHAN_FIELD,
   VISIBLE_FIELD,
@@ -95,6 +96,7 @@ async function fillAndDownload({
 }): Promise<{ panel: HTMLElement; download: FormInspection }> {
   const bytes = await formPdf({ orphan });
   const { container } = render(withRouter(<FillFormsRunner />));
+  await dropSheetsLive(container);
   const picker = container.querySelector('input[type="file"]');
   expect(picker, "the runner offers a file picker").not.toBeNull();
   fireEvent.drop(picker!.closest("label")!, {

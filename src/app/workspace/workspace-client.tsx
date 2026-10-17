@@ -2,10 +2,9 @@
 
 import {
   Fragment,
+  useCallback,
   useEffect,
-  useId,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -26,7 +25,11 @@ import {
   X,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
-import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
+import {
+  DropDesk,
+  DropSheetPick,
+  type SheetTarget,
+} from "@/components/upload/drop-desk";
 import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
 import { originPhrase } from "@/lib/handoff/origin";
 import { factWords, type FactWord } from "@/lib/intent/fact-words";
@@ -84,6 +87,17 @@ const FAMILY_ICON: Record<FileFamily, typeof FileText> = {
 };
 
 const ACCEPT = acceptAttribute();
+
+/**
+ * The workspace is its page's drop target: it stages anything it can read
+ * and lists what it cannot ("couldn't be staged"), so it takes every file
+ * the page is handed, whatever its kind.
+ */
+const WORKSPACE_TARGET: SheetTarget = {
+  name: "the workspace",
+  verb: "add",
+  takes: () => true,
+};
 
 const noSubscription = () => () => {};
 
@@ -168,13 +182,13 @@ export function WorkspaceClient({
     () => deepLinkedToolSlug(search, tools),
     [search, tools],
   );
-  const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
   const ws = useWorkspace(tools, preselected);
   const { state, rejected } = ws;
-
-  useEarlyFilePick(inputRef, ws.addFiles);
+  const { addFiles } = ws;
+  const onFiles = useCallback(
+    (files: File[]) => void addFiles(files),
+    [addFiles],
+  );
 
   const [FileSuggestions, setFileSuggestions] = useState(
     () => suggestionsLoaded,
@@ -246,52 +260,44 @@ export function WorkspaceClient({
           2026-10-09). */}
       <div className="flex min-w-0 flex-col gap-6">
         <div className="border-line bg-panel rounded-panel flex flex-col gap-5 border p-5 sm:p-7">
-          {/* Dropzone */}
-          <label
-            htmlFor={inputId}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              ws.addFiles(e.dataTransfer.files);
-            }}
-            className={cn(
-              "group rounded-sheet crop-marks relative flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
-              "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
-              dragging
-                ? "border-accent/40 bg-accent/10"
-                : "border-line-strong bg-wash hover:border-line-strong hover:bg-wash",
-            )}
+          {/* The drop panel: the one drop primitive, and the page's target —
+              a file dropped or pasted anywhere on the workspace is staged
+              here, and one it cannot read says so below, like any other. */}
+          <DropDesk
+            accept={ACCEPT}
+            multiple
+            onFiles={onFiles}
+            pageTarget={WORKSPACE_TARGET}
           >
-            <input
-              id={inputId}
-              ref={inputRef}
-              type="file"
-              accept={ACCEPT}
-              multiple
-              className="sr-only"
-              onChange={(e) => {
-                ws.addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-            <span className="text-muted grid size-14 place-items-center rounded-[4px]">
-              <UploadCloud className="size-7" strokeWidth={1.75} aria-hidden />
-            </span>
-            <span className="flex flex-col gap-1">
-              <span className="text-fg text-base font-semibold">
-                Drop files here, or{" "}
-                <span className="text-accent underline underline-offset-4">
-                  browse
+            {(api) => (
+              <DropSheetPick
+                className={cn(
+                  "rounded-sheet relative flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
+                  "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
+                  "border-line-strong bg-wash group-data-[armed]/sheet:border-accent/40 group-data-[over]/sheet:bg-accent/10",
+                )}
+              >
+                <span className="text-muted group-data-[armed]/sheet:text-accent grid size-14 place-items-center transition-colors">
+                  <UploadCloud
+                    className="size-7"
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
                 </span>
-              </span>
-              <span className="text-muted text-sm">{acceptHint()}</span>
-            </span>
-          </label>
+                <span className="flex flex-col gap-1">
+                  <span className="text-fg text-base font-semibold">
+                    Drop files here, or{" "}
+                    <span className="text-accent underline underline-offset-4">
+                      browse
+                    </span>
+                  </span>
+                  <span id={api.hintId} className="text-muted text-sm">
+                    {acceptHint()}
+                  </span>
+                </span>
+              </DropSheetPick>
+            )}
+          </DropDesk>
 
           {ws.arrival && (
             <ArrivalNote arrival={ws.arrival} onDismiss={ws.dismissArrival} />
@@ -474,7 +480,16 @@ export function WorkspaceClient({
               </button>
               <button
                 type="button"
-                onClick={() => inputRef.current?.click()}
+                // The drop panel is this page's target, so "Open files"
+                // and this open the same picker — the panel's own. The
+                // registry is not in the page's first load; by a click it
+                // is here (the panel registered through it on mount), and a
+                // picker opened within the click's activation still opens.
+                onClick={() =>
+                  void import("@/lib/intent/page-target").then((registry) =>
+                    registry.requestFilePick(),
+                  )
+                }
                 className={buttonVariants({ variant: "outline", size: "sm" })}
               >
                 Add files

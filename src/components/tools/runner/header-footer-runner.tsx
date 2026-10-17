@@ -18,8 +18,10 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
   PrivacyLine,
@@ -66,7 +68,7 @@ export function HeaderFooterEditor({
   const [headerAlign, setHeaderAlign] = useState<HAlign>("center");
   const [footerText, setFooterText] = useState("Page {n} of {total}");
   const [footerAlign, setFooterAlign] = useState<HAlign>("center");
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
   // `{date}` in the reader's own locale format when a face we ship can draw it
   // beside what they typed, else the same day in Latin digits, else ISO. The
@@ -120,6 +122,9 @@ export function HeaderFooterEditor({
         title="Header & footer added"
         summary={`Applied to all ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"} · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result, headerFooterOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -209,17 +214,19 @@ export function HeaderFooterEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={!hasContent}
-          busyLabel="Applying…"
-        >
-          <PanelTop className="size-4" aria-hidden />
-          Add header &amp; footer
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={!hasContent}
+            busyLabel="Applying…"
+          >
+            <PanelTop className="size-4" aria-hidden />
+            Add header &amp; footer
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

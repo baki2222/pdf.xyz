@@ -32,8 +32,8 @@ import {
   type RedactedEvent,
 } from "./track";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
-import { useAsyncRun } from "@/components/tools/runner/runner-kit";
-import { PdfEngineError } from "@/lib/pdf/engine";
+import { failureCode, useAsyncRun } from "@/components/tools/runner/runner-kit";
+import { PdfEncryptedError, PdfEngineError } from "@/lib/pdf/engine";
 import {
   resumeSecurityJob,
   runSecurityJob,
@@ -158,6 +158,78 @@ describe("browser runners — useAsyncRun reports the outcome", () => {
       },
     ]);
     expect(JSON.stringify(seen)).not.toContain("clientlist");
+  });
+
+  /**
+   * An engine refusal that names its cause says WHICH, each error alone.
+   *
+   * WAS one render of both runners and a `.sort()` of the two reasons
+   * before comparing — which threw away which error produced which reason,
+   * so swapping `failureCode`'s two arms (every encrypted file reported to
+   * GA4 as unreadable, and the reverse) left this and every other test
+   * green: 7 files, 116 tests (WP-08 review, 2026-10-10). Inverted, history
+   * kept: one error per render, its reason exactly, and `failureCode` read
+   * directly per error class.
+   */
+  for (const [label, error, code, reason] of [
+    [
+      "a password-protected file",
+      () => new PdfEncryptedError("needs-password"),
+      "encrypted_input",
+      "encrypted-input",
+    ],
+    [
+      "a file that opens without a password but is restricted",
+      () => new PdfEncryptedError("opens-without-password"),
+      "encrypted_input",
+      "encrypted-input",
+    ],
+    [
+      "an encrypted file whose kind of lock is undetermined",
+      () => new PdfEncryptedError(null),
+      "encrypted_input",
+      "encrypted-input",
+    ],
+    [
+      "an unreadable file",
+      () => new PdfEngineError(SECRET, { kind: "unreadable" }),
+      "unreadable_input",
+      "unreadable-input",
+    ],
+  ] as const) {
+    it(`${label} is ${reason}, and only that`, async () => {
+      expect(failureCode(error())).toBe(code);
+      const seen = sink();
+      const task = async () => {
+        throw error();
+      };
+      await act(async () => {
+        render(
+          <>
+            <ToolTelemetry toolSlug="rotate-pdf" capability="in-browser" />
+            <Runner task={task} />
+          </>,
+        );
+      });
+      // It survives `sanitizeEvent`: a reason missing from the fixed list
+      // would drop the event, and this would see none.
+      expect(
+        seen
+          .filter((e) => e.name === "tool_failed")
+          .map((e) => (e as { reason?: string }).reason),
+      ).toEqual([reason]);
+      expect(JSON.stringify(seen)).not.toContain("clientlist");
+    });
+  }
+
+  it("POSITIVE CONTROL: an engine error with no kind, and a bad page range, stay invalid-input", () => {
+    expect(failureCode(new PdfEngineError(SECRET))).toBe(
+      "unprocessable_entity",
+    );
+    expect(toolErrorReason(failureCode(new PdfEngineError(SECRET)))).toBe(
+      "invalid-input",
+    );
+    expect(failureCode(new Error(SECRET))).toBeUndefined();
   });
 
   it("an unexpected throw is processing-error; a success is tool_completed", async () => {

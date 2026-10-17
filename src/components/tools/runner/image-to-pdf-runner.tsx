@@ -28,9 +28,11 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   reorder,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import {
   HandoffLoadedBadge,
   HandoffLoading,
@@ -203,6 +205,10 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         title={`${label} PDF created`}
         summary={`${items.length} image${items.length === 1 ? "" : "s"} · ${formatBytes(result.byteLength)}`}
         onReset={clearItems}
+        output={outputFile(result, imagePdfOutputName(kind, items[0]?.name))}
+        onAdjust={reset}
+        // One page per image.
+        expectedPages={items.length}
       >
         <button
           type="button"
@@ -229,6 +235,8 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         />
       )}
       <Dropzone
+        pageTarget
+        busy={busy}
         onFiles={addFiles}
         accept={imagePickerAccept(kind)}
         multiple
@@ -312,26 +320,30 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       )}
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end gap-3">
-        {items.length > 0 && (
-          <button
-            type="button"
-            onClick={clearItems}
-            className={cn(buttonVariants({ variant: "secondary", size: "lg" }))}
+      <RunBar>
+        <div className="flex justify-end gap-3">
+          {items.length > 0 && (
+            <button
+              type="button"
+              onClick={clearItems}
+              className={cn(
+                buttonVariants({ variant: "secondary", size: "lg" }),
+              )}
+            >
+              Clear
+            </button>
+          )}
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={items.length === 0 || loading > 0}
+            busyLabel="Creating PDF…"
           >
-            Clear
-          </button>
-        )}
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={items.length === 0 || loading > 0}
-          busyLabel="Creating PDF…"
-        >
-          <FileImage className="size-4" aria-hidden />
-          Create PDF
-        </RunButton>
-      </div>
+            <FileImage className="size-4" aria-hidden />
+            Create PDF
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

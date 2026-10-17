@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -23,7 +30,14 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import type { BatchItem } from "@/lib/batch";
 import { HandoffLoadedBadge, type Arrival } from "./handoff-notice";
-import { ErrorNote, Spinner } from "./runner-kit";
+import {
+  ErrorNote,
+  RunEnding,
+  Spinner,
+  outputFile,
+  warmEnding,
+} from "./runner-kit";
+import { holdRunnerStage } from "./stage-hold";
 import { useBatchRunner, type BatchUnit } from "./use-batch-runner";
 import { useZipDownload } from "./use-zip-download";
 
@@ -108,6 +122,18 @@ export function CompressBatchRunner({
     useBatchRunner<CompressResult>(units, process);
 
   const settled = state.phase === "done" || state.phase === "canceled";
+  // The stage is held from the press (`./stage-hold`): the rows and the
+  // ending the batch draws come long after it. Once it settles, the hold
+  // keeps nothing past the bottom of the screen, and the rest goes at the
+  // reader's next click or key.
+  const settleHold = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!settled) return;
+    settleHold.current?.();
+    settleHold.current = null;
+  }, [settled]);
+  // Unmounted mid-batch: the rows it was held for will never be drawn.
+  useEffect(() => () => settleHold.current?.(), []);
   const totalSaved = state.items.reduce(
     (sum, item) => sum + (item.result?.savedBytes ?? 0),
     0,
@@ -125,6 +151,21 @@ export function CompressBatchRunner({
   ).length;
   const downloadable = doneItems.filter(
     (item) => includeSigned || item.result.signatureCount === 0,
+  );
+
+  // What the batch made, as the files a download gives — and so what the
+  // receipt counts and "Continue with" carries (several PDFs: only to the
+  // tool that combines them).
+  const outputs = useMemo(
+    () =>
+      downloadable.map((item) =>
+        outputFile(item.result.bytes, item.result.outputName),
+      ),
+    [downloadable],
+  );
+  const inputBytes = downloadable.reduce(
+    (sum, item) => sum + item.result.originalBytes,
+    0,
   );
 
   const { zipping, zipError, downloadZip } = useZipDownload();
@@ -265,7 +306,11 @@ export function CompressBatchRunner({
               </button>
               <button
                 type="button"
-                onClick={start}
+                onClick={() => {
+                  settleHold.current = holdRunnerStage();
+                  void warmEnding().catch(() => {});
+                  start();
+                }}
                 className={buttonVariants({ variant: "primary", size: "sm" })}
               >
                 <Play className="size-4" aria-hidden />
@@ -328,6 +373,14 @@ export function CompressBatchRunner({
           )}
         </div>
       </div>
+
+      {settled && outputs.length > 0 && (
+        <RunEnding
+          output={outputs.length === 1 ? outputs[0]! : outputs}
+          inputBytes={inputBytes}
+          className="border-line border-t pt-5"
+        />
+      )}
     </div>
   );
 }

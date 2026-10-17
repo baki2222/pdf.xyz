@@ -32,7 +32,9 @@ import {
   RunnerSection,
   errorMessage,
   useAsyncRun,
+  textOutputFile,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import {
   HandoffLoadedBadge,
   HandoffLoading,
@@ -265,6 +267,13 @@ export function ComparePdfEditor({
           reset();
           onClear();
         }}
+        output={textOutputFile(
+          result,
+          result.report,
+          compareOutputName(result.leftName, result.rightName),
+        )}
+        // Both files stay in their slots: swap one and compare again.
+        onAdjust={reset}
       >
         <div className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-3">
@@ -309,6 +318,8 @@ export function ComparePdfEditor({
   return (
     <div className="flex flex-col gap-5">
       <Dropzone
+        pageTarget
+        busy={busy}
         onFiles={onFiles}
         multiple
         title="Drop two PDFs here, or"
@@ -402,17 +413,19 @@ export function ComparePdfEditor({
       )}
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          disabled={!canCompare}
-          busy={busy}
-          busyLabel="Comparing…"
-        >
-          <FileDiff className="size-4" aria-hidden />
-          Compare PDFs
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            disabled={!canCompare}
+            busy={busy}
+            busyLabel="Comparing…"
+          >
+            <FileDiff className="size-4" aria-hidden />
+            Compare PDFs
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

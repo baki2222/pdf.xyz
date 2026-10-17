@@ -6,6 +6,7 @@ import {
   useId,
   useRef,
   useState,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import Link from "next/link";
@@ -19,22 +20,33 @@ import {
   Info,
   Loader2,
   RefreshCw,
+  SlidersHorizontal,
   TriangleAlert,
-  UploadCloud,
   type LucideIcon,
 } from "lucide-react";
 import { PageRangeError } from "@/lib/pdf/ranges";
 import { PdfEngineError } from "@/lib/pdf/engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
+import { remedyFor, type Remedy, type RemedyInput } from "@/lib/pdf/remedies";
+import type { RunOutput } from "@/lib/intent/run-output";
+import { registerUnkeptResult } from "@/lib/intent/unsaved";
 import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
-import { useEarlyFilePick } from "@/components/upload/use-early-file-pick";
+import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 import { cn } from "@/lib/utils";
 import {
   reportToolCompleted,
   reportToolFailed,
 } from "@/lib/telemetry/tool-outcome";
+import { holdRunnerStage } from "./stage-hold";
+import { useToolRun } from "./tool-context";
+
+export {
+  outputFile,
+  textOutputFile,
+  type RunOutput,
+} from "@/lib/intent/run-output";
 
 /* ------------------------------------------------------------------ *
  *  Async run state
@@ -51,13 +63,97 @@ export function errorMessage(err: unknown): string {
 
 /**
  * The failure code a thrown value maps to for telemetry. Our typed errors are
- * refusals of the INPUT (unreadable, password-protected, a bad page range);
- * anything else failed while processing and gets no code.
+ * refusals of the INPUT; the engine's own refusals say which (an encrypted
+ * file, an unreadable one), and the rest — a bad page range, an engine error
+ * with no kind — are the input refused as it stands. Anything else failed
+ * while processing and gets no code.
  */
 export function failureCode(err: unknown): string | undefined {
+  if (err instanceof PdfEngineError && err.kind !== undefined)
+    return err.kind === "encrypted" ? "encrypted_input" : "unreadable_input";
   return err instanceof PdfEngineError || err instanceof PageRangeError
     ? "unprocessable_entity"
     : undefined;
+}
+
+/**
+ * The end of a result — its receipt and "Continue with" — is one on-demand
+ * chunk (`@/components/intent/result-ending`): in the runner kit it would be
+ * in every tool page's first load, for a screen most visits never reach.
+ * Fetched the moment a run STARTS (Compress PDF, whose analysis starts with
+ * its file, fetches it as the file arrives), and a finished run WAITS for it
+ * ({@link endingReady}) before its result is drawn, so the receipt and the
+ * rows draw in the same commit as the result — never into a result already
+ * on screen, where each was a shift nothing had reserved space for (the
+ * receipt landed ABOVE Download; Compress's ending pushed its worker card
+ * off screen ~330 ms after the analysis painted, CLS +0.032 after a file
+ * pick, long after the pick's input window had closed: WP-08 review,
+ * 2026-10-10).
+ *
+ * One commit is not, by itself, a page that holds still: one taller commit
+ * throws what is under the runner farther than two short ones did, and a
+ * layout shift is charged by the distance (Compress PDF after a pick,
+ * 0.0725 + 0.0325 became one 0.1357: WP-08 re-review, 2026-10-11). So on a
+ * tool page nothing is under the runner on screen: the panel holds the
+ * first screen from the first paint (`data-first-screen` in
+ * `app/tools/[slug]/page.tsx`), and a result grows the panel downwards,
+ * past the bottom of the screen, moving nothing a reader can see.
+ *
+ * The wait is bounded ({@link ENDING_WAIT_MS}). A result that outwaits it
+ * is drawn without its ending, and the ending, when it comes, is drawn
+ * BELOW the Download row (`ResultPanel`), where it moves nothing a hand is
+ * on its way to.
+ */
+type Ending = typeof import("@/components/intent/result-ending");
+let ending: Ending | null = null;
+let endingLoad: Promise<Ending> | null = null;
+
+export function warmEnding(): Promise<Ending> {
+  endingLoad ??= import("@/components/intent/result-ending").then(
+    (m) => (ending = m),
+    (err: unknown) => {
+      endingLoad = null;
+      throw err;
+    },
+  );
+  return endingLoad;
+}
+
+/** The longest a finished run waits for its ending before it is drawn. */
+export const ENDING_WAIT_MS = 800;
+
+/**
+ * Settles when the ending is here, or after {@link ENDING_WAIT_MS} —
+ * whichever is first. Never rejects: an ending that failed to load costs the
+ * result its receipt, never the result.
+ */
+export function endingReady(): Promise<void> {
+  if (ending) return Promise.resolve();
+  return Promise.race([
+    warmEnding().then(
+      () => undefined,
+      () => undefined,
+    ),
+    new Promise<void>((resolve) => setTimeout(resolve, ENDING_WAIT_MS)),
+  ]);
+}
+
+function useEnding(): Ending | null {
+  const [loaded, setLoaded] = useState(ending);
+  useEffect(() => {
+    if (loaded) return;
+    let live = true;
+    warmEnding().then(
+      (m) => live && setLoaded(m),
+      () => {
+        // Not loaded: the result still offers Download and Start over.
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [loaded]);
+  return loaded;
 }
 
 /**
@@ -68,18 +164,31 @@ export function useAsyncRun<T>() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<T | null>(null);
+  // A run still in flight when the runner unmounts settles its hold then:
+  // the result it was held for will never be drawn (`./stage-hold`).
+  const holding = useRef<(() => void) | null>(null);
+  useEffect(() => () => holding.current?.(), []);
 
   const run = useCallback(async (task: () => Promise<T>) => {
+    // The stage the result will be drawn into, held from the press, in the
+    // press's own handler (`./stage-hold`).
+    const settled = holdRunnerStage();
+    holding.current = settled;
     setBusy(true);
     setError(null);
+    void warmEnding().catch(() => {});
     const started = Date.now();
     try {
       const value = await task();
-      setResult(value);
       // Every browser runner's outcome passes through here, so this is where
       // it is reported — never the message, only a coarse reason from the
-      // error's TYPE. See `@/lib/telemetry/tool-outcome`.
+      // error's TYPE. See `@/lib/telemetry/tool-outcome`. Reported as the
+      // work finished, before the wait below, which is drawing, not work.
       reportToolCompleted({ elapsedMs: Date.now() - started });
+      // Drawn with its ending, not before it (`endingReady`): the run is
+      // still busy for the moment it waits, so nothing flashes.
+      await endingReady();
+      setResult(value);
       return value;
     } catch (err) {
       setError(errorMessage(err));
@@ -87,6 +196,8 @@ export function useAsyncRun<T>() {
       return null;
     } finally {
       setBusy(false);
+      settled();
+      if (holding.current === settled) holding.current = null;
     }
   }, []);
 
@@ -115,17 +226,36 @@ export function Spinner({ className }: { className?: string }) {
   );
 }
 
-/** Big drop target used for the empty state; also usable as an "add more" tile. */
+/**
+ * A runner's or panel's drop zone: the one drop primitive (`DropSheet`) with
+ * the runners' defaults — a square sheet with crop marks around a dashed
+ * field, the title a "…, or" that the accent "browse" ends.
+ *
+ * `pageTarget`: this zone is where a file dropped or pasted ANYWHERE on its
+ * page lands (`@/lib/intent/page-target`) — the empty state's zone and the
+ * add-more tile. OFF by default: a secondary zone inside an editor (Sign
+ * PDF's signature image, Overlay PDF's overlay) must never take the page's
+ * drops from the editor's own "replace" target, and an opt-in cannot be
+ * forgotten in the direction that steals them (`drop-anywhere` e2e, and the
+ * discovery in `page-target-sites.test.ts`). The page names the tool
+ * (`data-tool-name` around the runner and the panel).
+ *
+ * `busy`: the zone's runner is at work; a file dropped on the PAGE then goes
+ * to the ticket dialog rather than into a run already started.
+ *
+ * On a tool page the sheet takes the room the first screen leaves it, while
+ * it is all its runner shows: the rule is the runner stage's
+ * (`data-runner-stage` in `app/tools/[slug]/page.tsx`), not this zone's.
+ */
 export function Dropzone({
   onFiles,
   accept = "application/pdf",
   multiple = true,
   title = "Drop your PDF here, or",
-  browse = true,
-  hint,
-  compact = false,
-  className,
-  refuse,
+  compact,
+  pageTarget,
+  busy,
+  ...sheet
 }: {
   onFiles: (files: File[]) => void;
   accept?: string;
@@ -137,104 +267,51 @@ export function Dropzone({
   className?: string;
   /**
    * Why a picked file cannot be used, or `null` when it can. Runs on EVERY way
-   * a file arrives (drop, browse, a pick made before hydration) and before
-   * `onFiles`, so a refused file is never read or uploaded. A drop is not
-   * filtered by `accept`, which is why this exists. The worker panels pass
-   * `pickRefusal` from `@/lib/uploads/pick-check`.
+   * a file arrives (drop, browse, a pick made before hydration, a drop or a
+   * paste anywhere on the page) and before `onFiles`, so a refused file is
+   * never read or uploaded. A drop is not filtered by `accept`, which is why
+   * this exists. The worker panels pass `pickRefusal` from
+   * `@/lib/uploads/pick-check`.
    */
   refuse?: (file: File) => string | null;
+  pageTarget?: boolean;
+  busy?: boolean;
 }) {
-  const inputId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  const emit = useCallback(
-    (list: FileList | null) => {
-      if (!list || list.length === 0) return;
-      const kept: File[] = [];
-      let first: string | null = null;
-      for (const file of Array.from(list)) {
-        const why = refuse ? refuse(file) : null;
-        if (why === null) kept.push(file);
-        else first ??= why;
-      }
-      setRefusal(first);
-      if (kept.length === 0) return;
+  const receive = useCallback(
+    (files: File[]) => {
       // The engine downloads the moment files arrive (including a pre-hydration
-      // pick adopted by useEarlyFilePick below), so by the time a hand reaches
-      // the run button the pdf-lib chunk is usually already here. Fire-and-
-      // forget; the operation's own await is the surface that reports failures.
+      // pick the sheet adopts), so by the time a hand reaches the run button
+      // the pdf-lib chunk is usually already here. Fire-and-forget; the
+      // operation's own await is the surface that reports failures.
       warmPdfLib();
-      onFiles(kept);
+      onFiles(files);
     },
-    [onFiles, refuse],
+    [onFiles],
   );
 
-  useEarlyFilePick(inputRef, emit);
+  // Read by the page at every question, so the latest `busy` is the answer.
+  // Named by the page it is on (`data-tool-name`), not here.
+  const target: SheetTarget | undefined = pageTarget
+    ? { verb: multiple ? "add" : "open", canReceive: () => !busy }
+    : undefined;
 
+  // `browse`, `hint`, `className` and `refuse` go to the sheet as given.
   const zone = (
-    <label
-      htmlFor={inputId}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragging(false);
-        emit(e.dataTransfer.files);
-      }}
-      className={cn(
-        "group relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[4px] border border-dashed text-center transition-colors duration-150",
-        compact ? "px-4 py-6" : "px-6 py-12",
-        dragging
-          ? "border-accent bg-accent/5"
-          : "border-line-strong bg-canvas hover:border-fg/40",
-        className,
-      )}
-    >
-      <input
-        id={inputId}
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        multiple={multiple}
-        className="sr-only"
-        onChange={(e) => {
-          emit(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      <UploadCloud
-        className={cn("text-muted", compact ? "size-5" : "size-6")}
-        strokeWidth={1.5}
-        aria-hidden
-      />
-      <span className="flex flex-col gap-1">
-        <span
-          className={cn(
-            "text-fg font-medium",
-            compact ? "text-sm" : "text-[15px]",
-          )}
-        >
-          {title}
-          {browse && (
-            <>
-              {" "}
-              <span className="text-accent underline underline-offset-4">
-                browse
-              </span>
-            </>
-          )}
-        </span>
-        {hint && <span className="text-muted text-xs">{hint}</span>}
-      </span>
-    </label>
+    <DropSheet
+      {...sheet}
+      accept={accept}
+      multiple={multiple}
+      title={title}
+      variant={compact ? "compact" : "sheet"}
+      onRefusal={setRefusal}
+      pageTarget={target}
+      onFiles={receive}
+    />
   );
-  // Without a refusal the zone renders exactly as before: no wrapper, so the
-  // runners' layouts (which never pass `refuse`) are untouched.
+  // Without a refusal the zone renders alone: no wrapper, so the runners'
+  // layouts (which never pass `refuse`) are untouched.
   if (!refusal) return zone;
   return (
     <>
@@ -322,13 +399,22 @@ export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
 }
 
 /**
- * Does {@link ErrorNote} put an "Open Unlock PDF" link inside this message's
- * alert? Exported so a panel with its own next-step link (the office-export
- * codes) can tell the alert already carries that one, rather than render it
- * twice: two "Open Unlock PDF" links, one inside the alert and one below it.
+ * Does {@link ErrorNote} put a link to Unlock PDF inside this alert? Exported
+ * so a panel with its own next-step link (the office-export codes) can tell
+ * the alert already carries that one, rather than render it twice: two
+ * "Open Unlock PDF" links, one inside the alert and one below it.
+ *
+ * ONE answer for both ways the alert gets the link: a remedy read off the
+ * error's cause (`remedyFor`), or — for a message that names Unlock PDF and
+ * came with no cause — the link the message's words ask for. Never both.
  */
-export function errorNoteLinksUnlock(message: string): boolean {
-  return message.includes(UNLOCK_TOOL_NAME);
+export function errorNoteLinksUnlock(
+  message: string,
+  remedy: Remedy | null = null,
+): boolean {
+  return remedy
+    ? remedy.href === UNLOCK_TOOL_HREF
+    : message.includes(UNLOCK_TOOL_NAME);
 }
 
 /**
@@ -336,17 +422,28 @@ export function errorNoteLinksUnlock(message: string): boolean {
  * to the tool that can do what this one could not — and it renders INSIDE the
  * alert, so it is announced with the error and reached by keyboard right after
  * it, rather than sitting somewhere the reader has to go and find.
+ *
+ * `cause` is what the error says about why (`causeOf(err)`, or the file
+ * check's own kind): an encrypted or unreadable file gets its REMEDY here
+ * (`@/lib/pdf/remedies`) — the tool that fixes it, how, and where the file
+ * goes there — never offered from the tool that is that remedy. A cause the
+ * engine did not name gets none.
  */
 export function ErrorNote({
   message,
   action,
+  cause,
 }: {
   message: string;
   action?: ReactNode;
+  cause?: RemedyInput;
 }) {
+  const run = useToolRun();
+  const remedy = cause ? remedyFor(cause, run?.slug ?? "") : null;
   // A message that sends the user to Unlock PDF (every encrypted-file message
-  // does) carries the way there, rather than a tool name to go and find.
-  const offersUnlock = errorNoteLinksUnlock(message);
+  // does) carries the way there, rather than a tool name to go and find —
+  // as the remedy's link when there is one, else as its own.
+  const offersUnlock = !remedy && errorNoteLinksUnlock(message);
   return (
     <p
       role="alert"
@@ -368,6 +465,20 @@ export function ErrorNote({
           </>
         )}
         {action ? <> {action}</> : null}
+        {remedy && (
+          <span data-remedy="" className="mt-2 flex flex-col gap-0.5">
+            <span>
+              <Link
+                href={remedy.href}
+                className="font-semibold underline underline-offset-2"
+              >
+                {remedy.label}
+              </Link>{" "}
+              {remedy.why}.
+            </span>
+            {remedy.where && <span className="text-xs">{remedy.where}</span>}
+          </span>
+        )}
       </span>
     </p>
   );
@@ -407,6 +518,7 @@ export function RunButton({
   children,
   busyLabel = "Working…",
   className,
+  progress,
 }: {
   onClick: () => void;
   busy?: boolean;
@@ -414,11 +526,18 @@ export function RunButton({
   children: ReactNode;
   busyLabel?: string;
   className?: string;
+  /**
+   * How far a run that reports progress has got (grayscale, PDF to image,
+   * redact). Drawn under the button only while busy: a 2px mark bar and
+   * "7 / 24 pages", never a percentage the operation did not report.
+   */
+  progress?: RunProgress | null;
 }) {
   const blocked = Boolean(busy) || Boolean(disabled);
-  return (
+  const button = (
     <button
       type="button"
+      data-run-trigger=""
       onClick={(event) => {
         if (blocked) {
           event.preventDefault();
@@ -443,6 +562,67 @@ export function RunButton({
         children
       )}
     </button>
+  );
+  if (progress === undefined) return button;
+  return (
+    <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+      {button}
+      {busy && progress && <ProgressLine {...progress} />}
+    </div>
+  );
+}
+
+/** Work done of a run that counts it, in the run's own unit ("pages"). */
+export interface RunProgress {
+  readonly done: number;
+  readonly total: number;
+  readonly unit: string;
+}
+
+/**
+ * A run's progress, as it reports it: a bar that is a share of the width
+ * (`scaleX`, M14) and the count beside it. The bar is decoration; the count
+ * is the fact, exposed as a progressbar. It is not a live region — a page
+ * a second read out aloud is noise — so it speaks at each quarter instead,
+ * through the app's region.
+ */
+function ProgressLine({ done, total, unit }: RunProgress) {
+  const share = total > 0 ? Math.min(1, done / total) : 0;
+  const quarter = Math.floor(share * 4);
+  const spoken = useRef(0);
+  useEffect(() => {
+    if (quarter > spoken.current && quarter < 4) {
+      spoken.current = quarter;
+      announceOutcome(`${quarter * 25}% — ${done} of ${total} ${unit}`);
+    }
+  }, [quarter, done, total, unit]);
+  return (
+    <div
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={done}
+      aria-valuetext={`${done} of ${total} ${unit}`}
+      className="flex w-full items-center gap-3 sm:w-auto"
+      style={{ minWidth: "14rem" }}
+    >
+      {/* Sized and turned in its style, not with utilities of its own: the
+          stylesheet is on every page (shipped-css.test.ts), this bar on
+          three. The transition is stilled by the reduced-motion reset. */}
+      <span
+        aria-hidden
+        className="bg-line relative flex-1 overflow-hidden"
+        style={{ height: 2 }}
+      >
+        <span
+          className="bg-mark absolute inset-0 transition-transform duration-200"
+          style={{ transform: `scaleX(${share})`, transformOrigin: "left" }}
+        />
+      </span>
+      <span className="figure text-muted shrink-0 text-xs">
+        {done} / {total} {unit}
+      </span>
+    </div>
   );
 }
 
@@ -513,7 +693,7 @@ export function WorkerRunButton({
       aria-disabled={blocked || undefined}
       aria-busy={busy}
       className={cn(
-        "inline-flex w-full items-center justify-center gap-2 rounded-[3px] border px-6 py-2.5 text-sm font-semibold transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-60 sm:w-auto sm:self-start",
+        "inline-flex w-full items-center justify-center gap-2 rounded-[3px] border px-6 py-2.5 text-sm font-semibold transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-65 sm:w-auto sm:self-start",
         WORKER_RUN_TONE[tone],
       )}
     >
@@ -592,16 +772,22 @@ export function DownloadCta({
     className,
   );
   const icon = <Download className="size-4" aria-hidden />;
+  // `data-download`: what keeps a result (`useUnkeptResult`).
   if (href !== undefined) {
     return (
-      <a href={href} download={download} className={classes}>
+      <a href={href} download={download} className={classes} data-download="">
         {icon}
         {children}
       </a>
     );
   }
   return (
-    <button type="button" onClick={onClick} className={classes}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={classes}
+      data-download=""
+    >
       {icon}
       {children}
     </button>
@@ -609,7 +795,72 @@ export function DownloadCta({
 }
 
 /**
- * Success panel shown after a tool produces output.
+ * A result on screen that has not been KEPT — downloaded — registered for
+ * as long as it is on the page, so a paste that would replace the document
+ * asks first (`confirmReplaceResult`, `@/lib/intent/unsaved`). An
+ * in-browser download keeps it wherever its button is (`downloadBlob`); the
+ * click handler returned, for the result's box in the capture phase, keeps
+ * it for a link that downloads.
+ */
+function useUnkeptResult(active: boolean) {
+  const release = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    const done = registerUnkeptResult();
+    release.current = done;
+    return () => {
+      done();
+      release.current = null;
+    };
+  }, [active]);
+  return useCallback((event: MouseEvent<HTMLElement>) => {
+    const target = event.target as Element | null;
+    // An in-browser Download keeps it through `downloadBlob`; a link to the
+    // file does not. NOT a Continue row: one that carries the file
+    // navigates, and the result leaves the page with it; one that stays —
+    // a modified click, a store that refused the file — carried nothing
+    // (PR #180 re-review).
+    if (target?.closest?.("[data-download], a[download]")) release.current?.();
+  }, []);
+}
+
+/**
+ * A result with nothing to go back to — said, with the reason, where the
+ * result is built, so a census can tell a decision from an omission
+ * (`result-output.test.ts`).
+ */
+export interface NoAdjust {
+  readonly noAdjust: string;
+}
+export const NO_ADJUST = (reason: string): NoAdjust => ({ noAdjust: reason });
+
+/**
+ * A finished run that wrote no file (a PDF with no text to extract): no
+ * receipt to show and nothing to carry on — said, with the reason.
+ */
+export interface NoOutput {
+  readonly noOutput: string;
+}
+export const NO_OUTPUT = (reason: string): NoOutput => ({ noOutput: reason });
+
+/**
+ * The finished run: its title and summary, the RECEIPT (what it made,
+ * measured here), Download (the children), "Back to adjust", "Continue
+ * with", and "Start over" — every ending a fork (redesign E.6, C.3).
+ *
+ * `output` is REQUIRED: what the run produced, which the receipt re-opens
+ * and counts and "Continue with" carries to the next tool. `onAdjust` is
+ * required too: `reset` from the run's own `useAsyncRun` (the editor's
+ * settings live in the component that renders this panel, so clearing the
+ * result shows them again, untouched, with the same file), or
+ * `NO_ADJUST(reason)` where a run has nothing to adjust.
+ * `result-output.test.ts` holds every call site to both.
+ *
+ * The receipt and "Continue with" are one on-demand chunk (`warmEnding`),
+ * fetched as the run started and waited for before the result is drawn
+ * (`endingReady`, bounded), so they draw with the panel. Download, Back to
+ * adjust and Start over are here; if the chunk outwaited the run, what it
+ * brings is drawn under the Download row, never above it.
  *
  * Deliberately NOT a live region — it receives focus instead, and doing both
  * makes some screen readers read the outcome twice. See {@link useOutcomeFocus}.
@@ -622,6 +873,10 @@ export function ResultPanel({
   resetLabel = "Start over",
   announcement,
   tone = "ok",
+  output,
+  onAdjust,
+  expectedPages,
+  inputBytes,
 }: {
   title: string;
   summary?: ReactNode;
@@ -643,19 +898,73 @@ export function ResultPanel({
    * ("PDF re-saved", "Selectable text matches").
    */
   announcement?: string;
+  /** What the run produced (`outputFile(bytes, name)`), or `NO_OUTPUT(…)`. */
+  output: RunOutput | NoOutput;
+  /** Back to the settings with the same file: `reset`, or `NO_ADJUST(…)`. */
+  onAdjust: (() => void) | NoAdjust;
+  /**
+   * The pages the runner meant to write, when it knows exactly (a merge's
+   * sum): a re-count that differs is said on the receipt.
+   */
+  expectedPages?: number;
+  /** What went in, for the optimize tools' before-and-after. */
+  inputBytes?: number;
 }) {
   const id = useId();
+  const run = useToolRun();
+  const ending = useEnding();
+  // Was the ending here when the result was first drawn? It is, unless the
+  // run outwaited `endingReady` — and then it is drawn under the Download
+  // row when it comes, never above it.
+  const [late] = useState(() => ending === null);
   // Always `true`: this panel only ever renders on success, so its existence IS
   // the outcome. Surfaces that persist across runs pass a real condition.
   const outcome = useOutcomeFocus(true, announcement ?? title);
+  const finished = run?.finished;
+  useEffect(() => {
+    if (!finished) return;
+    finished(true);
+    return () => finished(false);
+  }, [finished]);
+
+  const adjust = typeof onAdjust === "function" ? onAdjust : null;
+  const made = "noOutput" in output ? null : output;
+  const keep = useUnkeptResult(made !== null);
+  // The receipt; its count-mismatch warning is drawn under Download.
+  const receipt = ending && made && (
+    <ending.OutputFacts
+      output={made}
+      expectedPages={expectedPages}
+      inputBytes={inputBytes}
+      optimize={run?.category === "optimize"}
+      mismatch={false}
+    />
+  );
+  const backToAdjust = () => {
+    if (!adjust) return;
+    // Found before the panel unmounts: the tool's panel, then its Run.
+    const scope: ParentNode =
+      outcome.ref.current?.closest("[data-tool-panel]") ?? document;
+    adjust();
+    requestAnimationFrame(() => {
+      const trigger = scope.querySelector<HTMLElement>("[data-run-trigger]");
+      if (!trigger) return;
+      trigger.focus({ preventScroll: true });
+      trigger.scrollIntoView?.({ block: "nearest", behavior: "instant" });
+    });
+  };
+
   return (
     <div
       {...outcome}
       role="group"
       aria-labelledby={summary ? `${id}-t ${id}-s` : `${id}-t`}
       data-tone={tone}
+      data-result-panel=""
+      data-motion-ui=""
+      onClickCapture={keep}
       className={cn(
-        "animate-float-up flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2",
+        "rounded-panel motion-safe:animate-rise flex flex-col gap-5 border p-6 outline-none focus-visible:ring-2",
         tone === "warn"
           ? "border-warn/40 bg-warn/10 focus-visible:ring-warn/50"
           : tone === "ok"
@@ -693,9 +1002,26 @@ export function ResultPanel({
           )}
         </div>
       </div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      {!late && receipt}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         {children}
+        {adjust && (
+          <button
+            type="button"
+            onClick={backToAdjust}
+            className={buttonVariants({ variant: "outline", size: "lg" })}
+          >
+            <SlidersHorizontal className="size-4" aria-hidden />
+            Back to adjust
+          </button>
+        )}
       </div>
+      {late && receipt}
+      {/* After the count, so never above Download. */}
+      {ending && made && (
+        <ending.CountMismatch output={made} expectedPages={expectedPages} />
+      )}
+      {ending && made && <ending.ContinueWith output={made} />}
       <button
         type="button"
         onClick={onReset}
@@ -716,28 +1042,97 @@ export function ResultPanel({
  * pixel-for-pixel no-op — with the difference that `announce` is REQUIRED. A new
  * panel cannot build the card without writing the sentence a user hears, which
  * is the only kind of convention this codebase has not drifted out of.
+ *
+ * `output`, when the card has the file in hand, adds the receipt and
+ * "Continue with" under its contents, as {@link ResultPanel} does. Optional
+ * until every worker panel has its file to give (redesign WP-10).
+ *
+ * Without one, a tool whose output nothing here should touch again (Protect
+ * PDF, PDF to PDF/A: `NO_CONTINUE`) still says why nothing follows — the
+ * page gives every worker panel its job (`ToolRunProvider`), and this card
+ * reads the reason from it. `result-ending.test.tsx` drives Protect PDF's
+ * panel to this card.
  */
 export function ResultCard({
   announce,
   children,
   className,
+  output,
+  inputBytes,
 }: {
   announce: string;
   children: ReactNode;
   className?: string;
+  output?: RunOutput;
+  inputBytes?: number;
 }) {
   const outcome = useOutcomeFocus(true, announce);
+  const none = useToolRun()?.plan.none;
+  // Every card is a result to download (each worker panel draws one with
+  // its Download), whether or not it is handed the run's `output`: none of
+  // the twelve worker panels is, and their results went unasked-for under a
+  // paste (PR #180 re-review).
+  const keep = useUnkeptResult(true);
   return (
     <div
       {...outcome}
       role="group"
       aria-label={announce}
+      onClickCapture={keep}
       className={cn(
         "border-ok/30 bg-ok/10 focus-visible:ring-ok/50 flex flex-col gap-2 rounded-[4px] border p-4 outline-none focus-visible:ring-2",
         className,
       )}
     >
       {children}
+      {output ? (
+        <RunEnding
+          output={output}
+          inputBytes={inputBytes}
+          className="border-ok/30 mt-2 border-t pt-4"
+        />
+      ) : (
+        none && (
+          <p
+            data-no-continue=""
+            className="border-ok/30 text-muted mt-2 border-t pt-4 text-xs leading-5"
+          >
+            {none}
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
+/**
+ * The receipt and "Continue with" for a result that is not a
+ * {@link ResultPanel} — Compress PDF's analysis and its batch, the worker
+ * result card — from the same on-demand chunk, drawn once it is here.
+ */
+export function RunEnding({
+  output,
+  inputBytes,
+  expectedPages,
+  className,
+}: {
+  output: RunOutput;
+  inputBytes?: number;
+  expectedPages?: number;
+  className?: string;
+}) {
+  const run = useToolRun();
+  const ending = useEnding();
+  if (!ending) return null;
+  return (
+    <div className={cn("flex flex-col gap-4", className)} data-motion-ui="">
+      <ending.OutputFacts
+        output={output}
+        inputBytes={inputBytes}
+        expectedPages={expectedPages}
+        optimize={run?.category === "optimize"}
+      />
+      <ending.ContinueWith output={output} />
     </div>
   );
 }

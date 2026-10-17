@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -40,11 +47,15 @@ import {
   Dropzone,
   ErrorNote,
   ResultCard,
+  RunEnding,
   Spinner,
   WorkerRunButton,
+  endingReady,
   errorMessage,
   failureCode,
+  outputFile,
   useOutcomeFocus,
+  warmEnding,
 } from "./runner-kit";
 import { CompressBatchRunner } from "./compress-batch";
 import {
@@ -54,6 +65,7 @@ import {
   type Arrival,
 } from "./handoff-notice";
 import { FileHeader, SignedInputNotice } from "./single-pdf-runner";
+import { holdRunnerStage } from "./stage-hold";
 import { useSinglePdf, type LoadedPdf, type LockedPdf } from "./use-single-pdf";
 import { useToolHandoff } from "./use-tool-handoff";
 
@@ -102,6 +114,15 @@ export function CompressRunner() {
     setRejections([]);
   }, []);
 
+  // The analysis starts with the file, so the result's ending is fetched as
+  // the file arrives — picked, dropped, pasted or handed over — not when the
+  // analysis starts: by the time it is worked out, the ending is here, and
+  // it is drawn without waiting (`endingReady`).
+  const hasFiles = files.length > 0;
+  useEffect(() => {
+    if (hasFiles) void warmEnding().catch(() => {});
+  }, [hasFiles]);
+
   // Where the files came from, once they did — the badge's first sentence.
   const arrival =
     handoff.status === "ready"
@@ -126,6 +147,7 @@ export function CompressRunner() {
     <div data-single-pdf-runner="empty" className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName="Compress PDF" />
       <Dropzone
+        pageTarget
         onFiles={addFiles}
         accept="application/pdf"
         multiple
@@ -138,6 +160,33 @@ export function CompressRunner() {
     </div>
   );
 }
+
+/*
+ * A PICKED FILE'S STAGE IS NOT HELD BY THIS RUNNER (2026-10-11). It was:
+ * from the commit the file arrived in, a layout effect set the stage's
+ * min-height to what was left of the screen below it, capped at
+ * `STAGE_HOLD_REM` (28 rem, then 27.4375 — 439 px, the one whole pixel
+ * between the shortest analysis and the top of the About section, refitted
+ * once already when #178 shortened the worker card's sentence by a line).
+ * The analysis then drew into space already on screen, and its arrival
+ * moved nothing (0.1357 -> 0 at 1280 x 900).
+ *
+ * But the hold moved the About section ITSELF, at the pick: from under the
+ * drop sheet to under the held stage, off the bottom of the screen. Through
+ * the system dialog that move falls in the pick's input window; a file
+ * dropped, pasted or handed over opens none, and it was counted — page CLS
+ * after a pick 0.0567 at 1280 x 900, 0.1212 at 768 x 1024 (over Google's
+ * 0.1), and every one of the eight sizes over 0.01. A hold sized at the
+ * pick can only choose WHEN the content under the runner moves, never
+ * whether.
+ *
+ * Now the page holds the first screen (`data-first-screen` in
+ * `app/tools/[slug]/page.tsx`): the panel reaches the bottom of the screen
+ * from the first paint, so nothing under the runner is on screen to move,
+ * and this stage grows into the panel it is drawn in — "Reading…" and
+ * "Analyzing…" fill it, as the drop sheet did, and the analysis draws from
+ * its top. `e2e/continue-chain.spec.ts` holds the page at eight sizes.
+ */
 
 /** Load one File into the on-device analyzer. */
 function CompressSingle({
@@ -160,49 +209,71 @@ function CompressSingle({
     void open(file);
   }, [file, open]);
 
-  if (error) {
-    return (
-      <div className="flex flex-col gap-4">
-        <ErrorNote message={error} />
-        <button
-          type="button"
-          onClick={onReset}
-          className="text-muted hover:text-fg self-start text-xs font-medium transition"
-        >
-          Try another file
-        </button>
-      </div>
-    );
-  }
+  const lockedNow = Boolean(locked && !loading);
 
-  if (locked && !loading) {
-    return (
-      <div className="flex flex-col gap-4">
-        {arrival && (
-          <HandoffLoadedBadge
-            origin={arrival.origin}
-            count={1}
-            skipped={arrival.skipped}
-          />
-        )}
-        <CompressLocked locked={locked} onReset={onReset} />
-      </div>
-    );
-  }
-
-  if (!pdf || loading) {
-    return arrival ? (
-      <HandoffLoading />
-    ) : (
-      <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
-        <Spinner />
-        Reading your PDF…
-      </div>
-    );
-  }
-
+  // The stage grows into the panel's first screen; see above.
   return (
-    <div data-single-pdf-runner="loaded" className="flex flex-col gap-4">
+    <div data-compress-stage="" className="flex grow flex-col">
+      {error ? (
+        <div className="flex flex-col gap-4">
+          <ErrorNote message={error.message} cause={error} />
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-muted hover:text-fg self-start text-xs font-medium transition"
+          >
+            Try another file
+          </button>
+        </div>
+      ) : lockedNow && locked ? (
+        <div className="flex flex-col gap-4">
+          {arrival && (
+            <HandoffLoadedBadge
+              origin={arrival.origin}
+              count={1}
+              skipped={arrival.skipped}
+            />
+          )}
+          <CompressLocked locked={locked} onReset={onReset} />
+        </div>
+      ) : !pdf || loading ? (
+        arrival ? (
+          <HandoffLoading />
+        ) : (
+          <Pending>Reading your PDF…</Pending>
+        )
+      ) : (
+        <CompressLoaded pdf={pdf} onReset={onReset} arrival={arrival} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A file's stage while it is read or analysed: the block fills the stage,
+ * which fills the rest of the panel's first screen, so it stands where the
+ * drop sheet stood and the analysis draws from the same top.
+ */
+function Pending({ children }: { children: ReactNode }) {
+  return (
+    <div className="border-line bg-wash text-muted flex flex-1 items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
+      <Spinner />
+      {children}
+    </div>
+  );
+}
+
+function CompressLoaded({
+  pdf,
+  onReset,
+  arrival,
+}: {
+  pdf: LoadedPdf;
+  onReset: () => void;
+  arrival: Arrival | null;
+}) {
+  return (
+    <div data-single-pdf-runner="loaded" className="flex flex-1 flex-col gap-4">
       {arrival && (
         <HandoffLoadedBadge
           origin={arrival.origin}
@@ -380,16 +451,22 @@ function CompressEditor({
   useEffect(() => {
     let active = true;
     const started = Date.now();
+    void warmEnding().catch(() => {});
     // This is the tool's in-browser run — the analysis IS the lossless
     // recompression, and its output is the download below. It holds its own
     // state rather than `useAsyncRun`'s, so it reports its own outcome (see
     // `@/lib/telemetry/tool-outcome`); a superseded run reports nothing.
     void analyzePdf(pdf.bytes)
-      .then((r) => {
-        if (active) {
-          setState({ result: r, error: null, busy: false });
-          reportToolCompleted({ elapsedMs: Date.now() - started });
-        }
+      .then(async (r) => {
+        if (!active) return;
+        reportToolCompleted({ elapsedMs: Date.now() - started });
+        // The analysis is drawn WITH its receipt and rows, not before them:
+        // it is drawn after the pick's input window has closed, so an
+        // ending inserted after it painted was a shift every visit paid for
+        // (it pushed the worker card below off screen). See `endingReady`.
+        // The wait is the "Analyzing…" block's, and moves nothing.
+        await endingReady();
+        if (active) setState({ result: r, error: null, busy: false });
       })
       .catch((err) => {
         if (active) {
@@ -427,12 +504,9 @@ function CompressEditor({
 
   if (busy) {
     return (
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-1 flex-col gap-5">
         <FileHeader pdf={pdf} />
-        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
-          <Spinner />
-          Analyzing your PDF…
-        </div>
+        <Pending>Analyzing your PDF…</Pending>
       </div>
     );
   }
@@ -537,18 +611,72 @@ function CompressEditor({
         />
       </div>
 
+      {/* EVERY ENDING IS A FORK, a saving or not. With nothing saved there
+          is still a file — often one carried here from Merge PDF and never
+          downloaded — so the ending offers it as it came in, said to be
+          unchanged, and carries it on. Until 2026-10-17 both the Download
+          and the ending were inside the branch below, and an already-lean
+          analysis ended at "Analyze another file" (batch C review). Not
+          gated on a signature's confirmation: these are the file's own
+          bytes, its signatures as they were. */}
+      {!canDownload && (
+        <>
+          <div className="flex flex-col gap-1.5">
+            <DownloadCta
+              size="lg"
+              onClick={() => downloadBytes(pdf.bytes, pdf.file.name)}
+            >
+              {/* One line of text, the button's one flex item, and the
+                  figure in it never broken from its unit (it was at 390:
+                  "(1.9" / "KB)", PR #180 review). */}
+              <span>
+                Download unchanged PDF{" "}
+                <span className="whitespace-nowrap">
+                  ({formatBytes(analysis.originalBytes)})
+                </span>
+              </span>
+            </DownloadCta>
+            <p className="text-muted text-xs leading-5">
+              Nothing came out smaller, so this is your file exactly as it came
+              in.
+            </p>
+          </div>
+          <RunEnding
+            output={outputFile(pdf.bytes, pdf.file.name)}
+            expectedPages={analysis.pageCount}
+          />
+        </>
+      )}
+
       {canDownload && (!signed || signaturesConfirmed) && (
-        <DownloadCta
-          size="lg"
-          onClick={() =>
-            downloadBytes(
+        <>
+          <DownloadCta
+            size="lg"
+            onClick={() =>
+              downloadBytes(
+                result.optimized,
+                outputName(pdf.file.name, "optimized"),
+              )
+            }
+          >
+            <span>
+              Download optimized PDF{" "}
+              <span className="whitespace-nowrap">
+                ({formatBytes(analysis.optimizedBytes)})
+              </span>
+            </span>
+          </DownloadCta>
+          {/* The repack's receipt — before and after to one scale, the
+              pages re-counted — and where the smaller file can go next. */}
+          <RunEnding
+            output={outputFile(
               result.optimized,
               outputName(pdf.file.name, "optimized"),
-            )
-          }
-        >
-          Download optimized PDF ({formatBytes(analysis.optimizedBytes)})
-        </DownloadCta>
+            )}
+            inputBytes={analysis.originalBytes}
+            expectedPages={analysis.pageCount}
+          />
+        </>
       )}
 
       <WorkerDeepPanel
@@ -645,10 +773,18 @@ function WorkerDeepPanel({
   }, []);
 
   const canRunDeep = canRunDeepCompression(status);
+  // A run still in flight when the panel unmounts settles its hold then.
+  const holding = useRef<(() => void) | null>(null);
+  useEffect(() => () => holding.current?.(), []);
 
   async function run() {
+    // Held from the press, like every runner's (`./stage-hold`): the card
+    // this run draws is under a reader who scrolled down to the worker.
+    const settled = holdRunnerStage();
+    holding.current = settled;
     setBusy(true);
     setOutcome(null);
+    void warmEnding().catch(() => {});
     try {
       const res = await runWorkerCompression({
         filename: file.name,
@@ -656,6 +792,8 @@ function WorkerDeepPanel({
         profile: "deep",
         targetDpi: dpi,
       });
+      // Its card draws with its ending (`endingReady`).
+      if (res.ok) await endingReady();
       setOutcome(res);
     } catch {
       // A rejected fetch — offline, DNS failure, a reset connection, CORS. There
@@ -667,6 +805,8 @@ function WorkerDeepPanel({
       });
     } finally {
       setBusy(false);
+      settled();
+      if (holding.current === settled) holding.current = null;
     }
   }
 
@@ -842,6 +982,11 @@ function DeepRunControls({
         (savedBytes > 0 ? (
           <ResultCard
             announce={`Compression finished. The worker shrank this file by ${formatBytes(savedBytes)} — ${formatBytes(outcome.output.byteLength)} final.`}
+            output={outputFile(
+              outcome.output,
+              outcome.artifact.filename || outputName(filename, "compressed"),
+            )}
+            inputBytes={originalBytes}
           >
             <p className="text-ok text-sm">
               The worker shrank this file by {formatBytes(savedBytes)} (

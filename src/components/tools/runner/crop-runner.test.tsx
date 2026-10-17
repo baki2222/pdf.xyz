@@ -30,6 +30,7 @@ import { PDFDocument, degrees } from "pdf-lib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { NO_CROP, type CropMargins } from "@/lib/pdf/crop";
+import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CropRunner } from "./crop-runner";
 
 /** The edges a user can set, derived from the type's own zero value. */
@@ -71,6 +72,7 @@ async function samplePdf(rotation = 0): Promise<File> {
 /** Render the runner and load a one-page PDF into it by dropping it. */
 async function openRunner(rotation = 0) {
   const view = render(withRouter(<CropRunner />));
+  await dropSheetsLive(view.container);
   const input = view.container.querySelector('input[type="file"]');
   expect(input, "the runner offers a file picker").not.toBeNull();
   fireEvent.drop(input!.closest("label")!, {
