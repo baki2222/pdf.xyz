@@ -41,9 +41,17 @@ import {
   activePageTarget,
   resetPageTargetsForTests,
 } from "@/lib/intent/page-target";
+import {
+  __setHandoffStoreForTests,
+  HandoffStore,
+  MemoryHandoffBackend,
+} from "@/lib/handoff";
+import { continueTargetsFor } from "@/lib/intent/next-steps";
 import { registerDirty, resetUnsavedForTests } from "@/lib/intent/unsaved";
+import { getToolBySlug, tools } from "@/lib/tools";
 import { withAppRouter } from "@/tests/app-router";
 import { runnerMounted } from "@/tests/runner-mounted";
+import { ToolRunProvider } from "./tool-context";
 import { ToolRunner } from "./tool-runner";
 
 beforeAll(() => {
@@ -93,14 +101,38 @@ function dropOn(el: Element, files: File[]) {
   }
 }
 
-/** A tool page: its identity, its runner, the layer, and a heading outside both. */
-async function openTool(kind: "rotate" | "sign", slug: string, name: string) {
+/**
+ * A tool page: its identity, its runner, the layer, and a heading outside
+ * both — and, `onPage`, the page's job around the runner (`ToolRunProvider`),
+ * so a result draws its Continue rows.
+ */
+async function openTool(
+  kind: "rotate" | "sign",
+  slug: string,
+  name: string,
+  { onPage = false }: { onPage?: boolean } = {},
+) {
+  const runner = <ToolRunner kind={kind} slug={slug} />;
+  const tool = getToolBySlug(slug)!;
   const view = render(
     withAppRouter(
       <>
         <h1>{name}</h1>
         <div data-tool-panel data-tool-name={name}>
-          <ToolRunner kind={kind} slug={slug} />
+          {onPage ? (
+            <ToolRunProvider
+              tool={{
+                slug: tool.slug,
+                name: tool.name,
+                category: tool.category,
+              }}
+              plan={continueTargetsFor(tool, tools)}
+            >
+              {runner}
+            </ToolRunProvider>
+          ) : (
+            runner
+          )}
         </div>
         <DropLayer />
         <LiveRegion />
@@ -345,8 +377,10 @@ describe("a result not yet downloaded", SLOW, () => {
     }
   });
 
-  async function rotated() {
-    const view = await openTool("rotate", "rotate-pdf", "Rotate PDF");
+  async function rotated(onPage = false) {
+    const view = await openTool("rotate", "rotate-pdf", "Rotate PDF", {
+      onPage,
+    });
     fireEvent.click(screen.getByRole("button", { name: /^right$/i }));
     fireEvent.click(screen.getByRole("button", { name: /apply rotation/i }));
     await screen.findByRole(
@@ -402,6 +436,82 @@ describe("a result not yet downloaded", SLOW, () => {
       timeout: 5000,
     });
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A CONTINUE ROW THAT CARRIED NOTHING DOES NOT KEEP IT (2026-10-17). A
+   * click on a row counted as keeping the result — but the result stays on
+   * the page only when the row did NOT carry it: a modified click (the plain
+   * tool page, in a new tab, with no file) or a store that refused it
+   * ("Couldn't carry the file … Download it"). In both, a paste then
+   * replaced the result with no question (PR #180 re-review). A row that
+   * carries it navigates, and the result leaves the page with it.
+   */
+  it("a Ctrl+click on a Continue row carries nothing: a paste over the result still asks", async () => {
+    __setHandoffStoreForTests(
+      new HandoffStore({ backend: new MemoryHandoffBackend() }),
+    );
+    try {
+      await rotated(true);
+      const row = (
+        await screen.findAllByRole(
+          "link",
+          { name: /^continue with/i },
+          { timeout: 10_000 },
+        )
+      )[0]!;
+      // jsdom does not navigate; the browser opens the plain page in a tab.
+      fireEvent.click(row, { ctrlKey: true });
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      pasteOn(document.body, [await pdfFile("second.pdf")]);
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1), {
+        timeout: 5000,
+      });
+      expect(resultShown()).toBe(true);
+    } finally {
+      __setHandoffStoreForTests(null);
+    }
+  });
+
+  it("a Continue row whose store refused the file carries nothing: a paste over the result still asks", async () => {
+    __setHandoffStoreForTests(
+      new HandoffStore({
+        backend: {
+          put: async () => {
+            throw new Error("QuotaExceededError");
+          },
+          get: async () => undefined,
+          delete: async () => {},
+          getAll: async () => [],
+          clear: async () => {},
+        },
+      }),
+    );
+    try {
+      await rotated(true);
+      const row = (
+        await screen.findAllByRole(
+          "link",
+          { name: /^continue with/i },
+          { timeout: 10_000 },
+        )
+      )[0]!;
+      await act(async () => {
+        fireEvent.click(row);
+      });
+      // Health: the row said it could not carry the file.
+      expect((await screen.findByRole("alert")).textContent).toMatch(
+        /couldn't carry the file/i,
+      );
+      const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+      pasteOn(document.body, [await pdfFile("second.pdf")]);
+      await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1), {
+        timeout: 5000,
+      });
+      expect(resultShown()).toBe(true);
+    } finally {
+      __setHandoffStoreForTests(null);
+    }
   });
 
   it("a drop over it is not asked about: the veil said what a release does", async () => {
