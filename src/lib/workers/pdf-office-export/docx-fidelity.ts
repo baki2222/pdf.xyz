@@ -109,6 +109,13 @@ export const SURVIVE_DIFF = 24;
  */
 export const SURVIVING_CELLS = 3;
 export const SURVIVING_SHARE = 0.02;
+/** A cell is the picture's own where its mean alpha is at least this. */
+const OPAQUE = 0.98;
+/**
+ * Cells within this many of a covered cell must be opaque too: past it, the
+ * one-cell blur carries under a fifth of a contrast (e^-2 of the kernel).
+ */
+const SOLID_RADIUS = 2;
 /** The source page is rendered at this many pixels a point, longest side capped. */
 const RENDER_PX_PER_PT = 2;
 const RENDER_MAX_SIDE = 4000;
@@ -454,6 +461,55 @@ function cellDiff(a: Grid, b: Grid, p: number): number {
 }
 
 /**
+ * Cells where the picture is opaque, and opaque {@link SOLID_RADIUS} cells
+ * around: the one-cell blur carries what shows through a transparent margin
+ * (a callout's soft shadow over a dark screenshot) two cells into the opaque
+ * part, and there the page differs from the picture's own pixels with
+ * nothing painted over it. Measured on the owner's tutorial (2026-10-17):
+ * 5 such cells, on two callouts, at exactly that edge, read as covered.
+ */
+function solidCells(own: Grid): Uint8Array {
+  const out = new Uint8Array(own.w * own.h);
+  for (let y = 0; y < own.h; y++)
+    for (let x = 0; x < own.w; x++) {
+      let ok = true;
+      for (let dy = -SOLID_RADIUS; ok && dy <= SOLID_RADIUS; dy++)
+        for (let dx = -SOLID_RADIUS; ok && dx <= SOLID_RADIUS; dx++) {
+          const xx = x + dx;
+          const yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= own.w || yy >= own.h) continue;
+          if (own.alpha[yy * own.w + xx]! < OPAQUE) ok = false;
+        }
+      out[y * own.w + x] = ok ? 1 : 0;
+    }
+  return out;
+}
+
+/**
+ * The picture with what the page paints OVER it, and nothing from under it:
+ * what the page shows where the picture is opaque, and the picture's own
+ * pixels (on white) where it is not. A picture the export paints things
+ * into (`./page-scan`, PDF to Word) shows this, and neither of the other two
+ * references does when the picture has transparency — a callout with a
+ * label painted on it, placed over a screenshot: `seen` holds the screenshot
+ * under its soft edges, and its own pixels lack the label. Measured on the
+ * owner's tutorial (2026-10-17): such a callout, labelled, scored 0.64
+ * against a blend of the two and 1.04 against its own pixels. "Opaque" is
+ * {@link solidCells}: the blur carries what shows through a clear margin
+ * into the opaque cells next to it. Where the picture is partly transparent,
+ * or next to its clear part, ink painted over it is not in this reference.
+ */
+function overOf(own: Grid, seen: Grid): Grid {
+  const rgb = new Float32Array(own.rgb.length);
+  const solid = solidCells(own);
+  for (let p = 0; p < own.w * own.h; p++) {
+    const from = solid[p] ? seen : own;
+    for (let c = 0; c < 3; c++) rgb[p * 3 + c] = from.rgb[p * 3 + c]!;
+  }
+  return { w: own.w, h: own.h, rgb, alpha: own.alpha };
+}
+
+/**
  * Cells where the page shows something over the picture (covered), and of
  * those, cells where the .docx shows the picture's own pixels instead
  * (surviving): what the author painted over, undone.
@@ -465,8 +521,9 @@ function covers(
 ): { cells: number; surviving: number } {
   let cells = 0;
   let surviving = 0;
+  const solid = solidCells(own);
   for (let p = 0; p < own.w * own.h; p++) {
-    if (own.alpha[p]! < 0.98) continue;
+    if (!solid[p]) continue;
     if (cellDiff(seen, own, p) <= COVER_DIFF) continue;
     cells++;
     if (
@@ -567,6 +624,31 @@ function paragraphHolding(
   return hits.length === 1 ? hits[0]! : null;
 }
 
+/**
+ * A .docx picture's extent against the one expected for `sp`: the part its
+ * crop shows, at the page's size, scaled down (aspect kept) only as far as
+ * the text area needs.
+ */
+function sizeAgainst(
+  sp: SourcePicture,
+  dp: DocxBodyPicture,
+  body: DocxBody,
+): NonNullable<PictureFidelity["size"]> {
+  const c = dp.crop ?? { left: 0, top: 0, right: 0, bottom: 0 };
+  const w = (sp.box[2] - sp.box[0]) * (1 - c.left - c.right);
+  const h = (sp.box[3] - sp.box[1]) * (1 - c.top - c.bottom);
+  const scale = Math.min(1, body.page.textWidth / w, body.page.textHeight / h);
+  const expected: [number, number] = [w * scale, h * scale];
+  const within = (got: number, want: number) =>
+    Math.abs(got - want) <=
+    Math.max(SIZE_TOLERANCE.points, SIZE_TOLERANCE.share * want);
+  return {
+    ok: within(dp.width, expected[0]) && within(dp.height, expected[1]),
+    expected,
+    got: [dp.width, dp.height],
+  };
+}
+
 /** The report for a source this instrument could not read. */
 function unreadable(body: DocxBody, detail: string): DocxPictureReport {
   return {
@@ -617,8 +699,13 @@ export async function compareDocxPictures(
   // Every source picture against every .docx picture: first on a coarse
   // grid, for the closest candidates (all of them, when a picture is drawn
   // several times over); then each candidate on the source's own grid,
-  // against both references. Matched greedily, best score first, ties in
-  // document order, one to one.
+  // against every reference. Matched one to one, greedily: among the pairs
+  // within the bound, first those that are ALSO at the right size and on the
+  // right page of the document, then best score first, ties in document
+  // order. Two near-identical screenshots on consecutive pages (the owner's
+  // tutorial has them) otherwise match crosswise on a pixel score that
+  // cannot tell them apart, and each is then reported at the other's size
+  // and place. The size and order checks below still judge the pair chosen.
   const COARSE = 16;
   const reference = (sp: SourcePicture) => sp.pixels ?? sp.seen;
   const coarseSource = src.pictures.map((sp) => {
@@ -628,7 +715,9 @@ export async function compareDocxPictures(
   const coarseDocx = decoded.map((img, d) =>
     img ? gridOf(img, body.pictures[d]!.crop, COARSE, COARSE) : null,
   );
-  const pairs: { s: number; d: number; score: number }[] = [];
+  const expectedSegment = (page: number) =>
+    src.nonEmpty.slice(0, page - 1).filter(Boolean).length;
+  const pairs: { s: number; d: number; score: number; misfit: number }[] = [];
   src.pictures.forEach((sp, s) => {
     const coarse = coarseSource[s];
     if (!coarse) return;
@@ -644,29 +733,42 @@ export async function compareDocxPictures(
     for (const { d } of candidates) {
       const dp = body.pictures[d]!;
       const cand = gridOf(decoded[d]!, dp.crop, w, h);
-      const scores = [sp.pixels, sp.seen]
-        .filter((img): img is DecodedImage => img !== null)
-        .map((img) => pixelScore(gridOf(img, dp.crop, w, h), cand));
-      pairs.push({ s, d, score: Math.min(...scores) });
+      const own = sp.pixels ? gridOf(sp.pixels, dp.crop, w, h) : null;
+      const seen = sp.seen ? gridOf(sp.seen, dp.crop, w, h) : null;
+      const refs = [own, seen, own && seen ? overOf(own, seen) : null].filter(
+        (g): g is Grid => g !== null,
+      );
+      const misfit =
+        (sizeAgainst(sp, dp, body).ok ? 0 : 1) +
+        (dp.segment === expectedSegment(sp.page) ? 0 : 1);
+      pairs.push({
+        s,
+        d,
+        score: Math.min(...refs.map((ref) => pixelScore(ref, cand))),
+        misfit,
+      });
     }
   });
   const rounded = (v: number) => Math.round(v * 1000);
   pairs.sort(
-    (a, b) => rounded(a.score) - rounded(b.score) || a.s - b.s || a.d - b.d,
+    (a, b) =>
+      a.misfit - b.misfit ||
+      rounded(a.score) - rounded(b.score) ||
+      a.s - b.s ||
+      a.d - b.d,
   );
   const matchOf = new Map<number, { d: number; score: number }>();
   const bestOf = new Map<number, number>();
+  for (const pair of pairs)
+    bestOf.set(pair.s, Math.min(bestOf.get(pair.s) ?? Infinity, pair.score));
   const taken = new Set<number>();
   for (const pair of pairs) {
-    if (!bestOf.has(pair.s)) bestOf.set(pair.s, pair.score);
     if (pair.score > PIXEL_BOUND) continue;
     if (matchOf.has(pair.s) || taken.has(pair.d)) continue;
     matchOf.set(pair.s, { d: pair.d, score: pair.score });
     taken.add(pair.d);
   }
 
-  const expectedSegment = (page: number) =>
-    src.nonEmpty.slice(0, page - 1).filter(Boolean).length;
   const results: PictureFidelity[] = src.pictures.map((sp, s) => {
     const match = matchOf.get(s);
     const base: PictureFidelity = {
@@ -693,23 +795,7 @@ export async function compareDocxPictures(
     if (dp.rotation !== 0)
       inconclusive ??= "turned on the page: size and covers not checked";
     else {
-      const c = dp.crop ?? { left: 0, top: 0, right: 0, bottom: 0 };
-      const w = (sp.box[2] - sp.box[0]) * (1 - c.left - c.right);
-      const h = (sp.box[3] - sp.box[1]) * (1 - c.top - c.bottom);
-      const scale = Math.min(
-        1,
-        body.page.textWidth / w,
-        body.page.textHeight / h,
-      );
-      const expected: [number, number] = [w * scale, h * scale];
-      const within = (got: number, want: number) =>
-        Math.abs(got - want) <=
-        Math.max(SIZE_TOLERANCE.points, SIZE_TOLERANCE.share * want);
-      size = {
-        ok: within(dp.width, expected[0]) && within(dp.height, expected[1]),
-        expected,
-        got: [dp.width, dp.height],
-      };
+      size = sizeAgainst(sp, dp, body);
       // Covers: only where both references exist (a stencil has no pixels
       // of its own to hide anything under).
       if (sp.pixels && sp.seen) {

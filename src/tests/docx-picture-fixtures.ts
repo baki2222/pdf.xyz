@@ -825,3 +825,126 @@ export async function exifJpegPdf(): Promise<DocxFixture> {
     sequence: [[texts[0]!, "#1", texts[1]!]],
   };
 }
+
+/**
+ * A dark screenshot with a CALLOUT over it — a light green box inside a
+ * fully transparent six-point margin (a PNG with alpha, as presentation
+ * software exports one) — and a black label the page writes over the
+ * callout AFTERWARDS. The page shows the label on the callout; the callout's
+ * own pixels do not hold it, and through its margin the page shows the dark
+ * screenshot. The owner's tutorial has three of these (2026-10-17).
+ */
+export async function labelledCalloutPdf(): Promise<
+  DocxFixture & { label: string }
+> {
+  const label = "Click here";
+  const texts = ["A screenshot with a callout on it", "The caption under it."];
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, [...texts, label]);
+  const page = doc.addPage([595, 842]);
+  line(page, texts[0]!, 72, 80, 16, f.bold);
+  const W = 300;
+  const H = 200;
+  const dark = new Uint8Array(W * H * 3);
+  for (let p = 0; p < W * H; p++) {
+    const x = p % W;
+    const v = 18 + ((x >> 3) % 2) * 10;
+    dark.set([v, v + 2, v + 6], p * 3);
+  }
+  const shot = png(W, H, "rgb8", dark);
+  const shotAt: Rect = { x: 72, y: 120, width: W, height: H };
+  await drawRasterImage(page, await embedRasterImage(doc, shot, "png"), {
+    x: shotAt.x,
+    y: 842 - shotAt.y - H,
+    width: W,
+    height: H,
+  });
+  const CW = 160;
+  const CH = 48;
+  const M = 6;
+  const callout = new Uint8Array(CW * CH * 4);
+  for (let y = 0; y < CH; y++)
+    for (let x = 0; x < CW; x++) {
+      const inside = x >= M && x < CW - M && y >= M && y < CH - M;
+      callout.set(
+        inside ? [150, 215, 140, 255] : [0, 0, 0, 0],
+        (y * CW + x) * 4,
+      );
+    }
+  const calloutPng = encodePngImage(CW, CH, "rgba8", callout);
+  const calloutAt: Rect = { x: 140, y: 200, width: CW, height: CH };
+  await drawRasterImage(page, await embedRasterImage(doc, calloutPng, "png"), {
+    x: calloutAt.x,
+    y: 842 - calloutAt.y - CH,
+    width: CW,
+    height: CH,
+  });
+  line(page, label, calloutAt.x + 20, calloutAt.y + 31, 18, f.bold);
+  line(page, texts[1]!, 72, 350, 12, f.regular);
+  return {
+    name: "labelledCalloutPdf",
+    pdf: await doc.save(),
+    firstPage: { width: 595, height: 842 },
+    pictures: [
+      {
+        page: 1,
+        shown: shotAt,
+        pixelWidth: W,
+        pixelHeight: H,
+        source: "png",
+        file: { bytes: shot, ext: "png" },
+      },
+      {
+        page: 1,
+        shown: calloutAt,
+        pixelWidth: CW,
+        pixelHeight: CH,
+        source: "png",
+        file: { bytes: calloutPng, ext: "png" },
+      },
+    ],
+    sequence: [[texts[0]!, "#1", label, "#2", texts[1]!]],
+    label,
+  };
+}
+
+/**
+ * Two pages, each a heading and ONE screenshot: the same pixels, shown at
+ * 300 × 200 points on page 1 and at 300 × 180 on page 2 — two steps of a
+ * tutorial that look alike. A matcher that goes by pixels alone cannot tell
+ * them apart; their size and their page can.
+ */
+export async function twinScreenshotsPdf(): Promise<DocxFixture> {
+  const texts = ["Step one", "Step two"];
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, texts);
+  const W = 240;
+  const H = 160;
+  const shot = png(W, H, "rgb8", gradientPixels(W, H));
+  const image = await embedRasterImage(doc, shot, "png");
+  const pictures: DocxFixturePicture[] = [];
+  [200, 180].forEach((height, k) => {
+    const page = doc.addPage([595, 842]);
+    line(page, texts[k]!, 72, 80, 16, f.bold);
+    const shown: Rect = { x: 72, y: 110, width: 300, height };
+    paintXObject(page, page.node.newXObject("Shot", image.ref), shown);
+    pictures.push({
+      page: k + 1,
+      shown,
+      pixelWidth: W,
+      pixelHeight: H,
+      source: "png",
+      file: { bytes: shot, ext: "png" },
+    });
+  });
+  return {
+    name: "twinScreenshotsPdf",
+    pdf: await doc.save(),
+    firstPage: { width: 595, height: 842 },
+    pictures,
+    sequence: [
+      [texts[0]!, "#1"],
+      [texts[1]!, "#2"],
+    ],
+  };
+}

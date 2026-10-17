@@ -39,7 +39,7 @@ import { docxTextOnly20261017 } from "@/tests/docx-text-only-2026-10-17";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 
 function summary(name: string, r: DocxPictureReport): string {
-  return `${name.padEnd(18)} ${r.pass ? "PASS" : "FAIL"}  pictures ${r.matched}/${r.sourcePictures} found (docx holds ${r.docxPictures}, ${r.extras.length} unmatched)  pixels max ${r.maxPixelScore.toFixed(3)}  order checked by text ${r.orderChecked}  wrong size ${r.pictures.filter((p) => p.size && !p.size.ok).length}  out of order ${r.pictures.filter((p) => p.placement && !p.placement.ok).length}`;
+  return `${name.padEnd(18)} ${r.pass ? "PASS" : "FAIL"}  pictures ${r.matched}/${r.sourcePictures} found (docx holds ${r.docxPictures}, ${r.extras.length} unmatched)  pixels max ${r.maxPixelScore.toFixed(3)}  order checked by text ${r.orderChecked}  wrong size ${r.pictures.filter((p) => p.size && !p.size.ok).length}  out of order ${r.pictures.filter((p) => p.placement && !p.placement.ok).length}  covered cells ${r.coveredCells}, undone ${r.survivingCells}`;
 }
 
 async function main(): Promise<void> {

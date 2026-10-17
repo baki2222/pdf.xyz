@@ -34,8 +34,10 @@ import {
   coveredPicturePdf,
   croppedPagePdf,
   DOCX_PICTURE_FIXTURES,
+  labelledCalloutPdf,
   scanBetweenPagesPdf,
   stripePixels,
+  twinScreenshotsPdf,
   type DocxFixture,
 } from "@/tests/docx-picture-fixtures";
 import { gradientPixels } from "@/tests/pptx-fidelity-fixtures";
@@ -337,5 +339,66 @@ describe("the Word picture instrument sees covers, colour, and nothing", () => {
     const report = await compareDocxPictures(pdf, run.output);
     expect(report.pass, report.detail).toBe(true);
     expect(report.maxPixelScore).toBeLessThan(PIXEL_BOUND / 2);
+  }, 60_000);
+});
+
+/**
+ * Found while making the export paint covers in (2026-10-17), on the owner's
+ * tutorial: two look-alike screenshots matched crosswise, and the blur
+ * carried a dark screenshot through a callout's clear margin into cells the
+ * callout covers. Each control below fails without its fix.
+ */
+describe("the Word picture instrument matches look-alikes by size and page, and reads covers only where the picture is solid", () => {
+  it("two look-alike screenshots, each at its own size on its own page, are matched to their own — even when the other one's pixels are closer", async () => {
+    const fixture = await twinScreenshotsPdf();
+    const { pixelWidth: W, pixelHeight: H } = fixture.pictures[0]!;
+    // Page 1's picture is a little off (a small block lifted), page 2's is
+    // exact: by pixels alone page 1's source is closer to page 2's.
+    const off = gradientPixels(W, H);
+    for (let y = 40; y < 56; y++)
+      for (let x = 40; x < 56; x++)
+        for (let c = 0; c < 3; c++)
+          off[(y * W + x) * 3 + c] = Math.min(
+            255,
+            off[(y * W + x) * 3 + c]! + 30,
+          );
+    const docx = await handBuiltDocx({
+      page: fixture.firstPage,
+      pages: [
+        [fixture.sequence[0]![0]!, { picture: 0 }],
+        [fixture.sequence[1]![0]!, { picture: 1 }],
+      ],
+      pictures: [
+        {
+          bytes: handPng(W, H, "rgb8", off),
+          ext: "png",
+          width: 300,
+          height: 200,
+        },
+        { ...fixture.pictures[1]!.file!, width: 300, height: 180 },
+      ],
+    });
+    const report = await compareDocxPictures(fixture.pdf, docx);
+    expect(report.pass, report.detail).toBe(true);
+    expect(report.pictures.map((p) => p.docx)).toEqual([0, 1]);
+  }, 60_000);
+
+  it("COVERS, NEGATIVE CONTROL: a callout's raw pixels — the label the page writes on it undone — fail; the dark screenshot seen through its clear margin is not a cover", async () => {
+    const fixture = await labelledCalloutPdf();
+    const report = await compareDocxPictures(
+      fixture.pdf,
+      await handBuilt(fixture),
+    );
+    expect(report.pass).toBe(false);
+    expect(report.matched).toBe(2);
+    // The screenshot under the callout is covered too, by the callout.
+    expect(report.detail).toMatch(/p1#2 \(\d+ of \d+ covered cells\)/);
+    // The label's cells, and not the margin's: the callout's covered cells
+    // fit inside its opaque box less two cells a side.
+    const callout = report.pictures[1]!.covered!;
+    expect(callout.cells).toBeGreaterThan(10);
+    expect(callout.cells).toBeLessThanOrEqual(
+      ((160 - 12) / 4 - 4) * ((48 - 12) / 4 - 4),
+    );
   }, 60_000);
 });

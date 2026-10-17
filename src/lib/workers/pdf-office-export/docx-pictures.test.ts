@@ -35,6 +35,7 @@ import {
   coveredPicturePdf,
   exifJpegPdf,
   inlineImagesPdf,
+  labelledCalloutPdf,
   ocrdScanPdf,
   repeatedPicturesPdf,
   stencilPicturePdf,
@@ -475,6 +476,40 @@ describe("PDF to Word keeps what the page shows, and only that", () => {
       expect(report.pass, report.detail).toBe(true);
       expect(run.coverage.picturesNotCarried).toBe(0);
     }
+  }, 60_000);
+
+  it("a label the page writes on a callout is painted into it; the callout's clear margin stays clear, and no covered pixel survives", async () => {
+    const fixture = await labelledCalloutPdf();
+    const run = await word(fixture.pdf);
+    const report = await compareDocxPictures(fixture.pdf, run.output);
+    expect(report.pass, report.detail).toBe(true);
+    expect(report.pictures[1]!.covered!.cells).toBeGreaterThan(10);
+    expect(report.survivingCells).toBe(0);
+    // The callout as delivered: the label's black is in it (the callout's
+    // own pixels have none), and nothing of the dark screenshot is.
+    const media = (await readDocxBody(run.output)).pictures[
+      report.pictures[1]!.docx!
+    ]!.bytes!;
+    const canvas = loadNodeCanvas();
+    const img = await canvas.loadImage(media);
+    const c = canvas.createCanvas(img.width, img.height);
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, img.width, img.height).data;
+    let black = 0;
+    let darkInMargin = 0;
+    const m = (6 * img.width) / 160;
+    for (let y = 0; y < img.height; y++)
+      for (let x = 0; x < img.width; x++) {
+        const i = (y * img.width + x) * 4;
+        const dark = d[i + 3]! > 128 && d[i]! < 60 && d[i + 1]! < 60;
+        const margin =
+          x < m - 1 || y < m - 1 || x > img.width - m || y > img.height - m;
+        if (dark && !margin) black++;
+        if (d[i + 3]! > 8 && margin && x > 2 && y > 2) darkInMargin++;
+      }
+    expect(black).toBeGreaterThan(100);
+    expect(darkInMargin).toBe(0);
   }, 60_000);
 
   it("a stencil picture comes through as a picture, in its colour", async () => {
