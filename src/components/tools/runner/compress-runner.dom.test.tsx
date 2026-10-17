@@ -33,7 +33,8 @@ import {
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
-import { getToolBySlug } from "@/lib/tools";
+import { continueTargetsFor } from "@/lib/intent/next-steps";
+import { getToolBySlug, tools } from "@/lib/tools";
 import type { NativeCompressor } from "@/lib/workers/compression/engine";
 import { createLocalDevAdapter } from "@/lib/workers/local-dev";
 import type { WorkerStatus } from "@/lib/workers/status";
@@ -42,6 +43,7 @@ import { encryptPdf } from "@/tests/encrypted-pdf";
 import { makeSignedPdf } from "@/tests/signed-pdf";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CompressRunner, UNLOCK_TOOL_HREF } from "./compress-runner";
+import { ToolRunProvider } from "./tool-context";
 
 const router = {
   back: () => {},
@@ -452,6 +454,105 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
         name: /compress images on the worker/i,
       }),
     ).not.toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+/**
+ * A result with nothing saved still ENDS (2026-10-17). Until then the
+ * Download and the ending (receipt, Continue with) were both inside
+ * `canDownload &&`, so an already-lean file's analysis ended at "Analyze
+ * another file" — and a merge carried here from Merge PDF, never downloaded,
+ * could go nowhere (batch C review; `e2e/continue-chain.spec.ts` drives that
+ * path in a browser). Now: the file as it came in, said to be unchanged,
+ * and the ending carrying it.
+ */
+describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
+  /** Written the way the repack writes: object streams, the site's producer. */
+  async function leanPdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.load(await plainPdf(2));
+    doc.setProducer("pdf.xyz");
+    doc.setCreator("pdf.xyz");
+    return doc.save({ useObjectStreams: true });
+  }
+
+  const URL_STATICS = ["createObjectURL", "revokeObjectURL"] as const;
+  const original = URL_STATICS.map(
+    (key) => [key, Object.getOwnPropertyDescriptor(URL, key)] as const,
+  );
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [key, descriptor] of original) {
+      if (descriptor) Object.defineProperty(URL, key, descriptor);
+      else Reflect.deleteProperty(URL, key);
+    }
+  });
+
+  it("offers the file as it came in, byte for byte and said to be unchanged, with the receipt and Continue with carrying it", async () => {
+    answerWorkerStatus(null);
+    const bytes = await leanPdf();
+    const tool = getToolBySlug("compress-pdf")!;
+    const { container } = render(
+      withRouter(
+        <ToolRunProvider
+          tool={{ slug: tool.slug, name: tool.name, category: tool.category }}
+          plan={continueTargetsFor(tool, tools)}
+        >
+          <CompressRunner />
+        </ToolRunProvider>,
+      ),
+    );
+    await drop(container, [asFile(bytes, "lean.pdf")]);
+    // Health: the analysis found nothing to remove.
+    await screen.findByRole(
+      "heading",
+      { name: "This PDF is already lean" },
+      { timeout: 10_000 },
+    );
+    expect(screen.getByText("No change")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /download optimized pdf/i }),
+    ).toBeNull();
+
+    const download = screen.getByRole("button", {
+      name: /download unchanged pdf/i,
+    });
+    // The ending: the receipt, and Continue with carrying this file.
+    const rows = await screen.findByRole(
+      "group",
+      { name: "Continue with" },
+      { timeout: 10_000 },
+    );
+    const links = within(rows).getAllByRole("link");
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links)
+      expect(link).toHaveTextContent("carries lean.pdf");
+    expect(container.querySelector("[data-receipt]")).not.toBeNull();
+
+    const blobs: Blob[] = [];
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: (blob: Blob) => {
+        blobs.push(blob);
+        return "blob:compress-lean-test";
+      },
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: () => {},
+    });
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    fireEvent.click(download);
+    await waitFor(() => expect(blobs).toHaveLength(1));
+    expect(names).toEqual(["lean.pdf"]);
+    const saved = new Uint8Array(await blobs[0]!.arrayBuffer());
+    expect(Buffer.from(saved).equals(Buffer.from(bytes))).toBe(true);
   });
 });
 
