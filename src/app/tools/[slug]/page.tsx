@@ -356,8 +356,9 @@ export default async function ToolPage({
                         JPG to PDF 0.0196 at 360 x 800, the sheet's mark and
                         sentence drawn up 57 px). A result does not stretch:
                         it is drawn at its own size, from the top. Held from
-                        a Run press until the reader's next one
-                        (`./stage-hold` in the runner kit). */}
+                        a Run press — never past the bottom of the screen once
+                        the run settles, the rest given back at the reader's
+                        next click or key (`./stage-hold` in the runner kit). */}
                     <div
                       data-runner-stage
                       className="flex flex-1 flex-col [&>*>[data-page-drop-target]:only-of-type]:grow [&>:has(>[data-page-drop-target]:only-of-type)]:grow"

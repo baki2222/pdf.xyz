@@ -162,11 +162,16 @@ export function useAsyncRun<T>() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<T | null>(null);
+  // A run still in flight when the runner unmounts settles its hold then:
+  // the result it was held for will never be drawn (`./stage-hold`).
+  const holding = useRef<(() => void) | null>(null);
+  useEffect(() => () => holding.current?.(), []);
 
   const run = useCallback(async (task: () => Promise<T>) => {
     // The stage the result will be drawn into, held from the press, in the
     // press's own handler (`./stage-hold`).
     const settled = holdRunnerStage();
+    holding.current = settled;
     setBusy(true);
     setError(null);
     void warmEnding().catch(() => {});
@@ -190,6 +195,7 @@ export function useAsyncRun<T>() {
     } finally {
       setBusy(false);
       settled();
+      if (holding.current === settled) holding.current = null;
     }
   }, []);
 

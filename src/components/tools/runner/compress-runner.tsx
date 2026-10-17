@@ -731,11 +731,15 @@ function WorkerDeepPanel({
   }, []);
 
   const canRunDeep = canRunDeepCompression(status);
+  // A run still in flight when the panel unmounts settles its hold then.
+  const holding = useRef<(() => void) | null>(null);
+  useEffect(() => () => holding.current?.(), []);
 
   async function run() {
     // Held from the press, like every runner's (`./stage-hold`): the card
     // this run draws is under a reader who scrolled down to the worker.
     const settled = holdRunnerStage();
+    holding.current = settled;
     setBusy(true);
     setOutcome(null);
     void warmEnding().catch(() => {});
@@ -760,6 +764,7 @@ function WorkerDeepPanel({
     } finally {
       setBusy(false);
       settled();
+      if (holding.current === settled) holding.current = null;
     }
   }
 

@@ -122,15 +122,18 @@ export function CompressBatchRunner({
     useBatchRunner<CompressResult>(units, process);
 
   const settled = state.phase === "done" || state.phase === "canceled";
-  // The stage is held from the press until the batch settles and the reader
-  // presses again (`./stage-hold`): the rows and the ending it draws come
-  // long after the press.
+  // The stage is held from the press (`./stage-hold`): the rows and the
+  // ending the batch draws come long after it. Once it settles, the hold
+  // keeps nothing past the bottom of the screen, and the rest goes at the
+  // reader's next click or key.
   const settleHold = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!settled) return;
     settleHold.current?.();
     settleHold.current = null;
   }, [settled]);
+  // Unmounted mid-batch: the rows it was held for will never be drawn.
+  useEffect(() => () => settleHold.current?.(), []);
   const totalSaved = state.items.reduce(
     (sum, item) => sum + (item.result?.savedBytes ?? 0),
     0,
