@@ -24,6 +24,7 @@
  */
 import type { ReactNode } from "react";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -33,7 +34,14 @@ import {
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import {
+  __setHandoffStoreForTests,
+  claimHandoff,
+  HandoffStore,
+  MemoryHandoffBackend,
+} from "@/lib/handoff";
 import { continueTargetsFor } from "@/lib/intent/next-steps";
+import { analyzePdf } from "@/lib/pdf/analyze";
 import { getToolBySlug, tools } from "@/lib/tools";
 import type { NativeCompressor } from "@/lib/workers/compression/engine";
 import { createLocalDevAdapter } from "@/lib/workers/local-dev";
@@ -467,11 +475,23 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
  * and the ending carrying it.
  */
 describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
-  /** Written the way the repack writes: object streams, the site's producer. */
+  /**
+   * Lean, and NOT the repack's own bytes. Written with object streams, as
+   * the repack writes, but with a producer and creator SHORTER than the
+   * site's: the repack writes "pdf.xyz" into both, so its file is a few
+   * bytes LONGER — nothing saved, the analysis "already lean" — and differs
+   * from the input.
+   *
+   * WAS (until 2026-10-17) the site's own producer and creator, so the
+   * repack wrote this file back byte for byte, and the test could not tell
+   * the input from the repack: Download saving `result.optimized`, and
+   * Continue with carrying it, both stayed green (PR #180 review). With
+   * this fixture each is red.
+   */
   async function leanPdf(): Promise<Uint8Array> {
     const doc = await PDFDocument.load(await plainPdf(2));
-    doc.setProducer("pdf.xyz");
-    doc.setCreator("pdf.xyz");
+    doc.setProducer("p");
+    doc.setCreator("c");
     return doc.save({ useObjectStreams: true });
   }
 
@@ -481,25 +501,40 @@ describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
   );
   afterEach(() => {
     vi.restoreAllMocks();
+    __setHandoffStoreForTests(null);
     for (const [key, descriptor] of original) {
       if (descriptor) Object.defineProperty(URL, key, descriptor);
       else Reflect.deleteProperty(URL, key);
     }
   });
 
-  it("offers the file as it came in, byte for byte and said to be unchanged, with the receipt and Continue with carrying it", async () => {
+  it("offers the file as it came in, byte for byte and said to be unchanged, with the receipt and Continue with carrying THAT file", async () => {
     answerWorkerStatus(null);
     const bytes = await leanPdf();
+    // Health: the repack is no smaller, and it is not the input — so a
+    // download or a carry of the repack is told from one of the input.
+    const { optimized } = await analyzePdf(bytes);
+    expect(optimized.byteLength).toBeGreaterThanOrEqual(bytes.byteLength);
+    expect(Buffer.from(optimized).equals(Buffer.from(bytes))).toBe(false);
+
+    __setHandoffStoreForTests(
+      new HandoffStore({ backend: new MemoryHandoffBackend() }),
+    );
+    const pushes: string[] = [];
     const tool = getToolBySlug("compress-pdf")!;
     const { container } = render(
-      withRouter(
+      <AppRouterContext.Provider
+        value={
+          { ...router, push: (href: string) => pushes.push(href) } as never
+        }
+      >
         <ToolRunProvider
           tool={{ slug: tool.slug, name: tool.name, category: tool.category }}
           plan={continueTargetsFor(tool, tools)}
         >
           <CompressRunner />
-        </ToolRunProvider>,
-      ),
+        </ToolRunProvider>
+      </AppRouterContext.Provider>,
     );
     await drop(container, [asFile(bytes, "lean.pdf")]);
     // Health: the analysis found nothing to remove.
@@ -528,6 +563,7 @@ describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
       expect(link).toHaveTextContent("carries lean.pdf");
     expect(container.querySelector("[data-receipt]")).not.toBeNull();
 
+    // DOWNLOAD saves the input's bytes, under its name.
     const blobs: Blob[] = [];
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
@@ -552,7 +588,24 @@ describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
     await waitFor(() => expect(blobs).toHaveLength(1));
     expect(names).toEqual(["lean.pdf"]);
     const saved = new Uint8Array(await blobs[0]!.arrayBuffer());
-    expect(Buffer.from(saved).equals(Buffer.from(bytes))).toBe(true);
+    expect(
+      Buffer.from(saved).equals(Buffer.from(bytes)),
+      "the download is not the file as it came in",
+    ).toBe(true);
+
+    // CONTINUE WITH carries the input's bytes: claimed as the next tool would.
+    await act(async () => {
+      fireEvent.click(links[0]!);
+    });
+    await waitFor(() => expect(pushes).toHaveLength(1));
+    const id = new URL(pushes[0]!, "http://x").searchParams.get("handoff")!;
+    const record = await claimHandoff(id);
+    expect(record?.files.map((f) => f.name)).toEqual(["lean.pdf"]);
+    const carried = new Uint8Array(await record!.files[0]!.blob.arrayBuffer());
+    expect(
+      Buffer.from(carried).equals(Buffer.from(bytes)),
+      "Continue with does not carry the file as it came in",
+    ).toBe(true);
   });
 });
 
