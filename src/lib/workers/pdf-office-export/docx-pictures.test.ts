@@ -32,7 +32,12 @@ import { describe, expect, it } from "vitest";
 import {
   boldItalicPdf,
   captionedPicturesPdf,
+  coveredPicturePdf,
+  exifJpegPdf,
+  inlineImagesPdf,
   ocrdScanPdf,
+  repeatedPicturesPdf,
+  stencilPicturePdf,
   croppedPagePdf,
   DOCX_PICTURE_FIXTURES,
   scanBetweenPagesPdf,
@@ -54,6 +59,9 @@ import { pageFaq } from "@/lib/tools/page-copy";
 import { compareDocxPictures } from "./docx-fidelity";
 import { A4_PORTRAIT, docxPageOf } from "./docx-layout";
 import { docxPackage } from "./docx-package";
+import { handBuiltDocx } from "@/tests/docx-hand-built";
+import { readJpegOrientation } from "@/lib/pdf/jpeg-orientation";
+import { loadNodeCanvas } from "./pdfjs-node";
 import { readDocxBody } from "./docx-read";
 import {
   PDF_TO_WORD_TOOL,
@@ -409,4 +417,89 @@ describe("PDF to Word does not deliver a .docx that lost what it planned", () =>
     },
     60_000,
   );
+});
+
+/**
+ * The review of 2026-10-17, as tests of what the .docx holds: nothing the
+ * page hides, every picture pdf.js draws in one merged op, stencils, and a
+ * JPEG that cannot be turned by a reader that honours EXIF.
+ */
+describe("PDF to Word keeps what the page shows, and only that", () => {
+  /** Pixels of exactly the hidden magenta in every picture of a .docx. */
+  async function magentaPixels(docx: Uint8Array): Promise<number> {
+    const canvas = loadNodeCanvas();
+    let n = 0;
+    for (const p of (await readDocxBody(docx)).pictures) {
+      if (!p.bytes) continue;
+      const img = await canvas.loadImage(p.bytes);
+      const c = canvas.createCanvas(img.width, img.height);
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, 0, img.width, img.height).data;
+      for (let i = 0; i < d.length; i += 4)
+        if (d[i]! > 200 && d[i + 1]! < 60 && d[i + 2]! > 200) n++;
+    }
+    return n;
+  }
+
+  it("PRIVACY: a box painted over a screenshot is burned into it — none of the 4,000 hidden magenta pixels reach the .docx", async () => {
+    const fixture = await coveredPicturePdf();
+    // Health: the fixture really hides 4,000 magenta pixels in its raster.
+    expect(
+      await magentaPixels(
+        await handBuiltDocx({
+          page: fixture.firstPage,
+          pages: [[{ picture: 0 }]],
+          pictures: [
+            { ...fixture.pictures[0]!.file!, width: 300, height: 200 },
+          ],
+        }),
+      ),
+    ).toBe(4000);
+    const run = await word(fixture.pdf);
+    expect(await magentaPixels(run.output)).toBe(0);
+    const report = await compareDocxPictures(fixture.pdf, run.output);
+    expect(report.pass, report.detail).toBe(true);
+    expect(report.coveredCells).toBeGreaterThan(0);
+    expect(report.survivingCells).toBe(0);
+  }, 60_000);
+
+  it("a picture drawn four times in a row comes through four times, at both sizes; twelve small inline pictures come through twelve times; nothing is quietly lost", async () => {
+    for (const build of [repeatedPicturesPdf, inlineImagesPdf]) {
+      const fixture = await build();
+      const run = await word(fixture.pdf);
+      const report = await compareDocxPictures(fixture.pdf, run.output);
+      expect(report.matched, `${fixture.name}: ${report.detail}`).toBe(
+        fixture.pictures.length,
+      );
+      expect(report.pass, report.detail).toBe(true);
+      expect(run.coverage.picturesNotCarried).toBe(0);
+    }
+  }, 60_000);
+
+  it("a stencil picture comes through as a picture, in its colour", async () => {
+    const fixture = await stencilPicturePdf();
+    const run = await word(fixture.pdf);
+    const report = await compareDocxPictures(fixture.pdf, run.output);
+    expect(report.sourcePictures).toBe(1);
+    expect(report.pass, report.detail).toBe(true);
+  }, 60_000);
+
+  it("a JPEG with an EXIF orientation goes in with the tag neutralised, its pixels otherwise byte for byte", async () => {
+    const fixture = await exifJpegPdf();
+    const run = await word(fixture.pdf);
+    const [pic] = (await readDocxBody(run.output)).pictures;
+    expect(pic!.part).toMatch(/\.jpeg$/);
+    // Health: the source really carries orientation 6.
+    expect(readJpegOrientation(fixture.pictures[0]!.jpeg!)).toBe(6);
+    expect(readJpegOrientation(pic!.bytes!)).toBe(1);
+    expect(pic!.bytes!.length).toBe(fixture.pictures[0]!.jpeg!.length);
+    expect(
+      [...pic!.bytes!].filter((v, i) => v !== fixture.pictures[0]!.jpeg![i])
+        .length,
+    ).toBeLessThanOrEqual(2);
+    expect((await compareDocxPictures(fixture.pdf, run.output)).pass).toBe(
+      true,
+    );
+  }, 60_000);
 });

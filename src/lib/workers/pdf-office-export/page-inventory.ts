@@ -114,7 +114,12 @@ export interface InventoryImage {
   bytes: number;
 }
 
-/** Where a picture is painted: the image's unit square under its CTM. */
+/**
+ * Where a picture is painted: the image's unit square under its CTM. A
+ * stencil's paint is one too (its image is `mask`) since 2026-10-17, when PDF
+ * to Word began carrying stencils; PDF to PowerPoint's instrument, which
+ * scores pictures placed alone, leaves those out (`./fidelity`).
+ */
 export interface InventoryPlacement {
   /** Index into the page's `images`. */
   image: number;
@@ -905,7 +910,7 @@ function addImage(
       ctx.images.set(key, image);
     }
   }
-  if (ctm && !facts.mask)
+  if (ctm)
     ctx.placements.push({ image: index, box: unitBox(mul(ctx.display, ctm)) });
 }
 

@@ -1,6 +1,7 @@
 /**
  * PICTURE FIDELITY FOR WORD: does a .docx carry every picture of the PDF it
- * came from — that picture, at its size, where the text around it puts it?
+ * came from — that picture, at its size, where the text around it puts it —
+ * and nothing the page hides?
  *
  * ── WHY THIS INSTRUMENT, AND NOT THE PAGE ROUND TRIP ────────────────────────
  *
@@ -15,11 +16,20 @@
  * pixel comparison would measure Word's line breaking. What the export DOES
  * decide is what this measures, picture by picture:
  *
- *   present   every picture the source pages paint is in the .docx, and the
- *             .docx carries no picture the source does not paint;
- *   pixels    each one's own pixels match the source picture's (both decoded
- *             here, then compared on a common grid after a small blur,
- *             normalised by the picture's own detail — see {@link PIXEL_BOUND});
+ *   present   every picture the source pages paint — stencils too — is in the
+ *             .docx, and the .docx carries no picture the source does not
+ *             paint; a source with no picture at all is NOT a pass unless the
+ *             caller declares it picture-free ("0 of 0" proves nothing);
+ *   pixels    each one matches, colour channel by channel, either the
+ *             picture's own pixels or what the page SHOWS over its box
+ *             (the picture with whatever is painted on top), on a common grid
+ *             after a small blur, normalised by the picture's own detail
+ *             ({@link PIXEL_BOUND});
+ *   covers    nothing the page paints OVER a picture is undone: where the
+ *             page shows something else than the picture's own pixels (a box
+ *             over a name), the .docx may not show the picture's own pixels
+ *             ({@link COVER_DIFF}, {@link SURVIVING_CELLS}). Paint order is
+ *             privacy (`./page-scan`);
  *   size      its extent is the size the page shows it at, scaled down, with
  *             its aspect kept, only as far as the page's text area needs
  *             ({@link SIZE_TOLERANCE});
@@ -29,12 +39,14 @@
  * ── NOT THE ENGINE'S EYES ───────────────────────────────────────────────────
  *
  * The source's pictures are listed by the FILE (`./page-inventory`, pdf-lib),
- * not by the engine's page reader. Their pixels are decoded by this module's
- * own pdf.js instance, opened with the comparison options of `./fidelity`
- * (a ceiling above the engine's), and the text around them is read by that
- * instance's `getTextContent`, not by the poppler extraction the export
- * writes paragraphs from. The .docx is read from its XML and its media
- * decoded through the canvas, never through anything the writer used.
+ * not by the engine's page reader. Their own pixels are decoded, and their
+ * pages rendered, by this module's own pdf.js instance, opened with the
+ * comparison options of `./fidelity` (a ceiling above the engine's), and the
+ * text around them is read by that instance's `getTextContent`, not by the
+ * poppler extraction the export writes paragraphs from. The .docx is read
+ * from its XML and its media decoded through the canvas — as Word renders a
+ * JPEG, with any EXIF orientation tag ignored — never through anything the
+ * writer used.
  *
  * ── WHAT IT DOES NOT MEASURE, said plainly ──────────────────────────────────
  *
@@ -43,11 +55,10 @@
  *    shows is not measured here (the PowerPoint round trip measures the page
  *    reader's clips).
  *  - A picture turned on the page is matched and its pixels compared
- *    unturned; its size is not checked, and the report counts it.
- *  - Stencil masks (`/ImageMask`, one colour through a 1-bit shape) are not
- *    counted as pictures: the export does not carry them (its page says so).
+ *    unturned; its size and covers are not checked, and the report counts it.
  *  - It says nothing about fonts, colours or the text itself.
  */
+import { uprightJpeg } from "@/lib/pdf/jpeg-orientation";
 import { readDocxBody, type DocxBody, type DocxBodyPicture } from "./docx-read";
 import { blur, DETAIL_FLOOR, openForComparison } from "./fidelity";
 import { inventoryPages, type PageInventory } from "./page-inventory";
@@ -56,18 +67,25 @@ import {
   resampleImage,
   type DecodedImage,
 } from "./picture-pixels";
-import { loadNodeCanvas, loadNodePdfjs } from "./pdfjs-node";
+import {
+  canvasFactoryOf,
+  loadNodeCanvas,
+  loadNodePdfjs,
+  type NodeCanvasAndContext,
+} from "./pdfjs-node";
 
 /* ------------------------------------------------------------------ *
  *  The bounds
  * ------------------------------------------------------------------ */
 
 /**
- * The most a matched picture's pixel score may be: mean |source − docx| on a
- * grid of {@link GRID_POINTS}-point cells, after a one-cell blur, divided by
- * the source picture's detail (its mean grey change from one cell to the
- * next, floored at `DETAIL_FLOOR`). It reads roughly as "cells out of
- * place". Calibrated beside its controls in `docx-fidelity.test.ts`.
+ * The most a matched picture's pixel score may be: mean |source − docx| over
+ * the three colour channels on a grid of {@link GRID_POINTS}-point cells,
+ * after a one-cell blur, divided by the source's detail (its mean change from
+ * one cell to the next, floored at `DETAIL_FLOOR`). It reads roughly as
+ * "cells out of place". Calibrated beside its controls in
+ * `docx-fidelity.test.ts`. Until the review of 2026-10-17 it compared
+ * luminance only, which a swap of two colour channels can leave unchanged.
  */
 export const PIXEL_BOUND = 0.5;
 /** Grid cell size, in points of the picture as shown. */
@@ -77,6 +95,23 @@ const GRID_MIN = 8;
 const GRID_MAX = 160;
 /** Extent within this many points, or this share of the side, of the expected. */
 export const SIZE_TOLERANCE = { points: 1, share: 0.01 } as const;
+/**
+ * A cell is COVERED where what the page shows differs from the picture's own
+ * pixels by more than this, in some channel (0–255), and the picture is
+ * opaque there: something painted later sits on it.
+ */
+export const COVER_DIFF = 48;
+/** A covered cell SURVIVES when the .docx is this close to the hidden pixels. */
+export const SURVIVE_DIFF = 24;
+/**
+ * A picture fails when at least this many covered cells survive, and they
+ * are at least {@link SURVIVING_SHARE} of its covered cells.
+ */
+export const SURVIVING_CELLS = 3;
+export const SURVIVING_SHARE = 0.02;
+/** The source page is rendered at this many pixels a point, longest side capped. */
+const RENDER_PX_PER_PT = 2;
+const RENDER_MAX_SIDE = 4000;
 
 /* ------------------------------------------------------------------ *
  *  The source, as the file and this module's own pdf.js see it
@@ -90,8 +125,12 @@ export interface SourcePicture {
   order: number;
   /** Where the page shows it (unclipped), points, top-left origin. */
   box: Box;
-  /** Its decoded pixels, or null when this instrument could not decode it. */
+  /** A stencil (`/ImageMask`): one colour through a 1-bit shape. */
+  mask: boolean;
+  /** Its own decoded pixels, or null (a stencil, or not decodable here). */
   pixels: DecodedImage | null;
+  /** What the page shows over its box, as RGBA, or null when not rendered. */
+  seen: DecodedImage | null;
 }
 
 interface SourceText {
@@ -121,8 +160,10 @@ const mul = (m: Matrix, n: Matrix): Matrix => [
   m[1]! * n[4]! + m[3]! * n[5]! + m[5]!,
 ];
 
+/** U+00AD, built from its code: a raw one is invisible in the source. */
+const SOFT_HYPHEN = new RegExp(String.fromCharCode(0xad), "g");
 const normalise = (s: string) =>
-  s.normalize("NFKC").replace(/­/g, "").replace(/\s+/g, " ").trim();
+  s.normalize("NFKC").replace(SOFT_HYPHEN, "").replace(/\s+/g, " ").trim();
 
 /** How long one decoded image may take to arrive from pdf.js's evaluator. */
 const DECODE_WAIT_MS = 60_000;
@@ -149,6 +190,29 @@ function resolved(
   });
 }
 
+/** The pixels of `box` (points) out of a page rendered at `scale`. */
+function cropPage(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  scale: number,
+  box: Box,
+): DecodedImage | null {
+  const x0 = Math.max(0, Math.floor(box[0] * scale));
+  const y0 = Math.max(0, Math.floor(box[1] * scale));
+  const x1 = Math.min(width, Math.ceil(box[2] * scale));
+  const y1 = Math.min(height, Math.ceil(box[3] * scale));
+  if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+  const w = x1 - x0;
+  const out = new Uint8ClampedArray(w * (y1 - y0) * 4);
+  for (let y = y0; y < y1; y++)
+    out.set(
+      rgba.subarray((y * width + x0) * 4, (y * width + x1) * 4),
+      (y - y0) * w * 4,
+    );
+  return { width: w, height: y1 - y0, kind: 3, data: out };
+}
+
 async function readSource(source: Uint8Array): Promise<SourceDocument | null> {
   const inventory = await inventoryPages(source);
   if (!inventory) return null;
@@ -156,6 +220,7 @@ async function readSource(source: Uint8Array): Promise<SourceDocument | null> {
   const { doc, close } = await openForComparison(source);
   try {
     const OPS = pdfjs.OPS as unknown as Record<string, number>;
+    const factory = canvasFactoryOf(doc);
     const pictures: SourcePicture[] = [];
     const texts: SourceText[][] = [];
     const nonEmpty: boolean[] = [];
@@ -180,8 +245,7 @@ async function readSource(source: Uint8Array): Promise<SourceDocument | null> {
       }
       texts.push(lines);
       const shown = (inv?.placements ?? []).filter((p) => {
-        const image = inv!.images[p.image];
-        if (!image || image.mask) return false;
+        if (!inv!.images[p.image]) return false;
         const b = p.box;
         return (
           Math.min(b[2], inv!.width) - Math.max(b[0], 0) > 0.5 &&
@@ -211,23 +275,50 @@ async function readSource(source: Uint8Array): Promise<SourceDocument | null> {
         )
           inline.push(args[0]);
       }
+      // What the page shows: rendered whole, on white, once.
+      const scale = Math.min(
+        RENDER_PX_PER_PT,
+        RENDER_MAX_SIDE / Math.max(viewport.width, viewport.height),
+      );
+      const shownAt = page.getViewport({ scale });
+      const W = Math.max(1, Math.ceil(shownAt.width));
+      const H = Math.max(1, Math.ceil(shownAt.height));
+      const cc: NodeCanvasAndContext = factory.create(W, H);
+      let rendered: Uint8ClampedArray | null = null;
+      try {
+        await page.render({
+          canvas: cc.canvas as unknown as HTMLCanvasElement,
+          canvasContext: cc.context as unknown as CanvasRenderingContext2D,
+          viewport: shownAt,
+          background: "rgb(255,255,255)",
+        }).promise;
+        rendered = cc.context.getImageData(0, 0, W, H).data;
+      } catch {
+        rendered = null;
+      } finally {
+        factory.destroy(cc);
+      }
       let nextInline = 0;
       shown.forEach((p, order) => {
         const image = inv!.images[p.image]!;
-        const pixels = image.inline
-          ? (inline[nextInline++] ?? null)
-          : image.ref
-            ? (byRef.get(image.ref) ?? null)
-            : null;
+        const pixels = image.mask
+          ? null
+          : image.inline
+            ? (inline[nextInline++] ?? null)
+            : image.ref
+              ? (byRef.get(image.ref) ?? null)
+              : null;
+        const box: Box = [
+          Math.max(0, p.box[0]),
+          Math.max(0, p.box[1]),
+          Math.min(inv!.width, p.box[2]),
+          Math.min(inv!.height, p.box[3]),
+        ];
         pictures.push({
           page: n,
           order,
-          box: [
-            Math.max(0, p.box[0]),
-            Math.max(0, p.box[1]),
-            Math.min(inv!.width, p.box[2]),
-            Math.min(inv!.height, p.box[3]),
-          ],
+          box,
+          mask: image.mask,
           // A copy: the pools are emptied when the page is cleaned up.
           pixels: pixels
             ? {
@@ -237,6 +328,7 @@ async function readSource(source: Uint8Array): Promise<SourceDocument | null> {
                 data: pixels.data.slice(),
               }
             : null,
+          seen: rendered ? cropPage(rendered, W, H, scale, box) : null,
         });
       });
       page.cleanup();
@@ -251,11 +343,15 @@ async function readSource(source: Uint8Array): Promise<SourceDocument | null> {
  *  Pixels
  * ------------------------------------------------------------------ */
 
-/** A .docx picture's media, decoded by the canvas, as RGBA. */
+/**
+ * A .docx picture's media, decoded by the canvas, as RGBA — with a JPEG's
+ * EXIF orientation tag ignored, as Word renders it (the canvas, like a
+ * browser, would turn the pixels; Word draws them as stored).
+ */
 async function decodeMedia(bytes: Uint8Array): Promise<DecodedImage | null> {
   try {
     const canvas = loadNodeCanvas();
-    const image = await canvas.loadImage(bytes);
+    const image = await canvas.loadImage(uprightJpeg(bytes).bytes);
     if (image.width < 1 || image.height < 1) return null;
     const c = canvas.createCanvas(image.width, image.height);
     const ctx = c.getContext("2d");
@@ -286,21 +382,37 @@ function regionOf(
   return [x0, y0, x1, y1];
 }
 
-/** Grey on white, 0 black … 255 white, at `w` × `h`, blurred one cell. */
-function greyGrid(
+/** A picture on a grid: RGB on white (each channel blurred one cell), alpha. */
+interface Grid {
+  w: number;
+  h: number;
+  /** Interleaved R, G, B; 0 … 255. */
+  rgb: Float32Array;
+  /** 0 … 1, before compositing. */
+  alpha: Float32Array;
+}
+
+function gridOf(
   img: DecodedImage,
   crop: DocxBodyPicture["crop"],
   w: number,
   h: number,
-): Float32Array {
+): Grid {
   const rgba = resampleImage(img, regionOf(img, crop), w, h);
-  const out = new Float32Array(w * h);
-  for (let p = 0, q = 0; p < out.length; p++, q += 4) {
+  const n = w * h;
+  const channels = [0, 1, 2].map(() => new Float32Array(n));
+  const alpha = new Float32Array(n);
+  for (let p = 0, q = 0; p < n; p++, q += 4) {
     const a = rgba[q + 3]! / 255;
-    const luma = 0.299 * rgba[q]! + 0.587 * rgba[q + 1]! + 0.114 * rgba[q + 2]!;
-    out[p] = luma * a + 255 * (1 - a);
+    alpha[p] = a;
+    for (let c = 0; c < 3; c++)
+      channels[c]![p] = rgba[q + c]! * a + 255 * (1 - a);
   }
-  return blur(out, w, h, 1);
+  const blurred = channels.map((ch) => blur(ch, w, h, 1));
+  const rgb = new Float32Array(n * 3);
+  for (let p = 0; p < n; p++)
+    for (let c = 0; c < 3; c++) rgb[p * 3 + c] = blurred[c]![p]!;
+  return { w, h, rgb, alpha };
 }
 
 /** The grid a picture shown `width` × `height` points is compared on. */
@@ -310,25 +422,60 @@ function gridFor(width: number, height: number): [number, number] {
   return [clamp(width), clamp(height)];
 }
 
-/** Mean |a − b| over the reference's detail: "cells out of place". */
-function pixelScore(
-  ref: Float32Array,
-  cand: Float32Array,
-  w: number,
-  h: number,
-): number {
+/** Mean |a − b| over channels, over the reference's detail: "cells out of place". */
+function pixelScore(ref: Grid, cand: Grid): number {
+  const { w, h } = ref;
   let d = 0;
   let detail = 0;
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      d += Math.abs(ref[i]! - cand[i]!);
-      const dx = x + 1 < w ? Math.abs(ref[i + 1]! - ref[i]!) : 0;
-      const dy = y + 1 < h ? Math.abs(ref[i + w]! - ref[i]!) : 0;
-      detail += (dx + dy) / 2;
+      const i = (y * w + x) * 3;
+      for (let c = 0; c < 3; c++) {
+        d += Math.abs(ref.rgb[i + c]! - cand.rgb[i + c]!);
+        const dx =
+          x + 1 < w ? Math.abs(ref.rgb[i + 3 + c]! - ref.rgb[i + c]!) : 0;
+        const dy =
+          y + 1 < h ? Math.abs(ref.rgb[i + w * 3 + c]! - ref.rgb[i + c]!) : 0;
+        detail += (dx + dy) / 2;
+      }
     }
-  const n = w * h;
+  const n = w * h * 3;
   return d / n / Math.max(detail / n, DETAIL_FLOOR);
+}
+
+/** Largest per-channel difference at cell `p`. */
+function cellDiff(a: Grid, b: Grid, p: number): number {
+  const i = p * 3;
+  return Math.max(
+    Math.abs(a.rgb[i]! - b.rgb[i]!),
+    Math.abs(a.rgb[i + 1]! - b.rgb[i + 1]!),
+    Math.abs(a.rgb[i + 2]! - b.rgb[i + 2]!),
+  );
+}
+
+/**
+ * Cells where the page shows something over the picture (covered), and of
+ * those, cells where the .docx shows the picture's own pixels instead
+ * (surviving): what the author painted over, undone.
+ */
+function covers(
+  own: Grid,
+  seen: Grid,
+  docx: Grid,
+): { cells: number; surviving: number } {
+  let cells = 0;
+  let surviving = 0;
+  for (let p = 0; p < own.w * own.h; p++) {
+    if (own.alpha[p]! < 0.98) continue;
+    if (cellDiff(seen, own, p) <= COVER_DIFF) continue;
+    cells++;
+    if (
+      cellDiff(docx, own, p) < SURVIVE_DIFF &&
+      cellDiff(docx, seen, p) > COVER_DIFF
+    )
+      surviving++;
+  }
+  return { cells, surviving };
 }
 
 /* ------------------------------------------------------------------ *
@@ -339,6 +486,7 @@ export interface PictureFidelity {
   page: number;
   order: number;
   box: Box;
+  mask: boolean;
   /** The .docx picture matched to it, or null when none matched. */
   docx: number | null;
   /** Pixel score against the matched picture (or the best one, unmatched). */
@@ -349,6 +497,8 @@ export interface PictureFidelity {
     expected: [number, number];
     got: [number, number];
   } | null;
+  /** What the page paints over it, and how much of that the .docx undoes. */
+  covered: { cells: number; surviving: number; ok: boolean } | null;
   placement: {
     /** Paragraph index of the nearest text above / below found in the .docx. */
     above: number | null;
@@ -372,8 +522,19 @@ export interface DocxPictureReport {
   /** Pictures whose order was checked against neighbouring text. */
   orderChecked: number;
   maxPixelScore: number;
+  /** Covered cells, and covered cells the .docx undoes, over all pictures. */
+  coveredCells: number;
+  survivingCells: number;
   pass: boolean;
   detail: string;
+}
+
+export interface CompareOptions {
+  /**
+   * The caller says the source paints no picture. Without it, a source with
+   * no picture is CANNOT CONCLUDE: "0 of 0 found" is true of every export.
+   */
+  pictureFree?: boolean;
 }
 
 /** The nearest texts above and below `box` that overlap it horizontally. */
@@ -406,6 +567,23 @@ function paragraphHolding(
   return hits.length === 1 ? hits[0]! : null;
 }
 
+/** The report for a source this instrument could not read. */
+function unreadable(body: DocxBody, detail: string): DocxPictureReport {
+  return {
+    sourcePictures: 0,
+    docxPictures: body.pictures.length,
+    matched: 0,
+    extras: [],
+    pictures: [],
+    orderChecked: 0,
+    maxPixelScore: 0,
+    coveredCells: 0,
+    survivingCells: 0,
+    pass: false,
+    detail,
+  };
+}
+
 /**
  * Compare a .docx against its source PDF, picture by picture. See the
  * module docblock for what each check means and what it leaves out.
@@ -413,59 +591,69 @@ function paragraphHolding(
 export async function compareDocxPictures(
   source: Uint8Array,
   docx: Uint8Array,
+  options: CompareOptions = {},
 ): Promise<DocxPictureReport> {
   const body = await readDocxBody(docx);
   const src = await readSource(source);
   if (!src)
-    return {
-      sourcePictures: 0,
-      docxPictures: body.pictures.length,
-      matched: 0,
-      extras: [],
-      pictures: [],
-      orderChecked: 0,
-      maxPixelScore: 0,
-      pass: false,
-      detail: "CANNOT CONCLUDE: the source PDF could not be read by pdf-lib",
-    };
+    return unreadable(
+      body,
+      "CANNOT CONCLUDE: the source PDF could not be read by pdf-lib",
+    );
+  if (src.pictures.length === 0 && !options.pictureFree)
+    return unreadable(
+      body,
+      "CANNOT CONCLUDE: the source paints no picture, so 0 of 0 found proves nothing; declare a picture-free source to check that the DOCX holds none",
+    );
+  if (src.pictures.length > 0 && options.pictureFree)
+    return unreadable(
+      body,
+      `the source was declared picture-free but paints ${src.pictures.length} picture(s)`,
+    );
   const decoded = await Promise.all(
     body.pictures.map((p) => (p.bytes ? decodeMedia(p.bytes) : null)),
   );
 
   // Every source picture against every .docx picture: first on a coarse
-  // grid, for the few best candidates; then each candidate on the source's
-  // own grid. Matched greedily, best score first, one to one.
+  // grid, for the closest candidates (all of them, when a picture is drawn
+  // several times over); then each candidate on the source's own grid,
+  // against both references. Matched greedily, best score first, ties in
+  // document order, one to one.
   const COARSE = 16;
-  const coarseSource = src.pictures.map((sp) =>
-    sp.pixels ? greyGrid(sp.pixels, null, COARSE, COARSE) : null,
-  );
+  const reference = (sp: SourcePicture) => sp.pixels ?? sp.seen;
+  const coarseSource = src.pictures.map((sp) => {
+    const img = reference(sp);
+    return img ? gridOf(img, null, COARSE, COARSE) : null;
+  });
   const coarseDocx = decoded.map((img, d) =>
-    img ? greyGrid(img, body.pictures[d]!.crop, COARSE, COARSE) : null,
+    img ? gridOf(img, body.pictures[d]!.crop, COARSE, COARSE) : null,
   );
   const pairs: { s: number; d: number; score: number }[] = [];
   src.pictures.forEach((sp, s) => {
     const coarse = coarseSource[s];
-    if (!sp.pixels || !coarse) return;
-    const candidates = coarseDocx
-      .map((c, d) => ({
-        d,
-        score: c ? pixelScore(coarse, c, COARSE, COARSE) : Infinity,
-      }))
+    if (!coarse) return;
+    const ranked = coarseDocx
+      .map((c, d) => ({ d, score: c ? pixelScore(coarse, c) : Infinity }))
       .filter((c) => Number.isFinite(c.score))
-      .sort((a, b) => a.score - b.score)
-      .slice(0, 3);
+      .sort((a, b) => a.score - b.score || a.d - b.d);
+    const best = ranked[0]?.score ?? Infinity;
+    const candidates = ranked
+      .filter((c, k) => k < 3 || c.score <= best + 0.05)
+      .slice(0, 64);
     const [w, h] = gridFor(sp.box[2] - sp.box[0], sp.box[3] - sp.box[1]);
     for (const { d } of candidates) {
       const dp = body.pictures[d]!;
-      const ref = greyGrid(sp.pixels, dp.crop, w, h);
-      pairs.push({
-        s,
-        d,
-        score: pixelScore(ref, greyGrid(decoded[d]!, dp.crop, w, h), w, h),
-      });
+      const cand = gridOf(decoded[d]!, dp.crop, w, h);
+      const scores = [sp.pixels, sp.seen]
+        .filter((img): img is DecodedImage => img !== null)
+        .map((img) => pixelScore(gridOf(img, dp.crop, w, h), cand));
+      pairs.push({ s, d, score: Math.min(...scores) });
     }
   });
-  pairs.sort((a, b) => a.score - b.score);
+  const rounded = (v: number) => Math.round(v * 1000);
+  pairs.sort(
+    (a, b) => rounded(a.score) - rounded(b.score) || a.s - b.s || a.d - b.d,
+  );
   const matchOf = new Map<number, { d: number; score: number }>();
   const bestOf = new Map<number, number>();
   const taken = new Set<number>();
@@ -485,22 +673,25 @@ export async function compareDocxPictures(
       page: sp.page,
       order: sp.order,
       box: sp.box,
+      mask: sp.mask,
       docx: match?.d ?? null,
       pixels: match?.score ?? bestOf.get(s) ?? null,
       size: null,
+      covered: null,
       placement: null,
-      ...(sp.pixels
+      ...(reference(sp)
         ? {}
-        : { inconclusive: "its pixels could not be decoded here" }),
+        : { inconclusive: "its pixels could not be decoded or rendered here" }),
     };
     if (!match) return base;
     const dp = body.pictures[match.d]!;
     // Size: the shown part at the page's size, scaled down (aspect kept) only
     // as far as the text area needs.
     let size: PictureFidelity["size"] = null;
+    let covered: PictureFidelity["covered"] = null;
     let inconclusive = base.inconclusive;
     if (dp.rotation !== 0)
-      inconclusive ??= "turned on the page: size not checked";
+      inconclusive ??= "turned on the page: size and covers not checked";
     else {
       const c = dp.crop ?? { left: 0, top: 0, right: 0, bottom: 0 };
       const w = (sp.box[2] - sp.box[0]) * (1 - c.left - c.right);
@@ -519,6 +710,22 @@ export async function compareDocxPictures(
         expected,
         got: [dp.width, dp.height],
       };
+      // Covers: only where both references exist (a stencil has no pixels
+      // of its own to hide anything under).
+      if (sp.pixels && sp.seen) {
+        const [gw, gh] = gridFor(sp.box[2] - sp.box[0], sp.box[3] - sp.box[1]);
+        const found = covers(
+          gridOf(sp.pixels, dp.crop, gw, gh),
+          gridOf(sp.seen, dp.crop, gw, gh),
+          gridOf(decoded[match.d]!, dp.crop, gw, gh),
+        );
+        covered = {
+          ...found,
+          ok:
+            found.surviving < SURVIVING_CELLS ||
+            found.surviving < SURVIVING_SHARE * found.cells,
+        };
+      }
     }
     // Order: between the nearest text above it and below it, in one segment.
     const { above, below } = neighbours(src.texts[sp.page - 1] ?? [], sp.box);
@@ -547,6 +754,7 @@ export async function compareDocxPictures(
     return {
       ...base,
       size,
+      covered,
       placement: {
         above: a,
         below: b,
@@ -583,17 +791,24 @@ export async function compareDocxPictures(
   const extras = body.pictures.map((p) => p.index).filter((i) => !taken.has(i));
   const sizeBad = results.filter((r) => r.size && !r.size.ok);
   const orderBad = results.filter((r) => r.placement && !r.placement.ok);
+  const coverBad = results.filter((r) => r.covered && !r.covered.ok);
   const inconclusive = results.filter((r) => r.inconclusive);
   const scores = results.flatMap((r) =>
     r.docx !== null && r.pixels !== null ? [r.pixels] : [],
   );
   const maxPixelScore = Math.max(0, ...scores);
   const orderChecked = results.filter((r) => r.placement?.anchored).length;
+  const coveredCells = results.reduce((n, r) => n + (r.covered?.cells ?? 0), 0);
+  const survivingCells = results.reduce(
+    (n, r) => n + (r.covered?.surviving ?? 0),
+    0,
+  );
   const pass =
     matched === src.pictures.length &&
     extras.length === 0 &&
     sizeBad.length === 0 &&
     orderBad.length === 0 &&
+    coverBad.length === 0 &&
     inconclusive.length === 0;
   const where = (rs: PictureFidelity[]) =>
     rs.map((r) => `p${r.page}#${r.order + 1}`).join(", ");
@@ -601,6 +816,7 @@ export async function compareDocxPictures(
     `${matched} of ${src.pictures.length} source picture(s) found in the DOCX (which holds ${body.pictures.length})`,
     `pixels max ${maxPixelScore.toFixed(3)} (bound ${PIXEL_BOUND})`,
     `order checked against text for ${orderChecked}`,
+    `covered cells ${coveredCells}, undone ${survivingCells}`,
     matched < src.pictures.length
       ? `missing: ${where(results.filter((r) => r.docx === null))}`
       : "",
@@ -609,6 +825,9 @@ export async function compareDocxPictures(
       : "",
     sizeBad.length ? `wrong size: ${where(sizeBad)}` : "",
     orderBad.length ? `out of order: ${where(orderBad)}` : "",
+    coverBad.length
+      ? `covered pixels survive: ${coverBad.map((r) => `p${r.page}#${r.order + 1} (${r.covered!.surviving} of ${r.covered!.cells} covered cells)`).join(", ")}`
+      : "",
     inconclusive.length
       ? `CANNOT CONCLUDE on ${where(inconclusive)}: ${[...new Set(inconclusive.map((r) => r.inconclusive))].join("; ")}`
       : "",
@@ -626,6 +845,8 @@ export async function compareDocxPictures(
     pictures: results,
     orderChecked,
     maxPixelScore,
+    coveredCells,
+    survivingCells,
     pass,
     detail,
   };

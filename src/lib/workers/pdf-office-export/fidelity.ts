@@ -408,6 +408,9 @@ export function scorePage(
   const px = dpi / 72;
   const pictures: PictureScore[] = [];
   for (const placement of inventory.placements) {
+    // A stencil is drawn into the deck's drawing pictures, not placed alone:
+    // it is the page score's, as it was before stencils were placements.
+    if (inventory.images[placement.image]?.mask) continue;
     const box: [number, number, number, number] = [
       Math.max(0, placement.box[0]),
       Math.max(0, placement.box[1]),

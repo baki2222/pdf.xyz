@@ -25,15 +25,23 @@ import {
   popGraphicsState,
   pushGraphicsState,
   rgb,
+  setFillingRgbColor,
   setTextRenderingMode,
   TextRenderingMode,
   type PDFFont,
+  type PDFName,
   type PDFPage,
+  type PDFRef,
 } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { encodePngImage } from "@/lib/workers/pdf-office-export/png-encode";
-import { JPEG_30X20, JPEG_HEIGHT, JPEG_WIDTH } from "./jpeg-fixtures";
+import {
+  JPEG_30X20,
+  JPEG_30X20_EXIF6,
+  JPEG_HEIGHT,
+  JPEG_WIDTH,
+} from "./jpeg-fixtures";
 import {
   drawingBits,
   gradientPixels,
@@ -353,6 +361,13 @@ export const DOCX_PICTURE_FIXTURES = [
   wideDrawingPdf,
   croppedPagePdf,
   ocrdScanPdf,
+  // The review of 2026-10-17: a box painted over a name, pictures pdf.js
+  // merges into one op, a stencil, a JPEG with an orientation tag.
+  coveredPicturePdf,
+  repeatedPicturesPdf,
+  inlineImagesPdf,
+  stencilPicturePdf,
+  exifJpegPdf,
 ] as const;
 
 /**
@@ -433,5 +448,380 @@ export async function ocrdScanPdf(): Promise<DocxFixture> {
       },
     ],
     sequence: [["#1", texts[0]!, texts[1]!]],
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ *  The review of 2026-10-17: what PDF to Word lost, and what it showed
+ * ------------------------------------------------------------------ */
+
+/** The magenta a covered fixture hides: exactly this RGB, nowhere else. */
+export const HIDDEN_MAGENTA = [255, 0, 255] as const;
+
+/**
+ * A screenshot with a magenta block in it (80 × 50 px = 4,000 pixels), and a
+ * WHITE BOX the page paints over that block afterwards — how an author hides
+ * a name in a screenshot. The page never shows magenta. A .docx that carries
+ * the screenshot's raw pixels shows all 4,000.
+ */
+export async function coveredPicturePdf(): Promise<
+  DocxFixture & {
+    hidden: { x: number; y: number; width: number; height: number };
+  }
+> {
+  const texts = ["A screenshot with a name covered", "The caption under it."];
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, texts);
+  const page = doc.addPage([595, 842]);
+  line(page, texts[0]!, 72, 80, 16, f.bold);
+  const W = 300;
+  const H = 200;
+  const samples = gradientPixels(W, H);
+  const hidden = { x: 100, y: 60, width: 80, height: 50 };
+  for (let y = hidden.y; y < hidden.y + hidden.height; y++)
+    for (let x = hidden.x; x < hidden.x + hidden.width; x++)
+      samples.set(HIDDEN_MAGENTA, (y * W + x) * 3);
+  const shot = png(W, H, "rgb8", samples);
+  const shown: Rect = { x: 72, y: 120, width: W, height: H };
+  await drawRasterImage(page, await embedRasterImage(doc, shot, "png"), {
+    x: shown.x,
+    y: 842 - shown.y - shown.height,
+    width: W,
+    height: H,
+  });
+  // One point per pixel, so the box covers the block exactly, and a point
+  // more on every side.
+  page.drawRectangle({
+    x: shown.x + hidden.x - 1,
+    y: 842 - (shown.y + hidden.y + hidden.height + 1),
+    width: hidden.width + 2,
+    height: hidden.height + 2,
+    color: rgb(1, 1, 1),
+  });
+  line(page, texts[1]!, 72, 350, 12, f.regular);
+  return {
+    name: "coveredPicturePdf",
+    pdf: await doc.save(),
+    firstPage: { width: 595, height: 842 },
+    pictures: [
+      {
+        page: 1,
+        shown,
+        pixelWidth: W,
+        pixelHeight: H,
+        source: "png",
+        file: { bytes: shot, ext: "png" },
+      },
+    ],
+    sequence: [[texts[0]!, "#1", texts[1]!]],
+    hidden,
+  };
+}
+
+/** Paint the XObject `name` into `at` (top-left frame) with q cm Do Q. */
+function paintXObject(page: PDFPage, name: PDFName, at: Rect): void {
+  page.pushOperators(
+    pushGraphicsState(),
+    concatTransformationMatrix(
+      at.width,
+      0,
+      0,
+      at.height,
+      at.x,
+      page.getHeight() - at.y - at.height,
+    ),
+    drawObject(name),
+    popGraphicsState(),
+  );
+}
+
+/**
+ * One picture drawn FOUR times in a row at one size, then another picture
+ * four times at another: 60 × 45 pt, then 120 × 90 pt. pdf.js merges three
+ * or more back-to-back draws of one image at one scale into a single
+ * `paintImageXObjectRepeat` (its first draw stays apart, behind a dependency
+ * op), and PDF to Word's reading skipped that op with the drawing: 4 draws
+ * gave 1 picture.
+ */
+export async function repeatedPicturesPdf(): Promise<DocxFixture> {
+  const texts = [
+    "Four small copies of one picture",
+    "Four larger copies of another",
+    "That is all.",
+  ];
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, texts);
+  const page = doc.addPage([612, 792]);
+  const small = png(64, 48, "rgb8", stripePixels(64, 48));
+  const large = png(96, 72, "rgb8", gradientPixels(96, 72));
+  const smallName = page.node.newXObject(
+    "Rep",
+    (await embedRasterImage(doc, small, "png")).ref,
+  );
+  const largeName = page.node.newXObject(
+    "Rep",
+    (await embedRasterImage(doc, large, "png")).ref,
+  );
+  line(page, texts[0]!, 40, 60, 14, f.bold);
+  const pictures: DocxFixturePicture[] = [];
+  const row = (
+    name: PDFName,
+    file: Uint8Array,
+    w: number,
+    h: number,
+    y: number,
+    px: [number, number],
+  ) => {
+    for (let k = 0; k < 4; k++) {
+      const at: Rect = { x: 40 + k * (w + 10), y, width: w, height: h };
+      paintXObject(page, name, at);
+      pictures.push({
+        page: 1,
+        shown: at,
+        pixelWidth: px[0],
+        pixelHeight: px[1],
+        source: "png",
+        file: { bytes: file, ext: "png" },
+      });
+    }
+  };
+  row(smallName, small, 60, 45, 80, [64, 48]);
+  line(page, texts[1]!, 40, 170, 14, f.bold);
+  row(largeName, large, 120, 90, 190, [96, 72]);
+  line(page, texts[2]!, 40, 320, 12, f.regular);
+  return {
+    name: "repeatedPicturesPdf",
+    pdf: await doc.save(),
+    firstPage: { width: 612, height: 792 },
+    pictures,
+    sequence: [
+      [
+        texts[0]!,
+        "#1",
+        "#2",
+        "#3",
+        "#4",
+        texts[1]!,
+        "#5",
+        "#6",
+        "#7",
+        "#8",
+        texts[2]!,
+      ],
+    ],
+  };
+}
+
+/**
+ * Twelve DISTINCT 8 × 8 pictures written INLINE in the content stream (BI
+ * … ID … EI), in a row under a heading. pdf.js packs ten or more small
+ * inline images in a row into one `paintInlineImageXObjectGroup`, which PDF
+ * to Word's reading skipped: 12 gave 0.
+ */
+export async function inlineImagesPdf(): Promise<DocxFixture> {
+  const texts = ["Twelve small inline pictures"];
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, texts);
+  const page = doc.addPage([612, 792]);
+  line(page, texts[0]!, 40, 60, 14, f.bold);
+  const pictures: DocxFixturePicture[] = [];
+  const ops: string[] = [];
+  const hex = (b: Uint8Array) =>
+    [...b].map((v) => v.toString(16).padStart(2, "0")).join("");
+  for (let k = 0; k < 12; k++) {
+    const px = new Uint8Array(8 * 8 * 3);
+    for (let p = 0; p < 64; p++) {
+      const on = ((p >> 3) + (p & 7) + k) % 3 === 0;
+      px.set(
+        on
+          ? [(k * 20) % 256, 40 + k * 15, 200 - k * 12]
+          : [240, 240 - k * 8, 30 + k * 10],
+        p * 3,
+      );
+    }
+    const at: Rect = { x: 40 + k * 40, y: 90, width: 30, height: 30 };
+    ops.push(
+      `q 30 0 0 30 ${at.x} ${792 - at.y - at.height} cm BI /W 8 /H 8 /CS /RGB /BPC 8 /F /AHx ID ${hex(px)}> EI Q`,
+    );
+    pictures.push({
+      page: 1,
+      shown: at,
+      pixelWidth: 8,
+      pixelHeight: 8,
+      source: "png",
+      file: { bytes: png(8, 8, "rgb8", px), ext: "png" },
+    });
+  }
+  page.node.addContentStream(
+    doc.context.register(
+      doc.context.stream(new TextEncoder().encode(ops.join("\n"))),
+    ),
+  );
+  return {
+    name: "inlineImagesPdf",
+    pdf: await doc.save(),
+    firstPage: { width: 612, height: 792 },
+    pictures,
+    sequence: [[texts[0]!, ...pictures.map((_, k) => `#${k + 1}`)]],
+  };
+}
+
+/** A 1-bit stencil (`/ImageMask true`): clear bits are painted. */
+function stencilRef(
+  doc: PDFDocument,
+  w: number,
+  h: number,
+  bits: Uint8Array,
+): PDFRef {
+  return doc.context.register(
+    doc.context.flateStream(bits, {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: w,
+      Height: h,
+      ImageMask: true,
+      BitsPerComponent: 1,
+    }),
+  );
+}
+
+/** Scan-like stencil bits: bars where lines of type would be. */
+export function stencilScanBits(w: number, h: number): Uint8Array {
+  const rowBytes = (w + 7) >> 3;
+  const bits = new Uint8Array(rowBytes * h).fill(0xff);
+  for (let row = 0; row < 20; row++) {
+    const top = Math.round(h * 0.1) + row * Math.round(h * 0.04);
+    const bottom = top + Math.max(2, Math.round(h * 0.015));
+    const right = w - Math.round(w * 0.1) - ((row * 31) % 90);
+    for (let y = top; y < bottom && y < h; y++)
+      for (let x = Math.round(w * 0.1); x < right; x++)
+        if (x % 37 < 31) {
+          const i = y * rowBytes + (x >> 3);
+          bits[i] = bits[i]! & ~(0x80 >> (x & 7));
+        }
+  }
+  return bits;
+}
+
+/**
+ * A heading, then a STENCIL picture: a 1-bit `/ImageMask` painted in dark
+ * blue — a one-colour picture, and how many scanners store a page. PDF to
+ * Word's reading left stencils with the drawing, uncounted.
+ */
+export async function stencilPicturePdf(): Promise<DocxFixture> {
+  const texts = ["A page with a stencil picture", "Its caption."];
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, texts);
+  const page = doc.addPage([612, 792]);
+  line(page, texts[0]!, 72, 80, 16, f.bold);
+  const W = 200;
+  const H = 120;
+  const name = page.node.newXObject(
+    "Mask",
+    stencilRef(doc, W, H, stencilScanBits(W, H)),
+  );
+  const shown: Rect = { x: 72, y: 110, width: 200, height: 120 };
+  page.pushOperators(pushGraphicsState(), setFillingRgbColor(0.1, 0.15, 0.5));
+  paintXObject(page, name, shown);
+  page.pushOperators(popGraphicsState());
+  line(page, texts[1]!, 72, 260, 12, f.regular);
+  return {
+    name: "stencilPicturePdf",
+    pdf: await doc.save(),
+    firstPage: { width: 612, height: 792 },
+    pictures: [
+      { page: 1, shown, pixelWidth: W, pixelHeight: H, source: "png" },
+    ],
+    sequence: [[texts[0]!, "#1", texts[1]!]],
+  };
+}
+
+/**
+ * Four pages for the note beside a Word download: (1) typed text, (2) a
+ * picture whose data cannot be decoded and nothing else, (3) a stencil scan
+ * and nothing else, (4) nothing at all. Only page 4 has "no picture"; the
+ * note said it of pages 2 and 3 too.
+ */
+export async function notePagesPdf(): Promise<Uint8Array> {
+  const sentence = "A page of typed text that has a full sentence on it.";
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, [sentence]);
+  const p1 = doc.addPage([612, 792]);
+  line(p1, sentence, 72, 100, 12, f.regular);
+  const p2 = doc.addPage([612, 792]);
+  const noise = new Uint8Array(4096);
+  for (let i = 0; i < noise.length; i++) noise[i] = (i * 7919 + 13) & 0xff;
+  const broken = doc.context.register(
+    doc.context.stream(noise, {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: 320,
+      Height: 200,
+      BitsPerComponent: 8,
+      ColorSpace: "DeviceRGB",
+      Filter: "DCTDecode",
+    }),
+  );
+  paintXObject(p2, p2.node.newXObject("Bad", broken), {
+    x: 100,
+    y: 200,
+    width: 320,
+    height: 200,
+  });
+  const p3 = doc.addPage([612, 792]);
+  const scan = stencilRef(doc, 612, 792, stencilScanBits(612, 792));
+  p3.pushOperators(pushGraphicsState(), setFillingRgbColor(0.1, 0.1, 0.1));
+  paintXObject(p3, p3.node.newXObject("Scan", scan), {
+    x: 0,
+    y: 0,
+    width: 612,
+    height: 792,
+  });
+  p3.pushOperators(popGraphicsState());
+  doc.addPage([612, 792]);
+  return doc.save();
+}
+
+/**
+ * A plain JPEG carrying an EXIF Orientation of 6 ("turn me a quarter"),
+ * painted RAW, as a PDF does: pdf.js and the PDF show its stored pixels,
+ * 30 × 20. A .docx that passes it through with the tag lets any reader that
+ * honours EXIF turn it.
+ */
+export async function exifJpegPdf(): Promise<DocxFixture> {
+  const texts = ["A photograph with an orientation tag", "Its caption."];
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, texts);
+  const page = doc.addPage([612, 792]);
+  line(page, texts[0]!, 72, 80, 16, f.bold);
+  const ref = doc.context.register(
+    doc.context.stream(JPEG_30X20_EXIF6, {
+      Type: "XObject",
+      Subtype: "Image",
+      Width: JPEG_WIDTH,
+      Height: JPEG_HEIGHT,
+      BitsPerComponent: 8,
+      ColorSpace: "DeviceRGB",
+      Filter: "DCTDecode",
+    }),
+  );
+  const shown: Rect = { x: 72, y: 100, width: 150, height: 100 };
+  paintXObject(page, page.node.newXObject("Exif", ref), shown);
+  line(page, texts[1]!, 72, 230, 12, f.regular);
+  return {
+    name: "exifJpegPdf",
+    pdf: await doc.save(),
+    firstPage: { width: 612, height: 792 },
+    pictures: [
+      {
+        page: 1,
+        shown,
+        pixelWidth: JPEG_WIDTH,
+        pixelHeight: JPEG_HEIGHT,
+        source: "jpeg",
+        jpeg: JPEG_30X20_EXIF6,
+      },
+    ],
+    sequence: [[texts[0]!, "#1", texts[1]!]],
   };
 }

@@ -19,17 +19,30 @@
  * The engine's own .docx against the same instrument is
  * `docx-pictures.test.ts`.
  */
+import {
+  concatTransformationMatrix,
+  drawObject,
+  PDFDocument,
+  popGraphicsState,
+  pushGraphicsState,
+  StandardFonts,
+} from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
+  boldItalicPdf,
   captionedPicturesPdf,
+  coveredPicturePdf,
   croppedPagePdf,
   DOCX_PICTURE_FIXTURES,
   scanBetweenPagesPdf,
+  stripePixels,
   type DocxFixture,
 } from "@/tests/docx-picture-fixtures";
+import { gradientPixels } from "@/tests/pptx-fidelity-fixtures";
 import {
   dropPicture,
   handBuiltDocx,
+  handPng,
   movePictureDown,
   replacePictureMedia,
   stretchFirstPicture,
@@ -39,6 +52,8 @@ import { docxTextOnly20261017 } from "@/tests/docx-text-only-2026-10-17";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { compareDocxPictures, PIXEL_BOUND } from "./docx-fidelity";
 import { readDocxBody } from "./docx-read";
+import { PDF_TO_WORD_TOOL, runPdfOfficeExport } from "./engine";
+import { scanPdfPages } from "./page-scan";
 
 /** The fixture as a hand-built .docx: its sequence, its pictures' files. */
 async function handBuilt(fixture: DocxFixture): Promise<Uint8Array> {
@@ -93,8 +108,14 @@ describe("the Word picture instrument, against its controls", () => {
       expect(report.orderChecked, fixture.name).toBeGreaterThanOrEqual(
         placeable,
       );
-      // The bound has room: a right picture scores well under it.
-      expect(report.maxPixelScore, fixture.name).toBeLessThan(PIXEL_BOUND / 2);
+      // The bound has room: a right picture scores well under it. Per
+      // channel (since 2026-10-17) the 30 × 20 JPEG's sharp red and blue
+      // edges score 0.275 (chroma decoded two ways, then upscaled 4×),
+      // against the 1.5 a wrong picture is held over; it was 0.25 of the
+      // bound, on luminance, before.
+      expect(report.maxPixelScore, fixture.name).toBeLessThan(
+        PIXEL_BOUND * 0.6,
+      );
     }
   }, 120_000);
 
@@ -177,5 +198,144 @@ describe("the Word picture instrument, against its controls", () => {
     const report = await compareDocxPictures(fixture.pdf, docx);
     expect(report.pass).toBe(false);
     expect(report.detail).toMatch(/out of order: p2#1/);
+  }, 60_000);
+});
+
+/**
+ * The review of 2026-10-17, as the instrument's own controls: what the page
+ * hides must stay hidden, "0 of 0" is not a pass, and colour is compared
+ * channel by channel.
+ */
+describe("the Word picture instrument sees covers, colour, and nothing", () => {
+  it("COVERS, POSITIVE CONTROL: the screenshot with its raw pixels — the box over the name undone — fails", async () => {
+    const fixture = await coveredPicturePdf();
+    const raw = await handBuilt(fixture);
+    const report = await compareDocxPictures(fixture.pdf, raw);
+    expect(report.pass).toBe(false);
+    expect(report.matched).toBe(1);
+    expect(report.detail).toMatch(/covered pixels survive: p1#1/);
+    // Health: the covered area is the box's, not the whole picture.
+    expect(report.coveredCells).toBeGreaterThan(100);
+    expect(report.coveredCells).toBeLessThan(
+      ((fixture.pictures[0]!.shown.width / 4) *
+        fixture.pictures[0]!.shown.height) /
+        4 /
+        4,
+    );
+  }, 60_000);
+
+  it("COVERS, NEGATIVE CONTROL: the same screenshot with the box drawn into its pixels passes", async () => {
+    const fixture = await coveredPicturePdf();
+    const { width: W, height: H } = fixture.pictures[0]!.shown;
+    const samples = gradientPixels(W, H);
+    const { x, y, width, height } = fixture.hidden;
+    // The page's box is a point larger than the block on every side.
+    for (let r = y - 1; r < y + height + 1; r++)
+      for (let c = x - 1; c < x + width + 1; c++)
+        samples.set([255, 255, 255], (r * W + c) * 3);
+    const burned = await handBuiltDocx({
+      page: fixture.firstPage,
+      pages: [
+        [fixture.sequence[0]![0]!, { picture: 0 }, fixture.sequence[0]![2]!],
+      ],
+      pictures: [
+        {
+          bytes: handPng(W, H, "rgb8", samples),
+          ext: "png",
+          width: W,
+          height: H,
+        },
+      ],
+    });
+    const report = await compareDocxPictures(fixture.pdf, burned);
+    expect(report.pass, report.detail).toBe(true);
+    expect(report.survivingCells).toBe(0);
+  }, 60_000);
+
+  it("a source that paints no picture is CANNOT CONCLUDE unless declared picture-free; a declared one must be", async () => {
+    const { pdf } = await boldItalicPdf();
+    const docx = await docxTextOnly20261017((await flowStandIn(pdf)).pages);
+    const undeclared = await compareDocxPictures(pdf, docx);
+    expect(undeclared.pass).toBe(false);
+    expect(undeclared.detail).toMatch(
+      /^CANNOT CONCLUDE: the source paints no picture/,
+    );
+    expect(
+      (await compareDocxPictures(pdf, docx, { pictureFree: true })).pass,
+    ).toBe(true);
+    const fixture = await captionedPicturesPdf();
+    const wrongly = await compareDocxPictures(
+      fixture.pdf,
+      await handBuilt(fixture),
+      { pictureFree: true },
+    );
+    expect(wrongly.pass).toBe(false);
+    expect(wrongly.detail).toMatch(/declared picture-free but paints 3/);
+  }, 60_000);
+
+  it("a picture with two colour channels swapped is not the picture", async () => {
+    const fixture = await captionedPicturesPdf();
+    const { pixelWidth: W, pixelHeight: H } = fixture.pictures[1]!;
+    const swapped = stripePixels(W, H);
+    for (let p = 0; p < W * H; p++) {
+      const r = swapped[p * 3]!;
+      swapped[p * 3] = swapped[p * 3 + 2]!;
+      swapped[p * 3 + 2] = r;
+    }
+    const docx = await replacePictureMedia(
+      await handBuilt(fixture),
+      1,
+      handPng(W, H, "rgb8", swapped),
+    );
+    const report = await compareDocxPictures(fixture.pdf, docx);
+    expect(report.pass).toBe(false);
+    expect(report.detail).toMatch(/missing: p1#2/);
+    expect(report.pictures[1]!.pixels!).toBeGreaterThan(PIXEL_BOUND);
+  }, 60_000);
+
+  it("a CMYK picture decoded by the engine scores within the bound, per channel", async () => {
+    // Measured by the review on luminance: 0.173 and 0.097. A Flate DeviceCMYK
+    // image, through the engine and back.
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    const W = 120;
+    const H = 80;
+    const cmyk = new Uint8Array(W * H * 4);
+    for (let p = 0; p < W * H; p++) {
+      const x = p % W;
+      const y = Math.floor(p / W);
+      cmyk.set(
+        [(x * 2) % 256, (y * 3) % 256, x > 60 ? 200 : 20, y > 40 ? 60 : 0],
+        p * 4,
+      );
+    }
+    const ref = doc.context.register(
+      doc.context.flateStream(cmyk, {
+        Type: "XObject",
+        Subtype: "Image",
+        Width: W,
+        Height: H,
+        BitsPerComponent: 8,
+        ColorSpace: "DeviceCMYK",
+      }),
+    );
+    const name = page.node.newXObject("Cmyk", ref);
+    page.pushOperators(
+      pushGraphicsState(),
+      concatTransformationMatrix(240, 0, 0, 160, 72, 500),
+      drawObject(name),
+      popGraphicsState(),
+    );
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText("A CMYK picture", { x: 72, y: 700, size: 14, font });
+    const pdf = await doc.save();
+    const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!run.ok) throw new Error(run.message);
+    const report = await compareDocxPictures(pdf, run.output);
+    expect(report.pass, report.detail).toBe(true);
+    expect(report.maxPixelScore).toBeLessThan(PIXEL_BOUND / 2);
   }, 60_000);
 });
