@@ -234,3 +234,63 @@ for (const via of ["key", "click"] as const) {
     expect(rec.shifts.some((s) => s.t >= at && s.input)).toBe(true);
   });
 }
+
+/**
+ * A KEY THAT SCROLLS IS A WHEEL (2026-10-17). Given back at the keydown,
+ * the band went and then the page scrolled: what follows the runner came
+ * up by the band, and the scroll carried the reader past it. On c7abb986
+ * (PR #180 review): PageDown skipped 59 px of the About heading on Sign PDF
+ * at 1280 x 720 and 107 px on Edit PDF at 1440 x 900; ArrowDown jumped
+ * 335 px for a 40 px scroll. Read here as the About section's place in the
+ * document (`offsetTop`, which no scroll changes) across the key: a hold
+ * given back moves it up by the band.
+ */
+for (const { c, key, width, height } of [
+  { c: SIGN, key: "PageDown", width: 1280, height: 720 },
+  { c: SIGN, key: "Space", width: 1280, height: 720 },
+  { c: SIGN, key: "ArrowDown", width: 1280, height: 720 },
+  { c: SIGN, key: "End", width: 1280, height: 720 },
+  { c: EDIT, key: "PageDown", width: 1440, height: 900 },
+] as const) {
+  test(`${c.slug} at ${width} x ${height}: ${key} after the run scrolls the page and skips nothing — the held band is not given back by a scroll key`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width, height });
+    const run = await prepareScrolled(page, c);
+    await startHoldRecord(page);
+    await run.click();
+    await resultDrawn(page, c);
+    const aboutDocTop = () =>
+      page.evaluate(() => {
+        const h2 = [...document.querySelectorAll("main h2")].find(
+          (h) => h.textContent === "About this tool",
+        );
+        let top = 0;
+        for (
+          let n = (h2?.closest("div.grid") ?? h2) as HTMLElement | null;
+          n;
+          n = n.offsetParent as HTMLElement | null
+        )
+          top += n.offsetTop;
+        return top;
+      });
+    const before = await stageNow(page);
+    const aboutBefore = await aboutDocTop();
+    await page.keyboard.press(key);
+    await page.waitForTimeout(700);
+    const after = await stageNow(page);
+    const aboutAfter = await aboutDocTop();
+    await stopHoldRecord(page);
+    const report = `before: ${said(before)}, About at ${aboutBefore}\nafter ${key}: ${said(after)}, About at ${aboutAfter}`;
+    // Health: there was a band to give back, and the key scrolled the page.
+    expect(before.held, report).not.toBe("");
+    expect(before.blankOnScreen, report).toBeGreaterThan(50);
+    expect(after.scrollY - before.scrollY, report).toBeGreaterThan(20);
+    // The bound: what follows the runner did not move up the document.
+    expect(
+      aboutBefore - aboutAfter,
+      `${key} gave the band back and skipped content\n${report}`,
+    ).toBeLessThanOrEqual(1);
+  });
+}

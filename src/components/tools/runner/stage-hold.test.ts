@@ -190,6 +190,32 @@ describe("holdRunnerStage", () => {
     expect(el.style.minHeight).toBe("");
   });
 
+  /**
+   * A KEY THAT SCROLLS IS A WHEEL (2026-10-17). Released at the keydown, the
+   * band went and THEN the page scrolled, so what followed the runner came
+   * up by the band and the scroll carried the reader past it: on c7abb986
+   * (PR #180 review) PageDown skipped 59 px of the About heading on Sign
+   * PDF at 1280 x 720, 107 px on Edit PDF at 1440 x 900, and ArrowDown
+   * jumped 335 px for a 40 px scroll. A scroll key now does what the wheel
+   * does — the scroll gives back what passes the fold, never the band.
+   */
+  it.each(["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "])(
+    "a scroll key (%j) is not a release: it scrolls, like the wheel",
+    (name) => {
+      const el = stage(100, 400);
+      holdRunnerStage()();
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: name, bubbles: true }),
+      );
+      expect(el.style.minHeight).toBe("668px");
+      // Any other key still is: Tab, a letter, Enter.
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", bubbles: true }),
+      );
+      expect(el.style.minHeight).toBe("");
+    },
+  );
+
   it("a key is a release too", () => {
     const el = stage(100, 400);
     holdRunnerStage()();
