@@ -27,7 +27,8 @@ import { cn, formatBytes } from "@/lib/utils";
  * from the catalogue). Here they are narrowed by what is only known now:
  * the steps this job already went through (the trail) drop out, and so does
  * any tool this run's ACTUAL output cannot open — a split that made a ZIP
- * offers nothing, a batch of several PDFs only the tool that combines them.
+ * offers nothing, a batch of several PDFs only the tool that combines them,
+ * and ONE file puts the tool that combines several after every other.
  * Four at most.
  *
  * Each row is a real link to its tool: without JavaScript, or with a
@@ -66,10 +67,19 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
   const several = files.length > 1;
   const carried = (target: ContinueTarget) =>
     eligibleFilesFor(target.slug, [...files]);
-  const opens = run.plan.targets
+  const offered = run.plan.targets
     .filter((t) => t.slug !== run.slug && !run.trail.includes(t.slug))
     .filter((t) => !several || t.combines)
     .filter((t) => carried(t).length === files.length);
+  // One file carried: a tool that combines several (Merge PDF) opens with
+  // it and asks for another, so it comes after every tool that works on
+  // the one file, and never takes a row one of them would have had.
+  const opens = several
+    ? offered
+    : [
+        ...offered.filter((t) => !t.combines),
+        ...offered.filter((t) => t.combines),
+      ];
   const size = sizeOf(files);
   // One hand-off carries this much at most; past it nothing travels.
   const overBudget = size.total > HANDOFF_MAX_TOTAL_BYTES;
