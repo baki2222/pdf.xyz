@@ -34,7 +34,8 @@
  *     (hadRecentInput = false) — Sign PDF at 390 x 844, 0.1135 per release
  *     on 36702d2c, 0.1339 on 94dc2b22. `e2e/stage-hold.mobile.spec.ts`
  *     drives the touch path (a tap, a CDP touch scroll) with that release
- *     as its control, and that a tap's release lands inside its window.
+ *     as its control, and that a tap's release lands inside its window;
+ *     `e2e/stage-hold.spec.ts` the same for a key and a mouse click.
  *     Chromium only: WebKit and a real iOS device are not run here.
  *
  *  3. ONE HOLD AT A TIME, NOTHING LEFT BEHIND. A newer hold ends the older
