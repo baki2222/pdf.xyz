@@ -40,6 +40,8 @@ import {
   scannedPdf,
   undecodablePicturePdf,
 } from "@/tests/pptx-fidelity-fixtures";
+import { noPictures } from "@/tests/page-scan-stubs";
+import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 
 const wordTool = getToolBySlug("pdf-to-word")!;
@@ -91,15 +93,21 @@ function pages(...texts: string[]): PdfFlowExtractor {
   });
 }
 
-/** Run the real processor, then shape its result the way the job API does. */
+/**
+ * Run the real processor, then shape its result the way the job API does.
+ * The page reader is a stub that finds no picture unless one is given: the
+ * input here is four bytes, not a PDF, so the stub flow IS the document.
+ */
 async function jobFrom(
   extractFlow: PdfFlowExtractor,
   input: Uint8Array = new Uint8Array([0x25, 0x50, 0x44, 0x46]),
   keepResults = true,
+  scanPages: PdfOfficeExportDeps["scanPages"] = noPictures,
 ): Promise<{ job: Job; output?: Uint8Array }> {
   const result = await createPdfOfficeExportProcessor({
     extract: layoutExtract,
     extractFlow,
+    scanPages,
   }).process({
     tool: "pdf-to-word",
     options: {},
@@ -214,13 +222,24 @@ const PROMISES_A_PAGE_LIST =
   /(tells?|shows?|lists?|names?) you (exactly )?which (ones|pages)/i;
 
 describe("PDF to Word panel — pages that were not exported", () => {
-  it("names the scanned pages beside the download, with a way to OCR them", async () => {
+  /*
+   * CHANGED 2026-10-17, when Word began carrying pictures. This said "names
+   * the scanned pages" and expected "No selectable text on pages 2–4", the
+   * old engine's words for every page without text. Here the page reader
+   * found no picture on those pages either, so they are NOT scans (a scan is
+   * a picture) and nothing from them is in the file — which is what the
+   * notice now says. A scan through the real reader is the block below.
+   */
+  it("names the pages that put nothing in the file, with a way to OCR them", async () => {
     stubNetwork(await jobFrom(pages(SENTENCE, "", "", "")));
     await exportOnePdf();
     const notice = await screen.findByText(/Text found on 1 of 4 pages/);
     const box = notice.closest('[role="status"]') as HTMLElement;
     expect(box).not.toBeNull();
-    expect(box).toHaveTextContent(/No selectable text on pages 2–4/);
+    expect(box).toHaveTextContent(
+      /Pages 2–4 have no selectable text and no picture, so nothing from them is in this file/,
+    );
+    expect(box).not.toHaveTextContent(/look scanned/);
     expect(
       within(box).getByRole("link", { name: "Open OCR PDF" }),
     ).toHaveAttribute("href", "/tools/ocr-pdf");
@@ -265,6 +284,76 @@ describe("PDF to Word panel — pages that were not exported", () => {
       "Pages without selectable text (scans) are not included, and the result tells you which ones. Run OCR first to include them.",
     ).toMatch(PROMISES_A_PAGE_LIST);
   });
+});
+
+/**
+ * Word keeps a scanned page's picture (since 2026-10-17), so its notice says
+ * THAT — through the whole chain: the REAL page reader over a real PDF (a
+ * typed page, a scanned page, a blank page; poppler's reading order stood in
+ * for), the real processor, the persistence whitelist, the client, the panel.
+ */
+describe("PDF to Word panel — pages kept only as pictures", () => {
+  async function threePagePdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const [typed, scan] = await Promise.all([
+      PDFDocument.load((await linesPdf([[SENTENCE]])).pdf),
+      PDFDocument.load((await scannedPdf()).pdf),
+    ]);
+    doc.addPage((await doc.copyPages(typed, [0]))[0]!);
+    doc.addPage((await doc.copyPages(scan, [0]))[0]!);
+    doc.addPage([720, 540]);
+    return doc.save();
+  }
+
+  it("says the scanned page's picture is in the document, and only the blank page left nothing", async () => {
+    stubNetwork(
+      await jobFrom(flowStandIn, await threePagePdf(), true, scanPdfPages),
+    );
+    await exportOnePdf();
+    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const box = notice.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(
+      /No selectable text on page 2, so only its pictures come through, and the words in them are not editable text/,
+    );
+    expect(box).toHaveTextContent(
+      /Page 3 has no selectable text and no picture, so nothing from it is in this file/,
+    );
+    // The sentence that was true of the text-only document is not shown.
+    expect(box).not.toHaveTextContent(/look scanned/);
+    expect(
+      within(box).getByRole("link", { name: "Open OCR PDF" }),
+    ).toHaveAttribute("href", "/tools/ocr-pdf");
+  }, 60_000);
+
+  it("says what an OLDER worker's document did when its result has no picture fields", async () => {
+    // A worker image from before 2026-10-17 wrote text alone, and its result
+    // says nothing of pictures; the panel must not claim them.
+    const served = await jobFrom(
+      flowStandIn,
+      await threePagePdf(),
+      true,
+      scanPdfPages,
+    );
+    const block = (
+      served.job as unknown as {
+        results: { officeExport: Record<string, unknown> };
+      }
+    ).results.officeExport;
+    for (const key of [
+      "picturePageCount",
+      "pagesAsPictures",
+      "picturesNotCarried",
+      "picturesTooLarge",
+      "pagesMissingPictures",
+    ])
+      delete block[key];
+    stubNetwork(served);
+    await exportOnePdf();
+    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    expect(notice.closest('[role="status"]')).toHaveTextContent(
+      /No selectable text on pages 2–3, so nothing from them is in this file/,
+    );
+  }, 60_000);
 });
 
 describe("PDF to Word panel — failures link the tool that fixes them", () => {

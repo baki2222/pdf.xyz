@@ -133,6 +133,16 @@ function pageSpan(listed: readonly number[], total: number): string {
  * result counts them, this notice says so, and neither sentence is said of
  * such a page: the empty count is the worker's own (`emptySlideCount`), and
  * the scan sentence is left out when a sparse page lost a picture.
+ *
+ * WORD KEEPS PICTURES TOO, since 2026-10-17. Until then a page of a Word
+ * export with no text had "nothing from it in this file", which was true:
+ * the document was text alone. Now its pictures are in the document, so for
+ * a result that reports `picturePageCount` the notice says which pages come
+ * through only as pictures, which have neither text nor a picture (only
+ * those have nothing in the file, and they are not called scans: a scan IS
+ * a picture), which pictures could not be carried, and that a damaged file
+ * was rebuilt first. A result from an older worker has no such field, its
+ * document really did leave those pages out, and it gets the old words.
  */
 export function OfficeExportCoverageNotice({
   job,
@@ -147,21 +157,33 @@ export function OfficeExportCoverageNotice({
   const missing = report.pageCount - report.textPageCount;
   const little = report.littleTextPageCount;
   const powerpoint = tool === "pdf-to-powerpoint";
-  const lost = powerpoint ? (report.picturesNotCarried ?? 0) : 0;
+  const word = tool === "pdf-to-word";
+  const keepsPictures = powerpoint || word;
+  const lost = keepsPictures ? (report.picturesNotCarried ?? 0) : 0;
   const lostPages = report.pagesMissingPictures ?? [];
   const flattened = powerpoint ? (report.flattenedPageCount ?? 0) : 0;
-  const rebuilt = powerpoint && report.repairedBeforeConversion === true;
+  const rebuilt = keepsPictures && report.repairedBeforeConversion === true;
   if (missing <= 0 && little <= 0 && lost <= 0 && flattened <= 0 && !rebuilt)
     return null;
   const pictures =
-    powerpoint && report.picturePageCount !== undefined
+    keepsPictures && report.picturePageCount !== undefined
       ? {
           count: report.picturePageCount,
           pages: report.pagesAsPictures ?? [],
           blank:
-            report.emptySlideCount ??
+            (powerpoint ? report.emptySlideCount : undefined) ??
             Math.max(0, missing - report.picturePageCount),
         }
+      : null;
+  // Word: the pages with neither text nor a picture, named only when both
+  // lists are whole (each is capped), or a page past the cap could be named
+  // for the wrong reason.
+  const bare =
+    word &&
+    pictures &&
+    report.pagesWithoutText.length === missing &&
+    pictures.pages.length === pictures.count
+      ? report.pagesWithoutText.filter((p) => !pictures.pages.includes(p))
       : null;
   const sparseLostPicture = (report.pagesWithLittleText ?? []).some((p) =>
     lostPages.includes(p),
@@ -188,12 +210,12 @@ export function OfficeExportCoverageNotice({
           <Wrench className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
             This PDF looked damaged, so pdf.xyz rebuilt it first, the way Repair
-            PDF does, and converted the rebuilt copy. Check the slides against
-            the PDF.
+            PDF does, and converted the rebuilt copy. Check the{" "}
+            {word ? "document" : "slides"} against the PDF.
           </span>
         </p>
       )}
-      {lost > 0 && <PicturesNotCarried report={report} />}
+      {lost > 0 && <PicturesNotCarried report={report} word={word} />}
       {missing > 0 && !pictures && (
         <p className="ml-6">
           No selectable text on {pageSpan(report.pagesWithoutText, missing)}, so
@@ -202,7 +224,26 @@ export function OfficeExportCoverageNotice({
           to include {missing === 1 ? "it" : "them"}.
         </p>
       )}
-      {pictures && pictures.count > 0 && (
+      {pictures && pictures.count > 0 && word && (
+        <p className="ml-6">
+          No selectable text on {pageSpan(pictures.pages, pictures.count)}, so
+          only{" "}
+          {pictures.count === 1 ? "its pictures come" : "their pictures come"}{" "}
+          through, and the words in them are not editable text. Run OCR PDF
+          first to have them as text too.
+        </p>
+      )}
+      {word && pictures && pictures.blank > 0 && (
+        <p className="ml-6">
+          {bare && bare.length === pictures.blank
+            ? pageSpan(bare, bare.length).replace(/^p/, "P")
+            : `${pictures.blank} ${pictures.blank === 1 ? "page" : "pages"}`}{" "}
+          {pictures.blank === 1 ? "has" : "have"} no selectable text and no
+          picture, so nothing from {pictures.blank === 1 ? "it" : "them"} is in
+          this file.
+        </p>
+      )}
+      {pictures && pictures.count > 0 && !word && (
         <p className="ml-6">
           No selectable text on {pageSpan(pictures.pages, pictures.count)}, so{" "}
           {pictures.count === 1 ? "its slide carries" : "their slides carry"}{" "}
@@ -211,7 +252,7 @@ export function OfficeExportCoverageNotice({
           OCR PDF first to have them as text too.
         </p>
       )}
-      {pictures && pictures.blank > 0 && (
+      {!word && pictures && pictures.blank > 0 && (
         <p className="ml-6">
           {pictures.blank === 1
             ? "One page has"
@@ -261,8 +302,11 @@ export function OfficeExportCoverageNotice({
  */
 function PicturesNotCarried({
   report,
+  word,
 }: {
   report: NonNullable<NonNullable<Job["results"]>["officeExport"]>;
+  /** A Word document has no slides: its pictures are "in the document". */
+  word: boolean;
 }) {
   const lost = report.picturesNotCarried ?? 0;
   const tooLarge = Math.min(lost, report.picturesTooLarge ?? 0);
@@ -271,7 +315,7 @@ function PicturesNotCarried({
   const onePage = pages.length === 1;
   const noun = lost === 1 ? "picture" : "pictures";
   const where = `on ${pages.length > 0 ? pageSpan(pages, pages.length) : "the PDF's pages"}`;
-  const slides = onePage ? "its slide" : "their slides";
+  const slides = word ? "the document" : onePage ? "its slide" : "their slides";
   const reason =
     undecoded === 0
       ? `${lost === 1 ? "it was" : "they were"} too large for the worker to carry`
@@ -283,7 +327,8 @@ function PicturesNotCarried({
       <ImageOff className="mt-0.5 size-4 shrink-0" aria-hidden />
       <span>
         <strong className="font-semibold">
-          {lost} {noun} {where} {lost === 1 ? "is" : "are"} not on {slides}
+          {lost} {noun} {where} {lost === 1 ? "is" : "are"} not{" "}
+          {word ? "in" : "on"} {slides}
         </strong>
         : {reason}. Check {onePage ? "that page" : "those pages"} against the
         PDF.
