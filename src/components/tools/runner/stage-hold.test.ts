@@ -8,7 +8,9 @@
  * scroll on a phone (`stage-hold.mobile.spec.ts`) — each with a control
  * that the same measurement sees the defect it guards.
  */
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useAsyncRun } from "./runner-kit";
 import { holdRunnerStage } from "./stage-hold";
 
 /** A stage laid out `height` px tall, its top `top` px down the screen. */
@@ -126,6 +128,24 @@ describe("holdRunnerStage", () => {
     expect(el.style.minHeight).toBe("768px");
   });
 
+  it("a resize that brings the fold up gives back what the hold kept past the new one", () => {
+    const el = stage(0, 400);
+    holdRunnerStage()();
+    expect(el.style.minHeight).toBe("768px");
+    const real = Object.getOwnPropertyDescriptor(window, "innerHeight");
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 600,
+    });
+    try {
+      window.dispatchEvent(new Event("resize"));
+      expect(el.style.minHeight).toBe("600px");
+    } finally {
+      if (real) Object.defineProperty(window, "innerHeight", real);
+      else Reflect.deleteProperty(window, "innerHeight");
+    }
+  });
+
   it("a stage scrolled wholly below the screen is let go: nothing it holds is on screen", () => {
     const el = stage(-300, 1400);
     holdRunnerStage()();
@@ -213,6 +233,24 @@ describe("holdRunnerStage", () => {
     el.remove();
     scroll();
     expect([...live], "listeners left behind").toEqual([]);
+  });
+
+  it("a runner unmounted mid-run (`useAsyncRun`) settles its hold: the reader's next click gives the stage back", () => {
+    const el = stage(100, 400);
+    const { result, unmount } = renderHook(() => useAsyncRun<number>());
+    act(() => {
+      // A run that never ends: the result it was held for is never drawn.
+      void result.current.run(() => new Promise<number>(() => {}));
+    });
+    expect(el.style.minHeight).toBe("668px");
+    unmount();
+    click();
+    expect(el.style.minHeight).toBe("");
+    // React's own document listeners (selectionchange) are not the hold's.
+    expect(
+      [...live].filter((l) => /:(click|keydown|scroll|resize):/.test(l)),
+      "listeners left behind",
+    ).toEqual([]);
   });
 
   it("steps aside when something else set the stage's height: it never re-applies a hold it no longer owns", () => {

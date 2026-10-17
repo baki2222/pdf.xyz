@@ -5,6 +5,7 @@ import {
   SIGN,
   prepareScrolled,
   resultDrawn,
+  shiftOfOurOwn,
   stageNow,
   startHoldRecord,
   stopHoldRecord,
@@ -37,7 +38,16 @@ import {
  *
  * Replaces, as a tested number, the property the inverted "shortest
  * analysis" test in `continue-chain.spec.ts` used to guard ("no blank band
- * under a result"), for the run phase it no longer covered.
+ * under a result"), for the run phase it no longer covered. Beside it, the
+ * page's CLS through the wheel: a wheel opens no input window, so the
+ * obvious fix for the blank — giving the hold back at a wheel — would move
+ * what follows the runner into view and count.
+ *
+ * Mutation-checked on the build (2026-10-17): the shrink to the fold taken
+ * out of `fit` — 413, 490 and 559 px held past it, the numbers 94dc2b22
+ * read; a release at a wheel added — "CLS through the wheel after the
+ * result: 0.2189", 0.1915, 0.1556; the click and key releases taken out —
+ * both release tests red. Each restored from a copy, no diff.
  */
 
 test.beforeEach(async ({ page }) => {
@@ -69,14 +79,33 @@ async function readWithWheel(page: Page, c: HeldCase) {
   await startHoldRecord(page);
   await run.click();
   await resultDrawn(page, c);
+  const ownAt = await shiftOfOurOwn(page);
+  const readFrom = await page.evaluate(() => performance.now());
   const atResult = await stageNow(page);
   await wheel(page, 500);
   const down = await stageNow(page);
   await wheel(page, -1500);
   const up = await stageNow(page);
   const rec = await stopHoldRecord(page);
-  return { pressedAt, atResult, down, up, rec };
+  const own = rec.shifts.filter((s) => s.t >= ownAt && s.t < readFrom);
+  const counted = rec.shifts.filter((s) => s.t >= readFrom && !s.input);
+  return {
+    pressedAt,
+    atResult,
+    down,
+    up,
+    rec,
+    own,
+    cls: counted.reduce((sum, s) => sum + s.value, 0),
+    listed:
+      counted
+        .map((s) => `${s.value.toFixed(4)} [${s.sources.join(" | ")}]`)
+        .join(" + ") || "none",
+  };
 }
+
+/** Google's line for a "good" CLS is 0.1; this page is held to a tenth of it. */
+const PAGE_CLS_CEILING = 0.01;
 
 const said = (s: StageNow) =>
   `scrollY ${s.scrollY}, held ${s.held || "none"}, stage ${s.stageTop}..${s.stageBottom}, content to ${s.contentBottom}, ${s.blankOnScreen} px blank on a ${s.fold} px screen, ${s.heldPastFold} px held past it`;
@@ -122,6 +151,17 @@ for (const { c, width, height } of SCREENS) {
     ).toBeLessThanOrEqual(PAST_FOLD_PX);
     for (const s of [m.atResult, m.down, m.up])
       expect(s.heldPastFold, report).toBeLessThanOrEqual(PAST_FOLD_PX);
+    // And what the hold gave back as the wheel scrolled moved nothing on
+    // screen: a wheel opens no input window, so any shift it made counts.
+    expect(
+      m.own.length,
+      "the instrument saw no shift of its own making",
+    ).toBeGreaterThan(0);
+    expect(
+      m.cls,
+      `CLS through the wheel after the result: ${m.listed}
+${report}`,
+    ).toBeLessThanOrEqual(PAGE_CLS_CEILING);
   });
 }
 
@@ -153,34 +193,44 @@ test("CONTROL: Sign PDF at 1280 x 720, the stage held at 1,600 px — the bound 
 });
 
 /**
- * The band the hold may leave on screen goes at the reader's next key —
- * inside that key's input window, so its move costs the page nothing.
+ * The band the hold may leave on screen goes at the reader's next key or
+ * mouse click — inside that input's window, so its move costs the page
+ * nothing. (The tap is `stage-hold.mobile.spec.ts`'s.)
  */
-test("Sign PDF at 1280 x 720: a key after the run gives the held band back, inside the key's input window", async ({
-  page,
-}) => {
-  test.setTimeout(90_000);
-  await page.setViewportSize({ width: 1280, height: 720 });
-  const run = await prepareScrolled(page, SIGN);
-  await startHoldRecord(page);
-  await run.click();
-  await resultDrawn(page, SIGN);
-  const before = await stageNow(page);
-  const keyAt = await page.evaluate(() => performance.now());
-  await page.keyboard.press("Shift");
-  await page.waitForTimeout(600);
-  const after = await stageNow(page);
-  const rec = await stopHoldRecord(page);
-  // Health: there was a band on screen to give back.
-  expect(before.held, said(before)).not.toBe("");
-  expect(before.blankOnScreen, said(before)).toBeGreaterThan(50);
-  expect(after.held, said(after)).toBe("");
-  const counted = rec.shifts.filter((s) => s.t >= keyAt && !s.input);
-  expect(
-    counted,
-    `shifts outside the key's window: ${JSON.stringify(counted)}`,
-  ).toEqual([]);
-  // The release moved the page (what follows the runner came up), and that
-  // move was inside the key's window.
-  expect(rec.shifts.some((s) => s.t >= keyAt && s.input)).toBe(true);
-});
+for (const via of ["key", "click"] as const) {
+  test(`Sign PDF at 1280 x 720: a ${via} after the run gives the held band back, inside the ${via}'s input window`, async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const run = await prepareScrolled(page, SIGN);
+    await startHoldRecord(page);
+    await run.click();
+    await resultDrawn(page, SIGN);
+    const before = await stageNow(page);
+    const at = await page.evaluate(() => performance.now());
+    if (via === "key") await page.keyboard.press("Shift");
+    else {
+      // On the result's heading: nothing there to press.
+      const h = (await page
+        .getByRole("heading", { name: SIGN.done })
+        .boundingBox())!;
+      await page.mouse.click(h.x + 4, h.y + h.height / 2);
+    }
+    await page.waitForTimeout(600);
+    const after = await stageNow(page);
+    const rec = await stopHoldRecord(page);
+    // Health: there was a band on screen to give back.
+    expect(before.held, said(before)).not.toBe("");
+    expect(before.blankOnScreen, said(before)).toBeGreaterThan(50);
+    expect(after.held, said(after)).toBe("");
+    const counted = rec.shifts.filter((s) => s.t >= at && !s.input);
+    expect(
+      counted,
+      `shifts outside the ${via}'s window: ${JSON.stringify(counted)}`,
+    ).toEqual([]);
+    // The release moved the page (what follows the runner came up), and
+    // that move was inside the input's window.
+    expect(rec.shifts.some((s) => s.t >= at && s.input)).toBe(true);
+  });
+}

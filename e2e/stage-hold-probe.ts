@@ -314,3 +314,34 @@ export async function releaseOnPointerdown(page: Page) {
     );
   });
 }
+
+/**
+ * A layout shift the test makes itself, before what it reads: proof the
+ * browser reports this page's shifts at all (a sum of nothing is the
+ * strongest possible pass).
+ */
+export async function shiftOfOurOwn(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const box = document.createElement("div");
+        box.textContent = "instrument check";
+        box.style.cssText =
+          "position:fixed;left:0;top:0;width:40vw;height:20vh;z-index:9999;background:Canvas;color:CanvasText";
+        document.body.append(box);
+        const at = performance.now();
+        const frame = () => new Promise((r) => requestAnimationFrame(r));
+        void frame()
+          .then(frame)
+          .then(() => {
+            box.style.top = "25vh";
+          })
+          .then(frame)
+          .then(frame)
+          .then(() => {
+            box.remove();
+            resolve(at);
+          });
+      }),
+  );
+}

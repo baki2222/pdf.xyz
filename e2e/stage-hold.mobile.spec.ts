@@ -5,6 +5,7 @@ import {
   prepareScrolled,
   releaseOnPointerdown,
   resultDrawn,
+  shiftOfOurOwn,
   stageNow,
   startHoldRecord,
   stopHoldRecord,
@@ -29,6 +30,12 @@ import {
  * (`page.touchscreen`), the scroll a CDP `Input.dispatchTouchEvent`
  * touchStart, twelve touchMoves of 25 px and a touchEnd — which fires a
  * pointerdown and then a pointercancel, and no click.
+ *
+ * Mutation-checked on the build (2026-10-17): the release listening to
+ * pointerdown instead of click — "CLS from the first touch after the run,
+ * which became a scroll: 0.0458" (smaller than 94dc2b22's 0.1339: the band
+ * left on screen is now at most the fold's); the click and key releases
+ * taken out — "the tap did not give the band back". Restored from a copy.
  */
 
 test.beforeEach(async ({ page }) => {
@@ -57,37 +64,6 @@ async function touchScroll(cdp: CDPSession, x: number, y: number) {
     type: "touchEnd",
     touchPoints: [],
   });
-}
-
-/**
- * A layout shift the test makes itself, before the gesture: proof the
- * browser reports this page's shifts at all (a sum of nothing is the
- * strongest possible pass).
- */
-async function shiftOfOurOwn(page: Page): Promise<number> {
-  return page.evaluate(
-    () =>
-      new Promise<number>((resolve) => {
-        const box = document.createElement("div");
-        box.textContent = "instrument check";
-        box.style.cssText =
-          "position:fixed;left:0;top:0;width:40vw;height:20vh;z-index:9999;background:Canvas;color:CanvasText";
-        document.body.append(box);
-        const at = performance.now();
-        const frame = () => new Promise((r) => requestAnimationFrame(r));
-        void frame()
-          .then(frame)
-          .then(() => {
-            box.style.top = "25vh";
-          })
-          .then(frame)
-          .then(frame)
-          .then(() => {
-            box.remove();
-            resolve(at);
-          });
-      }),
-  );
 }
 
 /** Sign PDF, Run tapped while scrolled, the result drawn, then one touch scroll. */
