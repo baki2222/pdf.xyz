@@ -323,3 +323,96 @@ describe("a replace is said, and focus survives it", SLOW, () => {
     }
   });
 });
+
+/**
+ * A RESULT NOT YET DOWNLOADED IS NOT THROWN AWAY BY A PASTE (2026-10-17).
+ * An editor's unsaved-work guard lets go once a result exists
+ * (`useUnsavedGuard(... && !result)`), and the result is still the open
+ * document's: a PDF pasted on the page replaced it with no word — Sign PDF
+ * at 1280, PR #180 review. A drop over it is told first, by the veil
+ * ("Release to replace contract.pdf in Sign PDF"); a paste has no veil, so
+ * it asks — until the result is downloaded, or carried on.
+ */
+describe("a result not yet downloaded", SLOW, () => {
+  const URL_STATICS = ["createObjectURL", "revokeObjectURL"] as const;
+  const original = URL_STATICS.map(
+    (key) => [key, Object.getOwnPropertyDescriptor(URL, key)] as const,
+  );
+  afterEach(() => {
+    for (const [key, descriptor] of original) {
+      if (descriptor) Object.defineProperty(URL, key, descriptor);
+      else Reflect.deleteProperty(URL, key);
+    }
+  });
+
+  async function rotated() {
+    const view = await openTool("rotate", "rotate-pdf", "Rotate PDF");
+    fireEvent.click(screen.getByRole("button", { name: /^right$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /apply rotation/i }));
+    await screen.findByRole(
+      "button",
+      { name: /download rotated pdf/i },
+      { timeout: 10_000 },
+    );
+    return view;
+  }
+  const resultShown = () =>
+    screen.queryByRole("button", { name: /download rotated pdf/i }) !== null;
+
+  it("a paste over it asks first, and a no keeps the result", async () => {
+    const { container } = await rotated();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    pasteOn(document.body, [await pdfFile("second.pdf")]);
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1), {
+      timeout: 5000,
+    });
+    expect(confirm.mock.calls[0]![0]).toMatch(/not downloaded/i);
+    expect(confirm.mock.calls[0]![0]).toContain("second.pdf");
+    // Give a replace every chance to happen; it must not.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(resultShown()).toBe(true);
+    expect(openName(container)).toContain("first.pdf");
+    // A yes replaces it.
+    confirm.mockReturnValue(true);
+    pasteOn(document.body, [await pdfFile("third.pdf")]);
+    await waitFor(() => expect(openName(container)).toContain("third.pdf"), {
+      timeout: 5000,
+    });
+  });
+
+  it("CONTROL: once downloaded, a paste replaces it without a question", async () => {
+    const { container } = await rotated();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: () => "blob:replace-target-test",
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: () => {},
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: /download rotated pdf/i }),
+    );
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    pasteOn(document.body, [await pdfFile("second.pdf")]);
+    await waitFor(() => expect(openName(container)).toContain("second.pdf"), {
+      timeout: 5000,
+    });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("a drop over it is not asked about: the veil said what a release does", async () => {
+    const { container } = await rotated();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    dropOn(screen.getByRole("heading", { level: 1 }), [
+      await pdfFile("second.pdf"),
+    ]);
+    await waitFor(() => expect(openName(container)).toContain("second.pdf"), {
+      timeout: 5000,
+    });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+});
