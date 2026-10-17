@@ -307,6 +307,64 @@ describe("Continue with", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
+  /**
+   * ONE FILE CARRIED: a tool that needs several (Merge PDF, `combines`)
+   * comes after every tool that works on the one file, so it never takes a
+   * row one of them would have had (2026-10-17). Until then a single-file
+   * Compress offered "Remove pages, Add page numbers, Sign PDF, Merge PDF" —
+   * a tool that opens with one file and asks for another, ahead of
+   * Watermark, Organize, Split and Rotate (batch C review). Every tool page
+   * whose plan has such a target is read, not a named few.
+   */
+  it("one file carried: a tool that combines several comes after every tool that opens the one file", async () => {
+    const bytes = await pdfOf(1);
+    const read: string[] = [];
+    let mattered = 0;
+    for (const tool of tools) {
+      const { plan } = job(tool.slug);
+      const first = plan.targets.findIndex((t) => t.combines);
+      if (first < 0) continue;
+      if (plan.targets.slice(first + 1).some((t) => !t.combines)) mattered++;
+      onPage(tool.slug, <ContinueWith output={outputFile(bytes, "one.pdf")} />);
+      const group = screen.queryByRole("group", { name: "Continue with" });
+      const shown = group
+        ? within(group)
+            .getAllByRole("link")
+            .map((l) => l.getAttribute("href")!.replace("/tools/", ""))
+        : [];
+      const combines = new Set(
+        plan.targets.filter((t) => t.combines).map((t) => t.slug),
+      );
+      const at = shown.findIndex((slug) => combines.has(slug));
+      read.push(`${tool.slug}: ${shown.join(" ")}`);
+      if (at >= 0)
+        expect(
+          shown.slice(at).every((slug) => combines.has(slug)),
+          `${tool.slug} offers ${shown.join(", ")}`,
+        ).toBe(true);
+      cleanup();
+    }
+    // Health: the plans this reads have a combining target ahead of a
+    // one-file one — the case where its rank decides a row — and the set
+    // is not implausibly small.
+    expect(read.length, read.join("\n")).toBeGreaterThanOrEqual(10);
+    expect(mattered, read.join("\n")).toBeGreaterThanOrEqual(3);
+  });
+
+  it("CONTROL: several files carried still go to the tool that combines them, first", async () => {
+    const [a, b] = await Promise.all([pdfOf(1), pdfOf(1)]);
+    onPage(
+      "rotate-pdf",
+      <ContinueWith
+        output={[outputFile(a, "a-rotated.pdf"), outputFile(b, "b.pdf")]}
+      />,
+    );
+    const links = within(
+      screen.getByRole("group", { name: "Continue with" }),
+    ).getAllByRole("link");
+    expect(links[0]!.getAttribute("href")).toBe("/tools/merge-pdf");
+  });
+
   it("several outputs go only to the tool that combines them", async () => {
     const [a, b] = await Promise.all([pdfOf(1), pdfOf(1)]);
     onPage(
