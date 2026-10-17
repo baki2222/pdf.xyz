@@ -32,6 +32,7 @@ import { describe, expect, it } from "vitest";
 import {
   boldItalicPdf,
   captionedPicturesPdf,
+  ocrdScanPdf,
   croppedPagePdf,
   DOCX_PICTURE_FIXTURES,
   scanBetweenPagesPdf,
@@ -46,7 +47,9 @@ import {
   repairStandIn,
   scannedPdf,
 } from "@/tests/pptx-fidelity-fixtures";
+import { getToolBySlug } from "@/lib/tools";
 import { getToolContent } from "@/lib/tools/content";
+import { pageFaq } from "@/lib/tools/page-copy";
 import { compareDocxPictures } from "./docx-fidelity";
 import { A4_PORTRAIT, docxPageOf } from "./docx-layout";
 import { readDocxBody } from "./docx-read";
@@ -196,6 +199,28 @@ describe("PDF to Word keeps the pictures", () => {
     expect(of(paragraph.italic)).toContain("<w:rPr><w:i/></w:rPr>");
     expect(of(paragraph.mixed)).not.toContain("<w:rPr>");
     expect(of(paragraph.regular)).not.toContain("<w:rPr>");
+  }, 60_000);
+
+  it("after OCR, a scan comes through as its picture followed by its words — as the page tells the reader", async () => {
+    const fixture = await ocrdScanPdf();
+    const { report, segments } = await sequenceOf(
+      fixture,
+      (await word(fixture.pdf)).output,
+    );
+    expect(report.pass, report.detail).toBe(true);
+    expect(segments).toEqual([["#1", ...fixture.sequence[0]!.slice(1)]]);
+    // The page's own words for this, wherever it serves them: the use case
+    // and the derived scanned-PDF answer. Held to the run above.
+    const tool = getToolBySlug("pdf-to-word")!;
+    const served = [
+      ...getToolContent("pdf-to-word")!.useCases.map((u) => u.body),
+      ...pageFaq(tool).map((f) => f.answer),
+    ].filter((t) => /\bOCR\b/.test(t) && /\bfollowed by its words\b/.test(t));
+    expect(served.length).toBeGreaterThanOrEqual(2);
+    for (const t of served)
+      expect(t).toMatch(
+        /\bscan then comes through as a picture, followed by its words\b/,
+      );
   }, 60_000);
 
   it("a page that is only a scan comes through as its picture, on its own page, and the result says its words are not text", async () => {

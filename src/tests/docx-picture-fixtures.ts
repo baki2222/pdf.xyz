@@ -25,6 +25,8 @@ import {
   popGraphicsState,
   pushGraphicsState,
   rgb,
+  setTextRenderingMode,
+  TextRenderingMode,
   type PDFFont,
   type PDFPage,
 } from "pdf-lib";
@@ -350,6 +352,7 @@ export const DOCX_PICTURE_FIXTURES = [
   scanBetweenPagesPdf,
   wideDrawingPdf,
   croppedPagePdf,
+  ocrdScanPdf,
 ] as const;
 
 /**
@@ -389,4 +392,46 @@ export async function boldItalicPdf(): Promise<{
   );
   line(page, paragraph.regular, 72, 270, 12, regular);
   return { pdf: await doc.save(), paragraph };
+}
+
+/**
+ * A scanned page after OCR: the scan as one full-page picture, and the
+ * recognised words over it in INVISIBLE text (render mode 3), as OCR PDF
+ * leaves them. PDF to Word must give the scan as a picture, then its words.
+ */
+export async function ocrdScanPdf(): Promise<DocxFixture> {
+  const texts = ["Recognised first line", "Recognised second line"];
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, texts);
+  const page = doc.addPage([612, 792]);
+  const scan = png(612, 792, "gray8", scanPixels(612, 792));
+  await drawRasterImage(page, await embedRasterImage(doc, scan, "png"), {
+    x: 0,
+    y: 0,
+    width: 612,
+    height: 792,
+  });
+  page.pushOperators(
+    pushGraphicsState(),
+    setTextRenderingMode(TextRenderingMode.Invisible),
+  );
+  line(page, texts[0]!, 72, 100, 14, f.regular);
+  line(page, texts[1]!, 72, 130, 14, f.regular);
+  page.pushOperators(popGraphicsState());
+  return {
+    name: "ocrdScanPdf",
+    pdf: await doc.save(),
+    firstPage: { width: 612, height: 792 },
+    pictures: [
+      {
+        page: 1,
+        shown: { x: 0, y: 0, width: 612, height: 792 },
+        pixelWidth: 612,
+        pixelHeight: 792,
+        source: "png",
+        file: { bytes: scan, ext: "png" },
+      },
+    ],
+    sequence: [["#1", texts[0]!, texts[1]!]],
+  };
 }
