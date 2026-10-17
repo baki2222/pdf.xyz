@@ -263,6 +263,38 @@ describe("provesDocxPictures", () => {
     ).resolves.toBe(false);
   });
 
+  /**
+   * The review of 2026-10-17: the probe was handed the image's extractor
+   * and ran the module's own page reader, with no limits — so it could
+   * answer `true` for an image whose jobs, run on the worker's deps, have no
+   * page reader (and answer `unsupported`), or a budget that leaves the
+   * picture out. It now takes the job's deps whole.
+   */
+  it("runs the engine on the job's OWN deps — the same object, limits and all", async () => {
+    const deps = {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+      limits: { maxOutputBytes: 10_000_000 },
+    };
+    const seen: unknown[] = [];
+    const spy: Run = async (tool, input, given) => {
+      seen.push(given);
+      const { runPdfOfficeExport: real } = await import("./engine");
+      return real(tool, input, given);
+    };
+    await expect(provesDocxPictures(deps, spy)).resolves.toBe(true);
+    expect(seen).toEqual([deps]);
+    expect(seen[0]).toBe(deps);
+    // A job whose deps leave the picture out cannot be called proven.
+    await expect(
+      provesDocxPictures({ ...deps, limits: { maxPictures: 0 } }),
+    ).resolves.toBe(false);
+    // Nor one whose deps have no page reader (its jobs answer unsupported).
+    await expect(
+      provesDocxPictures({ extractFlow: flowStandIn }),
+    ).resolves.toBe(false);
+  });
+
   it("is false without the text extractor, or with a page reader that finds no picture", async () => {
     await expect(provesDocxPictures(undefined)).resolves.toBe(false);
     await expect(
