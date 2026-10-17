@@ -108,13 +108,26 @@ const SMALL_PAGE_PT = 360;
 /** A4 portrait, points (11,906 × 16,838 twips, Word's own A4). */
 export const A4_PORTRAIT = { width: 595.3, height: 841.9 } as const;
 
-/** The Word page for a PDF whose first page is `width` × `height` points. */
+/**
+ * The Word page for a PDF whose first page is `width` × `height` points:
+ * that page, or A4 upright when it is landscape — scaled, its shape kept,
+ * into Word's limits when it is larger (or smaller) than Word allows. Until
+ * the review of 2026-10-17 each side was clamped on its own, and an A0
+ * poster's page came out a 22-inch square.
+ */
 export function docxPageOf(width: number, height: number): DocxPage {
-  const clamp = (v: number) =>
-    Math.min(PAGE_MAX_PT, Math.max(PAGE_MIN_PT, Number.isFinite(v) ? v : 612));
-  const landscape = width > height;
-  const w = landscape ? A4_PORTRAIT.width : clamp(width);
-  const h = landscape ? A4_PORTRAIT.height : clamp(height);
+  const finite = (v: number) => (Number.isFinite(v) && v > 0 ? v : 612);
+  const clamp = (v: number) => Math.min(PAGE_MAX_PT, Math.max(PAGE_MIN_PT, v));
+  const landscape = finite(width) > finite(height);
+  let w = landscape ? A4_PORTRAIT.width : finite(width);
+  let h = landscape ? A4_PORTRAIT.height : finite(height);
+  const down = Math.min(1, PAGE_MAX_PT / Math.max(w, h));
+  w *= down;
+  h *= down;
+  const up = Math.max(1, PAGE_MIN_PT / Math.min(w, h));
+  // A shape too extreme for both limits keeps the long side's.
+  w = clamp(w * up);
+  h = clamp(h * up);
   const shorter = Math.min(w, h);
   return {
     width: w,
