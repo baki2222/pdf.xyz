@@ -209,7 +209,9 @@ for (const via of ["key", "click"] as const) {
     await resultDrawn(page, SIGN);
     const before = await stageNow(page);
     const at = await page.evaluate(() => performance.now());
-    if (via === "key") await page.keyboard.press("Shift");
+    // Escape: a key that is neither a modifier (the start of a chord, not a
+    // release) nor a scroll key (a wheel).
+    if (via === "key") await page.keyboard.press("Escape");
     else {
       // On the result's heading: nothing there to press.
       const h = (await page

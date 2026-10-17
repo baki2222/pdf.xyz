@@ -216,6 +216,29 @@ describe("holdRunnerStage", () => {
     },
   );
 
+  /**
+   * A MODIFIER ALONE IS NOT A KEY PRESS (2026-10-17). Shift+Space scrolls up
+   * — a scroll key — but its Shift arrives first, as a keydown of its own,
+   * and gave the band back (PR #180 re-review: an input-window shift of
+   * 0.0709 on Sign PDF at 1280). Shift, Control, Alt, Meta and the lock keys
+   * are the start of a chord, not an act: they are not a release.
+   */
+  it.each(["Shift", "Control", "Alt", "Meta", "CapsLock"])(
+    "a modifier alone (%s) is not a release",
+    (name) => {
+      const el = stage(100, 400);
+      holdRunnerStage()();
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: name, bubbles: true }),
+      );
+      expect(el.style.minHeight).toBe("668px");
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+      expect(el.style.minHeight).toBe("");
+    },
+  );
+
   it("a key is a release too", () => {
     const el = stage(100, 400);
     holdRunnerStage()();
