@@ -409,6 +409,15 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * `@/lib/intent/unsaved` now loads with every runner (`downloadBlob` keeps
  * a result). No ceiling changes; every row still takes what is to come.
  *
+ * ...AND THE RE-REVIEW'S, the same day: rotate-pdf had 0.01 KB gz left,
+ * and its modifier keys alone read "needs 3.17, has 3.17". Recovered by
+ * the job row reading its address without `@/lib/handoff/url` (which
+ * carried the id module, crypto and all, into the route's chunk), with
+ * every worker card's result registered and a Continue row no longer a
+ * keep — both shorter, not longer. rotate-pdf 253.32 -> 253.26, merge-pdf
+ * 250.33 -> 250.27, ocr-pdf 253.93 -> 253.64, summarize-pdf 259.25 ->
+ * 258.95, compress-pdf 259.32 -> 259.26; homepage, /tools, /workspace ±0.
+ *
  * WHAT IS STILL TO COME is held against every row by the test after
  * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
  * fails. The one row the layout's remaining growth cannot reach is /tools,
