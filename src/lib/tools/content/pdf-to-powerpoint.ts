@@ -255,7 +255,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to a scanned PDF?",
-      a: "It is converted, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names the pages it happened to. For text as well, run OCR PDF on the scan first and convert the OCR'd copy: its slides carry the recognised words in invisible text boxes over each picture. PDF to Word and PDF to Excel, whose files would hold nothing, still stop at a PDF with no selectable text.",
+      a: "It is converted, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names the pages it happened to. For text as well, run OCR PDF on the scan first and convert the OCR'd copy: its slides carry the recognised words in invisible text boxes over each picture. PDF to Excel, whose file would hold nothing, and PDF to Word, whose document would have nothing in it to edit, still stop at a PDF with no selectable text.",
     },
     {
       q: "Why is a paragraph split into separate text boxes?",

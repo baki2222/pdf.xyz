@@ -66,6 +66,9 @@ import {
 import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
 import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
 import { linesPdf, scannedPdf } from "@/tests/pptx-fidelity-fixtures";
+import { noPictures } from "@/tests/page-scan-stubs";
+import { flowStandIn } from "@/tests/poppler-flow-standin";
+import { readDocxBody } from "@/lib/workers/pdf-office-export/docx-read";
 import { createPdfOfficeExportProcessor } from "@/lib/workers/processor/pdf-office-export";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
 import { cellsByRef, readXlsxSheet } from "@/lib/workers/ooxml/sheet-read";
@@ -218,7 +221,8 @@ function flowOf(xhtml: string): PdfFlowExtractor {
 /**
  * Run an export with both extractors wired, as production wires them: Excel
  * and PowerPoint read `extract`, Word reads `extractFlow` (since the wave-1
- * L03 merge; without it Word answers `unsupported`).
+ * L03 merge; without it Word answers `unsupported`) and, since 2026-10-17,
+ * the page reader for its pictures.
  */
 async function exportRun(
   tool: PdfOfficeExportTool,
@@ -229,25 +233,30 @@ async function exportRun(
   // PowerPoint reads the PAGES since 2026-10-10, not an extraction, so its
   // run is a real PDF of these lines through the real page reader; a stub
   // extraction alone answers `unsupported`, and a guard fed one would be
-  // reading a deck no user receives.
-  const input =
-    tool === "pdf-to-powerpoint"
-      ? (
-          await linesPdf(
-            pagesText.map((t) =>
-              t
-                .split("\n")
-                .map((l) => l.trim())
-                .filter(Boolean),
-            ),
-            { picture },
-          )
-        ).pdf
-      : new Uint8Array([1]);
+  // reading a deck no user receives. Word with a picture does the same:
+  // a real PDF, its text read in poppler's frame (stood in for), its
+  // picture by the real reader. Word WITHOUT one reads the stub flow, and
+  // a stub reader that finds no picture, over bytes that are not a PDF.
+  const realPdf =
+    tool === "pdf-to-powerpoint" || (tool === "pdf-to-word" && picture);
+  const input = realPdf
+    ? (
+        await linesPdf(
+          pagesText.map((t) =>
+            t
+              .split("\n")
+              .map((l) => l.trim())
+              .filter(Boolean),
+          ),
+          { picture },
+        )
+      ).pdf
+    : new Uint8Array([1]);
+  const word = tool === "pdf-to-word";
   const run = await runPdfOfficeExport(tool, input, {
     extract: async () => extracted(pagesText),
-    extractFlow,
-    scanPages: scanPdfPages,
+    extractFlow: word && picture ? flowStandIn : extractFlow,
+    scanPages: word && !picture ? noPictures : scanPdfPages,
   });
   if (!run.ok) throw new Error(`${tool}: ${run.message}`);
   return run.output;
@@ -295,7 +304,19 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
    * engine run that makes it true, on poppler's REAL output for a real PDF
    * (`poppler-samples.ts`), read back out of the DOCX a user downloads.
    */
-  it("reading order, wrapped lines joined, one column at a time, table rows tabbed — and nothing but text", async () => {
+  /*
+   * INVERTED 2026-10-17. This was "… — and nothing but text", and it
+   * required every export to carry none of `<w:drawing` or `word/media/`:
+   * true of the engine that shipped the owner's tutorial without its 37
+   * pictures, and so a test that agreed with the defect. Now each clause of
+   * the sentence is run: the text clauses on poppler's real output as
+   * before (those pages have no picture, so nothing rich appears), and the
+   * picture clause on a real PDF with a picture, whose .docx must carry
+   * exactly the picture's markup and part — still no table, run or
+   * paragraph formatting, styles or theme, which the sentence says stay
+   * behind.
+   */
+  it("reading order, wrapped lines joined, one column at a time, table rows tabbed, each picture between its paragraphs — and nothing else rich", async () => {
     const twoColumns = await exportRun(
       "pdf-to-word",
       [""],
@@ -319,10 +340,40 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
       TABLE_ROWS.map((row) => row.join("\t")),
     );
 
-    // Images, tables, fonts/colors, layout: none of their markup, none of the
-    // parts that would carry them — in either real export.
+    // Tables, fonts/colors, layout: none of their markup, none of the parts
+    // that would carry them — in either real export, which has no picture.
     for (const bytes of [twoColumns, table])
       expect(await richContentIn(await JSZip.loadAsync(bytes))).toEqual([]);
+
+    // The picture clause: a page whose picture sits below its lines.
+    expect(PDF_TO_WORD_KEEPS).toContain(
+      "comes through on a line of its own between the paragraphs above and below it, at the size the page shows it",
+    );
+    const lines = ["Quarterly report", "The chart below shows the quarter."];
+    const withPicture = await exportRun(
+      "pdf-to-word",
+      [lines.join("\n")],
+      undefined,
+      {
+        picture: true,
+      },
+    );
+    // The media folder and its one picture: JSZip lists the folder too.
+    expect(await richContentIn(await JSZip.loadAsync(withPicture))).toEqual([
+      "<w:drawing",
+      "word/media/",
+      "word/media/image1.png",
+    ]);
+    const body = await readDocxBody(withPicture);
+    // linesPdf draws the picture at (400, 300), 240 × 150 pt, under both
+    // lines: it follows them, at its size (the 720 × 540 page's text area
+    // is 576 × 396, so it needs no fitting).
+    expect(body.paragraphs.map((p) => p.text)).toEqual([...lines, ""]);
+    expect(body.pictures).toHaveLength(1);
+    expect(body.pictures[0]!.paragraph).toBe(2);
+    expect([body.pictures[0]!.width, body.pictures[0]!.height]).toEqual([
+      240, 150,
+    ]);
     expect(answer("pdf-to-word", /keep/i)).toContain(PDF_TO_WORD_KEEPS);
   });
 
@@ -342,10 +393,12 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
       `<w:r><w:rPr><w:b/></w:rPr><w:t>bold</w:t></w:r>` +
       `<w:r><w:drawing/></w:r></w:p>` +
       `<w:tbl><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>`;
-    expect(doc, "the engine's body moved").toContain("<w:sectPr/>");
+    // The section closes the body. It was an empty `<w:sectPr/>` until
+    // 2026-10-17, when the Word page began taking the PDF's first page size.
+    expect(doc, "the engine's body moved").toContain("<w:sectPr>");
     zip.file(
       "word/document.xml",
-      doc.replace("<w:sectPr/>", `${rich}<w:sectPr/>`),
+      doc.replace("<w:sectPr>", `${rich}<w:sectPr>`),
     );
     zip.file("word/media/image1.png", new Uint8Array([0x89, 0x50]));
     zip.file("word/styles.xml", "<w:styles/>");
@@ -1320,6 +1373,7 @@ describe("no PDF to Word surface describes the replaced line-per-paragraph engin
           outputTooLarge: false,
         });
       },
+      scanPages: noPictures,
       isEncrypted: async () => true,
     });
     const result = await processor.process({
@@ -1347,6 +1401,7 @@ describe("no PDF to Word surface describes the replaced line-per-paragraph engin
     const processor = createPdfOfficeExportProcessor({
       extract: async () => extracted(["Text", "", "More"]),
       extractFlow: async () => linesAsFlow(["Text", "", "More"]),
+      scanPages: noPictures,
     });
     const result = await processor.process({
       tool: "pdf-to-word",

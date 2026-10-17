@@ -448,14 +448,17 @@ export const tools: Tool[] = [
     name: "PDF to Word",
     // Was "Editable DOCX from any PDF" and "while preserving layout and text
     // flow": the engine writes plain paragraphs of selectable text — no
-    // styles, images, tables or columns — and refuses a PDF with none. It
-    // wrote one paragraph per line until the wave-1 L03 merge; it now reads
-    // poppler's reading order (workers/pdf-text/flow.ts).
+    // styles, tables or columns — and refuses a PDF with none. It wrote one
+    // paragraph per line until the wave-1 L03 merge; it now reads poppler's
+    // reading order (workers/pdf-text/flow.ts). CHANGED 2026-10-17: it also
+    // carries every raster picture between the paragraphs around it
+    // (pdf-office-export/docx-layout.ts), so "Images … are not recreated"
+    // became false; the tagline was "Editable DOCX from a PDF's text.".
     // `worker-tool-answers.test.ts` and claims-vs-capability.test.ts decode a
     // real export against this copy.
-    tagline: "Editable DOCX from a PDF's text.",
+    tagline: "Editable DOCX from a PDF's text and pictures.",
     description:
-      "Turn a PDF's selectable text into editable Word (DOCX) paragraphs, in reading order. Images, fonts, tables and layout are not recreated; scans need OCR first.",
+      "Turn a PDF's text into editable Word (DOCX) paragraphs in reading order, its pictures placed between them. Fonts and layout are not recreated; scans need OCR first.",
     category: "convert-from",
     icon: "word",
     processing: "server",
