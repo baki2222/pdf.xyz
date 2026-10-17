@@ -712,6 +712,21 @@ describe("PDF to Word delivers the text and the pictures that fit, and counts th
     expect(run.coverage.pagesMissingPictures).toEqual([1]);
   }, 300_000);
 
+  it("the size budget charges each picture its place in the file, not only its media: many tiny pictures stop where the FILE is full", async () => {
+    const pdf = await manyPicturesPdf(300);
+    const textOnly = (await word(pdf, { limits: { maxPictures: 0 } })).output
+      .byteLength;
+    // Room for about half of them, counting each picture's XML and entries.
+    const limit = textOnly + 150 * DOCX_PICTURE_OVERHEAD_BYTES;
+    const run = await word(pdf, { limits: { maxOutputBytes: limit } });
+    expect(run.output.byteLength).toBeLessThanOrEqual(limit);
+    const carried = (await readDocxBody(run.output)).pictures.length;
+    // Health: by media alone (under 100 bytes each) all 300 would fit.
+    expect(carried).toBeGreaterThan(100);
+    expect(carried).toBeLessThan(300);
+    expect(run.coverage.picturesOverBudget).toBe(300 - carried);
+  }, 120_000);
+
   it("a writer whose file comes out over the limit anyway gets the text-only document, every picture counted — not a refusal", async () => {
     const { pdf, headings } = await noisePagesPdf(2, 40, 30);
     const limit = 200_000;
