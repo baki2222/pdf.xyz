@@ -181,6 +181,22 @@ export interface HeartbeatCapabilities {
    * the absence parses as `false`.
    */
   readonly pptxPictures: boolean;
+  /**
+   * This image's PDF to Word engine puts a page's picture in the .docx AS a
+   * picture, between the line above it and the line below it, at the size
+   * the page shows it.
+   *
+   * PROVEN AT START-UP by running the real engine — the image's own text
+   * extractor and page reader — over a generated PDF with a picture between
+   * two lines, and reading the .docx back (`pdf-office-export/capability.ts`,
+   * `provesDocxPictures`). On 2026-10-17 production returned the owner's
+   * 33-page tutorial as a .docx with none of its 37 pictures. The engine that
+   * keeps them reaches users only in an image built after it, and copy that
+   * says pictures are kept is true of a download only while this reads
+   * `true`. An image built before this key publishes nothing, and the absence
+   * parses as `false`.
+   */
+  readonly docxPictures: boolean;
 }
 
 /**

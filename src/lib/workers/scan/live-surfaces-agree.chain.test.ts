@@ -237,6 +237,7 @@ function heartbeat(malwareScan: boolean): WorkerHeartbeat {
       aiReadCap: true,
       pptxPresentationChain: true,
       pptxPictures: true,
+      docxPictures: true,
     },
     at: Date.now(),
   });

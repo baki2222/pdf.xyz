@@ -70,7 +70,12 @@ import {
  *    DOCX": all true then, all false of this engine for pictures. The
  *    claims are held to it in claims-vs-capability.test.ts ("PDF to Word:
  *    the page says pictures are left out exactly when the .docx carries
- *    none") and docx-pictures.test.ts.
+ *    none") and docx-pictures.test.ts. They are true of a DOWNLOAD only
+ *    while production runs an image carrying this engine (the worker image
+ *    is published separately, and merging is not shipping); the live answer
+ *    is the heartbeat's `docxPictures` (scripts/worker-daemon.ts), which runs
+ *    the probe PDF's picture through the running image's own extractor and
+ *    reader, and `worker:prove-tools`'s pdf-to-word verdict.
  * HISTORY, kept: until 2026-10-07 this page said every line becomes its own
  * paragraph, a two-column article comes out a slice of each column per line,
  * page breaks are dropped, and a locked PDF is retried and then reported with

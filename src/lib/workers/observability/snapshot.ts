@@ -295,6 +295,14 @@ const WORKER_CAPABILITY_PROMISES: Record<
       "PDF to PowerPoint puts each picture of a page on its slide as a picture, where the page shows it, as its page says, not the slide of text alone it delivered until 2026-10-10",
     proves: provenByFlag,
   },
+  docxPictures: {
+    label: "Word pictures",
+    promise:
+      // Added 2026-10-17, when production's .docx of the owner's tutorial
+      // came back with none of its 37 pictures.
+      "PDF to Word puts each picture of a page in the document as a picture, between the text above and below it, at the size the page shows it, as its page says, not the text alone it delivered until 2026-10-17",
+    proves: provenByFlag,
+  },
 };
 
 /** One capability the subsystem asks the running worker about. */

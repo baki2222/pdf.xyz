@@ -37,6 +37,7 @@ const BEAT: WorkerHeartbeat = {
     aiReadCap: true,
     pptxPresentationChain: true,
     pptxPictures: true,
+    docxPictures: true,
   },
   at: 1_700_000_000_000,
 };

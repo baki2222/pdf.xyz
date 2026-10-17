@@ -1,7 +1,20 @@
 // @native-canvas
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { provesPptxPictures, provesPptxPresentationChain } from "./capability";
+import {
+  docxProbePdf,
+  provesDocxPictures,
+  provesPptxPictures,
+  provesPptxPresentationChain,
+} from "./capability";
+import {
+  movePictureDown,
+  replacePictureMedia,
+  stretchFirstPicture,
+} from "@/tests/docx-hand-built";
+import { docxTextOnly20261017 } from "@/tests/docx-text-only-2026-10-17";
+import { noPictures } from "@/tests/page-scan-stubs";
+import { flowStandIn } from "@/tests/poppler-flow-standin";
 import type { runPdfOfficeExport } from "./engine";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
 import { encodePngImage } from "./png-encode";
@@ -194,5 +207,60 @@ describe("provesPptxPictures decodes the picture", () => {
     await expect(provesPptxPictures(undefined, blanking("rgb8"))).resolves.toBe(
       false,
     );
+  });
+});
+
+/**
+ * THE WORD PROBE (2026-10-17). The question production answered "no" to —
+ * the owner's 37 pictures, none in the .docx — asked of the running image.
+ * Here poppler's reading order is stood in for (`@/tests/poppler-flow-standin`,
+ * in poppler's frame); the daemon passes the image's own extractor.
+ */
+describe("provesDocxPictures", () => {
+  /** The real engine, with the .docx it wrote rewritten by `edit`. */
+  const wordThen =
+    (edit: (docx: Uint8Array) => Promise<Uint8Array>): Run =>
+    async (tool, input, deps) => {
+      const { runPdfOfficeExport: real } = await import("./engine");
+      const run = await real(tool, input, deps);
+      if (!run.ok) return run;
+      return { ...run, output: await edit(run.output) };
+    };
+
+  it("is true for the engine in this tree", async () => {
+    await expect(provesDocxPictures(flowStandIn)).resolves.toBe(true);
+  });
+
+  it("NEGATIVE CONTROL: is false for the text-only .docx shipped until 2026-10-17", async () => {
+    const textOnly = wordThen(async () =>
+      docxTextOnly20261017((await flowStandIn(await docxProbePdf())).pages),
+    );
+    await expect(provesDocxPictures(flowStandIn, textOnly)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("is false for a picture moved below its caption, rescaled, or swapped for other pixels", async () => {
+    await expect(
+      provesDocxPictures(flowStandIn, wordThen(movePictureDown)),
+    ).resolves.toBe(false);
+    await expect(
+      provesDocxPictures(flowStandIn, wordThen(stretchFirstPicture)),
+    ).resolves.toBe(false);
+    // Same place, same size, same format: a black PNG of the probe's size.
+    const black = encodePngImage(40, 30, "rgb8", new Uint8Array(40 * 30 * 3));
+    await expect(
+      provesDocxPictures(
+        flowStandIn,
+        wordThen((docx) => replacePictureMedia(docx, 0, black)),
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("is false without the text extractor, or with a page reader that finds no picture", async () => {
+    await expect(provesDocxPictures(undefined)).resolves.toBe(false);
+    await expect(
+      provesDocxPictures(flowStandIn, undefined, noPictures),
+    ).resolves.toBe(false);
   });
 });

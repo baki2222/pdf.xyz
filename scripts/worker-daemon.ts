@@ -55,9 +55,11 @@ import {
 } from "@/lib/workers/translate/capability";
 import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
 import {
+  provesDocxPictures,
   provesPptxPictures,
   provesPptxPresentationChain,
 } from "@/lib/workers/pdf-office-export/capability";
+import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import { writeSpendProbe } from "@/lib/ratelimit/guard";
 import { shouldWriteSpendProbe } from "@/lib/ratelimit/spend-probe";
 import {
@@ -157,6 +159,11 @@ async function buildHeartbeatPublisher(
       // Runs the probe PDF's picture through the real engine and finds it on
       // the slide, as a picture, where the page paints it.
       pptxPictures: await provesPptxPictures(),
+      // The same for Word, through the image's OWN text extractor: where a
+      // picture lands among poppler's paragraphs is part of the claim.
+      docxPictures: await provesDocxPictures(
+        pdfOfficeExportDeps(process.env).extractFlow,
+      ),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),
