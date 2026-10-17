@@ -52,6 +52,7 @@ import { getToolContent } from "@/lib/tools/content";
 import { pageFaq } from "@/lib/tools/page-copy";
 import { compareDocxPictures } from "./docx-fidelity";
 import { A4_PORTRAIT, docxPageOf } from "./docx-layout";
+import { docxPackage } from "./docx-package";
 import { readDocxBody } from "./docx-read";
 import {
   PDF_TO_WORD_TOOL,
@@ -301,4 +302,74 @@ describe("PDF to Word keeps the pictures", () => {
     expect(run.ok).toBe(false);
     if (!run.ok) expect(run.kind).toBe("unsupported");
   }, 60_000);
+});
+
+/**
+ * The engine reads its own .docx back before delivery (`undeliverableDocx`):
+ * a writer that regressed — a picture whose part is missing, a picture
+ * left out of the body, a page break lost — is refused as the engine's
+ * own fault, never delivered.
+ */
+describe("PDF to Word does not deliver a .docx that lost what it planned", () => {
+  const regressed =
+    (edit: (zip: JSZip, xml: string) => Promise<string>) =>
+    async (doc: Parameters<typeof docxPackage>[0]) => {
+      const written = await docxPackage(doc);
+      const zip = await JSZip.loadAsync(written.bytes);
+      const xml = await zip.file("word/document.xml")!.async("string");
+      zip.file("word/document.xml", await edit(zip, xml));
+      return {
+        ...written,
+        bytes: new Uint8Array(await zip.generateAsync({ type: "uint8array" })),
+      };
+    };
+
+  it("POSITIVE CONTROL: the real writer's .docx is delivered", async () => {
+    const run = await runPdfOfficeExport(
+      PDF_TO_WORD_TOOL,
+      (await captionedPicturesPdf()).pdf,
+      deps({ writeDocx: regressed(async (_, xml) => xml) }),
+    );
+    expect(run.ok).toBe(true);
+  }, 60_000);
+
+  it.each([
+    [
+      "a picture's media part missing",
+      async (zip: JSZip, xml: string) => {
+        zip.remove("word/media/image1.png");
+        return xml;
+      },
+      /a picture without its image/,
+    ],
+    [
+      "a picture left out of the body",
+      async (_: JSZip, xml: string) =>
+        xml.replace(
+          /<w:p><w:r><w:drawing>[\s\S]*?<\/w:drawing><\/w:r><\/w:p>/,
+          "",
+        ),
+      /2 of 3 pictures/,
+    ],
+    [
+      "a page break lost",
+      async (_: JSZip, xml: string) =>
+        xml.replace('<w:p><w:r><w:br w:type="page"/></w:r></w:p>', ""),
+      /0 of 1 page breaks/,
+    ],
+  ] as const)(
+    "%s is refused as incomplete",
+    async (_, edit, why) => {
+      const run = await runPdfOfficeExport(
+        PDF_TO_WORD_TOOL,
+        (await captionedPicturesPdf()).pdf,
+        deps({ writeDocx: regressed(edit) }),
+      );
+      expect(run.ok).toBe(false);
+      if (run.ok) return;
+      expect(run.kind).toBe("incomplete_output");
+      expect(run.message).toMatch(why);
+    },
+    60_000,
+  );
 });

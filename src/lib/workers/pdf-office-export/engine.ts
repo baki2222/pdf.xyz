@@ -106,6 +106,12 @@ export interface PdfOfficeExportDeps {
    * can hand the engine a writer that regressed and see what it delivers.
    */
   writePptx?: (deck: PptxDeck) => Promise<Uint8Array>;
+  /**
+   * The Word writer. Defaults to `./docx-package`; injectable for the same
+   * reason: the engine's check before delivery (`undeliverableDocx`) is
+   * tested against a writer that loses a picture or a page break.
+   */
+  writeDocx?: typeof docxPackage;
   limits?: {
     maxInputBytes?: number;
     maxOutputBytes?: number;
@@ -389,7 +395,7 @@ async function renderWord(
   // The rebuilt copy is what the pictures came from, so the text does too.
   if (rebuilt) flow = await extractFlow(rebuilt);
   const doc = docxDocumentOf(flow, scan);
-  const { bytes: output, plan } = await docxPackage(doc);
+  const { bytes: output, plan } = await (deps.writeDocx ?? docxPackage)(doc);
   const refused = await undeliverableDocx(output, plan);
   if (refused) return refused;
   const pageCount = doc.pages.length;
