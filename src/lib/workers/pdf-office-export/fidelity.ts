@@ -217,8 +217,10 @@ export const COMPARISON_MAX_IMAGE_PIXELS = 2 * MAX_DECODED_IMAGE_PIXELS;
  * Open a PDF for COMPARISON, with this module's own options: a ceiling
  * above the engine's ({@link COMPARISON_MAX_IMAGE_PIXELS}), so no picture is
  * dropped on the source side because the engine's reader would drop it.
+ * Exported for `./docx-fidelity`, which looks at the source with the same
+ * eyes.
  */
-async function openForComparison(
+export async function openForComparison(
   pdf: Uint8Array,
 ): Promise<{ doc: NodePdfDocument; close(): Promise<void> }> {
   const pdfjs = await loadNodePdfjs();
