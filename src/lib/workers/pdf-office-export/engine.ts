@@ -6,11 +6,7 @@ import {
   measureOfficeExportPages,
   type OfficeExportResultMeta,
 } from "@/lib/jobs/office-export-results";
-import {
-  flowPageText,
-  type PdfFlowText,
-  type PdfFlowTextPage,
-} from "../pdf-text/flow";
+import { flowPageText, type PdfFlowText } from "../pdf-text/flow";
 import {
   SheetStyles,
   STYLES_CONTENT_TYPE_OVERRIDE,
@@ -19,6 +15,9 @@ import {
   xmlEscape,
 } from "../ooxml/sheet-cells";
 import { deckFromScan } from "./deck-from-scan";
+import { docxDocumentOf, scannedPictures } from "./docx-layout";
+import { docxPackage } from "./docx-package";
+import { readDocxBody } from "./docx-read";
 import { classifyPdfTextFailure } from "./encryption";
 import { layoutGrid } from "./layout-grid";
 import {
@@ -60,6 +59,13 @@ export const PDF_OFFICE_EXPORT_ENGINE = "pdftotext-office-openxml" as const;
  * reads every page's pictures, text and drawing (`./page-scan`).
  */
 export const PDF_TO_POWERPOINT_ENGINE = "pdfjs-pptx-faithful" as const;
+/**
+ * PDF to Word's engine since 2026-10-17: poppler's reading order for the
+ * text (as before), and pdfjs's page reader for the pictures, placed among
+ * the paragraphs (`./docx-layout`). Word reported
+ * {@link PDF_OFFICE_EXPORT_ENGINE} until then, and wrote no picture.
+ */
+export const PDF_TO_WORD_ENGINE = "pdftotext-pdfjs-docx-pictures" as const;
 
 export type PdfTextExtractor = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
 /** Reading-order paragraphs, for PDF to Word. See `../pdf-text/flow`. */
@@ -80,15 +86,16 @@ export interface PdfOfficeExportDeps {
    */
   isEncrypted?: (bytes: Uint8Array) => Promise<boolean>;
   /**
-   * PDF to PowerPoint's page reader: each page's pictures, positioned text and
-   * other ink, in paint order (`./page-scan`). PowerPoint answers
-   * `unsupported` without it: there is no text-only fallback, because a deck
+   * The page reader: each page's pictures, positioned text and other ink, in
+   * paint order (`./page-scan`). PowerPoint reads all of it; Word, since
+   * 2026-10-17, its pictures (`picturesOnly`). Both answer `unsupported`
+   * without it: there is no text-only fallback, because a deck or a document
    * with no pictures is the defect this replaced, not a lesser success.
    */
   scanPages?: PdfPageScanner;
   /**
    * The worker's Repair PDF engine (qpdf's rewrite, `../pdf-structure`), as
-   * PDF to PowerPoint uses it: the rebuilt PDF, or null when it could not be
+   * PDF to PowerPoint and PDF to Word use it: the rebuilt PDF, or null when it could not be
    * rebuilt. Asked only for a file the page reader cannot read ahead
    * (`PageScanUnreadableError`); absent where qpdf is, and then such a file
    * is refused.
@@ -102,12 +109,15 @@ export interface PdfOfficeExportDeps {
   limits?: {
     maxInputBytes?: number;
     maxOutputBytes?: number;
-    /** How long PDF to PowerPoint's page scan may run, in ms. */
+    /** How long the page scan (PowerPoint, Word) may run, in ms. */
     scanTimeoutMs?: number;
   };
 }
 export interface PdfOfficeExportMeta {
-  engine: typeof PDF_OFFICE_EXPORT_ENGINE | typeof PDF_TO_POWERPOINT_ENGINE;
+  engine:
+    | typeof PDF_OFFICE_EXPORT_ENGINE
+    | typeof PDF_TO_POWERPOINT_ENGINE
+    | typeof PDF_TO_WORD_ENGINE;
   tool: PdfOfficeExportTool;
   pageCount: number;
   inputBytes: number;
@@ -146,52 +156,6 @@ export type PdfOfficeExportRun =
       message: string;
     };
 type Failure = Extract<PdfOfficeExportRun, { ok: false }>;
-
-const WORD_MAIN_NS =
-  "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-const WORD_PAGE_BREAK = `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
-
-/** One paragraph: a prose cell, or a table row whose cells are tab-separated. */
-function wordParagraph(cells: readonly string[]): string {
-  // The shared escape, which also drops what XML 1.0 cannot carry. This file
-  // used to keep its own copy that escaped markup but not those, so one stray
-  // control character from pdftotext made the whole DOCX (and PPTX) part
-  // malformed XML.
-  const runs = cells
-    .map((cell) => `<w:t xml:space="preserve">${xmlEscape(cell)}</w:t>`)
-    .join("<w:tab/>");
-  return `<w:p><w:r>${runs}</w:r></w:p>`;
-}
-
-/**
- * The DOCX body: each PDF page's paragraphs in reading order, with a page
- * break between pages that have any. Built from `extractFlow`, never from
- * `-layout` lines — see `../pdf-text/flow` for what those did to a two-column
- * page.
- */
-function docxBody(pages: readonly PdfFlowTextPage[]): string {
-  return pages
-    .filter((page) => page.paragraphs.length > 0)
-    .map((page) => page.paragraphs.map(wordParagraph).join(""))
-    .join(WORD_PAGE_BREAK);
-}
-
-async function docx(pages: readonly PdfFlowTextPage[]): Promise<Uint8Array> {
-  const zip = new JSZip();
-  zip.file(
-    "[Content_Types].xml",
-    `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
-  );
-  zip.file(
-    "_rels/.rels",
-    `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
-  );
-  zip.file(
-    "word/document.xml",
-    `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${WORD_MAIN_NS}"><w:body>${docxBody(pages)}<w:sectPr/></w:body></w:document>`,
-  );
-  return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
-}
 
 /**
  * The XLSX: every page's `-layout` lines placed into columns by position
@@ -313,26 +277,151 @@ interface Rendered {
   coverage: OfficeExportResultMeta;
 }
 
+/**
+ * The scan, with the rebuild a file the page reader cannot read ahead gets:
+ * rebuilt the way Repair PDF does and the rebuilt copy scanned, bounded like
+ * any other; with nothing to rebuild it, or a rebuild still unreadable,
+ * refused — never scanned without a bound. Shared by PowerPoint and Word.
+ */
+async function scanOrRebuild(
+  input: Uint8Array,
+  scanPages: PdfPageScanner,
+  deps: PdfOfficeExportDeps,
+  options: Parameters<PdfPageScanner>[1],
+): Promise<{ scan: PdfPageScan; rebuilt: Uint8Array | null } | Failure> {
+  try {
+    return { scan: await scanPages(input, options), rebuilt: null };
+  } catch (error) {
+    if (!(error instanceof PageScanUnreadableError)) throw error;
+    if (!deps.repairPdf) return DAMAGED;
+    const rebuilt = await deps.repairPdf(input).catch(() => null);
+    if (!rebuilt) return DAMAGED_NOT_REBUILT;
+    try {
+      return { scan: await scanPages(rebuilt, options), rebuilt };
+    } catch (again) {
+      if (again instanceof PageScanUnreadableError) return DAMAGED_NOT_REBUILT;
+      throw again;
+    }
+  }
+}
+
+/** The scan's options from the engine's limits. */
+function scanOptions(deps: PdfOfficeExportDeps) {
+  const timeout = deps.limits?.scanTimeoutMs;
+  return {
+    ...(timeout !== undefined ? { deadline: Date.now() + timeout } : {}),
+    ...(deps.limits?.maxOutputBytes !== undefined
+      ? { maxMediaBytes: deps.limits.maxOutputBytes }
+      : {}),
+  };
+}
+
+/**
+ * The .docx, inspected before anyone downloads it: read back by
+ * `./docx-read` (which shares nothing with the writer), it must hold every
+ * picture the document was planned with, each showing a media part that is
+ * in the package, and one page break between each pair of pages written.
+ * PowerPoint's deck gets the same treatment (`undeliverablePptx`). A pass is
+ * necessary, not sufficient: Word itself is the instrument for "it opens"
+ * (`scripts/prove-docx-opens.ts`).
+ */
+async function undeliverableDocx(
+  output: Uint8Array,
+  plan: { pictures: number; pageBreaks: number },
+): Promise<Failure | null> {
+  let problem: string | null = null;
+  try {
+    const body = await readDocxBody(output);
+    const breaks = body.paragraphs.length
+      ? body.paragraphs[body.paragraphs.length - 1]!.segment
+      : 0;
+    if (body.pictures.length !== plan.pictures)
+      problem = `${body.pictures.length} of ${plan.pictures} pictures`;
+    else if (
+      body.pictures.some((p) => !p.bytes || p.width <= 0 || p.height <= 0)
+    )
+      problem = "a picture without its image";
+    else if (breaks !== plan.pageBreaks)
+      problem = `${breaks} of ${plan.pageBreaks} page breaks`;
+  } catch {
+    problem = "unreadable package";
+  }
+  return problem
+    ? {
+        ok: false,
+        kind: "incomplete_output",
+        message: `The Word file came out incomplete, so it was not delivered. This is a fault in pdf.xyz, not in your PDF. (${problem})`,
+      }
+    : null;
+}
+
+/**
+ * The DOCX, since 2026-10-17: every page's paragraphs in poppler's reading
+ * order (`../pdf-text/flow`), as before, and every raster picture the page
+ * reader finds (`./page-scan`, pictures only) placed among them
+ * (`./docx-layout`) at the size the page shows it, fitted to the text area.
+ * Until then Word wrote the text alone, and the owner's 33-page tutorial came
+ * back with none of its 37 pictures.
+ *
+ * A PDF with no selectable text at all is still refused (`no_text`, pointing
+ * to OCR PDF), though its pages are pictures it could now carry: a Word
+ * document of page pictures has nothing in it to edit, and it would arrive
+ * under "Your DOCX file is ready." OCR PDF first gives the words AND keeps
+ * the scan, which then comes through as a picture. A page without text in a
+ * PDF that has some carries its pictures, and the result names it.
+ */
 async function renderWord(
   input: Uint8Array,
   extractFlow: PdfFlowExtractor,
-): Promise<Rendered | null> {
-  const flow = await extractFlow(input);
+  scanPages: PdfPageScanner,
+  deps: PdfOfficeExportDeps,
+): Promise<Rendered | Failure | null> {
+  let flow = await extractFlow(input);
+  const hasText = (f: PdfFlowText) =>
+    f.pages.some((page) => flowPageText(page).trim().length > 0);
+  if (!hasText(flow)) return null;
+  const scanned = await scanOrRebuild(input, scanPages, deps, {
+    ...scanOptions(deps),
+    picturesOnly: true,
+  });
+  if ("ok" in scanned) return scanned;
+  const { scan, rebuilt } = scanned;
+  // The rebuilt copy is what the pictures came from, so the text does too.
+  if (rebuilt) flow = await extractFlow(rebuilt);
+  const doc = docxDocumentOf(flow, scan);
+  const { bytes: output, plan } = await docxPackage(doc);
+  const refused = await undeliverableDocx(output, plan);
+  if (refused) return refused;
+  const pageCount = doc.pages.length;
   // The same per-page text the DOCX is written from — measured, not
   // re-extracted, so the coverage notice cannot name a different page.
   const pageTexts = flow.pages.map((page) => ({
     pageNumber: page.pageNumber,
     text: flowPageText(page),
   }));
-  if (pageTexts.every((page) => page.text.trim().length === 0)) return null;
+  const withText = new Set(
+    pageTexts.filter((p) => p.text.trim()).map((p) => p.pageNumber),
+  );
+  const asPictures = scan.pages
+    .filter((p) => !withText.has(p.pageNumber) && scannedPictures(p).length > 0)
+    .map((p) => p.pageNumber);
+  const lost = losses(scan);
   return {
-    output: await docx(flow.pages),
+    output,
     filenameExt: "docx",
     contentType:
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    pageCount: flow.pageCount,
+    pageCount,
     characterCount: pageTexts.reduce((n, page) => n + page.text.length, 0),
-    coverage: measureOfficeExportPages(flow.pageCount, pageTexts),
+    coverage: buildOfficeExportResultMeta({
+      ...measureOfficeExportPages(pageCount, pageTexts),
+      picturePageCount: asPictures.length,
+      pagesAsPictures: asPictures,
+      picturesNotCarried: lost.picturesNotCarried,
+      picturesTooLarge: lost.picturesTooLarge,
+      pagesMissingPictures: lost.pagesMissingPictures,
+      ...(rebuilt ? { repairedBeforeConversion: true as const } : {}),
+    }),
   };
 }
 
@@ -451,34 +540,19 @@ async function renderPowerPoint(
   deps: PdfOfficeExportDeps,
 ): Promise<Rendered | Failure> {
   await extract(input);
-  const timeout = deps.limits?.scanTimeoutMs;
-  const options = {
-    ...(timeout !== undefined ? { deadline: Date.now() + timeout } : {}),
-    ...(deps.limits?.maxOutputBytes !== undefined
-      ? { maxMediaBytes: deps.limits.maxOutputBytes }
-      : {}),
-  };
   // A file the page reader cannot read ahead is rebuilt first, the way
   // Repair PDF does, and the rebuilt copy scanned — bounded, like any other.
   // With nothing to rebuild it, or a rebuild the reader still cannot read,
   // it is refused: never scanned without a bound.
-  let scan: PdfPageScan;
-  let repaired = false;
-  try {
-    scan = await scanPages(input, options);
-  } catch (error) {
-    if (!(error instanceof PageScanUnreadableError)) throw error;
-    if (!deps.repairPdf) return DAMAGED;
-    const rebuilt = await deps.repairPdf(input).catch(() => null);
-    if (!rebuilt) return DAMAGED_NOT_REBUILT;
-    try {
-      scan = await scanPages(rebuilt, options);
-    } catch (again) {
-      if (again instanceof PageScanUnreadableError) return DAMAGED_NOT_REBUILT;
-      throw again;
-    }
-    repaired = true;
-  }
+  const scanned = await scanOrRebuild(
+    input,
+    scanPages,
+    deps,
+    scanOptions(deps),
+  );
+  if ("ok" in scanned) return scanned;
+  const { scan } = scanned;
+  const repaired = scanned.rebuilt !== null;
   const deck = deckFromScan(scan);
   const output = await (deps.writePptx ?? pptxPackage)(deck);
   const planned = deck.slides.reduce(
@@ -520,7 +594,7 @@ export async function runPdfOfficeExport(
   const { extract, extractFlow, scanPages } = deps;
   if (
     tool === PDF_TO_WORD_TOOL
-      ? !extractFlow
+      ? !extractFlow || !scanPages
       : !extract || (tool === PDF_TO_POWERPOINT_TOOL && !scanPages)
   )
     return UNSUPPORTED;
@@ -535,7 +609,7 @@ export async function runPdfOfficeExport(
   try {
     const rendered =
       tool === PDF_TO_WORD_TOOL
-        ? await renderWord(input, extractFlow!)
+        ? await renderWord(input, extractFlow!, scanPages!, deps)
         : tool === PDF_TO_EXCEL_TOOL
           ? await renderExcel(input, extract!)
           : await renderPowerPoint(input, extract!, scanPages!, deps);
@@ -560,7 +634,9 @@ export async function runPdfOfficeExport(
         engine:
           tool === PDF_TO_POWERPOINT_TOOL
             ? PDF_TO_POWERPOINT_ENGINE
-            : PDF_OFFICE_EXPORT_ENGINE,
+            : tool === PDF_TO_WORD_TOOL
+              ? PDF_TO_WORD_ENGINE
+              : PDF_OFFICE_EXPORT_ENGINE,
         tool,
         pageCount: rendered.pageCount,
         inputBytes: input.byteLength,

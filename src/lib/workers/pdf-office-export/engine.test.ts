@@ -41,7 +41,7 @@ import { pptxPackage } from "./pptx-package";
 import { scanPdfPages } from "./page-scan";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { parseXml, xmlWellFormedness } from "@/tests/xml-well-formed";
-import { scanning, textScan } from "@/tests/page-scan-stubs";
+import { noPictures, scanning, textScan } from "@/tests/page-scan-stubs";
 import {
   imageCaptionPdf,
   linesPdf,
@@ -121,8 +121,11 @@ describe("pdf-office-export engine", () => {
   it("exports selectable PDF text to a valid DOCX package", async () => {
     // Needs `extractFlow` since PDF to Word stopped reading `-layout` lines;
     // this case used to pass `extract` alone, which is the wiring that
-    // scrambled every two-column page.
+    // scrambled every two-column page. And `scanPages` since 2026-10-17, when
+    // Word began carrying pictures; the engine it reports changed with it
+    // (it was "pdftotext-office-openxml", which wrote no picture).
     const result = await runPdfOfficeExport("pdf-to-word", PDF, {
+      scanPages: noPictures,
       extract,
       extractFlow,
     });
@@ -130,7 +133,7 @@ describe("pdf-office-export engine", () => {
       ok: true,
       meta: {
         tool: "pdf-to-word",
-        engine: "pdftotext-office-openxml",
+        engine: "pdftotext-pdfjs-docx-pictures",
         pageCount: 2,
       },
     });
@@ -217,10 +220,14 @@ describe("pdf-office-export engine", () => {
       runPdfOfficeExport("pdf-to-excel", PDF, { extract: emptyExtractor }),
     ).resolves.toMatchObject({ ok: false, kind: "no_text" });
     await expect(
-      runPdfOfficeExport("pdf-to-word", PDF, { extractFlow: flowPages([]) }),
+      runPdfOfficeExport("pdf-to-word", PDF, {
+        scanPages: noPictures,
+        extractFlow: flowPages([]),
+      }),
     ).resolves.toMatchObject({ ok: false, kind: "no_text" });
     await expect(
       runPdfOfficeExport("pdf-to-word", PDF, {
+        scanPages: noPictures,
         extractFlow,
         limits: { maxInputBytes: 4 },
       }),
@@ -262,6 +269,7 @@ describe("pdf-to-word reads poppler's reading order, not the page's layout", () 
 
   it("writes a two-column page column by column, one paragraph per column", async () => {
     const paragraphs = await wordParagraphs({
+      scanPages: noPictures,
       extract: layoutExtract,
       extractFlow: flowOf(TWO_COLUMN_BBOX),
     });
@@ -275,6 +283,7 @@ describe("pdf-to-word reads poppler's reading order, not the page's layout", () 
 
   it("keeps a table's rows as rows, cells separated by tabs", async () => {
     const paragraphs = await wordParagraphs({
+      scanPages: noPictures,
       extract: layoutExtract,
       extractFlow: flowOf(TABLE_BBOX),
     });
@@ -283,12 +292,16 @@ describe("pdf-to-word reads poppler's reading order, not the page's layout", () 
 
   it("never falls back to the layout extractor when the flow one is missing", async () => {
     await expect(
-      runPdfOfficeExport("pdf-to-word", PDF, { extract: layoutExtract }),
+      runPdfOfficeExport("pdf-to-word", PDF, {
+        scanPages: noPictures,
+        extract: layoutExtract,
+      }),
     ).resolves.toMatchObject({ ok: false, kind: "unsupported" });
   });
 
   it("puts a page break between pages and keeps spaces verbatim", async () => {
     const run = await runPdfOfficeExport("pdf-to-word", PDF, {
+      scanPages: noPictures,
       extractFlow: flowPages(["  indented"], [], ["third"]),
     });
     expect(run.ok).toBe(true);
@@ -323,6 +336,7 @@ describe("a PDF that will not open is classified, not retried", () => {
       ownerPassword: "owner",
     });
     const run = await runPdfOfficeExport("pdf-to-word", locked, {
+      scanPages: noPictures,
       extractFlow: refused,
     });
     expect(run).toMatchObject({ ok: false, kind: "password_protected" });
@@ -332,7 +346,10 @@ describe("a PDF that will not open is classified, not retried", () => {
   it("names an unencrypted PDF that will not open as unreadable", async () => {
     const plain = await (await PDFDocument.create()).save();
     await expect(
-      runPdfOfficeExport("pdf-to-word", plain, { extractFlow: refused }),
+      runPdfOfficeExport("pdf-to-word", plain, {
+        scanPages: noPictures,
+        extractFlow: refused,
+      }),
     ).resolves.toMatchObject({ ok: false, kind: "unreadable" });
   });
 
@@ -384,6 +401,7 @@ describe("a PDF that will not open is classified, not retried", () => {
       // Encrypted input on purpose: only a REFUSAL may ask about encryption.
       await expect(
         runPdfOfficeExport("pdf-to-word", locked, {
+          scanPages: noPictures,
           extractFlow: throwing(error),
         }),
       ).resolves.toMatchObject({ ok: false, kind: "failed" });
@@ -392,6 +410,7 @@ describe("a PDF that will not open is classified, not retried", () => {
   it("reports an extractor output ceiling as too large, not as a retryable failure", async () => {
     await expect(
       runPdfOfficeExport("pdf-to-word", PDF, {
+        scanPages: noPictures,
         extractFlow: async () => {
           throw new PdfTextExecError({
             exitCode: null,
@@ -407,6 +426,7 @@ describe("a PDF that will not open is classified, not retried", () => {
 describe("coverage — which pages had text to export", () => {
   it("names the scanned pages of a partly scanned document (Word)", async () => {
     const run = await runPdfOfficeExport("pdf-to-word", PDF, {
+      scanPages: noPictures,
       extractFlow: flowPages(
         ["A typed first page with more than enough text on it to count."],
         [],
@@ -427,6 +447,7 @@ describe("coverage — which pages had text to export", () => {
   it("flags a stamp on EVERY page, which counting empty pages alone cannot see", async () => {
     const stamp = "BATES 000123";
     const run = await runPdfOfficeExport("pdf-to-word", PDF, {
+      scanPages: noPictures,
       extractFlow: flowPages([stamp], [stamp], [stamp]),
     });
     expect(run).toMatchObject({
@@ -517,6 +538,7 @@ describe("coverage — which pages had text to export", () => {
 
   it("POSITIVE CONTROL: reports nothing missing when every page has real text", async () => {
     const run = await runPdfOfficeExport("pdf-to-word", PDF, {
+      scanPages: noPictures,
       extractFlow: flowPages(
         ["The first page carries a full sentence of selectable text."],
         ["The second page does as well, so nothing is missing here."],
@@ -691,6 +713,7 @@ describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
     const text = "A\u0001 <b>&amp;</b> \u001Fz\u000Bend";
     const outputs = await Promise.all([
       runPdfOfficeExport("pdf-to-word", PDF, {
+        scanPages: noPictures,
         extractFlow: flowPages([text]),
       }),
       runPdfOfficeExport("pdf-to-excel", PDF, {

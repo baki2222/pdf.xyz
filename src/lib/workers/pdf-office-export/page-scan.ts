@@ -103,6 +103,7 @@ import {
 } from "./pdfjs-node";
 import {
   documentImages,
+  mediaFrames,
   readInventory,
   unlockObjectStreams,
   type PageInventory,
@@ -231,6 +232,14 @@ export interface ScannedPage {
    * with its text in invisible text boxes over it (selectable, not shown).
    */
   flattened: boolean;
+  /**
+   * From this page's displayed points (the frame every item above is in) to
+   * the frame poppler's `pdftotext -bbox-layout` reports in, as an affine
+   * matrix (`./page-inventory`, `mediaFrames`): PDF to Word places these
+   * pictures among poppler's paragraphs. Absent when the page tree could
+   * not be read, and then taken as the identity.
+   */
+  mediaFrame?: [number, number, number, number, number, number];
 }
 
 export interface PdfPageScan {
@@ -252,6 +261,16 @@ export interface PageScanOptions {
    * for tests that need a picture over it without decoding a gigabyte.
    */
   pageDecodeBudgetBytes?: number;
+  /**
+   * PDF to Word's reading: the pictures and the text, and nothing rendered.
+   * The page's other ink (vector drawing, fills, rules, and the rasters
+   * drawn with it — stencil masks, repeated and grouped images) is not
+   * rendered into layers, and no page is drawn as one picture: a Word
+   * document flows its text, and a picture of a page's rules and boxes
+   * behind that text would be noise, not the page. Every bound above
+   * (decode budget, ceilings, media budget, deadline) applies unchanged.
+   */
+  picturesOnly?: boolean;
 }
 
 /**
@@ -2012,6 +2031,9 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
     await loadLib(),
     options.pageDecodeBudgetBytes,
   );
+  // After `planPages`, which reads an encrypted file's object streams.
+  const lib = await loadLib();
+  const frames = lib ? mediaFrames(lib) : null;
   if (budget.bytes > DOCUMENT_DECODE_BUDGET_BYTES)
     throw new PageScanDecodeBudgetError(
       budget.bytes,
@@ -2128,7 +2150,7 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
       const layers = plan.filter((step) => step.kind === "layer").length;
       const items: ScannedItem[] = [];
       let tooLargeHere = planFor(n).tooLarge;
-      const flattened = layers > MAX_LAYERS_PER_PAGE;
+      const flattened = !options.picturesOnly && layers > MAX_LAYERS_PER_PAGE;
       if (flattened) {
         // One pass over the whole page, in its own paint order: what the page
         // hides stays hidden by construction, and the cost is one render.
@@ -2174,6 +2196,8 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
             firstLayer = false;
             continue;
           }
+          // Pictures only: the drawing is not rendered (see the option).
+          if (options.picturesOnly) continue;
           const keep = new Set<number>();
           for (const k of step.ops) {
             const op = elements[k]!.op;
@@ -2219,6 +2243,7 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
         picturesUndecoded: undecoded.size,
         picturesUnverified: planFor(n).unverified,
         flattened,
+        ...(frames?.[n - 1] ? { mediaFrame: frames[n - 1]! } : {}),
       });
       const shared = sharedImageBytes(page);
       page.cleanup();

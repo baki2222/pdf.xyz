@@ -10,7 +10,8 @@
  *
  * PDF to PowerPoint also gets `scanPages` (`./page-scan`): pdfjs's LEGACY
  * build, which does run under Node, reading each page's pictures, positioned
- * text and drawing. It is injected under the same presence-only rule — when
+ * text and drawing — and since 2026-10-17 PDF to Word reads its pictures
+ * through the same reader. It is injected under the same presence-only rule — when
  * the legacy build and its canvas resolve here — and bounded by the same
  * timeout pdftotext runs under, and the output ceiling.
  *

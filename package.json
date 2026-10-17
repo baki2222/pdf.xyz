@@ -18,6 +18,7 @@
     "worker:prove-tools": "tsx scripts/worker-prove-tools.ts",
     "prove:pptx-opens": "tsx scripts/prove-pptx-opens.ts",
     "measure:pptx-fidelity": "tsx scripts/measure-pptx-fidelity.ts",
+    "measure:docx-pictures": "tsx scripts/measure-docx-pictures.ts",
     "worker:ops-check": "tsx scripts/worker-ops-check.ts",
     "worker:cleanup-check": "tsx scripts/worker-cleanup-check.ts",
     "worker:artifact-cleanup": "tsx scripts/worker-artifact-cleanup.ts",

@@ -159,9 +159,20 @@ const SOFT_HYPHEN = "\u00AD";
 /** One paragraph: a single prose cell, or a table row of two or more cells. */
 export type FlowParagraph = readonly string[];
 
+/** A paragraph's bounds on its page: x0, y0, x1, y1 in poppler's frame. */
+export type FlowBox = readonly [number, number, number, number];
+
 export interface PdfFlowTextPage {
   pageNumber: number;
   paragraphs: FlowParagraph[];
+  /**
+   * Each paragraph's bounds, parallel to `paragraphs`: the union of the
+   * lines it was built from, in poppler's `-bbox-layout` frame (points from
+   * the top left of the media box, the page's /Rotate applied). PDF to Word
+   * places pictures among the paragraphs by them. Absent from a page built
+   * by hand rather than from a layout.
+   */
+  boxes?: FlowBox[];
 }
 
 /** What PDF to Word writes: every page, in order, as paragraphs. */
@@ -466,8 +477,27 @@ function joinLines(texts: readonly string[]): string {
   return out;
 }
 
-/** The paragraphs of one page, in reading order, with its tables kept as rows. */
-export function flowParagraphs(page: FlowPage): FlowParagraph[] {
+/** The union of `lines`' boxes. */
+function boxOfLines(lines: readonly FlowLine[]): FlowBox {
+  return [
+    Math.min(...lines.map((l) => l.xMin)),
+    Math.min(...lines.map((l) => l.yMin)),
+    Math.max(...lines.map((l) => l.xMax)),
+    Math.max(...lines.map((l) => l.yMax)),
+  ];
+}
+
+/** One paragraph and the lines it was built from, as their bounds. */
+export interface PlacedParagraph {
+  cells: FlowParagraph;
+  box: FlowBox;
+}
+
+/**
+ * The paragraphs of one page, in reading order, with its tables kept as
+ * rows — each with the bounds of the lines it was built from.
+ */
+export function placedParagraphs(page: FlowPage): PlacedParagraph[] {
   const placed = new Map<FlowLine, PlacedLine>();
   for (const block of page.blocks)
     block.lines.forEach((line, i) =>
@@ -483,17 +513,18 @@ export function flowParagraphs(page: FlowPage): FlowParagraph[] {
 
   // Tables: maximal runs of consecutive aligned bands, trimmed of paragraph
   // edges (rule 5), that pass isTable.
-  const tableOf = new Map<FlowLine, FlowParagraph[]>();
+  const tableOf = new Map<FlowLine, PlacedParagraph[]>();
   let run: PlacedLine[][] = [];
   const closeRun = () => {
     const table = trimParagraphEdges(run);
     if (isTable(table)) {
-      const rows = table.map((band) =>
-        band
+      const rows = table.map((band) => ({
+        cells: band
           .flatMap((l) => l.cells)
           .sort((a, b) => a.xMin - b.xMin)
           .map((c) => c.text),
-      );
+        box: boxOfLines(band.map((l) => l.line)),
+      }));
       for (const band of table) for (const l of band) tableOf.set(l.line, rows);
     }
     run = [];
@@ -504,13 +535,17 @@ export function flowParagraphs(page: FlowPage): FlowParagraph[] {
   }
   closeRun();
 
-  const paragraphs: FlowParagraph[] = [];
-  const emitted = new Set<FlowParagraph[]>();
+  const paragraphs: PlacedParagraph[] = [];
+  const emitted = new Set<PlacedParagraph[]>();
   for (const block of readingOrder(page.blocks)) {
     const measure = measureBlock(block.lines);
-    let prose: string[] = [];
+    let prose: FlowLine[] = [];
     const flush = () => {
-      if (prose.length) paragraphs.push([joinLines(prose)]);
+      if (prose.length)
+        paragraphs.push({
+          cells: [joinLines(prose.map((l) => placed.get(l)!.cells[0]!.text))],
+          box: boxOfLines(prose),
+        });
       prose = [];
     };
     block.lines.forEach((line, i) => {
@@ -528,25 +563,37 @@ export function flowParagraphs(page: FlowPage): FlowParagraph[] {
         // A lone wide-gapped line — a header's left and right halves, say — is
         // kept as one tabbed row rather than run into the prose around it.
         flush();
-        paragraphs.push(cells.map((c) => c.text));
+        paragraphs.push({
+          cells: cells.map((c) => c.text),
+          box: boxOfLines([line]),
+        });
         return;
       }
       if (prose.length && startsParagraph(block.lines, i, measure)) flush();
-      prose.push(cells[0]!.text);
+      prose.push(line);
     });
     flush();
   }
   return paragraphs;
 }
 
+/** The paragraphs of one page, in reading order, with its tables kept as rows. */
+export function flowParagraphs(page: FlowPage): FlowParagraph[] {
+  return placedParagraphs(page).map((p) => p.cells);
+}
+
 /** Every page of a parsed `-bbox-layout` document as paragraphs. */
 export function flowText(layout: PdfFlowLayout): PdfFlowText {
   return {
     pageCount: layout.pageCount,
-    pages: layout.pages.map((page) => ({
-      pageNumber: page.pageNumber,
-      paragraphs: flowParagraphs(page),
-    })),
+    pages: layout.pages.map((page) => {
+      const placed = placedParagraphs(page);
+      return {
+        pageNumber: page.pageNumber,
+        paragraphs: placed.map((p) => p.cells),
+        boxes: placed.map((p) => p.box),
+      };
+    }),
   };
 }
 

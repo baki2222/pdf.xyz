@@ -43,18 +43,20 @@ export interface OfficeExportResultMeta {
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesWithLittleText: number[];
   /**
-   * PDF to PowerPoint only, since 2026-10-10: how many pages have no text and
-   * are on their slides as PICTURES (a scan, a screenshot), so their words
-   * are not editable. Before that date a page with no text reached the deck as
-   * an empty slide, and this field is absent from those results — the panel
-   * then says what that engine did, not what this one does.
+   * PDF to PowerPoint since 2026-10-10, and PDF to Word since 2026-10-17:
+   * how many pages have no text and are in the file as PICTURES only (a
+   * scan, a screenshot), so their words are not editable. Before those dates
+   * a page with no text reached the deck as an empty slide, and the document
+   * not at all, and this field is absent from those results — the panel then
+   * says what that engine did, not what this one does.
    */
   picturePageCount?: number;
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesAsPictures?: number[];
   /**
-   * PDF to PowerPoint only, since 2026-10-11: pictures the pages paint that
-   * are NOT on their slides — too large for the worker's memory budget, or
+   * PDF to PowerPoint since 2026-10-11, and PDF to Word since 2026-10-17:
+   * pictures the pages paint that are NOT in the file — too large for the
+   * worker's memory budget, or
    * data pdf.js could not decode. Before that date such a picture left no
    * trace, and a page that held only a full-page scan was reported as having
    * "nothing on it". Absent from older results: that engine did not count,
@@ -81,7 +83,8 @@ export interface OfficeExportResultMeta {
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesFlattened?: number[];
   /**
-   * PDF to PowerPoint only, since 2026-10-11: the page reader could not read
+   * PDF to PowerPoint since 2026-10-11, and PDF to Word since 2026-10-17:
+   * the page reader could not read
    * the PDF ahead (it looked damaged), so the worker rebuilt it the way
    * Repair PDF does and converted the rebuilt copy. Present only as `true`.
    */

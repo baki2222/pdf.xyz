@@ -73,3 +73,18 @@ export function textScan(
 export function scanning(scan: PdfPageScan): PdfPageScanner {
   return async () => scan;
 }
+
+/**
+ * A page reader that finds no page and so no picture: for tests about PDF to
+ * Word's TEXT — its paragraphs, page breaks, refusals and coverage — run on
+ * bytes that are not a real PDF, where the stub extraction IS the document.
+ * Never for a test about what the .docx keeps of a real PDF: those run the
+ * real reader over a real one (`pdf-office-export/docx-pictures.test.ts`).
+ * Since 2026-10-17 PDF to Word answers `unsupported` without a page reader.
+ */
+export const noPictures: PdfPageScanner = async () => ({
+  pageCount: 0,
+  pages: [],
+  undecodedImages: 0,
+  tooLargeImages: 0,
+});
