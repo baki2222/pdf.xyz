@@ -41,6 +41,7 @@ import {
   undecodablePicturePdf,
 } from "@/tests/pptx-fidelity-fixtures";
 import { noPictures } from "@/tests/page-scan-stubs";
+import { notePagesPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 
@@ -323,6 +324,38 @@ describe("PDF to Word panel — pages kept only as pictures", () => {
     expect(
       within(box).getByRole("link", { name: "Open OCR PDF" }),
     ).toHaveAttribute("href", "/tools/ocr-pdf");
+  }, 60_000);
+
+  /**
+   * The review of 2026-10-17, BLOCKING 1. The notice said a page had "no
+   * selectable text and no picture" by subtraction — pages without text,
+   * less the pages that came through as pictures — and so said it of a
+   * page whose picture could not be decoded, and (while stencils were left
+   * out) of a page that is a stencil scan. Only a page the worker SAW to be
+   * empty may be called that, as PowerPoint's `emptySlideCount` is.
+   */
+  it("calls only the blank page empty — not a page whose picture was lost, nor a stencil scan", async () => {
+    stubNetwork(
+      await jobFrom(flowStandIn, await notePagesPdf(), true, scanPdfPages),
+    );
+    await exportOnePdf();
+    const notice = await screen.findByText(/Text found on 1 of 4 pages/);
+    const box = notice.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(
+      /Page 4 has no selectable text and no picture, so nothing from it is in this file/,
+    );
+    expect(box).not.toHaveTextContent(
+      /Pages [^.]*have no selectable text and no picture/,
+    );
+    expect(box).not.toHaveTextContent(
+      /\d pages have no selectable text and no picture/,
+    );
+    // Page 3, a stencil scan, came through as its picture; page 2's picture
+    // is named as not carried.
+    expect(box).toHaveTextContent(
+      /No selectable text on page 3, so only its pictures come through/,
+    );
+    expect(box).toHaveTextContent(/1 picture on page 2 is not in the document/);
   }, 60_000);
 
   it("says what an OLDER worker's document did when its result has no picture fields", async () => {
