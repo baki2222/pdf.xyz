@@ -42,8 +42,13 @@
  * Each picture keeps the size the page shows it at, unless that is wider or
  * taller than the Word page's text area ({@link docxPageOf}), in which case
  * it is scaled down — both sides by one factor — until it fits. The page is
- * the PDF's first page: its size and orientation, with an inch of margin
- * (a tenth of the shorter side on a page under five inches).
+ * the PDF's first page when that page is portrait, with an inch of margin
+ * (a tenth of the shorter side on a page under five inches); a LANDSCAPE
+ * first page — a slide, a printout — gets A4 portrait instead. A Word
+ * document flows down its page, and on a landscape one each slide's picture
+ * and the text under it break across pages: measured 2026-10-17 in Word 16
+ * on the owner's 33-page 4:3 tutorial, 84 Word pages on its own 720 × 540
+ * page (60 with half-inch margins), 33 on a portrait page.
  */
 import type { FlowBox, PdfFlowText } from "../pdf-text/flow";
 import type {
@@ -95,12 +100,16 @@ const PAGE_MAX_PT = 1584;
 const MARGIN_PT = 72;
 const SMALL_PAGE_PT = 360;
 
+/** A4 portrait, points (11,906 × 16,838 twips, Word's own A4). */
+export const A4_PORTRAIT = { width: 595.3, height: 841.9 } as const;
+
 /** The Word page for a PDF whose first page is `width` × `height` points. */
 export function docxPageOf(width: number, height: number): DocxPage {
   const clamp = (v: number) =>
     Math.min(PAGE_MAX_PT, Math.max(PAGE_MIN_PT, Number.isFinite(v) ? v : 612));
-  const w = clamp(width);
-  const h = clamp(height);
+  const landscape = width > height;
+  const w = landscape ? A4_PORTRAIT.width : clamp(width);
+  const h = landscape ? A4_PORTRAIT.height : clamp(height);
   const shorter = Math.min(w, h);
   return {
     width: w,

@@ -366,8 +366,9 @@ describe("PDF to Word: the DOCX is the page's sentence", () => {
     ]);
     const body = await readDocxBody(withPicture);
     // linesPdf draws the picture at (400, 300), 240 × 150 pt, under both
-    // lines: it follows them, at its size (the 720 × 540 page's text area
-    // is 576 × 396, so it needs no fitting).
+    // lines: it follows them, at its size (the 720 × 540 page is landscape,
+    // so the Word page is A4 upright, whose text area of 451 × 698 needs no
+    // fitting).
     expect(body.paragraphs.map((p) => p.text)).toEqual([...lines, ""]);
     expect(body.pictures).toHaveLength(1);
     expect(body.pictures[0]!.paragraph).toBe(2);

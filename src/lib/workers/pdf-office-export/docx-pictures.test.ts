@@ -45,7 +45,9 @@ import {
   repairStandIn,
   scannedPdf,
 } from "@/tests/pptx-fidelity-fixtures";
+import { getToolContent } from "@/lib/tools/content";
 import { compareDocxPictures } from "./docx-fidelity";
+import { A4_PORTRAIT, docxPageOf } from "./docx-layout";
 import { readDocxBody } from "./docx-read";
 import {
   PDF_TO_WORD_TOOL,
@@ -153,6 +155,26 @@ describe("PDF to Word keeps the pictures", () => {
     const width = new DataView(png.buffer, png.byteOffset).getUint32(16);
     expect(width).toBe(MAX_BILEVEL_PICTURE_SIDE);
   }, 120_000);
+
+  it("a landscape first page gives an A4 upright Word page, as the page says, and its pictures fit that page's text", async () => {
+    // Measured in Word 16 on the owner's 4:3 sample (docx-layout.ts): 84
+    // Word pages on its own landscape page, 33 on a portrait one.
+    const fixture = await imageCaptionPdf();
+    const body = await readDocxBody((await word(fixture.pdf)).output);
+    expect([body.page.width, body.page.height]).toEqual([
+      A4_PORTRAIT.width,
+      A4_PORTRAIT.height,
+    ]);
+    const widest = Math.max(...body.pictures.map((p) => p.width));
+    // The 480-pt photo is wider than A4's 451-pt text: fitted to it.
+    expect(widest).toBeCloseTo(body.page.textWidth, 0);
+    // The page says exactly this, in the intro the tool page renders.
+    expect(getToolContent("pdf-to-word")!.intro.join(" ")).toMatch(
+      /\bsize of the PDF's first page, or A4 upright when that page is landscape\b/,
+    );
+    // And the portrait case keeps the PDF's own page (the other test above).
+    expect(docxPageOf(612, 792)).toMatchObject({ width: 612, height: 792 });
+  }, 60_000);
 
   it("a page that is only a scan comes through as its picture, on its own page, and the result says its words are not text", async () => {
     const fixture = await scanBetweenPagesPdf();

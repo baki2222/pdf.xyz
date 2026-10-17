@@ -2,7 +2,7 @@
  * Write a {@link DocxDocument} as a .docx: the body's paragraphs and
  * pictures in order, a page break between PDF pages that put anything in
  * the document, each picture's file once however often it is shown, and a
- * section whose page is the PDF's first page.
+ * section whose page is the one `./docx-layout` chose (`docxPageOf`).
  *
  * ── WHAT A PICTURE IS IN THE FILE ───────────────────────────────────────────
  *

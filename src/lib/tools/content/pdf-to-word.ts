@@ -52,7 +52,8 @@ import {
  *    between the paragraphs printed above and below it (poppler's reading
  *    order is not moved), INLINE, at the size the page shows it, scaled down
  *    (aspect kept) only to fit the text area of a Word page that is the
- *    PDF's first page with an inch of margin; a plain JPEG of at most
+ *    PDF's first page, or A4 portrait when that page is landscape, with an
+ *    inch of margin (docx-layout.ts `docxPageOf`); a plain JPEG of at most
  *    MAX_PICTURE_SIDE px on its longer side byte for byte, others re-encoded
  *    (PNG, or JPEG for a photograph), the long side capped at that
  *    (MAX_BILEVEL_PICTURE_SIDE for a bilevel scan); an upright rectangular
@@ -121,7 +122,7 @@ const content: ToolContent = {
   metaDescription: `Convert a PDF to editable Word DOCX: its text as paragraphs in reading order, each picture between them at its size. Scans need OCR first. Up to ${CEILING_MB} MB.`,
 
   intro: [
-    `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page takes the size of the PDF's first page, and a picture wider or taller than its text area is scaled down to fit. Fonts, bold and italics, colours, tables, and drawings made of lines and shapes are not carried across.`,
+    `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide, and a picture wider or taller than the page's text area is scaled down to fit. Fonts, bold and italics, colours, tables, and drawings made of lines and shapes are not carried across.`,
     `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops and asks you to run OCR first rather than hand you a document of page pictures with nothing in it to edit.`,
     `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure worker, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. The worker deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. A run handles a single PDF, and uploads above ${CEILING_MB} MB are refused.`,
   ],
