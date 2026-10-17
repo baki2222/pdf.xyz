@@ -1193,14 +1193,12 @@ describe("a line set in a standard face pdf.js gives no ascent", () => {
     ]) {
       const doc = await PDFDocument.create();
       const font = await doc.embedFont(face);
-      doc
-        .addPage([612, 792])
-        .drawText("A line in a standard face", {
-          x: 72,
-          y: 600,
-          size: 12,
-          font,
-        });
+      doc.addPage([612, 792]).drawText("A line in a standard face", {
+        x: 72,
+        y: 600,
+        size: 12,
+        font,
+      });
       const pdf = await doc.save();
       const scan = await scanPdfPages(pdf);
       const line = scan.pages[0]!.items.find((i) => i.kind === "text")!;

@@ -153,7 +153,8 @@ export const PPTX_CHECKS = {
   "unlisted-slide": "a slide relationship sldIdLst does not list",
   "no-slide-size": "the presentation has no p:sldSz",
   "slide-size-range": "the slide size is outside 1–56 inches",
-  "coordinate-not-integer": "a slide position or size is not a whole number of EMU",
+  "coordinate-not-integer":
+    "a slide position or size is not a whole number of EMU",
   "picture-without-blip": "a picture names no image",
   "picture-reference": "a picture's blip is not an image relationship",
   "picture-content-type": "a picture's part is not typed as an image",
