@@ -301,9 +301,23 @@ function wordProofProblems(source: string): string[] {
     ts.forEachChild(n, walk);
   };
   walk(file);
-  if (specs.length === 0) return ["no word-to-pdf spec"];
+  // A spec that takes its input `from` another spec's artifact is a ROUND
+  // TRIP of that artifact through Word to PDF (since 2026-10-17, PDF to
+  // Word's .docx), not the font proof: it is held to a `verify` of its own,
+  // never to "any %PDF-". The font proof itself must still be there.
+  const hasFrom = (spec: TS.ObjectLiteralExpression) =>
+    spec.properties.some((p) => p.name?.getText(file) === "from");
+  const trips = specs.filter(hasFrom);
+  const proofs = specs.filter((s) => !hasFrom(s));
+  if (proofs.length === 0) return ["no word-to-pdf spec"];
   const problems: string[] = [];
-  specs.forEach((spec, i) => {
+  for (const spec of trips)
+    if (!spec.properties.some((p) => p.name?.getText(file) === "verify"))
+      problems.push(
+        `spec ${specs.indexOf(spec) + 1}: a round trip with no \`verify\``,
+      );
+  proofs.forEach((spec) => {
+    const i = specs.indexOf(spec);
     for (const [name, fn] of [
       ["make", "officeFontProofDocx"],
       ["verify", "officeFontProofVerdict"],
@@ -358,6 +372,20 @@ describe("worker-prove-tools: the word-to-pdf proof reads the fonts", () => {
     expect(wordProofProblems(commented)).toEqual(["spec 1: no `verify`"]);
     expect(wordProofProblems("const SPECS = [];")).toEqual([
       "no word-to-pdf spec",
+    ]);
+    // A round trip (`from` another artifact) is not taken for the font
+    // proof, and must judge what comes back; alone it is no font proof.
+    const trip = `{ tool: "word-to-pdf", from: "docx-from-pdf", expect: isPdf }`;
+    expect(wordProofProblems(`const SPECS = [${trip}];`)).toEqual([
+      "no word-to-pdf spec",
+    ]);
+    const tripped = source.replace(
+      /verify: \(bytes\) => docxRoundTripVerdict\(bytes\),/,
+      "",
+    );
+    expect(tripped).not.toBe(source);
+    expect(wordProofProblems(tripped)).toEqual([
+      "spec 2: a round trip with no `verify`",
     ]);
   });
 });
