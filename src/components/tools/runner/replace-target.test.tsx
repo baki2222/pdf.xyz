@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * A PDF dropped anywhere on a tool page whose editor is open REPLACES the
  * open document — and nothing else does.
