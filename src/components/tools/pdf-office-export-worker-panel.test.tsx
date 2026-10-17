@@ -32,6 +32,7 @@ import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { PDFDocument } from "pdf-lib";
 import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
+import { MAX_DOCX_PICTURES } from "@/lib/workers/pdf-office-export/picture-limits";
 import {
   imageCaptionPdf,
   junkAfterEofPdf,
@@ -41,7 +42,7 @@ import {
   undecodablePicturePdf,
 } from "@/tests/pptx-fidelity-fixtures";
 import { blankPages, noPictures } from "@/tests/page-scan-stubs";
-import { notePagesPdf } from "@/tests/docx-picture-fixtures";
+import { noisePagesPdf, notePagesPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 
@@ -104,11 +105,13 @@ async function jobFrom(
   input: Uint8Array = new Uint8Array([0x25, 0x50, 0x44, 0x46]),
   keepResults = true,
   scanPages: PdfOfficeExportDeps["scanPages"] = noPictures,
+  limits?: PdfOfficeExportDeps["limits"],
 ): Promise<{ job: Job; output?: Uint8Array }> {
   const result = await createPdfOfficeExportProcessor({
     extract: layoutExtract,
     extractFlow,
     scanPages,
+    ...(limits ? { limits } : {}),
   }).process({
     tool: "pdf-to-word",
     options: {},
@@ -365,6 +368,33 @@ describe("PDF to Word panel — pages kept only as pictures", () => {
       /No selectable text on page 3, so only its pictures come through/,
     );
     expect(box).toHaveTextContent(/1 picture on page 2 is not in the document/);
+  }, 60_000);
+
+  /**
+   * BLOCKING 4 of the same review: a document past what one conversion
+   * carries keeps its text and says which pictures it left out, and why —
+   * through the whole chain, the over-budget count crossing the sanitizer.
+   */
+  it("says which pictures were left out to keep the document within a conversion's limits, and that the text is all there", async () => {
+    const { pdf } = await noisePagesPdf(6);
+    stubNetwork(
+      await jobFrom(flowStandIn, pdf, true, scanPdfPages, {
+        maxOutputBytes: 350_000,
+      }),
+    );
+    await exportOnePdf();
+    const line = await screen.findByText(/are not in the document/);
+    const box = line.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(
+      new RegExp(
+        `3 pictures on pages 4–6 are not in the document: they would have taken the document past what one conversion carries: ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, the size of one file, or the time one conversion may take\\. All of the text is there\\.`,
+      ),
+    );
+    // Not the reasons that are not this one.
+    expect(box).not.toHaveTextContent(
+      /too large for the worker|could not be decoded/,
+    );
+    expect(screen.getByText(/Your DOCX file is ready/)).toBeInTheDocument();
   }, 60_000);
 
   it("says what an OLDER worker's document did when its result has no picture fields", async () => {

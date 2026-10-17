@@ -140,3 +140,51 @@ describe("sanitizeJobResults — Word's pages seen empty", () => {
     expect(kept).not.toHaveProperty("pagesEmpty");
   });
 });
+
+/*
+ * The review of 2026-10-17: PDF to Word counts the pictures it left out to
+ * stay within what one conversion carries. The reasons partition the
+ * not-carried count, so the panel cannot say more pictures were left out
+ * for a reason than were left out at all.
+ */
+describe("sanitizeJobResults — pictures left out over budget", () => {
+  const base = measureOfficeExportPages(2, [
+    { pageNumber: 1, text: "a sentence that is comfortably long enough" },
+  ]);
+
+  it("carries the count, bounded by the pictures not carried, and too-large by what is left", () => {
+    expect(
+      sanitizeJobResults({
+        officeExport: {
+          ...base,
+          picturesNotCarried: 5,
+          picturesOverBudget: 4,
+          picturesTooLarge: 5,
+          pagesMissingPictures: [2],
+        },
+      })?.officeExport,
+    ).toMatchObject({
+      picturesNotCarried: 5,
+      picturesOverBudget: 4,
+      picturesTooLarge: 1,
+    });
+    expect(
+      sanitizeJobResults({
+        officeExport: {
+          ...base,
+          picturesNotCarried: 2,
+          picturesOverBudget: 9,
+          pagesMissingPictures: [2],
+        },
+      })?.officeExport,
+    ).toMatchObject({ picturesOverBudget: 2, picturesTooLarge: 0 });
+  });
+
+  it("adds nothing where the worker said nothing", () => {
+    expect(
+      sanitizeJobResults({
+        officeExport: { ...base, picturesNotCarried: 1, picturesTooLarge: 1 },
+      })?.officeExport,
+    ).not.toHaveProperty("picturesOverBudget");
+  });
+});

@@ -9,6 +9,7 @@ import {
   LITTLE_TEXT_CHARS,
   OFFICE_EXPORT_ERROR_CODES,
 } from "@/lib/jobs/office-export-results";
+import { MAX_DOCX_PICTURES } from "@/lib/workers/pdf-office-export/picture-limits";
 
 type OfficeExportErrorCode =
   (typeof OFFICE_EXPORT_ERROR_CODES)[keyof typeof OFFICE_EXPORT_ERROR_CODES];
@@ -302,6 +303,13 @@ export function OfficeExportCoverageNotice({
 }
 
 /**
+ * What "one conversion carries" means, for a picture left out over budget
+ * (PDF to Word only): the picture count, the size of one file, and the time
+ * one conversion may take.
+ */
+const OVER_BUDGET_LIMITS = `${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, the size of one file, or the time one conversion may take`;
+
+/**
  * "2 pictures on page 3 are not on its slide: …" — the pictures a page
  * paints that the worker could not carry, and why. Rendered only when the
  * worker counted them (`picturesNotCarried`).
@@ -315,19 +323,34 @@ function PicturesNotCarried({
   word: boolean;
 }) {
   const lost = report.picturesNotCarried ?? 0;
-  const tooLarge = Math.min(lost, report.picturesTooLarge ?? 0);
-  const undecoded = lost - tooLarge;
+  const overBudget = Math.min(lost, report.picturesOverBudget ?? 0);
+  const tooLarge = Math.min(lost - overBudget, report.picturesTooLarge ?? 0);
+  const undecoded = lost - overBudget - tooLarge;
   const pages = report.pagesMissingPictures ?? [];
   const onePage = pages.length === 1;
   const noun = lost === 1 ? "picture" : "pictures";
   const where = `on ${pages.length > 0 ? pageSpan(pages, pages.length) : "the PDF's pages"}`;
   const slides = word ? "the document" : onePage ? "its slide" : "their slides";
-  const reason =
-    undecoded === 0
-      ? `${lost === 1 ? "it was" : "they were"} too large for the worker to carry`
-      : tooLarge === 0
+  const was = (n: number) => (n === 1 ? "was" : "were");
+  // One reason in the words for it alone; several, each with its count.
+  const reasons = [
+    overBudget > 0 &&
+      (overBudget === lost
+        ? `${lost === 1 ? "it" : "they"} would have taken the document past what one conversion carries: ${OVER_BUDGET_LIMITS}. All of the text is there`
+        : `${overBudget} would have taken the document past what one conversion carries (${OVER_BUDGET_LIMITS})`),
+    tooLarge > 0 &&
+      (tooLarge === lost
+        ? `${lost === 1 ? "it was" : "they were"} too large for the worker to carry`
+        : `${tooLarge} ${was(tooLarge)} too large for the worker to carry`),
+    undecoded > 0 &&
+      (undecoded === lost
         ? `${lost === 1 ? "its" : "their"} image data could not be decoded, and may be damaged`
-        : `${tooLarge} ${tooLarge === 1 ? "was" : "were"} too large for the worker to carry, and ${undecoded} could not be decoded`;
+        : `${undecoded} could not be decoded`),
+  ].filter((r): r is string => typeof r === "string");
+  const reason =
+    reasons.length < 3
+      ? reasons.join(", and ")
+      : `${reasons.slice(0, -1).join(", ")}, and ${reasons.at(-1)}`;
   return (
     <p className="flex items-start gap-2">
       <ImageOff className="mt-0.5 size-4 shrink-0" aria-hidden />

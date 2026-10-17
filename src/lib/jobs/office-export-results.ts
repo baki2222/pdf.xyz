@@ -165,9 +165,15 @@ export function buildOfficeExportResultMeta(
     ...(raw.picturesNotCarried !== undefined
       ? (() => {
           const lost = count(raw.picturesNotCarried, 1_000_000);
+          // The reasons partition the count: over budget first, then too
+          // large out of what is left (the rest could not be decoded).
+          const overBudget = count(raw.picturesOverBudget, lost);
           return {
             picturesNotCarried: lost,
-            picturesTooLarge: count(raw.picturesTooLarge, lost),
+            picturesTooLarge: count(raw.picturesTooLarge, lost - overBudget),
+            ...(raw.picturesOverBudget !== undefined
+              ? { picturesOverBudget: overBudget }
+              : {}),
             pagesMissingPictures: pageList(raw.pagesMissingPictures, pageCount),
           };
         })()

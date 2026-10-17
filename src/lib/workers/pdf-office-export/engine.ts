@@ -16,7 +16,7 @@ import {
 } from "../ooxml/sheet-cells";
 import { deckFromScan } from "./deck-from-scan";
 import { docxDocumentOf, scannedPictures } from "./docx-layout";
-import { docxPackage } from "./docx-package";
+import { DOCX_PICTURE_OVERHEAD_BYTES, docxPackage } from "./docx-package";
 import { readDocxBody } from "./docx-read";
 import { classifyPdfTextFailure } from "./encryption";
 import { layoutGrid } from "./layout-grid";
@@ -29,6 +29,7 @@ import {
   type PdfPageScanner,
 } from "./page-scan";
 import { inspectPptxPackage } from "./pptx-inspect";
+import { MAX_DOCX_PICTURES } from "./picture-limits";
 import { pptxPackage, type PptxDeck } from "./pptx-package";
 
 export const PDF_TO_WORD_TOOL = "pdf-to-word";
@@ -368,6 +369,27 @@ async function undeliverableDocx(
     : null;
 }
 
+/** A scan of no page: the text-only document, for its size. */
+const NO_PAGES: PdfPageScan = {
+  pageCount: 0,
+  pages: [],
+  undecodedImages: 0,
+  tooLargeImages: 0,
+};
+
+/** `scan` with every picture taken off its page and counted as left out. */
+function withoutPictures(scan: PdfPageScan): PdfPageScan {
+  return {
+    ...scan,
+    pages: scan.pages.map((p) => ({
+      ...p,
+      items: p.items.filter((i) => i.kind !== "picture"),
+      picturesOverBudget:
+        (p.picturesOverBudget ?? 0) + scannedPictures(p).length,
+    })),
+  };
+}
+
 /**
  * The DOCX, since 2026-10-17: every page's paragraphs in poppler's reading
  * order (`../pdf-text/flow`), as before, and every raster picture the page
@@ -382,6 +404,15 @@ async function undeliverableDocx(
  * under "Your DOCX file is ready." OCR PDF first gives the words AND keeps
  * the scan, which then comes through as a picture. A page without text in a
  * PDF that has some carries its pictures, and the result names it.
+ *
+ * NEVER REFUSED FOR ITS PICTURES (the review of 2026-10-17). The output
+ * limit, the document's decode budget, the scan's deadline and the picture
+ * count ({@link MAX_DOCX_PICTURES}) are each a place to stop carrying
+ * pictures: the text is all there, the pictures that fit are, and the rest
+ * are counted by page (`picturesOverBudget`). Until then a 68.9 MB photo
+ * PDF was refused as too large, a 350-page colour scan as having pictures
+ * too large in total, and a slow one timed out three times — where the
+ * text-only engine of the week before had converted all of them.
  */
 async function renderWord(
   input: Uint8Array,
@@ -393,16 +424,48 @@ async function renderWord(
   const hasText = (f: PdfFlowText) =>
     f.pages.some((page) => flowPageText(page).trim().length > 0);
   if (!hasText(flow)) return null;
+  const write = deps.writeDocx ?? docxPackage;
+  const maxOutput = deps.limits?.maxOutputBytes;
+  // The pictures get what the text leaves of the output limit — the text
+  // alone, written, is the measure — and every picture is charged its XML
+  // and zip entries besides its media, so the budget bounds the FILE.
+  const textOnly =
+    maxOutput === undefined
+      ? 0
+      : (await write(docxDocumentOf(flow, NO_PAGES))).bytes.byteLength;
   const scanned = await scanOrRebuild(input, scanPages, deps, {
     ...scanOptions(deps),
     picturesOnly: true,
+    maxPictures: deps.limits?.maxPictures ?? MAX_DOCX_PICTURES,
+    pictureOverheadBytes: DOCX_PICTURE_OVERHEAD_BYTES,
+    ...(maxOutput !== undefined
+      ? { maxMediaBytes: Math.max(0, maxOutput - textOnly) }
+      : {}),
+    ...(deps.limits?.decodeBudgetBytes !== undefined
+      ? { documentDecodeBudgetBytes: deps.limits.decodeBudgetBytes }
+      : {}),
   });
   if ("ok" in scanned) return scanned;
-  const { scan, rebuilt } = scanned;
+  let { scan } = scanned;
+  const { rebuilt } = scanned;
   // The rebuilt copy is what the pictures came from, so the text does too.
   if (rebuilt) flow = await extractFlow(rebuilt);
-  const doc = docxDocumentOf(flow, scan);
-  const { bytes: output, plan } = await (deps.writeDocx ?? docxPackage)(doc);
+  let doc = docxDocumentOf(flow, scan);
+  let { bytes: output, plan } = await write(doc);
+  if (
+    maxOutput !== undefined &&
+    output.byteLength > maxOutput &&
+    plan.pictures > 0
+  ) {
+    // The budget is a bound, so this should not happen; if the file comes
+    // out over the limit anyway (a rebuilt copy's text is longer, say), the
+    // document goes out with its text and no picture, every one counted —
+    // what this engine delivered before it carried pictures, never a
+    // refusal of the text.
+    scan = withoutPictures(scan);
+    doc = docxDocumentOf(flow, scan);
+    ({ bytes: output, plan } = await write(doc));
+  }
   const refused = await undeliverableDocx(output, plan);
   if (refused) return refused;
   const pageCount = doc.pages.length;
@@ -446,6 +509,10 @@ async function renderWord(
       pagesAsPictures: asPictures,
       picturesNotCarried: lost.picturesNotCarried,
       picturesTooLarge: lost.picturesTooLarge,
+      picturesOverBudget: scan.pages.reduce(
+        (n, p) => n + (p.picturesOverBudget ?? 0),
+        0,
+      ),
       pagesMissingPictures: lost.pagesMissingPictures,
       emptyPageCount: empty.length,
       pagesEmpty: empty,

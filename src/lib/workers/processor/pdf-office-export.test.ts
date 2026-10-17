@@ -295,8 +295,10 @@ describe("pdf-office-export processor", () => {
       pagesAsPictures: [],
       picturesNotCarried: 0,
       picturesTooLarge: 0,
+      // Since the review of 2026-10-17: pictures left out over budget, and
+      // the pages the reader SAW empty.
+      picturesOverBudget: 0,
       pagesMissingPictures: [],
-      // Since the review of 2026-10-17: the pages the reader SAW empty.
       emptyPageCount: 2,
       pagesEmpty: [2, 3],
     });
@@ -324,6 +326,7 @@ describe("pdf-office-export processor", () => {
       pagesAsPictures: [2],
       picturesNotCarried: 0,
       picturesTooLarge: 0,
+      picturesOverBudget: 0,
       pagesMissingPictures: [],
       emptyPageCount: 0,
       pagesEmpty: [],

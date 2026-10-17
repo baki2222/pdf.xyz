@@ -393,6 +393,11 @@ export const PAGE_DECODE_BUDGET_BYTES = 512 * 1024 * 1024;
  * a job that can only time out. Past it the job is refused up front, as too
  * large, which is not retried. A document under it can still time out on a
  * slower worker; this catches only the ones that cannot finish anywhere.
+ *
+ * PDF to Word (`picturesOnly`) is not refused for it: its pages are decoded
+ * in page order while the budget holds, and the pictures of the pages past
+ * it are counted (`picturesOverBudget`), its text being poppler's. Until the
+ * review of 2026-10-17 a 350-page colour scan was refused whole here.
  */
 export const DOCUMENT_DECODE_BUDGET_BYTES = 16 * 1024 * 1024 * 1024;
 /**

@@ -93,6 +93,19 @@ function pictureParagraph(
   );
 }
 
+/**
+ * The most bytes one picture adds to the file BESIDES its media: its
+ * paragraph and drawing (stored, not compressed), its relationship, its
+ * media part's zip entries, and the page break a page with only that
+ * picture brings. Measured 2026-10-17 on this writer at 1,122 bytes a
+ * picture, cropped, each on a page of its own, 600 of them; a turn or a
+ * flip adds tens of bytes, and four-digit ids a few more. PDF to Word's page
+ * reader charges it per picture against the size budget, so the budget
+ * bounds the FILE: `docx-pictures.test.ts` measures the real writer against
+ * it, from both sides.
+ */
+export const DOCX_PICTURE_OVERHEAD_BYTES = 1_536;
+
 /** What the writer put in the file, for the engine's check before delivery. */
 export interface DocxPlan {
   pictures: number;

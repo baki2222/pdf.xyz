@@ -36,6 +36,7 @@ import {
   exifJpegPdf,
   inlineImagesPdf,
   labelledCalloutPdf,
+  manyPicturesPdf,
   noisePagesPdf,
   ocrdScanPdf,
   repeatedPicturesPdf,
@@ -60,7 +61,7 @@ import { getToolContent } from "@/lib/tools/content";
 import { pageFaq } from "@/lib/tools/page-copy";
 import { compareDocxPictures } from "./docx-fidelity";
 import { A4_PORTRAIT, docxPageOf } from "./docx-layout";
-import { docxPackage } from "./docx-package";
+import { DOCX_PICTURE_OVERHEAD_BYTES, docxPackage } from "./docx-package";
 import { handBuiltDocx } from "@/tests/docx-hand-built";
 import { readJpegOrientation } from "@/lib/pdf/jpeg-orientation";
 import { loadNodeCanvas } from "./pdfjs-node";
@@ -80,6 +81,7 @@ import { inventoryPages } from "./page-inventory";
 import { encodePngImage } from "./png-encode";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
+  MAX_DOCX_PICTURES,
   MAX_LAYERS_PER_PAGE,
 } from "./picture-limits";
 
@@ -647,6 +649,68 @@ describe("PDF to Word delivers the text and the pictures that fit, and counts th
     expect(run.coverage.picturesOverBudget).toBe(5);
     expect(run.coverage.picturesNotCarried).toBe(5);
   }, 120_000);
+
+  it("each picture adds at most DOCX_PICTURE_OVERHEAD_BYTES to the file besides its media — measured on the real writer, the worst case: every picture on a page of its own", async () => {
+    // A second, independent bound on the budget's own constant: the writer
+    // the engine delivers with, over hundreds of pictures (ids and part
+    // names grow with the count, so few pictures would understate it).
+    const N = 600;
+    const tiny = (k: number) =>
+      encodePngImage(1, 1, "rgb8", new Uint8Array([k & 255, k >> 8, 7]));
+    const page = { width: 612, height: 792, margin: 72 };
+    const text = { kind: "text" as const, cells: ["A line of text."] };
+    const pictures = Array.from({ length: N }, (_, k) => tiny(k));
+    const without = await docxPackage({
+      page,
+      pages: [[text], ...pictures.map(() => [])],
+    });
+    const withPictures = await docxPackage({
+      page,
+      pages: [
+        [text],
+        ...pictures.map((bytes, k) => [
+          {
+            kind: "picture" as const,
+            media: {
+              key: `k${k}`,
+              bytes,
+              ext: "png" as const,
+              pixelWidth: 1,
+              pixelHeight: 1,
+              passthrough: false,
+            },
+            width: 400.123,
+            height: 300.456,
+            crop: { left: 0.1234, top: 0.2345, right: 0.0123, bottom: 0.3456 },
+            rotation: 0,
+            flipH: false,
+            flipV: false,
+          },
+        ]),
+      ],
+    });
+    // Health: every picture was written, each on its own page.
+    expect(withPictures.plan.pictures).toBe(N);
+    expect(withPictures.plan.pageBreaks).toBe(N);
+    const media = pictures.reduce((n, b) => n + b.byteLength, 0);
+    const perPicture =
+      (withPictures.bytes.byteLength - without.bytes.byteLength - media) / N;
+    expect(perPicture).toBeLessThanOrEqual(DOCX_PICTURE_OVERHEAD_BYTES);
+    // …and not so loose that the budget wastes a third of itself.
+    expect(perPicture).toBeGreaterThan(DOCX_PICTURE_OVERHEAD_BYTES * 0.6);
+  }, 120_000);
+
+  it(`a small PDF of more than ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures carries ${MAX_DOCX_PICTURES.toLocaleString("en-US")}, in order, and counts the rest — the default cap, wired`, async () => {
+    const extra = 30;
+    const pdf = await manyPicturesPdf(MAX_DOCX_PICTURES + extra);
+    // Health: a small PDF.
+    expect(pdf.byteLength).toBeLessThan(400_000);
+    const run = await word(pdf);
+    const body = await readDocxBody(run.output);
+    expect(body.pictures).toHaveLength(MAX_DOCX_PICTURES);
+    expect(run.coverage.picturesOverBudget).toBe(extra);
+    expect(run.coverage.pagesMissingPictures).toEqual([1]);
+  }, 300_000);
 
   it("a writer whose file comes out over the limit anyway gets the text-only document, every picture counted — not a refusal", async () => {
     const { pdf, headings } = await noisePagesPdf(2, 40, 30);
