@@ -2124,8 +2124,13 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
  */
 describe("PDF to Word: the picture sentences hold of the engine", () => {
   const DENIES: Record<string, RegExp> = {
+    // 120, not 60: the mutation check of 2026-10-17 put "Images," back at
+    // the head of the current, longer list ("Images, tables, fonts, colors,
+    // drawings made of lines and shapes, and the page layout are not
+    // carried over") and at 60 it walked past. That sentence is a synonym
+    // below, so the window is exercised at its length.
     "pictures are not carried":
-      /\b(?:images?|pictures?|photos?)\b[^.;]{0,60}?\b(?:are|is) not (?:carried|recreated|kept|included|exported)\b/i,
+      /\b(?:images?|pictures?|photos?)\b[^.;]{0,120}?\b(?:are|is) not (?:carried|recreated|kept|included|exported)\b/i,
     "pictures stay behind":
       /\b(?:images?|pictures?)\b[^.;]{0,60}\bstay(?:s)? behind\b/i,
     "and nothing else": /\band nothing else\b/i,
@@ -2148,7 +2153,10 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
     // The edit guide's pointer to PDF to Word.
     "Images, fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.",
   ];
-  const SYNONYMS = ["Text only: pictures are left behind."];
+  const SYNONYMS = [
+    "Text only: pictures are left behind.",
+    "Images, tables, fonts, colors, drawings made of lines and shapes, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them.",
+  ];
   /** What the page says now, which no shape may catch. */
   const HONEST = [
     "A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page.",

@@ -9,6 +9,7 @@ import {
 } from "./capability";
 import {
   movePictureDown,
+  movePictureUp,
   replacePictureMedia,
   stretchFirstPicture,
 } from "@/tests/docx-hand-built";
@@ -240,9 +241,14 @@ describe("provesDocxPictures", () => {
     );
   });
 
-  it("is false for a picture moved below its caption, rescaled, or swapped for other pixels", async () => {
+  it("is false for a picture moved below its caption or above its heading, rescaled, or swapped for other pixels", async () => {
     await expect(
       provesDocxPictures(flowStandIn, wordThen(movePictureDown)),
+    ).resolves.toBe(false);
+    // Each side of the picture is asked: the mutation check of 2026-10-17
+    // removed the "after the line above" half and only this control saw it.
+    await expect(
+      provesDocxPictures(flowStandIn, wordThen(movePictureUp)),
     ).resolves.toBe(false);
     await expect(
       provesDocxPictures(flowStandIn, wordThen(stretchFirstPicture)),

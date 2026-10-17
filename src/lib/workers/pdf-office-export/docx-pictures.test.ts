@@ -42,6 +42,7 @@ import {
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import {
+  cellGridPdf,
   imageCaptionPdf,
   junkAfterEofPdf,
   repairStandIn,
@@ -61,7 +62,14 @@ import {
   type PdfOfficeExportRun,
 } from "./engine";
 import { pdfOfficeExportDeps } from "./native";
-import { MAX_BILEVEL_PICTURE_SIDE } from "./picture-limits";
+import { PDFDocument } from "pdf-lib";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
+import { scanPdfPages } from "./page-scan";
+import { encodePngImage } from "./png-encode";
+import {
+  MAX_BILEVEL_PICTURE_SIDE,
+  MAX_LAYERS_PER_PAGE,
+} from "./picture-limits";
 
 /** Production's deps, with poppler's reading order stood in for. */
 function deps(extra: Partial<PdfOfficeExportDeps> = {}): PdfOfficeExportDeps {
@@ -222,6 +230,35 @@ describe("PDF to Word keeps the pictures", () => {
       expect(t).toMatch(
         /\bscan then comes through as a picture, followed by its words\b/,
       );
+  }, 60_000);
+
+  it("a page whose drawing PowerPoint would flatten into one picture keeps its own picture in Word", async () => {
+    // Past MAX_LAYERS_PER_PAGE layers PowerPoint draws a page as ONE picture
+    // (`flattened`); that picture is a drawing layer, which Word does not
+    // carry, so a Word reading that flattened would lose the page's own
+    // pictures with it. Found by the mutation check of 2026-10-17, which
+    // turned `picturesOnly` off for flattening and stayed green.
+    const grid = await cellGridPdf(MAX_LAYERS_PER_PAGE + 1);
+    const doc = await PDFDocument.load(grid.pdf);
+    const page = doc.getPage(0);
+    const badge = encodePngImage(
+      30,
+      30,
+      "rgb8",
+      new Uint8Array(30 * 30 * 3).fill(90),
+    );
+    await drawRasterImage(page, await embedRasterImage(doc, badge, "png"), {
+      x: 5,
+      y: page.getHeight() - 35,
+      width: 30,
+      height: 30,
+    });
+    const pdf = await doc.save();
+    // Health: PowerPoint's reading of this page IS flattened.
+    expect((await scanPdfPages(pdf)).pages[0]!.flattened).toBe(true);
+    const report = await compareDocxPictures(pdf, (await word(pdf)).output);
+    expect(report.sourcePictures).toBe(1);
+    expect(report.pass, report.detail).toBe(true);
   }, 60_000);
 
   it("a page that is only a scan comes through as its picture, on its own page, and the result says its words are not text", async () => {

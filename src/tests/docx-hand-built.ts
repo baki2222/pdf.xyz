@@ -210,3 +210,21 @@ export async function replacePictureMedia(
   zip.file(`word/${target}`, bytes);
   return new Uint8Array(await zip.generateAsync({ type: "uint8array" }));
 }
+
+/** The first picture's paragraph moved above the text paragraph before it. */
+export function movePictureUp(docx: Uint8Array): Promise<Uint8Array> {
+  return editDocument(docx, (xml) => {
+    const { head, ps, tail } = bodyParagraphs(xml);
+    const at = ps.findIndex(isPicture);
+    let before = -1;
+    for (let i = at - 1; i >= 0; i--)
+      if (!isPicture(ps[i]!) && /<w:t\b/.test(ps[i]!)) {
+        before = i;
+        break;
+      }
+    if (at < 0 || before < 0) throw new Error("no picture with text before it");
+    const [picture] = ps.splice(at, 1);
+    ps.splice(before, 0, picture!);
+    return head + ps.join("") + tail;
+  });
+}
