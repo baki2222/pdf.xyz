@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * A worker panel with a file chosen keeps its page's drops: a second file
  * dropped anywhere on the page replaces the chosen one, through the panel's
