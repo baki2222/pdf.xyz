@@ -71,7 +71,8 @@ import {
   type PdfOfficeExportRun,
 } from "./engine";
 import { pdfOfficeExportDeps } from "./native";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { scanPdfPages } from "./page-scan";
 import { encodePngImage } from "./png-encode";
@@ -510,6 +511,38 @@ describe("PDF to Word keeps what the page shows, and only that", () => {
       }
     expect(black).toBeGreaterThan(100);
     expect(darkInMargin).toBe(0);
+  }, 60_000);
+
+  it("a frame drawn AROUND a JPEG — its box over the picture, its ink not — leaves the JPEG byte for byte: only ink that shows over a picture is painted in", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText("A framed photograph", { x: 72, y: 720, size: 14, font });
+    await drawRasterImage(
+      page,
+      await embedRasterImage(doc, JPEG_30X20, "jpg"),
+      {
+        x: 100,
+        y: 450,
+        width: 150,
+        height: 100,
+      },
+    );
+    // Drawn after the picture: a ring 12 pt outside it, whose bounding box
+    // holds the picture whole.
+    page.drawRectangle({
+      x: 88,
+      y: 438,
+      width: 174,
+      height: 124,
+      borderWidth: 3,
+      borderColor: rgb(0.8, 0.1, 0.1),
+    });
+    const run = await word(await doc.save());
+    const [pic] = (await readDocxBody(run.output)).pictures;
+    // Health: the frame's box overlaps the picture, so the probe ran.
+    expect(pic!.bytes!.length).toBe(JPEG_30X20.length);
+    expect([...pic!.bytes!].every((v, i) => v === JPEG_30X20[i])).toBe(true);
   }, 60_000);
 
   it("a stencil picture comes through as a picture, in its colour", async () => {
