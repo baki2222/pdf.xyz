@@ -63,8 +63,12 @@ describe("isTrustForwardedFor", () => {
   it("is off while /privacy does not disclose per-client keying, whatever the env says", () => {
     // INVERTED 2026-10-10. The env alone used to switch per-client keying on;
     // it stores a salted hash of each address, which /privacy did not say.
-    // The real flag (`PER_CLIENT_KEYING_DISCLOSED`) is false: no value of the
+    // Until 2026-10-17 this read the REAL flag (false then). The flag is now
+    // true — the origin answers only through Cloudflare, so the client-address
+    // header can be trusted, and /privacy says what is hashed — so the
+    // property is held through the test hook: undisclosed, no value of the
     // operator's variable turns trust on.
+    discloseKeyingForTests(false);
     for (const value of ["1", "true", "on", "yes", "enabled"]) {
       expect(
         isTrustForwardedFor(env({ [RATE_LIMIT_ENV.trustForwardedFor]: value })),
