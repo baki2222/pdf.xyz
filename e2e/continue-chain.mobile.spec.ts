@@ -156,3 +156,47 @@ test("the job's row is on the arriving page from its first frame: the runner nev
   expect(frames.at(-1)!.present.rail).toBe(true);
 });
 
+/**
+ * A FIGURE IS NEVER BROKEN ACROSS LINES (2026-10-17). On a phone the lean
+ * ending's button read "Download unchanged PDF (1.9" on one line and "KB)"
+ * on the next (PR #180 review). The size, its unit and its brackets are
+ * held together; the words around them still wrap.
+ */
+test("Download unchanged PDF on a phone: its size is on one line", async ({
+  page,
+}) => {
+  await merged(page);
+  await page.getByRole("button", { name: /merge 2 pdfs/i }).click();
+  await page
+    .getByRole("group", { name: "Continue with" })
+    .getByRole("link", { name: /compress pdf/i })
+    .click();
+  await expect(page).toHaveURL(/\/tools\/compress-pdf$/);
+  const button = page.getByRole("button", { name: /download unchanged pdf/i });
+  await expect(button).toBeVisible({ timeout: 20_000 });
+  const lines = await button.evaluate((el) => {
+    // The figure from "(" to ")", across whatever text nodes carry it.
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode())
+      nodes.push(n as Text);
+    const open = nodes.find((n) => n.data.includes("("))!;
+    const close = [...nodes].reverse().find((n) => n.data.includes(")"))!;
+    const range = document.createRange();
+    range.setStart(open, open.data.lastIndexOf("("));
+    range.setEnd(close, close.data.indexOf(")") + 1);
+    const tops = [...range.getClientRects()]
+      .filter((r) => r.width > 0)
+      .map((r) => Math.round(r.top));
+    return {
+      text: range.toString(),
+      tops: [...new Set(tops)],
+      buttonLines: [
+        ...new Set([...el.getClientRects()].map((r) => Math.round(r.height))),
+      ],
+    };
+  });
+  // Health: this is the figure, and the button is a phone's (narrow) one.
+  expect(lines.text).toMatch(/^\(\d+(\.\d+)? (B|KB|MB)\)$/);
+  expect(lines.tops, `"${lines.text}" broke across lines`).toHaveLength(1);
+});
