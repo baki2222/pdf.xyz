@@ -16,8 +16,10 @@ import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
  *  - THE JOB'S ROW. It shares the panel's top row with the privacy sentence,
  *    which takes two lines here, so it is a line of its own — and when it
  *    appeared with the claimed hand-off it pushed the runner down 32 px in a
- *    frame of its own, 234 ms before the editor arrived. Now the row is held
- *    from the frame "Bringing your files over…" is drawn.
+ *    frame of its own, 234 ms before the editor arrived. It was then held
+ *    from the frame "Bringing your files over…" is drawn — which still moved
+ *    the runner 32 px, and counted (below). Now it is on the arriving page
+ *    from its first frame, and stays for the visit.
  *
  * Each test fails with its reservation removed (a mutation run on the build,
  * recorded in the WP-08 repair report): that is what makes them guards
@@ -78,7 +80,28 @@ test("Download stays where it was painted while the receipt counts the pages", a
   expect(frames.at(-1)!.present.counted).toBe(true);
 });
 
-test("the job's row is held before the job is known: the runner never moves when it fills", async ({
+/**
+ * INVERTED 2026-10-17. This was "the job's row is held before the job is
+ * known: the runner never moves when it fills", and its history is kept:
+ *
+ *   The row opened in the frame the "Bringing your files over…" block did,
+ *   and its POSITIVE CONTROL asserted that in that frame the runner DID go
+ *   down by about the row's height (> 20 px) — "the runner's own change
+ *   absorbs it". It does not. A layout shift is the runner's START moving,
+ *   whatever else changes in the frame, and the browser counted it: on
+ *   c7abb986 (PR #180 review) the stage went 408 -> 440 at 390 and 401 ->
+ *   433 at 1280, and on a hand-off with no job (a guide's desk) closed back
+ *   — counted 0.0303 at 390 on a guide drop, 0.0148 on this very hop with
+ *   400 ms of latency. On loopback the hop draws inside the click's input
+ *   window, which forgave it; so this test passed while pinning the defect.
+ *
+ * Now the row is on the arriving page from its FIRST frame (the address
+ * carries the hand-off, `TicketRail`) and is never closed within the visit:
+ * the runner is at one position in every frame, and the steps are drawn
+ * into a row that was already there. The counted half, on a slowed line,
+ * is `e2e/handoff-arrival.mobile.spec.ts`.
+ */
+test("the job's row is on the arriving page from its first frame: the runner never moves", async ({
   page,
 }) => {
   await merged(page);
@@ -115,33 +138,21 @@ test("the job's row is held before the job is known: the runner never moves when
   );
   expect(frames.length, "no frames on the arriving page").toBeGreaterThan(5);
 
-  // The row opens in the frame the block does — never alone.
-  const held = frames.findIndex((f) => f.present.slot);
-  expect(held, "the job's row never appeared").toBeGreaterThanOrEqual(0);
-  expect(frames[held]!.tops.bringing).not.toBeNull();
-  if (held > 0) expect(frames[held - 1]!.tops.bringing).toBeNull();
-
-  // The job's steps appear in a row that was already there, and the
-  // runner is where it was in that frame — or, if the claim was that fast,
-  // in the very frame the block itself appeared (the runner's own change).
-  const filled = frames.findIndex((f) => f.present.rail);
-  expect(filled, "the job's steps never appeared").toBeGreaterThanOrEqual(held);
-  const before = frames[filled - 1];
-  if (before?.present.slot) {
-    expect(
-      frames[filled]!.tops.runner,
-      `the runner moved when the job's steps appeared: ${before.tops.runner} → ${frames[filled]!.tops.runner}`,
-    ).toBe(before.tops.runner);
-  } else {
-    expect(filled, "the steps appeared in a row of their own").toBe(held);
-  }
-  // Positive control on the instrument: where the row opened, with the
-  // block, the runner DID go down by about the row's height — the probe
-  // sees the very push it guards against, in the frame where the runner's
-  // own change absorbs it.
-  if (held > 0)
-    expect(
-      frames[held]!.tops.runner! - frames[held - 1]!.tops.runner!,
-    ).toBeGreaterThan(20);
+  // The row is there in the arriving page's first frame, and in every one.
+  expect(
+    frames.map((f) => f.present.slot),
+    "a frame of the arriving page without the job's row",
+  ).not.toContain(false);
+  // The runner is where it was first painted, in every frame: through the
+  // block, the steps filling in and the editor.
+  const { tops } = positionsFrom(frames, "runner");
+  expect(
+    new Set(tops),
+    `the runner moved on the arriving page: ${tops.join(" → ")}`,
+  ).toEqual(new Set([tops[0]]));
+  // Health: the frames saw the change the row is held for — the steps
+  // drawn into it, after the first frame.
+  expect(frames[0]!.present.rail).toBe(false);
   expect(frames.at(-1)!.present.rail).toBe(true);
 });
+
