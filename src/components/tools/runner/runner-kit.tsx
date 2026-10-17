@@ -1068,7 +1068,11 @@ export function ResultCard({
 }) {
   const outcome = useOutcomeFocus(true, announce);
   const none = useToolRun()?.plan.none;
-  const keep = useUnkeptResult(output !== undefined);
+  // Every card is a result to download (each worker panel draws one with
+  // its Download), whether or not it is handed the run's `output`: none of
+  // the twelve worker panels is, and their results went unasked-for under a
+  // paste (PR #180 re-review).
+  const keep = useUnkeptResult(true);
   return (
     <div
       {...outcome}
