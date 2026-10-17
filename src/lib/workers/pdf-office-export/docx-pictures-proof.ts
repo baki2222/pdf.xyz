@@ -45,6 +45,16 @@ export interface DocxPicturesProofInput {
   dropOnePicture: (docx: Uint8Array) => Promise<Uint8Array>;
 }
 
+/**
+ * How many fixtures the proof may be handed. A corpus that quietly shrank
+ * reports the strongest pass there is (`[] ⊆ X`, CLAUDE.md rule 4), so one
+ * under `min` FAILS the proof, however well each fixture fared; one over
+ * `max` is not the committed corpus either. Raise `min` with the corpus
+ * (12 on 2026-10-17); `docx-pictures-proof.test.ts` holds the committed one
+ * inside both.
+ */
+export const PROOF_CORPUS = { min: 12, max: 64 } as const;
+
 /** How many pictures a PDF paints (not stencils), read from the file. */
 async function paintedPictures(pdf: Uint8Array): Promise<number | null> {
   const pages = await inventoryPages(pdf);
@@ -73,6 +83,15 @@ export async function runDocxPicturesProof(
     };
   if (input.fixtures.length === 0)
     return { ok: false, lines: ["FAIL no fixtures: nothing would be proven"] };
+  // Judged all the same: the lines say what the corpus it had proved.
+  if (input.fixtures.length < PROOF_CORPUS.min)
+    fail(
+      `the corpus holds ${input.fixtures.length} fixture(s), implausibly few (at least ${PROOF_CORPUS.min})`,
+    );
+  if (input.fixtures.length > PROOF_CORPUS.max)
+    fail(
+      `the corpus holds ${input.fixtures.length} fixture(s), implausibly many (at most ${PROOF_CORPUS.max})`,
+    );
 
   for (const fixture of input.fixtures) {
     const run = await runPdfOfficeExport(
