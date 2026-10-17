@@ -96,14 +96,16 @@ export function ToolRunProvider({
 /**
  * Marks the component that calls it as "Bringing your files over…" for the
  * page's job row (`TicketRail`): the row is held open from the commit that
- * draws that block to the commit that removes it.
+ * draws that block, and stays open for the visit.
  *
- * A LAYOUT effect, on purpose: its state update is applied before the
- * browser paints, so the row opens in the SAME frame as the block appears
- * and — when the files came with no job to show — closes in the same frame
- * as the block gives way to the editor. Each of those frames already moves
- * the runner (the block is not the editor's height); the row never moves it
- * in a frame of its own. A passive effect would paint one frame without it.
+ * Normally the row is open already: a page reached by a hand-off holds it
+ * from its first painted frame, read from its address. This is the second
+ * way in, for a runner bringing files over on a page whose address did not
+ * say so. A LAYOUT effect, so its update applies before the browser paints
+ * and the row opens in the frame the block appears — a move of the runner
+ * all the same, which is why the address is read first. It never closes
+ * the row: a row that closed with the block moved the runner back up,
+ * counted (PR #180 review; the history is in `TicketRail`).
  */
 export function useBringingFiles(): void {
   const bring = useToolRun()?.bring;

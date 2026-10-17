@@ -8,7 +8,18 @@
  *    a malformed or absent param yields null.
  *  - **Strip** the token from the address bar reliably, preserving the path,
  *    hash, and every other query param, so a reload can't replay a consumed
- *    claim and the token never lingers in a shareable/logged URL.
+ *    claim and the token does not stay in the address a reader copies or
+ *    bookmarks.
+ *
+ * WHERE THE TOKEN STILL GOES (corrected 2026-10-17; it said the token
+ * "never lingers in a … logged URL"). An in-app navigation fetches the new
+ * page's payload from the server with the address it is going to —
+ * `GET /tools/x?handoff=h_…&_rsc=…` — so the token reaches the server in
+ * that request's URL, and whatever logs requests (the host's access logs)
+ * holds it. Off this device it opens nothing: the token only names a
+ * record in this browser's own IndexedDB, single-use and short-lived, and
+ * the file never leaves the browser with it. Analytics never see it
+ * (`@/lib/analytics/ga4`, `ga4-gate`).
  *
  * The hook keeps only the thin `window` glue; all the parsing/rewriting that is
  * easy to get subtly wrong lives here.
