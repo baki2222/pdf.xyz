@@ -626,7 +626,15 @@ function CompressEditor({
               size="lg"
               onClick={() => downloadBytes(pdf.bytes, pdf.file.name)}
             >
-              Download unchanged PDF ({formatBytes(analysis.originalBytes)})
+              {/* One line of text, the button's one flex item, and the
+                  figure in it never broken from its unit (it was at 390:
+                  "(1.9" / "KB)", PR #180 review). */}
+              <span>
+                Download unchanged PDF{" "}
+                <span className="whitespace-nowrap">
+                  ({formatBytes(analysis.originalBytes)})
+                </span>
+              </span>
             </DownloadCta>
             <p className="text-muted text-xs leading-5">
               Nothing came out smaller, so this is your file exactly as it came
@@ -651,7 +659,12 @@ function CompressEditor({
               )
             }
           >
-            Download optimized PDF ({formatBytes(analysis.optimizedBytes)})
+            <span>
+              Download optimized PDF{" "}
+              <span className="whitespace-nowrap">
+                ({formatBytes(analysis.optimizedBytes)})
+              </span>
+            </span>
           </DownloadCta>
           {/* The repack's receipt — before and after to one scale, the
               pages re-counted — and where the smaller file can go next. */}
