@@ -45,7 +45,10 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
-import { MAX_LAYERS_PER_PAGE } from "@/lib/workers/pdf-office-export/picture-limits";
+import {
+  MAX_DOCX_PICTURES,
+  MAX_LAYERS_PER_PAGE,
+} from "@/lib/workers/pdf-office-export/picture-limits";
 import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
   MAX_REQUEST_SIGNERS,
@@ -1346,9 +1349,14 @@ function listed(
  * paragraphs above and below it, at the size the page shows it, scaled down
  * only to fit the Word page's text area; `worker-tool-answers.test.ts` runs
  * a page with a picture and holds the picture clause to the .docx.
+ *
+ * CHANGED with the review of 2026-10-17: what the page draws over a picture
+ * is drawn into it (so "drawings made of lines and shapes" are kept THERE,
+ * and left behind elsewhere), and "each picture" has its exception — the
+ * pictures past MAX_DOCX_PICTURES, one file's size or one conversion's time
+ * are left out and counted. `claims-vs-capability.test.ts` holds both.
  */
-export const PDF_TO_WORD_KEEPS =
-  "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page. Tables, fonts, colors, drawings made of lines and shapes, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them, so the text arrives in Word's default style, ready to format — not as a copy of the page.";
+export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Tables, fonts, colors, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them, so the text arrives in Word's default style, ready to format — not as a copy of the page.`;
 
 /** Every language Translate PDF offers, named, from the list its panel renders. */
 export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(

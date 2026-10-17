@@ -5,6 +5,7 @@ import { MAX_LISTED_PAGES } from "@/lib/jobs/office-export-results";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
+  MAX_DOCX_PICTURES,
   MAX_PICTURE_SIDE,
 } from "@/lib/workers/pdf-office-export/picture-limits";
 import {
@@ -113,6 +114,7 @@ const CEILING_MB = Math.round(ceiling.bytes / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
 const PICTURE_PX = MAX_PICTURE_SIDE.toLocaleString("en-US");
 const BILEVEL_PX = MAX_BILEVEL_PICTURE_SIDE.toLocaleString("en-US");
+const MAX_PICTURES = MAX_DOCX_PICTURES.toLocaleString("en-US");
 /** Where the note can miss a picture: a page the reader cannot read ahead. */
 const UNNOTED =
   "except on a page the worker cannot read before it is drawn, as in a damaged PDF, where a picture can be left out with no note";
@@ -137,7 +139,7 @@ const content: ToolContent = {
     },
     {
       title: "Rework a guide that is built around screenshots",
-      body: "A how-to with a screenshot under each step comes through with every screenshot between its caption and the next step, so the steps can be rewritten without capturing the screens again. Arrows and boxes drawn on top are lines and shapes, so they do not come across.",
+      body: "A how-to with a screenshot under each step comes through with every screenshot between its caption and the next step, so the steps can be rewritten without capturing the screens again. Arrows, boxes and labels drawn on top of a screenshot are drawn into it, so it shows what the page shows; lines and shapes elsewhere on the page do not come across.",
     },
     {
       title: "Correct a letter or contract you only have as a PDF",
@@ -171,11 +173,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the Word file look like my PDF?",
-      a: "Not closely. The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind. A paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not. The original's indentation and spacing are not kept, and a picture painted over another, or over text, comes through on its own line instead of on top. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
+      a: "Not closely. The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind. A paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not. The original's indentation and spacing are not kept, and a picture painted over another, or over text, comes through on its own line instead of on top. What the page paints over a picture, such as a box over a name, is drawn into that picture, so what it covers stays covered. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
     },
     {
       q: "Are the pictures kept at their full quality?",
-      a: `Mostly. A plain JPEG photo up to ${PICTURE_PX} pixels on its longer side goes into the DOCX byte for byte. A larger one is scaled down to ${PICTURE_PX} pixels on that side, a black-and-white scan to ${BILEVEL_PX}, and a picture that is not a plain JPEG is re-saved, as a PNG or, for a photograph, a JPEG. A picture the page shows only part of is cropped in Word the same way, so the hidden part can be uncropped there. A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page, ${UNNOTED}. Two kinds are left out on purpose: a one-colour stencil, and a small image repeated across the page as a pattern.`,
+      a: `Mostly. A plain JPEG photo up to ${PICTURE_PX} pixels on its longer side goes into the DOCX byte for byte. A larger one is scaled down to ${PICTURE_PX} pixels on that side, a black-and-white scan to ${BILEVEL_PX}, and a picture that is not a plain JPEG is re-saved, as a PNG or, for a photograph, a JPEG. A one-colour stencil comes through in its colour, and a picture the page repeats comes through each time it is shown. A picture the page shows only part of is cropped in Word the same way, so the hidden part can be uncropped there, unless something is painted over the picture: then it is re-saved as the page shows it, at its own resolution, and what is covered is not in the file. A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page, ${UNNOTED}. Past ${MAX_PICTURES} pictures, the size of one file, or the time one conversion may take, a document's remaining pictures are left out too and counted in the same note; the text still comes through whole.`,
     },
     {
       q: "What happens to pages that are scans?",
