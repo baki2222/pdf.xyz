@@ -3,7 +3,6 @@
 import { useLayoutEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { useToolRun } from "@/components/tools/runner/tool-context";
-import { readHandoffId } from "@/lib/handoff/url";
 import { getToolBySlug } from "@/lib/tools";
 
 /**
@@ -50,6 +49,16 @@ import { getToolBySlug } from "@/lib/tools";
  * Heard as a list of steps with the current one marked (`aria-current=
  * "step"`); a tick is drawn, and said as "done".
  */
+/**
+ * The address says a hand-off brought this visit: `readHandoffId`'s rule
+ * (`@/lib/handoff/url`, a `handoff` parameter holding an `h_` token), read
+ * here without that module — imported, it and the id module behind it rode
+ * every tool page's first load (+0.4 KB gz, where the budget had none left:
+ * PR #180 re-review). `result-ending.test.tsx` holds the two to one answer.
+ */
+export const arrivedByHandoff = (search: string): boolean =>
+  /[?&]handoff=h_[^&]/.test(search);
+
 export function TicketRail() {
   const run = useToolRun();
   // Latched: open from the first commit that knew of a hand-off, and for
@@ -59,7 +68,7 @@ export function TicketRail() {
     // Measured before the browser paints, and set before it does: the one
     // re-render this costs is the point (React's "measure before paint").
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
-    if (readHandoffId(window.location.search)) setHeld(true);
+    if (arrivedByHandoff(window.location.search)) setHeld(true);
   }, []);
   const wanted = run !== null && (run.trail.length > 0 || run.bringing);
   if (wanted && !held) setHeld(true);

@@ -31,6 +31,7 @@ import {
   MemoryHandoffBackend,
 } from "@/lib/handoff";
 import { HANDOFF_MAX_TOTAL_BYTES } from "@/lib/handoff/record";
+import { readHandoffId } from "@/lib/handoff/url";
 import { continueTargetsFor, NO_CONTINUE } from "@/lib/intent/next-steps";
 import { outputFile, type OutputFile } from "@/lib/intent/run-output";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
@@ -38,7 +39,7 @@ import { getToolBySlug, tools } from "@/lib/tools";
 import { formatBytes } from "@/lib/utils";
 import { ContinueWith } from "./continue-with";
 import { CountMismatch, OutputFacts } from "./output-facts";
-import { TicketRail } from "./ticket-rail";
+import { arrivedByHandoff, TicketRail } from "./ticket-rail";
 
 /** An output of `size` bytes that is never read — sizes past what a test can allocate. */
 function sized(name: string, size: number): OutputFile {
@@ -560,6 +561,30 @@ describe("the job's steps", () => {
     } finally {
       back();
     }
+  });
+
+  it("the row reads an address the way the runner's claim does (`readHandoffId`)", () => {
+    const addresses = [
+      "?handoff=h_0123456789abcdef",
+      "?a=1&handoff=h_x",
+      "?handoff=h_x&a=1",
+      "?handoff=",
+      "?handoff=h_",
+      "?handoff=x_123",
+      "?handoffs=h_123",
+      "?xhandoff=h_123",
+      "?q=merge",
+      "",
+    ];
+    for (const search of addresses)
+      expect(arrivedByHandoff(search), search).toBe(
+        readHandoffId(search) !== null,
+      );
+    // Health: both answers occur.
+    expect(addresses.filter(arrivedByHandoff).length).toBeGreaterThan(1);
+    expect(
+      addresses.filter((a) => !arrivedByHandoff(a)).length,
+    ).toBeGreaterThan(1);
   });
 
   it("CONTROL: an address with no hand-off holds nothing", () => {
