@@ -965,8 +965,14 @@ function walkPage(
       invisible,
       spacing: 0,
     };
-    const ascent = Math.min(Math.max(font.ascent ?? 0.8, 0.5), 1.2);
-    const descent = Math.min(Math.max(-(font.descent ?? -0.2), 0.05), 0.6);
+    // Finite, not merely present: pdf.js gives a non-embedded standard Times
+    // or Courier face an ascent of NaN, and `Math.max(NaN, 0.5)` is NaN —
+    // until 2026-10-17 every such line was placed at NaN, and its slide
+    // carried `<a:off x="NaN"…/>`, which PowerPoint refuses.
+    const finite = (v: number | undefined, fallback: number) =>
+      typeof v === "number" && Number.isFinite(v) ? v : fallback;
+    const ascent = Math.min(Math.max(finite(font.ascent, 0.8), 0.5), 1.2);
+    const descent = Math.min(Math.max(-finite(font.descent, -0.2), 0.05), 0.6);
     let x = 0;
     for (const raw of glyphList) {
       if (typeof raw === "number") {
