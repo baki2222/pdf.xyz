@@ -161,3 +161,16 @@ describe("canRunDeepCompression", () => {
     ).toBe(false);
   });
 });
+
+/*
+ * `stageHoldPx` was tested here until 2026-10-11: how tall a picked file's
+ * stage was held — to the bottom of the screen, never past the cap
+ * (`STAGE_HOLD_REM`), in whole pixels. The hold is gone (its history is in
+ * `./compress-runner.tsx`, above `CompressSingle`): it moved the content
+ * under the runner at the pick, where a file dropped or handed over opens
+ * no input window. The test that inverts these — the stage is never held
+ * by script, in any state — renders the runner, in
+ * `./compress-runner.dom.test.tsx` ("the stage a picked file is analysed
+ * on"); the page that holds the first screen instead is measured by
+ * `e2e/continue-chain.spec.ts`.
+ */

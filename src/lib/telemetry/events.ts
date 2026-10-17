@@ -46,6 +46,10 @@ export const TOOL_ERROR_REASONS = [
   "unsupported-batch",
   "worker-unavailable",
   "invalid-input",
+  // The engine refused the file itself, and said why: the two refusals a
+  // result's error offers a fix for (`@/lib/pdf/remedies`).
+  "encrypted-input",
+  "unreadable-input",
   "processing-error",
 ] as const;
 
@@ -60,10 +64,14 @@ export function isToolErrorReason(reason: unknown): reason is ToolErrorReason {
 
 /**
  * Codes a run can fail with that no server sent: the connection dropped
- * (`network`) or the job was still running when the client stopped polling
- * (`timeout`).
+ * (`network`), the job was still running when the client stopped polling
+ * (`timeout`), or the in-browser engine refused the file and said why — it
+ * is encrypted, or not a readable PDF (`failureCode` in the runner kit maps
+ * `PdfEngineError.kind`; an engine error with no kind stays
+ * `unprocessable_entity`).
  */
-export type ClientFailureCode = "network" | "timeout";
+export type ClientFailureCode =
+  "network" | "timeout" | "encrypted_input" | "unreadable_input";
 
 /**
  * Every failure code -> the coarse category an analyst can act on. A `Record`
@@ -93,6 +101,8 @@ const REASON_BY_CODE: Record<
   file_too_large: "invalid-input",
   request_too_large: "invalid-input",
   malformed_pdf: "invalid-input",
+  encrypted_input: "encrypted-input",
+  unreadable_input: "unreadable-input",
   unsupported_tool: "unsupported-tool",
   // Anything else went wrong while processing.
   conflict: "processing-error",

@@ -36,8 +36,12 @@ import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
  *    and the {total} example is `previewPageNumber` over the default template.
  *
  * Control labels ("Start on page", "First number", "Font size", "Add page
- * numbers", "Download numbered PDF", "Start over", "Bottom center") are quoted
- * from `page-numbers-runner.tsx`, `runner-kit.tsx` and `stamp-controls.tsx`.
+ * numbers", "Download numbered PDF", "Back to adjust", "Start over", "Bottom
+ * center") are quoted from `page-numbers-runner.tsx`, `runner-kit.tsx` and
+ * `stamp-controls.tsx`. Back to adjust clears the result and nothing else
+ * (`onAdjust` = the run's `reset`), so the options and the file survive it;
+ * until it existed this step said a changed setting meant picking the
+ * original again (unbacked-claims rule 6 holds that sentence).
  * The presets are never counted in prose: a spelled count ("Three numbering
  * formats") is the defect `page-numbers-formats.test.ts` exists for.
  *
@@ -163,7 +167,7 @@ const content: ToolContent = {
     },
     {
       title: "Download numbered PDF",
-      body: `Save the result; ${sampleName} comes back as ${sampleOutput}. Start over clears the loaded file, so changing a setting afterwards means picking the original again.`,
+      body: `Save the result; ${sampleName} comes back as ${sampleOutput}. To try different settings, press Back to adjust: the options come back as you left them, with the same file still loaded, and the next run makes a fresh copy.`,
     },
   ],
 

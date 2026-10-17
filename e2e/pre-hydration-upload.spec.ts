@@ -7,8 +7,9 @@ import { writeTempPdf } from "./helpers";
  * that window fires `change` at an element React isn't listening to yet, so the
  * event is lost while the file stays in `input.files`: the page then shows an
  * untouched dropzone that the user can only escape by picking a *different*
- * file. `useEarlyFilePick` closes that window by adopting whatever is already
- * in the input the moment React mounts.
+ * file. The drop box closes that window by adopting whatever is already in
+ * its inputs the moment React takes it (`useDropBox`, which replaced
+ * `useEarlyFilePick` in the WP-07 re-review).
  *
  * These specs deliberately upload *without* waiting for hydration — that is the
  * whole point — so they must not use the hydration-gated `uploadFiles` helper.

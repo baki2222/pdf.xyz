@@ -27,7 +27,10 @@ import {
   Spinner,
   useAsyncRun,
   useOutcomeFocus,
+  NO_ADJUST,
+  outputFile,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
@@ -122,12 +125,18 @@ export function ExtractImagesEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel="Scanning for images…">
-          <ImageDown className="size-4" aria-hidden />
-          Extract images
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            busyLabel="Scanning for images…"
+          >
+            <ImageDown className="size-4" aria-hidden />
+            Extract images
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }
@@ -162,7 +171,8 @@ export function ExtractionResult({
         {...empty}
         role="group"
         aria-label="No extractable images found"
-        className="animate-float-up border-warn/40 bg-warn/10 focus-visible:ring-warn/50 flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2"
+        data-motion-ui=""
+        className="border-warn/40 bg-warn/10 focus-visible:ring-warn/50 motion-safe:animate-rise flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2"
       >
         <div className="flex items-start gap-3">
           <span className="bg-warn/10 text-warn grid size-10 shrink-0 place-items-center rounded-[4px]">
@@ -217,6 +227,13 @@ export function ExtractionResult({
         </>
       }
       onReset={onStartOver}
+      output={images.map((image) =>
+        outputFile(image.bytes, image.name, MIME[image.format]),
+      )}
+      // Nothing to set: "Scan again" (beside Download) re-reads the same file.
+      onAdjust={NO_ADJUST(
+        "Extract Images has no settings to change; Scan again re-reads the same file",
+      )}
     >
       <ExtractionActions
         pdf={pdf}

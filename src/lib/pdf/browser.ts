@@ -1,3 +1,4 @@
+import { resultsKept } from "@/lib/intent/unsaved";
 import type { NamedBytes } from "./types";
 
 /**
@@ -55,6 +56,9 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 /** Trigger a browser download for a Blob. */
 export function downloadBlob(blob: Blob, filename: string): void {
+  // Whatever result is on screen is kept now: a paste may replace it
+  // without asking (`confirmReplaceResult`).
+  resultsKept();
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

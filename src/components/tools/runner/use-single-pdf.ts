@@ -7,6 +7,7 @@ import { readFileBytes } from "@/lib/pdf/browser";
 import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { readPagesWithPdfjs } from "@/lib/pdf/pdfjs";
 import { validatePdfFile } from "@/lib/pdf/files";
+import { causeOf, type RemedyInput } from "@/lib/pdf/remedies";
 import type { Rotation } from "@/lib/pdf/types";
 import { errorMessage } from "./runner-kit";
 
@@ -32,6 +33,16 @@ export interface LockedPdf {
   file: File;
   bytes: Uint8Array;
   access: Exclude<PdfAccess, { kind: "unencrypted" }>;
+}
+
+/**
+ * Why a file could not be opened: the sentence, what the refusal says about
+ * its cause (an encrypted or unreadable file, a size over the limit — the
+ * error's remedy reads it, `ErrorNote`), and the file it was about.
+ */
+export interface SinglePdfError extends RemedyInput {
+  readonly message: string;
+  readonly file: File;
 }
 
 export interface UseSinglePdfOptions {
@@ -85,14 +96,19 @@ export function useSinglePdf({
   const [pdf, setPdf] = useState<LoadedPdf | null>(null);
   const [locked, setLocked] = useState<LockedPdf | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SinglePdfError | null>(null);
 
   const open = useCallback(
     async (file: File) => {
       const check = validatePdfFile(file);
       setLocked(null);
       if (!check.ok) {
-        setError(check.reason ?? "That file can't be used here.");
+        // A file check names no cause a remedy fixes: not a PDF, empty, or
+        // over the limit its sentence states.
+        setError({
+          message: check.reason ?? "That file can't be used here.",
+          file,
+        });
         setPdf(null);
         return;
       }
@@ -123,7 +139,7 @@ export function useSinglePdf({
         if (bytes && access && access.kind !== "unencrypted") {
           setLocked({ file, bytes, access });
         } else {
-          setError(errorMessage(err));
+          setError({ message: errorMessage(err), file, ...causeOf(err) });
         }
       } finally {
         setLoading(false);

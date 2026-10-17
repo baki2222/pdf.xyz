@@ -24,10 +24,11 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
-  Spinner,
   UndecodedImagesNotice,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine, SegmentedControl } from "./stamp-controls";
 import type { LoadedPdf } from "./use-single-pdf";
@@ -51,7 +52,7 @@ export function GrayscaleEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<GrayscaleResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<GrayscaleResult>();
   const [presetId, setPresetId] = useState("print");
   const [progress, setProgress] = useState<{
     done: number;
@@ -88,6 +89,9 @@ export function GrayscaleEditor({
         title="Grayscale PDF ready"
         summary={`${result.pageCount} page${result.pageCount === 1 ? "" : "s"} rasterized · ${formatBytes(pdf.file.size)} → ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result.bytes, grayscaleOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         {/* Both sizes, and a reason when the second is bigger: a text PDF
             grows by two orders of magnitude here (grayscale-runner-size.test.tsx). */}
@@ -145,9 +149,6 @@ export function GrayscaleEditor({
         />
       </div>
 
-      {busy && progress && (
-        <RenderProgress done={progress.done} total={progress.total} />
-      )}
       {error && <ErrorNote message={error} />}
 
       <PrivacyLine>
@@ -155,32 +156,19 @@ export function GrayscaleEditor({
         browser.
       </PrivacyLine>
 
-      <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel="Converting…">
-          <FileImage className="size-4" aria-hidden />
-          Convert to grayscale
-        </RunButton>
-      </div>
-    </div>
-  );
-}
-
-function RenderProgress({ done, total }: { done: number; total: number }) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  return (
-    <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-      <span className="text-muted inline-flex items-center gap-1.5 text-xs">
-        <Spinner className="size-3" /> Converting pages… {done}/{total}
-      </span>
-      <span
-        className="bg-wash h-1 w-full overflow-hidden rounded-full"
-        aria-hidden
-      >
-        <span
-          className="bg-accent block h-full rounded-full transition-[width] duration-300"
-          style={{ width: `${pct}%` }}
-        />
-      </span>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            busyLabel="Converting pages…"
+            progress={progress && { ...progress, unit: "pages" }}
+          >
+            <FileImage className="size-4" aria-hidden />
+            Convert to grayscale
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

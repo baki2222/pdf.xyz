@@ -21,8 +21,10 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import {
   allIndices,
   invertSelection,
@@ -58,7 +60,7 @@ function RotateEditor({
     allIndices(pdf.pageCount),
   );
   const anchorRef = useRef<number | null>(null);
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const { thumbs, rendered, status, capped, eagerCount, requestPage } =
     usePdfThumbnails(pdf.bytes, pdf.pageCount);
 
@@ -104,6 +106,9 @@ function RotateEditor({
         title="PDF rotated"
         summary={`${changedCount} page${changedCount === 1 ? "" : "s"} rotated · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result, outputName(pdf.file.name, "rotated"))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -216,17 +221,19 @@ function RotateEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={changedCount === 0}
-          busyLabel="Rotating…"
-        >
-          <RotateCw className="size-4" aria-hidden />
-          Apply rotation
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={changedCount === 0}
+            busyLabel="Rotating…"
+          >
+            <RotateCw className="size-4" aria-hidden />
+            Apply rotation
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

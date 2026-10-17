@@ -10,13 +10,16 @@ import {
 import { useState } from "react";
 import { UploadCloud } from "lucide-react";
 import { LiveRegion, resetAnnouncer } from "@/components/a11y/live-region";
+import { buttonVariants } from "@/components/ui/button";
 import {
   ChipButton,
   ErrorNote,
+  NO_ADJUST,
   ResultCard,
   ResultPanel,
   RunButton,
   WorkerRunButton,
+  outputFile,
 } from "./runner-kit";
 
 /**
@@ -41,6 +44,8 @@ afterEach(() => {
   resetAnnouncer();
 });
 
+const MERGED = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
 function MiniRunner({ announcement }: { announcement?: string } = {}) {
   const [done, setDone] = useState(false);
   if (done) {
@@ -50,6 +55,8 @@ function MiniRunner({ announcement }: { announcement?: string } = {}) {
         summary="3 files combined into one PDF · 12 pages"
         announcement={announcement}
         onReset={() => setDone(false)}
+        output={outputFile(MERGED, "merged.pdf")}
+        onAdjust={NO_ADJUST("a fixture with no settings")}
       >
         <button type="button">Download merged PDF</button>
       </ResultPanel>
@@ -381,11 +388,23 @@ describe("WorkerRunButton", () => {
       </WorkerRunButton>,
     );
     // A control that keeps its place in the focus order must still LOOK
-    // unavailable; `disabled:opacity-60` stops applying the moment the native
-    // attribute goes away, and nothing else would notice.
+    // unavailable; `disabled:opacity-*` stops applying the moment the native
+    // attribute goes away, and nothing else would notice. And it looks
+    // unavailable the way every other button does: the dimming is read from
+    // `buttonVariants()`, whose opacity `design-tokens.test.ts` holds to AA,
+    // so the two cannot drift apart (both said 60, held only by a copy).
+    const dim = /(?:^|\s)(aria-disabled:opacity-\d+)(?=\s|$)/.exec(
+      buttonVariants(),
+    )?.[1];
     expect(
-      screen.getByRole("button", { name: "Summarize PDF" }).className,
-    ).toContain("aria-disabled:opacity-60");
+      dim,
+      "buttonVariants() carries no aria-disabled dimming",
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Summarize PDF" })
+        .className.split(/\s+/),
+    ).toContain(dim);
   });
 });
 

@@ -21,7 +21,11 @@ import {
   RunButton,
   RunnerSection,
   useAsyncRun,
+  NO_ADJUST,
+  NO_OUTPUT,
+  textOutputFile,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { NoSelectableTextNote } from "./no-text-note";
@@ -68,6 +72,17 @@ function PdfToMarkdownEditor({
         }
         onReset={onReset}
         tone={result.hasMarkdown ? "ok" : "warn"}
+        output={
+          result.hasMarkdown
+            ? textOutputFile(
+                result,
+                result.markdown,
+                filename,
+                "text/markdown;charset=utf-8",
+              )
+            : NO_OUTPUT("no selectable text, so no Markdown was written")
+        }
+        onAdjust={NO_ADJUST("PDF to Markdown has no settings to change")}
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
@@ -130,12 +145,14 @@ function PdfToMarkdownEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel="Creating Markdown…">
-          <FileText className="size-4" aria-hidden />
-          Create Markdown
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton onClick={onRun} busy={busy} busyLabel="Creating Markdown…">
+            <FileText className="size-4" aria-hidden />
+            Create Markdown
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

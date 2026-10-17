@@ -27,6 +27,10 @@ import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { DESK_ISLAND_MARKER } from "@/components/intent/desk-island-chunk";
 import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
+import { TICKET_DIALOG_CHUNK_MARKER } from "@/components/intent/ticket-dialog-chunk";
+import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
+import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
+import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
@@ -205,6 +209,50 @@ const OUR_LAZY: LazyLibrary[] = [
     why: "the home desk fetches it when a file approaches or arrives; a visitor who never brings one never downloads it",
     allowedAtLoad: {},
   },
+  // WP-07 (2026-10-10): the ticket dialog — what a page does with files that
+  // are not its own (no target, a target at work, a target that opens none
+  // of them). The drop layer that opens it is in EVERY page's first load,
+  // so a static import there would put the dialog, and through it the
+  // ticket and the catalogue, on every page; it fetches it on a drag no
+  // target will take, or when such files land. No page may load it up front.
+  {
+    what: "the ticket dialog",
+    marker: TICKET_DIALOG_CHUNK_MARKER,
+    why: "the drop layer fetches it only for files the page's own target does not take",
+    allowedAtLoad: {},
+  },
+  // WP-07 re-review (2026-10-10): what makes a drop box take a file — its
+  // drag states, its claim on a release, its registration — is the drop
+  // engine, in the registry's chunk. Every tool page's zone, the home desk
+  // and the workspace's panel render a box, and as first merged each
+  // carried its engine: 2.4 KB gz on every tool page against WP-07's 0.8.
+  // The box asks for it as it mounts; the layer, on idle.
+  {
+    what: "the drop engine",
+    marker: DROP_ENGINE_MARK,
+    why: "a drop box fetches its engine with the registry as it mounts, and the drop layer on idle",
+    allowedAtLoad: {},
+  },
+  // WP-07 re-review (2026-10-10): the "replace" targets — an open editor's,
+  // a chosen file's — exist only once a file has arrived, and load with it.
+  {
+    what: "the replace targets",
+    marker: REPLACE_BOXES_CHUNK,
+    why: "the open editor and a worker panel's chosen file fetch them as they first appear, with the file",
+    allowedAtLoad: {},
+  },
+  // WP-08 (2026-10-10): the end of a run — the receipt that re-opens and
+  // counts the output, and "Continue with", which carries it on (the
+  // hand-off launch and the page count come with them). Everything in the
+  // runner kit is in every tool page's first load; these are fetched as a
+  // run starts (Compress PDF's as its file arrives) and drawn when it ends,
+  // so no page may load them up front.
+  {
+    what: "the result's ending",
+    marker: RESULT_ENDING_CHUNK,
+    why: "the runner kit fetches it when a run starts, Compress PDF when its file arrives; a visit that never brings a file never downloads it",
+    allowedAtLoad: {},
+  },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load
   // on the home page, which renders it; the reason it sits behind a
   // `next/dynamic` boundary (`hero-desk-island.tsx`) is that every other
@@ -334,8 +382,19 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * the count: +1.6. The whole fetch, catalogue included, went 31.8 -> 32.25
  * gz, the cost of one more chunk. 22 sits just above 21.35, as 21 sat above
  * the 19.2 it was written against.
+ *
+ * RAISED 22 -> 23 on 2026-10-10 by WP-07, and this time the ticket DID grow,
+ * for a reason: the ticket dialog opens it on pages that load nothing of the
+ * desk (/tools, a category page, a tool beside a file it cannot open). Its
+ * chunk went 7,406 -> 8,613 B gz: the format table (2,310 B raw) and the
+ * recents store (1,398), which a desk visitor already had from the page, now
+ * ship inside it — webpack keeps in a lazy chunk whatever not every parent
+ * has — and the unsaved-work question launches ask first (290). Measured
+ * 22.54 over the desk's fetch. The cost lands on the home page, which loads
+ * the first two with the desk and so fetches them twice; on every other page
+ * they are the dialog's first copy.
  */
-const TICKET_FETCH_GZ_KB = 22;
+const TICKET_FETCH_GZ_KB = 23;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

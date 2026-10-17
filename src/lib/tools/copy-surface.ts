@@ -155,6 +155,9 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
+    // The fix a known refusal offers, and where its file goes there (WP-08):
+    // the words an error's remedy line says. Beside engine code, so listed.
+    path.join(ROOT, "src", "lib", "pdf", "remedies.ts"),
     // Where a hand-off came from, and the sentence the receiving tool page
     // says about it (WP-04). Listed singly, not the whole folder: the rest
     // of src/lib/handoff is storage code (addendum WP-04 #76).

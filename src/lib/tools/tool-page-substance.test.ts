@@ -119,7 +119,7 @@ const RUNNER_DIR = "src/components/tools/runner";
  * Resolved through the registry and the dispatcher's own `case` arms, so a
  * renamed runner moves the check with it; an unresolvable slug is FATAL.
  */
-function runnerSource(slug: string): string {
+function runnerModules(slug: string): { main: string; nested: string[] } {
   const kind = getRunnerKind(slug);
   if (!kind) throw new Error(`${slug} mounts no runner`);
   const dispatch = read(`${RUNNER_DIR}/tool-runner.tsx`);
@@ -144,10 +144,84 @@ function runnerSource(slug: string): string {
     }
     return [];
   });
+  return { main, nested };
+}
+
+/**
+ * The runner's CODE: what the checks below read for a pattern the runner
+ * must or must not contain. For the LABELS a page may quote, see
+ * {@link runnerLabelSource}, which reads wider.
+ */
+function runnerSource(slug: string): string {
+  const { main, nested } = runnerModules(slug);
   return [main, ...nested]
     .join("\n")
     .replace(/&amp;/g, "&")
     .replace(/&apos;/g, "'");
+}
+
+/**
+ * Every label a runner's page can show: {@link runnerSource}, plus the
+ * result's ending, which lives in `src/components/intent` and is fetched by
+ * the runner kit with `import()` — its receipt and "Continue with" are on
+ * every runner's page, but a walk of `./` imports never reached them, so a
+ * step quoting “Continue with” would have failed as missing (WP-08; addendum
+ * #8 preferred following the graph to keeping the label in the runner kit).
+ * Each intent module the sources import, statically or with `import()`, and
+ * the modules it re-exports; type-only imports carry no label.
+ *
+ * A function of its own, NOT a wider `runnerSource`: as first written it
+ * widened that, and an absence check read the ending's code as the
+ * runner's — PDF to PNG "mentioned a background" because the receipt styles
+ * one (2026-10-10). A wider set answers an easier question.
+ */
+function runnerLabelSource(slug: string): string {
+  const { main, nested } = runnerModules(slug);
+  const intent = [main, ...nested].flatMap((source) =>
+    intentModules(source).flatMap((file) => {
+      const text = read(file);
+      const reexported = [
+        ...text.matchAll(/export\s+\{[^}]*\}\s+from\s+"\.\/([^"]+)"/g),
+      ].flatMap((m) => {
+        for (const ext of [".tsx", ".ts"]) {
+          try {
+            return [read(`${INTENT_DIR}/${m[1]}${ext}`)];
+          } catch {
+            /* try the next extension */
+          }
+        }
+        return [];
+      });
+      return [text, ...reexported];
+    }),
+  );
+  return [runnerSource(slug), ...intent]
+    .join("\n")
+    .replace(/&amp;/g, "&")
+    .replace(/&apos;/g, "'");
+}
+
+const INTENT_DIR = "src/components/intent";
+
+/** The intent modules a source imports for their values, as file paths. */
+function intentModules(source: string): string[] {
+  const specifiers = [
+    ...source.matchAll(
+      /(?:import\s*\(\s*|import\s+(?!type\b)[^;]*?\s+from\s+)"@\/components\/intent\/([^"]+)"/g,
+    ),
+  ].map((m) => m[1]!);
+  return [...new Set(specifiers)].flatMap((name) => {
+    for (const ext of [".tsx", ".ts"]) {
+      const file = `${INTENT_DIR}/${name}${ext}`;
+      try {
+        read(file);
+        return [file];
+      } catch {
+        /* try the next extension */
+      }
+    }
+    return [];
+  });
 }
 
 /** Every “quoted label” in a string. */
@@ -231,7 +305,7 @@ describe("How it works says what the runner does", () => {
     const missing: string[] = [];
     for (const tool of inBrowser()) {
       if (!getRunnerKind(tool.slug)) continue;
-      const source = runnerSource(tool.slug);
+      const source = runnerLabelSource(tool.slug);
       const texts = [
         ...page(tool.slug).howTo,
         ...page(tool.slug).faq.map((e) => e.answer),
@@ -249,6 +323,20 @@ describe("How it works says what the runner does", () => {
     // Positive control, through the same resolver.
     expect(runnerSource("rotate-pdf").includes("Rotate to landscape")).toBe(
       false,
+    );
+    // …and the widened walk reaches the result's ending: "Continue with" is
+    // written only in an intent module the runner kit fetches with import().
+    expect(runnerLabelSource("merge-pdf")).toContain("Continue with");
+    // …while the runner's CODE, which the absence checks read, stays the
+    // runner's: the ending's styles are not PDF to PNG's.
+    expect(runnerSource("merge-pdf")).not.toContain(
+      "re-opened and counted in this browser",
+    );
+    expect(runnerLabelSource("merge-pdf")).toContain(
+      "re-opened and counted in this browser",
+    );
+    expect(read("src/components/tools/runner/runner-kit.tsx")).not.toMatch(
+      />\s*Continue with\s*</,
     );
   });
 });

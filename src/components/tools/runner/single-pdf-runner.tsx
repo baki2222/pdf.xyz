@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { FileText, ShieldAlert } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
 import { Dropzone, ErrorNote, Spinner } from "./runner-kit";
@@ -12,6 +12,11 @@ import {
 import { useSinglePdf, type LoadedPdf, type PdfReader } from "./use-single-pdf";
 import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
 
+/** The open editor as its page's "replace" target — fetched with the file. */
+const EditorBox = lazy(() =>
+  import("../replace-boxes").then((m) => ({ default: m.EditorBox })),
+);
+
 /**
  * Handles the shared "load one PDF" lifecycle — dropzone, reading state, and
  * errors — then renders an editor for the loaded document. The editor subtree is
@@ -22,6 +27,31 @@ import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
  * for that tool and pre-load its first PDF, or pass an already-claimed `handoff`
  * (when a parent decided single-vs-batch). Direct visits with no hand-off behave
  * exactly as before — a plain file picker.
+ *
+ * REPLACE. While a document is open, the editor is its page's drop target
+ * (`@/lib/intent/page-target`, verb "replace"): a PDF dropped or pasted
+ * anywhere on the page opens in its place, through the same `open` a pick
+ * uses — after `confirmLeave()`, so unsaved work is asked about first
+ * (the editors that register it are WP-08's). It is registered after the
+ * drop zone it replaced unmounted and before any secondary zone the editor
+ * renders, and secondary zones never register (`Dropzone`'s `pageTarget`
+ * is opt-in), so Sign PDF's signature-image zone cannot take the page's
+ * drops from it. It does not take a file while a run is in flight — read
+ * from the editor's own `aria-busy`, the statement a screen reader hears
+ * — and a file that is not a PDF goes to the ticket dialog rather than
+ * closing the editor on an error.
+ *
+ * A REPLACE IS SAID, AND FOCUS SURVIVES IT — "Replaced alpha.pdf with
+ * beta.pdf in Rotate PDF.", and focus that was inside the old editor moves
+ * into the new one (`replace-target.test.tsx`).
+ *
+ * All of that is `EditorBox` (`../replace-boxes`), fetched as the editor
+ * first opens — with the first file, not with the page. React reveals a
+ * lazy component up to 300 ms after the editor it sits in, so a file
+ * released meanwhile waits for it rather than going to the ticket dialog:
+ * the editor is drawn as the page's target to be (`data-page-drop-target`;
+ * `targetsArrived` in the registry). The tool it names is its page's
+ * (`data-tool-name`).
  *
  * A file that already carries digital signatures gets a notice above the
  * editor, before Run: every PDF a client tool saves is a full pdf-lib rewrite,
@@ -63,6 +93,7 @@ export function SinglePdfRunner({
   // Self-claim only when a parent hasn't already provided a claimed hand-off.
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);
   const handoff = providedHandoff ?? selfHandoff;
+  const editorRef = useRef<HTMLDivElement>(null);
 
   // Pre-load the first handed-off PDF exactly once.
   const openedRef = useRef(false);
@@ -80,7 +111,9 @@ export function SinglePdfRunner({
     return (
       <div
         key={key}
+        ref={editorRef}
         data-single-pdf-runner="loaded"
+        data-page-drop-target=""
         className="flex flex-col gap-4"
       >
         {handoff.status === "ready" && (
@@ -97,6 +130,14 @@ export function SinglePdfRunner({
           />
         )}
         {children(pdf, clear)}
+        <Suspense fallback={null}>
+          <EditorBox
+            editor={editorRef}
+            from={pdf.file.name}
+            open={open}
+            toolName={toolName}
+          />
+        </Suspense>
       </div>
     );
   }
@@ -117,12 +158,13 @@ export function SinglePdfRunner({
         </div>
       ) : (
         <Dropzone
+          pageTarget
           onFiles={(files) => files[0] && open(files[0])}
           multiple={false}
           hint={hint}
         />
       )}
-      {error && <ErrorNote message={error} />}
+      {error && <ErrorNote message={error.message} cause={error} />}
     </div>
   );
 }
@@ -169,7 +211,10 @@ export function FileHeader({
   aside?: ReactNode;
 }) {
   return (
-    <div className="bg-panel border-line flex items-center gap-3 rounded-[4px] border px-3.5 py-3">
+    <div
+      data-file-header=""
+      className="bg-panel border-line flex items-center gap-3 rounded-[4px] border px-3.5 py-3"
+    >
       <FileText className="text-accent size-4 shrink-0" aria-hidden />
       <span className="text-fg min-w-0 flex-1 truncate text-sm">
         {pdf.file.name}

@@ -20,8 +20,10 @@ import {
   RunButton,
   RunnerSection,
   errorMessage,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
   PrivacyLine,
@@ -68,7 +70,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     width: number;
     height: number;
   } | null>(null);
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
   // Read page 1's size for the cosmetic schematic preview. The editor subtree is
   // keyed by file, so this runs once; the alive flag drops a late resolve.
@@ -121,6 +123,9 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         title="PDF cropped"
         summary={`Cropped ${count} page${count === 1 ? "" : "s"} · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result, croppedOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <div className="flex w-full flex-col gap-3">
           <button
@@ -293,17 +298,19 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={isEmptyMargins(margins)}
-          busyLabel="Cropping…"
-        >
-          <Crop className="size-4" aria-hidden />
-          Crop PDF
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={isEmptyMargins(margins)}
+            busyLabel="Cropping…"
+          >
+            <Crop className="size-4" aria-hidden />
+            Crop PDF
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

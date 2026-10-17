@@ -61,6 +61,14 @@ export interface Tool {
   outputs: string[];
   /** Slugs of related tools shown as cross-links. */
   related?: string[];
+  /**
+   * Where a finished file most often goes next, first — the head of the
+   * result's "Continue with" row, ahead of `related` (which also orders the
+   * page's Related tools cards, so it cannot be reordered for this). Every
+   * entry must be a real continue target for this tool:
+   * `next-steps.test.ts` fails one that is not.
+   */
+  next?: string[];
   /** Optional "how it works" steps for the tool page. */
   how?: string[];
 }

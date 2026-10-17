@@ -24,6 +24,7 @@
  */
 import type { ReactNode } from "react";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -33,14 +34,24 @@ import {
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
-import { getToolBySlug } from "@/lib/tools";
+import {
+  __setHandoffStoreForTests,
+  claimHandoff,
+  HandoffStore,
+  MemoryHandoffBackend,
+} from "@/lib/handoff";
+import { continueTargetsFor } from "@/lib/intent/next-steps";
+import { analyzePdf } from "@/lib/pdf/analyze";
+import { getToolBySlug, tools } from "@/lib/tools";
 import type { NativeCompressor } from "@/lib/workers/compression/engine";
 import { createLocalDevAdapter } from "@/lib/workers/local-dev";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { makeSignedPdf } from "@/tests/signed-pdf";
+import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CompressRunner, UNLOCK_TOOL_HREF } from "./compress-runner";
+import { ToolRunProvider } from "./tool-context";
 
 const router = {
   back: () => {},
@@ -162,7 +173,8 @@ const asFile = (bytes: Uint8Array, name: string) =>
     type: "application/pdf",
   });
 
-function drop(container: HTMLElement, files: File[]) {
+async function drop(container: HTMLElement, files: File[]) {
+  await dropSheetsLive(container);
   const input = container.querySelector('input[type="file"]');
   expect(input, "the runner offers a file picker").not.toBeNull();
   fireEvent.drop(input!.closest("label")!, { dataTransfer: { files } });
@@ -178,7 +190,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
       ownerPassword: "owner-secret",
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(bytes, "statement.pdf")]);
+    await drop(container, [asFile(bytes, "statement.pdf")]);
 
     const notice = await screen.findByRole(
       "status",
@@ -223,7 +235,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
       objectStreams: true,
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(bytes, "statement.pdf")]);
+    await drop(container, [asFile(bytes, "statement.pdf")]);
     const notice = await screen.findByRole(
       "status",
       { name: /permission restrictions/i },
@@ -254,7 +266,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
       objectStreams: true,
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(bytes, "statement.pdf")]);
+    await drop(container, [asFile(bytes, "statement.pdf")]);
 
     const run = await screen.findByRole(
       "button",
@@ -287,7 +299,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
       ownerPassword: "owner-secret",
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(bytes, "locked.pdf")]);
+    await drop(container, [asFile(bytes, "locked.pdf")]);
 
     const alert = await screen.findByRole("alert", {}, { timeout: 10_000 });
     expect(alert).toHaveTextContent(/needs a password to open/i);
@@ -302,7 +314,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
   it("control: an unencrypted PDF gets the analysis and the lossless download", async () => {
     answerWorkerStatus();
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
+    await drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
     await screen.findByRole(
       "button",
       { name: /download optimized pdf/i },
@@ -317,11 +329,90 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
   });
 });
 
+/*
+ * INVERTED 2026-10-11. Until then `./compress-runner.test.ts` held a picked
+ * file's stage to `stageHoldPx`: from the commit the file arrived in, a
+ * layout effect set the stage's min-height to what was left of the screen
+ * below it, capped at `STAGE_HOLD_REM`. That moved the content under the
+ * runner at the pick, and a file dropped, pasted or handed over opens no
+ * input window, so the move was counted (page CLS 0.0567 at 1280 x 900,
+ * 0.1212 at 768 x 1024). The page holds the first screen now
+ * (`data-first-screen`), and the stage only grows into it.
+ */
+describe(
+  "Compress: the stage a picked file is analysed on",
+  { timeout: 30_000 },
+  () => {
+    it("is never held by script — no state sets its height — and grows into the panel it is drawn in", async () => {
+      // A screen with room for a hold, so one would show: jsdom lays
+      // nothing out, and on a screen 0 px tall the old hold computed 0
+      // and set nothing either — this test would have passed against it.
+      const html = document.documentElement;
+      const real = Object.getOwnPropertyDescriptor(html, "clientHeight");
+      Object.defineProperty(html, "clientHeight", {
+        configurable: true,
+        value: 900,
+      });
+      try {
+        answerWorkerStatus();
+        const { container } = render(withRouter(<CompressRunner />));
+        const heights: string[] = [];
+        const states = new Set<string>();
+        const read = () => {
+          const stage = container.querySelector<HTMLElement>(
+            "[data-compress-stage]",
+          );
+          if (!stage) return;
+          heights.push(stage.style.minHeight);
+          const text = stage.textContent ?? "";
+          states.add(
+            stage.querySelector('[aria-label^="Analysis complete"]')
+              ? "analysis"
+              : text.includes("Analyzing")
+                ? "analyzing"
+                : text.includes("Reading")
+                  ? "reading"
+                  : "other",
+          );
+        };
+        const observer = new MutationObserver(read);
+        observer.observe(container, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ["style"],
+        });
+        await drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
+        await screen.findByRole(
+          "button",
+          { name: /download optimized pdf/i },
+          { timeout: 10_000 },
+        );
+        read();
+        observer.disconnect();
+        // Health: the stage was read through the run, to the analysis.
+        expect(states.has("analysis"), [...states].join(", ")).toBe(true);
+        expect(heights.length).toBeGreaterThan(1);
+        expect(
+          heights.filter(Boolean),
+          "a state of the stage set its height",
+        ).toEqual([]);
+        expect(
+          container.querySelector("[data-compress-stage]")!.classList,
+        ).toContain("grow");
+      } finally {
+        if (real) Object.defineProperty(html, "clientHeight", real);
+        else delete (html as { clientHeight?: number }).clientHeight;
+      }
+    });
+  },
+);
+
 describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
   it("warns that the signatures will break, and gates both outputs behind a confirmation", async () => {
     answerWorkerStatus();
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [
+    await drop(container, [
       asFile(await makeSignedPdf({ count: 2 }), "contract.pdf"),
     ]);
 
@@ -354,7 +445,7 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
   it("control: an unsigned PDF keeps 'no quality lost' and needs no confirmation", async () => {
     answerWorkerStatus();
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
+    await drop(container, [asFile(await plainPdf(3), "plain.pdf")]);
     await screen.findByRole(
       "button",
       { name: /download optimized pdf/i },
@@ -374,6 +465,150 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
   });
 });
 
+/**
+ * A result with nothing saved still ENDS (2026-10-17). Until then the
+ * Download and the ending (receipt, Continue with) were both inside
+ * `canDownload &&`, so an already-lean file's analysis ended at "Analyze
+ * another file" — and a merge carried here from Merge PDF, never downloaded,
+ * could go nowhere (batch C review; `e2e/continue-chain.spec.ts` drives that
+ * path in a browser). Now: the file as it came in, said to be unchanged,
+ * and the ending carrying it.
+ */
+describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
+  /**
+   * Lean, and NOT the repack's own bytes. Written with object streams, as
+   * the repack writes, but with a producer and creator SHORTER than the
+   * site's: the repack writes "pdf.xyz" into both, so its file is a few
+   * bytes LONGER — nothing saved, the analysis "already lean" — and differs
+   * from the input.
+   *
+   * WAS (until 2026-10-17) the site's own producer and creator, so the
+   * repack wrote this file back byte for byte, and the test could not tell
+   * the input from the repack: Download saving `result.optimized`, and
+   * Continue with carrying it, both stayed green (PR #180 review). With
+   * this fixture each is red.
+   */
+  async function leanPdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.load(await plainPdf(2));
+    doc.setProducer("p");
+    doc.setCreator("c");
+    return doc.save({ useObjectStreams: true });
+  }
+
+  const URL_STATICS = ["createObjectURL", "revokeObjectURL"] as const;
+  const original = URL_STATICS.map(
+    (key) => [key, Object.getOwnPropertyDescriptor(URL, key)] as const,
+  );
+  afterEach(() => {
+    vi.restoreAllMocks();
+    __setHandoffStoreForTests(null);
+    for (const [key, descriptor] of original) {
+      if (descriptor) Object.defineProperty(URL, key, descriptor);
+      else Reflect.deleteProperty(URL, key);
+    }
+  });
+
+  it("offers the file as it came in, byte for byte and said to be unchanged, with the receipt and Continue with carrying THAT file", async () => {
+    answerWorkerStatus(null);
+    const bytes = await leanPdf();
+    // Health: the repack is no smaller, and it is not the input — so a
+    // download or a carry of the repack is told from one of the input.
+    const { optimized } = await analyzePdf(bytes);
+    expect(optimized.byteLength).toBeGreaterThanOrEqual(bytes.byteLength);
+    expect(Buffer.from(optimized).equals(Buffer.from(bytes))).toBe(false);
+
+    __setHandoffStoreForTests(
+      new HandoffStore({ backend: new MemoryHandoffBackend() }),
+    );
+    const pushes: string[] = [];
+    const tool = getToolBySlug("compress-pdf")!;
+    const { container } = render(
+      <AppRouterContext.Provider
+        value={
+          { ...router, push: (href: string) => pushes.push(href) } as never
+        }
+      >
+        <ToolRunProvider
+          tool={{ slug: tool.slug, name: tool.name, category: tool.category }}
+          plan={continueTargetsFor(tool, tools)}
+        >
+          <CompressRunner />
+        </ToolRunProvider>
+      </AppRouterContext.Provider>,
+    );
+    await drop(container, [asFile(bytes, "lean.pdf")]);
+    // Health: the analysis found nothing to remove.
+    await screen.findByRole(
+      "heading",
+      { name: "This PDF is already lean" },
+      { timeout: 10_000 },
+    );
+    expect(screen.getByText("No change")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /download optimized pdf/i }),
+    ).toBeNull();
+
+    const download = screen.getByRole("button", {
+      name: /download unchanged pdf/i,
+    });
+    // The ending: the receipt, and Continue with carrying this file.
+    const rows = await screen.findByRole(
+      "group",
+      { name: "Continue with" },
+      { timeout: 10_000 },
+    );
+    const links = within(rows).getAllByRole("link");
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links)
+      expect(link).toHaveTextContent("carries lean.pdf");
+    expect(container.querySelector("[data-receipt]")).not.toBeNull();
+
+    // DOWNLOAD saves the input's bytes, under its name.
+    const blobs: Blob[] = [];
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: (blob: Blob) => {
+        blobs.push(blob);
+        return "blob:compress-lean-test";
+      },
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: () => {},
+    });
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    fireEvent.click(download);
+    await waitFor(() => expect(blobs).toHaveLength(1));
+    expect(names).toEqual(["lean.pdf"]);
+    const saved = new Uint8Array(await blobs[0]!.arrayBuffer());
+    expect(
+      Buffer.from(saved).equals(Buffer.from(bytes)),
+      "the download is not the file as it came in",
+    ).toBe(true);
+
+    // CONTINUE WITH carries the input's bytes: claimed as the next tool would.
+    await act(async () => {
+      fireEvent.click(links[0]!);
+    });
+    await waitFor(() => expect(pushes).toHaveLength(1));
+    const id = new URL(pushes[0]!, "http://x").searchParams.get("handoff")!;
+    const record = await claimHandoff(id);
+    expect(record?.files.map((f) => f.name)).toEqual(["lean.pdf"]);
+    const carried = new Uint8Array(await record!.files[0]!.blob.arrayBuffer());
+    expect(
+      Buffer.from(carried).equals(Buffer.from(bytes)),
+      "Continue with does not carry the file as it came in",
+    ).toBe(true);
+  });
+});
+
 describe("Compress batch", { timeout: 30_000 }, () => {
   it("flags a signed file, keeps it out of Download all until confirmed, and names a restricted file honestly", async () => {
     answerWorkerStatus(null);
@@ -382,7 +617,7 @@ describe("Compress batch", { timeout: 30_000 }, () => {
       ownerPassword: "owner-secret",
     });
     const { container } = render(withRouter(<CompressRunner />));
-    drop(container, [
+    await drop(container, [
       asFile(await plainPdf(2), "plain.pdf"),
       asFile(await makeSignedPdf(), "signed.pdf"),
       asFile(restricted, "restricted.pdf"),

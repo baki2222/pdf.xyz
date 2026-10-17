@@ -17,8 +17,10 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
   PrivacyLine,
@@ -58,7 +60,7 @@ export function WatermarkEditor({
   const [rotation, setRotation] = useState(45);
   const [fontSize, setFontSize] = useState(60);
   const [color, setColor] = useState<keyof typeof COLORS>("gray");
-  const { busy, error, result, run } = useAsyncRun<WatermarkReport>();
+  const { busy, error, result, run, reset } = useAsyncRun<WatermarkReport>();
 
   const trimmed = text.trim();
 
@@ -87,6 +89,9 @@ export function WatermarkEditor({
         title="Watermark added"
         summary={`Stamped on all ${pages} page${plural(pages)}${shrunk} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result.bytes, watermarkedOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -164,17 +169,19 @@ export function WatermarkEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={trimmed.length === 0}
-          busyLabel="Stamping…"
-        >
-          <Stamp className="size-4" aria-hidden />
-          Add watermark
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={trimmed.length === 0}
+            busyLabel="Stamping…"
+          >
+            <Stamp className="size-4" aria-hidden />
+            Add watermark
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

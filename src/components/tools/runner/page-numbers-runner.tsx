@@ -17,8 +17,10 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
   NumberField,
@@ -66,7 +68,7 @@ function PageNumbersEditor({
   const [startPage, setStartPage] = useState(1);
   const [startAt, setStartAt] = useState(1);
   const [fontSize, setFontSize] = useState(11);
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
   const numberedCount = Math.max(0, pdf.pageCount - (startPage - 1));
   const preview = useMemo(() => {
@@ -95,6 +97,9 @@ function PageNumbersEditor({
         title="Page numbers added"
         summary={`${numberedCount} page${numberedCount === 1 ? "" : "s"} numbered · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result, numberedOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -181,12 +186,14 @@ function PageNumbersEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton onClick={onRun} busy={busy} busyLabel="Numbering…">
-          <ListOrdered className="size-4" aria-hidden />
-          Add page numbers
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton onClick={onRun} busy={busy} busyLabel="Numbering…">
+            <ListOrdered className="size-4" aria-hidden />
+            Add page numbers
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

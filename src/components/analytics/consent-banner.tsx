@@ -13,6 +13,11 @@
  *    declined, who would watch it flash and vanish on every page.
  *  - Decline is the same size, weight, and reach as Accept. A consent that is
  *    harder to refuse than to give is not consent.
+ *
+ * While open it covers the bottom of the screen, so it says how much: its
+ * height and its 1rem offset, as `--sf-bottom-inset` on the root, cleared
+ * when it goes. Whatever docks to the bottom (a runner's Run bar) sits above
+ * it, and the page's scroll padding keeps a focused control clear of both.
  */
 
 import { useSyncExternalStore } from "react";
@@ -21,6 +26,20 @@ import { storeConsent, useAnalyticsConsent } from "@/lib/analytics/consent";
 import { Button } from "@/components/ui/button";
 
 const emptySubscribe = () => () => {};
+
+/** Publish the open banner's footprint; React 19 runs the returned cleanup. */
+function insetFrom(node: HTMLElement | null) {
+  if (!node || typeof ResizeObserver === "undefined") return;
+  const root = document.documentElement.style;
+  const observer = new ResizeObserver(() =>
+    root.setProperty("--sf-bottom-inset", `${node.offsetHeight + 16}px`),
+  );
+  observer.observe(node);
+  return () => {
+    observer.disconnect();
+    root.removeProperty("--sf-bottom-inset");
+  };
+}
 
 /** True after hydration; false in SSR HTML. No effect, no setState-in-effect. */
 function useMounted(): boolean {
@@ -39,6 +58,7 @@ export function ConsentBanner() {
 
   return (
     <section
+      ref={insetFrom}
       aria-label="Analytics consent"
       className="bg-canvas border-line-strong fixed right-4 bottom-4 left-4 z-[90] mx-auto max-w-xl rounded-[3px] border p-4 shadow-lg sm:left-auto sm:mx-0"
     >

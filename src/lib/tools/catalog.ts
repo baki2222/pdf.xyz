@@ -44,6 +44,8 @@ export const tools: Tool[] = [
       "page-numbers",
       "compress-pdf",
     ],
+    // A merged document is most often made smaller to send, or numbered.
+    next: ["compress-pdf", "page-numbers"],
     how: [
       "Add two or more PDF files.",
       "Drag files, or use each row's move buttons, to set the order you want.",

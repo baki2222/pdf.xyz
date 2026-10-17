@@ -14,6 +14,7 @@ import type { WorkerStatus } from "@/lib/workers/status";
 import { getProviderReadiness } from "@/lib/workers/providers";
 import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
+import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -265,6 +266,7 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
       (name) => new File(["%PDF-1.7"], name, { type: "application/pdf" }),
     );
     // A drop bypasses `multiple={false}`; only the dropzone sees all three.
+    await dropSheetsLive();
     fireEvent.drop(fileInput()!.closest("label")!, {
       dataTransfer: { files },
     });
@@ -279,6 +281,7 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
     stubFetch(AVAILABLE);
     render(<OcrWorkerPanel tool={ocrTool} />);
     await screen.findByRole("button", { name: /run ocr on the worker/i });
+    await dropSheetsLive();
     fireEvent.drop(fileInput()!.closest("label")!, {
       dataTransfer: {
         files: [

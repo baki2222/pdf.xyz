@@ -31,8 +31,11 @@ import {
   RunButton,
   RunnerSection,
   errorMessage,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
+import { useUnsavedGuard } from "./use-unsaved-guard";
 import {
   NumberField,
   PositionPicker,
@@ -87,7 +90,7 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
   const [width, setWidth] = useState(DEFAULT_SIGNATURE_WIDTH);
   const [margin, setMargin] = useState(24);
 
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
   const drawnUrl = useObjectUrl(drawn);
   const uploadUrl = useObjectUrl(uploaded);
@@ -101,6 +104,8 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
     if (source === "draw") return drawn;
     return uploaded;
   }, [source, text, style, drawn, uploaded]);
+  // A signature typed, drawn or uploaded and not yet applied.
+  useUnsavedGuard(input !== null && !result, "your signature");
 
   const prepareUpload = async (
     seq: number,
@@ -171,6 +176,9 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         title="PDF signed"
         summary={`Signed page ${pageIndex + 1} · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result, signatureOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -314,17 +322,19 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex justify-end">
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={input === null}
-          busyLabel="Signing…"
-        >
-          <PenLine className="size-4" aria-hidden />
-          Sign PDF
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex justify-end">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={input === null}
+            busyLabel="Signing…"
+          >
+            <PenLine className="size-4" aria-hidden />
+            Sign PDF
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

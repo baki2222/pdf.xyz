@@ -10,11 +10,11 @@ import { useEffect, useState } from "react";
  * `role="status"` node for the caller to render, and two runners use it — for
  * "Moved file to position 3" and "Removed file". It cannot be used for the thing
  * that matters. A runner renders `{announcer}` inside its EDITOR branch, and the
- * completed run takes an early return several lines above it
- * (`merge-runner.tsx:182` returns `<ResultPanel>` while `{announcer}` lives at
- * 217/224/239). The region is therefore UNMOUNTED at the exact moment there is
- * an outcome to announce. The infrastructure existed, read correctly, and was
- * dead precisely where it was needed.
+ * completed run takes an early return several lines above it (merge's runner
+ * returns its result panel before any branch that renders `{announcer}`). The
+ * region is therefore UNMOUNTED at the exact moment there is an outcome to
+ * announce. The infrastructure existed, read correctly, and was dead
+ * precisely where it was needed.
  *
  * A region mounted at the root cannot be unmounted by any branch below it, which
  * is the whole point. Announcements are the FALLBACK path — when an outcome is

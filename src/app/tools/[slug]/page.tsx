@@ -2,7 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, ShieldCheck } from "lucide-react";
-import { getAllToolSlugs, getRelatedTools, getToolBySlug } from "@/lib/tools";
+import {
+  getAllToolSlugs,
+  getRelatedTools,
+  getToolBySlug,
+  tools,
+} from "@/lib/tools";
+import { continueTargetsFor } from "@/lib/intent/next-steps";
 import { getCategory } from "@/lib/tools/categories";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import { modeUploadsFiles } from "@/lib/tools/processing-split";
@@ -14,6 +20,8 @@ import { ToolCard } from "@/components/tools/tool-card";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
 import { FormatsLine } from "@/components/tools/formats-line";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
+import { ToolRunProvider } from "@/components/tools/runner/tool-context";
+import { TicketRail } from "@/components/intent/ticket-rail";
 import { WORKER_PANELS } from "@/components/tools/worker-panels";
 import { ErrorBoundary } from "@/components/telemetry/error-boundary";
 import { ToolTelemetry } from "@/components/telemetry/tool-telemetry";
@@ -210,8 +218,35 @@ export default async function ToolPage({
     </div>
   );
 
+  const breadcrumb = (
+    <nav
+      aria-label="Breadcrumb"
+      className="text-muted flex items-center gap-2 text-sm"
+    >
+      <Link
+        href="/tools"
+        className="hover:text-fg inline-flex items-center gap-1.5 transition-colors"
+      >
+        <ArrowLeft className="size-3.5" aria-hidden />
+        All tools
+      </Link>
+      <span aria-hidden>/</span>
+      {category && (
+        <Link
+          href={categoryHref(category.id)}
+          className="hover:text-fg transition-colors"
+        >
+          {category.name}
+        </Link>
+      )}
+    </nav>
+  );
+
   return (
-    <div className="bg-canvas text-fg py-10 sm:py-14">
+    /* The page's top padding is one variable (`--tool-page-pt`): the
+       workbench's first screen subtracts it, with the header's, from the
+       screen's height, so the two cannot drift apart. */
+    <div className="bg-canvas text-fg pt-[var(--tool-page-pt)] pb-10 [--tool-page-pt:2.5rem] sm:pb-14 sm:[--tool-page-pt:3.5rem]">
       {/* Names this page's tool for run-outcome telemetry and sends
           `tool_viewed`. Renders nothing. */}
       <ToolTelemetry
@@ -229,53 +264,112 @@ export default async function ToolPage({
         ]}
       />
       <Container className="flex flex-col gap-6 sm:gap-10">
-        <nav
-          aria-label="Breadcrumb"
-          className="text-muted flex items-center gap-2 text-sm"
-        >
-          <Link
-            href="/tools"
-            className="hover:text-fg inline-flex items-center gap-1.5 transition-colors"
-          >
-            <ArrowLeft className="size-3.5" aria-hidden />
-            All tools
-          </Link>
-          <span aria-hidden>/</span>
-          {category && (
-            <Link
-              href={categoryHref(category.id)}
-              className="hover:text-fg transition-colors"
-            >
-              {category.name}
-            </Link>
-          )}
-        </nav>
-
+        {/* The workbench draws its breadcrumb inside its first screen. */}
+        {!runnerKind && breadcrumb}
         {runnerKind ? (
           /* ── Workbench: the in-browser runner, under the head ── */
           <div className="flex flex-col gap-6 sm:gap-8">
-            {head}
-
+            {/*
+             * THE FIRST SCREEN IS THE WORKBENCH'S. The breadcrumb, the
+             * tool's name and its panel are held to the bottom of the screen
+             * from the first paint (`100svh`, less the sticky header and the
+             * page's top padding), and the panel takes what is left of it.
+             * So what follows the runner — About this tool, from 638 px down
+             * at 1280 x 900 — starts below the screen on every tool page,
+             * and nothing a pick, a result or its ending draws can move
+             * anything on screen but the panel's own contents.
+             *
+             * WHY (2026-10-11): the About section sat on screen under the
+             * drop sheet at every size from 360 x 800 to 2560 x 1440, and a
+             * runner grows by hundreds of pixels after a pick — long after
+             * the pick's input window when the file was dropped, pasted or
+             * handed over. Compress PDF's held stage moved it once, at the
+             * pick: page CLS 0.0567 at 1280 x 900 and 0.1212 at 768 x 1024;
+             * Merge PDF 0.2133 at 390 x 844, Edit PDF 1.39. A stage held to
+             * the result's size moves what follows at the pick instead of
+             * at the result; only a screen that has nothing under the runner
+             * to move holds still at both. `e2e/continue-chain.spec.ts`
+             * measures every tool with an ending at eight sizes.
+             *
+             * `svh`, not `vh`: the small viewport, so a phone's collapsing
+             * address bar never resizes it under a reader.
+             */}
             <div
-              data-tool-panel
-              className="border-line bg-panel rounded-panel flex flex-col gap-5 border p-5 sm:p-7"
+              data-first-screen
+              className="flex min-h-[calc(100svh_-_var(--sf-header-h)_-_var(--tool-page-pt))] flex-col gap-6 sm:gap-10"
             >
-              <div className="text-ok flex items-center gap-2 text-sm">
-                <ShieldCheck className="size-4" aria-hidden />
-                {/* Gated on the PROPERTY (can this file leave the device?),
-                    not on `=== "hybrid"`. The fallback branch here is the
-                    STRONG claim — "never leaves your device" — so a mode the
-                    condition did not anticipate defaulted into a promise
-                    rather than out of one. `modeUploadsFiles` is exhaustive
-                    over ProcessingMode by construction, so a new mode is a
-                    compile error instead of a false promise. */}
-                {modeUploadsFiles(tool.processing)
-                  ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
-                  : "Runs in your browser — your file never leaves your device."}
+              {breadcrumb}
+              <div className="flex flex-1 flex-col gap-6 sm:gap-8">
+                {head}
+
+                {/* `data-tool-name`: the tool this page is, for what its
+                    drop boxes tell the page — "Release to add to Merge
+                    PDF", "Replaced a.pdf with b.pdf in Rotate PDF." — read
+                    by the drop engine when a file arrives, so no box
+                    carries the name in its code (`toolNameAt`,
+                    `@/lib/intent/drop-engine`). */}
+                <div
+                  data-tool-panel
+                  data-tool-name={tool.name}
+                  className="border-line bg-panel rounded-panel flex flex-1 flex-col gap-5 border p-5 sm:p-7"
+                >
+                  {/* The job this run is part of: the tool, where its output
+                      can go next — computed HERE, on the server, from the
+                      catalogue, and handed over as data — and the steps the
+                      files came through, which the runner's hand-off fills
+                      in. */}
+                  <ToolRunProvider
+                    tool={{
+                      slug: tool.slug,
+                      name: tool.name,
+                      category: tool.category,
+                    }}
+                    plan={continueTargetsFor(tool, tools)}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                      <div className="text-ok flex items-center gap-2 text-sm">
+                        <ShieldCheck className="size-4 shrink-0" aria-hidden />
+                        {/* Gated on the PROPERTY (can this file leave the
+                            device?), not on `=== "hybrid"`. The fallback
+                            branch here is the STRONG claim — "never leaves
+                            your device" — so a mode the condition did not
+                            anticipate defaulted into a promise rather than
+                            out of one. `modeUploadsFiles` is exhaustive over
+                            ProcessingMode by construction, so a new mode is a
+                            compile error instead of a false promise. */}
+                        {modeUploadsFiles(tool.processing)
+                          ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
+                          : "Runs in your browser — your file never leaves your device."}
+                      </div>
+                      <TicketRail />
+                    </div>
+                    {/* The runner's stage: the rest of the panel. While a
+                        runner shows its page's drop sheet and nothing else
+                        of its kind (an empty state), the runner fills the
+                        stage and the sheet takes the room, so the first
+                        screen is one sheet to drop on — never a short sheet
+                        over a blank panel. Only then: a sheet that shares
+                        its runner with a list, an editor or a run bar
+                        (Image to PDF, Compare, Text to PDF) keeps its own
+                        height, because a sheet that gave its room back as
+                        files arrived would move its own words (measured:
+                        JPG to PDF 0.0196 at 360 x 800, the sheet's mark and
+                        sentence drawn up 57 px). A result does not stretch:
+                        it is drawn at its own size, from the top. Held from
+                        a Run press — never past the bottom of the screen once
+                        the run settles, the rest given back at the reader's
+                        next click or key (`./stage-hold` in the runner kit). */}
+                    <div
+                      data-runner-stage
+                      className="flex flex-1 flex-col [&>*>[data-page-drop-target]:only-of-type]:grow [&>:has(>[data-page-drop-target]:only-of-type)]:grow"
+                    >
+                      <ErrorBoundary boundary="tool-runner">
+                        <ToolRunner kind={runnerKind} slug={tool.slug} />
+                      </ErrorBoundary>
+                    </div>
+                  </ToolRunProvider>
+                </div>
               </div>
-              <ErrorBoundary boundary="tool-runner">
-                <ToolRunner kind={runnerKind} slug={tool.slug} />
-              </ErrorBoundary>
             </div>
 
             <div className="grid gap-6 sm:grid-cols-2">
@@ -330,12 +424,25 @@ export default async function ToolPage({
 
             <div
               data-tool-panel
+              data-tool-name={tool.name}
               className="self-start lg:sticky lg:top-24 lg:col-start-2 lg:row-span-2 lg:row-start-1"
             >
               {panel && (
-                <ErrorBoundary boundary={panel.boundary}>
-                  <panel.Panel tool={tool} />
-                </ErrorBoundary>
+                // The same job as the workbench's: the result card reads
+                // where its output can go next — or, after Protect PDF and
+                // PDF to PDF/A, why nowhere (`ResultCard`).
+                <ToolRunProvider
+                  tool={{
+                    slug: tool.slug,
+                    name: tool.name,
+                    category: tool.category,
+                  }}
+                  plan={continueTargetsFor(tool, tools)}
+                >
+                  <ErrorBoundary boundary={panel.boundary}>
+                    <panel.Panel tool={tool} />
+                  </ErrorBoundary>
+                </ToolRunProvider>
               )}
             </div>
 

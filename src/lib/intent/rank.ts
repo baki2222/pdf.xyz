@@ -113,7 +113,11 @@ export const RANK_SLUGS: readonly string[] = [
 export const TOP_SUGGESTIONS = 3;
 
 export interface RankContext {
-  /** The tool page a dialog was opened on: pinned first. */
+  /**
+   * The tool the visitor is already working toward — the workspace's
+   * preselected tool, a guide's tool that cannot be handed the files:
+   * pinned first, when it takes them.
+   */
   readonly currentTool?: string | null;
   /** A step the job planned next: pinned first. */
   readonly pending?: string | null;

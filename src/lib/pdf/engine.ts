@@ -27,7 +27,8 @@ import type {
  * only restrict editing. A caller that needs to know which asks a reader
  * (`classifyPdfAccess` in `./encryption`); the message alone cannot say.
  */
-export type PdfEngineErrorKind = "encrypted" | "unreadable";
+export const PDF_ENGINE_ERROR_KINDS = ["encrypted", "unreadable"] as const;
+export type PdfEngineErrorKind = (typeof PDF_ENGINE_ERROR_KINDS)[number];
 
 /**
  * What a {@link PdfEngineError} may carry beside its message: the standard

@@ -125,4 +125,108 @@ export const A11Y_STATES: readonly AuditState[] = [
       await page.getByText(/^More for these files/).click();
     },
   },
+  // WP-08: the end of a run. Each is a surface that exists only after one.
+  {
+    name: "merge result: the receipt, Back to adjust, Continue with",
+    route: "/tools/merge-pdf",
+    prepare: async (page) => {
+      await pick(page, [
+        {
+          name: "alpha.pdf",
+          mimeType: "application/pdf",
+          buffer: await pdf("alpha", 3),
+        },
+        {
+          name: "beta.pdf",
+          mimeType: "application/pdf",
+          buffer: await pdf("beta", 2),
+        },
+      ]);
+      await page.getByRole("button", { name: /merge 2 pdfs/i }).click();
+      await receipt(page);
+    },
+  },
+  {
+    name: "compress result: before and after to one scale",
+    route: "/tools/compress-pdf",
+    prepare: async (page) => {
+      // Written without object streams, so the lossless repack saves bytes
+      // and the result offers a download, a receipt and Continue with.
+      const doc = await PDFDocument.load(await pdf("loose", 4));
+      await pick(page, [
+        {
+          name: "loose.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from(await doc.save({ useObjectStreams: false })),
+        },
+      ]);
+      await page.locator("[data-size-compare]").waitFor({ timeout: 20_000 });
+      await receipt(page);
+    },
+  },
+  {
+    name: "rotate: a password-protected PDF and its remedy",
+    route: "/tools/rotate-pdf",
+    prepare: async (page) => {
+      await pick(page, [
+        {
+          name: "locked.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from(USER_PASSWORD_PDF_BASE64, "base64"),
+        },
+      ]);
+      await page.locator("[data-remedy]").waitFor({ timeout: 20_000 });
+    },
+  },
+  {
+    name: "page numbers, continued from a merge: the job's steps",
+    route: "/tools/merge-pdf",
+    prepare: async (page) => {
+      await pick(page, [
+        {
+          name: "alpha.pdf",
+          mimeType: "application/pdf",
+          buffer: await pdf("alpha", 2),
+        },
+        {
+          name: "beta.pdf",
+          mimeType: "application/pdf",
+          buffer: await pdf("beta", 1),
+        },
+      ]);
+      await page.getByRole("button", { name: /merge 2 pdfs/i }).click();
+      await receipt(page);
+      await page
+        .getByRole("group", { name: "Continue with" })
+        .getByRole("link", { name: /add page numbers/i })
+        .click();
+      await page
+        .getByRole("navigation", { name: "Job steps" })
+        .waitFor({ timeout: 20_000 });
+    },
+  },
 ];
+
+/** Pick files through the tool's own drop zone, once it is live. */
+async function pick(
+  page: Page,
+  files: { name: string; mimeType: string; buffer: Buffer }[],
+): Promise<void> {
+  const input = page.locator('main input[type="file"]').first();
+  await input.waitFor({ state: "attached" });
+  await page.waitForFunction(
+    () =>
+      document.querySelector('main [data-live="on"]') !== null ||
+      document.querySelector("main [data-live]") === null,
+  );
+  await input.setInputFiles(files);
+}
+
+/** A result's receipt, counted, and its Continue with drawn. */
+async function receipt(page: Page): Promise<void> {
+  await page
+    .getByText(/re-opened and counted in this browser/i)
+    .first()
+    .waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(200);
+}

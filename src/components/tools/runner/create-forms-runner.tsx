@@ -37,13 +37,16 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   ErrorNote,
-  errorMessage,
   ResultPanel,
   RunButton,
   RunnerSection,
   Spinner,
+  errorMessage,
+  outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
+import { useUnsavedGuard } from "./use-unsaved-guard";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
   NumberField,
@@ -265,11 +268,17 @@ function FormBuilder({
   context: NewFormContext;
   onReset: () => void;
 }) {
-  const { busy, error, result, run } = useAsyncRun<CreateFormResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<CreateFormResult>();
   const counter = useRef(1);
   const [drafts, setDrafts] = useState<FieldDraft[]>(() => [
     makeDraft("f1", 1),
   ]);
+  // Anything changed from the one blank field the builder starts with.
+  const [pristine] = useState(() => JSON.stringify(drafts));
+  useUnsavedGuard(
+    JSON.stringify(drafts) !== pristine && !result,
+    "your form fields",
+  );
 
   const specs = useMemo(() => drafts.map(draftToSpec), [drafts]);
   const errors = useMemo(
@@ -314,6 +323,9 @@ function FormBuilder({
           </>
         }
         onReset={onReset}
+        output={outputFile(result.bytes, createdFormOutputName(pdf.file.name))}
+        onAdjust={reset}
+        expectedPages={pdf.pageCount}
       >
         <button
           type="button"
@@ -384,23 +396,25 @@ function FormBuilder({
         Fields are added on your device — your PDF never leaves the browser.
       </PrivacyLine>
 
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {errors.length > 0 && drafts.length > 0 && (
-          <span className="text-warn text-xs">
-            Fix {errors.length} issue{errors.length === 1 ? "" : "s"} above to
-            continue.
-          </span>
-        )}
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={errors.length > 0 || drafts.length === 0}
-          busyLabel="Creating…"
-        >
-          <FilePlus2 className="size-4" aria-hidden />
-          Create form
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {errors.length > 0 && drafts.length > 0 && (
+            <span className="text-warn text-xs">
+              Fix {errors.length} issue{errors.length === 1 ? "" : "s"} above to
+              continue.
+            </span>
+          )}
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={errors.length > 0 || drafts.length === 0}
+            busyLabel="Creating…"
+          >
+            <FilePlus2 className="size-4" aria-hidden />
+            Create form
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }

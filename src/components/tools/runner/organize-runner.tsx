@@ -25,9 +25,12 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  outputFile,
   useAnnouncer,
   useAsyncRun,
 } from "./runner-kit";
+import { RunBar } from "./run-bar";
+import { useUnsavedGuard } from "./use-unsaved-guard";
 import { PageTile, TileAction } from "./page-tile";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { usePdfThumbnails } from "./use-pdf-thumbnails";
@@ -76,12 +79,13 @@ function OrganizeEditor({
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [grabbedUid, setGrabbedUid] = useState<string | null>(null);
   const uidRef = useRef(pdf.pageCount);
-  const { busy, error, result, run } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const { announce, node: announcer } = useAnnouncer();
   const { thumbs, rendered, status, capped, eagerCount, requestPage } =
     usePdfThumbnails(pdf.bytes, pdf.pageCount);
 
   const dirty = isDirty(items, initial);
+  useUnsavedGuard(dirty && !result, "your new page order");
   const undoable = canUndo(history);
   const redoable = canRedo(history);
 
@@ -228,6 +232,9 @@ function OrganizeEditor({
         title="Pages organized"
         summary={`${items.length} page${items.length === 1 ? "" : "s"} in your new order · ${formatBytes(result.byteLength)}`}
         onReset={onReset}
+        output={outputFile(result, outputName(pdf.file.name, "organized"))}
+        onAdjust={reset}
+        expectedPages={items.length}
       >
         <button
           type="button"
@@ -395,21 +402,23 @@ function OrganizeEditor({
 
       {error && <ErrorNote message={error} />}
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-muted text-xs">
-          Badge shows the new position; label shows the original page. Grab a
-          tile&apos;s handle and use arrow keys, or press Ctrl/⌘+Z to undo.
-        </p>
-        <RunButton
-          onClick={onRun}
-          busy={busy}
-          disabled={!dirty}
-          busyLabel="Building…"
-        >
-          <Download className="size-4" aria-hidden />
-          Apply &amp; export
-        </RunButton>
-      </div>
+      <RunBar>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted text-xs">
+            Badge shows the new position; label shows the original page. Grab a
+            tile&apos;s handle and use arrow keys, or press Ctrl/⌘+Z to undo.
+          </p>
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={!dirty}
+            busyLabel="Building…"
+          >
+            <Download className="size-4" aria-hidden />
+            Apply &amp; export
+          </RunButton>
+        </div>
+      </RunBar>
     </div>
   );
 }
