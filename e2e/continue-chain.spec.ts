@@ -23,6 +23,7 @@ import {
 } from "./helpers";
 import {
   captureDownload,
+  downloadBytesOf,
   pdfPageTexts,
   pdfRotations,
 } from "./client-proof/artifacts";
@@ -311,6 +312,64 @@ test("Continue with carries the result, says where it came from, and the job's s
   await expect(rail.locator('[aria-current="step"]')).toHaveText(
     "Compress PDF",
   );
+});
+
+/**
+ * EVERY ENDING IS A FORK, ON THE PATH WP-08 MADE MOST LIKELY (2026-10-17).
+ * Compress PDF is the first row Merge PDF offers, and a merge is written by
+ * the writer Compress PDF's repack uses, so a text merge is "already lean"
+ * by construction (see G.7 row 2 below). Until this date that analysis drew
+ * no Download and no ending at all — both were inside `canDownload &&` —
+ * and the stage ended at "Analyze another file": the merged PDF, never
+ * downloaded, could go nowhere (batch C review, 36702d2c: zero
+ * `[data-continue-with]` rows, the only control "Analyze another file").
+ *
+ * Now a result with nothing saved still ends: the file as it is, said to be
+ * unchanged, to download — and Continue with carrying it. Read through the
+ * page: the bytes downloaded are the merge's five pages, and the rows carry
+ * the merged file by its name.
+ */
+test("a lean merge carried to Compress PDF still ends in a fork: the file as it is to download, and Continue with carrying it", async ({
+  page,
+}) => {
+  await mergeAlphaBeta(page);
+  await continueRow(page)
+    .getByRole("link", { name: /compress pdf/i })
+    .click();
+  await expect(page).toHaveURL(/\/tools\/compress-pdf$/);
+  await expect(
+    page.getByText("Loaded your result from Merge PDF."),
+  ).toBeVisible();
+  // Health: this is the stranded path — nothing for the repack to remove.
+  await expect(
+    page.getByRole("heading", { name: "This PDF is already lean" }),
+  ).toBeVisible({ timeout: 20_000 });
+  const stage = page.locator("[data-runner-stage]");
+  await expect(stage.getByText("No change", { exact: true })).toBeVisible();
+
+  // The fork: Continue with, carrying the merged file — and not back to
+  // the step the job came from.
+  const rows = continueRow(page);
+  await expect(rows, "the lean result has no Continue with").toBeVisible();
+  const links = rows.getByRole("link");
+  expect(await links.count()).toBeGreaterThan(0);
+  await expect(links.first()).toContainText("carries alpha-merged.pdf");
+  await expect(rows.getByRole("link", { name: /merge pdf/i })).toHaveCount(0);
+  // The receipt counts the file it carries.
+  expect(await receiptCount(page)).toBe(5);
+
+  // And the file as it is, said plainly to be unchanged.
+  const download = stage.getByRole("button", { name: /download.*unchanged/i });
+  await expect(download, "the lean result offers no download").toBeVisible();
+  const [saved] = await Promise.all([
+    page.waitForEvent("download"),
+    download.click(),
+  ]);
+  expect(saved.suggestedFilename()).toBe("alpha-merged.pdf");
+  const pages = await pdfPageTexts(await downloadBytesOf(saved));
+  expect(pages).toHaveLength(5);
+  expect(pages[0]).toContain("alpha.pdf — page 1");
+  expect(pages[3]).toContain("beta.pdf — page 1");
 });
 
 test("a job of three: merge, then page numbers, and the file holds both", async ({
