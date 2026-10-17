@@ -157,11 +157,15 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
             <li key={target.slug} className="min-w-0">
               {/* Named by its words, which say what the click does:
                   "Continue with Compress PDF · In-browser · carries
-                  merged.pdf" — the visible label inside the name. */}
+                  merged.pdf" — the visible label inside the name. Said
+                  outright (`aria-label`): from its content the name ran
+                  "In-browsercarries", the " · " between them drawn
+                  aria-hidden (PR #180 review). */}
               <a
                 href={toolHref(target.slug)}
                 onClick={(event) => void open(event, target, i + 1)}
                 aria-busy={busy || undefined}
+                aria-label={`Continue with ${target.name} · ${mode.short} · carries ${what}`}
                 className="group border-line bg-panel hover:border-line-strong rounded-ctl flex min-h-10 items-center gap-3 border px-3.5 py-2.5 transition-colors"
               >
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">

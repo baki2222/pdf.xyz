@@ -290,7 +290,11 @@ function CountedPages({ pages }: { pages: number }) {
   return (
     <span>
       <span className="figure">{pages}</span>
-      <span className="sr-only">,</span> <ProofMark />{" "}
+      {/* Heard, not seen — and in the line, not a box of its own: an
+          `sr-only` comma is positioned, so a box, and the name ran "5 ,
+          re-opened…" (PR #180 review). A style, not a utility: this is an
+          on-demand chunk. */}
+      <span style={{ fontSize: 0 }}>,</span> <ProofMark />{" "}
       <span className="text-muted">re-opened and counted in this browser</span>
     </span>
   );
