@@ -89,6 +89,7 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
         // pdf-lib deferral left open — TASK-05 §3c).
         warmPdfLib();
         arrived?.(result.trail);
+        focusArrival();
       }
       setState(result);
     });
@@ -101,4 +102,39 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
   );
 
   return { ...state, accept, dismiss };
+}
+
+/** Frames to wait for the carried file's header before the page's heading. */
+const ARRIVAL_FRAMES = 90;
+
+/**
+ * Where focus goes when files ARRIVE and it has nowhere to be: the link
+ * that sent them (a Continue row, a desk, the ticket) left with its page,
+ * and focus fell to <body> — after Enter on a Continue row a keyboard
+ * reader began the next tool from the top of the document (PR #180
+ * review). As a replaced file does (`replaceOpenFile`), it moves to what
+ * arrived: the carried file's header in this tool (its name, pages and
+ * size), once the runner draws it; for a runner with none (a list of
+ * files), the page's heading. Never when focus is somewhere real, and
+ * never with a scroll. `e2e/continue-chain.spec.ts` holds it after Enter.
+ */
+function focusArrival(): void {
+  if (typeof requestAnimationFrame !== "function") return;
+  let frames = 0;
+  const into = (el: HTMLElement) => {
+    if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+    el.focus({ preventScroll: true });
+  };
+  const look = () => {
+    const now = document.activeElement;
+    if (now && now !== document.body && now.isConnected) return;
+    const header = document.querySelector<HTMLElement>(
+      "[data-tool-panel] [data-file-header]",
+    );
+    if (header) return into(header);
+    if (++frames <= ARRIVAL_FRAMES) return void requestAnimationFrame(look);
+    const heading = document.querySelector<HTMLElement>("main h1");
+    if (heading) into(heading);
+  };
+  requestAnimationFrame(look);
 }
