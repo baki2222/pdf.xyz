@@ -186,8 +186,9 @@ export interface HeartbeatCapabilities {
    * picture, between the line above it and the line below it, at the size
    * the page shows it.
    *
-   * PROVEN AT START-UP by running the real engine — the image's own text
-   * extractor and page reader — over a generated PDF with a picture between
+   * PROVEN AT START-UP by running the real engine on the deps the image's
+   * jobs run on (its own text extractor, page reader and limits:
+   * `pdfOfficeExportDeps(env)`) over a generated PDF with a picture between
    * two lines, and reading the .docx back (`pdf-office-export/capability.ts`,
    * `provesDocxPictures`). On 2026-10-17 production returned the owner's
    * 33-page tutorial as a .docx with none of its 37 pictures. The engine that

@@ -218,6 +218,8 @@ describe("provesPptxPictures decodes the picture", () => {
  * in poppler's frame); the daemon passes the image's own extractor.
  */
 describe("provesDocxPictures", () => {
+  /** The job's deps as these tests stand them in: poppler's order, the real reader. */
+  const PROBE_DEPS = { extractFlow: flowStandIn, scanPages: scanPdfPages };
   /** The real engine, with the .docx it wrote rewritten by `edit`. */
   const wordThen =
     (edit: (docx: Uint8Array) => Promise<Uint8Array>): Run =>
@@ -229,35 +231,35 @@ describe("provesDocxPictures", () => {
     };
 
   it("is true for the engine in this tree", async () => {
-    await expect(provesDocxPictures(flowStandIn)).resolves.toBe(true);
+    await expect(
+      provesDocxPictures({ extractFlow: flowStandIn, scanPages: scanPdfPages }),
+    ).resolves.toBe(true);
   });
 
   it("NEGATIVE CONTROL: is false for the text-only .docx shipped until 2026-10-17", async () => {
     const textOnly = wordThen(async () =>
       docxTextOnly20261017((await flowStandIn(await docxProbePdf())).pages),
     );
-    await expect(provesDocxPictures(flowStandIn, textOnly)).resolves.toBe(
-      false,
-    );
+    await expect(provesDocxPictures(PROBE_DEPS, textOnly)).resolves.toBe(false);
   });
 
   it("is false for a picture moved below its caption or above its heading, rescaled, or swapped for other pixels", async () => {
     await expect(
-      provesDocxPictures(flowStandIn, wordThen(movePictureDown)),
+      provesDocxPictures(PROBE_DEPS, wordThen(movePictureDown)),
     ).resolves.toBe(false);
     // Each side of the picture is asked: the mutation check of 2026-10-17
     // removed the "after the line above" half and only this control saw it.
     await expect(
-      provesDocxPictures(flowStandIn, wordThen(movePictureUp)),
+      provesDocxPictures(PROBE_DEPS, wordThen(movePictureUp)),
     ).resolves.toBe(false);
     await expect(
-      provesDocxPictures(flowStandIn, wordThen(stretchFirstPicture)),
+      provesDocxPictures(PROBE_DEPS, wordThen(stretchFirstPicture)),
     ).resolves.toBe(false);
     // Same place, same size, same format: a black PNG of the probe's size.
     const black = encodePngImage(40, 30, "rgb8", new Uint8Array(40 * 30 * 3));
     await expect(
       provesDocxPictures(
-        flowStandIn,
+        PROBE_DEPS,
         wordThen((docx) => replacePictureMedia(docx, 0, black)),
       ),
     ).resolves.toBe(false);
@@ -296,9 +298,11 @@ describe("provesDocxPictures", () => {
   });
 
   it("is false without the text extractor, or with a page reader that finds no picture", async () => {
-    await expect(provesDocxPictures(undefined)).resolves.toBe(false);
+    await expect(provesDocxPictures({ scanPages: scanPdfPages })).resolves.toBe(
+      false,
+    );
     await expect(
-      provesDocxPictures(flowStandIn, undefined, noPictures),
+      provesDocxPictures({ extractFlow: flowStandIn, scanPages: noPictures }),
     ).resolves.toBe(false);
   });
 });

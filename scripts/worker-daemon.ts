@@ -159,11 +159,10 @@ async function buildHeartbeatPublisher(
       // Runs the probe PDF's picture through the real engine and finds it on
       // the slide, as a picture, where the page paints it.
       pptxPictures: await provesPptxPictures(),
-      // The same for Word, through the image's OWN text extractor: where a
-      // picture lands among poppler's paragraphs is part of the claim.
-      docxPictures: await provesDocxPictures(
-        pdfOfficeExportDeps(process.env).extractFlow,
-      ),
+      // The same for Word, on the deps its jobs run on — the image's OWN
+      // text extractor (where a picture lands among poppler's paragraphs is
+      // part of the claim), page reader and limits.
+      docxPictures: await provesDocxPictures(pdfOfficeExportDeps(process.env)),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),

@@ -69,7 +69,7 @@ import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { decodePng } from "@/lib/png-probe";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { readDocxBody } from "./docx-read";
-import { runPdfOfficeExport, type PdfFlowExtractor } from "./engine";
+import { runPdfOfficeExport, type PdfOfficeExportDeps } from "./engine";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
 import { inspectPptxPackage } from "./pptx-inspect";
 import { encodePngImage } from "./png-encode";
@@ -342,10 +342,14 @@ export async function docxProbePdf(): Promise<Uint8Array> {
  * The question production answered "no" to on 2026-10-17 — the owner's
  * tutorial came back with none of its 37 pictures — asked of the running
  * image rather than of `main`. The probe PDF ({@link docxProbePdf}) goes
- * through the real engine with the image's OWN text extractor (`extractFlow`,
- * poppler's `-bbox-layout` on the worker: the order of a picture among the
- * paragraphs depends on poppler's frame and pdf.js's agreeing, so a stand-in
- * would prove the wrong thing) and the real page reader. The .docx is read
+ * through the real engine on the deps the image's JOBS run on
+ * (`pdfOfficeExportDeps(env)`, whole): its own text extractor (poppler's
+ * `-bbox-layout` on the worker: the order of a picture among the paragraphs
+ * depends on poppler's frame and pdf.js's agreeing, so a stand-in would
+ * prove the wrong thing), its page reader, its limits. Until the review of
+ * 2026-10-17 it took the extractor alone and ran this module's page reader
+ * with no limits, so it could answer for a job the image does not run. The
+ * .docx is read
  * back by `./docx-read`, which shares nothing with the writer: page 1's body
  * must hold the line above, then exactly one picture, then the line below;
  * the picture's extent must be 160 × 120 points (to a twentieth); its media
@@ -359,16 +363,12 @@ export async function docxProbePdf(): Promise<Uint8Array> {
  * absence as `false`.
  */
 export async function provesDocxPictures(
-  extractFlow: PdfFlowExtractor | undefined,
+  deps: PdfOfficeExportDeps,
   run: typeof runPdfOfficeExport = runPdfOfficeExport,
-  scanPages: PdfPageScanner = scanPdfPages,
 ): Promise<boolean> {
   try {
-    if (!extractFlow) return false;
-    const result = await run("pdf-to-word", await docxProbePdf(), {
-      extractFlow,
-      scanPages,
-    });
+    if (!deps.extractFlow || !deps.scanPages) return false;
+    const result = await run("pdf-to-word", await docxProbePdf(), deps);
     if (!result.ok) return false;
     const body = await readDocxBody(result.output);
     const at = (text: string) =>
