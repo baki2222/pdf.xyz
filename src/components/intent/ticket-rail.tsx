@@ -1,7 +1,9 @@
 "use client";
 
+import { useLayoutEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { useToolRun } from "@/components/tools/runner/tool-context";
+import { readHandoffId } from "@/lib/handoff/url";
 import { getToolBySlug } from "@/lib/tools";
 
 /**
@@ -10,23 +12,38 @@ import { getToolBySlug } from "@/lib/tools";
  * PDF". Each step the files went through is ticked; this one is the current
  * step, and ticked too once its result is on screen.
  *
- * A SLOT THAT CANNOT MOVE THE RUNNER. The row (24 px, full width, so it is
- * its own line at every width) is held open from the commit that draws the
- * runner's "Bringing your files over…" (`useBringingFiles`) — before the
- * hand-off is read, so before anyone knows whether it carries a job — and the
- * steps are drawn INTO it when the claim reports them. It closes, if the
- * files came with no job (the home page's desk, the workspace), in the frame
- * the block gives way to the editor. So the row's every change lands in a
- * frame where the runner itself changes, and never alone.
+ * THE ROW IS THERE FROM THE ARRIVING PAGE'S FIRST FRAME, AND STAYS. A page
+ * reached by a hand-off says so in its address (`?handoff=`, the token the
+ * runner claims and then strips). An in-app navigation writes the address
+ * in the commit that draws the new page, before that commit's layout
+ * effects — so the row reads it in a LAYOUT effect, whose update React
+ * applies before the browser paints, and the row (24 px, full width, its
+ * own line at every width) is in the arriving page's first painted frame,
+ * before anyone knows whether the files carry a job. It is never closed
+ * within the visit: the steps are drawn INTO it when the claim reports them, and a
+ * hand-off with no job (a guide's desk, the home page's, the workspace)
+ * leaves it empty. So the runner's stage starts where it stays.
+ * `e2e/handoff-arrival.spec.ts` (and `.mobile`) read it as a visit pays
+ * for it: counted layout shifts on a slowed line and on a guide drop, and
+ * the stage at one position in every frame of the arriving page.
  *
- * WAS: drawn when the claim reported its trail, beside the privacy line in a
- * `flex-wrap` row. On a phone the privacy sentence takes two lines, so the
- * steps wrapped to a third and pushed the runner down 32 px — measured at
- * 50b2a243, 390 px, Merge → Continue with Add Page Numbers: a layout shift of
- * its own, 234 ms BEFORE the editor's, because a single-PDF runner reads the
- * file before it draws the editor (WP-08 review, 2026-10-10). This comment
- * said the opposite then; `e2e/continue-chain.mobile.spec.ts` now measures it
- * frame by frame, and fails with the hold removed.
+ * WAS, twice. (1) Drawn when the claim reported its trail, beside the
+ * privacy line in a `flex-wrap` row: on a phone the steps wrapped to a
+ * third line and pushed the runner down 32 px, 234 ms before the editor
+ * (WP-08 review, 2026-10-10). (2) Held from the commit that drew "Bringing
+ * your files over…" (`useBringingFiles`) and closed, with no job, as the
+ * editor came — "never alone", this comment said, because the runner
+ * changed in the same frames. A layout shift is the runner's START moving,
+ * whatever else changes with it: 401 -> 433 px at 1280, 408 -> 440 at 390,
+ * and back, counted 0.0183-0.0303 on a guide drop and 0.0091-0.0148 on a
+ * Continue hop with 400 ms of latency (PR #180 review, c7abb986). The
+ * test that pinned (2) is inverted in `e2e/continue-chain.mobile.spec.ts`.
+ *
+ * Not covered: a FULL load of a `?handoff=` address, where the server's
+ * HTML (prerendered, so without the row) paints before the page hydrates.
+ * Every hand-off here navigates in-app (`launchWithFiles`). Not
+ * `useSearchParams`: in a prerendered page it bails its boundary out of the
+ * server render (`src/deploy/own-panel-first-load.test.ts`).
  *
  * A visit that did not arrive by hand-off never holds the row.
  *
@@ -35,7 +52,18 @@ import { getToolBySlug } from "@/lib/tools";
  */
 export function TicketRail() {
   const run = useToolRun();
-  if (!run || (run.trail.length === 0 && !run.bringing)) return null;
+  // Latched: open from the first commit that knew of a hand-off, and for
+  // the rest of the visit — the runner strips the token from the address.
+  const [held, setHeld] = useState(false);
+  useLayoutEffect(() => {
+    // Measured before the browser paints, and set before it does: the one
+    // re-render this costs is the point (React's "measure before paint").
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
+    if (readHandoffId(window.location.search)) setHeld(true);
+  }, []);
+  const wanted = run !== null && (run.trail.length > 0 || run.bringing);
+  if (wanted && !held) setHeld(true);
+  if (!run || !(held || wanted)) return null;
   const steps =
     run.trail.length === 0
       ? []

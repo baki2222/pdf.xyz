@@ -502,7 +502,15 @@ describe("the job's steps", () => {
     expect(screen.queryByRole("navigation", { name: "Job steps" })).toBeNull();
   });
 
-  it("holds its row while files are brought over, before the job is known — and lets it go with them when there is none", () => {
+  /**
+   * INVERTED 2026-10-17. This was "holds its row while files are brought
+   * over, before the job is known — and lets it go with them when there is
+   * none": the row went WITH the block, in the same commit, on a hand-off
+   * with no job. That commit moved the runner's stage back up 32 px, and the
+   * browser counted it (a guide drop: 0.0303 at 390, PR #180 review). The
+   * row now stays for the visit; the history is in `TicketRail`.
+   */
+  it("holds its row while files are brought over, before the job is known — and keeps it, empty, when there is none", () => {
     const { rerender } = render(
       <ToolRunProvider
         tool={job("compress-pdf").info}
@@ -516,8 +524,8 @@ describe("the job's steps", () => {
     // The block and the row arrive in one commit; the row is empty.
     expect(slot()).not.toBeNull();
     expect(slot()!.childElementCount).toBe(0);
-    // The files came with no job (a home-page drop): the row goes WITH the
-    // block, in the same commit.
+    // The files came with no job (a home-page drop): the block goes, the
+    // row stays where it is, empty.
     rerender(
       <ToolRunProvider
         tool={job("compress-pdf").info}
@@ -526,7 +534,49 @@ describe("the job's steps", () => {
         <TicketRail />
       </ToolRunProvider>,
     );
-    expect(slot()).toBeNull();
+    expect(slot()).not.toBeNull();
+    expect(slot()!.childElementCount).toBe(0);
+  });
+
+  /** The address this page is at, for the two below; put back after. */
+  function at(search: string) {
+    const before = window.location.href;
+    window.history.replaceState(null, "", `/tools/compress-pdf${search}`);
+    return () => window.history.replaceState(null, "", before);
+  }
+
+  it("an address that carries a hand-off holds the row from the first commit, before the runner says anything", () => {
+    const back = at("?handoff=h_0123456789abcdef");
+    try {
+      render(
+        <ToolRunProvider
+          tool={job("compress-pdf").info}
+          plan={job("compress-pdf").plan}
+        >
+          <TicketRail />
+        </ToolRunProvider>,
+      );
+      expect(document.querySelector("[data-ticket-rail-slot]")).not.toBeNull();
+    } finally {
+      back();
+    }
+  });
+
+  it("CONTROL: an address with no hand-off holds nothing", () => {
+    const back = at("?q=merge");
+    try {
+      render(
+        <ToolRunProvider
+          tool={job("compress-pdf").info}
+          plan={job("compress-pdf").plan}
+        >
+          <TicketRail />
+        </ToolRunProvider>,
+      );
+      expect(document.querySelector("[data-ticket-rail-slot]")).toBeNull();
+    } finally {
+      back();
+    }
   });
 
   it("the job fills the held row, and the row stays when the block goes", () => {
