@@ -371,6 +371,25 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * The first screen's and the stage's rules are stylesheet, which this
  * weigher does not count.
  *
+ * MAIN (#179) INTO BATCH C, AND ITS REVIEW'S REPAIRS, 2026-10-17. One
+ * weigher over four builds, gz KB exact (raw KB):
+ *
+ *     row             36702d2c   main b94c1882   merge 94dc2b22   now
+ *     rotate-pdf      252.36     246.70          252.40           252.53 (782)
+ *     summarize-pdf   258.89     255.03          260.30           258.38 (797)
+ *     compress-pdf    257.50     251.95          257.54           257.81 (805)
+ *
+ * Main's PowerPoint work added +1.4 to summarize-pdf (253.6 at the merge
+ * base): `OfficeExportCoverageNotice` grew, and it shared a module with the
+ * next-step link Summarize, PDF structure and table extraction import, so
+ * webpack shipped it to all three. Merged, the AI row read "needs 3.17,
+ * has 2.70" — red before any repair. The repairs cost +0.16 on every tool
+ * page (the stage hold's fold and click/key rules, in the runner kit's
+ * chunk: 9,741 -> 9,900 B gz) and +0.27 on Compress PDF (its no-saving
+ * ending). Recovered by moving the coverage notice to a module of its own
+ * (`office-export-coverage.tsx`): summarize-pdf 260.46 -> 258.38. No
+ * ceiling changes.
+ *
  * WHAT IS STILL TO COME is held against every row by the test after
  * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
  * fails. The one row the layout's remaining growth cannot reach is /tools,

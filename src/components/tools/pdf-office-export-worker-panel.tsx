@@ -32,10 +32,8 @@ import {
   WorkerStatusSlot,
   workerSlotState,
 } from "./worker-status";
-import {
-  OfficeExportCoverageNotice,
-  OfficeExportNextStep,
-} from "./office-export-notices";
+import { OfficeExportCoverageNotice } from "./office-export-coverage";
+import { OfficeExportNextStep } from "./office-export-notices";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
