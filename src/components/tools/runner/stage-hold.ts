@@ -42,7 +42,10 @@
  *     band went and then the page scrolled past what came up into it —
  *     PageDown skipped 59 px of the About heading on Sign PDF at 1280 x 720
  *     (PR #180 review). `e2e/stage-hold.spec.ts` reads the About section's
- *     place in the document across four of those keys.
+ *     place in the document across four of those keys. Nor is a MODIFIER
+ *     alone (Shift, Control, Alt, Meta, Caps Lock): Shift+Space's Shift is
+ *     a keydown of its own, and gave the band back before the scroll
+ *     (`./stage-hold.test.ts`).
  *
  *  3. ONE HOLD AT A TIME, NOTHING LEFT BEHIND. A newer hold ends the older
  *     one's listeners; a hold whose stage has left the page (a runner
@@ -56,10 +59,12 @@
 export const RUNNER_STAGE = "[data-runner-stage]";
 
 /**
- * The keys that scroll the page (Space and Shift+Space, Page Up/Down, the
- * vertical arrows, Home, End): read as the wheel is, never as a release.
+ * The keys that are not a release: those that scroll the page (Space,
+ * Page Up/Down, the vertical arrows, Home, End), read as the wheel is; and
+ * a modifier alone (Shift, Control, Alt, Meta, Caps Lock), the start of a
+ * chord — Shift+Space's Shift arrives as a keydown of its own.
  */
-const SCROLL_KEYS: ReadonlySet<string | undefined> = new Set([
+const NOT_A_RELEASE = new Set<string | undefined>([
   " ",
   "Spacebar",
   "PageDown",
@@ -68,6 +73,11 @@ const SCROLL_KEYS: ReadonlySet<string | undefined> = new Set([
   "ArrowUp",
   "Home",
   "End",
+  "Shift",
+  "Control",
+  "Alt",
+  "Meta",
+  "CapsLock",
 ]);
 
 /** The live hold of each document: a newer hold ends the older one. */
@@ -124,8 +134,9 @@ export function holdRunnerStage(doc: Document = document): () => void {
   const release = (event: Event) => {
     // A key that scrolls is a wheel: its scroll gives back what passes the
     // fold (`fit`), never the band — given back first, the scroll then
-    // carried the reader past what came up into it.
-    if (SCROLL_KEYS.has((event as KeyboardEvent).key)) return;
+    // carried the reader past what came up into it. A modifier waits for
+    // the key it modifies.
+    if (NOT_A_RELEASE.has((event as KeyboardEvent).key)) return;
     if (!owned() || !settled) return;
     end();
     stage.style.minHeight = "";
