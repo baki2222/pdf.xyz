@@ -40,7 +40,7 @@ import {
   scannedPdf,
   undecodablePicturePdf,
 } from "@/tests/pptx-fidelity-fixtures";
-import { noPictures } from "@/tests/page-scan-stubs";
+import { blankPages, noPictures } from "@/tests/page-scan-stubs";
 import { notePagesPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
@@ -232,7 +232,16 @@ describe("PDF to Word panel — pages that were not exported", () => {
    * notice now says. A scan through the real reader is the block below.
    */
   it("names the pages that put nothing in the file, with a way to OCR them", async () => {
-    stubNetwork(await jobFrom(pages(SENTENCE, "", "", "")));
+    // The reader saw four pages and nothing on them (since the review of
+    // 2026-10-17 only a page SEEN empty is called empty).
+    stubNetwork(
+      await jobFrom(
+        pages(SENTENCE, "", "", ""),
+        undefined,
+        true,
+        blankPages(4),
+      ),
+    );
     await exportOnePdf();
     const notice = await screen.findByText(/Text found on 1 of 4 pages/);
     const box = notice.closest('[role="status"]') as HTMLElement;

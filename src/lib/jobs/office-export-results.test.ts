@@ -115,3 +115,28 @@ describe("sanitizeJobResults — a PDF rebuilt before conversion", () => {
     ).not.toHaveProperty("repairedBeforeConversion");
   });
 });
+
+/*
+ * The review of 2026-10-17: PDF to Word reports the pages its reader SAW to
+ * be empty. The count is bounded by the pages without text, the list holds
+ * only pages that exist, and a worker that did not report gets no claim.
+ */
+describe("sanitizeJobResults — Word's pages seen empty", () => {
+  const base = measureOfficeExportPages(4, [
+    { pageNumber: 1, text: "a sentence that is comfortably long enough" },
+  ]);
+
+  it("carries the count and the pages, re-bounded", () => {
+    expect(
+      sanitizeJobResults({
+        officeExport: { ...base, emptyPageCount: 9, pagesEmpty: [4, 9, 4, 0] },
+      })?.officeExport,
+    ).toMatchObject({ emptyPageCount: 3, pagesEmpty: [4] });
+  });
+
+  it("adds nothing where the worker said nothing", () => {
+    const kept = sanitizeJobResults({ officeExport: base })?.officeExport;
+    expect(kept).not.toHaveProperty("emptyPageCount");
+    expect(kept).not.toHaveProperty("pagesEmpty");
+  });
+});

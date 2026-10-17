@@ -11,7 +11,12 @@ import {
   scannedPdf,
   undecodablePicturePdf,
 } from "@/tests/pptx-fidelity-fixtures";
-import { noPictures, scanning, textScan } from "@/tests/page-scan-stubs";
+import {
+  blankPages,
+  noPictures,
+  scanning,
+  textScan,
+} from "@/tests/page-scan-stubs";
 import { scanBetweenPagesPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import {
@@ -272,7 +277,7 @@ describe("pdf-office-export processor", () => {
           { pageNumber: 3, paragraphs: [] },
         ],
       }),
-      scanPages: noPictures,
+      scanPages: blankPages(3),
     }).process(oneInput());
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -291,6 +296,9 @@ describe("pdf-office-export processor", () => {
       picturesNotCarried: 0,
       picturesTooLarge: 0,
       pagesMissingPictures: [],
+      // Since the review of 2026-10-17: the pages the reader SAW empty.
+      emptyPageCount: 2,
+      pagesEmpty: [2, 3],
     });
   });
 
@@ -317,6 +325,8 @@ describe("pdf-office-export processor", () => {
       picturesNotCarried: 0,
       picturesTooLarge: 0,
       pagesMissingPictures: [],
+      emptyPageCount: 0,
+      pagesEmpty: [],
     });
   });
   it("carries the picture-only pages of a deck onto the job record (processor → sanitizeJobResults)", async () => {

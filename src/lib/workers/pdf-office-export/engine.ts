@@ -412,6 +412,20 @@ async function renderWord(
     .filter((p) => !withText.has(p.pageNumber) && scannedPictures(p).length > 0)
     .map((p) => p.pageNumber);
   const lost = losses(scan);
+  // Seen to be empty, as PowerPoint's `emptySlideCount` is: no text, no
+  // picture carried, none lost, none left out, none the reader may have
+  // missed. Until the review of 2026-10-17 the notice SUBTRACTED (pages
+  // without text, less picture pages) and called a page whose picture was
+  // lost "no selectable text and no picture".
+  const empty = scan.pages
+    .filter(
+      (p) =>
+        !withText.has(p.pageNumber) &&
+        scannedPictures(p).length === 0 &&
+        lostOn(p) === 0 &&
+        !p.picturesUnverified,
+    )
+    .map((p) => p.pageNumber);
   return {
     output,
     filenameExt: "docx",
@@ -426,6 +440,8 @@ async function renderWord(
       picturesNotCarried: lost.picturesNotCarried,
       picturesTooLarge: lost.picturesTooLarge,
       pagesMissingPictures: lost.pagesMissingPictures,
+      emptyPageCount: empty.length,
+      pagesEmpty: empty,
       ...(rebuilt ? { repairedBeforeConversion: true as const } : {}),
     }),
   };
@@ -509,9 +525,13 @@ function picturePages(scan: PdfPageScan): number[] {
  * having "nothing on it", a sentence the panel said about a page that held a
  * full-page scan.
  */
+/** Pictures page `p` paints that are not in the file, for any reason. */
+function lostOn(p: PdfPageScan["pages"][number]): number {
+  return p.picturesTooLarge + p.picturesUndecoded + (p.picturesOverBudget ?? 0);
+}
+
 function losses(scan: PdfPageScan) {
-  const lost = (p: PdfPageScan["pages"][number]) =>
-    p.picturesTooLarge + p.picturesUndecoded;
+  const lost = lostOn;
   const missing = scan.pages.filter((p) => lost(p) > 0);
   const flattened = scan.pages.filter((p) => p.flattened);
   return {

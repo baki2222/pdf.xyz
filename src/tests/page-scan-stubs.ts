@@ -88,3 +88,28 @@ export const noPictures: PdfPageScanner = async () => ({
   undecodedImages: 0,
   tooLargeImages: 0,
 });
+
+/**
+ * A page reader that SAW `pageCount` pages and found nothing on them: for
+ * tests about which pages of a Word export put nothing in the file. Since
+ * the review of 2026-10-17 only a page the reader saw to be empty is called
+ * that (`emptyPageCount`); {@link noPictures} sees no page at all, so of its
+ * pages nothing is claimed.
+ */
+export function blankPages(pageCount: number): PdfPageScanner {
+  return async () => ({
+    pageCount,
+    pages: Array.from({ length: pageCount }, (_, i) => ({
+      pageNumber: i + 1,
+      width: 612,
+      height: 792,
+      items: [],
+      picturesTooLarge: 0,
+      picturesUndecoded: 0,
+      picturesUnverified: false,
+      flattened: false,
+    })),
+    undecodedImages: 0,
+    tooLargeImages: 0,
+  });
+}

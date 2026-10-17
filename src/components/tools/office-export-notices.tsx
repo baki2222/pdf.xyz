@@ -143,6 +143,13 @@ function pageSpan(listed: readonly number[], total: number): string {
  * a picture), which pictures could not be carried, and that a damaged file
  * was rebuilt first. A result from an older worker has no such field, its
  * document really did leave those pages out, and it gets the old words.
+ *
+ * "No selectable text and no picture" is said only of the pages the worker
+ * SAW to be empty (`emptyPageCount`, `pagesEmpty`), as PowerPoint's empty
+ * slides are. Until the review of 2026-10-17 it was a subtraction (pages
+ * without text, less the pages that came through as pictures), and it was
+ * said of a page whose picture could not be decoded, beside the sentence
+ * that named that picture as not carried.
  */
 export function OfficeExportCoverageNotice({
   job,
@@ -170,20 +177,19 @@ export function OfficeExportCoverageNotice({
       ? {
           count: report.picturePageCount,
           pages: report.pagesAsPictures ?? [],
-          blank:
-            (powerpoint ? report.emptySlideCount : undefined) ??
-            Math.max(0, missing - report.picturePageCount),
+          // Word: the worker's own count of pages it SAW to be empty, or
+          // none at all — never a subtraction, which called a page whose
+          // picture was lost "no picture" (the review of 2026-10-17).
+          blank: word
+            ? (report.emptyPageCount ?? 0)
+            : (report.emptySlideCount ??
+              Math.max(0, missing - report.picturePageCount)),
         }
       : null;
-  // Word: the pages with neither text nor a picture, named only when both
-  // lists are whole (each is capped), or a page past the cap could be named
-  // for the wrong reason.
+  // Word: those pages by number, when the worker's list is whole (capped).
   const bare =
-    word &&
-    pictures &&
-    report.pagesWithoutText.length === missing &&
-    pictures.pages.length === pictures.count
-      ? report.pagesWithoutText.filter((p) => !pictures.pages.includes(p))
+    word && pictures && (report.pagesEmpty ?? []).length === pictures.blank
+      ? report.pagesEmpty!
       : null;
   const sparseLostPicture = (report.pagesWithLittleText ?? []).some((p) =>
     lostPages.includes(p),
@@ -235,7 +241,7 @@ export function OfficeExportCoverageNotice({
       )}
       {word && pictures && pictures.blank > 0 && (
         <p className="ml-6">
-          {bare && bare.length === pictures.blank
+          {bare
             ? pageSpan(bare, bare.length).replace(/^p/, "P")
             : `${pictures.blank} ${pictures.blank === 1 ? "page" : "pages"}`}{" "}
           {pictures.blank === 1 ? "has" : "have"} no selectable text and no

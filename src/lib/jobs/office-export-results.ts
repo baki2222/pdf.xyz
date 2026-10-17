@@ -75,6 +75,18 @@ export interface OfficeExportResultMeta {
    */
   emptySlideCount?: number;
   /**
+   * PDF to Word only, since the review of 2026-10-17: pages with nothing in
+   * the document because the page reader SAW nothing on them — no text, no
+   * picture carried, none lost or left out, none it may have missed — and
+   * their numbers. Reported, not derived, as {@link emptySlideCount} is:
+   * until then the notice subtracted (pages without text, less the pages
+   * that came through as pictures) and said "no selectable text and no
+   * picture" of a page whose picture could not be decoded.
+   */
+  emptyPageCount?: number;
+  /** 1-based page numbers of those pages, ascending, capped. */
+  pagesEmpty?: number[];
+  /**
    * PDF to PowerPoint only, since 2026-10-11: pages drawn as ONE picture,
    * their text in invisible boxes over it, because rebuilding their drawing
    * piece by piece in paint order would have taken too many layers.
@@ -155,6 +167,12 @@ export function buildOfficeExportResultMeta(
       : {}),
     ...(raw.emptySlideCount !== undefined
       ? { emptySlideCount: count(raw.emptySlideCount, withoutText) }
+      : {}),
+    ...(raw.emptyPageCount !== undefined
+      ? {
+          emptyPageCount: count(raw.emptyPageCount, withoutText),
+          pagesEmpty: pageList(raw.pagesEmpty, pageCount),
+        }
       : {}),
     ...(raw.flattenedPageCount !== undefined
       ? {
