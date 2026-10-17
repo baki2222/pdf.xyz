@@ -91,7 +91,8 @@ let agreed = false;
  * one asks ({@link confirmReplaceResult}); the result panels register
  * (`useUnkeptResult` in the runner kit), and a download keeps them —
  * through `downloadBlob` ({@link resultsKept}), or a link that downloads,
- * or a Continue row, clicked inside the result.
+ * clicked inside the result. A Continue row does not: one that carried the
+ * file took the reader, and the result, off the page.
  */
 const unkept: object[] = [];
 

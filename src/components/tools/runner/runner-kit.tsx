@@ -795,13 +795,12 @@ export function DownloadCta({
 }
 
 /**
- * A result on screen that has not been KEPT — downloaded, or carried on
- * (a Continue row) — registered for as long as it is, so a paste that
- * would replace the document asks first (`confirmReplaceResult`,
- * `@/lib/intent/unsaved`). An in-browser download keeps it wherever its
- * button is (`downloadBlob`); the click handler returned, for the result's
- * box in the capture phase, keeps it for a link that downloads and a
- * Continue row.
+ * A result on screen that has not been KEPT — downloaded — registered for
+ * as long as it is on the page, so a paste that would replace the document
+ * asks first (`confirmReplaceResult`, `@/lib/intent/unsaved`). An
+ * in-browser download keeps it wherever its button is (`downloadBlob`); the
+ * click handler returned, for the result's box in the capture phase, keeps
+ * it for a link that downloads.
  */
 function useUnkeptResult(active: boolean) {
   const release = useRef<(() => void) | null>(null);
@@ -816,12 +815,12 @@ function useUnkeptResult(active: boolean) {
   }, [active]);
   return useCallback((event: MouseEvent<HTMLElement>) => {
     const target = event.target as Element | null;
-    // An in-browser Download keeps it through `downloadBlob`; these are the
-    // ones that do not: a link to the file, and a Continue row.
-    if (
-      target?.closest?.("[data-download], a[download], [data-continue-with] a")
-    )
-      release.current?.();
+    // An in-browser Download keeps it through `downloadBlob`; a link to the
+    // file does not. NOT a Continue row: one that carries the file
+    // navigates, and the result leaves the page with it; one that stays —
+    // a modified click, a store that refused the file — carried nothing
+    // (PR #180 re-review).
+    if (target?.closest?.("[data-download], a[download]")) release.current?.();
   }, []);
 }
 
