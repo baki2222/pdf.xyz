@@ -171,6 +171,7 @@ import {
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { readDeck } from "@/tests/pptx-deck-read";
 import { noPictures } from "@/tests/page-scan-stubs";
+import { boldItalicPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { readDocxBody } from "@/lib/workers/pdf-office-export/docx-read";
 import { TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
@@ -2275,6 +2276,80 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
     ).texts.join("\n");
     expect(text).toMatch(new RegExp(`up to ${px} pixels[^.]*byte for byte`));
     expect(text).toMatch(new RegExp(`scaled down to ${px} pixels`));
+  }, 60_000);
+
+  /**
+   * BOLD AND ITALICS, the same way (2026-10-17). The page said "Fonts, bold
+   * and italics, colours and images are not carried across" and that the
+   * text "arrives unstyled"; since `docx-layout.ts` `paragraphStyle`, a
+   * paragraph set wholly in bold or italics keeps it. Run both ways on a
+   * real PDF: a bold paragraph that comes through bold ⇒ no sentence may
+   * deny it; one that comes through regular ⇒ one must.
+   */
+  it("the page says bold and italics are left out exactly when a wholly bold paragraph comes through regular", async () => {
+    const DENIES_STYLE: Record<string, RegExp> = {
+      // 80: the list between "bold" and its verb ran to 70 characters in
+      // the third sentence shipped; at 40 that sentence walked past.
+      "bold is not carried": /\bbold\b[^.;]{0,80}?\b(?:are|is) not carried\b/i,
+      unstyled: /\bunstyled\b/i,
+    };
+    const SHIPPED_STYLE = [
+      "Fonts, bold and italics, colours and images are not carried across.",
+      "Images, tables, fonts, colors and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.",
+      // This branch's first wording, before bold paragraphs were kept.
+      "Fonts, bold and italics, colours, tables, and drawings made of lines and shapes are not carried across.",
+    ];
+    const HONEST_STYLE = [
+      "Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.",
+      "A paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not.",
+    ];
+    const denies = (t: string) =>
+      Object.values(DENIES_STYLE).some((re) => re.test(t));
+    for (const [name, re] of Object.entries(DENIES_STYLE))
+      expect(
+        SHIPPED_STYLE.some((s) => re.test(s)),
+        `${name} catches nothing shipped`,
+      ).toBe(true);
+    expect(SHIPPED_STYLE.filter((s) => !denies(s))).toEqual([]);
+    expect(HONEST_STYLE.filter(denies)).toEqual([]);
+
+    const { pdf, paragraph } = await boldItalicPdf();
+    const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!run.ok) throw new Error(run.message);
+    const xml = await (
+      await JSZip.loadAsync(run.output)
+    )
+      .file("word/document.xml")!
+      .async("string");
+    const headings = (xml.match(/<w:p>[\s\S]*?<\/w:p>/g) ?? []).filter((p) =>
+      p.includes(paragraph.bold),
+    );
+    // Health: the heading is in the document, once.
+    expect(headings).toHaveLength(1);
+    const kept = headings[0]!.includes("<w:b/>");
+    const offenders: string[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence, masked } of attributedTo(
+        container,
+        PDF_TO_WORD_TOOL,
+      ))
+        if (denies(masked)) offenders.push(`${container.where}: ${sentence}`);
+    expect(
+      offenders.length > 0,
+      kept
+        ? `a wholly bold paragraph comes through bold — the page may not say bold is left out:\n  ${offenders.join("\n  ")}`
+        : "a wholly bold paragraph comes through regular — the page must say so",
+    ).toBe(!kept);
+    // Positive control, through the attribution the live check uses.
+    expect(
+      attributedTo(
+        { where: "control", home: PDF_TO_WORD_TOOL, texts: SHIPPED_STYLE },
+        PDF_TO_WORD_TOOL,
+      ).filter(({ masked }) => denies(masked)),
+    ).toHaveLength(SHIPPED_STYLE.length);
   }, 60_000);
 
   it("wherever the page promises the note names a lost picture, it states the one exception", async () => {

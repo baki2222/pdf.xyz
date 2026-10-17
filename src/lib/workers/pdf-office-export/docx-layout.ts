@@ -56,12 +56,17 @@ import type {
   ScannedMedia,
   ScannedPage,
   ScannedPicture,
+  ScannedTextLine,
 } from "./page-scan";
 
 export interface DocxTextBlock {
   kind: "text";
   /** One cell is a paragraph; two or more a tab-separated table row. */
   cells: readonly string[];
+  /** Every line of it is drawn in a bold face ({@link paragraphStyle}). */
+  bold?: true;
+  /** Every line of it is drawn in an italic face. */
+  italic?: true;
 }
 
 export interface DocxPictureBlock {
@@ -190,6 +195,50 @@ function pictureBlock(page: DocxPage, pic: ScannedPicture): DocxPictureBlock {
   };
 }
 
+/**
+ * Bold and italic for one paragraph, from the page reader's fonts: bold when
+ * EVERY visible run of every line the reader drew inside the paragraph's
+ * box is in a bold face, italic likewise; nothing when the reader drew no
+ * visible line there. A whole paragraph or none: a bold word inside a
+ * sentence is not carried, since poppler's words and pdf.js's runs are not
+ * matched one to one. A title, a heading, a caption set in bold — what a
+ * slide-like PDF is mostly made of — is. Lines are matched by their centre,
+ * mapped into poppler's frame (`mediaFrame`).
+ */
+export function paragraphStyle(
+  box: FlowBox | undefined,
+  page: ScannedPage | undefined,
+): { bold?: true; italic?: true } {
+  if (!box || !page) return {};
+  const lines = page.items.filter(
+    (i): i is ScannedTextLine => i.kind === "text",
+  );
+  const runs = lines
+    .filter((l) => {
+      const [x0, y0, x1, y1] = mapBox(page.mediaFrame, [
+        l.x,
+        l.y,
+        l.x + l.width,
+        l.y + l.height,
+      ]);
+      const cx = (x0 + x1) / 2;
+      const cy = (y0 + y1) / 2;
+      return (
+        cx >= box[0] - 1 &&
+        cx <= box[2] + 1 &&
+        cy >= box[1] - 1 &&
+        cy <= box[3] + 1
+      );
+    })
+    .flatMap((l) => l.runs)
+    .filter((r) => !r.invisible && r.text.trim());
+  if (runs.length === 0) return {};
+  return {
+    ...(runs.every((r) => r.bold) ? { bold: true as const } : {}),
+    ...(runs.every((r) => r.italic) ? { italic: true as const } : {}),
+  };
+}
+
 /** The pictures a page reader found on `page`, in the order placed. */
 export function scannedPictures(
   page: ScannedPage | undefined,
@@ -237,7 +286,11 @@ export function docxDocumentOf(
         if (at[k] === i) blocks.push(pictureBlock(page, p.pic));
       });
       if (i < paragraphs.length)
-        blocks.push({ kind: "text", cells: paragraphs[i]! });
+        blocks.push({
+          kind: "text",
+          cells: paragraphs[i]!,
+          ...paragraphStyle(boxes[i], scanned),
+        });
     }
     pages.push(blocks);
   }

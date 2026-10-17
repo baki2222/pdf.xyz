@@ -21,7 +21,11 @@
  */
 import JSZip from "jszip";
 import { xmlEscape } from "../ooxml/sheet-cells";
-import type { DocxDocument, DocxPictureBlock } from "./docx-layout";
+import type {
+  DocxDocument,
+  DocxPictureBlock,
+  DocxTextBlock,
+} from "./docx-layout";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -38,13 +42,18 @@ const EMU_PER_POINT = 12_700;
 const TWIPS_PER_POINT = 20;
 
 /** One paragraph: a prose cell, or a table row whose cells are tab-separated. */
-function textParagraph(cells: readonly string[]): string {
+function textParagraph(block: DocxTextBlock): string {
   // The shared escape, which also drops what XML 1.0 cannot carry: one stray
   // control character from pdftotext once made the whole part malformed.
-  const runs = cells
+  const runs = block.cells
     .map((cell) => `<w:t xml:space="preserve">${xmlEscape(cell)}</w:t>`)
     .join("<w:tab/>");
-  return `<w:p><w:r>${runs}</w:r></w:p>`;
+  // A paragraph set wholly in bold or italics keeps it (`paragraphStyle`).
+  const style =
+    block.bold || block.italic
+      ? `<w:rPr>${block.bold ? "<w:b/>" : ""}${block.italic ? "<w:i/>" : ""}</w:rPr>`
+      : "";
+  return `<w:p><w:r>${style}${runs}</w:r></w:p>`;
 }
 
 const emu = (pt: number) => Math.max(1, Math.round(pt * EMU_PER_POINT));
@@ -105,7 +114,7 @@ export async function docxPackage(
     .map((blocks) =>
       blocks
         .map((block) => {
-          if (block.kind === "text") return textParagraph(block.cells);
+          if (block.kind === "text") return textParagraph(block);
           let part = media.get(block.media.key);
           if (!part) {
             const n = media.size + 1;

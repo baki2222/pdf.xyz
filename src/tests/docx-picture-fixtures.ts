@@ -351,3 +351,42 @@ export const DOCX_PICTURE_FIXTURES = [
   wideDrawingPdf,
   croppedPagePdf,
 ] as const;
+
+/**
+ * One US Letter page of four paragraphs: a heading in a bold face, an aside
+ * in an italic one, a sentence in a regular face that ENDS in bold words
+ * (two runs on one line), and a regular sentence. No picture. PDF to Word
+ * keeps bold or italics only where a whole paragraph is set in them.
+ */
+export async function boldItalicPdf(): Promise<{
+  pdf: Uint8Array;
+  paragraph: { bold: string; italic: string; mixed: string; regular: string };
+}> {
+  const paragraph = {
+    bold: "A heading set in bold",
+    italic: "An aside set in italics",
+    mixed: "Regular words with a bold ending",
+    regular: "A plain closing sentence.",
+  };
+  const start = "Regular words with";
+  const end = "a bold ending";
+  const doc = await PDFDocument.create();
+  const all = [...Object.values(paragraph), start, end];
+  const regular = await embedDrawingFont(doc, all, "sans");
+  const bold = await embedDrawingFont(doc, all, "sans-bold");
+  const italic = await embedDrawingFont(doc, all, "serif-italic");
+  const page = doc.addPage([612, 792]);
+  line(page, paragraph.bold, 72, 90, 20, bold);
+  line(page, paragraph.italic, 72, 150, 12, italic);
+  line(page, start, 72, 210, 12, regular);
+  line(
+    page,
+    end,
+    72 + regular.widthOfTextAtSize(`${start} `, 12),
+    210,
+    12,
+    bold,
+  );
+  line(page, paragraph.regular, 72, 270, 12, regular);
+  return { pdf: await doc.save(), paragraph };
+}

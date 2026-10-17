@@ -30,6 +30,7 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
+  boldItalicPdf,
   captionedPicturesPdf,
   croppedPagePdf,
   DOCX_PICTURE_FIXTURES,
@@ -174,6 +175,27 @@ describe("PDF to Word keeps the pictures", () => {
     );
     // And the portrait case keeps the PDF's own page (the other test above).
     expect(docxPageOf(612, 792)).toMatchObject({ width: 612, height: 792 });
+  }, 60_000);
+
+  it("a paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not make the sentence bold", async () => {
+    const { pdf, paragraph } = await boldItalicPdf();
+    const xml = await (
+      await JSZip.loadAsync((await word(pdf)).output)
+    )
+      .file("word/document.xml")!
+      .async("string");
+    const of = (text: string) => {
+      const p = (xml.match(/<w:p>[\s\S]*?<\/w:p>/g) ?? []).filter((q) =>
+        q.includes(text),
+      );
+      // Health: each paragraph is found once, so "no <w:b/>" is about it.
+      expect(p, text).toHaveLength(1);
+      return p[0]!;
+    };
+    expect(of(paragraph.bold)).toContain("<w:rPr><w:b/></w:rPr>");
+    expect(of(paragraph.italic)).toContain("<w:rPr><w:i/></w:rPr>");
+    expect(of(paragraph.mixed)).not.toContain("<w:rPr>");
+    expect(of(paragraph.regular)).not.toContain("<w:rPr>");
   }, 60_000);
 
   it("a page that is only a scan comes through as its picture, on its own page, and the result says its words are not text", async () => {

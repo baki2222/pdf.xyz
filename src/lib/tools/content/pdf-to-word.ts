@@ -65,6 +65,9 @@ import {
  *    still refused (`no_text`); a scanned page in a PDF that has text comes
  *    through as its picture, and the note names it. A PDF the reader cannot
  *    read ahead is rebuilt first (Repair PDF's engine) or refused. Until
+ *    A paragraph EVERY visible run of which is bold (italic) in the page
+ *    reader's fonts is written bold (italic), docx-layout.ts
+ *    `paragraphStyle`; a bold word inside a sentence is not. Until
  *    this date the page said "Fonts, bold and italics, colours and images
  *    are not carried across", "fonts, sizes, colours, images and link
  *    targets stay behind", and that image-only pages "add nothing to the
@@ -122,7 +125,7 @@ const content: ToolContent = {
   metaDescription: `Convert a PDF to editable Word DOCX: its text as paragraphs in reading order, each picture between them at its size. Scans need OCR first. Up to ${CEILING_MB} MB.`,
 
   intro: [
-    `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide, and a picture wider or taller than the page's text area is scaled down to fit. Fonts, bold and italics, colours, tables, and drawings made of lines and shapes are not carried across.`,
+    `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide, and a picture wider or taller than the page's text area is scaled down to fit. Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.`,
     `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops and asks you to run OCR first rather than hand you a document of page pictures with nothing in it to edit.`,
     `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure worker, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. The worker deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. A run handles a single PDF, and uploads above ${CEILING_MB} MB are refused.`,
   ],
@@ -168,7 +171,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the Word file look like my PDF?",
-      a: "Not closely. The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind. The original's indentation and spacing are not kept, and a picture painted over another, or over text, comes through on its own line instead of on top. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
+      a: "Not closely. The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind. A paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not. The original's indentation and spacing are not kept, and a picture painted over another, or over text, comes through on its own line instead of on top. Each PDF page with text or a picture begins on a new Word page, and running headers and page numbers come through as ordinary paragraphs.",
     },
     {
       q: "Are the pictures kept at their full quality?",

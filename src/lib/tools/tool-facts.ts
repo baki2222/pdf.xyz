@@ -1348,7 +1348,7 @@ function listed(
  * a page with a picture and holds the picture clause to the .docx.
  */
 export const PDF_TO_WORD_KEEPS =
-  "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page. Tables, fonts, colors, drawings made of lines and shapes, and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.";
+  "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page. Tables, fonts, colors, drawings made of lines and shapes, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them, so the text arrives in Word's default style, ready to format — not as a copy of the page.";
 
 /** Every language Translate PDF offers, named, from the list its panel renders. */
 export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(
