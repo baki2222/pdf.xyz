@@ -35,17 +35,30 @@
  * use (`src/tests/poppler-flow-standin.ts`), and the output says so: the
  * package Word opens is the writer's either way, which is what is under test.
  *
- * ── ITS BLIND SPOT ──────────────────────────────────────────────────────────
+ * ── ONE FILE AT A TIME, AND A CLOCK ─────────────────────────────────────────
  *
- * It opens every file READ-ONLY with alerts off, as `prove:pptx-opens` does,
- * so a silent repair is invisible to it: whether a double-click shows Word's
- * "unreadable content" prompt is the owner's check, in Word's own window.
- * It does not edit or save the subjects.
+ * Each file is opened by a Word of its own, READ-ONLY with alerts off, as
+ * `prove:pptx-opens` does, and given {@link PER_FILE_TIMEOUT_MS}. Alerts off
+ * makes SOME repairs silent and not others. Measured 2026-10-17 on Word
+ * 16.0.20430: a package missing a picture's media part, or with an element
+ * Word does not know, or with two bodies, opened without a word (so a
+ * silent repair is invisible here); one with a broken checksum, a missing
+ * content type or a negative extent was refused; and a file that asks for
+ * anything — its password, or the "unreadable content" prompt that left
+ * the review's run of the same day hung for 300 s — stops Word at a dialog.
+ * So past the clock, the Word processes THIS run started are closed and the
+ * file is reported NOT OPENED: a defect, for a subject. Measured on a
+ * password-protected .docx: closed after 90 s, nothing left running. It
+ * cannot tell one dialog from another, and it does not edit or save the
+ * subjects. Whether a double-click on a file that opens here shows a prompt
+ * is still the owner's check, in Word's own window.
+ *
+ * It refuses to start while Word is running: a dialog in a Word someone is
+ * working in could not be closed by it, and that Word is not its to close.
  *
  * Exit codes: 0 = proven; 1 = evidence of a defect; 2 = could not conclude
- * (not Windows, no Word, a control failed, or Word's alerts were not left as
- * they were found). It closes Word afterwards only if Word had no document
- * open when it started, and puts DisplayAlerts back as it found it.
+ * (not Windows, no Word, Word already running, a control failed, or Word's
+ * alerts were not left as they were found).
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -67,30 +80,26 @@ const EXIT_INCOMPLETE = 2;
 interface Opened {
   path: string;
   ok: boolean;
+  /** Word did not finish in time and was closed (a dialog, most likely). */
+  timedOut?: boolean;
   error?: string;
   hresult?: string;
   pages?: number;
   paragraphs?: { start: number; end: number; text: string }[];
   shapes?: { start: number; width: number; height: number }[];
 }
-interface WordReport {
-  version: string;
-  build: string;
-  control: Opened;
-  subjects: Opened[];
-  alerts: { before: number; after: number };
-}
 
-const OPEN_IN_WORD = String.raw`
-param([string]$ControlPath, [string]$PicturePath, [string]$ListPath)
+/** How long one file may take in Word before its Word is closed. */
+const PER_FILE_TIMEOUT_MS = 90_000;
+
+/** One file, in a Word of its own; with `-PicturePath`, the control first. */
+const OPEN_ONE = String.raw`
+param([string]$Path, [string]$PicturePath)
 $ErrorActionPreference = 'Stop'
 # wdDoNotSaveChanges, by reference: Word's Close and Quit take a VARIANT
 # by ref, and a Quit that would ask about saving hangs an invisible Word.
 $noSave = 0
 $app = New-Object -ComObject Word.Application
-$preexisting = $app.Documents.Count
-# DisplayAlerts belongs to whichever Word COM attached to, which may be one
-# someone is working in; it is put back in the finally below.
 $alertsBefore = $app.DisplayAlerts
 $app.DisplayAlerts = 0 # wdAlertsNone
 try {
@@ -101,34 +110,54 @@ function Read-Doc($d) {
   foreach ($s in $d.InlineShapes) { $shapes += , @{ start = $s.Range.Start; width = [double]$s.Width; height = [double]$s.Height } }
   return @{ pages = $d.ComputeStatistics(2); paragraphs = @($paras); shapes = @($shapes) }
 }
-function Open-One($path) {
-  try {
-    # FileName, ConfirmConversions, ReadOnly, AddToRecentFiles. Word's
-    # OpenAndRepair stays at its default, off: a repaired file is not the
-    # file. (Passed positionally past these four, PowerShell cannot hand a
-    # bool to Word's by-reference VARIANTs: measured, every Open then failed.)
-    $d = $app.Documents.Open($path, $false, $true, $false)
-    try { $r = Read-Doc $d; $r.ok = $true; $r.path = $path; return $r } finally { $d.Close([ref]$noSave) }
-  } catch {
-    return @{ ok = $false; path = $path; error = $_.Exception.Message; hresult = ('0x{0:X8}' -f $_.Exception.HResult) }
-  }
-}
 $result = @{ version = $app.Version; build = $app.Build }
-$ctl = $app.Documents.Add()
-$ctl.Range().Text = 'CONTROL saved by Word'
-$null = $ctl.InlineShapes.AddPicture($PicturePath, $false, $true, $ctl.Paragraphs(1).Range)
-$ctl.SaveAs2($ControlPath, 16) # wdFormatXMLDocument
-$ctl.Close([ref]$noSave)
-$result.control = Open-One $ControlPath
-$result.subjects = @(Get-Content -LiteralPath $ListPath -Encoding UTF8 | Where-Object { $_ } | ForEach-Object { Open-One ([string]$_) })
+if ($PicturePath) {
+  $ctl = $app.Documents.Add()
+  $ctl.Range().Text = 'CONTROL saved by Word'
+  $null = $ctl.InlineShapes.AddPicture($PicturePath, $false, $true, $ctl.Paragraphs(1).Range)
+  $ctl.SaveAs2($Path, 16) # wdFormatXMLDocument
+  $ctl.Close([ref]$noSave)
+}
+try {
+  # FileName, ConfirmConversions, ReadOnly, AddToRecentFiles. Word's
+  # OpenAndRepair stays at its default, off: a repaired file is not the
+  # file. (Passed positionally past these four, PowerShell cannot hand a
+  # bool to Word's by-reference VARIANTs: measured, every Open then failed.)
+  $d = $app.Documents.Open($Path, $false, $true, $false)
+  try { $r = Read-Doc $d; $r.ok = $true } finally { $d.Close([ref]$noSave) }
+} catch {
+  $r = @{ ok = $false; error = $_.Exception.Message; hresult = ('0x{0:X8}' -f $_.Exception.HResult) }
+}
+$r.path = $Path
+$result.opened = $r
 } finally {
   $app.DisplayAlerts = $alertsBefore
 }
 $result.alerts = @{ before = [int]$alertsBefore; after = [int]$app.DisplayAlerts }
-if ($preexisting -eq 0 -and $app.Documents.Count -eq 0) { $app.Quit([ref]$noSave) }
+$app.Quit([ref]$noSave)
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($app) | Out-Null
 $result | ConvertTo-Json -Depth 8 -Compress
 `;
+
+/** The Word processes running now. */
+const LIST_WORD = String.raw`
+@{ ids = @(Get-Process WINWORD -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }) } | ConvertTo-Json -Compress
+`;
+
+/** Close the Word processes named, and nothing else. */
+const STOP_WORD = String.raw`
+param([string]$Ids)
+$stopped = @()
+foreach ($i in $Ids.Split(',')) { if ($i) { Stop-Process -Id ([int]$i) -Force -ErrorAction SilentlyContinue; $stopped += [int]$i } }
+@{ stopped = @($stopped) } | ConvertTo-Json -Compress
+`;
+
+interface OneReport {
+  version: string;
+  build: string;
+  opened: Opened;
+  alerts: { before: number; after: number };
+}
 
 function incomplete(reason: string): never {
   console.log(`CANNOT CONCLUDE — ${reason}`);
@@ -248,34 +277,64 @@ async function main(): Promise<void> {
     px.set(p % 40 < 20 ? [200, 40, 40] : [40, 80, 200], p * 3);
   writeFileSync(picture, encodePngImage(40, 30, "rgb8", px));
 
-  const list = path.join(dir, "subjects.txt");
-  writeFileSync(
-    list,
-    [...subjects.map((s) => s.path), negative, ...extra].join("\r\n"),
-    "utf8",
-  );
-  let report: WordReport;
-  try {
-    report = runPowerShellJson<WordReport>(
-      OPEN_IN_WORD,
-      [
-        "-ControlPath",
-        path.join(dir, "control-saved-by-word.docx"),
-        "-PicturePath",
-        picture,
-        "-ListPath",
-        list,
-      ],
-      { dir, name: "open-in-word.ps1", timeout: 300_000 },
-    );
-  } catch (error) {
+  // Word must not be running: a dialog in a Word someone works in could not
+  // be closed by this run, and that Word is not its to close.
+  const listWord = () =>
+    runPowerShellJson<{ ids: number[] | number | null }>(LIST_WORD, [], {
+      dir,
+      name: "list-word.ps1",
+      timeout: 30_000,
+    }).ids;
+  const ids = (v: number[] | number | null) =>
+    v === null ? [] : Array.isArray(v) ? v : [v];
+  const before = new Set(ids(listWord()));
+  if (before.size > 0)
     incomplete(
-      `Word could not be driven over COM (${(error as Error).message.split("\n")[0]}).`,
+      `Word is running (${before.size} process(es)); close it first. A file Word wants to repair stops it with a prompt, and this run closes only the Word it started.`,
     );
-  }
-  console.log(
-    `Word ${report.version} build ${report.build} — working in ${dir}`,
-  );
+  let version = "";
+  let build = "";
+  const alerts: { before: number; after: number }[] = [];
+  /** One file in a Word of its own, closed past the clock. */
+  const open = (file: string, picture?: string): Opened => {
+    try {
+      const one = runPowerShellJson<OneReport>(
+        OPEN_ONE,
+        ["-Path", file, ...(picture ? ["-PicturePath", picture] : [])],
+        { dir, name: "open-one.ps1", timeout: PER_FILE_TIMEOUT_MS },
+      );
+      version ||= one.version;
+      build ||= one.build;
+      alerts.push(one.alerts);
+      return one.opened;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ETIMEDOUT")
+        incomplete(
+          `Word could not be driven over COM (${(error as Error).message.split("\n")[0]}).`,
+        );
+      const ours = ids(listWord()).filter((id) => !before.has(id));
+      runPowerShellJson(STOP_WORD, ["-Ids", ours.join(",")], {
+        dir,
+        name: "stop-word.ps1",
+        timeout: 30_000,
+      });
+      return {
+        ok: false,
+        path: file,
+        timedOut: true,
+        error: `Word did not finish in ${PER_FILE_TIMEOUT_MS / 1000} s — at a dialog, a repair or password prompt most likely — and the ${ours.length} Word process(es) this run started were closed`,
+      };
+    }
+  };
+
+  const report = {
+    control: open(path.join(dir, "control-saved-by-word.docx"), picture),
+    subjects: [...subjects.map((s) => s.path), negative, ...extra].map((f) =>
+      open(f),
+    ),
+  };
+  console.log(`Word ${version} build ${build} — working in ${dir}`);
 
   const controlOk =
     report.control.ok &&
@@ -288,9 +347,10 @@ async function main(): Promise<void> {
   );
   const opened = report.subjects;
   const cut = opened[subjects.length];
+  // Refused outright, or stopped at a prompt: either way, not opened as is.
   const negativeRefused = cut !== undefined && !cut.ok;
   console.log(
-    `  NEGATIVE control (a .docx cut off mid-XML) ${negativeRefused ? `refused, ${cut!.hresult}` : "OPENED — this run cannot see a broken package"}`,
+    `  NEGATIVE control (a .docx cut off mid-XML) ${negativeRefused ? `refused, ${cut!.timedOut ? "at a dialog" : cut!.hresult}` : "OPENED — this run cannot see a broken package"}`,
   );
   if (!controlOk || !negativeRefused)
     incomplete("a control failed, so this run is not evidence either way.");
@@ -301,7 +361,7 @@ async function main(): Promise<void> {
     if (!got?.ok) {
       failed = true;
       console.log(
-        `  SUBJECT  ${s.name}: REFUSED: ${got?.error} ${got?.hresult}`,
+        `  SUBJECT  ${s.name}: ${got?.timedOut ? "NOT OPENED" : "REFUSED"}: ${got?.error} ${got?.hresult ?? ""}`,
       );
       return;
     }
@@ -330,13 +390,12 @@ async function main(): Promise<void> {
     const ok = other.ok;
     failed ||= !ok;
     console.log(
-      `  FILE     ${path.basename(other.path)}: ${ok ? `opened, ${other.pages} page(s), ${other.paragraphs?.length ?? 0} paragraph(s), ${other.shapes?.length ?? 0} picture(s)` : `REFUSED: ${other.error ?? ""} ${other.hresult ?? ""}`}`,
+      `  FILE     ${path.basename(other.path)}: ${ok ? `opened, ${other.pages} page(s), ${other.paragraphs?.length ?? 0} paragraph(s), ${other.shapes?.length ?? 0} picture(s)` : `${other.timedOut ? "NOT OPENED" : "REFUSED"}: ${other.error ?? ""} ${other.hresult ?? ""}`}`,
     );
   }
-  const { before, after } = report.alerts;
-  const restored = before === after;
+  const restored = alerts.every((a) => a.before === a.after);
   console.log(
-    `  ALERTS   Word's DisplayAlerts ${before} before the run, ${after} after${restored ? "" : " — NOT PUT BACK, set it by hand"}`,
+    `  ALERTS   Word's DisplayAlerts put back after ${alerts.filter((a) => a.before === a.after).length} of ${alerts.length} run(s)${restored ? "" : " — NOT PUT BACK, set it by hand"}`,
   );
   if (failed) {
     console.log("FAIL");
