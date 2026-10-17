@@ -328,6 +328,10 @@ test("Continue with carries the result, says where it came from, and the job's s
  * unchanged, to download — and Continue with carrying it. Read through the
  * page: the bytes downloaded are the merge's five pages, and the rows carry
  * the merged file by its name.
+ *
+ * Mutation-checked on the build (2026-10-17): the no-saving ending switched
+ * off in the Compress runner — "the lean result has no Continue with", as
+ * on 94dc2b22. Restored from a copy, no diff.
  */
 test("a lean merge carried to Compress PDF still ends in a fork: the file as it is to download, and Continue with carrying it", async ({
   page,
