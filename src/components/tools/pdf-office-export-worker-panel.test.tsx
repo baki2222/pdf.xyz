@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The PDF to Office panel, driven through the REAL browser client over a
  * stubbed network, with job records built by the REAL worker processor and
@@ -23,9 +24,22 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { createPdfOfficeExportProcessor } from "@/lib/workers/processor/pdf-office-export";
-import type { PdfFlowExtractor } from "@/lib/workers/pdf-office-export/engine";
+import type {
+  PdfFlowExtractor,
+  PdfOfficeExportDeps,
+} from "@/lib/workers/pdf-office-export/engine";
 import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
+import { PDFDocument } from "pdf-lib";
+import { scanPdfPages } from "@/lib/workers/pdf-office-export/page-scan";
+import {
+  imageCaptionPdf,
+  junkAfterEofPdf,
+  linesPdf,
+  repairStandIn,
+  scannedPdf,
+  undecodablePicturePdf,
+} from "@/tests/pptx-fidelity-fixtures";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
 
 const wordTool = getToolBySlug("pdf-to-word")!;
@@ -297,5 +311,258 @@ describe("PDF to Word panel — failures link the tool that fixes them", () => {
     await exportOnePdf();
     await screen.findByRole("alert");
     expect(screen.queryByRole("link", { name: /^Open / })).toBeNull();
+  });
+});
+
+/**
+ * PowerPoint keeps a page with no text, as pictures (since 2026-10-10), so
+ * its notice says THAT — through the same chain as above: the REAL page
+ * reader over a real PDF (a typed page, a scanned page, a blank page), the
+ * real processor, the persistence whitelist, the client, the panel.
+ */
+describe("PDF to PowerPoint panel — pages kept only as pictures", () => {
+  const pptxTool = getToolBySlug("pdf-to-powerpoint")!;
+
+  async function threePagePdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const [typed, scan] = await Promise.all([
+      PDFDocument.load((await linesPdf([[SENTENCE]])).pdf),
+      PDFDocument.load((await scannedPdf()).pdf),
+    ]);
+    doc.addPage((await doc.copyPages(typed, [0]))[0]!);
+    doc.addPage((await doc.copyPages(scan, [0]))[0]!);
+    doc.addPage([720, 540]);
+    return doc.save();
+  }
+
+  async function pptxJob(keepPictureFields: boolean) {
+    const result = await createPdfOfficeExportProcessor({
+      extract: layoutExtract,
+      extractFlow: pages(SENTENCE),
+      scanPages: scanPdfPages,
+    }).process({
+      tool: "pdf-to-powerpoint",
+      options: {},
+      inputs: [
+        {
+          fileId: "f1",
+          filename: "report.pdf",
+          contentType: "application/pdf",
+          bytes: await threePagePdf(),
+        },
+      ],
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    const sanitized = sanitizeJobResults(result.results)!;
+    // An older worker's result: the same coverage, no picture fields.
+    if (!keepPictureFields && sanitized.officeExport) {
+      delete sanitized.officeExport.picturePageCount;
+      delete sanitized.officeExport.pagesAsPictures;
+    }
+    return {
+      job: {
+        jobId: "job_1",
+        tool: "pdf-to-powerpoint",
+        capability: "worker",
+        progress: 100,
+        createdAt: "2026-10-10T00:00:00.000Z",
+        updatedAt: "2026-10-10T00:00:00.000Z",
+        status: "completed",
+        artifacts: [
+          {
+            artifactId: "a1",
+            filename: result.artifacts[0]!.filename,
+            contentType: result.artifacts[0]!.contentType,
+            bytes: result.artifacts[0]!.bytes.byteLength,
+            url: "/download/a1",
+            expiresAt: "2026-10-10T01:00:00.000Z",
+          },
+        ],
+        results: sanitized,
+      } as unknown as Job,
+      output: result.artifacts[0]!.bytes,
+    };
+  }
+
+  async function exportPptx() {
+    render(<PdfOfficeExportWorkerPanel tool={pptxTool} />);
+    const input = await vi.waitFor(() => {
+      const found = document.querySelector('input[type="file"]');
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "report.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /export pptx/i }));
+  }
+
+  it("says the scanned page is on its slide as a picture, and the blank one empty", async () => {
+    stubNetwork(await pptxJob(true));
+    await exportPptx();
+    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const box = notice.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(
+      /No selectable text on page 2, so its slide carries the page as a picture/,
+    );
+    expect(box).toHaveTextContent(/One page has nothing on it/);
+    // The sentence that was true of the text-only deck is not shown.
+    expect(box).not.toHaveTextContent(/nothing from (it|them) is in this file/);
+    expect(
+      within(box).getByRole("link", { name: "Open OCR PDF" }),
+    ).toHaveAttribute("href", "/tools/ocr-pdf");
+  });
+
+  it("says what an OLDER worker's deck did when its result has no picture fields", async () => {
+    // A worker image from before 2026-10-10 left such pages empty, and its
+    // result says nothing of pictures; the panel must not claim them.
+    stubNetwork(await pptxJob(false));
+    await exportPptx();
+    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    expect(notice.closest('[role="status"]')).toHaveTextContent(
+      /nothing from them is in this file/,
+    );
+  });
+});
+
+/**
+ * A picture the worker could not carry is SAID, never turned into "nothing
+ * on it". Until 2026-10-11 such a picture left no trace in the result: a page
+ * whose only content was a picture pdf.js could not decode (or one past its
+ * pixel ceiling) was counted with the blank pages — "2 pages have nothing on
+ * them" — and a page with text kept its picture's loss to itself. Through
+ * the same chain as above: the real page reader, processor, persistence
+ * whitelist, client and panel.
+ */
+describe("PDF to PowerPoint panel — pictures that are not on their slides", () => {
+  const pptxTool = getToolBySlug("pdf-to-powerpoint")!;
+
+  async function pptxJobFor(
+    pdf: Uint8Array,
+    scanPages: typeof scanPdfPages = scanPdfPages,
+    extra: Partial<PdfOfficeExportDeps> = {},
+  ) {
+    const result = await createPdfOfficeExportProcessor({
+      extract: layoutExtract,
+      extractFlow: pages(SENTENCE),
+      scanPages,
+      ...extra,
+    }).process({
+      tool: "pdf-to-powerpoint",
+      options: {},
+      inputs: [
+        {
+          fileId: "f1",
+          filename: "report.pdf",
+          contentType: "application/pdf",
+          bytes: pdf,
+        },
+      ],
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    return {
+      job: {
+        jobId: "job_1",
+        tool: "pdf-to-powerpoint",
+        capability: "worker",
+        progress: 100,
+        createdAt: "2026-10-11T00:00:00.000Z",
+        updatedAt: "2026-10-11T00:00:00.000Z",
+        status: "completed",
+        artifacts: [
+          {
+            artifactId: "a1",
+            filename: result.artifacts[0]!.filename,
+            contentType: result.artifacts[0]!.contentType,
+            bytes: result.artifacts[0]!.bytes.byteLength,
+            url: "/download/a1",
+            expiresAt: "2026-10-11T01:00:00.000Z",
+          },
+        ],
+        results: sanitizeJobResults(result.results)!,
+      } as unknown as Job,
+      output: result.artifacts[0]!.bytes,
+    };
+  }
+
+  async function exportPptx() {
+    render(<PdfOfficeExportWorkerPanel tool={pptxTool} />);
+    const input = await vi.waitFor(() => {
+      const found = document.querySelector('input[type="file"]');
+      if (!found) throw new Error("no file input yet");
+      return found;
+    });
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "report.pdf", {
+            type: "application/pdf",
+          }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /export pptx/i }));
+  }
+
+  it("a page whose only picture could not be decoded is named as such, and only the blank page is called empty", async () => {
+    stubNetwork(await pptxJobFor((await undecodablePicturePdf()).pdf));
+    await exportPptx();
+    const notice = await screen.findByText(/Text found on 1 of 3 pages/);
+    const box = notice.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(
+      /1 picture on page 2 is not on its slide: its image data could not be decoded/,
+    );
+    expect(box).toHaveTextContent(/One page has nothing on it/);
+    expect(box).not.toHaveTextContent(/2 pages have nothing on them/);
+  });
+
+  it("a picture too large for the worker is named even when every page has text", async () => {
+    // The decode budget, lowered for the test so a 480 × 300 photo is over it.
+    const lowBudget: typeof scanPdfPages = (bytes, options) =>
+      scanPdfPages(bytes, { ...options, pageDecodeBudgetBytes: 100_000 });
+    stubNetwork(await pptxJobFor((await imageCaptionPdf()).pdf, lowBudget));
+    await exportPptx();
+    const sentence = await screen.findByText(
+      /1 picture on page 1 is not on its slide/,
+    );
+    const box = sentence.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(/it was too large for the worker to carry/);
+    // No page lacks text, so nothing about text or OCR is said.
+    expect(box).not.toHaveTextContent(/Text found on/);
+    expect(
+      within(box).queryByRole("link", { name: "Open OCR PDF" }),
+    ).toBeNull();
+  });
+
+  /*
+   * 2026-10-11: a PDF the page reader cannot read is rebuilt first, the way
+   * Repair PDF does, and converted from the rebuilt copy (a stand-in for
+   * qpdf here). The deck is the rebuilt file's; the reader is told, beside
+   * the download, so a slide that differs from the PDF is not a mystery.
+   */
+  it("a damaged PDF rebuilt before conversion is said so beside the download", async () => {
+    const pdf = junkAfterEofPdf((await imageCaptionPdf()).pdf);
+    stubNetwork(
+      await pptxJobFor(pdf, scanPdfPages, { repairPdf: repairStandIn }),
+    );
+    await exportPptx();
+    const sentence = await screen.findByText(/looked damaged/);
+    const box = sentence.closest('[role="status"]') as HTMLElement;
+    expect(box).toHaveTextContent(
+      /rebuilt it first, the way Repair PDF does, and converted the rebuilt copy/,
+    );
+  });
+
+  it("POSITIVE CONTROL: an intact PDF says nothing about rebuilding", async () => {
+    stubNetwork(await pptxJobFor((await imageCaptionPdf()).pdf));
+    await exportPptx();
+    await screen.findByText(/Your PPTX file is ready/);
+    expect(screen.queryByText(/looked damaged/)).toBeNull();
   });
 });

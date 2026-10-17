@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * Every AI tool's job reserves what its document holds — driven from a real
  * PDF, through the real client, onto the wire, into the REAL route, against a

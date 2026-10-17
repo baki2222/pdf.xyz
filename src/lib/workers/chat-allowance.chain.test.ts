@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * A conversation about a small PDF survives the daily allowance — driven from
  * the panel's own measurement, through the REAL client, onto the wire, into the

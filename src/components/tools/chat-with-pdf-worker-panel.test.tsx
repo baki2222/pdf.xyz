@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The Chat with PDF panel, tested for the one thing it could not previously do: hold a
  * conversation.

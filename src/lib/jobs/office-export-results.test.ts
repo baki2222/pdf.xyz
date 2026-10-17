@@ -79,3 +79,39 @@ describe("sanitizeJobResults — the officeExport block", () => {
     ).toBeUndefined();
   });
 });
+
+/*
+ * 2026-10-11: PDF to PowerPoint rebuilds a PDF its page reader cannot read,
+ * the way Repair PDF does, before converting it — and says so. The flag
+ * travels only as `true`: anything else is no claim at all, and must not
+ * turn into one on the way to the panel.
+ */
+describe("sanitizeJobResults — a PDF rebuilt before conversion", () => {
+  const base = measureOfficeExportPages(1, [
+    { pageNumber: 1, text: "a sentence that is comfortably long enough" },
+  ]);
+
+  it("carries `repairedBeforeConversion: true` to the job record", () => {
+    expect(
+      sanitizeJobResults({
+        officeExport: { ...base, repairedBeforeConversion: true },
+      })?.officeExport?.repairedBeforeConversion,
+    ).toBe(true);
+  });
+
+  it("drops any other value, and adds nothing where the worker said nothing", () => {
+    for (const value of [false, 1, "true", null])
+      expect(
+        sanitizeJobResults({
+          officeExport: {
+            ...base,
+            repairedBeforeConversion: value,
+          } as unknown as OfficeExportResultMeta,
+        })?.officeExport,
+        String(value),
+      ).not.toHaveProperty("repairedBeforeConversion");
+    expect(
+      sanitizeJobResults({ officeExport: base })?.officeExport,
+    ).not.toHaveProperty("repairedBeforeConversion");
+  });
+});

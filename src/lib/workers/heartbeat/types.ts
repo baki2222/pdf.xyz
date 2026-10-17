@@ -166,6 +166,21 @@ export interface HeartbeatCapabilities {
    * (last measured 2026-10-09; see `pdf-office-export/capability.ts`).
    */
   readonly pptxPresentationChain: boolean;
+  /**
+   * This image's PDF to PowerPoint engine puts a page's picture on its slide
+   * AS a picture, where the page paints it, at its pixel size.
+   *
+   * PROVEN AT START-UP by running the real engine over a generated PDF whose
+   * first page paints one picture at a known box, and finding a `p:pic` at
+   * that box whose image is that picture (`pdf-office-export/capability.ts`,
+   * `provesPptxPictures`). The owner reported on 2026-10-10 that production's
+   * decks had no pictures at all: the engine wrote one text box per slide.
+   * The engine that keeps them reaches users only in an image built after it,
+   * and copy that says pictures are kept is true of a download only while
+   * this reads `true`. An image built before this key publishes nothing, and
+   * the absence parses as `false`.
+   */
+  readonly pptxPictures: boolean;
 }
 
 /**

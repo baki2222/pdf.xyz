@@ -389,6 +389,20 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /PDF to PowerPoint|pdf to (?:pptx|slides)|editable (?:PowerPoint )?slides?|\.pptx\b(?:[^.?!]|\.(?=\w)){0,40}\bopen|\bopen(?:s|ed)?\b(?:[^.?!]|\.(?=\w)){0,40}\bPowerPoint\b|\bPowerPoint\b(?:[^.?!]|\.(?=\w)){0,40}\b(?:open(?:s|ed)?|refus(?:e[sd]?|ing)|reject(?:s|ed|ing)?)\b|slide master|complete presentation/i,
     catalogueCopy: true,
   },
+  pptxPictures: {
+    // Added 2026-10-10 with the key. The sentences a hedge about it would sit
+    // in: a slide carrying a page's picture(s), in either order within one
+    // sentence. Measured that day over the whole corpus (3,046 entries): 14
+    // members, every one on pdf-to-powerpoint (tagline, description, seoTitle,
+    // metaDescription, intro[0], intro[2], how[0], the three use cases and
+    // four FAQ answers); none on powerpoint-to-pdf, another tool or a guide,
+    // and no FAQ question. It owns no page (no tool is NAMED for pictures on
+    // slides); the PDF to PowerPoint page is read whole through the chain's
+    // subject anyway. catalogueCopy is true because those 14 exist.
+    subject:
+      /\bpictures?\b(?:[^.?!]|\.(?=\w)){0,80}\bslides?\b|\bslides?\b(?:[^.?!]|\.(?=\w)){0,80}\bpictures?\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *
@@ -882,25 +896,52 @@ describe("catalogue copy may not hedge a worker capability", () => {
       const text = copy.find((e) => e.slug === slug && e.where === where)!;
       // The hole: the subject does not see the planted entry at all.
       expect(chain.subject.test(text.text)).toBe(false);
-      return hedgeOffenders(copy, faqPairs(copy)).map((line) =>
-        line.slice(0, line.indexOf(" hedges ")),
+      // Who reported it, and where: `<slug> <where> hedges "<key>"`.
+      const reports = hedgeOffenders(copy, faqPairs(copy)).map((line) =>
+        line.slice(0, line.indexOf(" with ")),
       );
+      return { reports, text: text.text };
     };
-    for (const where of ["how[3]", "useCases[1].body"])
-      expect(plant(page, where)).toEqual([`${page} ${where}`]);
+    for (const where of ["how[3]", "useCases[1].body"]) {
+      const { reports, text } = plant(page, where);
+      // The chain reports it because it OWNS the page; its subject cannot see
+      // it (asserted in `plant`), so this line is the page read whole and
+      // nothing else. Any other capability reports it only through its OWN
+      // subject: since 2026-10-10 `pptxPictures` reads useCases[1] ("Pictures
+      // arrive on their slides…") wherever it stands. Until then this asserted
+      // `[`${page} ${where}`]`, one report with the key cut off, which a second
+      // honest report made red for no fault of the page read. Derived, not
+      // typed, so a subject that starts or stops seeing the entry moves the
+      // expectation with it, and the chain's line stays required either way.
+      const bySubject = WIRE_KEYS.filter(
+        (key) =>
+          key !== "pptxPresentationChain" && SUBJECTS[key]?.subject.test(text),
+      );
+      expect([...reports].sort()).toEqual(
+        ["pptxPresentationChain", ...bySubject]
+          .map((key) => `${page} ${where} hedges "${key}"`)
+          .sort(),
+      );
+    }
     // Read whole only on its OWN page. The same words on a page no capability
-    // owns are about nothing this rule reads, and stay out.
+    // owns, in an entry no subject sees, are about nothing this rule reads,
+    // and stay out.
     const owned = new Set(
       Object.values(SUBJECTS).flatMap(({ subject }) => [
         ...ownPages(subject, COPY),
       ]),
     );
     const elsewhere = COPY.find(
-      (entry) => entry.where === "how[3]" && !owned.has(entry.slug),
+      (entry) =>
+        entry.where === "how[3]" &&
+        !owned.has(entry.slug) &&
+        !Object.values(SUBJECTS).some(({ subject }) =>
+          subject.test(entry.text),
+        ),
     );
     expect(elsewhere).toBeDefined();
     if (!elsewhere) return;
-    expect(plant(elsewhere.slug, "how[3]")).toEqual([]);
+    expect(plant(elsewhere.slug, "how[3]").reports).toEqual([]);
   });
 
   it("the subject still reaches the FAQ answer that needed its widening", () => {

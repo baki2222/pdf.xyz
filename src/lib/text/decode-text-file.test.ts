@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * A .txt or .md file comes out as the text its author wrote — whatever
  * encoding their editor saved it in.

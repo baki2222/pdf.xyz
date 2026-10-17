@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The one-component JPEG encoder, read back by a decoder that is not ours.
  *

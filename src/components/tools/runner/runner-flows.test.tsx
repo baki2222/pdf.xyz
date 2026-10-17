@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   cleanup,

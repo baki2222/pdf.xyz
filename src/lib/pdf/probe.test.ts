@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * The probe behind "No selectable text on pages 1–3" — held to the reader
  * that decides whether text is selectable, not to the probe's own idea of it.

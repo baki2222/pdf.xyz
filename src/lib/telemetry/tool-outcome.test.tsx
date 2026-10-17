@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * Tool-run outcomes reach the sink — read at the sink, which is what GA4 is
  * handed, through the real hook, the real job client and the real page

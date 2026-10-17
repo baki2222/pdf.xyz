@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 import { crc32, deflateSync } from "node:zlib";
 import {
   afterAll,

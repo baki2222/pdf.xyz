@@ -3,9 +3,12 @@
  * worker, plus a presence-only binary probe.
  *
  * This is the ONLY module here that touches Node built-ins. It exists because the
- * pdfjs-backed extractor in `@/lib/pdf/text` is a browser module that cannot run
- * under Node at all (see `./parse`), so the worker needs a
- * native path — the same shape `../office-conversion/native` uses for LibreOffice.
+ * pdfjs-backed extractor in `@/lib/pdf/text` is a browser module (see `./parse`):
+ * it loads pdfjs's main build, which throws under Node, and points pdfjs at
+ * same-origin asset URLs that resolve to nothing there. So the worker reads text
+ * through a native path — the same shape `../office-conversion/native` uses for
+ * LibreOffice. (pdfjs's LEGACY build does run under Node, with its assets on
+ * disk; PDF to PowerPoint's page reader uses it, `../pdf-office-export/pdfjs-node`.)
  *
  * Honesty rules it preserves:
  *  - the deps builders inject an extractor ONLY when the binary is actually present,
@@ -260,8 +263,8 @@ export function createNativePdfLayoutExtractor(
  *
  * Shared by the four AI engines (summarize, translate, ai-extract, chat-with-pdf),
  * which read a PDF's selectable text before prompting a model. They must not use
- * the pdfjs extractor in `@/lib/pdf/text`: it is browser-only and throws on Node
- * before reading a byte.
+ * the pdfjs extractor in `@/lib/pdf/text`: it is written for the browser (its
+ * main build throws on Node before reading a byte).
  */
 export function resolveNativePdfTextExtractor(
   env: Record<string, string | undefined> = process.env,

@@ -1,3 +1,4 @@
+// @native-canvas
 import { describe, expect, it } from "vitest";
 import { canRunAiExtract, runWorkerAiExtract } from "./ai-extract-client";
 import type { WorkerStatus } from "./status";

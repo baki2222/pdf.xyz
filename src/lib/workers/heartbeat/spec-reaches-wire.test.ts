@@ -73,6 +73,7 @@ const SPEC = {
     // that wrote a constant `false` matched that and stayed green here.
     aiReadCap: true,
     pptxPresentationChain: true,
+    pptxPictures: true,
   },
   release: "7.9.3",
   fingerprint: "9a5db1338ee3",

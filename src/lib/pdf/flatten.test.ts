@@ -1,3 +1,4 @@
+// @native-canvas
 import {
   PDFBool,
   PDFDict,

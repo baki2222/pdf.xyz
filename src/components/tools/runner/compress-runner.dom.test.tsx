@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The Compress runner, driven with real files and judged on what a person
  * reads and can press.

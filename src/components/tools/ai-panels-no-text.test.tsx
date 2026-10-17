@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * An AI panel handed a scan: what the user is TOLD, read off the rendered
  * panel, and whether anything was uploaded.

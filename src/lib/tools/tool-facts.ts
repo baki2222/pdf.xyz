@@ -45,6 +45,7 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import { MAX_LAYERS_PER_PAGE } from "@/lib/workers/pdf-office-export/picture-limits";
 import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
   MAX_REQUEST_SIGNERS,
@@ -1401,13 +1402,40 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         scanned,
       ];
     case "pdf-to-powerpoint":
+      // CHANGED 2026-10-10 with the engine (`pdf-office-export/page-scan.ts`).
+      // Until then: "Each slide holds that page's selectable text in a single
+      // text box, one paragraph per line. Images, drawings and the page's
+      // layout are not carried over, and a page with no selectable text
+      // becomes an empty slide." — and the shared `scanned` answer, which
+      // said such a PDF "is refused". Both were true of that engine and are
+      // false of this one; worker-tool-answers.test.ts runs it to hold these.
+      // CHANGED 2026-10-11: "Every picture on the page is a picture on the
+      // slide" was not true of a stencil mask or a repeated tile (drawn into
+      // the drawing pictures), nor of a picture too large or undecodable
+      // (left out, then silently; now counted and named in the note).
+      // CHANGED again 2026-10-11 (the second review): "a picture of its own"
+      // and "a text box … in its size, weight and colour" were not true of a
+      // page drawn as ONE picture past MAX_LAYERS_PER_PAGE layers, and "the
+      // note … names its page" was not true of a picture over
+      // MAX_DECODED_IMAGE_PIXELS on a page the reader cannot read ahead (an
+      // encrypted or damaged file). claims-vs-capability.test.ts held the
+      // page to neither: it read `toolFacts()`, which is empty for this
+      // tool, and never this answer. Both exceptions are now stated, from
+      // the constants, and that test reads what the page serves.
+      // CHANGED again the same day (the second re-review): an encrypted
+      // page is now read (`standard-security.ts`) and an unreadable one is
+      // held to the page budget, so the note's exception names neither
+      // encrypted files nor a size: a page the worker cannot read before
+      // it is drawn, as in a damaged PDF.
       return [
         {
           question: "What goes on each slide?",
-          answer:
-            "One slide per PDF page, in the same order. Each slide holds that page's selectable text in a single text box, one paragraph per line. Images, drawings and the page's layout are not carried over, and a page with no selectable text becomes an empty slide.",
+          answer: `One slide per PDF page, in the same order, each the shape of the first page. A photo or screenshot on the page is a picture of its own on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied; and the page's other drawing, such as lines, boxes, backgrounds and stencilled images, comes as pictures. A page whose drawing would take more than ${MAX_LAYERS_PER_PAGE.toLocaleString("en-US")} such pictures to stack in order becomes one picture of the page instead, with its text in invisible text boxes over it, selectable but not shown. A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page, except on a page the worker cannot read before it is drawn, as in a damaged PDF, where a picture can be left out with no note. A page with nothing on it becomes an empty slide.`,
         },
-        scanned,
+        {
+          question: `Can ${tool.name} convert a scanned PDF?`,
+          answer: `Yes, as pictures. A scanned page has no selectable text, only a picture of its words, so its slide carries the page as a picture and those words are not editable text; the note beside the download names those pages. Run the scan through ${toolName("ocr-pdf")} first to have its words as text as well: the converted slides then carry them in invisible text boxes over each picture.`,
+        },
       ];
     case "repair-pdf":
       return [
@@ -1607,7 +1635,9 @@ export const EMBEDDED_TEXT_ONLY: ReadonlySet<string> = new Set([
   "compare-pdf",
   "pdf-to-word",
   "pdf-to-excel",
-  "pdf-to-powerpoint",
+  // pdf-to-powerpoint left on 2026-10-10: it keeps a scan's pages as
+  // pictures, so a scan does not give it nothing. Its own scanned answer
+  // (`workerFaq`) says what it does instead.
 ]);
 
 /** The scanned-PDF answer for an embedded-text tool with no answer of its own. */

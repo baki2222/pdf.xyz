@@ -496,17 +496,20 @@ export const tools: Tool[] = [
   {
     slug: "pdf-to-powerpoint",
     name: "PDF to PowerPoint",
-    tagline: "Each PDF page's text on its own slide.",
+    tagline: "Each PDF page as a slide, pictures and text in place.",
     description:
-      // Each slide is ONE unpositioned text box — no pictures, no layout.
-      // claims-vs-capability.test.ts decodes the slides and requires the
-      // "text only" qualifier for as long as that holds.
+      // Since 2026-10-10 each slide carries the page's pictures where they
+      // are, its text as positioned text boxes, and its other drawing as
+      // pictures. Until then it said "Text only: images, charts and page
+      // layout are not carried over", true of the one-text-box engine; the
+      // claims-vs-capability rule is now two-way, decoding the slides: "text
+      // only" is required exactly when they carry no pictures.
       // Until 2026-10-09 this said "its own editable PowerPoint slide", served
       // as JSON-LD and in site search, while nobody had edited one: the only
       // PowerPoint check opens the file read-only. That test file's rule
       // "PDF to PowerPoint slides are editable" holds the page and its guides
       // to that, and says what would license the word.
-      "Put each PDF page’s selectable text on its own slide in a .pptx file. Text only: images, charts and page layout are not carried over.",
+      "Turn each PDF page into a slide in a .pptx file: pictures where the page shows them, text in text boxes at their places, other drawing kept as pictures.",
     category: "convert-from",
     icon: "powerpoint",
     processing: "server",

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The signature page the builder sends, and what it shows before sending.
  *

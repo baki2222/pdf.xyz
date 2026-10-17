@@ -24,6 +24,11 @@
  *   layout that a master lists;
  * - the shape tree: `nvGrpSpPr`/`nvSpPr` carry `cNvPr` (with id and name),
  *   `cNvSpPr`/`cNvGrpSpPr` and `nvPr`, and every `txBody` holds a paragraph;
+ * - pictures (since 2026-10-10, when the deck began carrying them): every
+ *   `p:pic` is `nvPicPr` (`cNvPr`, `cNvPicPr`, `nvPr`), `blipFill` (an
+ *   `a:blip` first) and `spPr`, in that order; every `a:blip r:embed` names an
+ *   IMAGE relationship, whose part is declared an `image/` type; and every
+ *   `a:off`/`a:ext` holds whole numbers, an extent never negative;
  * - a theme whose colour, font and format schemes are complete.
  *
  * It is not a schema validator and does not pretend to be: a green here is
@@ -217,6 +222,10 @@ export async function readPptx(bytes: Uint8Array): Promise<PptxRead> {
         problems.push(
           `${relsPart}: ${id} is a ${type.split("/").pop()} relationship, but ${found} is declared ${got ?? "with no content type"}`,
         );
+      if (type === rel("image") && !got?.startsWith("image/"))
+        problems.push(
+          `${relsPart}: ${id} is an image relationship, but ${found} is declared ${got ?? "with no content type"}`,
+        );
     }
     return map;
   };
@@ -381,6 +390,15 @@ export async function readPptx(bytes: Uint8Array): Promise<PptxRead> {
     const slide = rootOf(slidePart, PML, "sld");
     if (!slide) continue;
     shapeTreeProblems(slidePart, slide, problems);
+    for (const blip of all(slide, DML, "blip")) {
+      const r = relsOf(slidePart).get(
+        blip.getAttributeNS(ODOC_REL, "embed") ?? "",
+      );
+      if (!r || r.type !== rel("image"))
+        problems.push(
+          `${slidePart}: a:blip r:embed="${blip.getAttributeNS(ODOC_REL, "embed") ?? ""}" is not an image relationship`,
+        );
+    }
     const layouts = ofType(slidePart, "slideLayout");
     const layoutPart =
       layouts.length === 1
@@ -481,6 +499,30 @@ function shapeTreeProblems(part: string, root: Element, problems: string[]) {
   for (const nv of all(root, PML, "nvSpPr"))
     sequence(nv, ["cNvPr", "cNvSpPr", "nvPr"], "nvSpPr");
   for (const sp of all(root, PML, "sp")) sequence(sp, ["nvSpPr", "spPr"], "sp");
+  for (const pic of all(root, PML, "pic")) {
+    sequence(pic, ["nvPicPr", "blipFill", "spPr"], "pic");
+    const fill = child(pic, PML, "blipFill");
+    if (fill && !is(kids(fill)[0], DML, "blip"))
+      problems.push(`${part}: a p:blipFill does not start with a:blip`);
+  }
+  for (const nv of all(root, PML, "nvPicPr"))
+    sequence(nv, ["cNvPr", "cNvPicPr", "nvPr"], "nvPicPr");
+  // Only an xfrm's own off/ext: `a:ext` is also the element of every
+  // extension list (`a:extLst`), which carries a uri and no size.
+  for (const xfrm of all(root, DML, "xfrm")) {
+    const off = child(xfrm, DML, "off");
+    const ext = child(xfrm, DML, "ext");
+    for (const axis of ["x", "y"])
+      if (off && !/^-?\d+$/.test(off.getAttribute(axis) ?? ""))
+        problems.push(
+          `${part}: a:off ${axis}="${off.getAttribute(axis)}" is not a whole number`,
+        );
+    for (const axis of ["cx", "cy"])
+      if (ext && !/^\d+$/.test(ext.getAttribute(axis) ?? ""))
+        problems.push(
+          `${part}: a:ext ${axis}="${ext.getAttribute(axis)}" is not a whole, non-negative number`,
+        );
+  }
   for (const c of all(root, PML, "cNvPr"))
     if (intAttr(c, "id") === null || !c.hasAttribute("name"))
       problems.push(`${part}: a cNvPr lacks a numeric id or a name`);

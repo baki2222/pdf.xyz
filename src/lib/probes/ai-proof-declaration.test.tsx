@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The deployment proof of every AI tool declares what the BROWSER declares
  * for the same file — read off the wire the real panel writes to.

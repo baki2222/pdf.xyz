@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * What a null means in AI Data Extraction, said truly wherever it is said —
  * and said in ONE set of words, `@/lib/jobs/ai-extract-null-meaning`.

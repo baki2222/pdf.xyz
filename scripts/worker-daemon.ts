@@ -54,7 +54,10 @@ import {
   provesDeliveryCap,
 } from "@/lib/workers/translate/capability";
 import { provesAiReadCap } from "@/lib/workers/processor/read-cap-proof";
-import { provesPptxPresentationChain } from "@/lib/workers/pdf-office-export/capability";
+import {
+  provesPptxPictures,
+  provesPptxPresentationChain,
+} from "@/lib/workers/pdf-office-export/capability";
 import { writeSpendProbe } from "@/lib/ratelimit/guard";
 import { shouldWriteSpendProbe } from "@/lib/ratelimit/spend-probe";
 import {
@@ -151,6 +154,9 @@ async function buildHeartbeatPublisher(
       aiReadCap: await provesAiReadCap(),
       // Runs the real PDF to PowerPoint engine and inspects the .pptx it wrote.
       pptxPresentationChain: await provesPptxPresentationChain(),
+      // Runs the probe PDF's picture through the real engine and finds it on
+      // the slide, as a picture, where the page paints it.
+      pptxPictures: await provesPptxPictures(),
     },
     ...(release !== undefined ? { release } : {}),
     ...(fingerprint !== undefined ? { fingerprint } : {}),

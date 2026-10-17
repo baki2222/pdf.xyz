@@ -42,6 +42,50 @@ export interface OfficeExportResultMeta {
   littleTextPageCount: number;
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesWithLittleText: number[];
+  /**
+   * PDF to PowerPoint only, since 2026-10-10: how many pages have no text and
+   * are on their slides as PICTURES (a scan, a screenshot), so their words
+   * are not editable. Before that date a page with no text reached the deck as
+   * an empty slide, and this field is absent from those results — the panel
+   * then says what that engine did, not what this one does.
+   */
+  picturePageCount?: number;
+  /** 1-based page numbers of those pages, ascending, capped. */
+  pagesAsPictures?: number[];
+  /**
+   * PDF to PowerPoint only, since 2026-10-11: pictures the pages paint that
+   * are NOT on their slides — too large for the worker's memory budget, or
+   * data pdf.js could not decode. Before that date such a picture left no
+   * trace, and a page that held only a full-page scan was reported as having
+   * "nothing on it". Absent from older results: that engine did not count,
+   * and the panel must not read the absence as zero lost.
+   */
+  picturesNotCarried?: number;
+  /** Of those, how many were too large (the rest could not be decoded). */
+  picturesTooLarge?: number;
+  /** 1-based page numbers with such pictures, ascending, capped. */
+  pagesMissingPictures?: number[];
+  /**
+   * PDF to PowerPoint only, since 2026-10-11: slides with nothing on them
+   * because their page has nothing — no text, nothing drawn, no picture
+   * lost. Reported, not derived: "pages without text minus picture pages"
+   * also counted pages whose picture was lost.
+   */
+  emptySlideCount?: number;
+  /**
+   * PDF to PowerPoint only, since 2026-10-11: pages drawn as ONE picture,
+   * their text in invisible boxes over it, because rebuilding their drawing
+   * piece by piece in paint order would have taken too many layers.
+   */
+  flattenedPageCount?: number;
+  /** 1-based page numbers of those pages, ascending, capped. */
+  pagesFlattened?: number[];
+  /**
+   * PDF to PowerPoint only, since 2026-10-11: the page reader could not read
+   * the PDF ahead (it looked damaged), so the worker rebuilt it the way
+   * Repair PDF does and converted the rebuilt copy. Present only as `true`.
+   */
+  repairedBeforeConversion?: true;
 }
 
 /** True when a value plausibly came from the real office-export contract. */
@@ -78,12 +122,47 @@ export function buildOfficeExportResultMeta(
 ): OfficeExportResultMeta {
   const pageCount = count(raw.pageCount, 100_000);
   const textPageCount = count(raw.textPageCount, pageCount);
+  // The picture pages are a subset of the pages without text: a slide that
+  // carries text is not "pictures only", whatever the block claims.
+  const withoutText = pageCount - textPageCount;
   return {
     pageCount,
     textPageCount,
     pagesWithoutText: pageList(raw.pagesWithoutText, pageCount),
     littleTextPageCount: count(raw.littleTextPageCount, textPageCount),
     pagesWithLittleText: pageList(raw.pagesWithLittleText, pageCount),
+    // Copied only when the worker reported them: an absent count means an
+    // engine that did not keep pictures, and must not read as zero.
+    ...(raw.picturePageCount !== undefined
+      ? {
+          picturePageCount: count(raw.picturePageCount, withoutText),
+          pagesAsPictures: pageList(raw.pagesAsPictures, pageCount),
+        }
+      : {}),
+    // The same rule for the losses: copied only when reported.
+    ...(raw.picturesNotCarried !== undefined
+      ? (() => {
+          const lost = count(raw.picturesNotCarried, 1_000_000);
+          return {
+            picturesNotCarried: lost,
+            picturesTooLarge: count(raw.picturesTooLarge, lost),
+            pagesMissingPictures: pageList(raw.pagesMissingPictures, pageCount),
+          };
+        })()
+      : {}),
+    ...(raw.emptySlideCount !== undefined
+      ? { emptySlideCount: count(raw.emptySlideCount, withoutText) }
+      : {}),
+    ...(raw.flattenedPageCount !== undefined
+      ? {
+          flattenedPageCount: count(raw.flattenedPageCount, pageCount),
+          pagesFlattened: pageList(raw.pagesFlattened, pageCount),
+        }
+      : {}),
+    // Only `true` is a claim; anything else is dropped, not coerced.
+    ...(raw.repairedBeforeConversion === true
+      ? { repairedBeforeConversion: true as const }
+      : {}),
   };
 }
 

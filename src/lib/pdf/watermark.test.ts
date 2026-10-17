@@ -1,3 +1,4 @@
+// @native-canvas
 import { PDFDocument, PageSizes, StandardFonts, degrees } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { PdfEngineError } from "./engine";

@@ -11,9 +11,11 @@ import { inflateSync } from "node:zlib";
  * every link ever pasted. Source guards cannot see a route that opted out of
  * the source. Pixels can.
  *
- * Supports exactly what `next/og` emits: 8-bit RGB or RGBA, non-interlaced.
- * Anything else throws rather than returning a plausible-looking buffer,
- * because a decoder that quietly mis-reads is a green nobody can explain.
+ * Supports what `next/og` emits (8-bit RGB or RGBA) and what the PowerPoint
+ * export writes (`pdf-office-export/png-encode`: 1- and 8-bit grey, 8-bit
+ * RGB and RGBA), plus 8-bit grey with alpha; non-interlaced only. Anything
+ * else throws rather than returning a plausible-looking buffer, because a
+ * decoder that quietly mis-reads is a green nobody can explain.
  */
 export interface DecodedPng {
   width: number;
@@ -65,6 +67,7 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
   let width = 0;
   let height = 0;
   let colorType = -1;
+  let bitDepth = 8;
   const idat: Uint8Array[] = [];
 
   while (offset < buffer.length) {
@@ -77,13 +80,17 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
     if (type === "IHDR") {
       width = view.getUint32(offset + 8);
       height = view.getUint32(offset + 12);
-      const bitDepth = body[8];
+      bitDepth = body[8] ?? 0;
       colorType = body[9] ?? -1;
       const interlace = body[12];
-      if (bitDepth !== 8) throw new Error(`bit depth ${bitDepth} unsupported`);
-      if (colorType !== 2 && colorType !== 6) {
-        throw new Error(`colour type ${colorType} unsupported`);
-      }
+      const supported =
+        (colorType === 0 && (bitDepth === 1 || bitDepth === 8)) ||
+        ((colorType === 2 || colorType === 4 || colorType === 6) &&
+          bitDepth === 8);
+      if (!supported)
+        throw new Error(
+          `colour type ${colorType} at bit depth ${bitDepth} unsupported`,
+        );
       if (interlace !== 0) throw new Error("interlaced PNG unsupported");
     } else if (type === "IDAT") {
       idat.push(body);
@@ -97,8 +104,12 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
   if (!width || !height) throw new Error("no IHDR");
   if (!idat.length) throw new Error("no IDAT");
 
-  const channels = colorType === 6 ? 4 : 3;
-  const stride = width * channels;
+  const channels =
+    colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 4 ? 2 : 1;
+  const stride = Math.ceil((width * channels * bitDepth) / 8);
+  // Filters work on whole bytes: the byte "to the left" is one pixel back,
+  // or one byte back when a pixel is less than a byte.
+  const bpp = Math.max(1, (channels * bitDepth) / 8);
   const raw = inflateSync(Buffer.concat(idat.map((c) => Buffer.from(c))));
   const expected = (stride + 1) * height;
   if (raw.length < expected) {
@@ -114,9 +125,9 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
     const filter = raw[rowStart] ?? -1;
     for (let x = 0; x < stride; x += 1) {
       const value = raw[rowStart + 1 + x] ?? 0;
-      const left = x >= channels ? (current[x - channels] ?? 0) : 0;
+      const left = x >= bpp ? (current[x - bpp] ?? 0) : 0;
       const up = previous[x] ?? 0;
-      const upLeft = x >= channels ? (previous[x - channels] ?? 0) : 0;
+      const upLeft = x >= bpp ? (previous[x - bpp] ?? 0) : 0;
       let restored: number;
       if (filter === 0) restored = value;
       else if (filter === 1) restored = value + left;
@@ -127,8 +138,19 @@ export function decodePng(buffer: Uint8Array): DecodedPng {
       current[x] = restored & 255;
     }
     for (let x = 0; x < width; x += 1) {
-      const from = x * channels;
       const to = (y * width + x) * 4;
+      if (bitDepth === 1) {
+        const v = ((current[x >> 3] ?? 0) >> (7 - (x & 7))) & 1 ? 255 : 0;
+        out[to] = out[to + 1] = out[to + 2] = v;
+        out[to + 3] = 255;
+        continue;
+      }
+      const from = x * channels;
+      if (channels <= 2) {
+        out[to] = out[to + 1] = out[to + 2] = current[from] ?? 0;
+        out[to + 3] = channels === 2 ? (current[from + 1] ?? 0) : 255;
+        continue;
+      }
       out[to] = current[from] ?? 0;
       out[to + 1] = current[from + 1] ?? 0;
       out[to + 2] = current[from + 2] ?? 0;

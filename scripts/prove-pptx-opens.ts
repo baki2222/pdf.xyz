@@ -58,7 +58,6 @@
  * a run, ppAlertsNone after). The value is read back after the restore and
  * printed, and a run that did not put it back cannot conclude.
  */
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -66,6 +65,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 import { pdfOfficeExportDeps } from "@/lib/workers/pdf-office-export/native";
 import { createPdfOfficeExportProcessor } from "@/lib/workers/processor/pdf-office-export";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
+import { runPowerShellJson } from "@/tests/powershell-json";
 
 const EXIT_DEFECT = 1;
 const EXIT_INCOMPLETE = 2;
@@ -164,27 +164,20 @@ async function proofPdf(pages: string[][]): Promise<Uint8Array> {
 }
 
 function openInPowerPoint(dir: string, files: string[]): PowerPointReport {
-  const script = path.join(dir, "open-in-powerpoint.ps1");
   const list = path.join(dir, "subjects.txt");
-  writeFileSync(script, OPEN_IN_POWERPOINT, "utf8");
   writeFileSync(list, files.join("\r\n"), "utf8");
-  const stdout = execFileSync(
-    "powershell.exe",
+  // Through the helper: PowerShell's stdout is not UTF-8, and a deck with an
+  // arrow in it made this instrument say CANNOT CONCLUDE (2026-10-11).
+  return runPowerShellJson<PowerPointReport>(
+    OPEN_IN_POWERPOINT,
     [
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      script,
       "-ControlPath",
       path.join(dir, "control-saved-by-powerpoint.pptx"),
       "-ListPath",
       list,
     ],
-    { encoding: "utf8", timeout: 300_000 },
+    { dir, name: "open-in-powerpoint.ps1", timeout: 300_000 },
   );
-  return JSON.parse(stdout.slice(stdout.indexOf("{"))) as PowerPointReport;
 }
 
 function incomplete(reason: string): never {

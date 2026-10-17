@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * A digitally signed PDF gets a warning before Run in every single-file tool
  * that saves a PDF — and in no tool that does not.
