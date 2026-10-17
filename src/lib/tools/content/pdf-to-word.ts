@@ -122,7 +122,7 @@ const content: ToolContent = {
 
   seoTitle: "PDF to Word: Editable DOCX With Its Pictures",
 
-  metaDescription: `Convert a PDF to editable Word DOCX: its text as paragraphs in reading order, each picture between them at its size. Scans need OCR first. Up to ${CEILING_MB} MB.`,
+  metaDescription: `Convert a PDF to editable Word DOCX: text as paragraphs in reading order, each picture between them at its size. Scans need OCR first. Up to ${CEILING_MB} MB, no account.`,
 
   intro: [
     `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide, and a picture wider or taller than the page's text area is scaled down to fit. Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.`,

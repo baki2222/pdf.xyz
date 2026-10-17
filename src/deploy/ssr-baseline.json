@@ -3771,8 +3771,8 @@
       ]
     },
     "tools/pdf-to-word.html": {
-      "title": "PDF to Word: Convert PDF Text to Editable DOCX — pdf.xyz",
-      "description": "Convert a PDF to editable Word DOCX: selectable text becomes paragraphs in reading order, wrapped lines joined. Scans need OCR first. Up to 100 MB, no account.",
+      "title": "PDF to Word: Editable DOCX With Its Pictures — pdf.xyz",
+      "description": "Convert a PDF to editable Word DOCX: text as paragraphs in reading order, each picture between them at its size. Scans need OCR first. Up to 100 MB, no account.",
       "canonical": "https://pdf.xyz/tools/pdf-to-word",
       "robots": "index, follow",
       "h1": ["PDF to Word"],
