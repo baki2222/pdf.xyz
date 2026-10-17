@@ -117,6 +117,13 @@ export interface PdfOfficeExportDeps {
     maxOutputBytes?: number;
     /** How long the page scan (PowerPoint, Word) may run, in ms. */
     scanTimeoutMs?: number;
+    /** Word: the most pictures one document carries (`MAX_DOCX_PICTURES`). */
+    maxPictures?: number;
+    /**
+     * Word: the document's decode budget, when not the page reader's
+     * (`DOCUMENT_DECODE_BUDGET_BYTES`) — for tests, which cannot decode 16 GiB.
+     */
+    decodeBudgetBytes?: number;
   };
 }
 export interface PdfOfficeExportMeta {

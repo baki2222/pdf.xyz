@@ -36,6 +36,7 @@ import {
   exifJpegPdf,
   inlineImagesPdf,
   labelledCalloutPdf,
+  noisePagesPdf,
   ocrdScanPdf,
   repeatedPicturesPdf,
   stencilPicturePdf,
@@ -74,7 +75,8 @@ import { pdfOfficeExportDeps } from "./native";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
-import { scanPdfPages } from "./page-scan";
+import { decodeBudgetPlan, scanPdfPages } from "./page-scan";
+import { inventoryPages } from "./page-inventory";
 import { encodePngImage } from "./png-encode";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
@@ -570,4 +572,105 @@ describe("PDF to Word keeps what the page shows, and only that", () => {
       true,
     );
   }, 60_000);
+});
+
+/**
+ * The review of 2026-10-17, BLOCKING 4. A large, picture-heavy PDF was
+ * refused WHOLE — "The exported Office file exceeds the worker size limit."
+ * for a 68.9 MB, 20-page photo PDF; "pictures are too large in total" for a
+ * 350-page colour scan — where the text-only engine of the week before had
+ * converted both. And a 205 KB PDF of tiny pictures became a 22.3 MB .docx
+ * of 20,000 media parts. Each budget is now a place to stop carrying
+ * pictures, never a refusal: the text, the pictures that fit, and a count of
+ * the rest, by page.
+ */
+describe("PDF to Word delivers the text and the pictures that fit, and counts the rest", () => {
+  /** Every heading in the document, and the pages whose picture is in it. */
+  async function delivered(run: { output: Uint8Array }) {
+    const body = await readDocxBody(run.output);
+    return {
+      text: body.paragraphs.map((p) => p.text).join("\n"),
+      pictures: body.pictures.length,
+      // One picture per page in these fixtures: its page is its segment + 1.
+      pages: body.pictures.map((p) => p.segment + 1),
+    };
+  }
+  const range = (from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, k) => from + k);
+
+  it("past the output size: the file is under the limit, every heading is in it, and the pictures left out are counted by page", async () => {
+    const { pdf, headings } = await noisePagesPdf(6);
+    const limit = 350_000;
+    const run = await word(pdf, { limits: { maxOutputBytes: limit } });
+    expect(run.output.byteLength).toBeLessThanOrEqual(limit);
+    const got = await delivered(run);
+    for (const h of headings) expect(got.text).toContain(h);
+    // Health: some fit and some do not, so both halves are exercised.
+    expect(got.pictures).toBeGreaterThan(0);
+    expect(got.pictures).toBeLessThan(6);
+    expect(run.coverage.picturesOverBudget).toBe(6 - got.pictures);
+    expect(run.coverage.picturesNotCarried).toBe(6 - got.pictures);
+    expect(run.coverage.pagesMissingPictures).toEqual(
+      range(1, 6).filter((n) => !got.pages.includes(n)),
+    );
+  }, 120_000);
+
+  it("past the document's decode budget: the pages past it carry no picture and are counted; nothing is refused", async () => {
+    const { pdf, headings } = await noisePagesPdf(6);
+    const inventory = (await inventoryPages(pdf))!;
+    const plan = decodeBudgetPlan(inventory);
+    // Derived, not typed: exactly the first two pages' decoding fits.
+    const budget = plan.pages[0]!.bytes + plan.pages[1]!.bytes;
+    expect(budget).toBeLessThan(plan.bytes);
+    const run = await word(pdf, { limits: { decodeBudgetBytes: budget } });
+    const got = await delivered(run);
+    for (const h of headings) expect(got.text).toContain(h);
+    expect(got.pages).toEqual([1, 2]);
+    expect(run.coverage.picturesOverBudget).toBe(4);
+    expect(run.coverage.pagesMissingPictures).toEqual([3, 4, 5, 6]);
+  }, 120_000);
+
+  it("past the deadline: the text, and every picture not reached counted — not a timeout to retry", async () => {
+    const { pdf, headings } = await noisePagesPdf(3);
+    const run = await word(pdf, { limits: { scanTimeoutMs: -1_000 } });
+    const got = await delivered(run);
+    for (const h of headings) expect(got.text).toContain(h);
+    expect(got.pictures).toBe(0);
+    expect(run.coverage.picturesOverBudget).toBe(3);
+    expect(run.coverage.pagesMissingPictures).toEqual([1, 2, 3]);
+  }, 120_000);
+
+  it("past the picture count: the first pictures in the document, and the rest counted", async () => {
+    const fixture = await repeatedPicturesPdf();
+    const run = await word(fixture.pdf, { limits: { maxPictures: 3 } });
+    expect((await readDocxBody(run.output)).pictures).toHaveLength(3);
+    expect(run.coverage.picturesOverBudget).toBe(5);
+    expect(run.coverage.picturesNotCarried).toBe(5);
+  }, 120_000);
+
+  it("a writer whose file comes out over the limit anyway gets the text-only document, every picture counted — not a refusal", async () => {
+    const { pdf, headings } = await noisePagesPdf(2, 40, 30);
+    const limit = 200_000;
+    const run = await word(pdf, {
+      limits: { maxOutputBytes: limit },
+      // Adds a part the size of the limit to any file with a picture in it.
+      writeDocx: async (doc) => {
+        const written = await docxPackage(doc);
+        if (written.plan.pictures === 0) return written;
+        const zip = await JSZip.loadAsync(written.bytes);
+        zip.file("word/padding.bin", new Uint8Array(limit));
+        return {
+          bytes: new Uint8Array(
+            await zip.generateAsync({ type: "uint8array" }),
+          ),
+          plan: written.plan,
+        };
+      },
+    });
+    expect(run.output.byteLength).toBeLessThanOrEqual(limit);
+    const got = await delivered(run);
+    for (const h of headings) expect(got.text).toContain(h);
+    expect(got.pictures).toBe(0);
+    expect(run.coverage.picturesOverBudget).toBe(2);
+  }, 120_000);
 });

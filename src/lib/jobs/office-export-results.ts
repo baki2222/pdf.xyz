@@ -65,6 +65,13 @@ export interface OfficeExportResultMeta {
   picturesNotCarried?: number;
   /** Of those, how many were too large (the rest could not be decoded). */
   picturesTooLarge?: number;
+  /**
+   * PDF to Word only, since the review of 2026-10-17: of those, how many
+   * were left out to keep the document inside what one conversion carries —
+   * its size, its number of pictures, its decoding, its time. Until then a
+   * document past any of them was refused whole, text and all.
+   */
+  picturesOverBudget?: number;
   /** 1-based page numbers with such pictures, ascending, capped. */
   pagesMissingPictures?: number[];
   /**

@@ -948,3 +948,75 @@ export async function twinScreenshotsPdf(): Promise<DocxFixture> {
     ],
   };
 }
+
+/**
+ * `pages` pages, each a heading and ONE picture of noise (`width` × `height`
+ * pixels, RGB, which no PNG encoder can shrink much): a document whose
+ * pictures, and not its text, decide how large its .docx is.
+ */
+export async function noisePagesPdf(
+  pages: number,
+  width = 400,
+  height = 300,
+): Promise<{ pdf: Uint8Array; headings: string[] }> {
+  const headings = Array.from(
+    { length: pages },
+    (_, k) => `Photograph number ${k + 1} of the survey`,
+  );
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, headings);
+  let seed = 7;
+  for (let k = 0; k < pages; k++) {
+    const page = doc.addPage([612, 792]);
+    line(page, headings[k]!, 72, 80, 16, f.bold);
+    const samples = new Uint8Array(width * height * 3);
+    for (let i = 0; i < samples.length; i++) {
+      // Math.imul: a float product of two 32-bit numbers loses its low bits,
+      // and the "noise" came out as a 3 KB pattern.
+      seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+      samples[i] = seed >>> 24;
+    }
+    await drawRasterImage(
+      page,
+      await embedRasterImage(doc, png(width, height, "rgb8", samples), "png"),
+      { x: 72, y: 792 - 110 - 300, width: 400, height: 300 },
+    );
+  }
+  return { pdf: await doc.save(), headings };
+}
+
+/**
+ * One page with a heading and `count` tiny DISTINCT inline pictures (2 × 2
+ * pixels each, in a grid of 3-point cells): a small PDF that paints more
+ * pictures than one Word document should hold. The shape of the review's
+ * 205 KB PDF that became a 22.3 MB .docx of 20,000 media parts.
+ */
+export async function manyPicturesPdf(count: number): Promise<Uint8Array> {
+  const heading = "A page of very many small pictures";
+  const doc = await PDFDocument.create();
+  const f = await fonts(doc, [heading]);
+  const page = doc.addPage([612, 792]);
+  line(page, heading, 40, 40, 14, f.bold);
+  const ops: string[] = [];
+  const hex2 = (v: number) => v.toString(16).padStart(2, "0");
+  const perRow = 170;
+  for (let k = 0; k < count; k++) {
+    const x = 20 + (k % perRow) * 3.4;
+    const y = 792 - 60 - Math.floor(k / perRow) * 3.4 - 3;
+    // Four pixels whose colours spell k: no two pictures are alike.
+    const px = [k & 255, (k >> 8) & 255, 128, 255 - (k & 255)];
+    const data = [...px, ...px.reverse(), ...px, 0, 0, 0, 9, 9, 9]
+      .slice(0, 12)
+      .map(hex2)
+      .join("");
+    ops.push(
+      `q 3 0 0 3 ${x.toFixed(2)} ${y.toFixed(2)} cm BI /W 2 /H 2 /CS /RGB /BPC 8 /F /AHx ID ${data}> EI Q`,
+    );
+  }
+  page.node.addContentStream(
+    doc.context.register(
+      doc.context.stream(new TextEncoder().encode(ops.join("\n"))),
+    ),
+  );
+  return doc.save();
+}
