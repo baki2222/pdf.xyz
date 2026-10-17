@@ -37,6 +37,12 @@
  *     as its control, and that a tap's release lands inside its window;
  *     `e2e/stage-hold.spec.ts` the same for a key and a mouse click.
  *     Chromium only: WebKit and a real iOS device are not run here.
+ *     A KEY THAT SCROLLS (Space, Page Up/Down, the vertical arrows, Home,
+ *     End) is not a release but a wheel: given back at its keydown, the
+ *     band went and then the page scrolled past what came up into it —
+ *     PageDown skipped 59 px of the About heading on Sign PDF at 1280 x 720
+ *     (PR #180 review). `e2e/stage-hold.spec.ts` reads the About section's
+ *     place in the document across four of those keys.
  *
  *  3. ONE HOLD AT A TIME, NOTHING LEFT BEHIND. A newer hold ends the older
  *     one's listeners; a hold whose stage has left the page (a runner
@@ -48,6 +54,21 @@
  * away.
  */
 export const RUNNER_STAGE = "[data-runner-stage]";
+
+/**
+ * The keys that scroll the page (Space and Shift+Space, Page Up/Down, the
+ * vertical arrows, Home, End): read as the wheel is, never as a release.
+ */
+const SCROLL_KEYS: ReadonlySet<string | undefined> = new Set([
+  " ",
+  "Spacebar",
+  "PageDown",
+  "PageUp",
+  "ArrowDown",
+  "ArrowUp",
+  "Home",
+  "End",
+]);
 
 /** The live hold of each document: a newer hold ends the older one. */
 const live = new WeakMap<Document, () => void>();
@@ -100,7 +121,11 @@ export function holdRunnerStage(doc: Document = document): () => void {
     stage.style.minHeight = applied;
   };
   /** Rule 2: the band on screen goes inside a click's or a key's window. */
-  const release = () => {
+  const release = (event: Event) => {
+    // A key that scrolls is a wheel: its scroll gives back what passes the
+    // fold (`fit`), never the band — given back first, the scroll then
+    // carried the reader past what came up into it.
+    if (SCROLL_KEYS.has((event as KeyboardEvent).key)) return;
     if (!owned() || !settled) return;
     end();
     stage.style.minHeight = "";
