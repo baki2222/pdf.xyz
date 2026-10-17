@@ -1268,7 +1268,9 @@ test("CONTROL: Merge PDF at 1280 x 900, the first screen unreserved — the boun
 /**
  * A PDF Compress PDF's repack cannot shrink: already written the way the
  * repack writes (object streams, the site's producer), so the analysis says
- * "already lean" and offers no download — the shortest analysis there is.
+ * "already lean" and has nothing smaller to offer — the shortest analysis
+ * there is. Since 2026-10-17 it still ends: the file unchanged to download,
+ * its receipt and Continue with (the lean-merge test above).
  */
 async function writeLeanPdf(name: string): Promise<string> {
   const doc = await PDFDocument.load(await makePdfBytes(name, 2));
@@ -1311,11 +1313,14 @@ async function writeLeanPdf(name: string): Promise<string> {
 test("the shortest analysis: an unheld stage fills the panel to the bottom of the screen, and nothing follows the runner on screen", async ({
   page,
 }) => {
-  // 1280 wide, where the shortest analysis was measured (439.25 px on
-  // Windows); 1080 tall, so the room under the stage (about 650 px) clears
-  // it with ~200 px to spare on both platforms — Linux Chromium sets text
-  // taller, which both lengthens the analysis and moves the stage down.
-  await page.setViewportSize({ width: 1280, height: 1080 });
+  // 1280 wide, where the shortest analysis was measured: 439.25 px on
+  // Windows, then 756 px once it carried its ending (2026-10-17: the
+  // unchanged download, the receipt and Continue with — at 1080 tall it
+  // read "lastBottom 1157.75" against a stage ending at 1052, longer than
+  // the room). 1440 tall, so the room under the stage (about 1,010 px)
+  // clears it with ~250 px to spare on both platforms — Linux Chromium sets
+  // text taller, which both lengthens the analysis and moves the stage down.
+  await page.setViewportSize({ width: 1280, height: 1440 });
   // Never answered: the worker's card stays at its shortest, "Checking…".
   await page.route("**/api/worker/status", () => {});
   await page.goto("/tools/compress-pdf");
@@ -1356,7 +1361,7 @@ test("the shortest analysis: an unheld stage fills the panel to the bottom of th
     };
   });
   // For CI's Linux, where text sets taller: what this read, in full.
-  console.log(`FIRST_SCREEN shortest-analysis 1280x1080 ${JSON.stringify(m)}`);
+  console.log(`FIRST_SCREEN shortest-analysis 1280x1440 ${JSON.stringify(m)}`);
   // Health: this is the shortest analysis, and it is shorter than the room
   // — the case where a band of panel shows under it at all.
   expect(m.last).toBe("Analyze another file");

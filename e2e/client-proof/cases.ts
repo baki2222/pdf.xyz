@@ -578,7 +578,8 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       // Saved WITHOUT object streams so the analyzer's lossless repack has a
-      // real, deterministic saving to offer — otherwise no download appears.
+      // real, deterministic saving to offer — otherwise the only download is
+      // the file unchanged ("Download unchanged PDF").
       await uploadTextPdf(ctx, "bulky.pdf", {
         pages: 4,
         unoptimized: true,

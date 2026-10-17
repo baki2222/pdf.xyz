@@ -611,6 +611,35 @@ function CompressEditor({
         />
       </div>
 
+      {/* EVERY ENDING IS A FORK, a saving or not. With nothing saved there
+          is still a file — often one carried here from Merge PDF and never
+          downloaded — so the ending offers it as it came in, said to be
+          unchanged, and carries it on. Until 2026-10-17 both the Download
+          and the ending were inside the branch below, and an already-lean
+          analysis ended at "Analyze another file" (batch C review). Not
+          gated on a signature's confirmation: these are the file's own
+          bytes, its signatures as they were. */}
+      {!canDownload && (
+        <>
+          <div className="flex flex-col gap-1.5">
+            <DownloadCta
+              size="lg"
+              onClick={() => downloadBytes(pdf.bytes, pdf.file.name)}
+            >
+              Download unchanged PDF ({formatBytes(analysis.originalBytes)})
+            </DownloadCta>
+            <p className="text-muted text-xs leading-5">
+              Nothing came out smaller, so this is your file exactly as it came
+              in.
+            </p>
+          </div>
+          <RunEnding
+            output={outputFile(pdf.bytes, pdf.file.name)}
+            expectedPages={analysis.pageCount}
+          />
+        </>
+      )}
+
       {canDownload && (!signed || signaturesConfirmed) && (
         <>
           <DownloadCta
