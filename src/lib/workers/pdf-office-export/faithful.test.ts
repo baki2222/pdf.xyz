@@ -27,7 +27,7 @@
  * The round trip through a real presentation engine, which asks whether the
  * slides LOOK like the pages, is `fidelity.roundtrip.test.ts`.
  */
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import {
   cellGridPdf,
@@ -1171,4 +1171,60 @@ describe("a PDF the page reader cannot read ahead: rebuilt first, or refused", (
     expect(run.kind).toBe("unreadable");
     expect(run.message).toMatch(/\bRepair PDF\b/);
   });
+});
+
+/**
+ * A LINE IN A STANDARD FACE HAS A PLACE (found 2026-10-17, building PDF to
+ * Word's bold and italics on the same reader). A PDF that names Times or
+ * Courier without embedding them — what many report generators write —
+ * gave every line a box at NaN: pdf.js reports no usable ascent for those
+ * faces, and `Math.max(NaN, 0.5)` is NaN. The deck then carried
+ * `<a:off x="NaN" y="NaN"/>`, a value PowerPoint refuses (measured on
+ * 2026-09-27: a non-numeric offset was refused), and the delivery
+ * inspection let it through. Helvetica was unaffected, which is why no
+ * fixture showed it.
+ */
+describe("a line set in a standard face pdf.js gives no ascent", () => {
+  it("is placed where it is drawn, and the slide carries numbers", async () => {
+    for (const face of [
+      StandardFonts.TimesRoman,
+      StandardFonts.TimesRomanItalic,
+      StandardFonts.Courier,
+    ]) {
+      const doc = await PDFDocument.create();
+      const font = await doc.embedFont(face);
+      doc.addPage([612, 792]).drawText("A line in a standard face", {
+        x: 72,
+        y: 600,
+        size: 12,
+        font,
+      });
+      const pdf = await doc.save();
+      const scan = await scanPdfPages(pdf);
+      const line = scan.pages[0]!.items.find((i) => i.kind === "text")!;
+      // Health: the reader found the line at all.
+      expect(line, face).toBeDefined();
+      for (const v of [line.x, line.y, line.width, line.height])
+        expect(Number.isFinite(v), `${face}: ${JSON.stringify(line)}`).toBe(
+          true,
+        );
+      expect(line.x).toBeCloseTo(72, 0);
+      // Baseline 600 pt up a 792 pt page: 192 pt down; the box contains it.
+      expect(line.y).toBeLessThan(192);
+      expect(line.y + line.height).toBeGreaterThan(192);
+      const run = await runPdfOfficeExport("pdf-to-powerpoint", pdf, {
+        extract: async () => ({
+          pageCount: 1,
+          pages: [{ pageNumber: 1, text: "A line", characterCount: 6 }],
+          text: "A line",
+          characterCount: 6,
+          hasText: true,
+        }),
+        scanPages: scanPdfPages,
+      });
+      if (!run.ok) throw new Error(run.message);
+      const deck = await readDeck(run.output);
+      expect(JSON.stringify(deck), face).not.toMatch(/NaN|null/);
+    }
+  }, 60_000);
 });

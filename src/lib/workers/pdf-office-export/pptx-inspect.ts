@@ -103,6 +103,22 @@ const SLIDE_ID_FLOOR = 256;
  * writer, for the reason the header gives.
  */
 const SLIDE_SIZE_EMU = [914_400, 51_206_400] as const;
+
+/**
+ * The DrawingML transform attributes a slide places and sizes things with:
+ * offsets are `ST_Coordinate` (a signed long), extents
+ * `ST_PositiveCoordinate` (non-negative). Each must be a whole number.
+ */
+const COORDINATE_ATTRIBUTES: readonly (readonly [
+  string,
+  readonly string[],
+  boolean,
+])[] = [
+  ["a:off", ["x", "y"], true],
+  ["a:chOff", ["x", "y"], true],
+  ["a:ext", ["cx", "cy"], false],
+  ["a:chExt", ["cx", "cy"], false],
+];
 /** The first bytes of each image type a picture may name. */
 const IMAGE_MAGIC: Readonly<Record<string, readonly number[]>> = {
   "image/png": [0x89, 0x50, 0x4e, 0x47],
@@ -137,6 +153,8 @@ export const PPTX_CHECKS = {
   "unlisted-slide": "a slide relationship sldIdLst does not list",
   "no-slide-size": "the presentation has no p:sldSz",
   "slide-size-range": "the slide size is outside 1–56 inches",
+  "coordinate-not-integer":
+    "a slide position or size is not a whole number of EMU",
   "picture-without-blip": "a picture names no image",
   "picture-reference": "a picture's blip is not an image relationship",
   "picture-content-type": "a picture's part is not typed as an image",
@@ -550,6 +568,27 @@ export async function inspectPptxPackage(
           "layout-back-reference",
           `${layout} must point back at its slide master ${master}; it points at ${back.map((r) => r.target).join(", ") || "nothing"}`,
         );
+    }
+
+    // ── Positions and sizes: whole EMU, sizes not negative ─────────────────
+    // PowerPoint refuses a slide whose a:off or a:ext is not an integer
+    // (0x80070570), and a structural check cannot see a number: a NaN from
+    // the page scan reached production this way (2026-10-17).
+    for (const slide of slides) {
+      const slideXml = (await read(slide)) ?? "";
+      for (const [qname, keys, signed] of COORDINATE_ATTRIBUTES)
+        for (const element of elements(slideXml, qname))
+          for (const key of keys) {
+            const value = element[key];
+            if (value === undefined) continue;
+            if (!(signed ? /^-?\d+$/ : /^\d+$/).test(value)) {
+              fail(
+                "coordinate-not-integer",
+                `${slide} has <${qname} ${key}="${value}">; PowerPoint takes only a whole${signed ? "" : ", non-negative"} number of EMU`,
+              );
+              break;
+            }
+          }
     }
 
     // ── Pictures: each blip an image relationship to an image part ────────

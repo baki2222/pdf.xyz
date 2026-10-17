@@ -219,6 +219,12 @@ const FIRES: Record<PptxCheck, Mutation> = {
   "slide-size-range": edit((z) =>
     replaceIn(z, PRES, /(<p:sldSz cx=")\d+"/, '$1457200"'),
   ),
+  // A shape placed at NaN: what the page scan wrote for every line in a
+  // non-embedded Times or Courier face until 2026-10-17, and PowerPoint
+  // refused (0x80070570) while this inspector passed it.
+  "coordinate-not-integer": edit((z) =>
+    replaceIn(z, SLIDE1, /<a:off x="-?\d+"/, '<a:off x="NaN"'),
+  ),
   // The picture keeps its blip element but loses the attribute naming it.
   "picture-without-blip": edit((z) =>
     replaceIn(z, SLIDE1, /<a:blip r:embed="[^"]*"/, "<a:blip"),
