@@ -117,7 +117,7 @@ import { tools, getToolBySlug } from "@/lib/tools";
 import { guides } from "@/lib/guides";
 import type { Guide } from "@/lib/guides";
 import type { Tool } from "./types";
-import { toolFacts } from "./tool-facts";
+import { PDF_TO_WORD_KEEPS, toolFacts } from "./tool-facts";
 import {
   pageDescription,
   pageFaq,
@@ -156,7 +156,10 @@ import {
   scanPdfPages,
 } from "@/lib/workers/pdf-office-export/page-scan";
 import { typefaceFor } from "@/lib/workers/pdf-office-export/deck-from-scan";
-import { MAX_DECODED_IMAGE_PIXELS } from "@/lib/workers/pdf-office-export/picture-limits";
+import {
+  MAX_DECODED_IMAGE_PIXELS,
+  MAX_DOCX_PICTURES,
+} from "@/lib/workers/pdf-office-export/picture-limits";
 import { getToolContent } from "./content";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import {
@@ -171,7 +174,13 @@ import {
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { readDeck } from "@/tests/pptx-deck-read";
 import { noPictures } from "@/tests/page-scan-stubs";
-import { boldItalicPdf } from "@/tests/docx-picture-fixtures";
+import {
+  boldItalicPdf,
+  coveredPicturePdf,
+  inlineImagesPdf,
+  repeatedPicturesPdf,
+  stencilPicturePdf,
+} from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { readDocxBody } from "@/lib/workers/pdf-office-export/docx-read";
 import { TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
@@ -2408,4 +2417,171 @@ describe("PDF to Word: the picture sentences hold of the engine", () => {
     expect(refused.kind).toBe("unreadable");
     expect(refused.message).toMatch(/\bRepair PDF\b/);
   }, 60_000);
+});
+
+/**
+ * The review of 2026-10-17, as claims. The page said two kinds of picture
+ * were "left out on purpose" (stencils, repeats), that arrows and boxes drawn
+ * on top "do not come across", and that each picture comes through, with no
+ * exception for a document past what one conversion carries. The engine now
+ * carries both kinds, paints what covers a picture into it, and stops at a
+ * budget; each claim is held to a run, both ways, and each shape to the
+ * sentences that shipped.
+ */
+describe("PDF to Word: what the page says of stencils, repeats, covers and budgets holds of the engine", () => {
+  async function wordSentences(): Promise<{ where: string; masked: string }[]> {
+    const out: { where: string; masked: string }[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { masked } of attributedTo(container, PDF_TO_WORD_TOOL))
+        out.push({ where: container.where, masked });
+    return out;
+  }
+  const run = async (pdf: Uint8Array) => {
+    const result = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!result.ok) throw new Error(`${result.kind}: ${result.message}`);
+    return result;
+  };
+
+  it("kinds of picture: the page says a kind is left out exactly when the engine drops it", async () => {
+    const LEFT = String.raw`(?:left out|not carried|not kept|dropped|skipped|only once)`;
+    const DENIES_KIND: Record<string, RegExp> = {
+      "left out on purpose": /\bleft out on purpose\b/i,
+      "stencils left out": new RegExp(
+        String.raw`\bstencils?\b[^.;]{0,80}\b${LEFT}|\b${LEFT}[^.;]{0,80}\bstencils?\b`,
+        "i",
+      ),
+      "repeats left out": new RegExp(
+        String.raw`\brepeat(?:ed|s)?\b[^.;]{0,80}\b${LEFT}|\b${LEFT}[^.;]{0,80}\brepeat(?:ed|s)?\b`,
+        "i",
+      ),
+    };
+    const SHIPPED = [
+      "Two kinds are left out on purpose: a one-colour stencil, and a small image repeated across the page as a pattern.",
+    ];
+    const SYNONYMS = [
+      "Stencils are not carried.",
+      "A picture repeated across a page comes through only once.",
+    ];
+    const HONEST = [
+      "A one-colour stencil comes through in its colour, and a picture the page repeats comes through each time it is shown.",
+      "A picture too large for the worker, or one it cannot decode, is left out.",
+    ];
+    const denies = (t: string) =>
+      Object.values(DENIES_KIND).some((re) => re.test(t));
+    const claims = [...SHIPPED, ...SYNONYMS];
+    for (const [name, re] of Object.entries(DENIES_KIND))
+      expect(
+        claims.some((c) => re.test(c)),
+        `${name} catches nothing shipped`,
+      ).toBe(true);
+    expect(claims.filter((c) => !denies(c))).toEqual([]);
+    expect(HONEST.filter(denies)).toEqual([]);
+
+    let dropped = 0;
+    for (const build of [
+      stencilPicturePdf,
+      repeatedPicturesPdf,
+      inlineImagesPdf,
+    ]) {
+      const fixture = await build();
+      const carried = (await readDocxBody((await run(fixture.pdf)).output))
+        .pictures.length;
+      dropped += fixture.pictures.length - carried;
+    }
+    const offenders = (await wordSentences())
+      .filter(({ masked }) => denies(masked))
+      .map(({ where, masked }) => `${where}: ${masked}`);
+    expect(
+      offenders.length > 0,
+      dropped === 0
+        ? `the engine carries every stencil and repeat; the page may not say a kind is left out:\n  ${offenders.join("\n  ")}`
+        : `the engine dropped ${dropped}; the page must say which kind`,
+    ).toBe(dropped > 0);
+  }, 120_000);
+
+  it("covers: the page says what is painted over a picture is drawn into it exactly when the engine does it", async () => {
+    const CLAIMS_COVER =
+      /\b(?:painted|drawn) (?:over|on top of) (?:a|the|that) (?:picture|screenshot)\b[^.]*\bdrawn into (?:it|that picture)\b|\bdrawn into (?:it|that picture)\b[^.]*\bcovers? stays? covered\b/i;
+    const DENIES_COVER =
+      /\b(?:arrows?|boxes|labels?|shapes)\b[^.;]{0,80}\b(?:on top|over)\b[^.;]{0,80}\b(?:do not|does not|don't) come across\b/i;
+    const SHIPPED = [
+      "Arrows and boxes drawn on top are lines and shapes, so they do not come across.",
+    ];
+    for (const s of SHIPPED) expect(DENIES_COVER.test(s)).toBe(true);
+    const HONEST = [
+      "Arrows, boxes and labels drawn on top of a screenshot are drawn into it, so it shows what the page shows; lines and shapes elsewhere on the page do not come across.",
+    ];
+    expect(HONEST.filter((s) => DENIES_COVER.test(s))).toEqual([]);
+    expect(HONEST.filter((s) => CLAIMS_COVER.test(s))).toHaveLength(1);
+
+    // The engine: are the covered fixture's 4,000 hidden pixels in the file?
+    const fixture = await coveredPicturePdf();
+    const media = (await readDocxBody((await run(fixture.pdf)).output))
+      .pictures[0]!.bytes!;
+    const canvas = createRequire(
+      createRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
+    )("@napi-rs/canvas") as {
+      loadImage(b: Uint8Array): Promise<{ width: number; height: number }>;
+      createCanvas(
+        w: number,
+        h: number,
+      ): {
+        getContext(k: "2d"): {
+          drawImage(i: unknown, x: number, y: number): void;
+          getImageData(
+            x: number,
+            y: number,
+            w: number,
+            h: number,
+          ): { data: Uint8ClampedArray };
+        };
+      };
+    };
+    const img = await canvas.loadImage(media);
+    const ctx = canvas.createCanvas(img.width, img.height).getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, img.width, img.height).data;
+    let hidden = 0;
+    for (let i = 0; i < d.length; i += 4)
+      if (d[i]! > 200 && d[i + 1]! < 60 && d[i + 2]! > 200) hidden++;
+    const covers = hidden === 0;
+    const sentences = await wordSentences();
+    const deniers = sentences.filter(({ masked }) => DENIES_COVER.test(masked));
+    const claimers = sentences.filter(({ masked }) =>
+      CLAIMS_COVER.test(masked),
+    );
+    expect(
+      covers ? deniers.map((s) => `${s.where}: ${s.masked}`) : [],
+      "the engine draws covers into the picture; the page may not say they do not come across",
+    ).toEqual([]);
+    expect(
+      claimers.length > 0,
+      covers
+        ? "the engine draws covers into the picture; the page must say so"
+        : `the engine leaves ${hidden} hidden pixels in the file; the page may not say covers stay covered`,
+    ).toBe(covers);
+  }, 120_000);
+
+  it("budgets: the page names the picture count past which pictures are left out, and that the text still comes through whole", async () => {
+    const figure = MAX_DOCX_PICTURES.toLocaleString("en-US");
+    const BUDGET = new RegExp(
+      String.raw`\b${figure} pictures\b[^.]*\b(?:left out|not carried)\b|\b(?:left out|not carried)\b[^.]*\b${figure} pictures\b|\bpast\b[^.]*\b${figure} pictures\b`,
+      "i",
+    );
+    const WHOLE = /\btext\b[^.]{0,80}\b(?:whole|in full|all there)\b/i;
+    // Control: the sentence that shipped claims every picture, no exception.
+    expect(
+      BUDGET.test(
+        "Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it.",
+      ),
+    ).toBe(false);
+    // The keeps sentence claims each picture; its exception must be there too.
+    expect(PDF_TO_WORD_KEEPS).toMatch(BUDGET);
+    expect(PDF_TO_WORD_KEEPS).toMatch(WHOLE);
+    const texts = (await toolContainer(getToolBySlug(PDF_TO_WORD_TOOL)!)).texts;
+    expect(texts.some((t) => BUDGET.test(t) && WHOLE.test(t))).toBe(true);
+  });
 });
