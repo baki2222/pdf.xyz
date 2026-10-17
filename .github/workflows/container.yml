@@ -160,6 +160,17 @@ jobs:
       - name: Worker image PDF to PowerPoint round-trip fidelity proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:pptx-fidelity-proof
 
+      # PDF to Word's pictures: the only place poppler's reading order and
+      # pdf.js's pictures meet before production (CI's unit job has no
+      # poppler; its tests stand it in). Each generated fixture through the
+      # REAL engine, judged by the picture instrument; each .docx laid out by
+      # the LibreOffice runner Word to PDF uses, which must paint every
+      # picture; the text-only .docx shipped until 2026-10-17 and a .docx
+      # missing one picture must both FAIL; a damaged fixture is rebuilt by
+      # the image's qpdf. No user document, secret, queue or store.
+      - name: Worker image PDF to Word pictures proof (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:docx-pictures-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)
