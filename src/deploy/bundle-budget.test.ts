@@ -390,6 +390,25 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * (`office-export-coverage.tsx`): summarize-pdf 260.46 -> 258.38. No
  * ceiling changes.
  *
+ * PR #180'S REVIEW REPAIRS, 2026-10-17. Same weigher, c7abb986's build
+ * against the repairs', gz KB exact (raw KB):
+ *
+ *     row             before   now      delta
+ *     rotate-pdf      252.53   253.32   +0.79   (782 -> 784)
+ *     merge-pdf       249.48   250.33   +0.85
+ *     ocr-pdf         253.08   253.93   +0.85
+ *     summarize-pdf   258.38   259.25   +0.87   (797 -> 799)
+ *     compress-pdf    257.81   259.32   +1.51   (805 -> 808)
+ *     homepage, /tools, /workspace: unchanged (±0.03)
+ *
+ * On rotate-pdf, chunk by chunk (B gz): the runner kit's 9,900 -> 10,372
+ * (+472: a result not yet downloaded registered for a paste's question,
+ * focus moved to the file a hand-off carried, scroll keys read as the
+ * wheel) and the route's 5,108 -> 5,505 (+397: the job row read from the
+ * address before the first paint); the on-demand chunks regrouped, -58.
+ * `@/lib/intent/unsaved` now loads with every runner (`downloadBlob` keeps
+ * a result). No ceiling changes; every row still takes what is to come.
+ *
  * WHAT IS STILL TO COME is held against every row by the test after
  * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
  * fails. The one row the layout's remaining growth cannot reach is /tools,
