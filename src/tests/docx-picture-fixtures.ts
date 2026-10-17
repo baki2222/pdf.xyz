@@ -368,6 +368,10 @@ export const DOCX_PICTURE_FIXTURES = [
   inlineImagesPdf,
   stencilPicturePdf,
   exifJpegPdf,
+  // Found on the owner's tutorial while painting covers in: a labelled
+  // callout with a clear margin, and two look-alike screenshots.
+  labelledCalloutPdf,
+  twinScreenshotsPdf,
 ] as const;
 
 /**
@@ -903,7 +907,8 @@ export async function labelledCalloutPdf(): Promise<
         file: { bytes: calloutPng, ext: "png" },
       },
     ],
-    sequence: [[texts[0]!, "#1", label, "#2", texts[1]!]],
+    // The callout starts above its label, so it comes first.
+    sequence: [[texts[0]!, "#1", "#2", label, texts[1]!]],
     label,
   };
 }

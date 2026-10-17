@@ -21,6 +21,7 @@ import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { junkAfterEofPdf, repairStandIn } from "@/tests/pptx-fidelity-fixtures";
 import { readDocxBody } from "./docx-read";
 import {
+  PROOF_CORPUS,
   runDocxPicturesProof,
   type DocxPicturesProofInput,
 } from "./docx-pictures-proof";
@@ -151,4 +152,35 @@ describe("the in-image Word pictures proof", () => {
     expect(result.ok).toBe(false);
     expect(result.lines.join("\n")).toMatch(/not converted \(unreadable/);
   }, 180_000);
+});
+
+/**
+ * The review of 2026-10-17: a proof over a corpus that quietly shrank
+ * reports the strongest pass there is ("[] ⊆ X", CLAUDE.md rule 4). The
+ * proof bounds the corpus it is handed, both ways, and says so when it is
+ * implausible — while still judging what it was given.
+ */
+describe("the in-image Word pictures proof bounds its corpus", () => {
+  it("fails on an implausibly small corpus, though every fixture in it passes", async () => {
+    const base = await input();
+    const result = await runDocxPicturesProof({
+      ...base,
+      fixtures: base.fixtures.slice(0, 1),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.lines.join("\n")).toMatch(
+      /FAIL the corpus holds 1 fixture\(s\), implausibly few/,
+    );
+    // Health: the one fixture was still judged, and passed.
+    expect(
+      result.lines.some((l) => /^ok {3}\w+: \d+ of \d+ source/.test(l)),
+    ).toBe(true);
+  }, 180_000);
+
+  it("HEALTH: the committed corpus is inside the bound", () => {
+    expect(DOCX_PICTURE_FIXTURES.length).toBeGreaterThanOrEqual(
+      PROOF_CORPUS.min,
+    );
+    expect(DOCX_PICTURE_FIXTURES.length).toBeLessThanOrEqual(PROOF_CORPUS.max);
+  });
 });
