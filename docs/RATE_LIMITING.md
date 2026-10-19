@@ -221,9 +221,9 @@ which is the right command asked of the wrong quantity.
 ## Step 5 — ask whether the AI allowance is gone, without spending it
 
 The probes above answer "is throttling on". This one answers a different
-question — **is the free daily AI allowance used up** (one allowance for
-everyone while the limiter keys everyone together, as production does today;
-one per connection once per-client keying is disclosed) — and it
+question — **is the free daily AI allowance used up** (one per connection,
+as production keys it since 2026-10-17; one for everyone whenever the limiter
+keys everyone together) — and it
 costs 4 characters of the 123,096.
 
 ```bash
@@ -238,12 +238,12 @@ curl -sS -w '\n%{http_code}\n' \
 **Read the body, not the status.** `POST /api/jobs` returns `429` for two
 unrelated reasons and they are told apart only by the message:
 
-| you get                                                                                                                  | it means                                                          |
-| ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `429` + _"The free AI allowance is used up for today, or too little of it is left for this document. It covers 30,774…"_ | the **allowance** is spent                                        |
-| `429` + _"Too many requests right now. Please wait a little…"_                                                           | you hit `jobs.create` (60/hour); the allowance is unknown         |
-| `202`                                                                                                                    | the allowance had room, and you just spent **4** characters of it |
-| anything else (`503`, `500`)                                                                                             | no job was created, so nothing was charged                        |
+| you get                                                                                                                                      | it means                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `429` + _"The free AI allowance for this connection is used up for today, or too little of it is left for this document. It covers 30,774…"_ | the **allowance** is spent                                        |
+| `429` + _"Too many requests right now. Please wait a little…"_                                                                               | you hit `jobs.create` (60/hour); the allowance is unknown         |
+| `202`                                                                                                                                        | the allowance had room, and you just spent **4** characters of it |
+| anything else (`503`, `500`)                                                                                                                 | no job was created, so nothing was charged                        |
 
 ### Why it costs almost nothing, and why the obvious version does not work
 

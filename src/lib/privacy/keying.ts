@@ -9,9 +9,17 @@
  * salted hash of an address kept with a counter for up to a day is personal
  * data the policy must describe before it exists — not after someone notices.
  *
- * Production keys nobody today: read at the wire on 2026-10-10,
+ * ON SINCE 2026-10-17, and only because the origin answers nobody but
+ * Cloudflare. `cf-connecting-ip` is trustworthy only while that holds: until
+ * that day the origin served HTTPS to anyone who asked (a knock returned 200),
+ * so a caller could skip the edge and write the header themselves. It is now
+ * locked (`pdfxyz-origin-lock` on the web box: new connections to 80/443 from
+ * outside Cloudflare's ranges are reset), and the repo's own instrument
+ * certifies it — `ORIGIN_IP=<origin> pnpm verify:rate-limit` (or
+ * `knockOnOrigin` alone; the full verifier spends a client's upload budget,
+ * which while the limiter was SHARED meant everyone's). Before that day,
  * `/api/worker/operations` reported `rateLimit.code =
- * "remote-configured-shared"`. To change that, flip this flag: /privacy then
+ * "remote-configured-shared"`. With the flag on: /privacy
  * renders the per-client sentence (`rate-limits.ts`), every AI tool page and
  * the allowance refusal say "for your connection" instead of "shared by
  * everyone using pdf.xyz" (`jobs/ai-allowance.ts`), and they ship in one
@@ -23,4 +31,4 @@
  *
  * A leaf with no imports, so the limiter can read it without loading copy.
  */
-export const PER_CLIENT_KEYING_DISCLOSED: boolean = false;
+export const PER_CLIENT_KEYING_DISCLOSED: boolean = true;
