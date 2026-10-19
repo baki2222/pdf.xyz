@@ -1,7 +1,21 @@
 // @native-canvas
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { provesPptxPictures, provesPptxPresentationChain } from "./capability";
+import {
+  docxProbePdf,
+  provesDocxPictures,
+  provesPptxPictures,
+  provesPptxPresentationChain,
+} from "./capability";
+import {
+  movePictureDown,
+  movePictureUp,
+  replacePictureMedia,
+  stretchFirstPicture,
+} from "@/tests/docx-hand-built";
+import { docxTextOnly20261017 } from "@/tests/docx-text-only-2026-10-17";
+import { noPictures } from "@/tests/page-scan-stubs";
+import { flowStandIn } from "@/tests/poppler-flow-standin";
 import type { runPdfOfficeExport } from "./engine";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
 import { encodePngImage } from "./png-encode";
@@ -194,5 +208,101 @@ describe("provesPptxPictures decodes the picture", () => {
     await expect(provesPptxPictures(undefined, blanking("rgb8"))).resolves.toBe(
       false,
     );
+  });
+});
+
+/**
+ * THE WORD PROBE (2026-10-17). The question production answered "no" to —
+ * the owner's 37 pictures, none in the .docx — asked of the running image.
+ * Here poppler's reading order is stood in for (`@/tests/poppler-flow-standin`,
+ * in poppler's frame); the daemon passes the image's own extractor.
+ */
+describe("provesDocxPictures", () => {
+  /** The job's deps as these tests stand them in: poppler's order, the real reader. */
+  const PROBE_DEPS = { extractFlow: flowStandIn, scanPages: scanPdfPages };
+  /** The real engine, with the .docx it wrote rewritten by `edit`. */
+  const wordThen =
+    (edit: (docx: Uint8Array) => Promise<Uint8Array>): Run =>
+    async (tool, input, deps) => {
+      const { runPdfOfficeExport: real } = await import("./engine");
+      const run = await real(tool, input, deps);
+      if (!run.ok) return run;
+      return { ...run, output: await edit(run.output) };
+    };
+
+  it("is true for the engine in this tree", async () => {
+    await expect(
+      provesDocxPictures({ extractFlow: flowStandIn, scanPages: scanPdfPages }),
+    ).resolves.toBe(true);
+  });
+
+  it("NEGATIVE CONTROL: is false for the text-only .docx shipped until 2026-10-17", async () => {
+    const textOnly = wordThen(async () =>
+      docxTextOnly20261017((await flowStandIn(await docxProbePdf())).pages),
+    );
+    await expect(provesDocxPictures(PROBE_DEPS, textOnly)).resolves.toBe(false);
+  });
+
+  it("is false for a picture moved below its caption or above its heading, rescaled, or swapped for other pixels", async () => {
+    await expect(
+      provesDocxPictures(PROBE_DEPS, wordThen(movePictureDown)),
+    ).resolves.toBe(false);
+    // Each side of the picture is asked: the mutation check of 2026-10-17
+    // removed the "after the line above" half and only this control saw it.
+    await expect(
+      provesDocxPictures(PROBE_DEPS, wordThen(movePictureUp)),
+    ).resolves.toBe(false);
+    await expect(
+      provesDocxPictures(PROBE_DEPS, wordThen(stretchFirstPicture)),
+    ).resolves.toBe(false);
+    // Same place, same size, same format: a black PNG of the probe's size.
+    const black = encodePngImage(40, 30, "rgb8", new Uint8Array(40 * 30 * 3));
+    await expect(
+      provesDocxPictures(
+        PROBE_DEPS,
+        wordThen((docx) => replacePictureMedia(docx, 0, black)),
+      ),
+    ).resolves.toBe(false);
+  });
+
+  /**
+   * The review of 2026-10-17: the probe was handed the image's extractor
+   * and ran the module's own page reader, with no limits — so it could
+   * answer `true` for an image whose jobs, run on the worker's deps, have no
+   * page reader (and answer `unsupported`), or a budget that leaves the
+   * picture out. It now takes the job's deps whole.
+   */
+  it("runs the engine on the job's OWN deps — the same object, limits and all", async () => {
+    const deps = {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+      limits: { maxOutputBytes: 10_000_000 },
+    };
+    const seen: unknown[] = [];
+    const spy: Run = async (tool, input, given) => {
+      seen.push(given);
+      const { runPdfOfficeExport: real } = await import("./engine");
+      return real(tool, input, given);
+    };
+    await expect(provesDocxPictures(deps, spy)).resolves.toBe(true);
+    expect(seen).toEqual([deps]);
+    expect(seen[0]).toBe(deps);
+    // A job whose deps leave the picture out cannot be called proven.
+    await expect(
+      provesDocxPictures({ ...deps, limits: { maxPictures: 0 } }),
+    ).resolves.toBe(false);
+    // Nor one whose deps have no page reader (its jobs answer unsupported).
+    await expect(
+      provesDocxPictures({ extractFlow: flowStandIn }),
+    ).resolves.toBe(false);
+  });
+
+  it("is false without the text extractor, or with a page reader that finds no picture", async () => {
+    await expect(provesDocxPictures({ scanPages: scanPdfPages })).resolves.toBe(
+      false,
+    );
+    await expect(
+      provesDocxPictures({ extractFlow: flowStandIn, scanPages: noPictures }),
+    ).resolves.toBe(false);
   });
 });

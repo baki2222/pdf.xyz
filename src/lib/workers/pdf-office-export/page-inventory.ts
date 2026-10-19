@@ -114,7 +114,12 @@ export interface InventoryImage {
   bytes: number;
 }
 
-/** Where a picture is painted: the image's unit square under its CTM. */
+/**
+ * Where a picture is painted: the image's unit square under its CTM. A
+ * stencil's paint is one too (its image is `mask`) since 2026-10-17, when PDF
+ * to Word began carrying stencils; PDF to PowerPoint's instrument, which
+ * scores pictures placed alone, leaves those out (`./fidelity`).
+ */
 export interface InventoryPlacement {
   /** Index into the page's `images`. */
   image: number;
@@ -905,7 +910,7 @@ function addImage(
       ctx.images.set(key, image);
     }
   }
-  if (ctm && !facts.mask)
+  if (ctm)
     ctx.placements.push({ image: index, box: unitBox(mul(ctx.display, ctm)) });
 }
 
@@ -1217,6 +1222,54 @@ function boxOf(
     Math.max(a!, c!),
     Math.max(b!, d!),
   ];
+}
+
+/**
+ * Per page of `doc`, the map from the page as pdf.js DISPLAYS it (points
+ * from the top left of its crop box, /Rotate applied) to the frame poppler's
+ * `pdftotext -bbox-layout` reports in (the same, from the MEDIA box): the
+ * identity unless the crop box is not the media box. Read from poppler's
+ * `pdftotext.cc` (`printDocBBox` displays each page with `useMediaBox`),
+ * not measured here: `pnpm worker:docx-pictures-proof` runs a cropped page
+ * through the real poppler. Null when the page tree cannot be read.
+ */
+export function mediaFrames(doc: PDFDocument): Matrix[] | null {
+  try {
+    if (!(doc.catalog instanceof PDFDict)) return null;
+    return doc.getPages().map((page) => {
+      const node = page.node;
+      const media = boxOf(doc, inheritedOf(node, "MediaBox")) ?? [
+        0, 0, 612, 792,
+      ];
+      const crop = boxOf(doc, inheritedOf(node, "CropBox"));
+      const view: [number, number, number, number] = crop
+        ? [
+            Math.max(media[0], crop[0]),
+            Math.max(media[1], crop[1]),
+            Math.min(media[2], crop[2]),
+            Math.min(media[3], crop[3]),
+          ]
+        : media;
+      const valid = view[2] > view[0] && view[3] > view[1] ? view : media;
+      const rotate = num(inheritedOf(node, "Rotate") as PDFObject | undefined);
+      const shown = displayTransform(valid, rotate).transform;
+      const poppler = displayTransform(media, rotate).transform;
+      // poppler ∘ shown⁻¹ — both are a signed axis swap and a shift, so the
+      // inverse is exact.
+      const det = shown[0]! * shown[3]! - shown[1]! * shown[2]!;
+      const inv: Matrix = [
+        shown[3]! / det,
+        -shown[1]! / det,
+        -shown[2]! / det,
+        shown[0]! / det,
+        (shown[2]! * shown[5]! - shown[3]! * shown[4]!) / det,
+        (shown[1]! * shown[4]! - shown[0]! * shown[5]!) / det,
+      ];
+      return mul(poppler, inv);
+    });
+  } catch {
+    return null;
+  }
 }
 
 /**

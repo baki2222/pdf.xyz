@@ -11,7 +11,14 @@ import {
   scannedPdf,
   undecodablePicturePdf,
 } from "@/tests/pptx-fidelity-fixtures";
-import { scanning, textScan } from "@/tests/page-scan-stubs";
+import {
+  blankPages,
+  noPictures,
+  scanning,
+  textScan,
+} from "@/tests/page-scan-stubs";
+import { scanBetweenPagesPdf } from "@/tests/docx-picture-fixtures";
+import { flowStandIn } from "@/tests/poppler-flow-standin";
 import {
   createPdfOfficeExportProcessor,
   pdfOfficeExportOutputName,
@@ -87,6 +94,7 @@ describe("pdf-office-export processor", () => {
     const processor = createPdfOfficeExportProcessor({
       extract,
       extractFlow,
+      scanPages: noPictures,
       limits: {},
     });
     const result = await processor.process({
@@ -108,8 +116,10 @@ describe("pdf-office-export processor", () => {
         contentType:
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       });
+      // "pdftotext-office-openxml" until 2026-10-17, when Word began
+      // carrying pictures through the page reader.
       expect(result.meta).toMatchObject({
-        engine: "pdftotext-office-openxml",
+        engine: "pdftotext-pdfjs-docx-pictures",
         tool: "pdf-to-word",
       });
     }
@@ -157,6 +167,7 @@ describe("pdf-office-export processor", () => {
     const locked = await createPdfOfficeExportProcessor({
       extract,
       extractFlow: refused,
+      scanPages: noPictures,
     }).process(
       oneInput(rc4EncryptedPdf({ userPassword: "pw", ownerPassword: "own" })),
     );
@@ -172,6 +183,7 @@ describe("pdf-office-export processor", () => {
     const damaged = await createPdfOfficeExportProcessor({
       extract,
       extractFlow: refused,
+      scanPages: noPictures,
     }).process(oneInput());
     expect(damaged.ok).toBe(false);
     if (!damaged.ok)
@@ -186,6 +198,7 @@ describe("pdf-office-export processor", () => {
         pageCount: 1,
         pages: [{ pageNumber: 1, paragraphs: [] }],
       }),
+      scanPages: noPictures,
     }).process(oneInput());
     expect(scanned.ok).toBe(false);
     if (!scanned.ok)
@@ -199,6 +212,7 @@ describe("pdf-office-export processor", () => {
     const result = await createPdfOfficeExportProcessor({
       extract,
       extractFlow,
+      scanPages: noPictures,
       limits: { maxOutputBytes: 1 },
     }).process(oneInput());
     expect(result.ok).toBe(false);
@@ -239,6 +253,7 @@ describe("pdf-office-export processor", () => {
           outputTooLarge: false,
         });
       },
+      scanPages: noPictures,
     }).process(oneInput());
     expect(result.ok).toBe(false);
     if (!result.ok)
@@ -262,17 +277,59 @@ describe("pdf-office-export processor", () => {
           { pageNumber: 3, paragraphs: [] },
         ],
       }),
+      scanPages: blankPages(3),
     }).process(oneInput());
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // The persistence boundary is a whitelist: a block it does not know is
-    // dropped without a sound, so assert on what survives it.
+    // dropped without a sound, so assert on what survives it. Since
+    // 2026-10-17 Word reports what PowerPoint does about pictures (here,
+    // none: the stub reader found none), and those fields cross it too.
     expect(sanitizeJobResults(result.results)?.officeExport).toEqual({
       pageCount: 3,
       textPageCount: 1,
       pagesWithoutText: [2, 3],
       littleTextPageCount: 0,
       pagesWithLittleText: [],
+      picturePageCount: 0,
+      pagesAsPictures: [],
+      picturesNotCarried: 0,
+      picturesTooLarge: 0,
+      // Since the review of 2026-10-17: pictures left out over budget, and
+      // the pages the reader SAW empty.
+      picturesOverBudget: 0,
+      pagesMissingPictures: [],
+      emptyPageCount: 2,
+      pagesEmpty: [2, 3],
+    });
+  });
+
+  it("carries a Word document's picture-only pages onto the job record (processor → sanitizeJobResults)", async () => {
+    // The composed chain for Word: a scan between two text pages through the
+    // REAL page reader (poppler's reading order stood in for), then across
+    // the boundary the panel reads its notice from.
+    const fixture = await scanBetweenPagesPdf();
+    const result = await createPdfOfficeExportProcessor({
+      extract,
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    }).process(oneInput(fixture.pdf));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(sanitizeJobResults(result.results)?.officeExport).toEqual({
+      pageCount: 3,
+      textPageCount: 2,
+      pagesWithoutText: [2],
+      littleTextPageCount: 2,
+      pagesWithLittleText: [1, 3],
+      picturePageCount: 1,
+      pagesAsPictures: [2],
+      picturesNotCarried: 0,
+      picturesTooLarge: 0,
+      picturesOverBudget: 0,
+      pagesMissingPictures: [],
+      emptyPageCount: 0,
+      pagesEmpty: [],
     });
   });
   it("carries the picture-only pages of a deck onto the job record (processor → sanitizeJobResults)", async () => {

@@ -151,6 +151,7 @@ function capabilitiesOf(value: unknown): HeartbeatCapabilities {
     aiReadCap: boolOf(src.aiReadCap),
     pptxPresentationChain: boolOf(src.pptxPresentationChain),
     pptxPictures: boolOf(src.pptxPictures),
+    docxPictures: boolOf(src.docxPictures),
   };
 }
 
@@ -204,6 +205,7 @@ export function serializeHeartbeat(hb: WorkerHeartbeat): string {
       aiReadCap: hb.capabilities.aiReadCap,
       pptxPresentationChain: hb.capabilities.pptxPresentationChain,
       pptxPictures: hb.capabilities.pptxPictures,
+      docxPictures: hb.capabilities.docxPictures,
     },
     at: hb.at,
   });

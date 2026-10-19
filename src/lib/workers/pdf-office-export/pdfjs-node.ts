@@ -150,6 +150,38 @@ export function nodePdfjsAvailable(
   }
 }
 
+/** What an instrument needs of `@napi-rs/canvas` to read a picture file. */
+export interface NodeImageCanvas {
+  loadImage(bytes: Uint8Array): Promise<{ width: number; height: number }>;
+  createCanvas(
+    width: number,
+    height: number,
+  ): {
+    getContext(kind: "2d"): {
+      drawImage(image: unknown, x: number, y: number): void;
+      getImageData(
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+      ): { data: Uint8ClampedArray };
+    };
+  };
+}
+
+/**
+ * The canvas pdf.js paints through, required from pdf.js's own directory
+ * at RUN time, as pdf.js itself does (see the docblock above): for the
+ * instruments that decode a JPEG or PNG a document carries
+ * (`./docx-fidelity`). Throws where the canvas is not installed.
+ */
+export function loadNodeCanvas(): NodeImageCanvas {
+  const pdfjs = runtimeRequire(import.meta.url).resolve(
+    "pdfjs-dist/legacy/build/pdf.mjs",
+  );
+  return runtimeRequire(pdfjs)("@napi-rs/canvas") as NodeImageCanvas;
+}
+
 /**
  * The pixel ceiling for one decoded image (width × height) when the caller
  * knows nothing better, defined in `./picture-limits` (the tool's page

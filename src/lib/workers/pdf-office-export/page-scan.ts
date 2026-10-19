@@ -84,13 +84,16 @@
  * A shape filled AND used as a clip by one path keeps its clip only in its own
  * layer. Text used as a clip (render modes 4–7) clips nothing in the layers or
  * pictures. Image masks, repeated and grouped inline images are drawn into the
- * layers, not placed as pictures. A line of TEXT is placed whole even where a
- * clip cuts it. Right-to-left text is written in the order it is painted.
+ * layers, not placed as pictures (PowerPoint; PDF to Word, which draws no
+ * layers, places each of them as a picture: `picturesOnly`). A line of TEXT
+ * is placed whole even where a clip cuts it. Right-to-left text is written
+ * in the order it is painted.
  * Vertical text is approximated. Each is a rendering difference, not a loss
  * of content.
  */
 import { PDFDict, PDFName, PDFNumber, PDFRawStream, PDFRef } from "pdf-lib";
 import { PdfEncryptedError, PdfEngineError } from "@/lib/pdf/engine";
+import { uprightJpeg } from "@/lib/pdf/jpeg-orientation";
 import { PdfTextOpenError } from "../pdf-text/errors";
 import {
   canvasFactoryOf,
@@ -103,6 +106,7 @@ import {
 } from "./pdfjs-node";
 import {
   documentImages,
+  mediaFrames,
   readInventory,
   unlockObjectStreams,
   type PageInventory,
@@ -226,11 +230,28 @@ export interface ScannedPage {
    */
   picturesUnverified: boolean;
   /**
+   * PDF to Word only (`picturesOnly`): pictures the page paints that were
+   * left out to keep the document inside the worker's budgets — its size
+   * (`maxMediaBytes`), its picture count (`maxPictures`), its decoding
+   * ({@link DOCUMENT_DECODE_BUDGET_BYTES}) or its time (`deadline`). Until
+   * the review of 2026-10-17 a document over any of them was refused whole,
+   * text and all, where it had converted (as text) the week before.
+   */
+  picturesOverBudget?: number;
+  /**
    * The page's drawing needed more than {@link MAX_LAYERS_PER_PAGE} separate
    * layers to keep its paint order, so its slide is ONE picture of the page,
    * with its text in invisible text boxes over it (selectable, not shown).
    */
   flattened: boolean;
+  /**
+   * From this page's displayed points (the frame every item above is in) to
+   * the frame poppler's `pdftotext -bbox-layout` reports in, as an affine
+   * matrix (`./page-inventory`, `mediaFrames`): PDF to Word places these
+   * pictures among poppler's paragraphs. Absent when the page tree could
+   * not be read, and then taken as the identity.
+   */
+  mediaFrame?: [number, number, number, number, number, number];
 }
 
 export interface PdfPageScan {
@@ -252,6 +273,51 @@ export interface PageScanOptions {
    * for tests that need a picture over it without decoding a gigabyte.
    */
   pageDecodeBudgetBytes?: number;
+  /**
+   * PDF to Word's reading: the pictures and the text, and no drawing. The
+   * page's vector ink (fills, rules, boxes) is not rendered into layers, and
+   * no page is drawn as one picture: a Word document flows its text, and a
+   * picture of a page's rules behind that text would be noise, not the page.
+   *
+   * Every PICTURE is read, though, including the ones pdf.js paints in one
+   * merged op — a run of repeats, a run of small inline images — and the
+   * stencils (`/ImageMask`), which pdf.js paints in their colour. Anything
+   * the page paints LATER over a picture (a white box over a name, an
+   * arrow, a label) is painted into it, at its own resolution: what the page
+   * covers stays covered (`PAINT ORDER IS PRIVACY`, above). Until the review
+   * of 2026-10-17 neither was so: a repeated picture came through once, a
+   * run of inline images not at all, and a box drawn over a screenshot was
+   * left out with the screenshot's pixels under it intact.
+   *
+   * The bounds are best effort here, never a refusal: a picture past the
+   * media budget, the picture count, the document's decode budget or the
+   * deadline is left out and counted (`picturesOverBudget`), and the scan
+   * goes on. A picture that would have to be painted with something it
+   * cannot paint (over {@link PAINT_BUDGET_BYTES}) is left out and counted
+   * as too large, never delivered uncovered.
+   */
+  picturesOnly?: boolean;
+  /** With `picturesOnly`: the most pictures the document may carry. */
+  maxPictures?: number;
+  /**
+   * The document's decode budget, when not {@link
+   * DOCUMENT_DECODE_BUDGET_BYTES}: for tests, as `pageDecodeBudgetBytes`.
+   */
+  documentDecodeBudgetBytes?: number;
+  /**
+   * With `picturesOnly` and `maxMediaBytes`: bytes each picture adds to the
+   * file besides its media (its XML, its relationship, its zip entry), so
+   * the budget bounds the FILE, not only its media. See `./docx-package`.
+   */
+  pictureOverheadBytes?: number;
+}
+
+/** A picture past `maxMediaBytes` in a best-effort scan: left out, counted. */
+class MediaOverBudget extends Error {
+  constructor() {
+    super("picture past the media budget");
+    this.name = "MediaOverBudget";
+  }
 }
 
 /**
@@ -327,6 +393,11 @@ export const PAGE_DECODE_BUDGET_BYTES = 512 * 1024 * 1024;
  * a job that can only time out. Past it the job is refused up front, as too
  * large, which is not retried. A document under it can still time out on a
  * slower worker; this catches only the ones that cannot finish anywhere.
+ *
+ * PDF to Word (`picturesOnly`) is not refused for it: its pages are decoded
+ * in page order while the budget holds, and the pictures of the pages past
+ * it are counted (`picturesOverBudget`), its text being poppler's. Until the
+ * review of 2026-10-17 a 350-page colour scan was refused whole here.
  */
 export const DOCUMENT_DECODE_BUDGET_BYTES = 16 * 1024 * 1024 * 1024;
 /**
@@ -778,12 +849,26 @@ interface OpList {
 interface ImageElement {
   kind: "image";
   op: number;
+  /**
+   * Which of the op's pictures this is. pdf.js merges a run of one image
+   * painted again and again into ONE op (`paintImageXObjectRepeat`), and a
+   * run of small inline images into one (`paintInlineImageXObjectGroup`);
+   * PDF to Word reads each picture out of them (`expandMerged`). 0 for an
+   * op that paints one picture.
+   */
+  copy: number;
   m: Matrix;
   clip: Box;
   clipShapes: readonly ClipShape[];
   box: Box;
   objId: string | null;
   inline: unknown;
+  /**
+   * A stencil (`/ImageMask`): one colour through a one-bit shape, which only
+   * pdf.js's painter can show (in the fill colour of the moment). Its own
+   * pixel size, for the resolution it is painted at.
+   */
+  stencil?: { width: number; height: number };
 }
 interface TextElement {
   kind: "text";
@@ -842,6 +927,33 @@ function opTables(OPS: NodePdfjs["OPS"]): OpTables {
   };
 }
 
+/**
+ * One inline image out of the atlas pdf.js packs a run of them into
+ * (`paintInlineImageXObjectGroup`: RGBA rows, each image at `x`, `y`, padded
+ * by a pixel), as an image of its own. Null when the atlas is not RGBA rows
+ * (a browser's bitmap; never under Node).
+ */
+function atlasPart(
+  atlas: DecodedImage,
+  e: { x: number; y: number; w: number; h: number },
+): DecodedImage | null {
+  const RGBA_32BPP = 3;
+  if (
+    atlas.kind !== RGBA_32BPP ||
+    e.w < 1 ||
+    e.h < 1 ||
+    e.x + e.w > atlas.width ||
+    e.y + e.h > atlas.height
+  )
+    return null;
+  const data = new Uint8ClampedArray(e.w * e.h * 4);
+  for (let r = 0; r < e.h; r++) {
+    const from = ((e.y + r) * atlas.width + e.x) * 4;
+    data.set(atlas.data.subarray(from, from + e.w * 4), r * e.w * 4);
+  }
+  return { width: e.w, height: e.h, kind: RGBA_32BPP, data };
+}
+
 /** Is op `i` one that puts ink on the page (as opposed to setting state)? */
 function isPaint(t: OpTables, OPS: NodePdfjs["OPS"], ol: OpList, i: number) {
   const fn = ol.fnArray[i]!;
@@ -861,6 +973,12 @@ function walkPage(
   pageBox: Box,
   isVisible: (props: unknown) => boolean,
   tables: OpTables,
+  /**
+   * PDF to Word: every picture a merged op paints is its own image element
+   * (repeats, runs of inline images, stencils), not drawing. PowerPoint
+   * draws those ops into its layers, which show them where the page does.
+   */
+  expandMerged = false,
 ): Element[] {
   const { OPS } = pdfjs;
   const commonObjs = page.commonObjs as unknown as {
@@ -904,6 +1022,120 @@ function walkPage(
   const vector = (op: number, box: Box | null) => {
     const clipped = box ? intersect(box, st.clip) : st.clip;
     if (clipped) elements.push({ kind: "vector", op, box: clipped });
+  };
+  /** One picture: the unit square under `m`, seen through the clip. */
+  const picture = (
+    op: number,
+    copy: number,
+    m: Matrix,
+    source: Pick<ImageElement, "objId" | "inline" | "stencil">,
+  ) => {
+    const box = intersect(boxOf(m, [0, 0, 1, 1]), st.clip);
+    if (!box) return;
+    elements.push({
+      kind: "image",
+      op,
+      copy,
+      m,
+      clip: st.clip,
+      clipShapes: st.clipShapes,
+      box,
+      ...source,
+    });
+  };
+  const dims = (v: unknown) => {
+    const o = (v ?? {}) as { width?: unknown; height?: unknown };
+    return {
+      width: typeof o.width === "number" ? o.width : 1,
+      height: typeof o.height === "number" ? o.height : 1,
+    };
+  };
+  /**
+   * The pictures one merged op paints, each at its own place — read from the
+   * op's arguments exactly as pdf.js's canvas paints them. False for an op
+   * that is not one of them.
+   */
+  const merged = (i: number, fn: number, args: unknown[]): boolean => {
+    const none = { objId: null, inline: null } as const;
+    switch (fn) {
+      case OPS.paintImageXObjectRepeat: {
+        // (objId, scaleX, scaleY, positions): one image, many places.
+        const [objId, sx, sy, positions] = args as [
+          unknown,
+          number,
+          number,
+          ArrayLike<number>,
+        ];
+        for (let k = 0; k + 1 < (positions?.length ?? 0); k += 2)
+          picture(
+            i,
+            k / 2,
+            mul(st.ctm, [sx, 0, 0, sy, positions[k]!, positions[k + 1]!]),
+            {
+              objId: String(objId),
+              inline: null,
+            },
+          );
+        return true;
+      }
+      case OPS.paintInlineImageXObjectGroup: {
+        // (atlas, map): small inline images packed into one, each entry a
+        // part of it under its own transform.
+        const [atlas, map] = args as [
+          unknown,
+          { transform: number[]; x: number; y: number; w: number; h: number }[],
+        ];
+        (map ?? []).forEach((entry, k) =>
+          picture(i, k, mul(st.ctm, entry.transform), {
+            objId: null,
+            inline: isDecodedImage(atlas) ? atlasPart(atlas, entry) : null,
+          }),
+        );
+        return true;
+      }
+      case OPS.paintImageMaskXObject:
+        picture(i, 0, st.ctm, { ...none, stencil: dims(args[0]) });
+        return true;
+      case OPS.paintSolidColorImageMask:
+        picture(i, 0, st.ctm, { ...none, stencil: { width: 1, height: 1 } });
+        return true;
+      case OPS.paintImageMaskXObjectRepeat: {
+        // (mask, scaleX, skewX, skewY, scaleY, positions).
+        const [mask, sx, kx, ky, sy, positions] = args as [
+          unknown,
+          number,
+          number,
+          number,
+          number,
+          ArrayLike<number>,
+        ];
+        for (let k = 0; k + 1 < (positions?.length ?? 0); k += 2)
+          picture(
+            i,
+            k / 2,
+            mul(st.ctm, [
+              sx,
+              kx ?? 0,
+              ky ?? 0,
+              sy,
+              positions[k]!,
+              positions[k + 1]!,
+            ]),
+            { ...none, stencil: dims(mask) },
+          );
+        return true;
+      }
+      case OPS.paintImageMaskXObjectGroup:
+        ((args[0] ?? []) as { transform?: number[] }[]).forEach((mask, k) =>
+          picture(i, k, mul(st.ctm, mask.transform ?? IDENTITY), {
+            ...none,
+            stencil: dims(mask),
+          }),
+        );
+        return true;
+      default:
+        return false;
+    }
   };
   const fontObject = (id: string): FontLike | null => {
     try {
@@ -1214,15 +1446,7 @@ function walkPage(
       case OPS.paintImageXObject:
       case OPS.paintInlineImageXObject: {
         if (!visible) break;
-        const box = intersect(boxOf(st.ctm, [0, 0, 1, 1]), st.clip);
-        if (!box) break;
-        elements.push({
-          kind: "image",
-          op: i,
-          m: st.ctm,
-          clip: st.clip,
-          clipShapes: st.clipShapes,
-          box,
+        picture(i, 0, st.ctm, {
           objId: fn === OPS.paintImageXObject ? String(args[0]) : null,
           inline: fn === OPS.paintInlineImageXObject ? args[0] : null,
         });
@@ -1230,6 +1454,7 @@ function walkPage(
       }
       default:
         if (!visible) break;
+        if (expandMerged && merged(i, fn, args)) break;
         if (tables.PATH_PAINT.has(fn)) vector(i, null);
         else if (tables.VECTOR_IMAGE.has(fn)) {
           const unit =
@@ -1850,7 +2075,16 @@ export function decodeBudgetPlan(
 async function planPages(
   lib: import("pdf-lib").PDFDocument | null,
   pageBytes: number | undefined,
-): Promise<{ forPage(n: number): PageDecodePlan | null; bytes: number }> {
+): Promise<{
+  forPage(n: number): PageDecodePlan | null;
+  bytes: number;
+  /**
+   * The pictures page `n` paints on the page, as the file says (every
+   * placement, stencils included), and its size; null when the page's
+   * content could not be read. What a page left out unscanned is counted by.
+   */
+  shown(n: number): { pictures: number; width: number; height: number } | null;
+}> {
   if (!lib) throw new PageScanUnreadableError("pdf-lib cannot load the file");
   const opts = pageBytes !== undefined ? { pageBytes } : {};
   await unlockObjectStreams(lib);
@@ -1860,6 +2094,17 @@ async function planPages(
     return {
       forPage: (n) => plan.pages[n - 1] ?? null,
       bytes: plan.bytes,
+      shown: (n) => {
+        const inv = inventory[n - 1];
+        if (!inv?.exact) return null;
+        const on = inv.placements.filter(
+          (p) =>
+            !!inv.images[p.image] &&
+            Math.min(p.box[2], inv.width) - Math.max(p.box[0], 0) > 0.5 &&
+            Math.min(p.box[3], inv.height) - Math.max(p.box[1], 0) > 0.5,
+        );
+        return { pictures: on.length, width: inv.width, height: inv.height };
+      },
     };
   }
   const images = documentImages(lib);
@@ -1879,7 +2124,11 @@ async function planPages(
     ],
     opts,
   );
-  return { forPage: () => plan.pages[0]!, bytes: plan.bytes };
+  return {
+    forPage: () => plan.pages[0]!,
+    bytes: plan.bytes,
+    shown: () => null,
+  };
 }
 
 /**
@@ -2018,11 +2267,14 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
     await loadLib(),
     options.pageDecodeBudgetBytes,
   );
-  if (budget.bytes > DOCUMENT_DECODE_BUDGET_BYTES)
-    throw new PageScanDecodeBudgetError(
-      budget.bytes,
-      DOCUMENT_DECODE_BUDGET_BYTES,
-    );
+  // After `planPages`, which reads an encrypted file's object streams.
+  const lib = await loadLib();
+  const frames = lib ? mediaFrames(lib) : null;
+  const documentBudget =
+    options.documentDecodeBudgetBytes ?? DOCUMENT_DECODE_BUDGET_BYTES;
+  if (budget.bytes > documentBudget && !options.picturesOnly)
+    throw new PageScanDecodeBudgetError(budget.bytes, documentBudget);
+  const bestEffort = !!options.picturesOnly;
   // Opening a document decodes no image; the first page's ceiling, or the
   // smallest, until every page is known to have a plan.
   const first = await openClassified(bytes, budget.forPage(1)?.cap ?? 1);
@@ -2043,6 +2295,18 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
     plans.push(plan);
   }
   const planFor = (n: number) => plans[n - 1]!;
+  // Best effort: the pages whose pictures are decoded are admitted in page
+  // order while the document's decode budget holds; the others are not
+  // given to pdf.js at all, and their pictures are counted.
+  const decoded = new Set<number>();
+  {
+    let spent = 0;
+    for (let n = 1; n <= pageCount; n++)
+      if (!bestEffort || spent + planFor(n).bytes <= documentBudget) {
+        spent += planFor(n).bytes;
+        decoded.add(n);
+      }
+  }
   const capFor = (n: number) => planFor(n).cap;
   const instances = new Map<number, Opened>([[capFor(1), first]]);
   const lastUse = new Map<number, number>();
@@ -2057,18 +2321,28 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
 
   const media = new Map<string, ScannedMedia>();
   let mediaBytes = 0;
+  // Best effort: what each picture adds to the file besides its media, and
+  // how many have been placed, so the budget bounds the file.
+  const overhead = bestEffort ? (options.pictureOverheadBytes ?? 0) : 0;
+  let placed = 0;
+  const overBudget = (more: number) =>
+    options.maxMediaBytes !== undefined &&
+    mediaBytes + more + (placed + 1) * overhead > options.maxMediaBytes;
   const addMedia = (m: ScannedMedia): ScannedMedia => {
     const known = media.get(m.key);
     if (known) return known;
+    if (overBudget(m.bytes.length)) {
+      if (bestEffort) throw new MediaOverBudget();
+      throw new PageScanTooLargeError(options.maxMediaBytes!);
+    }
     mediaBytes += m.bytes.length;
-    if (
-      options.maxMediaBytes !== undefined &&
-      mediaBytes > options.maxMediaBytes
-    )
-      throw new PageScanTooLargeError(options.maxMediaBytes);
     media.set(m.key, m);
     return m;
   };
+  const late = () =>
+    options.deadline !== undefined && Date.now() > options.deadline;
+  const full = () =>
+    options.maxPictures !== undefined && placed >= options.maxPictures;
   try {
     const raw = rawImageSource(loadLib);
     const tables = opTables(pdfjs.OPS);
@@ -2091,6 +2365,26 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
     };
     const pages: ScannedPage[] = [];
     for (let n = 1; n <= pageCount; n++) {
+      if (bestEffort && (!decoded.has(n) || late() || full())) {
+        // Not given to pdf.js: past the decode budget, the deadline or the
+        // picture count. Its text is poppler's, not this reader's; its
+        // pictures are counted from the file, and a page whose content
+        // could not be read is never called empty.
+        const shown = budget.shown(n);
+        pages.push({
+          pageNumber: n,
+          width: shown?.width ?? 612,
+          height: shown?.height ?? 792,
+          items: [],
+          picturesTooLarge: 0,
+          picturesUndecoded: 0,
+          picturesUnverified: !shown,
+          picturesOverBudget: shown?.pictures ?? 0,
+          flattened: false,
+          ...(frames?.[n - 1] ? { mediaFrame: frames[n - 1]! } : {}),
+        });
+        continue;
+      }
       checkDeadline(options.deadline);
       const cap = capFor(n);
       const opened = await instance(cap);
@@ -2110,6 +2404,7 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
         pageBox,
         await isVisibleIn(opened),
         tables,
+        bestEffort,
       );
       const scale = Math.min(
         LAYER_DPI / 72,
@@ -2130,73 +2425,96 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
         const lost = undecodedAt(pdfjs, page, ol, i);
         if (lost) undecoded.add(lost);
       }
-      const plan = planLayers(elements);
-      const layers = plan.filter((step) => step.kind === "layer").length;
       const items: ScannedItem[] = [];
       let tooLargeHere = planFor(n).tooLarge;
-      const flattened = layers > MAX_LAYERS_PER_PAGE;
-      if (flattened) {
-        // One pass over the whole page, in its own paint order: what the page
-        // hides stays hidden by construction, and the cost is one render.
-        const keep = new Set<number>();
-        for (let i = 0; i < ol.fnArray.length; i++)
-          if (isPaint(tables, pdfjs.OPS, ol, i)) {
-            if (unpaintable.has(i)) tooLargeHere++;
-            else keep.add(i);
+      let overBudgetHere = 0;
+      let flattened = false;
+      if (bestEffort) {
+        // PDF to Word: every picture, each with whatever the page paints
+        // over it painted in; the drawing itself is not rendered.
+        for (let k = 0; k < elements.length; k++) {
+          const el = elements[k]!;
+          if (el.kind === "text") {
+            items.push(el.line);
+            continue;
           }
-        const picture = await layerPicture(
-          pdfjs,
-          page,
-          factory,
-          ol,
-          tables,
-          keep,
-          scale,
-          pageBox,
-          true,
-          `flat:${n}`,
-          addMedia,
-        );
-        if (picture) items.push(picture);
-        for (const e of elements)
-          if (e.kind === "text")
-            items.push({
-              ...e.line,
-              runs: e.line.runs.map((r) => ({ ...r, invisible: true })),
-            });
+          if (el.kind !== "image") continue;
+          if (late() || full()) {
+            overBudgetHere++;
+            continue;
+          }
+          // What the page paints later over this picture, and can show:
+          // drawing, pictures, visible text (an OCR layer shows nothing).
+          const over = elements
+            .slice(k + 1)
+            .filter(
+              (o) =>
+                overlaps(o.box, el.box) &&
+                (o.kind !== "text" || o.line.runs.some((r) => !r.invisible)),
+            );
+          let pic: ScannedPicture | "undecoded" | null;
+          try {
+            if (el.stencil || over.length > 0) {
+              // Painted by pdf.js; what it cannot paint is not delivered
+              // uncovered: it is left out, and counted.
+              if (
+                unpaintable.has(el.op) ||
+                over.some((o) => unpaintable.has(o.op))
+              ) {
+                tooLargeHere++;
+                continue;
+              }
+              const painted = await paintedPicture(
+                pdfjs,
+                page,
+                factory,
+                ol,
+                tables,
+                el,
+                over.length > 0,
+                unpaintable,
+                n,
+                tools,
+                raw,
+                addMedia,
+              );
+              pic =
+                painted === "as-placed"
+                  ? await placeImage(page, el, n, tools, raw, addMedia)
+                  : painted;
+              await yieldToLoop();
+            } else pic = await placeImage(page, el, n, tools, raw, addMedia);
+          } catch (error) {
+            if (!(error instanceof MediaOverBudget)) throw error;
+            overBudgetHere++;
+            continue;
+          }
+          if (pic === "undecoded")
+            undecoded.add(el.objId ?? `op:${el.op}:${el.copy}`);
+          else if (pic) {
+            if (overBudget(0)) {
+              // The media was shared with a picture already placed; the
+              // picture itself still costs its place in the file.
+              overBudgetHere++;
+              continue;
+            }
+            items.push(pic);
+            placed++;
+          }
+        }
       } else {
-        let firstLayer = true;
-        for (const step of plan) {
-          checkDeadline(options.deadline);
-          if (step.kind === "text") {
-            items.push((elements[step.element] as TextElement).line);
-            continue;
-          }
-          if (step.kind === "image") {
-            const el = elements[step.element] as ImageElement;
-            const pic = await placeImage(page, el, n, tools, raw, addMedia);
-            if (pic === "undecoded") undecoded.add(el.objId ?? `op:${el.op}`);
-            else if (pic) items.push(pic);
-            firstLayer = false;
-            continue;
-          }
+        const plan = planLayers(elements);
+        const layers = plan.filter((step) => step.kind === "layer").length;
+        flattened = layers > MAX_LAYERS_PER_PAGE;
+        if (flattened) {
+          // One pass over the whole page, in its own paint order: what the page
+          // hides stays hidden by construction, and the cost is one render.
           const keep = new Set<number>();
-          for (const k of step.ops) {
-            const op = elements[k]!.op;
-            if (unpaintable.has(op)) tooLargeHere++;
-            else keep.add(op);
-          }
-          const overWhite = firstLayer && items.length === 0;
-          firstLayer = false;
-          if (keep.size === 0) continue;
-          const region = step.ops
-            .map((k) => elements[k]!.box)
-            .reduce((u, b) => [
-              Math.min(u[0], b[0]),
-              Math.min(u[1], b[1]),
-              Math.max(u[2], b[2]),
-              Math.max(u[3], b[3]),
-            ]);
+          for (let i = 0; i < ol.fnArray.length; i++)
+            if (isPaint(tables, pdfjs.OPS, ol, i)) {
+              if (unpaintable.has(i)) tooLargeHere++;
+              else keep.add(i);
+            }
           const picture = await layerPicture(
             pdfjs,
             page,
@@ -2205,15 +2523,69 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
             tables,
             keep,
             scale,
-            grow(region, 1),
-            overWhite,
-            `layer:${n}:${items.length}`,
+            pageBox,
+            true,
+            `flat:${n}`,
             addMedia,
           );
           if (picture) items.push(picture);
-          // pdf.js runs a render to its end in microtasks: let the daemon's
-          // own timers (its heartbeat) run between layers.
-          await yieldToLoop();
+          for (const e of elements)
+            if (e.kind === "text")
+              items.push({
+                ...e.line,
+                runs: e.line.runs.map((r) => ({ ...r, invisible: true })),
+              });
+        } else {
+          let firstLayer = true;
+          for (const step of plan) {
+            checkDeadline(options.deadline);
+            if (step.kind === "text") {
+              items.push((elements[step.element] as TextElement).line);
+              continue;
+            }
+            if (step.kind === "image") {
+              const el = elements[step.element] as ImageElement;
+              const pic = await placeImage(page, el, n, tools, raw, addMedia);
+              if (pic === "undecoded") undecoded.add(el.objId ?? `op:${el.op}`);
+              else if (pic) items.push(pic);
+              firstLayer = false;
+              continue;
+            }
+            const keep = new Set<number>();
+            for (const k of step.ops) {
+              const op = elements[k]!.op;
+              if (unpaintable.has(op)) tooLargeHere++;
+              else keep.add(op);
+            }
+            const overWhite = firstLayer && items.length === 0;
+            firstLayer = false;
+            if (keep.size === 0) continue;
+            const region = step.ops
+              .map((k) => elements[k]!.box)
+              .reduce((u, b) => [
+                Math.min(u[0], b[0]),
+                Math.min(u[1], b[1]),
+                Math.max(u[2], b[2]),
+                Math.max(u[3], b[3]),
+              ]);
+            const picture = await layerPicture(
+              pdfjs,
+              page,
+              factory,
+              ol,
+              tables,
+              keep,
+              scale,
+              grow(region, 1),
+              overWhite,
+              `layer:${n}:${items.length}`,
+              addMedia,
+            );
+            if (picture) items.push(picture);
+            // pdf.js runs a render to its end in microtasks: let the daemon's
+            // own timers (its heartbeat) run between layers.
+            await yieldToLoop();
+          }
         }
       }
       pages.push({
@@ -2224,7 +2596,9 @@ export const scanPdfPages: PdfPageScanner = async (bytes, options = {}) => {
         picturesTooLarge: tooLargeHere,
         picturesUndecoded: undecoded.size,
         picturesUnverified: planFor(n).unverified,
+        ...(bestEffort ? { picturesOverBudget: overBudgetHere } : {}),
         flattened,
+        ...(frames?.[n - 1] ? { mediaFrame: frames[n - 1]! } : {}),
       });
       const shared = sharedImageBytes(page);
       page.cleanup();
@@ -2318,6 +2692,167 @@ async function layerPicture(
   } finally {
     factory.destroy(layer.cc);
   }
+}
+
+/**
+ * Render the ops in `keep` (with every state op) so that `box` (page points)
+ * fills exactly `width` × `height` pixels, on a transparent canvas.
+ */
+async function renderBox(
+  pdfjs: NodePdfjs,
+  page: NodePdfPage,
+  factory: NodeCanvasFactory,
+  ol: OpList,
+  tables: OpTables,
+  keep: ReadonlySet<number>,
+  box: Box,
+  width: number,
+  height: number,
+): Promise<Uint8ClampedArray> {
+  const sx = width / (box[2] - box[0]);
+  const sy = height / (box[3] - box[1]);
+  const cc = factory.create(width, height);
+  try {
+    await page.render({
+      canvas: cc.canvas as unknown as HTMLCanvasElement,
+      canvasContext: cc.context as unknown as CanvasRenderingContext2D,
+      viewport: page.getViewport({ scale: 1 }),
+      transform: [sx, 0, 0, sy, -box[0] * sx, -box[1] * sy],
+      background: "rgba(0,0,0,0)",
+      operationsFilter: (i: number) =>
+        keep.has(i) || !isPaint(tables, pdfjs.OPS, ol, i),
+    }).promise;
+    return cc.context.getImageData(0, 0, width, height).data;
+  } finally {
+    factory.destroy(cc);
+  }
+}
+
+/** The least resolution a picture painted with what covers it gets. */
+const PAINTED_MIN_PX_PER_PT = 2;
+/** Pixels a probe for ink over a picture renders at most. */
+const COVER_PROBE_PIXELS = 1_000_000;
+
+/**
+ * A picture as pdf.js PAINTS it, with everything the page paints over it
+ * later painted in: PDF to Word's picture for a stencil (only the painter
+ * can show one), and for a picture something is painted over. Rendered over
+ * the box the page shows it in, at the picture's own resolution (at least
+ * {@link PAINTED_MIN_PX_PER_PT}, at most {@link MAX_PICTURE_SIDE}), so the pixels the page
+ * covers are not in the file at all — not hidden under an object Word could
+ * move, not cropped away where `a:srcRect` could be undone.
+ *
+ * `covered`: something visible overlaps it later in paint order. That is
+ * looked at first, coarsely, with the picture left out: when nothing shows
+ * there after all, the answer is "as-placed" and the picture goes in as any
+ * other (a JPEG byte for byte). "undecoded" when pdf.js holds no pixels for
+ * it; null when it shows nothing.
+ */
+async function paintedPicture(
+  pdfjs: NodePdfjs,
+  page: NodePdfPage,
+  factory: NodeCanvasFactory,
+  ol: OpList,
+  tables: OpTables,
+  el: ImageElement,
+  covered: boolean,
+  unpaintable: ReadonlySet<number>,
+  pageNumber: number,
+  tools: CanvasTools,
+  raw: RawImageSource,
+  addMedia: (m: ScannedMedia) => ScannedMedia,
+): Promise<ScannedPicture | "undecoded" | "as-placed" | null> {
+  const [x0, y0, x1, y1] = el.box;
+  const bw = x1 - x0;
+  const bh = y1 - y0;
+  let px = el.stencil ?? null;
+  let filter: string | null = null;
+  if (!px) {
+    let img: unknown = el.inline;
+    if (el.objId) {
+      const pool = poolOf(page, el.objId);
+      img = pool.has(el.objId) ? pool.get(el.objId) : null;
+    }
+    if (!isDecodedImage(img)) return "undecoded";
+    if (img.width < 1 || img.height < 1) return null;
+    px = { width: img.width, height: img.height };
+    if (typeof img.ref === "string") filter = await raw.filterOf(img.ref);
+  }
+  const size = (scale: number): [number, number] => [
+    Math.max(1, Math.round(bw * scale)),
+    Math.max(1, Math.round(bh * scale)),
+  ];
+  const later = new Set<number>();
+  if (covered)
+    for (let i = el.op + 1; i < ol.fnArray.length; i++)
+      if (!unpaintable.has(i) && isPaint(tables, pdfjs.OPS, ol, i))
+        later.add(i);
+  if (covered && !el.stencil) {
+    const [pw, ph] = size(
+      Math.min(LAYER_DPI / 72, Math.sqrt(COVER_PROBE_PIXELS / (bw * bh))),
+    );
+    const ink = await renderBox(
+      pdfjs,
+      page,
+      factory,
+      ol,
+      tables,
+      later,
+      el.box,
+      pw,
+      ph,
+    );
+    if (!inkBox(ink, pw, ph, false)) return "as-placed";
+  }
+  const shown = placementOf(el.m);
+  const density = Math.max(
+    px.width / Math.max(shown.width, 1e-6),
+    px.height / Math.max(shown.height, 1e-6),
+  );
+  // Never below two pixels a point: a label painted over a 72-dpi callout
+  // at 72 dpi is a smudge (measured: it no longer matched what the page
+  // shows). Not the drawing's 200 dpi either: that only enlarges a
+  // screenshot (the owner's tutorial went from 5.5 to 8.7 MB, for nothing).
+  const [w, h] = size(
+    Math.min(
+      Math.max(density, PAINTED_MIN_PX_PER_PT),
+      MAX_PICTURE_SIDE / Math.max(bw, bh),
+    ),
+  );
+  const rgba = await renderBox(
+    pdfjs,
+    page,
+    factory,
+    ol,
+    tables,
+    new Set([el.op, ...later]),
+    el.box,
+    w,
+    h,
+  );
+  if (!inkBox(rgba, w, h, false)) return null;
+  const encoded = await encodePicture(
+    tools,
+    { width: w, height: h, kind: 3, data: rgba },
+    filter,
+  );
+  const media = addMedia({
+    key: `paint:${pageNumber}:${el.op}:${el.copy}`,
+    ...encoded,
+    passthrough: false,
+  });
+  return {
+    kind: "picture",
+    role: "image",
+    media,
+    x: x0,
+    y: y0,
+    width: bw,
+    height: bh,
+    rotation: 0,
+    flipH: false,
+    flipV: false,
+  };
 }
 
 /** The inverse of an affine matrix, or null when it has none. */
@@ -2440,7 +2975,7 @@ async function placeImage(
         cut.shapes,
       );
       const m = addMedia({
-        key: `img:${pageNumber}:${el.op}:cut`,
+        key: `img:${pageNumber}:${el.op}:${el.copy}:cut`,
         ...encoded,
         passthrough: false,
       });
@@ -2491,7 +3026,7 @@ async function placeImage(
       };
     }
   }
-  const key = ref ? `ref:${ref}` : `img:${pageNumber}:${el.op}`;
+  const key = ref ? `ref:${ref}` : `img:${pageNumber}:${el.op}:${el.copy}`;
   let m: ScannedMedia;
   const passthrough =
     ref && img.kind !== 1 && Math.max(img.width, img.height) <= MAX_PICTURE_SIDE
@@ -2500,7 +3035,12 @@ async function placeImage(
   if (passthrough) {
     m = addMedia({
       key,
-      bytes: passthrough,
+      // A PDF shows a JPEG's stored pixels: it has no notion of EXIF, and
+      // pdf.js ignores the tag. A reader of the Office file that honoured it
+      // would turn the photo, so the tag is set to "as stored" — a two-byte
+      // patch on a copy, the pixels byte for byte (`uprightJpeg`). Until the
+      // review of 2026-10-17 it went through, tag and all.
+      bytes: uprightJpeg(passthrough).bytes,
       ext: "jpeg",
       pixelWidth: img.width,
       pixelHeight: img.height,

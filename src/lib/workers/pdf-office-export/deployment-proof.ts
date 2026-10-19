@@ -22,6 +22,8 @@ import { PDFDocument } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
 import { decodePng } from "@/lib/png-probe";
+import { readDocxBody } from "./docx-read";
+import { inventoryPages } from "./page-inventory";
 import { encodePngImage } from "./png-encode";
 import { pptxProofVerdict } from "./validate-ooxml";
 
@@ -174,5 +176,152 @@ export async function pptxDeploymentVerdict(
   return {
     ok: false,
     detail: `slide 1 carries no picture at the page's ${PPTX_PROOF_PICTURE.width} × ${PPTX_PROOF_PICTURE.height} pt box showing its pixels (pictures at x,y,w,h: ${found.join(" | ") || "none"})`,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ *  PDF to Word (since 2026-10-17)
+ * ------------------------------------------------------------------ */
+
+/** The Word proof's line under its picture. */
+export const DOCX_PROOF_BELOW = "The line under the proof picture";
+
+/**
+ * The Word proof's PDF: the proof's words, its picture under them at the
+ * PowerPoint proof's box ({@link PPTX_PROOF_PICTURE}), and a line under the
+ * picture. A4, whose text area (451 points wide) fits the picture as shown.
+ * Until 2026-10-17 the production proof sent PDF to Word a text-only PDF
+ * and asked for the words, which the .docx with no pictures passed.
+ */
+export async function docxProofPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(await pptxProofPdf());
+  const font = await embedDrawingFont(doc, [DOCX_PROOF_BELOW]);
+  const page = doc.getPage(0);
+  const box = PPTX_PROOF_PICTURE;
+  page.drawText(DOCX_PROOF_BELOW, {
+    x: 60,
+    y: PAGE.height - (box.y + box.height + 40),
+    size: 14,
+    font,
+  });
+  return doc.save();
+}
+
+/**
+ * The deployed .docx, judged at the point a reader meets it (`./docx-read`,
+ * which shares nothing with the writer): the page is A4; the proof's words,
+ * then ONE picture, then the line under it, in that order; the picture's
+ * extent is the page's 256 × 160 points (within a point); and its media
+ * decodes to the proof's 64 × 40 pixels and three colours. The text-only
+ * .docx, a picture moved below its line, resized, or blank, all fail it
+ * (`deployment-proof.test.ts`).
+ */
+export async function docxDeploymentVerdict(
+  bytes: Uint8Array,
+): Promise<{ ok: boolean; detail: string }> {
+  let body: Awaited<ReturnType<typeof readDocxBody>>;
+  try {
+    body = await readDocxBody(bytes);
+  } catch (error) {
+    return {
+      ok: false,
+      detail: `the DOCX cannot be read: ${(error as Error).message}`,
+    };
+  }
+  const at = (text: string) =>
+    body.paragraphs.findIndex((p) => p.text.includes(text));
+  const words = at(PPTX_PROOF_TEXT);
+  const below = at(DOCX_PROOF_BELOW);
+  if (words < 0 || below < 0)
+    return {
+      ok: false,
+      detail: `word/document.xml has ${body.paragraphs.length} paragraph(s) and ${words < 0 ? `none carries "${PPTX_PROOF_TEXT}"` : `none carries "${DOCX_PROOF_BELOW}"`}`,
+    };
+  const page = [body.page.width, body.page.height];
+  if (
+    !body.page.declared ||
+    Math.abs(page[0]! - PAGE.width) > POINTS ||
+    Math.abs(page[1]! - PAGE.height) > POINTS
+  )
+    return {
+      ok: false,
+      detail: `the Word page is ${body.page.declared ? `${page[0]!.toFixed(0)} × ${page[1]!.toFixed(0)} pt` : "not declared"}, not the PDF's ${PAGE.width} × ${PAGE.height}`,
+    };
+  const box = PPTX_PROOF_PICTURE;
+  const found = body.pictures.map(
+    (p) =>
+      `paragraph ${p.paragraph}, ${p.width.toFixed(1)} × ${p.height.toFixed(1)} pt`,
+  );
+  if (body.pictures.length !== 1)
+    return {
+      ok: false,
+      detail: `the DOCX holds ${body.pictures.length} picture(s), not the page's one${found.length ? ` (${found.join(" | ")})` : ""}`,
+    };
+  const [pic] = body.pictures;
+  if (!(words < pic!.paragraph && pic!.paragraph < below))
+    return {
+      ok: false,
+      detail: `the picture is not between the proof's words and the line under it (${found[0]}; words at ${words}, line at ${below})`,
+    };
+  if (
+    Math.abs(pic!.width - box.width) > POINTS ||
+    Math.abs(pic!.height - box.height) > POINTS
+  )
+    return {
+      ok: false,
+      detail: `the picture is ${found[0]}, not the page's ${box.width} × ${box.height} pt`,
+    };
+  if (!pic!.bytes || !showsProofPicture(pic!.bytes))
+    return {
+      ok: false,
+      detail: `the picture's image is not the proof's ${box.pixelWidth} × ${box.pixelHeight} px with its three colours`,
+    };
+  return {
+    ok: true,
+    detail: `${body.paragraphs.length} paragraph(s), fixture text found; the page's picture is between its words and the line under it, at ${box.width} × ${box.height} pt, its ${box.pixelWidth} × ${box.pixelHeight} px and colours decoded`,
+  };
+}
+
+/**
+ * The Word proof's .docx after the worker's own LibreOffice laid it out
+ * (Word to PDF, on the same deployment): a REAL word processor read the
+ * document and painted its picture. Word reflows, so the page is not
+ * compared with the source; what is asked is that the PDF paints exactly
+ * one picture, at the 256 × 160 points the .docx gives it (within a
+ * point), read from the file itself (`./page-inventory`). A .docx whose
+ * picture LibreOffice could not resolve paints none.
+ */
+export async function docxRoundTripVerdict(
+  pdf: Uint8Array,
+): Promise<{ ok: boolean; detail: string }> {
+  const pages = await inventoryPages(pdf);
+  if (!pages) return { ok: false, detail: "the PDF cannot be read by pdf-lib" };
+  const shown = pages.flatMap((p) =>
+    p.placements
+      .filter((pl) => !p.images[pl.image]?.mask)
+      .map((pl) => ({
+        page: p.pageNumber,
+        w: pl.box[2] - pl.box[0],
+        h: pl.box[3] - pl.box[1],
+      })),
+  );
+  const box = PPTX_PROOF_PICTURE;
+  const list = shown
+    .map((s) => `p${s.page} ${s.w.toFixed(1)} × ${s.h.toFixed(1)} pt`)
+    .join(" | ");
+  if (shown.length !== 1)
+    return {
+      ok: false,
+      detail: `LibreOffice laid the DOCX out as ${pages.length} page(s) painting ${shown.length} picture(s)${list ? ` (${list})` : ""}, not the one`,
+    };
+  const [only] = shown;
+  const ok =
+    Math.abs(only!.w - box.width) <= POINTS &&
+    Math.abs(only!.h - box.height) <= POINTS;
+  return {
+    ok,
+    detail: ok
+      ? `LibreOffice laid the DOCX out as ${pages.length} page(s) painting its one picture at ${box.width} × ${box.height} pt`
+      : `LibreOffice painted the picture at ${list}, not ${box.width} × ${box.height} pt`,
   };
 }

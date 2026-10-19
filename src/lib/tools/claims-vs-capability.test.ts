@@ -117,7 +117,7 @@ import { tools, getToolBySlug } from "@/lib/tools";
 import { guides } from "@/lib/guides";
 import type { Guide } from "@/lib/guides";
 import type { Tool } from "./types";
-import { toolFacts } from "./tool-facts";
+import { PDF_TO_WORD_KEEPS, toolFacts } from "./tool-facts";
 import {
   pageDescription,
   pageFaq,
@@ -156,7 +156,10 @@ import {
   scanPdfPages,
 } from "@/lib/workers/pdf-office-export/page-scan";
 import { typefaceFor } from "@/lib/workers/pdf-office-export/deck-from-scan";
-import { MAX_DECODED_IMAGE_PIXELS } from "@/lib/workers/pdf-office-export/picture-limits";
+import {
+  MAX_DECODED_IMAGE_PIXELS,
+  MAX_DOCX_PICTURES,
+} from "@/lib/workers/pdf-office-export/picture-limits";
 import { getToolContent } from "./content";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import {
@@ -170,6 +173,16 @@ import {
 } from "@/tests/pptx-fidelity-fixtures";
 import { encryptPdf } from "@/tests/encrypted-pdf";
 import { readDeck } from "@/tests/pptx-deck-read";
+import { noPictures } from "@/tests/page-scan-stubs";
+import {
+  boldItalicPdf,
+  coveredPicturePdf,
+  inlineImagesPdf,
+  repeatedPicturesPdf,
+  stencilPicturePdf,
+} from "@/tests/docx-picture-fixtures";
+import { flowStandIn } from "@/tests/poppler-flow-standin";
+import { readDocxBody } from "@/lib/workers/pdf-office-export/docx-read";
 import { TWO_COLUMN_BBOX } from "@/tests/poppler-samples";
 import { runWorkerHtmlToPdf } from "@/lib/workers/html-render-client";
 import type { FetchLike } from "@/lib/workers/pdf-security-client";
@@ -491,28 +504,39 @@ function stubExtract(pages: string[]): () => Promise<ExtractedPdfText> {
  * Both extractors, as production wires them. PDF to Word reads `extractFlow`
  * since the wave-1 L03 merge (2026-09-28) and answers `unsupported` without
  * it; by default it is served each page's lines as one-cell paragraphs, and a
- * probe about Word's LAYOUT passes poppler's real output instead.
+ * probe about Word's LAYOUT passes poppler's real output instead. Since
+ * 2026-10-17 Word also reads the page reader: over that stub (bytes that are
+ * not a PDF) a reader that finds no picture; with `picture`, a real PDF of
+ * the lines with a picture on page 1, read by the real reader, its text in
+ * poppler's frame (stood in for).
  */
 async function officeParts(
   tool: PdfOfficeExportTool,
   pages: string[],
-  extractFlow: PdfFlowExtractor = async () => ({
-    pageCount: pages.length,
-    pages: pages.map((t, i) => ({
-      pageNumber: i + 1,
-      paragraphs: t
-        .split("\n")
-        .filter((l) => l.trim())
-        .map((l) => [l.trim()]),
-    })),
-  }),
+  extractFlow?: PdfFlowExtractor,
+  { picture = false }: { picture?: boolean } = {},
 ): Promise<Record<string, string>> {
+  const word = tool === PDF_TO_WORD_TOOL;
+  const flow: PdfFlowExtractor =
+    word && picture
+      ? flowStandIn
+      : (extractFlow ??
+        (async () => ({
+          pageCount: pages.length,
+          pages: pages.map((t, i) => ({
+            pageNumber: i + 1,
+            paragraphs: t
+              .split("\n")
+              .filter((l) => l.trim())
+              .map((l) => [l.trim()]),
+          })),
+        })));
   // PowerPoint reads the pages themselves since 2026-10-10: its probe is a
   // real PDF of these lines (and, with a picture on page 1, the thing the
   // owner reported missing) through the real page reader. The stub
   // extraction alone answers `unsupported` for it.
   const input =
-    tool === PDF_TO_POWERPOINT_TOOL
+    tool === PDF_TO_POWERPOINT_TOOL || (word && picture)
       ? (
           await linesPdf(
             pages.map((t) =>
@@ -527,8 +551,8 @@ async function officeParts(
       : new Uint8Array([1]);
   const run = await runPdfOfficeExport(tool, input, {
     extract: stubExtract(pages),
-    extractFlow,
-    scanPages: scanPdfPages,
+    extractFlow: flow,
+    scanPages: word && !picture ? noPictures : scanPdfPages,
   });
   if (!run.ok) throw new Error(`${tool} export failed: ${run.message}`);
   const zip = await JSZip.loadAsync(run.output);
@@ -904,22 +928,53 @@ const RULES: readonly ClaimRule[] = [
       "No — it carries over the text, not the look.",
     ],
     probe: async () => {
-      // A real two-column page, as poppler reads it: the engine now reads it
-      // in order (see worker-tool-answers.test.ts); the question here is only
-      // whether any LAYOUT reaches the DOCX.
-      const parts = await officeParts(PDF_TO_WORD_TOOL, [""], async () =>
+      // RE-EVALUATED 2026-10-17, as this rule asks, the day it went red: the
+      // .docx began carrying pictures (`<w:drawing>`, `word/media/`) and a
+      // section with the PDF's first page size (`<w:sectPr>` with children),
+      // and the old detector counted each as layout. Neither is: an INLINE
+      // picture flows with the text wherever Word breaks its lines, and a
+      // page size says nothing about where anything sits on the page. So the
+      // banned shapes stay banned, and the property is now what layout IS —
+      // text or pictures placed at the page's positions (anchors, frames,
+      // tabs, indents, alignment, spacing), its columns, its tables as
+      // tables, its fonts and sizes, a styles or font table part. Asked of
+      // a real two-column page as poppler reads it AND of a real page with a
+      // picture, so the new markup is in what the detector reads.
+      const columns = await officeParts(PDF_TO_WORD_TOOL, [""], async () =>
         flowText(parseBboxFlow(TWO_COLUMN_BBOX)),
       );
-      const doc = parts["word/document.xml"] ?? "";
-      const layout = [
-        ...doc.matchAll(/<w:(?:tbl|drawing|rPr|pPr|sectPr>|cols)\b/g),
-      ].map((m) => m[0]);
-      const styled = Object.keys(parts).filter((p) =>
-        /styles|media\/|fontTable/.test(p),
+      const pictured = await officeParts(
+        PDF_TO_WORD_TOOL,
+        ["Quarterly report\nThe chart below shows the quarter."],
+        undefined,
+        { picture: true },
       );
+      const LAYOUT =
+        /<w:(?:tbl|cols|framePr|tabs|ind|jc|spacing|sz|rFonts)\b|<wp:anchor\b/g;
+      const STYLED = /styles|fontTable/;
+      const detect = (parts: Record<string, string>) => [
+        ...[...(parts["word/document.xml"] ?? "").matchAll(LAYOUT)].map(
+          (m) => m[0],
+        ),
+        ...Object.keys(parts).filter((p) => STYLED.test(p)),
+      ];
+      // Health: the picture run carries its picture, so the detector reads
+      // the markup the change added; and the detector sees each layout
+      // element, through the same function, in a body that has one.
+      if (!/<w:drawing>/.test(pictured["word/document.xml"] ?? ""))
+        throw new Error("the picture probe's .docx carries no picture");
+      for (const tag of [
+        "<w:tbl><w:tr/></w:tbl>",
+        '<w:p><w:pPr><w:ind w:left="720"/></w:pPr></w:p>',
+        '<w:r><w:rPr><w:sz w:val="48"/></w:rPr></w:r>',
+        "<w:drawing><wp:anchor/></w:drawing>",
+      ])
+        if (detect({ "word/document.xml": tag }).length === 0)
+          throw new Error(`the layout detector misses ${tag}`);
+      const found = [...detect(columns), ...detect(pictured)];
       return {
-        present: layout.length > 0 || styled.length > 0,
-        evidence: `document.xml layout elements: [${layout.join(", ")}]; styling parts: [${styled.join(", ")}]`,
+        present: found.length > 0,
+        evidence: `layout elements and parts in two real exports: [${found.join(", ")}]`,
       };
     },
   },
@@ -2059,4 +2114,474 @@ describe("PDF to PowerPoint: the picture and font sentences hold of the engine",
     expect(refused.kind).toBe("unreadable");
     expect(refused.message).toMatch(/\bRepair PDF\b/);
   }, 60_000);
+});
+
+/**
+ * PDF to Word's picture sentences, held to the engine (added 2026-10-17).
+ *
+ * On that day production returned the owner's 33-page tutorial as a .docx
+ * with none of its 37 pictures, and the page said so, truthfully: "Images
+ * … are not recreated", "colours and images are not carried across", "Its
+ * selectable text, and nothing else". The engine now carries every raster
+ * picture, and each of those sentences became false. Nothing here was red
+ * for it: the layout rule above asked about layout, and no rule asked about
+ * pictures at all. This one asks, both ways: the engine is run on a real
+ * page with a picture and its .docx decoded; pictures in the .docx ⇒ no
+ * sentence attributed to PDF to Word may deny them, and none in it ⇒ one
+ * must. The shapes are held to the sentences that shipped, in both
+ * directions, and to the honest sentences that replaced them.
+ */
+describe("PDF to Word: the picture sentences hold of the engine", () => {
+  const DENIES: Record<string, RegExp> = {
+    // 120, not 60: the mutation check of 2026-10-17 put "Images," back at
+    // the head of the current, longer list ("Images, tables, fonts, colors,
+    // drawings made of lines and shapes, and the page layout are not
+    // carried over") and at 60 it walked past. That sentence is a synonym
+    // below, so the window is exercised at its length.
+    "pictures are not carried":
+      /\b(?:images?|pictures?|photos?)\b[^.;]{0,120}?\b(?:are|is) not (?:carried|recreated|kept|included|exported)\b/i,
+    "pictures stay behind":
+      /\b(?:images?|pictures?)\b[^.;]{0,60}\bstay(?:s)? behind\b/i,
+    "and nothing else": /\band nothing else\b/i,
+    "image-only pages add nothing":
+      /\b(?:image-only|scanned|picture-only) pages? adds? nothing\b/i,
+    "text only": /\btext only\b/i,
+  };
+  /** Each one shipped on the PDF to Word surfaces until 2026-10-17. */
+  const SHIPPED = [
+    // The catalogue description.
+    "Turn a PDF's selectable text into editable Word (DOCX) paragraphs, in reading order. Images, fonts, tables and layout are not recreated; scans need OCR first.",
+    // The page's intro and its look FAQ.
+    "Fonts, bold and italics, colours and images are not carried across.",
+    "No. The DOCX carries the words as plain paragraphs; fonts, sizes, colours, images and link targets stay behind.",
+    // PDF_TO_WORD_KEEPS, and the derived answer it was served in.
+    "Images, tables, fonts, colors and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.",
+    "Its selectable text, and nothing else.",
+    // The partly-scanned FAQ.
+    "The image-only pages add nothing to the DOCX and nothing inside the file marks where they were, but beside the download the panel says how many pages had text and names the ones that had none (up to 50, then a count of the rest).",
+    // The edit guide's pointer to PDF to Word.
+    "Images, fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.",
+  ];
+  const SYNONYMS = [
+    "Text only: pictures are left behind.",
+    "Images, tables, fonts, colors, drawings made of lines and shapes, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them.",
+  ];
+  /** What the page says now, which no shape may catch. */
+  const HONEST = [
+    "A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page.",
+    "Fonts and layout are not recreated; scans need OCR first.",
+    "Arrows and boxes drawn on top are lines and shapes, so they do not come across.",
+    "The DOCX carries the words as plain paragraphs, with the pictures on lines of their own between them; fonts, sizes, colours, tables as tables, link targets and drawings made of lines and shapes stay behind.",
+  ];
+  const denies = (text: string) =>
+    Object.values(DENIES).some((re) => re.test(text));
+
+  it("the shapes and the shipped sentences cover each other, and the honest ones pass", () => {
+    const claims = [...SHIPPED, ...SYNONYMS];
+    for (const [name, re] of Object.entries(DENIES))
+      expect(
+        claims.some((c) => re.test(c)),
+        `${name} catches nothing shipped`,
+      ).toBe(true);
+    expect(claims.filter((c) => !denies(c))).toEqual([]);
+    expect(HONEST.filter(denies)).toEqual([]);
+  });
+
+  async function wordSentences(): Promise<string[]> {
+    const out: string[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence, masked } of attributedTo(
+        container,
+        PDF_TO_WORD_TOOL,
+      ))
+        if (denies(masked)) out.push(`${container.where}: ${sentence}`);
+    return out;
+  }
+
+  it("the page says pictures are left out exactly when the .docx carries none", async () => {
+    const parts = await officeParts(
+      PDF_TO_WORD_TOOL,
+      ["Quarterly report\nThe chart below shows the quarter."],
+      undefined,
+      { picture: true },
+    );
+    const doc = parts["word/document.xml"] ?? "";
+    // Health: the body was decoded, and its text is there, so a .docx with
+    // no picture would be the engine's doing, not an empty export.
+    expect(doc).toContain("Quarterly report");
+    const pictures = (doc.match(/<w:drawing>/g) ?? []).length;
+    const media = Object.keys(parts).filter((n) =>
+      /^word\/media\/.+\.(?:png|jpeg)$/.test(n),
+    );
+    const offenders = await wordSentences();
+    expect(
+      offenders.length > 0,
+      pictures > 0
+        ? `the .docx carries ${pictures} picture(s) (${media.join(", ")}) — the page may not say they are left out:\n  ${offenders.join("\n  ")}`
+        : "the .docx carries no picture — the page must say so",
+    ).toBe(pictures === 0);
+    // Positive control, through the same attribution the live check uses:
+    // every sentence that shipped is attributed to the tool and caught.
+    const caught = attributedTo(
+      { where: "control", home: PDF_TO_WORD_TOOL, texts: SHIPPED },
+      PDF_TO_WORD_TOOL,
+    ).filter(({ masked }) => denies(masked));
+    expect(caught).toHaveLength(SHIPPED.length);
+  }, 60_000);
+
+  it("a JPEG goes into the .docx byte for byte only up to the size the page names; a larger one is scaled down to it", async () => {
+    const canvas = createRequire(
+      createRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
+    )("@napi-rs/canvas") as {
+      createCanvas(
+        w: number,
+        h: number,
+      ): {
+        getContext(k: "2d"): {
+          fillStyle: string;
+          fillRect(x: number, y: number, w: number, h: number): void;
+        };
+        toBuffer(m: "image/jpeg", q: number): Uint8Array;
+      };
+    };
+    const jpeg = (w: number, h: number) => {
+      const c = canvas.createCanvas(w, h);
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#3366cc";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#cc3333";
+      ctx.fillRect(0, 0, w / 2, h);
+      return new Uint8Array(c.toBuffer("image/jpeg", 85));
+    };
+    // A line of text above both, so the PDF is not refused as having none.
+    const { pdf: words } = await linesPdf([["Two photographs of the site"]]);
+    const doc = await PDFDocument.load(words);
+    const target = doc.getPage(0);
+    const small = jpeg(MAX_PICTURE_SIDE, 60);
+    const large = jpeg(MAX_PICTURE_SIDE + 400, 60);
+    for (const [bytes, y] of [
+      [small, 100],
+      [large, 300],
+    ] as const)
+      await drawRasterImage(target, await embedRasterImage(doc, bytes, "jpg"), {
+        x: 40,
+        y,
+        width: 600,
+        height: 40,
+      });
+    const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, await doc.save(), {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!run.ok) throw new Error(run.message);
+    const body = await readDocxBody(run.output);
+    const same = (a: Uint8Array, b: Uint8Array) =>
+      a.length === b.length && a.every((v, i) => v === b[i]);
+    // Health: both pictures are in the document.
+    expect(body.pictures).toHaveLength(2);
+    expect(
+      body.pictures.some((p) => p.bytes && same(p.bytes, small)),
+      "the small JPEG, byte for byte",
+    ).toBe(true);
+    expect(
+      body.pictures.some((p) => p.bytes && same(p.bytes, large)),
+      "the large JPEG was copied",
+    ).toBe(false);
+    const px = MAX_PICTURE_SIDE.toLocaleString("en-US");
+    const text = (
+      await toolContainer(getToolBySlug(PDF_TO_WORD_TOOL)!)
+    ).texts.join("\n");
+    expect(text).toMatch(new RegExp(`up to ${px} pixels[^.]*byte for byte`));
+    expect(text).toMatch(new RegExp(`scaled down to ${px} pixels`));
+  }, 60_000);
+
+  /**
+   * BOLD AND ITALICS, the same way (2026-10-17). The page said "Fonts, bold
+   * and italics, colours and images are not carried across" and that the
+   * text "arrives unstyled"; since `docx-layout.ts` `paragraphStyle`, a
+   * paragraph set wholly in bold or italics keeps it. Run both ways on a
+   * real PDF: a bold paragraph that comes through bold ⇒ no sentence may
+   * deny it; one that comes through regular ⇒ one must.
+   */
+  it("the page says bold and italics are left out exactly when a wholly bold paragraph comes through regular", async () => {
+    const DENIES_STYLE: Record<string, RegExp> = {
+      // 80: the list between "bold" and its verb ran to 70 characters in
+      // the third sentence shipped; at 40 that sentence walked past.
+      "bold is not carried": /\bbold\b[^.;]{0,80}?\b(?:are|is) not carried\b/i,
+      unstyled: /\bunstyled\b/i,
+    };
+    const SHIPPED_STYLE = [
+      "Fonts, bold and italics, colours and images are not carried across.",
+      "Images, tables, fonts, colors and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.",
+      // This branch's first wording, before bold paragraphs were kept.
+      "Fonts, bold and italics, colours, tables, and drawings made of lines and shapes are not carried across.",
+    ];
+    const HONEST_STYLE = [
+      "Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.",
+      "A paragraph set wholly in bold or italics keeps it; a bold word inside a sentence does not.",
+    ];
+    const denies = (t: string) =>
+      Object.values(DENIES_STYLE).some((re) => re.test(t));
+    for (const [name, re] of Object.entries(DENIES_STYLE))
+      expect(
+        SHIPPED_STYLE.some((s) => re.test(s)),
+        `${name} catches nothing shipped`,
+      ).toBe(true);
+    expect(SHIPPED_STYLE.filter((s) => !denies(s))).toEqual([]);
+    expect(HONEST_STYLE.filter(denies)).toEqual([]);
+
+    const { pdf, paragraph } = await boldItalicPdf();
+    const run = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!run.ok) throw new Error(run.message);
+    const xml = await (
+      await JSZip.loadAsync(run.output)
+    )
+      .file("word/document.xml")!
+      .async("string");
+    const headings = (xml.match(/<w:p>[\s\S]*?<\/w:p>/g) ?? []).filter((p) =>
+      p.includes(paragraph.bold),
+    );
+    // Health: the heading is in the document, once.
+    expect(headings).toHaveLength(1);
+    const kept = headings[0]!.includes("<w:b/>");
+    const offenders: string[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { sentence, masked } of attributedTo(
+        container,
+        PDF_TO_WORD_TOOL,
+      ))
+        if (denies(masked)) offenders.push(`${container.where}: ${sentence}`);
+    expect(
+      offenders.length > 0,
+      kept
+        ? `a wholly bold paragraph comes through bold — the page may not say bold is left out:\n  ${offenders.join("\n  ")}`
+        : "a wholly bold paragraph comes through regular — the page must say so",
+    ).toBe(!kept);
+    // Positive control, through the attribution the live check uses.
+    expect(
+      attributedTo(
+        { where: "control", home: PDF_TO_WORD_TOOL, texts: SHIPPED_STYLE },
+        PDF_TO_WORD_TOOL,
+      ).filter(({ masked }) => denies(masked)),
+    ).toHaveLength(SHIPPED_STYLE.length);
+  }, 60_000);
+
+  it("wherever the page promises the note names a lost picture, it states the one exception", async () => {
+    const NOTE = /\bleft out\b[^.]*\bnote beside the download names\b/i;
+    const EXCEPTION = /\bcannot read before it is drawn\b[^.]*\bno note\b/i;
+    // Control: the PowerPoint page's first version of the sentence, which
+    // lacked the exception, is caught.
+    expect(
+      NOTE.test(
+        "A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page.",
+      ),
+    ).toBe(true);
+    const texts = (await toolContainer(getToolBySlug(PDF_TO_WORD_TOOL)!)).texts;
+    const promises = texts.filter((t) => NOTE.test(t));
+    // Health: the page makes the promise, so "none unqualified" is not "none made".
+    expect(promises.length).toBeGreaterThanOrEqual(1);
+    expect(promises.filter((t) => !EXCEPTION.test(t))).toEqual([]);
+  });
+
+  it("a damaged PDF: the page says it is rebuilt first or not converted, and the engine does exactly that", async () => {
+    const REBUILT =
+      /\brebuilt first\b[^.]*\bthe way Repair PDF does\b[^.]*\bnote\b[^.]*\bsays so\b/i;
+    const REFUSED = /\bnot converted\b[^.]*\bRepair PDF\b/i;
+    const texts = (await toolContainer(getToolBySlug(PDF_TO_WORD_TOOL)!)).texts;
+    expect(
+      texts.some((t) => REBUILT.test(t)),
+      "the rebuild",
+    ).toBe(true);
+    expect(
+      texts.some((t) => REFUSED.test(t)),
+      "the refusal",
+    ).toBe(true);
+    const fixture = await imageCaptionPdf();
+    const damaged = junkAfterEofPdf(fixture.pdf);
+    const rebuilt = await runPdfOfficeExport(PDF_TO_WORD_TOOL, damaged, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+      repairPdf: repairStandIn,
+    });
+    if (!rebuilt.ok) throw new Error(`${rebuilt.kind}: ${rebuilt.message}`);
+    expect(rebuilt.coverage.repairedBeforeConversion).toBe(true);
+    const refused = await runPdfOfficeExport(PDF_TO_WORD_TOOL, damaged, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.kind).toBe("unreadable");
+    expect(refused.message).toMatch(/\bRepair PDF\b/);
+  }, 60_000);
+});
+
+/**
+ * The review of 2026-10-17, as claims. The page said two kinds of picture
+ * were "left out on purpose" (stencils, repeats), that arrows and boxes drawn
+ * on top "do not come across", and that each picture comes through, with no
+ * exception for a document past what one conversion carries. The engine now
+ * carries both kinds, paints what covers a picture into it, and stops at a
+ * budget; each claim is held to a run, both ways, and each shape to the
+ * sentences that shipped.
+ */
+describe("PDF to Word: what the page says of stencils, repeats, covers and budgets holds of the engine", () => {
+  async function wordSentences(): Promise<{ where: string; masked: string }[]> {
+    const out: { where: string; masked: string }[] = [];
+    for (const container of await containersFor(PDF_TO_WORD_TOOL))
+      for (const { masked } of attributedTo(container, PDF_TO_WORD_TOOL))
+        out.push({ where: container.where, masked });
+    return out;
+  }
+  const run = async (pdf: Uint8Array) => {
+    const result = await runPdfOfficeExport(PDF_TO_WORD_TOOL, pdf, {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!result.ok) throw new Error(`${result.kind}: ${result.message}`);
+    return result;
+  };
+
+  it("kinds of picture: the page says a kind is left out exactly when the engine drops it", async () => {
+    const LEFT = String.raw`(?:left out|not carried|not kept|dropped|skipped|only once)`;
+    const DENIES_KIND: Record<string, RegExp> = {
+      "left out on purpose": /\bleft out on purpose\b/i,
+      "stencils left out": new RegExp(
+        String.raw`\bstencils?\b[^.;]{0,80}\b${LEFT}|\b${LEFT}[^.;]{0,80}\bstencils?\b`,
+        "i",
+      ),
+      "repeats left out": new RegExp(
+        String.raw`\brepeat(?:ed|s)?\b[^.;]{0,80}\b${LEFT}|\b${LEFT}[^.;]{0,80}\brepeat(?:ed|s)?\b`,
+        "i",
+      ),
+    };
+    const SHIPPED = [
+      "Two kinds are left out on purpose: a one-colour stencil, and a small image repeated across the page as a pattern.",
+    ];
+    const SYNONYMS = [
+      "Stencils are not carried.",
+      "A picture repeated across a page comes through only once.",
+    ];
+    const HONEST = [
+      "A one-colour stencil comes through in its colour, and a picture the page repeats comes through each time it is shown.",
+      "A picture too large for the worker, or one it cannot decode, is left out.",
+    ];
+    const denies = (t: string) =>
+      Object.values(DENIES_KIND).some((re) => re.test(t));
+    const claims = [...SHIPPED, ...SYNONYMS];
+    for (const [name, re] of Object.entries(DENIES_KIND))
+      expect(
+        claims.some((c) => re.test(c)),
+        `${name} catches nothing shipped`,
+      ).toBe(true);
+    expect(claims.filter((c) => !denies(c))).toEqual([]);
+    expect(HONEST.filter(denies)).toEqual([]);
+
+    let dropped = 0;
+    for (const build of [
+      stencilPicturePdf,
+      repeatedPicturesPdf,
+      inlineImagesPdf,
+    ]) {
+      const fixture = await build();
+      const carried = (await readDocxBody((await run(fixture.pdf)).output))
+        .pictures.length;
+      dropped += fixture.pictures.length - carried;
+    }
+    const offenders = (await wordSentences())
+      .filter(({ masked }) => denies(masked))
+      .map(({ where, masked }) => `${where}: ${masked}`);
+    expect(
+      offenders.length > 0,
+      dropped === 0
+        ? `the engine carries every stencil and repeat; the page may not say a kind is left out:\n  ${offenders.join("\n  ")}`
+        : `the engine dropped ${dropped}; the page must say which kind`,
+    ).toBe(dropped > 0);
+  }, 120_000);
+
+  it("covers: the page says what is painted over a picture is drawn into it exactly when the engine does it", async () => {
+    const CLAIMS_COVER =
+      /\b(?:painted|drawn) (?:over|on top of) (?:a|the|that) (?:picture|screenshot)\b[^.]*\bdrawn into (?:it|that picture)\b|\bdrawn into (?:it|that picture)\b[^.]*\bcovers? stays? covered\b/i;
+    const DENIES_COVER =
+      /\b(?:arrows?|boxes|labels?|shapes)\b[^.;]{0,80}\b(?:on top|over)\b[^.;]{0,80}\b(?:do not|does not|don't) come across\b/i;
+    const SHIPPED = [
+      "Arrows and boxes drawn on top are lines and shapes, so they do not come across.",
+    ];
+    for (const s of SHIPPED) expect(DENIES_COVER.test(s)).toBe(true);
+    const HONEST = [
+      "Arrows, boxes and labels drawn on top of a screenshot are drawn into it, so it shows what the page shows; lines and shapes elsewhere on the page do not come across.",
+    ];
+    expect(HONEST.filter((s) => DENIES_COVER.test(s))).toEqual([]);
+    expect(HONEST.filter((s) => CLAIMS_COVER.test(s))).toHaveLength(1);
+
+    // The engine: are the covered fixture's 4,000 hidden pixels in the file?
+    const fixture = await coveredPicturePdf();
+    const media = (await readDocxBody((await run(fixture.pdf)).output))
+      .pictures[0]!.bytes!;
+    const canvas = createRequire(
+      createRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
+    )("@napi-rs/canvas") as {
+      loadImage(b: Uint8Array): Promise<{ width: number; height: number }>;
+      createCanvas(
+        w: number,
+        h: number,
+      ): {
+        getContext(k: "2d"): {
+          drawImage(i: unknown, x: number, y: number): void;
+          getImageData(
+            x: number,
+            y: number,
+            w: number,
+            h: number,
+          ): { data: Uint8ClampedArray };
+        };
+      };
+    };
+    const img = await canvas.loadImage(media);
+    const ctx = canvas.createCanvas(img.width, img.height).getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, img.width, img.height).data;
+    let hidden = 0;
+    for (let i = 0; i < d.length; i += 4)
+      if (d[i]! > 200 && d[i + 1]! < 60 && d[i + 2]! > 200) hidden++;
+    const covers = hidden === 0;
+    const sentences = await wordSentences();
+    const deniers = sentences.filter(({ masked }) => DENIES_COVER.test(masked));
+    const claimers = sentences.filter(({ masked }) =>
+      CLAIMS_COVER.test(masked),
+    );
+    expect(
+      covers ? deniers.map((s) => `${s.where}: ${s.masked}`) : [],
+      "the engine draws covers into the picture; the page may not say they do not come across",
+    ).toEqual([]);
+    expect(
+      claimers.length > 0,
+      covers
+        ? "the engine draws covers into the picture; the page must say so"
+        : `the engine leaves ${hidden} hidden pixels in the file; the page may not say covers stay covered`,
+    ).toBe(covers);
+  }, 120_000);
+
+  it("budgets: the page names the picture count past which pictures are left out, and that the text still comes through whole", async () => {
+    const figure = MAX_DOCX_PICTURES.toLocaleString("en-US");
+    const BUDGET = new RegExp(
+      String.raw`\b${figure} pictures\b[^.]*\b(?:left out|not carried)\b|\b(?:left out|not carried)\b[^.]*\b${figure} pictures\b|\bpast\b[^.]*\b${figure} pictures\b`,
+      "i",
+    );
+    const WHOLE = /\btext\b[^.]{0,80}\b(?:whole|in full|all there)\b/i;
+    // Control: the sentence that shipped claims every picture, no exception.
+    expect(
+      BUDGET.test(
+        "Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it.",
+      ),
+    ).toBe(false);
+    // The keeps sentence claims each picture; its exception must be there too.
+    expect(PDF_TO_WORD_KEEPS).toMatch(BUDGET);
+    expect(PDF_TO_WORD_KEEPS).toMatch(WHOLE);
+    const texts = (await toolContainer(getToolBySlug(PDF_TO_WORD_TOOL)!)).texts;
+    expect(texts.some((t) => BUDGET.test(t) && WHOLE.test(t))).toBe(true);
+  });
 });

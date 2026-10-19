@@ -45,7 +45,10 @@ import {
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
-import { MAX_LAYERS_PER_PAGE } from "@/lib/workers/pdf-office-export/picture-limits";
+import {
+  MAX_DOCX_PICTURES,
+  MAX_LAYERS_PER_PAGE,
+} from "@/lib/workers/pdf-office-export/picture-limits";
 import { MAX_TOOL_NOTES } from "@/lib/jobs/tool-notes";
 import {
   MAX_REQUEST_SIGNERS,
@@ -1339,9 +1342,21 @@ function listed(
  * poppler's reading order (`workers/pdf-text/flow.ts`). The table clause is
  * limited to cells that fit on one line: flow.ts documents that a table whose
  * cells wrap is read in poppler's order instead.
+ *
+ * CHANGED 2026-10-17, with the engine (`pdf-office-export/docx-layout.ts`):
+ * it said "Images, tables, fonts, colors and the page layout are not carried
+ * over", true until then. Every raster picture now comes through between the
+ * paragraphs above and below it, at the size the page shows it, scaled down
+ * only to fit the Word page's text area; `worker-tool-answers.test.ts` runs
+ * a page with a picture and holds the picture clause to the .docx.
+ *
+ * CHANGED with the review of 2026-10-17: what the page draws over a picture
+ * is drawn into it (so "drawings made of lines and shapes" are kept THERE,
+ * and left behind elsewhere), and "each picture" has its exception — the
+ * pictures past MAX_DOCX_PICTURES, one file's size or one conversion's time
+ * are left out and counted. `claims-vs-capability.test.ts` holds both.
  */
-export const PDF_TO_WORD_KEEPS =
-  "The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs. Images, tables, fonts, colors and the page layout are not carried over, so the text arrives unstyled, ready to format in Word — not as a copy of the page.";
+export const PDF_TO_WORD_KEEPS = `The text arrives as paragraphs in reading order: lines that wrap in the PDF are joined into one paragraph, a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per line, its cells separated by tabs. Each picture on a page, such as a photo, a screenshot or a scan, comes through on a line of its own between the paragraphs above and below it, at the size the page shows it, scaled down if it is wider or taller than the Word page, with anything the page draws over it, such as a box or an arrow, drawn into it. Past ${MAX_DOCX_PICTURES.toLocaleString("en-US")} pictures, or past the size of one file or the time one conversion may take, a document's remaining pictures are left out and counted in the note beside the download; the text still comes through whole. Tables, fonts, colors, drawings made of lines and shapes elsewhere on the page, and the page layout are not carried over, and bold or italics only where a whole paragraph is set in them, so the text arrives in Word's default style, ready to format — not as a copy of the page.`;
 
 /** Every language Translate PDF offers, named, from the list its panel renders. */
 export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languages: ${listed(
@@ -1382,12 +1397,18 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
   };
   switch (tool.slug) {
     case "pdf-to-word":
+      // CHANGED 2026-10-17: "Its selectable text, and nothing else." and the
+      // shared `scanned` answer, whose "the scanned pages come through with
+      // no text" left out that their pictures now come through.
       return [
         {
           question: `What does ${tool.name} keep from my PDF?`,
-          answer: `Its selectable text, and nothing else. ${PDF_TO_WORD_KEEPS}`,
+          answer: `Its selectable text and its pictures. ${PDF_TO_WORD_KEEPS}`,
         },
-        scanned,
+        {
+          question: `Can ${tool.name} convert a scanned PDF?`,
+          answer: `Not into text. A scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. Run the scan through ${toolName("ocr-pdf")} first, then export the result: each page's scan then comes through as a picture, followed by its words as text.`,
+        },
       ];
     case "pdf-to-excel":
       return [

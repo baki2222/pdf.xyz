@@ -57,13 +57,19 @@
  *
  * An image built before this module publishes no such key, the reader parses
  * the absence as `false`, and the old image does not have to cooperate.
+ *
+ * Since 2026-10-17 the same question is asked of PDF to Word: does the
+ * running image's .docx carry a page's picture, as a picture, between the
+ * lines around it (`provesDocxPictures`, at the end of this file; the key
+ * `docxPictures`)?
  */
 
 import { PDFDocument } from "pdf-lib";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import { decodePng } from "@/lib/png-probe";
 import { embedDrawingFont } from "@/lib/pdf/unicode-font";
-import { runPdfOfficeExport } from "./engine";
+import { readDocxBody } from "./docx-read";
+import { runPdfOfficeExport, type PdfOfficeExportDeps } from "./engine";
 import { scanPdfPages, type PdfPageScanner } from "./page-scan";
 import { inspectPptxPackage } from "./pptx-inspect";
 import { encodePngImage } from "./png-encode";
@@ -259,6 +265,133 @@ export async function provesPptxPictures(
       if (showsProofPicture(media)) return true;
     }
     return false;
+  } catch {
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Word: does THIS image's PDF to Word keep the picture, in its place?
+ * ------------------------------------------------------------------ */
+
+/** The Word probe's words: a line above the picture, one below, a page 2. */
+export const DOCX_PROBE_TEXT = {
+  above: "Word capability probe",
+  below: "The line under the picture",
+  second: "The second page",
+} as const;
+/** Where the Word probe's picture is shown: points, top-left origin. */
+const DOCX_PROBE_BOX = { x: 72, y: 150, width: 160, height: 120 } as const;
+
+/**
+ * The Word probe's PDF, generated here: on a US Letter page, a line, the
+ * probe's picture under it, a line under that; and a second page with a
+ * line. Letter's text area is 468 points wide, so the picture needs no
+ * fitting and must keep its 160 × 120 points.
+ */
+export async function docxProbePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const words = Object.values(DOCX_PROBE_TEXT);
+  const font = await embedDrawingFont(doc, words);
+  const { width, height } = PROOF_PICTURE;
+  const pixels = new Uint8Array(width * height * 3);
+  for (let p = 0; p < width * height; p++) {
+    const left = p % width < width / 2;
+    pixels.set(left ? PROOF_PICTURE.left : PROOF_PICTURE.right, p * 3);
+  }
+  const picture = await embedRasterImage(
+    doc,
+    encodePngImage(width, height, "rgb8", pixels),
+    "png",
+  );
+  const first = doc.addPage([612, 792]);
+  first.drawText(DOCX_PROBE_TEXT.above, {
+    x: 72,
+    y: 792 - 120,
+    size: 16,
+    font,
+  });
+  const box = DOCX_PROBE_BOX;
+  await drawRasterImage(first, picture, {
+    x: box.x,
+    y: 792 - box.y - box.height,
+    width: box.width,
+    height: box.height,
+  });
+  first.drawText(DOCX_PROBE_TEXT.below, {
+    x: 72,
+    y: 792 - 300,
+    size: 16,
+    font,
+  });
+  const second = doc.addPage([612, 792]);
+  second.drawText(DOCX_PROBE_TEXT.second, {
+    x: 72,
+    y: 792 - 120,
+    size: 16,
+    font,
+  });
+  return doc.save();
+}
+
+/**
+ * Does THIS worker image's PDF to Word put a page's picture in the .docx AS
+ * that picture, between the line above it and the line below it, at the
+ * size the page shows it?
+ *
+ * The question production answered "no" to on 2026-10-17 — the owner's
+ * tutorial came back with none of its 37 pictures — asked of the running
+ * image rather than of `main`. The probe PDF ({@link docxProbePdf}) goes
+ * through the real engine on the deps the image's JOBS run on
+ * (`pdfOfficeExportDeps(env)`, whole): its own text extractor (poppler's
+ * `-bbox-layout` on the worker: the order of a picture among the paragraphs
+ * depends on poppler's frame and pdf.js's agreeing, so a stand-in would
+ * prove the wrong thing), its page reader, its limits. Until the review of
+ * 2026-10-17 it took the extractor alone and ran this module's page reader
+ * with no limits, so it could answer for a job the image does not run. The
+ * .docx is read
+ * back by `./docx-read`, which shares nothing with the writer: page 1's body
+ * must hold the line above, then exactly one picture, then the line below;
+ * the picture's extent must be 160 × 120 points (to a twentieth); its media
+ * must decode (`@/lib/png-probe`) to the probe's 40 × 30 pixels with its two
+ * colours; and the second page's line must follow a page break. A text-only
+ * document, a picture moved below its caption, rescaled, or swapped for
+ * other pixels, all answer `false`, and so does an image without the
+ * extractor or the page reader.
+ *
+ * An image built before this key publishes nothing, and the reader parses the
+ * absence as `false`.
+ */
+export async function provesDocxPictures(
+  deps: PdfOfficeExportDeps,
+  run: typeof runPdfOfficeExport = runPdfOfficeExport,
+): Promise<boolean> {
+  try {
+    if (!deps.extractFlow || !deps.scanPages) return false;
+    const result = await run("pdf-to-word", await docxProbePdf(), deps);
+    if (!result.ok) return false;
+    const body = await readDocxBody(result.output);
+    const at = (text: string) =>
+      body.paragraphs.findIndex((p) => p.text.includes(text));
+    const above = at(DOCX_PROBE_TEXT.above);
+    const below = at(DOCX_PROBE_TEXT.below);
+    const second = at(DOCX_PROBE_TEXT.second);
+    if (above < 0 || below < 0 || second < 0) return false;
+    const onPage = body.pictures.filter((p) => p.segment === 0);
+    if (onPage.length !== 1 || body.pictures.length !== 1) return false;
+    const [pic] = onPage;
+    const tolerance = 0.05;
+    return (
+      body.paragraphs[above]!.segment === 0 &&
+      body.paragraphs[below]!.segment === 0 &&
+      body.paragraphs[second]!.segment === 1 &&
+      above < pic!.paragraph &&
+      pic!.paragraph < below &&
+      Math.abs(pic!.width - DOCX_PROBE_BOX.width) <= tolerance &&
+      Math.abs(pic!.height - DOCX_PROBE_BOX.height) <= tolerance &&
+      pic!.bytes !== null &&
+      showsProofPicture(pic!.bytes)
+    );
   } catch {
     return false;
   }

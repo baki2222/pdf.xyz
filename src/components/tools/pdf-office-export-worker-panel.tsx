@@ -77,11 +77,14 @@ const EXPORT_COPY: Record<
   PdfOfficeTool,
   { badge: string; summary: string; note: string; hint: string }
 > = {
+  // CHANGED 2026-10-17: "The worker extracts selectable PDF text and
+  // packages it into a real DOCX file. Pages without selectable text (scans)
+  // are not included" — true until Word began carrying pictures.
   "pdf-to-word": {
-    badge: "Selectable text export",
+    badge: "Text and pictures",
     summary:
-      "The worker extracts selectable PDF text and packages it into a real DOCX file. Pages without selectable text (scans) are not included; run OCR first to include them.",
-    note: "Running this uses a private secure-worker job. Only selectable text is exported; scanned/image-only PDFs need OCR first.",
+      "The worker reads each page's selectable text, in reading order, and its pictures, and packages them into a real DOCX file. A scanned page comes through as a picture; run OCR first to have its words as text too.",
+    note: "Running this uses a private secure-worker job. A PDF with no selectable text at all, such as a scan, needs OCR first.",
     hint: "Selectable PDF",
   },
   "pdf-to-excel": {

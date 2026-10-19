@@ -43,18 +43,20 @@ export interface OfficeExportResultMeta {
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesWithLittleText: number[];
   /**
-   * PDF to PowerPoint only, since 2026-10-10: how many pages have no text and
-   * are on their slides as PICTURES (a scan, a screenshot), so their words
-   * are not editable. Before that date a page with no text reached the deck as
-   * an empty slide, and this field is absent from those results — the panel
-   * then says what that engine did, not what this one does.
+   * PDF to PowerPoint since 2026-10-10, and PDF to Word since 2026-10-17:
+   * how many pages have no text and are in the file as PICTURES only (a
+   * scan, a screenshot), so their words are not editable. Before those dates
+   * a page with no text reached the deck as an empty slide, and the document
+   * not at all, and this field is absent from those results — the panel then
+   * says what that engine did, not what this one does.
    */
   picturePageCount?: number;
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesAsPictures?: number[];
   /**
-   * PDF to PowerPoint only, since 2026-10-11: pictures the pages paint that
-   * are NOT on their slides — too large for the worker's memory budget, or
+   * PDF to PowerPoint since 2026-10-11, and PDF to Word since 2026-10-17:
+   * pictures the pages paint that are NOT in the file — too large for the
+   * worker's memory budget, or
    * data pdf.js could not decode. Before that date such a picture left no
    * trace, and a page that held only a full-page scan was reported as having
    * "nothing on it". Absent from older results: that engine did not count,
@@ -63,6 +65,13 @@ export interface OfficeExportResultMeta {
   picturesNotCarried?: number;
   /** Of those, how many were too large (the rest could not be decoded). */
   picturesTooLarge?: number;
+  /**
+   * PDF to Word only, since the review of 2026-10-17: of those, how many
+   * were left out to keep the document inside what one conversion carries —
+   * its size, its number of pictures, its decoding, its time. Until then a
+   * document past any of them was refused whole, text and all.
+   */
+  picturesOverBudget?: number;
   /** 1-based page numbers with such pictures, ascending, capped. */
   pagesMissingPictures?: number[];
   /**
@@ -73,6 +82,18 @@ export interface OfficeExportResultMeta {
    */
   emptySlideCount?: number;
   /**
+   * PDF to Word only, since the review of 2026-10-17: pages with nothing in
+   * the document because the page reader SAW nothing on them — no text, no
+   * picture carried, none lost or left out, none it may have missed — and
+   * their numbers. Reported, not derived, as {@link emptySlideCount} is:
+   * until then the notice subtracted (pages without text, less the pages
+   * that came through as pictures) and said "no selectable text and no
+   * picture" of a page whose picture could not be decoded.
+   */
+  emptyPageCount?: number;
+  /** 1-based page numbers of those pages, ascending, capped. */
+  pagesEmpty?: number[];
+  /**
    * PDF to PowerPoint only, since 2026-10-11: pages drawn as ONE picture,
    * their text in invisible boxes over it, because rebuilding their drawing
    * piece by piece in paint order would have taken too many layers.
@@ -81,7 +102,8 @@ export interface OfficeExportResultMeta {
   /** 1-based page numbers of those pages, ascending, capped. */
   pagesFlattened?: number[];
   /**
-   * PDF to PowerPoint only, since 2026-10-11: the page reader could not read
+   * PDF to PowerPoint since 2026-10-11, and PDF to Word since 2026-10-17:
+   * the page reader could not read
    * the PDF ahead (it looked damaged), so the worker rebuilt it the way
    * Repair PDF does and converted the rebuilt copy. Present only as `true`.
    */
@@ -143,15 +165,27 @@ export function buildOfficeExportResultMeta(
     ...(raw.picturesNotCarried !== undefined
       ? (() => {
           const lost = count(raw.picturesNotCarried, 1_000_000);
+          // The reasons partition the count: over budget first, then too
+          // large out of what is left (the rest could not be decoded).
+          const overBudget = count(raw.picturesOverBudget, lost);
           return {
             picturesNotCarried: lost,
-            picturesTooLarge: count(raw.picturesTooLarge, lost),
+            picturesTooLarge: count(raw.picturesTooLarge, lost - overBudget),
+            ...(raw.picturesOverBudget !== undefined
+              ? { picturesOverBudget: overBudget }
+              : {}),
             pagesMissingPictures: pageList(raw.pagesMissingPictures, pageCount),
           };
         })()
       : {}),
     ...(raw.emptySlideCount !== undefined
       ? { emptySlideCount: count(raw.emptySlideCount, withoutText) }
+      : {}),
+    ...(raw.emptyPageCount !== undefined
+      ? {
+          emptyPageCount: count(raw.emptyPageCount, withoutText),
+          pagesEmpty: pageList(raw.pagesEmpty, pageCount),
+        }
       : {}),
     ...(raw.flattenedPageCount !== undefined
       ? {

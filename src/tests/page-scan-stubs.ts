@@ -73,3 +73,43 @@ export function textScan(
 export function scanning(scan: PdfPageScan): PdfPageScanner {
   return async () => scan;
 }
+
+/**
+ * A page reader that finds no page and so no picture: for tests about PDF to
+ * Word's TEXT — its paragraphs, page breaks, refusals and coverage — run on
+ * bytes that are not a real PDF, where the stub extraction IS the document.
+ * Never for a test about what the .docx keeps of a real PDF: those run the
+ * real reader over a real one (`pdf-office-export/docx-pictures.test.ts`).
+ * Since 2026-10-17 PDF to Word answers `unsupported` without a page reader.
+ */
+export const noPictures: PdfPageScanner = async () => ({
+  pageCount: 0,
+  pages: [],
+  undecodedImages: 0,
+  tooLargeImages: 0,
+});
+
+/**
+ * A page reader that SAW `pageCount` pages and found nothing on them: for
+ * tests about which pages of a Word export put nothing in the file. Since
+ * the review of 2026-10-17 only a page the reader saw to be empty is called
+ * that (`emptyPageCount`); {@link noPictures} sees no page at all, so of its
+ * pages nothing is claimed.
+ */
+export function blankPages(pageCount: number): PdfPageScanner {
+  return async () => ({
+    pageCount,
+    pages: Array.from({ length: pageCount }, (_, i) => ({
+      pageNumber: i + 1,
+      width: 612,
+      height: 792,
+      items: [],
+      picturesTooLarge: 0,
+      picturesUndecoded: 0,
+      picturesUnverified: false,
+      flattened: false,
+    })),
+    undecodedImages: 0,
+    tooLargeImages: 0,
+  });
+}

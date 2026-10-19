@@ -12,11 +12,23 @@ import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import { pptxBefore20260927 } from "@/tests/pptx-before-2026-09-27";
 import { pptxTextOnly20261010 } from "@/tests/pptx-text-only-2026-10-10";
+import { PDFDocument } from "pdf-lib";
+import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
 import {
+  docxDeploymentVerdict,
+  docxProofPdf,
+  docxRoundTripVerdict,
   PPTX_PROOF_TEXT,
   pptxDeploymentVerdict,
   pptxProofPdf,
 } from "./deployment-proof";
+import {
+  movePictureDown,
+  replacePictureMedia,
+  stretchFirstPicture,
+} from "@/tests/docx-hand-built";
+import { docxTextOnly20261017 } from "@/tests/docx-text-only-2026-10-17";
+import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { runPdfOfficeExport } from "./engine";
 import { scanPdfPages } from "./page-scan";
 import { encodePngImage } from "./png-encode";
@@ -146,5 +158,107 @@ describe("pptxDeploymentVerdict decodes the picture", () => {
       await deckWithBlankPicture("rgb8"),
     );
     expect(verdict.ok).toBe(false);
+  });
+});
+
+/**
+ * The production proof's PDF to Word verdict (2026-10-17), held to its
+ * controls the same way: it passes the .docx this tree's engine writes from
+ * the proof PDF, and fails the text-only .docx production returned that
+ * day, a picture moved below its line, resized, or blank. The text is read
+ * by the stand-in for poppler here; production's worker runs poppler.
+ */
+describe("docxDeploymentVerdict", () => {
+  async function engineDocx(): Promise<Uint8Array> {
+    const run = await runPdfOfficeExport("pdf-to-word", await docxProofPdf(), {
+      extractFlow: flowStandIn,
+      scanPages: scanPdfPages,
+    });
+    if (!run.ok) throw new Error(run.message);
+    return run.output;
+  }
+
+  it("POSITIVE CONTROL: passes the .docx this tree's engine writes", async () => {
+    const verdict = await docxDeploymentVerdict(await engineDocx());
+    expect(verdict.detail).toMatch(/picture is between its words/);
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("NEGATIVE CONTROL: fails the text-only .docx — the words, no picture", async () => {
+    const text = await docxTextOnly20261017(
+      (await flowStandIn(await docxProofPdf())).pages,
+    );
+    const verdict = await docxDeploymentVerdict(text);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toMatch(/not declared|0 picture/);
+  });
+
+  it("NEGATIVE CONTROL: fails a picture moved below its line, resized, or blank", async () => {
+    const good = await engineDocx();
+    const moved = await docxDeploymentVerdict(await movePictureDown(good));
+    expect(moved.ok).toBe(false);
+    expect(moved.detail).toMatch(/not between/);
+    const stretched = await docxDeploymentVerdict(
+      await stretchFirstPicture(good),
+    );
+    expect(stretched.ok).toBe(false);
+    expect(stretched.detail).toMatch(/not the page's 256 × 160/);
+    const blank = await docxDeploymentVerdict(
+      await replacePictureMedia(
+        good,
+        0,
+        encodePngImage(64, 40, "rgb8", new Uint8Array(64 * 40 * 3)),
+      ),
+    );
+    expect(blank.ok).toBe(false);
+    expect(blank.detail).toMatch(/not the proof's/);
+  });
+});
+
+/**
+ * The Word round trip's verdict, held to controls built here (no word
+ * processor in CI's unit job: the real LibreOffice output is judged by the
+ * production proof and `pnpm worker:docx-pictures-proof`).
+ */
+describe("docxRoundTripVerdict", () => {
+  async function pdfShowing(
+    sizes: readonly [number, number][],
+  ): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([595, 842]);
+    const png = encodePngImage(64, 40, "rgb8", new Uint8Array(64 * 40 * 3));
+    const image = await embedRasterImage(doc, png, "png");
+    let y = 700;
+    for (const [width, height] of sizes) {
+      await drawRasterImage(page, image, {
+        x: 72,
+        y: y - height,
+        width,
+        height,
+      });
+      y -= height + 20;
+    }
+    return doc.save();
+  }
+
+  it("POSITIVE CONTROL: passes a PDF painting the one picture at its size", async () => {
+    const verdict = await docxRoundTripVerdict(await pdfShowing([[256, 160]]));
+    expect(verdict.ok, verdict.detail).toBe(true);
+  });
+
+  it("NEGATIVE CONTROL: fails a PDF with no picture, two, or one at another size", async () => {
+    for (const sizes of [
+      [],
+      [
+        [256, 160],
+        [256, 160],
+      ],
+      [[300, 160]],
+    ] as const) {
+      const verdict = await docxRoundTripVerdict(
+        await pdfShowing(sizes as readonly [number, number][]),
+      );
+      expect(verdict.ok, JSON.stringify(sizes)).toBe(false);
+    }
   });
 });

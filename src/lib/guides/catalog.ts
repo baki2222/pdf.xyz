@@ -471,7 +471,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Will the Word document look like my original PDF?",
-        answer: `No. It holds the PDF's words, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.`,
+        answer: `No. It holds the PDF's words and pictures, not its design. ${PDF_TO_WORD_KEEPS} If your PDF is a scanned image rather than typed text, use the OCR PDF tool first so there is recognized text to convert.`,
       },
     ],
     published: "2026-09-17",
@@ -801,7 +801,7 @@ export const guides: Guide[] = [
         id: "changing-existing-text",
         heading: "Changing the text that is already there",
         body: [
-          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, as plain paragraphs in reading order. Images, fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
+          `To rework the wording itself, convert the file with ${nameOf("pdf-to-word")}: it exports the PDF's selectable text as an editable Word document, as plain paragraphs in reading order, with each picture between them. Fonts, tables and page layout are not recreated, so it suits documents where the words matter more than the look.`,
         ],
       },
       {

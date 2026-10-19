@@ -403,6 +403,22 @@ const SUBJECTS: Record<string, CapabilitySubject> = {
       /\bpictures?\b(?:[^.?!]|\.(?=\w)){0,80}\bslides?\b|\bslides?\b(?:[^.?!]|\.(?=\w)){0,80}\bpictures?\b/i,
     catalogueCopy: true,
   },
+  docxPictures: {
+    // Added 2026-10-17 with the key. The sentences a hedge about it would sit
+    // in: a picture and Word (or DOCX) in one sentence, either order.
+    // Measured that day over the whole corpus (3,048 entries): 11 members —
+    // 9 on pdf-to-word (tagline, description, seoTitle, metaDescription,
+    // intro[0], how[1] and three FAQ answers), the add-text guide's pointer
+    // to PDF to Word (sections[2]), and one word-to-pdf FAQ answer about the
+    // pictures in a Word file, where a hedge would be just as wrong; no FAQ
+    // question. With "document" as well as Word and DOCX it also caught a
+    // Markdown answer about emoji and a JPG guide, about nothing here, so
+    // "document" is not in it. It owns no page (no tool is NAMED for pictures
+    // in Word documents); catalogueCopy is true because those exist.
+    subject:
+      /\bpictures?\b(?:[^.?!]|\.(?=\w)){0,80}\b(?:Word|DOCX)\b|\b(?:Word|DOCX)\b(?:[^.?!]|\.(?=\w)){0,80}\bpictures?\b/i,
+    catalogueCopy: true,
+  },
 };
 
 /* ------------------------------------------------------------------ *

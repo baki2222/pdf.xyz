@@ -46,3 +46,14 @@ export const MAX_LAYERS_PER_PAGE = 32;
  * (`PageScanUnreadableError` in `./page-scan`, `page-scan.rss.test.ts`).
  */
 export const MAX_DECODED_IMAGE_PIXELS = 64_000_000;
+
+/**
+ * The most pictures one PDF to Word document carries. Past it, the rest are
+ * left out and counted, by page (`picturesOverBudget`), and the text is all
+ * there. Each picture is a drawing Word lays out and holds open, so a file
+ * of thousands of them is slow to open and to scroll: the review of
+ * 2026-10-17 turned a 205 KB PDF of tiny pictures into a 22.3 MB .docx of
+ * 20,000 media parts over 800 pages. 2,000 is fifty-four times the owner's
+ * 37-picture tutorial, and four pictures on every page of a 500-page book.
+ */
+export const MAX_DOCX_PICTURES = 2_000;
