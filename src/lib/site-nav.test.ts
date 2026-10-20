@@ -48,7 +48,9 @@ describe("currentNavHref", () => {
     // The shape that lit two items: every item that prefix-matches the path.
     const naive = primaryNav.filter(
       (i) =>
-        i.href.startsWith("/") && !i.href.includes("#") && AI.startsWith(i.href),
+        i.href.startsWith("/") &&
+        !i.href.includes("#") &&
+        AI.startsWith(i.href),
     );
     expect(naive.length, "control: the naive rule sees two").toBe(2);
   });

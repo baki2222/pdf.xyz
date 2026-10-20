@@ -503,9 +503,9 @@ function onDemandFetch(marker: string, page: string) {
   expect(ownId, "the chunk has no numeric id").toBeTruthy();
   const loads = all
     .flatMap((f) =>
-      [
-        ...read(f).matchAll(/Promise\.all\(\[((?:\w+\.e\(\d+\),?)+)\]\)/g),
-      ].map((m) => [...m[1]!.matchAll(/\.e\((\d+)\)/g)].map((x) => x[1]!)),
+      [...read(f).matchAll(/Promise\.all\(\[((?:\w+\.e\(\d+\),?)+)\]\)/g)].map(
+        (m) => [...m[1]!.matchAll(/\.e\((\d+)\)/g)].map((x) => x[1]!),
+      ),
     )
     .filter((ids) => ids.includes(ownId!));
   expect(loads.length, "no chunk loads it").toBeGreaterThanOrEqual(1);
