@@ -350,12 +350,19 @@ async function textRects(
   ids: number[],
 ): Promise<Record<string, Rect[]>> {
   return page.evaluate((elementIds) => {
+    // Probed across the run's height as well as its width: the sampler reads
+    // EVERY pixel of the rect, so a run whose middle line is on top but whose
+    // lower half sits under a sticky bottom bar (a guide's "Open {tool}" bar,
+    // 2026-10-20: four runs read the bar's canvas as their background) is
+    // partly occluded, and is measured in a later frame instead.
     const visible = (el: Element, r: DOMRect) => {
-      const y = r.y + r.height / 2;
-      for (const fraction of [0.15, 0.5, 0.85]) {
-        const x = r.x + r.width * fraction;
-        const hit = document.elementFromPoint(x, y);
-        if (!hit || !(hit === el || el.contains(hit))) return false;
+      for (const yFraction of [0.15, 0.5, 0.85]) {
+        const y = r.y + r.height * yFraction;
+        for (const fraction of [0.15, 0.5, 0.85]) {
+          const x = r.x + r.width * fraction;
+          const hit = document.elementFromPoint(x, y);
+          if (!hit || !(hit === el || el.contains(hit))) return false;
+        }
       }
       return true;
     };
