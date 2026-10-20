@@ -63,8 +63,12 @@ export interface Remedy {
   readonly where: string | null;
 }
 
-/** The sentence for a remedy's mode; worker tools are the only ones today. */
-function whereFor(mode: ProcessingMode): string | null {
+/**
+ * The sentence for where a file goes in a tool it cannot be carried to; the
+ * worker tools are the only ones today. Also said by a preflight hint whose
+ * target cannot take the file yet (`@/components/intent/preflight-hint`).
+ */
+export function whereFor(mode: ProcessingMode): string | null {
   return mode === "server"
     ? "You add the file there, and it uploads to the secure worker only when you start it."
     : null;

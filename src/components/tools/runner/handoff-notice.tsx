@@ -134,7 +134,9 @@ export function HandoffLoadedBadge({
   fileName?: string | null;
 }) {
   const fromName =
-    origin.kind === "result" || origin.kind === "remedy"
+    origin.kind === "result" ||
+    origin.kind === "remedy" ||
+    origin.kind === "hint"
       ? (getToolBySlug(origin.fromSlug)?.name ?? null)
       : null;
   return (
