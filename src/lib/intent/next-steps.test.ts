@@ -40,6 +40,7 @@ import {
   isInverse,
   type ContinuePlan,
 } from "./next-steps";
+import { browserPdfDeadEnds, browserPdfTools } from "./dead-ends";
 
 const plans = new Map<string, ContinuePlan>(
   tools.map((tool) => [tool.slug, continueTargetsFor(tool, tools)]),
@@ -262,5 +263,33 @@ describe("the order", () => {
       "crop-pdf",
       "merge-pdf",
     ]);
+  });
+});
+
+describe("every PDF made in the browser has somewhere to go", () => {
+  // The property the homepage's step 3 rests on ("Every PDF made in your
+  // browser offers the next tool, with the file already loaded."), which
+  // `feature-claims.test.ts` gates on this same predicate. A browser tool is
+  // one with an in-browser runner; a PDF tool is one whose outputs include a
+  // PDF. Worker tools are not in the claim (Protect PDF and PDF to PDF/A end
+  // on purpose, with the reason said).
+  it("health: the subjects are the catalogue's browser PDF tools, derived", () => {
+    const subjects = browserPdfTools(tools).map((t) => t.slug);
+    expect(subjects.length).toBeGreaterThanOrEqual(15);
+    expect(subjects).toContain("merge-pdf");
+    expect(subjects).toContain("sign-pdf");
+    // Worker tools are outside it; a filter that let them in would make
+    // Protect PDF a "dead end" and this test red for the wrong reason.
+    expect(subjects).not.toContain("protect-pdf");
+    expect(subjects).not.toContain("pdf-to-jpg");
+  });
+
+  it("each has at least one continue target", () => {
+    expect(browserPdfDeadEnds(tools)).toEqual([]);
+  });
+
+  it("POSITIVE CONTROL: a catalogue without the finishing steps leaves Sign PDF a dead end", () => {
+    const without = tools.filter((t) => !FINISHING_STEPS.includes(t.slug));
+    expect(browserPdfDeadEnds(without)).toContain("sign-pdf");
   });
 });
