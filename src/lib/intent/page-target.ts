@@ -111,8 +111,9 @@ const fallbacks: Entry<PageFallback>[] = [];
  * for it: inside the few seconds a browser still counts the click that
  * asked as the user's (transient activation), so the picker it opens is
  * the one they asked for — never one that appears out of nowhere later.
+ * Chromium's activation lasts five seconds; this stays under it.
  */
-export const PICK_WAIT_MS = 3000;
+export const PICK_WAIT_MS = 4500;
 /** When a pick was asked for with no picker on the page, or null. */
 let pickWanted: number | null = null;
 const listeners = new Set<() => void>();

@@ -182,6 +182,10 @@ export function DropLayer() {
             );
           },
         });
+        // Said on the page, as `data-drop-layer` is: the page's picker and
+        // the ticket dialog are registered (a test waits for it before it
+        // asks for a pick it means to see).
+        document.documentElement.setAttribute("data-drop-fallback", "");
         return mod;
       },
       (error: unknown) => {
@@ -200,6 +204,7 @@ export function DropLayer() {
     () => () => {
       unregister.current?.();
       unregister.current = null;
+      document.documentElement.removeAttribute("data-drop-fallback");
       ready.current = null;
       engine.current?.removePicker();
     },

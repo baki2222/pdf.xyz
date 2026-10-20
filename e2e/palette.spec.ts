@@ -79,13 +79,20 @@ test("'Open a file…' opens a picker whose files open the ticket dialog", async
 }) => {
   // /tools has no drop target of its own (E.5), so the page's picker is the
   // drop layer's, and what it picks goes to the ticket dialog.
+  //
+  // Listened for FIRST: Playwright turns file-chooser interception on
+  // asynchronously when a listener is added, and a listener added just
+  // before Enter lost the race under a loaded full run (the picker opened
+  // natively, unseen). Twice; never in isolation.
+  const chooser = page.waitForEvent("filechooser", { timeout: 20_000 });
   await page.goto("/tools");
   await headerLive(page);
-  await page.locator("html[data-drop-layer]").waitFor({ state: "attached" });
+  // The page's picker is registered (a pick before that waits for it, but
+  // only for the moment the key press still counts — page-target.test.ts).
+  await page.locator("html[data-drop-fallback]").waitFor({ state: "attached" });
   await page.keyboard.press("Control+k");
   await combobox(page).pressSequentially("open a file");
   await expect(await activeOption(page)).toContainText("Open a file");
-  const chooser = page.waitForEvent("filechooser");
   await page.keyboard.press("Enter");
   const picker = await chooser;
   await expect(palette(page)).toHaveCount(0);
