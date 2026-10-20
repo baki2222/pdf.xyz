@@ -44,6 +44,7 @@ import {
   MemoryHandoffBackend,
   readHandoffId,
 } from "@/lib/handoff";
+import { takeCarriedHandoff } from "@/lib/handoff/carry";
 import { readOrigin } from "@/lib/handoff/origin";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { resetPageTargetsForTests } from "@/lib/intent/page-target";
@@ -106,13 +107,17 @@ function stage(container: HTMLElement, files: File[]) {
   fireEvent.change(input!, { target: { files } });
 }
 
-/** The tool slug and hand-off id a destination carries, or null. */
+/**
+ * The tool slug and hand-off id a destination carries, or null: carried to
+ * its path in this tab (how launches carry it since 2026-10-20), or named in
+ * its address (how they did before; a plain link must do neither).
+ */
 function handoffIn(
   href: string | undefined,
 ): { slug: string; id: string } | null {
   if (!href) return null;
   const url = new URL(href, "https://example.test");
-  const id = readHandoffId(url.search);
+  const id = readHandoffId(url.search) ?? takeCarriedHandoff(url.pathname);
   const slug = /^\/tools\/([^/]+)$/.exec(url.pathname)?.[1];
   return id && slug ? { slug, id } : null;
 }
@@ -142,6 +147,7 @@ async function suggestions() {
 
 beforeEach(() => {
   push.mockReset();
+  window.sessionStorage.clear();
   __setHandoffStoreForTests(
     new HandoffStore({ backend: new MemoryHandoffBackend() }),
   );

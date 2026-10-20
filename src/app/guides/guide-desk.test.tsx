@@ -37,10 +37,10 @@ import {
   claimHandoff,
   HandoffStore,
   MemoryHandoffBackend,
-  readHandoffId,
 } from "@/lib/handoff";
 import type { HandoffRecord } from "@/lib/handoff";
 import { handoffCapabilityFor } from "@/lib/handoff/capability";
+import { takeCarriedHandoff } from "@/lib/handoff/carry";
 import { readOrigin } from "@/lib/handoff/origin";
 import { guides } from "@/lib/guides";
 import {
@@ -71,6 +71,7 @@ beforeAll(() => {
 });
 beforeEach(() => {
   push.mockReset();
+  window.sessionStorage.clear();
   __setHandoffStoreForTests(
     new HandoffStore({ backend: new MemoryHandoffBackend() }),
   );
@@ -201,7 +202,10 @@ describe("the desk", () => {
     });
     const href = new URL(push.mock.calls[0]![0], "https://example.test");
     expect(href.pathname).toBe("/tools/merge-pdf");
-    const id = readHandoffId(href.search)!;
+    // INVERTED 2026-10-20: the address no longer carries the token (its
+    // payload fetch sent it to the server's logs); the tab does.
+    expect(href.search).toBe("");
+    const id = takeCarriedHandoff(href.pathname)!;
     const claimed = await claimHandoff(id);
     expect(claimed?.toolSlug).toBe("merge-pdf");
     expect(claimed?.files.map((e) => e.name)).toEqual(["a.pdf", "b.pdf"]);

@@ -15,6 +15,7 @@
  * it.
  */
 import { CONSENT_STORAGE_KEY } from "@/lib/analytics/consent-key";
+import { HANDOFF_CARRY_KEY } from "@/lib/handoff/carry-key";
 import { HANDOFF_DB_NAME } from "@/lib/handoff/db-name";
 import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
 import { RECENTS_STORAGE_KEY } from "@/lib/intent/recents-key";
@@ -72,6 +73,14 @@ export const BROWSER_STORAGE: readonly BrowserStore[] = [
     holds:
       "Files you pass from one page to a tool — from the workspace or the home page's drop zone — while they travel, with where they came from.",
     lasts: HANDOFF_LIFETIME,
+  },
+  {
+    key: HANDOFF_CARRY_KEY,
+    perTool: false,
+    area: "sessionStorage",
+    holds:
+      "The random key to files on their way to the next page, and which page that is — so the key never has to be in a web address. Never a file, its name or its size.",
+    lasts: "Until that page opens and reads it, or until this tab closes.",
   },
   {
     key: WORKER_JOB_STORAGE_PREFIX,

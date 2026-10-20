@@ -14,10 +14,9 @@ import {
   HANDOFF_TARGET_WORKSPACE,
   handoffPayload,
   purgeExpiredHandoffs,
-  readHandoffId,
   type HandoffOrigin,
 } from "@/lib/handoff";
-import { claimFromUrl } from "@/lib/handoff/claim";
+import { claimArrival } from "@/lib/handoff/claim";
 import type { FileFacts } from "@/lib/intent/facts";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import {
@@ -56,7 +55,7 @@ const WORKSPACE_PROBES = 10;
  * workspace needs it only on a click, and it is warmed with the first staged
  * file so a click never waits for it.
  *
- * The claim (`claimFromUrl`) is imported STATICALLY, on purpose. It is
+ * The claim (`claimArrival`) is imported STATICALLY, on purpose. It is
  * shared with every tool page, and the bundler treats the two kinds of share
  * differently: a module both pages load up front joins the chunk the two
  * already share, while one the workspace loads LAZILY becomes a chunk of its
@@ -333,20 +332,14 @@ export function useWorkspace(
     [measure],
   );
 
-  // Claim files another page handed to the workspace (`/workspace?handoff=`),
-  // once. The token is stripped either way, so a reload cannot replay it.
+  // Claim files another page handed to the workspace (`openWorkspaceWithFiles`
+  // carries the token in this tab's sessionStorage), once. The token is
+  // removed either way, so a reload cannot replay it.
   const claimed = useRef(false);
   useEffect(() => {
     if (claimed.current) return;
     claimed.current = true;
-    let search = "";
-    try {
-      search = window.location.search;
-    } catch {
-      return;
-    }
-    if (!readHandoffId(search)) return;
-    const claim = claimFromUrl(
+    const claim = claimArrival(
       HANDOFF_TARGET_WORKSPACE,
       (entries) => entries,
       router,

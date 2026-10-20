@@ -11,7 +11,11 @@
  *  2. the gate (`handoffPayload`): which of the files this tool opens, and
  *     just the first for a one-file tool;
  *  3. the stash, which records where the files came from;
- *  4. the navigation;
+ *  4. the navigation — to the plain tool address, the token carried in
+ *     this tab's sessionStorage (`@/lib/handoff/carry`), never in the URL,
+ *     whose payload fetch would hand it to the server's access logs; and
+ *     this page's history entry noted with where the files went
+ *     (`@/lib/handoff/departure`), so Back can say so;
  *  5. the measurement — so nothing is counted that did not happen.
  *
  * It replaced `handoffHref`, which turned a failed stash into the plain tool
@@ -22,12 +26,13 @@
 import {
   handoffCapabilityFor,
   handoffPayload,
-  HANDOFF_PARAM,
   HANDOFF_TARGET_WORKSPACE,
   stashHandoff,
   type HandoffOrigin,
   type PendingStep,
 } from "@/lib/handoff";
+import { carryHandoff } from "@/lib/handoff/carry";
+import { markDeparture } from "@/lib/handoff/departure";
 import {
   handoffCreatedEvent,
   suggestionOpenedEvent,
@@ -94,9 +99,10 @@ export async function launchWithFiles(
   } catch {
     id = null;
   }
-  if (!id) return "failed";
+  if (!id || !carryHandoff(target, id)) return "failed";
 
-  router.push(`${target}?${HANDOFF_PARAM}=${encodeURIComponent(id)}`);
+  markDeparture({ slug: toolSlug, count: payload.length });
+  router.push(target);
   track(
     handoffCreatedEvent({
       toolSlug,
@@ -131,7 +137,7 @@ export async function openWorkspaceWithFiles(input: {
   } catch {
     id = null;
   }
-  if (!id) return "failed";
-  input.router.push(`/workspace?${HANDOFF_PARAM}=${encodeURIComponent(id)}`);
+  if (!id || !carryHandoff("/workspace", id)) return "failed";
+  input.router.push("/workspace");
   return "carried";
 }

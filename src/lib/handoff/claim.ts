@@ -1,6 +1,9 @@
 /**
- * Claim the hand-off the address bar names, for any page that receives
- * files: a tool runner (`useToolHandoff`) or the workspace.
+ * Claim the hand-off carried to this page, for any page that receives
+ * files: a tool runner (`useToolHandoff`) or the workspace. The token comes
+ * from this tab's sessionStorage (`./carry`), where every launch puts it;
+ * an address that still names one (`?handoff=`, how launches carried it
+ * until 2026-10-20) is read as before, and stripped.
  *
  * A lib module of its own, apart from the runner hook, on purpose: the
  * workspace claims too, and a module the workspace shares ONLY with the tool
@@ -22,6 +25,7 @@ import {
   type HandoffOrigin,
   type PendingStep,
 } from "./index";
+import { takeCarriedHandoff } from "./carry";
 
 /** The router call the strip needs — the App Router's `replace`. */
 export interface ReplacingRouter {
@@ -69,10 +73,16 @@ export const IDLE: ClaimedHandoff = {
 export const LOADING: ClaimedHandoff = { ...IDLE, status: "loading" };
 const EXPIRED: ClaimedHandoff = { ...IDLE, status: "expired" };
 
-/** Read a validated handoff id from the current address bar, or null. */
-function readHandoffIdFromLocation(): string | null {
+/**
+ * The validated id carried to this page — taken (so removed) from this
+ * tab's sessionStorage, else read from the address bar — or null.
+ */
+function readArrivingHandoffId(): string | null {
   try {
-    return readHandoffId(window.location.search);
+    return (
+      takeCarriedHandoff(window.location.pathname) ??
+      readHandoffId(window.location.search)
+    );
   } catch {
     return null;
   }
@@ -134,23 +144,24 @@ function stripHandoffParam(router: ReplacingRouter): void {
 }
 
 /**
- * Claim the hand-off named in the address bar for `target` — a tool slug, or
+ * Claim the hand-off carried to this page for `target` — a tool slug, or
  * the workspace's reserved target — and keep the files `select` returns.
  *
  * ONE claim for every page that receives files. Returns null, without
- * touching storage, when the URL names no hand-off; the token is stripped
- * either way, so a reload cannot replay it. A record addressed to another
+ * touching the hand-off store, when nothing is carried here; the carried
+ * token is removed, and an address's stripped, either way, so a reload
+ * cannot replay it. A record addressed to another
  * target reads as expired (it is still consumed: single-use is the store's
  * rule, and a token that reached the wrong page is spent). The record's
  * provenance comes back with the files — read through `./origin`'s readers,
  * so a record from before origins existed reads as the workspace.
  */
-export function claimFromUrl(
+export function claimArrival(
   target: string,
   select: (entries: HandoffFileEntry[]) => HandoffFileEntry[],
   router: ReplacingRouter,
 ): Promise<ClaimedHandoff> | null {
-  const id = readHandoffIdFromLocation();
+  const id = readArrivingHandoffId();
   stripHandoffParam(router);
   if (!id) return null; // no token → idle (normal file picker), no storage touch
 

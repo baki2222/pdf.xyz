@@ -1,6 +1,11 @@
 "use client";
 
-import { AlertTriangle, FolderInput, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  FolderInput,
+  ShieldCheck,
+} from "lucide-react";
 import { originPhrase, type HandoffOrigin } from "@/lib/handoff";
 import { acceptNoun } from "@/lib/intent/accept-noun";
 import { getToolBySlug } from "@/lib/tools";
@@ -14,6 +19,8 @@ import type { ToolHandoff } from "./use-tool-handoff";
  *  - `loading`      → a small "bringing your files over" block.
  *  - `expired`      → the token was missing/expired/already used.
  *  - `incompatible` → files came over but none fit this tool.
+ *  - `departed`     → Back to a page whose files went on to another tool:
+ *                     where they went, and that this page kept no copy.
  *  - `ready`        → a subtle confirmation that says WHERE the files came
  *                     from (`originPhrase`), kept privacy-forward ("still in
  *                     this browser, nothing uploaded").
@@ -47,10 +54,35 @@ export function HandoffProblem({
   handoff: ToolHandoff;
   toolName: string;
 }) {
+  const noun = acceptNoun(handoff.accept);
+  if (handoff.departed && handoff.status === "idle") {
+    const to = getToolBySlug(handoff.departed.slug)?.name;
+    if (!to) return null;
+    return (
+      <div
+        role="status"
+        data-handoff-departed=""
+        className="border-line bg-wash text-muted flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+      >
+        <ArrowRight className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>
+          {handoff.departed.count === 1 ? "Your file" : "Your files"} went on
+          to {to}. This page doesn&apos;t keep a copy, so choose {noun.one}{" "}
+          below to start over.
+        </span>
+        <button
+          type="button"
+          onClick={handoff.dismiss}
+          className="hover:text-fg ml-auto shrink-0 rounded-md px-2 py-0.5 text-xs underline transition"
+        >
+          Dismiss
+        </button>
+      </div>
+    );
+  }
   if (handoff.status !== "expired" && handoff.status !== "incompatible")
     return null;
 
-  const noun = acceptNoun(handoff.accept);
   const one = handoff.skipped === 1;
   const body =
     handoff.status === "expired"
