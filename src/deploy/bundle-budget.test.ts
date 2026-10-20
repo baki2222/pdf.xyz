@@ -420,9 +420,10 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  *
  * WHAT IS STILL TO COME is held against every row by the test after
  * `BUDGETS`, with no shortfall recorded anywhere: a row that cannot take it
- * fails. The one row the layout's remaining growth cannot reach is /tools,
- * and it could not before WP-07 either — `LAYOUT_CANNOT_REACH` says why,
- * and fails the day that stops being so.
+ * fails. The one row the layout's remaining growth could not reach was
+ * /tools, from before WP-07 until the first-load duplicates went on
+ * 2026-10-20 — `LAYOUT_CANNOT_REACH` keeps that history and holds any
+ * future entry the same way.
  */
 /**
  * Every tool page, not three of them. Until 2026-10-09 all 50 loaded the same
@@ -732,20 +733,13 @@ const STILL_TO_COME: Record<string, Record<string, number>> = {
  * is its ceiling's to stop.
  */
 const LAYOUT_CANNOT_REACH: Record<string, string> = {
-  /**
-   * /tools: no room for the layout's growth since before WP-07 — at its
-   * base (8fd8048a) the row was 220.49 under a 220.7 ceiling that the
-   * batch-B reconcile set as "measured + 0.2, which is not allowance"
-   * (G.1's +5 was spent by batches A and B and main, 6.3), with the
-   * layout's whole 2.5 still to come: 2.3 short. WP-07's drop layer is on
-   * this page only because its first repair raised the ceiling by the
-   * layer's 1.5 (on the row). The rest of the layout's allowance (WP-09's
-   * header, 1.10 today) lands here only by the owner's re-allocation —
-   * raise this ceiling for it, or have the package that grows the layout
-   * offset it on /tools — and until then the ceiling fails that package.
-   */
-  "tools.html":
-    "spent before WP-07: the batch-B reconcile left /tools no allowance, and the layout's growth needs the owner's re-allocation here",
+  // "tools.html" was here from WP-07 until 2026-10-20: at its base (8fd8048a)
+  // /tools was 220.49 under a 220.7 ceiling the batch-B reconcile set as
+  // "measured + 0.2, which is not allowance", with the layout's whole 2.5
+  // still to come — 2.3 short. Deleted when the first-load duplicates went
+  // (first-load-duplicates.test.ts, next.config.mjs `rootShared`): /tools
+  // fell 222.0 -> 216.4 gz with its ceiling unchanged, and the layout's
+  // remainder fits there now, so the row is held to it like every other.
 };
 
 /** One row's headroom against what is still to come there, KB gz. */

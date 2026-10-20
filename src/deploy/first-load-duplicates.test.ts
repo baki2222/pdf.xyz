@@ -41,9 +41,16 @@
  * SplitChunks only shares a module across exactly the chunk SET some group of
  * modules has, above Next's 20,000-byte `minSize`, so a module imported by
  * two of the four (plus some pages) lands in a shared chunk for a SUBSET of
- * its chunks and stays copied in the rest.
+ * its chunks and stays copied in the rest. The fix is the `rootShared` cache
+ * group in next.config.mjs: a module that any root entry carries, and that
+ * two or more chunks carry, goes to ONE chunk. It can add nothing to any
+ * page's first load — every such module was already downloaded on every page
+ * through the entry that carries it. This file holds the PROPERTY, not that
+ * group: any other change that regroups the chunks fails here too.
  *
- * Tolerance: ZERO, at any size — the property, not a budget.
+ * Tolerance: ZERO, at any size — the property, not a budget. No floor is
+ * needed: after the fix no page has a single duplicated module, the 190-byte
+ * Next shim included.
  *
  * Runs under `pnpm test:bundle` (it needs `.next`), never `pnpm test`.
  */

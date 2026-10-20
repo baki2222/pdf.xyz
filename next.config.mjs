@@ -186,6 +186,56 @@ function securityHeaders() {
 const CANONICAL_ORIGIN = "https://pdf.xyz";
 const WWW_HOST_PATTERN = "www\\.pdf\\.xyz";
 
+/**
+ * The root segment's client entries. Next builds each as its own webpack
+ * entry, and every page loads all four (`_global-error` loads only the last).
+ */
+const ROOT_ENTRIES = new Set([
+  "app/layout",
+  "app/error",
+  "app/not-found",
+  "app/global-error",
+]);
+
+/**
+ * One chunk for every module a root entry shares with any other chunk.
+ *
+ * SplitChunks only moves a module into a shared chunk for a chunk SET some
+ * group of modules has exactly, above Next's 20,000-byte `minSize`; a module
+ * imported by two of the root entries (plus some pages) therefore landed in a
+ * shared chunk for a SUBSET of its chunks and stayed copied in the rest.
+ * Measured on main 97e4b84e: 9-14 modules, 6.3-9.1 KB raw, downloaded twice
+ * on every page (lucide's icon base, the telemetry client, `cn()`, ...).
+ *
+ * This group cannot make any page's first load heavier: a module enters it
+ * only when a root entry already carries it, and every page loads the root
+ * entries. `minChunks: 2` leaves a module only one chunk carries where it is.
+ * `src/deploy/first-load-duplicates.test.ts` holds the property (no module
+ * twice in any page's first load), not this group.
+ */
+function clientWebpack(config, { isServer, dev }) {
+  if (isServer || dev) return config;
+  const groups = config.optimization?.splitChunks?.cacheGroups;
+  if (!groups)
+    throw new Error("next.config: no client splitChunks.cacheGroups to extend");
+  groups.rootShared = {
+    name: "root-shared",
+    chunks: "all",
+    minChunks: 2,
+    minSize: 0,
+    // Above Next's defaults (-20, -10), below its framework (40) and >160 KB
+    // lib (30) groups, which keep their modules.
+    priority: 20,
+    enforce: true,
+    test(module, { chunkGraph }) {
+      for (const chunk of chunkGraph.getModuleChunksIterable(module))
+        if (ROOT_ENTRIES.has(chunk.name)) return true;
+      return false;
+    },
+  };
+  return config;
+}
+
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -199,6 +249,7 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },
+  webpack: clientWebpack,
   async redirects() {
     return [
       {
