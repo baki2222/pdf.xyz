@@ -37,6 +37,7 @@ import {
   outputFile,
   useAsyncRun,
 } from "./runner-kit";
+import { PagePreviewPlaceholder } from "./page-preview-placeholder";
 import { RunBar } from "./run-bar";
 import { useUnsavedGuard } from "./use-unsaved-guard";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
@@ -394,9 +395,7 @@ function PagePreview({
   fill: RedactionFill;
 }) {
   if (!page || page.width <= 0 || page.height <= 0) {
-    return (
-      <div className="bg-wash aspect-[3/4] w-full max-w-[180px] animate-pulse rounded-lg" />
-    );
+    return <PagePreviewPlaceholder pageNumber={pageNumber} />;
   }
 
   const toStyle = (rect: RedactionRect) => ({
