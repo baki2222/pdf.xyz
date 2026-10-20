@@ -403,6 +403,14 @@ describe("the ticket's on-demand fetch is bounded", () => {
     if (!built) return;
     const all = walkJs(CHUNKS_DIR);
     const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
+    // Which file a loaded id is: the one whose JSONP header DECLARES it, not
+    // the one whose name starts with it. A named chunk (next.config.mjs's
+    // `root-shared`) keeps a numeric id but is written `<name>-<hash>.js`, and
+    // a merged chunk declares several ids under the first one's name.
+    const declares = (f: string, id: string) =>
+      (/\.push\(\[\[([\d,]+)\]/.exec(read(f).slice(0, 200))?.[1] ?? "")
+        .split(",")
+        .includes(id);
     const ticket = all.filter((f) => read(f).includes(TICKET_CHUNK_MARKER));
     expect(ticket).toHaveLength(1);
     const ticketId = idOf(ticket[0]!);
@@ -420,7 +428,7 @@ describe("the ticket's on-demand fetch is bounded", () => {
     const ids = new Set(loads.flat());
     expect(ids.size).toBeGreaterThanOrEqual(2);
     const files = [...ids].map((id) => {
-      const f = all.find((c) => idOf(c) === id);
+      const f = all.find((c) => declares(c, id));
       expect(f, `chunk ${id} is not on disk`).toBeTruthy();
       return f!;
     });
