@@ -106,6 +106,15 @@ const targets: Entry<PageTarget>[] = [];
 /** Files for the fallback before one registered: handed over when it does. */
 const waiting: { files: File[]; via: DropVia; why: Unrouted }[] = [];
 const fallbacks: Entry<PageFallback>[] = [];
+/**
+ * How long a pick asked for before the page's picker registered may wait
+ * for it: inside the few seconds a browser still counts the click that
+ * asked as the user's (transient activation), so the picker it opens is
+ * the one they asked for — never one that appears out of nowhere later.
+ */
+export const PICK_WAIT_MS = 3000;
+/** When a pick was asked for with no picker on the page, or null. */
+let pickWanted: number | null = null;
 const listeners = new Set<() => void>();
 
 const notify = () => {
@@ -262,6 +271,10 @@ export function registerFallback(fallback: PageFallback): () => void {
   // Files that landed before the page's fallback was here are its first:
   // the drop layer fetches it on idle, and a file can be quicker.
   for (const w of waiting.splice(0)) fallback.receive(w.files, w.via, w.why);
+  // So is a pick asked for meanwhile, if it is still the click's.
+  const wanted = pickWanted;
+  pickWanted = null;
+  if (wanted !== null && Date.now() - wanted <= PICK_WAIT_MS) fallback.pick();
   return off;
 }
 
@@ -326,16 +339,23 @@ export function deliverToFallback(
 
 /**
  * "Open files": the target's own picker when it has one and can take a
- * file now; otherwise the page's, whose files are routed like a drop.
+ * file now; otherwise the page's, whose files are routed like a drop —
+ * and when the page's picker has not registered yet (the drop layer
+ * registers it on idle, or at the first touch of the page), the pick
+ * WAITS for it, for {@link PICK_WAIT_MS}. It was "nowhere", and the click
+ * did nothing (WP-09, found by e2e/palette.spec.ts).
  */
-export function requestFilePick(): "target" | "fallback" | "nowhere" {
+export function requestFilePick(): "target" | "fallback" | "waiting" {
   const target = activePageTarget();
   if (target?.pick && target.canReceive()) {
     target.pick();
     return "target";
   }
   const fallback = top(fallbacks);
-  if (!fallback) return "nowhere";
+  if (!fallback) {
+    pickWanted = Date.now();
+    return "waiting";
+  }
   fallback.pick();
   return "fallback";
 }
@@ -346,5 +366,6 @@ export function resetPageTargetsForTests(): void {
   targets.length = 0;
   fallbacks.length = 0;
   waiting.length = 0;
+  pickWanted = null;
   listeners.clear();
 }

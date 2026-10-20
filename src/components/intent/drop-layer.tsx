@@ -206,18 +206,34 @@ export function DropLayer() {
     [],
   );
 
-  // Fetch both while the page is idle, so the first drag draws at once.
+  // Fetch both while the page is idle, so the first drag draws at once —
+  // or at the first press of a key or a pointer, if that comes first: an
+  // "Open files" pressed before idle waits for the picker registered here
+  // (`requestFilePick`), and only for the moment the click still counts.
   useEffect(() => {
     const warm = () => {
       void registry().catch(() => {});
       void view().catch(() => {});
     };
+    const early = { capture: true, once: true } as const;
+    window.addEventListener("pointerdown", warm, early);
+    window.addEventListener("keydown", warm, early);
+    const off = () => {
+      window.removeEventListener("pointerdown", warm, early);
+      window.removeEventListener("keydown", warm, early);
+    };
     if (typeof window.requestIdleCallback === "function") {
       const handle = window.requestIdleCallback(warm, { timeout: 5000 });
-      return () => window.cancelIdleCallback(handle);
+      return () => {
+        off();
+        window.cancelIdleCallback(handle);
+      };
     }
     const timer = window.setTimeout(warm, 2000);
-    return () => window.clearTimeout(timer);
+    return () => {
+      off();
+      window.clearTimeout(timer);
+    };
   }, [registry, view]);
 
   // Files that landed: where they go is the registry's, as soon as it is
