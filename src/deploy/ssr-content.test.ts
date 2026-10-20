@@ -236,5 +236,8 @@ describe("the build keeps every piece of server-rendered content the baseline re
       removals(baseline, snapshotBuild(NEXT_DIR)),
       "server-rendered content was removed. If a client island now renders it, a crawler no longer sees it — render it on the server. If the removal is meant, run `pnpm build && pnpm ssr:baseline` and say in the commit what went and why.",
     ).toEqual([]);
-  });
+    // Parses every built page: the WP-09 footer (50 tool links on each) and
+    // WP-13's guide contents took it past vitest's 5 s default on CI
+    // (2026-10-21) — the same class as 2b20baa7.
+  }, 30_000);
 });
