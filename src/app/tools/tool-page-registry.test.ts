@@ -232,7 +232,10 @@ describe("the registry is the panels on disk, and the page renders it", () => {
         direct,
       );
     }
-  });
+    // Imports every tool panel module and renders it: 3.5-4.3 s on a quiet
+    // machine against vitest's 5 s default; timed out under load (2026-10-11)
+    // — the same class as 2b20baa7.
+  }, 30_000);
 
   it("positive control: a route whose loader resolved to another route's panel fails that check", async () => {
     // Without this, "the loader renders what the module renders" could hold
