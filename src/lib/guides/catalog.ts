@@ -475,7 +475,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-10",
+    updated: "2026-10-17",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -848,7 +848,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-10-17",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",
@@ -1452,7 +1452,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-10-07",
   },
   {
     slug: "how-to-convert-markdown-to-pdf",
@@ -1517,7 +1517,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-09-28",
   },
   {
     slug: "how-to-redact-a-pdf",
