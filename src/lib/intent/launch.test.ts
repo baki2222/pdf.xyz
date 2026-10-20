@@ -340,7 +340,9 @@ describe("the token travels in this tab, not in the address", () => {
     });
     expect(pushed).toEqual(["/tools/rotate-pdf"]);
     // Positive control: the carried entry exists before the claim.
-    expect(session.get(HANDOFF_CARRY_KEY)).toMatch(/"path":"\/tools\/rotate-pdf"/);
+    expect(session.get(HANDOFF_CARRY_KEY)).toMatch(
+      /"path":"\/tools\/rotate-pdf"/,
+    );
     // Addressed: another page does not take it.
     expect(takeCarriedHandoff("/tools/merge-pdf")).toBeNull();
     expect(session.has(HANDOFF_CARRY_KEY)).toBe(true);

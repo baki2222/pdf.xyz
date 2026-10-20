@@ -103,9 +103,9 @@ test("after a hop, a reload opens the tool empty, with no hand-off notice", asyn
   ).toBeVisible();
   await page.reload();
   await expect(page.locator('input[type="file"]').first()).toBeAttached();
-  await expect(page.getByText("Loaded your result from Merge PDF.")).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByText("Loaded your result from Merge PDF."),
+  ).toHaveCount(0);
   await expect(page.getByText(/hand-off expired/i)).toHaveCount(0);
 });
 

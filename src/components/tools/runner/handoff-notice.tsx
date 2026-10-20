@@ -66,9 +66,9 @@ export function HandoffProblem({
       >
         <ArrowRight className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
-          {handoff.departed.count === 1 ? "Your file" : "Your files"} went on
-          to {to}. This page doesn&apos;t keep a copy, so choose {noun.one}{" "}
-          below to start over.
+          {handoff.departed.count === 1 ? "Your file" : "Your files"} went on to{" "}
+          {to}. This page doesn&apos;t keep a copy, so choose {noun.one} below
+          to start over.
         </span>
         <button
           type="button"
