@@ -103,20 +103,29 @@ describe("orderNote", () => {
 describe("defaultResolution", () => {
   it("chooses Screen past the threshold, with the page count as its reason", () => {
     expect(LARGE_RASTER_PAGES).toBe(60);
-    expect(defaultResolution(212)).toEqual({
+    expect(defaultResolution(212, RASTER_RESOLUTIONS)).toEqual({
       id: "screen",
       reason: "Screen resolution — this PDF has 212 pages",
     });
-    expect(defaultResolution(LARGE_RASTER_PAGES + 1)?.id).toBe("screen");
+    expect(
+      defaultResolution(LARGE_RASTER_PAGES + 1, RASTER_RESOLUTIONS)?.id,
+    ).toBe("screen");
   });
 
   it("says nothing at or under the threshold — the usual default stands", () => {
     for (const pages of [LARGE_RASTER_PAGES, 59, 1, 0])
-      expect(defaultResolution(pages), String(pages)).toBeNull();
+      expect(
+        defaultResolution(pages, RASTER_RESOLUTIONS),
+        String(pages),
+      ).toBeNull();
+  });
+
+  it("chooses nothing the picker does not offer", () => {
+    expect(defaultResolution(500, [{ id: "high", label: "High" }])).toBeNull();
   });
 
   it("chooses a resolution the picker offers, and names it by its label", () => {
-    const choice = defaultResolution(500)!;
+    const choice = defaultResolution(500, RASTER_RESOLUTIONS)!;
     const offered = RASTER_RESOLUTIONS.find((r) => r.id === choice.id);
     expect(offered).toBeDefined();
     expect(choice.reason.startsWith(`${offered!.label} resolution`)).toBe(true);

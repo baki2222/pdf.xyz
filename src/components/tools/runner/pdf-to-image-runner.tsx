@@ -27,6 +27,12 @@ import {
   type RasterFormat,
 } from "@/lib/pdf/pdf-to-image";
 import { downloadBytes } from "@/lib/pdf/browser";
+import { defaultResolution } from "@/lib/intent/defaults";
+import {
+  OPTION_SCHEMAS,
+  recallOptions,
+  rememberOptions,
+} from "@/lib/intent/option-memory";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -88,7 +94,20 @@ function PdfToImageEditor({
 }) {
   const label = format.toUpperCase();
   const { busy, error, result, run, reset } = useAsyncRun<RasterResult>();
-  const [resolutionId, setResolutionId] = useState(DEFAULT_RESOLUTION_ID);
+  // A long PDF opens at Screen, said with its reason (smart default);
+  // otherwise at the resolution last chosen here (option memory).
+  const [smart] = useState(() =>
+    defaultResolution(pdf.pageCount, RASTER_RESOLUTIONS),
+  );
+  const [resolutionId, setResolutionId] = useState<string>(
+    () =>
+      smart?.id ??
+      recallOptions("pdf-to-image").resolution ??
+      DEFAULT_RESOLUTION_ID,
+  );
+  // Only a resolution the reader picked is remembered, never one chosen
+  // for them.
+  const [picked, setPicked] = useState(false);
   const [progress, setProgress] = useState<{
     done: number;
     total: number;
@@ -105,6 +124,10 @@ function PdfToImageEditor({
     const controller = new AbortController();
     abortRef.current = controller;
     const resolution = resolutionById(resolutionId);
+    const kept = OPTION_SCHEMAS["pdf-to-image"].resolution.values.find(
+      (id) => id === resolution.id,
+    );
+    if (picked && kept) rememberOptions("pdf-to-image", { resolution: kept });
     setProgress({ done: 0, total: pdf.pageCount });
     void run(async () => {
       const pages = await rasterizePdf(pdf.bytes, {
@@ -135,6 +158,7 @@ function PdfToImageEditor({
   const changeResolution = (id: string) => {
     if (busy) return;
     setResolutionId(id);
+    setPicked(true);
     if (result) {
       reset();
       setProgress(null);
@@ -181,6 +205,11 @@ function PdfToImageEditor({
             </ChipButton>
           ))}
         </div>
+        {smart && resolutionId === smart.id && (
+          <p data-smart-default="" className="text-muted text-xs">
+            {smart.reason}
+          </p>
+        )}
       </RunnerSection>
 
       <div className="grid gap-3 sm:grid-cols-3">

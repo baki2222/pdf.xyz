@@ -36,8 +36,39 @@ import {
   OPTION_SCHEMAS,
   recallOptions,
   rememberOptions,
-  schemaProblems,
+  type Schema,
 } from "./option-memory";
+
+/**
+ * What is wrong with a schema — empty for one that can hold no free text.
+ * The checker lives with its test, beside the controls that prove it can
+ * fail; the store itself has no string kind to refuse.
+ */
+function schemaProblems(schema: Schema): string[] {
+  const problems: string[] = [];
+  for (const [name, field] of Object.entries(schema)) {
+    switch (field.kind) {
+      case "enum":
+        if (
+          field.values.length === 0 ||
+          field.values.some((v) => typeof v !== "string")
+        )
+          problems.push(`${name}: an enum needs a fixed list of strings`);
+        break;
+      case "number":
+        if (!(field.min <= field.max))
+          problems.push(`${name}: a number needs a range`);
+        break;
+      case "boolean":
+        break;
+      default:
+        problems.push(
+          `${name}: ${(field as { kind: string }).kind} is not a kind`,
+        );
+    }
+  }
+  return problems;
+}
 
 beforeEach(() => window.localStorage.clear());
 afterEach(() => {
@@ -70,9 +101,9 @@ describe("the registered schemas hold no free text", () => {
   });
 
   it("positive controls: the checker refuses a string field and an empty enum", () => {
-    expect(
-      schemaProblems({ text: { kind: "string" } } as never),
-    ).not.toEqual([]);
+    expect(schemaProblems({ text: { kind: "string" } } as never)).not.toEqual(
+      [],
+    );
     expect(
       schemaProblems({ pick: { kind: "enum", values: [] } } as never),
     ).not.toEqual([]);
@@ -239,9 +270,9 @@ describe("the wire: what the real editors store holds no typed text", () => {
   it("a remembered choice is what the next editor opens with", async () => {
     rememberOptions("watermark", { opacity: 64, rotation: -15 });
     render(<WatermarkEditor pdf={await loaded()} onReset={() => {}} />);
-    expect(
-      (screen.getByLabelText(/^opacity/i) as HTMLInputElement).value,
-    ).toBe("64");
+    expect((screen.getByLabelText(/^opacity/i) as HTMLInputElement).value).toBe(
+      "64",
+    );
     expect(
       (screen.getByLabelText(/^rotation/i) as HTMLInputElement).value,
     ).toBe("-15");
