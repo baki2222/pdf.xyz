@@ -424,7 +424,7 @@ export default function CommandPalette({
               setNotice(null);
             }}
             onKeyDown={onKeyDown}
-            className="placeholder:text-faint h-14 min-w-0 flex-1 bg-transparent text-base outline-none"
+            className="placeholder:text-faint h-14 w-0 flex-1 bg-transparent text-base outline-none"
           />
           <button
             type="button"
