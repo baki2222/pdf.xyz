@@ -11,6 +11,11 @@ import {
 import type { StampPosition } from "@/lib/pdf/stamp";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
+import {
+  OPTION_SCHEMAS,
+  recallOptions,
+  rememberOptions,
+} from "@/lib/intent/option-memory";
 import { formatBytes } from "@/lib/utils";
 import {
   ErrorNote,
@@ -56,17 +61,26 @@ export function PageNumbersRunner() {
   );
 }
 
-function PageNumbersEditor({
+export function PageNumbersEditor({
   pdf,
   onReset,
 }: {
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const [format, setFormat] = useState(DEFAULT_PAGE_NUMBER_FORMAT);
-  const [position, setPosition] = useState<StampPosition>("bottom-center");
-  const [startPage, setStartPage] = useState(1);
-  const [startAt, setStartAt] = useState(1);
+  // The last preset, position and start chosen here (option memory). A
+  // custom format is typed text and is never kept.
+  const [kept] = useState(() => recallOptions("page-numbers"));
+  const [format, setFormat] = useState<string>(
+    kept.format ?? DEFAULT_PAGE_NUMBER_FORMAT,
+  );
+  const [position, setPosition] = useState<StampPosition>(
+    kept.position ?? "bottom-center",
+  );
+  const [startPage, setStartPage] = useState(() =>
+    Math.min(kept.startPage ?? 1, Math.max(1, pdf.pageCount)),
+  );
+  const [startAt, setStartAt] = useState(kept.startAt ?? 1);
   const [fontSize, setFontSize] = useState(11);
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
@@ -80,8 +94,18 @@ function PageNumbersEditor({
     );
   }, [format, startAt, numberedCount]);
 
-  const onRun = () =>
-    run(() =>
+  const onRun = () => {
+    // A preset is kept; anything typed is not.
+    const preset = OPTION_SCHEMAS["page-numbers"].format.values.find(
+      (value) => value === format,
+    );
+    rememberOptions("page-numbers", {
+      position,
+      startPage,
+      startAt,
+      ...(preset ? { format: preset } : {}),
+    });
+    return run(() =>
       addPageNumbers(pdf.bytes, {
         format,
         position,
@@ -90,6 +114,7 @@ function PageNumbersEditor({
         fontSize,
       }),
     );
+  };
 
   if (result) {
     return (

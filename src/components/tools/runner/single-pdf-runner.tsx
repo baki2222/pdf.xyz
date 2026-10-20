@@ -1,7 +1,16 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useRef, type ReactNode } from "react";
+import {
+  createElement,
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import { FileText, ShieldAlert } from "lucide-react";
+import { loadedPreflightHint } from "@/components/intent/preflight-hint-chunk";
+import { hintNeedFor } from "@/lib/intent/hint-tools";
 import { formatBytes } from "@/lib/utils";
 import { Dropzone, ErrorNote, Spinner } from "./runner-kit";
 import {
@@ -10,6 +19,7 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useSinglePdf, type LoadedPdf, type PdfReader } from "./use-single-pdf";
+import { useToolRun } from "./tool-context";
 import { useToolHandoff, type ToolHandoff } from "./use-tool-handoff";
 
 /** The open editor as its page's "replace" target — fetched with the file. */
@@ -68,6 +78,7 @@ export function SinglePdfRunner({
   toolName = "this tool",
   writesPdf = true,
   reader = "pdf-lib",
+  prepare,
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -88,8 +99,16 @@ export function SinglePdfRunner({
    * {@link PdfReader}.
    */
   reader?: PdfReader;
+  /** Fetched while the file opens, before the editor draws — see `useSinglePdf`. */
+  prepare?: () => Promise<void>;
 }) {
-  const { pdf, loading, error, open, clear } = useSinglePdf({ reader });
+  // A tool with a preflight hint (E.9) probes the file as it opens.
+  const slug = useToolRun()?.slug ?? "";
+  const { pdf, loading, error, open, clear } = useSinglePdf({
+    reader,
+    preflight: hintNeedFor(slug),
+    prepare,
+  });
   // Self-claim only when a parent hasn't already provided a claimed hand-off.
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);
   const handoff = providedHandoff ?? selfHandoff;
@@ -121,6 +140,7 @@ export function SinglePdfRunner({
             origin={handoff.origin}
             count={1}
             skipped={handoff.skipped}
+            fileName={pdf.file.name}
           />
         )}
         {writesPdf && pdf.digitalSignatures > 0 && (
@@ -201,19 +221,28 @@ export function SignedInputNotice({
   );
 }
 
-/** Consistent file header shown at the top of each single-file editor. */
+/**
+ * Consistent file header shown at the top of each single-file editor — and
+ * the place its one preflight hint is drawn (E.9), on a line of its own
+ * under the name, when the file's probe found one for this tool.
+ */
 export function FileHeader({
   pdf,
   aside,
 }: {
   /** Only the name, size and page count are shown, so only they are required. */
-  pdf: Pick<LoadedPdf, "file" | "pageCount">;
+  pdf: Pick<LoadedPdf, "file" | "pageCount" | "probe">;
   aside?: ReactNode;
 }) {
+  const slug = useToolRun()?.slug;
+  // Loaded with the probe; absent for a file that was never probed. A
+  // stable component from a module held once (`preflight-hint-chunk`), not
+  // one made during render; `createElement` says so to the linter.
+  const hint = pdf.probe !== undefined ? loadedPreflightHint() : null;
   return (
     <div
       data-file-header=""
-      className="bg-panel border-line flex items-center gap-3 rounded-[4px] border px-3.5 py-3"
+      className="bg-panel border-line flex flex-wrap items-center gap-3 rounded-[4px] border px-3.5 py-3"
     >
       <FileText className="text-accent size-4 shrink-0" aria-hidden />
       <span className="text-fg min-w-0 flex-1 truncate text-sm">
@@ -224,6 +253,9 @@ export function FileHeader({
         {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"} ·{" "}
         {formatBytes(pdf.file.size)}
       </span>
+      {slug &&
+        hint &&
+        createElement(hint, { slug, probe: pdf.probe, file: pdf.file })}
     </div>
   );
 }

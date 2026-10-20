@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Download,
@@ -41,6 +41,11 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import {
+  loadedPreflightHint,
+  readPreflight,
+} from "@/components/intent/preflight-hint-chunk";
+import type { PdfProbe } from "@/lib/pdf/probe-result";
 import { OCR_TOOL_HREF } from "./no-text-note";
 
 export interface CompareItem {
@@ -49,6 +54,10 @@ export interface CompareItem {
   size: number;
   bytes: Uint8Array;
   pageCount: number;
+  /** The file itself, for a preflight hint to carry onward. */
+  file?: File;
+  /** What the preflight probe read (E.9): a scan is told to OCR first. */
+  probe?: PdfProbe | null;
 }
 
 interface Rejection {
@@ -93,12 +102,25 @@ export function ComparePdfRunner({
       for (const file of slots) {
         try {
           const bytes = await readFileBytes(file);
-          const pageCount = await getPageCount(bytes);
+          // The probe reads beside the page count, so a scan's hint is
+          // drawn with its card, not after it.
+          const [pageCount, probe] = await Promise.all([
+            getPageCount(bytes),
+            readPreflight(bytes, "image-only"),
+          ]);
           const id = `compare-${idRef.current++}`;
           setItems((prev) =>
             [
               ...prev,
-              { id, name: file.name, size: file.size, bytes, pageCount },
+              {
+                id,
+                name: file.name,
+                size: file.size,
+                bytes,
+                pageCount,
+                file,
+                probe,
+              },
             ].slice(0, 2),
           );
         } catch (err) {
@@ -213,6 +235,9 @@ export function ComparePdfEditor({
 }) {
   const { busy, error, result, run, reset } = useAsyncRun<PdfCompareResult>();
   const canCompare = items.length === 2;
+  // Fetched with each file's probe (`readPreflight`), before its card is drawn.
+  // A stable component from a module held once, not one made during render.
+  const hint = loadedPreflightHint();
   const onRun = () =>
     run(async () => {
       const [left, right] = items;
@@ -350,6 +375,14 @@ export function ComparePdfEditor({
                     {item.pageCount} page{item.pageCount === 1 ? "" : "s"} ·{" "}
                     {formatBytes(item.size)}
                   </p>
+                  {item.file &&
+                    hint &&
+                    createElement(hint, {
+                      slug: "compare-pdf",
+                      className: "mt-1",
+                      probe: item.probe,
+                      file: item.file,
+                    })}
                 </div>
                 <button
                   type="button"

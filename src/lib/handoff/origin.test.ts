@@ -55,6 +55,11 @@ function examples(): HandoffOrigin[] {
           { kind, fromSlug: "rotate-pdf", problem: "encrypted" },
           { kind, fromSlug: "rotate-pdf", problem: "unreadable" },
         ];
+      case "hint":
+        return [
+          { kind, fromSlug: "pdf-to-text", reason: "image-only" },
+          { kind, fromSlug: "sign-pdf", reason: "form-fields" },
+        ];
     }
   });
 }
@@ -92,6 +97,18 @@ describe("originPhrase", () => {
         { ...one, fromName: "Rotate PDF" },
       ),
     ).toBe("Loaded report.pdf from Rotate PDF to unlock it first.");
+    expect(
+      originPhrase(
+        { kind: "hint", fromSlug: "sign-pdf", reason: "form-fields" },
+        { ...one, fromName: "Sign PDF" },
+      ),
+    ).toBe("Loaded report.pdf from Sign PDF to fill in its fields.");
+    expect(
+      originPhrase(
+        { kind: "hint", fromSlug: "pdf-to-text", reason: "image-only" },
+        { ...one, fromName: "PDF to Text" },
+      ),
+    ).toBe("Loaded report.pdf from PDF to Text to make it searchable first.");
   });
 
   it("renders every origin kind, each to its own sentence (exhaustive)", () => {
@@ -187,6 +204,8 @@ describe("reading a stored record's provenance", () => {
       { kind: "drop", surface: "moon" },
       { kind: "result" },
       { kind: "remedy", fromSlug: "rotate-pdf", problem: "boredom" },
+      { kind: "hint", fromSlug: "sign-pdf", reason: "hunch" },
+      { kind: "hint", reason: "form-fields" },
       { kind: "result", fromSlug: "../../etc" },
     ])
       expect(readOrigin(bad), JSON.stringify(bad)).toEqual({

@@ -11,6 +11,7 @@ import type { RGB } from "@/lib/pdf/stamp";
 import { WATERMARK_INK } from "@/lib/pdf/stamp";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
+import { recallOptions, rememberOptions } from "@/lib/intent/option-memory";
 import { formatBytes } from "@/lib/utils";
 import {
   ErrorNote,
@@ -55,17 +56,20 @@ export function WatermarkEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
+  // The last opacity and angle chosen here, never the text (option memory).
+  const [kept] = useState(() => recallOptions("watermark"));
   const [text, setText] = useState("CONFIDENTIAL");
-  const [opacity, setOpacity] = useState(18);
-  const [rotation, setRotation] = useState(45);
+  const [opacity, setOpacity] = useState(kept.opacity ?? 18);
+  const [rotation, setRotation] = useState(kept.rotation ?? 45);
   const [fontSize, setFontSize] = useState(60);
   const [color, setColor] = useState<keyof typeof COLORS>("gray");
   const { busy, error, result, run, reset } = useAsyncRun<WatermarkReport>();
 
   const trimmed = text.trim();
 
-  const onRun = () =>
-    run(() =>
+  const onRun = () => {
+    rememberOptions("watermark", { opacity, rotation });
+    return run(() =>
       watermarkPdf(pdf.bytes, text, {
         opacity: opacity / 100,
         rotation,
@@ -73,6 +77,7 @@ export function WatermarkEditor({
         color: COLORS[color],
       }),
     );
+  };
 
   if (result) {
     const pages = result.pages;

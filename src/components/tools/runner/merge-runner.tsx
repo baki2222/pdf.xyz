@@ -20,6 +20,7 @@ import { getPageCount, mergePdfs } from "@/lib/pdf/engine";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { mergedOutputName, partitionPdfFiles } from "@/lib/pdf/files";
 import { causeOf, remedyFor, type RemedyInput } from "@/lib/pdf/remedies";
+import { naturalOrder, orderNote } from "@/lib/intent/defaults";
 import { renderFirstPage } from "@/lib/pdf/render";
 import type { Thumbnail } from "@/lib/pdf/render-utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -38,6 +39,7 @@ import {
   useAnnouncer,
   useAsyncRun,
 } from "./runner-kit";
+import { OrderNote } from "./order-note";
 import { RunBar } from "./run-bar";
 import {
   HandoffLoadedBadge,
@@ -54,6 +56,8 @@ interface MergeItem {
   pageCount: number;
   /** First-page preview; `null` until (or unless) it renders. */
   cover: Thumbnail | null;
+  /** Where it came in the drop: "Keep drop order" sorts by this. */
+  seq: number;
 }
 
 /** A file we couldn't add, with the specific reason (validation or parse). */
@@ -71,6 +75,14 @@ export function MergeRunner() {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const idRef = useRef(0);
+  const seqRef = useRef(0);
+  // The list as last drawn, for a drop to ask whether it is the first.
+  const itemsRef = useRef<MergeItem[]>([]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+  // The reason a natural order was applied, while it still stands.
+  const [ordered, setOrdered] = useState<string | null>(null);
   const mounted = useRef(true);
   // Every cover object URL we create, so we can revoke them on unmount.
   const coverUrls = useRef<Set<string>>(new Set());
@@ -115,8 +127,21 @@ export function MergeRunner() {
           ...rejected.map((r) => ({ name: r.file.name, reason: r.reason })),
         ]);
       }
+      // The first files in are put in the order of the numbers in their
+      // names when they are one numbered sequence (smart default, E.9) —
+      // decided BEFORE reading, so each row lands in its place and none
+      // moves after it is drawn.
+      const natural =
+        itemsRef.current.length === 0
+          ? naturalOrder(accepted.map((file) => file.name))
+          : null;
+      const seqOf = new Map(accepted.map((f, i) => [f, seqRef.current + i]));
+      seqRef.current += accepted.length;
+      const queue = natural ? natural.order.map((i) => accepted[i]!) : accepted;
+      if (itemsRef.current.length === 0)
+        setOrdered(natural ? orderNote(natural.numbers) : null);
       setLoading((n) => n + accepted.length);
-      for (const file of accepted) {
+      for (const file of queue) {
         try {
           const bytes = await readFileBytes(file);
           // Parsing here validates the PDF *before* merge: an encrypted or
@@ -133,6 +158,7 @@ export function MergeRunner() {
               bytes,
               pageCount,
               cover: null,
+              seq: seqOf.get(file) ?? 0,
             },
           ]);
           attachCover(id, bytes);
@@ -170,6 +196,7 @@ export function MergeRunner() {
     if (to < 0 || to >= items.length || to === from) return;
     const name = items[from]?.name ?? "file";
     setItems((prev) => reorder(prev, from, to));
+    setOrdered(null);
     announce(`Moved ${name} to position ${to + 1} of ${items.length}.`);
   };
   const removeAt = (index: number) =>
@@ -188,6 +215,13 @@ export function MergeRunner() {
     setRejections([]);
     setDragIndex(null);
     setOverIndex(null);
+    setOrdered(null);
+  };
+
+  const keepDropOrder = () => {
+    setItems((prev) => [...prev].sort((a, b) => a.seq - b.seq));
+    setOrdered(null);
+    announce("Kept the order the files were dropped in.");
   };
 
   const onMerge = () => run(() => mergePdfs(items.map((i) => i.bytes)));
@@ -268,9 +302,13 @@ export function MergeRunner() {
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
         aside={
-          <span className="text-muted text-xs">
-            Drag to reorder · top to bottom
-          </span>
+          ordered ? (
+            <OrderNote note={ordered} onKeep={keepDropOrder} />
+          ) : (
+            <span className="text-muted text-xs">
+              Drag to reorder · top to bottom
+            </span>
+          )
         }
       >
         <ul

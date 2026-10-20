@@ -38,6 +38,10 @@ export type DropSurface = (typeof DROP_SURFACES)[number];
 export const REMEDY_PROBLEMS = ["encrypted", "unreadable"] as const;
 export type RemedyProblem = (typeof REMEDY_PROBLEMS)[number];
 
+/** What a preflight hint saw in the file it sent onward (E.9). */
+export const HINT_REASONS = ["image-only", "form-fields"] as const;
+export type HintOriginReason = (typeof HINT_REASONS)[number];
+
 export type HandoffOrigin =
   /** Staged in the workspace and launched from it. */
   | { readonly kind: "workspace" }
@@ -50,6 +54,12 @@ export type HandoffOrigin =
       readonly kind: "remedy";
       readonly fromSlug: string;
       readonly problem: RemedyProblem;
+    }
+  /** A tool's preflight hint sent the file to the tool better suited to it. */
+  | {
+      readonly kind: "hint";
+      readonly fromSlug: string;
+      readonly reason: HintOriginReason;
     };
 
 /** Every origin kind, in one list the tests walk. */
@@ -58,6 +68,7 @@ export const HANDOFF_ORIGINS = [
   "drop",
   "result",
   "remedy",
+  "hint",
 ] as const satisfies readonly HandoffOrigin["kind"][];
 
 // A kind added to the union but not to the list is a compile error here.
@@ -118,6 +129,15 @@ export function readOrigin(raw: unknown): HandoffOrigin {
             problem: o.problem as RemedyProblem,
           }
         : fallback;
+    case "hint":
+      return isSlug(o.fromSlug) &&
+        (HINT_REASONS as readonly unknown[]).includes(o.reason)
+        ? {
+            kind: "hint",
+            fromSlug: o.fromSlug,
+            reason: o.reason as HintOriginReason,
+          }
+        : fallback;
     default:
       return fallback;
   }
@@ -175,6 +195,12 @@ export function originPhrase(
       const what = fileName ?? "your file";
       const why = origin.problem === "encrypted" ? "unlock" : "repair";
       return `Loaded ${what} from ${from} to ${why} it first.`;
+    }
+    case "hint": {
+      const what = fileName ?? "your file";
+      return origin.reason === "image-only"
+        ? `Loaded ${what} from ${from} to make it searchable first.`
+        : `Loaded ${what} from ${from} to fill in its fields.`;
     }
     default: {
       const unhandled: never = origin;

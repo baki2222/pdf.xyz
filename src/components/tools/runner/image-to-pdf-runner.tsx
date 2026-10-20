@@ -20,6 +20,7 @@ import {
   type ImagePdfKind,
 } from "@/lib/pdf/image-to-pdf";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
+import { naturalOrder, orderNote } from "@/lib/intent/defaults";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -32,6 +33,7 @@ import {
   reorder,
   useAsyncRun,
 } from "./runner-kit";
+import { OrderNote } from "./order-note";
 import { RunBar } from "./run-bar";
 import {
   HandoffLoadedBadge,
@@ -49,6 +51,8 @@ interface ImageItem {
   size: number;
   bytes: Uint8Array;
   previewUrl: string;
+  /** Where it came in the pick: "Keep drop order" sorts by this. */
+  seq: number;
 }
 
 interface Rejection {
@@ -64,6 +68,14 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   const [rejections, setRejections] = useState<Rejection[]>([]);
   const [loading, setLoading] = useState(0);
   const idRef = useRef(0);
+  const seqRef = useRef(0);
+  // The list as last drawn, for a pick to ask whether it is the first.
+  const itemsRef = useRef<ImageItem[]>([]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+  // The reason a natural order was applied, while it still stands.
+  const [ordered, setOrdered] = useState<string | null>(null);
   const seededRef = useRef(false);
   const previewUrls = useRef<Set<string>>(new Set());
 
@@ -145,11 +157,22 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           size: file.size,
           bytes,
           previewUrl: URL.createObjectURL(file),
+          seq: seqRef.current++,
         });
       }
       if (unreadable.length) setRejections([...rejected, ...unreadable]);
       loaded.forEach((item) => previewUrls.current.add(item.previewUrl));
-      setItems((prev) => [...prev, ...loaded]);
+      // The first images in are put in the order of the numbers in their
+      // names when they are one numbered sequence (smart default, E.9), in
+      // the same update that draws them.
+      const natural =
+        itemsRef.current.length === 0
+          ? naturalOrder(loaded.map((item) => item.name))
+          : null;
+      if (itemsRef.current.length === 0)
+        setOrdered(natural ? orderNote(natural.numbers) : null);
+      const arrived = natural ? natural.order.map((i) => loaded[i]!) : loaded;
+      setItems((prev) => [...prev, ...arrived]);
     },
     [kind],
   );
@@ -165,8 +188,14 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   }, [handoff.status, handoff.files, addFiles]);
 
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
-  const move = (from: number, to: number) =>
+  const move = (from: number, to: number) => {
     setItems((prev) => reorder(prev, from, to));
+    setOrdered(null);
+  };
+  const keepDropOrder = () => {
+    setItems((prev) => [...prev].sort((a, b) => a.seq - b.seq));
+    setOrdered(null);
+  };
   const remove = (id: string) =>
     setItems((prev) => {
       const removed = prev.find((item) => item.id === id);
@@ -187,6 +216,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     previewUrls.current.clear();
     setItems([]);
     setRejections([]);
+    setOrdered(null);
     reset();
   };
   const onRun = () =>
@@ -248,9 +278,13 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         <RunnerSection
           title="Image order"
           aside={
-            <span className="text-muted text-xs">
-              {items.length} image{items.length === 1 ? "" : "s"}
-            </span>
+            ordered ? (
+              <OrderNote note={ordered} onKeep={keepDropOrder} />
+            ) : (
+              <span className="text-muted text-xs">
+                {items.length} image{items.length === 1 ? "" : "s"}
+              </span>
+            )
           }
         >
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
