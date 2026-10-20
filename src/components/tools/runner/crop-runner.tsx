@@ -287,7 +287,10 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
               />
             </div>
           ) : (
-            <div className="bg-wash aspect-[3/4] w-full max-w-[200px] animate-pulse rounded-lg" />
+            // Still, and the preview frame's own shape — not the pulsing box
+            // #184 removed from Edit, Annotate and Redact. Held there by
+            // e2e/editor-arrival.spec.ts.
+            <div className="bg-wash relative aspect-[3/4] w-full max-w-[200px] overflow-hidden rounded-lg" />
           )}
         </div>
       </RunnerSection>
