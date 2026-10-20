@@ -57,11 +57,12 @@ import {
  * allowance note, which only a panel that can run says.
  *
  * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
- * (it had measured phone widths only): tallest state 546px at 640 and
- * 565.5px at 1024 on Windows, x1.035, to the half rem — the rule the base
- * reserve uses. CI's SLOT_NATURAL lines are the Linux column.
+ * (it had measured phone widths only): the tallest state, the larger of
+ * Windows and Linux (CI on #187), is 546px at 640 and
+ * 565.5px (Linux 585px) at 1024; x1.035, to the half rem — the rule the base
+ * reserve uses.
  */
-const STATUS_SLOT = "min-h-[48.5rem] sm:min-h-[35.5rem] lg:min-h-[37rem]";
+const STATUS_SLOT = "min-h-[48.5rem] sm:min-h-[35.5rem] lg:min-h-[38rem]";
 
 type Phase = WorkerPhase;
 
