@@ -138,6 +138,7 @@
         "Common questions",
         "More guides",
         "Position, and pages that are rotated",
+        "Related guides",
         "Skipping the cover and choosing the first number",
         "Step by step",
         "Tools used in this guide"
@@ -194,6 +195,7 @@
         "Covering something is not the same as removing it",
         "More guides",
         "Placing text, boxes, lines, and images",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What Edit PDF changes, and what it leaves alone",
@@ -247,7 +249,7 @@
       "h1": ["How to compare two PDF files"],
       "h2": [
         "Common questions",
-        "More guides",
+        "Related guides",
         "Scanned PDFs need OCR first",
         "Step by step",
         "Tools used in this guide",
@@ -359,6 +361,7 @@
         "Common questions",
         "Limits, formats, and where to go next",
         "More guides",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What each page looks like",
@@ -470,6 +473,7 @@
         "JPG or PNG?",
         "More guides",
         "Page images, or the images inside the PDF?",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What you download",
@@ -523,7 +527,7 @@
       "h1": ["How to convert a PDF to an editable Word document"],
       "h2": [
         "Common questions",
-        "More guides",
+        "Related guides",
         "Scanned PDFs and neighboring tools",
         "Size limit and link expiry",
         "Step by step",
@@ -580,7 +584,7 @@
       "h2": [
         "Choose the right field type",
         "Common questions",
-        "More guides",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What you get, and the limits",
@@ -634,7 +638,7 @@
       "h1": ["How to delete pages from a PDF"],
       "h2": [
         "Common questions",
-        "More guides",
+        "Related guides",
         "Step by step",
         "Three ways to select pages",
         "Tools used in this guide",
@@ -690,7 +694,7 @@
       "h2": [
         "Common questions",
         "Limits and what you get back",
-        "More guides",
+        "Related guides",
         "Signing and locking the finished form",
         "Step by step",
         "Tools used in this guide",
@@ -746,7 +750,7 @@
       "h2": [
         "After flattening",
         "Common questions",
-        "More guides",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What gets flattened",
@@ -801,8 +805,8 @@
       "h2": [
         "Common questions",
         "Limits worth knowing",
-        "More guides",
         "Pick the right recognition languages",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What you get back",
@@ -858,7 +862,7 @@
         "Common questions",
         "Get the order right before you merge",
         "Inputs, output, and limits",
-        "More guides",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "Where the merge actually runs"
@@ -912,7 +916,7 @@
       "h2": [
         "Common questions",
         "Limits worth knowing",
-        "More guides",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What the password actually does",
@@ -968,8 +972,8 @@
       "h2": [
         "Before you share it",
         "Common questions",
-        "More guides",
         "Redacting is not the same as covering",
+        "Related guides",
         "Step by step",
         "The trade-off: every page becomes an image",
         "Tools used in this guide",
@@ -1023,8 +1027,8 @@
       "h1": ["How to remove a password from a PDF"],
       "h2": [
         "Common questions",
-        "More guides",
         "Putting a password back",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What unlocking does",
@@ -1077,8 +1081,8 @@
       "h1": ["How to repair a damaged or corrupted PDF"],
       "h2": [
         "Common questions",
-        "More guides",
         "Reading the warnings",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "When the problem is not damage",
@@ -1134,6 +1138,7 @@
       "h2": [
         "Common questions",
         "More guides",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "Turning every page, or only some",
@@ -1188,7 +1193,7 @@
       "h1": ["How to sign a PDF"],
       "h2": [
         "Common questions",
-        "More guides",
+        "Related guides",
         "Step by step",
         "Three ways to make a signature",
         "Tools used in this guide",
@@ -1246,7 +1251,7 @@
         "Choose the right split mode",
         "Common questions",
         "Limits to know",
-        "More guides",
+        "Related guides",
         "Step by step",
         "Tools used in this guide",
         "What the output looks like",
@@ -1301,7 +1306,7 @@
       "h2": [
         "Common questions",
         "Long documents, oversized pages, and the allowance",
-        "More guides",
+        "Related guides",
         "Scanned PDFs need OCR first",
         "Step by step",
         "Tools used in this guide",
@@ -1360,7 +1365,7 @@
         "Everything you can do with a PDF",
         "Free right now. All of it.",
         "How to do it, step by step",
-        "One workspace for your files",
+        "One file, many tools, without picking it again.",
         "Questions, answered",
         "Understand documents, not just process them",
         "Your documents never become our data"

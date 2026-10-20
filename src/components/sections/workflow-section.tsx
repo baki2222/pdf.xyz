@@ -4,30 +4,38 @@ import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { buttonVariants } from "@/components/ui/button";
 
+/**
+ * The three steps, one sentence each (design spec WP-13). What each rests on:
+ *  1. a file dropped anywhere is read in the tab (WP-07's drop layer);
+ *  2. the suggestion shows its reason (the ticket's evidence, WP-04/05);
+ *  3. GATED by `feature-claims.test.ts`: every in-browser tool that makes a
+ *     PDF offers a next tool, the property `next-steps.test.ts` proves
+ *     ("every PDF made in the browser has somewhere to go"). The spec's
+ *     wording said "every result", which a PDF to JPG result does not do; the
+ *     sentence says what the property covers.
+ */
 const steps = [
-  {
-    title: "Add your files",
-    body: "Drag in one file or a hundred. They stage in your browser — nothing uploads until a tool needs it.",
-  },
-  {
-    title: "Pick a tool",
-    body: "Choose a suggested tool. In-browser tools open with your staged files already loaded, so there is nothing to upload again.",
-  },
-  {
-    title: "Download",
-    body: "Download the result when the tool finishes. Each tool runs on its own; pick the next one when you need it.",
-  },
-];
+  "Drop a file anywhere — the tab reads it, nothing uploads.",
+  "Open the tool we suggest, with the reason we suggest it.",
+  "Every PDF made in your browser offers the next tool, with the file already loaded.",
+] as const;
 
 /**
- * Tools that open with the workspace's staged files. Not a sequence: the
- * workspace hands files to ONE tool at a time, and this strip used to be an
- * arrowed "Example pipeline" selling a chaining feature that does not exist.
- * Every entry here is a tool with an in-browser handoff (see
- * `feature-claims.test.ts`).
+ * One chain a result's "Continue with" row offers, station by station: each
+ * consecutive pair of tools is an edge of `continueTargetsFor`, which
+ * `feature-claims.test.ts` reads back from the RENDERED strip. The last
+ * station is the download, not a tool. `data-station` and the
+ * `workflow-station` class are the hooks WP-12's scroll-driven lighting (M19)
+ * attaches to; nothing here animates.
  */
-const stages = ["Merge", "Compress", "Watermark", "Sign"] as const;
-type Stage = (typeof stages)[number];
+const stations = [
+  { stage: "Merge", slug: "merge-pdf" },
+  { stage: "Compress", slug: "compress-pdf" },
+  { stage: "Page numbers", slug: "page-numbers" },
+  { stage: "Sign", slug: "sign-pdf" },
+  { stage: "Download", slug: null },
+] as const;
+type Stage = (typeof stations)[number]["stage"];
 
 /** A sheet of paper with a folded corner, in token colours. */
 function Sheet({
@@ -85,8 +93,8 @@ function Bars({
 }
 
 /**
- * The document in each tool — pages being merged, condensed, watermarked,
- * signed. Decorative (the chip labels beneath carry the words), drawn
+ * The document at each station — pages being merged, condensed, numbered,
+ * signed, then saved. Decorative (the chip labels beneath carry the words), drawn
  * entirely in tokens so both schemes work.
  */
 function StageGlyph({ stage }: { stage: Stage }) {
@@ -120,18 +128,26 @@ function StageGlyph({ stage }: { stage: Stage }) {
           />
         </Sheet>
       )}
-      {stage === "Watermark" && (
+      {stage === "Page numbers" && (
         <Sheet>
-          <Bars ys={[36, 46, 68, 78]} />
+          <Bars ys={[34, 44, 54, 64]} />
           <rect
-            x="12"
-            y="51"
-            width="60"
-            height="10"
-            rx="2"
-            fill="var(--sf-accent)"
-            opacity="0.3"
-            transform="rotate(-14 42 56)"
+            x="35"
+            y="80"
+            width="14"
+            height="9"
+            rx="1"
+            fill="none"
+            stroke="var(--sf-accent)"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M40 82.5 L42 81.5 V87.5"
+            fill="none"
+            stroke="var(--sf-accent)"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
         </Sheet>
       )}
@@ -147,24 +163,45 @@ function StageGlyph({ stage }: { stage: Stage }) {
           />
         </Sheet>
       )}
+      {stage === "Download" && (
+        <Sheet>
+          <Bars ys={[34, 44]} />
+          <path
+            d="M42 56 V80 M33 71 L42 80 L51 71"
+            fill="none"
+            stroke="var(--sf-accent)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M30 88 H54"
+            stroke="var(--sf-line-strong)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </Sheet>
+      )}
     </svg>
   );
 }
 
 /**
- * The page's full-bleed moment: a wash ground, the document itself in the
- * tools that open staged files, at large scale, and the three steps as a
- * ruled row beneath. This is where a document product finally shows a
- * document.
+ * The page's full-bleed moment: a wash ground, the document itself at large
+ * scale moving through one chain of tools, and the three steps as a ruled
+ * row beneath. This is where a document product finally shows a document.
  */
 export function WorkflowSection() {
   return (
-    <section className="border-line bg-wash border-b py-20 sm:py-24">
+    <section
+      data-workflow
+      className="border-line bg-wash border-b py-20 sm:py-24"
+    >
       <Container className="flex flex-col gap-14">
         <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
           <SectionHeading
-            eyebrow="Workspace"
-            title="One workspace for your files"
+            eyebrow="Workflow"
+            title="One file, many tools, without picking it again."
             description="Most PDF sites make you upload the same file again for every tool. pdf.xyz stages your files once, and the in-browser tools open with them already loaded."
             className="max-w-2xl"
           />
@@ -178,32 +215,52 @@ export function WorkflowSection() {
         </div>
 
         <div className="flex flex-col gap-5">
-          <p className="text-faint kicker">Tools that open your staged files</p>
-          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-10 sm:justify-between">
-            {stages.map((stage) => (
-              <div key={stage} className="flex flex-col items-center gap-3">
-                <StageGlyph stage={stage} />
-                <span className="border-line-strong/60 bg-panel text-fg rounded-[2px] border px-3 py-1.5 font-mono text-[13px]">
+          <p className="text-faint kicker" id="workflow-chain">
+            One chain the results offer
+          </p>
+          <ol
+            aria-labelledby="workflow-chain"
+            className="flex flex-wrap items-start justify-center gap-x-3 gap-y-10 sm:grid sm:grid-cols-5"
+          >
+            {/* From sm, five equal columns, each station centred in its own;
+                the arrow sits on the column's right edge at the drawing's
+                middle, so it falls between two stations. */}
+            {stations.map(({ stage, slug }, i) => (
+              <li
+                key={stage}
+                data-station={slug ?? "download"}
+                className="workflow-station flex flex-col items-center gap-3"
+              >
+                <div className="relative flex w-full justify-center">
+                  <StageGlyph stage={stage} />
+                  {i < stations.length - 1 && (
+                    <ArrowRight
+                      className="text-faint absolute top-1/2 right-0 size-4 -translate-y-1/2 max-sm:hidden"
+                      aria-hidden
+                    />
+                  )}
+                </div>
+                <span
+                  data-station-label
+                  className="workflow-station-chip border-line-strong/60 bg-panel text-fg rounded-tag border px-3 py-1.5 font-mono text-[13px]"
+                >
                   {stage}
                 </span>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
 
         <ol className="grid gap-x-10 gap-y-4 sm:grid-cols-3">
-          {steps.map(({ title, body }, i) => (
+          {steps.map((step, i) => (
             <li
-              key={title}
+              key={step}
               className="border-line-strong/50 flex flex-col gap-2 border-t pt-5"
             >
-              <span className="text-accent font-mono text-sm" aria-hidden>
+              <span className="text-accent figure text-sm" aria-hidden>
                 {String(i + 1).padStart(2, "0")}
               </span>
-              <h3 className="text-fg text-lg font-medium">{title}</h3>
-              <p className="text-muted max-w-lg text-sm leading-relaxed">
-                {body}
-              </p>
+              <p className="text-fg max-w-lg text-lg leading-snug">{step}</p>
             </li>
           ))}
         </ol>

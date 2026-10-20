@@ -152,3 +152,21 @@ export function relatedGuides(
     .slice(0, limit)
     .map(({ other }) => other);
 }
+
+/**
+ * The guides a page may call RELATED: those that share at least one tool
+ * with `guide`, closest first ({@link relatedGuides}' order), never the guide
+ * itself. Unlike {@link relatedGuides} this never fills from the rest of the
+ * catalogue, because the heading it sits under ("Related guides") claims
+ * the relation. A guide nothing shares a tool with gets an empty list, and
+ * its page links the filler under "More guides" instead, a heading that
+ * claims nothing. `guide-layout.test.tsx` reads both off the rendered pages.
+ */
+export function guidesSharingATool(
+  guide: Guide,
+  limit = RELATED_GUIDE_LIMIT,
+): Guide[] {
+  return relatedGuides(guide, guides.length)
+    .filter((other) => guideAffinity(guide, other).tools > 0)
+    .slice(0, limit);
+}
