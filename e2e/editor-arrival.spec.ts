@@ -1,8 +1,11 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { recordedShifts, startFrames, stopFrames, type Shift } from "./frames";
 import { fileInput, waitForHydration } from "./helpers";
 import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
+import { getRunnerKind, supportedToolSlugs } from "../src/lib/pdf/registry";
 
 /**
  * THE EDITOR AS A FILE ARRIVES (2026-10-20). A file dropped on the page or
@@ -27,17 +30,103 @@ import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
  *
  * Health, per row: the instrument saw a shift of its own making at this
  * size (a sum of nothing is the strongest possible pass), and the editor
- * opened with THIS file in it. The editors are derived from nothing — they
- * are the ones the reviews named; every other runner's arrival is reported
- * by `continue-chain.spec.ts`.
+ * opened with THIS file in it.
+ *
+ * The editors are DERIVED (2026-10-20, after Crop PDF was found drawing the
+ * same pulsing box #184 removed from three others): every runner the
+ * dispatcher mounts whose source draws a page-preview placeholder — the
+ * shared `<PagePreviewPlaceholder` or a `bg-wash aspect-[…]` page box of its
+ * own — through `tool-runner.tsx`'s `case "kind": return <X />` and
+ * `X = dynamic(() => import("./file"))`, then every slug the registry gives
+ * that kind. Merge PDF draws neither and stays because a review named it.
+ * Every other runner's arrival is reported by `continue-chain.spec.ts`.
+ *
+ * Crop PDF measured 0.0000 here in all six cells WITH its pulsing box, so
+ * this bound cannot see that box; {@link PULSING_BOX} is what holds it out.
  */
 
-const EDITORS = [
-  { slug: "edit-pdf", pages: 1 },
-  { slug: "annotate-pdf", pages: 1 },
-  { slug: "redact-pdf", pages: 2 },
-  { slug: "merge-pdf", pages: 3 },
+const RUNNER_DIR = join(process.cwd(), "src/components/tools/runner");
+
+/** A page-preview placeholder, either shape: the shared one, or a page box. */
+const PLACEHOLDER = [
+  /<PagePreviewPlaceholder[\s/>]/,
+  /className=(?="(?:[^"]* )?bg-wash )(?="(?:[^"]* )?aspect-\[)"[^"]*"/,
 ] as const;
+
+/** The box #184 removed: a page-shaped placeholder that pulses. */
+const PULSING_BOX =
+  /className=(?="(?:[^"]* )?aspect-\[)(?="(?:[^"]* )?animate-pulse[" ])"[^"]*"/g;
+
+/** Positive controls: the boxes as they shipped, before #184 and this fix. */
+const SHIPPED_PULSING_BOXES = [
+  // crop-runner.tsx, until 2026-10-20
+  `<div className="bg-wash aspect-[3/4] w-full max-w-[200px] animate-pulse rounded-lg" />`,
+];
+
+function placeholderEditors(): string[] {
+  const dispatcher = readFileSync(join(RUNNER_DIR, "tool-runner.tsx"), "utf8");
+  const fileOf = new Map(
+    [
+      ...dispatcher.matchAll(
+        /const (\w+) = dynamic\(\(\) =>\s*import\("\.\/([\w-]+)"\)/g,
+      ),
+    ].map(([, name, file]) => [name!, file!]),
+  );
+  const kinds = [
+    ...dispatcher.matchAll(/case "([\w-]+)":\s*return <(\w+)/g),
+  ].map(([, kind, name]) => ({ kind: kind!, file: fileOf.get(name!) }));
+  if (fileOf.size < 20 || kinds.length < 20 || kinds.some((k) => !k.file))
+    throw new Error(
+      `tool-runner.tsx parsed implausibly: ${fileOf.size} loaders, ${kinds.length} cases`,
+    );
+  const drawing = new Set(
+    kinds
+      .filter(({ file }) => {
+        const src = readFileSync(join(RUNNER_DIR, `${file}.tsx`), "utf8");
+        return PLACEHOLDER.some((re) => re.test(src));
+      })
+      .map(({ kind }) => kind),
+  );
+  return supportedToolSlugs.filter((slug) => drawing.has(getRunnerKind(slug)!));
+}
+
+const DERIVED = placeholderEditors();
+/** Pages per file, where one is not enough to exercise the editor. */
+const PAGES: Record<string, number> = { "redact-pdf": 2, "merge-pdf": 3 };
+const EDITORS = [...new Set([...DERIVED, "merge-pdf"])].map((slug) => ({
+  slug,
+  pages: PAGES[slug] ?? 1,
+}));
+
+test("the editor list is derived, and plausibly sized", () => {
+  // Edit, Annotate, Redact and Crop on 2026-10-20: fewer is a broken parse.
+  expect(DERIVED.length, DERIVED.join(", ")).toBeGreaterThanOrEqual(4);
+  expect(DERIVED, DERIVED.join(", ")).toEqual(
+    expect.arrayContaining([
+      "edit-pdf",
+      "annotate-pdf",
+      "redact-pdf",
+      "crop-pdf",
+    ]),
+  );
+});
+
+test("no editor draws a pulsing page box", () => {
+  for (const box of SHIPPED_PULSING_BOXES)
+    expect(box.match(PULSING_BOX), "the ban misses a shipped box").toHaveLength(
+      1,
+    );
+  const files = readdirSync(RUNNER_DIR).filter((f) => f.endsWith(".tsx"));
+  expect(files.length, "the runner directory read implausibly").toBeGreaterThan(
+    30,
+  );
+  const found = files.flatMap((f) =>
+    [...readFileSync(join(RUNNER_DIR, f), "utf8").matchAll(PULSING_BOX)].map(
+      ([box]) => `${f}: ${box}`,
+    ),
+  );
+  expect(found, found.join("\n")).toEqual([]);
+});
 
 /** Two phones the reviews measured, and one desktop. */
 const SCREENS = [
