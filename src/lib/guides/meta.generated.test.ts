@@ -5,7 +5,7 @@
  * WHY A GENERATED FILE. The command palette ranks guides in the browser, from
  * a lazy chunk with a 12 KB gz budget. `catalog.ts` is the whole article set
  * (steps, sections, FAQs) and imports a dozen modules to interpolate its
- * figures, so the palette cannot import it. `meta.generated.ts` is the five
+ * figures, so the palette cannot import it. `meta.generated.ts` is the four
  * fields the palette reads, written by `pnpm guides:meta`.
  *
  * A COPY GOES STALE. So this compares the generated file with a fresh
@@ -30,10 +30,12 @@ describe("meta.generated.ts", () => {
     expect(GUIDE_META).toEqual(projectGuideMeta(guides));
   });
 
-  it("carries exactly the five fields the palette reads", () => {
+  it("carries exactly the four fields the palette reads", () => {
+    // Not the spec's five: the description was 1.1 KB gz of a palette fetch
+    // budgeted at 12 and measured at 13.07 (see ./meta.ts).
     for (const meta of GUIDE_META) {
       expect(Object.keys(meta).sort()).toEqual(
-        ["description", "keywords", "primary", "slug", "title"].sort(),
+        ["keywords", "primary", "slug", "title"].sort(),
       );
     }
   });
