@@ -28,6 +28,7 @@ import { describe, expect, it } from "vitest";
 import { DESK_ISLAND_MARKER } from "@/components/intent/desk-island-chunk";
 import { TICKET_CHUNK_MARKER } from "@/components/intent/ticket-chunk";
 import { TICKET_DIALOG_CHUNK_MARKER } from "@/components/intent/ticket-dialog-chunk";
+import { PALETTE_CHUNK_MARKER } from "@/components/intent/palette-chunk";
 import { REPLACE_BOXES_CHUNK } from "@/components/tools/replace-boxes";
 import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
@@ -253,6 +254,16 @@ const OUR_LAZY: LazyLibrary[] = [
     why: "the runner kit fetches it when a run starts, Compress PDF when its file arrives; a visit that never brings a file never downloads it",
     allowedAtLoad: {},
   },
+  // WP-09 (2026-10-21): the command palette — its index (every tool, task,
+  // guide, page and action), the ranked search over it, and the dialog. The
+  // header's trigger is in every page's first load; it fetches the palette
+  // on hover, focus, Ctrl or Meta going down, or the shortcut itself.
+  {
+    what: "the command palette",
+    marker: PALETTE_CHUNK_MARKER,
+    why: "the header's trigger fetches it on approach (hover, focus, Ctrl/Meta) or when it is opened; a visitor who never opens it never downloads it",
+    allowedAtLoad: {},
+  },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load
   // on the home page, which renders it; the reason it sits behind a
   // `next/dynamic` boundary (`hero-desk-island.tsx`) is that every other
@@ -350,6 +361,17 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
     expect(ticket.length).toBe(1);
     const taglines = tools.map((t) => t.tagline);
     const text = read(ticket[0]!);
+    expect(taglines.filter((tagline) => text.includes(tagline))).toEqual([]);
+  });
+
+  it("the palette's chunk does not carry its own copy", () => {
+    if (!built) return;
+    const palette = walkJs(CHUNKS_DIR).filter((f) =>
+      read(f).includes(PALETTE_CHUNK_MARKER),
+    );
+    expect(palette.length).toBe(1);
+    const taglines = tools.map((t) => t.tagline);
+    const text = read(palette[0]!);
     expect(taglines.filter((tagline) => text.includes(tagline))).toEqual([]);
   });
 });
@@ -452,5 +474,88 @@ describe("the ticket's on-demand fetch is bounded", () => {
       gz,
       `the ticket's fetch is ${gz.toFixed(1)} KB gz over ${counted.map((f) => path.basename(f)).join(", ")}`,
     ).toBeLessThan(TICKET_FETCH_GZ_KB);
+  });
+});
+
+/**
+ * WP-09: what opening the palette costs, read the same way as the ticket's
+ * fetch above — every chunk in the `Promise.all` in front of the palette's
+ * import, minus the catalogue (shared, counted once, above) and minus what
+ * the page already loaded. G.1 budgets it at 12 KB gz; that is the PLAN's
+ * number, and it is the bound, because the palette was written to it.
+ *
+ * Measured on every page kind whose first load differs (the home page, a
+ * tool page, a guide, the 404), because "what the page already loaded" is
+ * per page: a page that already has the search engine pays less.
+ */
+const PALETTE_FETCH_GZ_KB = 12;
+
+function onDemandFetch(marker: string, page: string) {
+  const all = walkJs(CHUNKS_DIR);
+  const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
+  const declares = (f: string, id: string) =>
+    (/\.push\(\[\[([\d,]+)\]/.exec(read(f).slice(0, 200))?.[1] ?? "")
+      .split(",")
+      .includes(id);
+  const own = all.filter((f) => read(f).includes(marker));
+  expect(own, `exactly one chunk carries ${marker}`).toHaveLength(1);
+  const ownId = idOf(own[0]!);
+  expect(ownId, "the chunk has no numeric id").toBeTruthy();
+  const loads = all
+    .flatMap((f) =>
+      [
+        ...read(f).matchAll(/Promise\.all\(\[((?:\w+\.e\(\d+\),?)+)\]\)/g),
+      ].map((m) => [...m[1]!.matchAll(/\.e\((\d+)\)/g)].map((x) => x[1]!)),
+    )
+    .filter((ids) => ids.includes(ownId!));
+  expect(loads.length, "no chunk loads it").toBeGreaterThanOrEqual(1);
+  const ids = new Set(loads.flat());
+  const files = [...ids].map((id) => {
+    const f = all.find((c) => declares(c, id));
+    expect(f, `chunk ${id} is not on disk`).toBeTruthy();
+    return f!;
+  });
+  const taglines = tools.map((t) => t.tagline);
+  const isCatalogue = (f: string) =>
+    taglines.filter((t) => read(f).includes(t)).length >= taglines.length - 5;
+  const onPage = new Set(
+    chunkFiles(NEXT_DIR, page).map((f) => path.resolve(f)),
+  );
+  const counted = files.filter(
+    (f) => !isCatalogue(f) && !onPage.has(path.resolve(f)),
+  );
+  const gz =
+    counted.reduce(
+      (sum, f) => sum + gzipSync(readFileSync(f), { level: 9 }).length,
+      0,
+    ) / 1024;
+  return { files, counted, gz, catalogueAmong: files.some(isCatalogue) };
+}
+
+describe("the palette's on-demand fetch is bounded", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("positive control: the same reader measures the ticket's fetch, catalogue excluded", () => {
+    if (!built) return;
+    const ticket = onDemandFetch(TICKET_CHUNK_MARKER, "index.html");
+    expect(ticket.catalogueAmong).toBe(true);
+    expect(ticket.gz).toBeGreaterThan(5);
+  });
+
+  it.each([
+    "index.html",
+    "tools/rotate-pdf.html",
+    "guides/how-to-merge-pdf-files.html",
+    "_not-found.html",
+  ])(`from %s it stays under ${PALETTE_FETCH_GZ_KB} KB gz`, (page) => {
+    if (!built) return;
+    const fetch = onDemandFetch(PALETTE_CHUNK_MARKER, page);
+    // Health: the palette reads the catalogue, and it was found and excluded.
+    expect(fetch.catalogueAmong).toBe(true);
+    expect(fetch.counted.length).toBeGreaterThanOrEqual(1);
+    expect(
+      fetch.gz,
+      `the palette's fetch from ${page} is ${fetch.gz.toFixed(2)} KB gz over ${fetch.counted.map((f) => path.basename(f)).join(", ")}`,
+    ).toBeLessThanOrEqual(PALETTE_FETCH_GZ_KB);
   });
 });

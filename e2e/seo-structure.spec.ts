@@ -181,3 +181,37 @@ test.describe("/tools at 1440", () => {
     expect(middle).toBeLessThan(field.y + field.height);
   });
 });
+
+/**
+ * WP-09: every page links every tool from its footer — the Tools band, one
+ * link per tool, by category (G.3, "a footer band with all tool links on
+ * every page"). Read as served, script off, on the three page kinds whose
+ * layouts differ: the home page, a guide, and the 404 (which a crawler
+ * reaches by a dead link, and should leave by a live one). The expected set
+ * is the catalogue's, never typed; a duplicate link is a fail, not a pass.
+ */
+test.describe("the footer links every tool, as served", () => {
+  test.use({ javaScriptEnabled: false });
+
+  for (const [what, url, status] of [
+    ["the home page", "/", 200],
+    ["a guide", "/guides/how-to-merge-pdf-files", 200],
+    ["the 404", "/this-page-does-not-exist", 404],
+  ] as const) {
+    test(`${what}: the footer's tool links are the catalogue, once each`, async ({
+      page,
+    }) => {
+      const res = await page.goto(url);
+      expect(res?.status()).toBe(status);
+      const footer = page.getByRole("contentinfo");
+      const hrefs = (
+        await footer
+          .locator('a[href^="/tools/"]')
+          .evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""))
+      ).filter((href) => SLUG_HREF.test(href));
+      expect(everyTool.size).toBeGreaterThanOrEqual(40);
+      expect(hrefs).toHaveLength(everyTool.size);
+      expect([...new Set(hrefs)].sort()).toEqual([...everyTool].sort());
+    });
+  }
+});
