@@ -661,7 +661,10 @@ describe("Open files", () => {
     }
     unmount();
     expect(files()).toBe(0);
-    expect(requestFilePick()).toBe("nowhere");
+    // With the layer gone a pick waits for a picker (WAS "nowhere"; see
+    // page-target.test.ts, "no picker yet") — and none is made meanwhile.
+    expect(requestFilePick()).toBe("waiting");
+    expect(files()).toBe(0);
   });
 });
 
