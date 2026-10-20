@@ -19,6 +19,7 @@ describe("event name allowlist", () => {
         "worker_status_checked",
         "worker_operations_checked",
         "gated_tool_interest",
+        "palette_opened",
       ].sort(),
     );
     // `worker_contract_hit` was declared here until 2026-09-27 and sent by

@@ -13,12 +13,29 @@
  * (or ancestor) carrying a bare `hidden` is display:none below `md` whatever
  * `md:` variant follows it, while `md:hidden` hides only at `md` and up.
  */
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
-import { describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { footerNav, primaryNav } from "@/lib/site";
+import { GUIDE_META } from "@/lib/guides/meta.generated";
+import { RECENTS_STORAGE_KEY } from "@/lib/intent/recents-key";
+import {
+  categories,
+  getAllToolSlugs,
+  getToolBySlug,
+  toolCount,
+} from "@/lib/tools";
+import { categoryHref } from "@/lib/tools/category-href";
+import { announceLocation } from "@/lib/location-search";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
 
@@ -31,7 +48,14 @@ const ROUTER = {
   refresh: () => {},
 } as never;
 
-function at(pathname: string, children: ReactNode) {
+function at(pathname: string, children: ReactNode, search = "") {
+  // The header reads the query from the address (not useSearchParams, which
+  // bails a prerendered page's boundary out of the server render).
+  window.history.replaceState(
+    null,
+    "",
+    `${pathname}${search ? `?${search}` : ""}`,
+  );
   return (
     <PathnameContext.Provider value={pathname}>
       <AppRouterContext.Provider value={ROUTER}>
@@ -41,17 +65,34 @@ function at(pathname: string, children: ReactNode) {
   );
 }
 
+beforeAll(() => {
+  // jsdom has <dialog> but not its modal API; the browser's is what ships.
+  HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+    this.removeAttribute("open");
+    this.dispatchEvent(new Event("close"));
+  };
+});
+
+beforeEach(() => {
+  localStorage.clear();
+});
+
 function shownOnPhone(el: Element): boolean {
   for (let n: Element | null = el; n; n = n.parentElement) {
     if ((n.getAttribute("class") ?? "").split(/\s+/).includes("hidden")) {
       return false;
     }
+    // A closed <dialog> is display:none whatever its classes say.
+    if (n instanceof HTMLDialogElement && !n.open) return false;
   }
   return true;
 }
 
 /** Navigation landmarks a phone exposes, with the hrefs inside each. */
-function phoneNavs(root: HTMLElement): string[][] {
+function phoneNavs(root: ParentNode): string[][] {
   return [...root.querySelectorAll("nav, [role=navigation]")]
     .filter(shownOnPhone)
     .map((nav) =>
@@ -59,48 +100,149 @@ function phoneNavs(root: HTMLElement): string[][] {
     );
 }
 
-const toggle = () => screen.getByRole("button", { name: /menu/i });
+const toggle = () => screen.getByRole("button", { name: "Open menu" });
+const menu = () =>
+  document.querySelector<HTMLDialogElement>("dialog#mobile-menu");
 
 describe("the header on a phone", () => {
   it("the phone filter sees the desktop nav as hidden (the control)", () => {
     const { container } = render(at("/", <SiteHeader />));
     // Menu closed: the only nav is the desktop one, and it is `hidden`.
     expect(container.querySelectorAll("nav").length).toBeGreaterThan(0);
-    expect(phoneNavs(container)).toEqual([]);
+    expect(phoneNavs(document)).toEqual([]);
   });
 
-  it("the open menu is a navigation landmark holding every primary link", () => {
-    const { container } = render(at("/", <SiteHeader />));
+  it("the open menu is a dialog with a navigation landmark named Menu, holding every primary link", () => {
+    render(at("/", <SiteHeader />));
     fireEvent.click(toggle());
-    const navs = phoneNavs(container);
+    expect(menu()?.open).toBe(true);
+    const navs = phoneNavs(document);
     expect(navs).toHaveLength(1);
     for (const item of primaryNav) expect(navs[0]).toContain(item.href);
+    // Named "Menu", so it never duplicates the desktop "Primary".
+    const nav = within(menu()!).getByRole("navigation");
+    expect(nav.getAttribute("aria-label")).toBe("Menu");
+    // And it ends on the full-width "Open workspace".
+    expect(
+      within(menu()!).getByRole("link", { name: "Open workspace" }),
+    ).toBeTruthy();
   });
 
   it("Escape closes the menu and returns focus to the toggle", () => {
-    const { container } = render(at("/", <SiteHeader />));
+    render(at("/", <SiteHeader />));
     fireEvent.click(toggle());
     expect(toggle().getAttribute("aria-expanded")).toBe("true");
-    const link = container.querySelector<HTMLAnchorElement>("#mobile-menu a");
+    const link = menu()!.querySelector<HTMLAnchorElement>("a");
     link?.focus();
     act(() => {
-      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(menu()!, { key: "Escape" });
     });
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
-    expect(container.querySelector("#mobile-menu")).toBeNull();
+    expect(menu()?.open).toBe(false);
+    expect(phoneNavs(document)).toEqual([]);
     expect(document.activeElement).toBe(toggle());
   });
 
   it("a route change closes the menu, whatever caused it", () => {
-    const { container, rerender } = render(at("/", <SiteHeader />));
+    const { rerender } = render(at("/", <SiteHeader />));
     fireEvent.click(toggle());
-    expect(container.querySelector("#mobile-menu")).not.toBeNull();
+    expect(menu()?.open).toBe(true);
     // Back/forward: no link click, only a new pathname.
     rerender(at("/tools", <SiteHeader />));
-    expect(container.querySelector("#mobile-menu")).toBeNull();
+    expect(menu()?.open).toBe(false);
+    expect(document.activeElement).toBe(toggle());
     // And it still opens on the new route.
     fireEvent.click(toggle());
-    expect(container.querySelector("#mobile-menu")).not.toBeNull();
+    expect(menu()?.open).toBe(true);
+  });
+
+  it("lists recent tools only when this browser has some", async () => {
+    render(at("/", <SiteHeader />));
+    fireEvent.click(toggle());
+    // None stored: no section at all (not an empty heading).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(within(menu()!).queryByText("Recent tools")).toBeNull();
+    act(() => {
+      fireEvent.keyDown(menu()!, { key: "Escape" });
+    });
+
+    localStorage.setItem(
+      RECENTS_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        items: [{ slug: "merge-pdf", at: 1 }],
+      }),
+    );
+    fireEvent.click(toggle());
+    const name = getToolBySlug("merge-pdf")!.name;
+    const recent = await within(menu()!).findByRole("list", {
+      name: "Recent tools",
+    });
+    expect(
+      within(recent).getByRole("link", { name }).getAttribute("href"),
+    ).toBe("/tools/merge-pdf");
+    await waitFor(() =>
+      expect(within(menu()!).getByText("Recent tools")).toBeTruthy(),
+    );
+  });
+});
+
+describe("the header", () => {
+  it("renders no file input, ever (G.5 trap 3)", () => {
+    const { container } = render(at("/", <SiteHeader />));
+    fireEvent.click(toggle());
+    expect(container.querySelectorAll("input").length).toBe(0);
+    expect(document.querySelectorAll('input[type="file"]').length).toBe(0);
+  });
+
+  it("has an Open files button and a palette trigger with its shortcut", () => {
+    render(at("/", <SiteHeader />));
+    expect(screen.getByRole("button", { name: "Open files" })).toBeTruthy();
+    const trigger = screen.getByRole("button", {
+      name: "Find a tool or guide",
+    });
+    expect(trigger.getAttribute("aria-keyshortcuts")).toBe("Control+K Meta+K");
+    // "Explore tools" is gone (D.1).
+    expect(screen.queryByText("Explore tools")).toBeNull();
+  });
+
+  it("on /tools?category=ai only AI tools carries aria-current", () => {
+    render(at("/tools", <SiteHeader />, "category=ai"));
+    const primary = screen.getByRole("navigation", { name: "Primary" });
+    const current = [...primary.querySelectorAll("[aria-current]")].map(
+      (a) => a.textContent,
+    );
+    expect(current).toEqual(["AI tools"]);
+    expect(
+      within(primary)
+        .getByRole("link", { name: "AI tools" })
+        .getAttribute("href"),
+    ).toBe(categoryHref("ai"));
+  });
+
+  it("follows a query the page rewrites in place (the /tools explorer's chips)", () => {
+    render(at("/tools", <SiteHeader />));
+    const primary = screen.getByRole("navigation", { name: "Primary" });
+    const current = () =>
+      [...primary.querySelectorAll("[aria-current]")].map((a) => a.textContent);
+    expect(current()).toEqual(["All tools"]);
+    // What the explorer does on a chip: replaceState, then announce it.
+    act(() => {
+      window.history.replaceState(null, "", "/tools?category=ai");
+      announceLocation();
+    });
+    expect(current()).toEqual(["AI tools"]);
+  });
+
+  it("control: on plain /tools it is All tools", () => {
+    render(at("/tools", <SiteHeader />));
+    const primary = screen.getByRole("navigation", { name: "Primary" });
+    const current = [...primary.querySelectorAll("[aria-current]")].map(
+      (a) => a.textContent,
+    );
+    expect(current).toEqual(["All tools"]);
   });
 });
 
@@ -117,6 +259,42 @@ describe("the footer", () => {
       hrefs.every((h) => links.includes(h)),
     );
     expect(covering).toHaveLength(1);
+  });
+
+  it("a Guides column: the first five guides, then All guides", () => {
+    render(at("/", <SiteFooter />));
+    const footer = screen.getByRole("contentinfo");
+    const heading = within(footer).getByRole("heading", { name: "Guides" });
+    const list = heading.parentElement!.querySelector("ul")!;
+    const hrefs = [...list.querySelectorAll("a")].map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(GUIDE_META.length).toBeGreaterThan(5);
+    expect(hrefs).toEqual([
+      ...GUIDE_META.slice(0, 5).map((g) => `/guides/${g.slug}`),
+      "/guides",
+    ]);
+    expect(list.lastElementChild?.textContent).toBe("All guides");
+  });
+
+  it("a Tools band links every tool exactly once, by category, in closed <details>", () => {
+    render(at("/", <SiteFooter />));
+    const band = screen.getByRole("navigation", { name: "Tools by category" });
+    const hrefs = [...band.querySelectorAll("a")]
+      .map((a) => a.getAttribute("href") ?? "")
+      .filter((h) => /^\/tools\/[a-z0-9-]+$/.test(h));
+    // Health: the catalogue is real.
+    expect(toolCount).toBeGreaterThanOrEqual(40);
+    expect(hrefs).toHaveLength(toolCount);
+    expect([...new Set(hrefs)].sort()).toEqual(
+      getAllToolSlugs()
+        .map((s) => `/tools/${s}`)
+        .sort(),
+    );
+    const details = [...band.querySelectorAll("details")];
+    expect(details).toHaveLength(categories.length);
+    // Closed on arrival (a phone sees eight headings); the links are in the DOM.
+    expect(details.filter((d) => d.open)).toEqual([]);
   });
 });
 

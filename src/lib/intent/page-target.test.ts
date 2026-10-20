@@ -17,6 +17,7 @@ import {
   activePageTarget,
   deliverFiles,
   deliverToFallback,
+  PICK_WAIT_MS,
   registerFallback,
   registerPageTarget,
   requestFilePick,
@@ -252,8 +253,36 @@ describe("Open files", () => {
     expect(fb.pick).toHaveBeenCalledTimes(2);
   });
 
-  it("no picker anywhere: says so", () => {
-    expect(requestFilePick()).toBe("nowhere");
+  /*
+   * WAS "no picker anywhere: says so" — `"nowhere"`, and the click did
+   * nothing. WP-09 found it in the browser: the drop layer registers the
+   * page's picker on idle, and "Open files" (or the palette's "Open a
+   * file…") pressed before that opened nothing at all. Inverted, not
+   * deleted: the pick now WAITS for the page's picker, briefly — inside the
+   * moment a browser still lets the click open one.
+   */
+  it("no picker yet: the pick waits for the page's, and opens it when it registers", () => {
+    expect(requestFilePick()).toBe("waiting");
+    const fb = fallback();
+    registerFallback(fb);
+    expect(fb.pick).toHaveBeenCalledTimes(1);
+    // Once: a second registration does not open another.
+    const again = fallback();
+    registerFallback(again);
+    expect(again.pick).not.toHaveBeenCalled();
+  });
+
+  it("a pick that waited past the click's moment is dropped, not opened late", () => {
+    vi.useFakeTimers();
+    try {
+      expect(requestFilePick()).toBe("waiting");
+      vi.advanceTimersByTime(PICK_WAIT_MS + 1);
+      const fb = fallback();
+      registerFallback(fb);
+      expect(fb.pick).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

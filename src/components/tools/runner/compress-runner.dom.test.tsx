@@ -40,6 +40,7 @@ import {
   HandoffStore,
   MemoryHandoffBackend,
 } from "@/lib/handoff";
+import { takeCarriedHandoff } from "@/lib/handoff/carry";
 import { continueTargetsFor } from "@/lib/intent/next-steps";
 import { analyzePdf } from "@/lib/pdf/analyze";
 import { getToolBySlug, tools } from "@/lib/tools";
@@ -598,7 +599,10 @@ describe("Compress: an already-lean PDF", { timeout: 30_000 }, () => {
       fireEvent.click(links[0]!);
     });
     await waitFor(() => expect(pushes).toHaveLength(1));
-    const id = new URL(pushes[0]!, "http://x").searchParams.get("handoff")!;
+    // INVERTED 2026-10-20: the address no longer carries the token (its
+    // payload fetch sent it to the server's logs); the tab does.
+    expect(pushes[0]).toMatch(/^\/tools\/[a-z0-9-]+$/);
+    const id = takeCarriedHandoff(pushes[0]!)!;
     const record = await claimHandoff(id);
     expect(record?.files.map((f) => f.name)).toEqual(["lean.pdf"]);
     const carried = new Uint8Array(await record!.files[0]!.blob.arrayBuffer());

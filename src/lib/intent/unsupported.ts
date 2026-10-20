@@ -53,13 +53,27 @@ function formatList(formats: readonly string[]): string {
   return `${formats.slice(0, -1).join(", ")} and ${formats[formats.length - 1]}`;
 }
 
+/**
+ * The answer's words alone — "No tool here opens HEIC photos. Save a JPG
+ * copy first." — without the alternative, which needs the catalogue's tools
+ * and the format tables (the command palette says this much, from a chunk
+ * with no room for the rest).
+ */
+export function unsupportedWords(format: UnsupportedFormat): {
+  readonly headline: string;
+  readonly how: string | null;
+} {
+  const data = UNSUPPORTED_ANSWERS[format];
+  return { headline: `No tool here opens ${data.noun}.`, how: data.how };
+}
+
 /** The answer for `format`, with its alternative read from `tools`. */
 export function unsupportedAnswer<T extends AnswerTool>(
   format: UnsupportedFormat,
   tools: readonly T[],
 ): UnsupportedAnswer<T> {
   const data = UNSUPPORTED_ANSWERS[format];
-  const headline = `No tool here opens ${data.noun}.`;
+  const { headline } = unsupportedWords(format);
   let alternative: UnsupportedAlternative<T> | null = null;
   if (data.becomes === "PDF") {
     const count = tools.filter((t) =>

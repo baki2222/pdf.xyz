@@ -105,6 +105,13 @@ export const ANALYTICS_EVENTS: AnalyticsEventCopy = {
     when: "you press “Notify me” on a tool that is not built yet",
     fields: { toolSlug: TOOL, capability: KIND },
   },
+  palette_opened: {
+    when: "you open the search box that finds tools and guides",
+    fields: {
+      trigger:
+        "whether you opened it with the keyboard shortcut or the button — never what you typed",
+    },
+  },
 };
 
 /** What every page view carries (`sendGa4PageView`). */

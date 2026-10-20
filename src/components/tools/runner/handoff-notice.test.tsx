@@ -36,7 +36,7 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import {
-  claimFromUrl,
+  claimArrival,
   useToolHandoff,
   type ToolHandoff,
 } from "./use-tool-handoff";
@@ -57,6 +57,9 @@ const docx = new File(["docx"], "letter.docx", {
 });
 
 beforeEach(() => {
+  // `isolate: false`: a launch elsewhere in this worker may have left a
+  // token carried in this tab, which a claim here would take.
+  window.sessionStorage.clear();
   __setHandoffStoreForTests(
     new HandoffStore({ backend: new MemoryHandoffBackend() }),
   );
@@ -176,10 +179,10 @@ describe("the problem notes say what happened, in the target tool's own terms", 
   });
 });
 
-describe("claimFromUrl: one claim for every page that receives files", () => {
+describe("claimArrival: one claim for every page that receives files", () => {
   it("no token → null, and the store is never touched", () => {
     window.history.replaceState(null, "", "/tools/merge-pdf");
-    expect(claimFromUrl("merge-pdf", (e) => e, ROUTER)).toBeNull();
+    expect(claimArrival("merge-pdf", (e) => e, ROUTER)).toBeNull();
   });
 
   it("claims, filters, strips the token, and returns the record's provenance", async () => {
@@ -188,7 +191,7 @@ describe("claimFromUrl: one claim for every page that receives files", () => {
       trail: ["compress-pdf"],
     });
     window.history.replaceState(null, "", `/tools/merge-pdf?handoff=${id}`);
-    const claimed = await claimFromUrl(
+    const claimed = await claimArrival(
       "merge-pdf",
       (entries) => eligibleFilesFor("merge-pdf", entries),
       ROUTER,
@@ -210,7 +213,7 @@ describe("claimFromUrl: one claim for every page that receives files", () => {
       origin: { kind: "drop", surface: "home" },
     });
     window.history.replaceState(null, "", `/workspace?handoff=${id}`);
-    const claimed = await claimFromUrl("workspace", (e) => e, ROUTER);
+    const claimed = await claimArrival("workspace", (e) => e, ROUTER);
     expect(claimed?.status).toBe("ready");
     expect(claimed!.files.map((f) => f.name)).toEqual(["a.pdf", "letter.docx"]);
   });
@@ -220,7 +223,7 @@ describe("claimFromUrl: one claim for every page that receives files", () => {
       origin: { kind: "workspace" },
     });
     window.history.replaceState(null, "", `/workspace?handoff=${id}`);
-    expect((await claimFromUrl("workspace", (e) => e, ROUTER))?.status).toBe(
+    expect((await claimArrival("workspace", (e) => e, ROUTER))?.status).toBe(
       "expired",
     );
   });
@@ -231,7 +234,7 @@ describe("claimFromUrl: one claim for every page that receives files", () => {
     });
     window.history.replaceState(null, "", `/tools/merge-pdf?handoff=${id}`);
     expect(
-      await claimFromUrl(
+      await claimArrival(
         "merge-pdf",
         (entries) => eligibleFilesFor("merge-pdf", entries),
         ROUTER,

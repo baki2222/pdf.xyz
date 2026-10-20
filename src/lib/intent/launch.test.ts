@@ -18,6 +18,14 @@
  *    `handoffHref`, which this replaced, could only ever say "plain".
  *  - the record carries its ORIGIN (required — the compiler enforces it),
  *    and the trail and pending step when given.
+ *  - the TOKEN travels in this tab's sessionStorage, addressed to the page
+ *    it opens, and the navigation is to the plain address. INVERTED
+ *    2026-10-20: these cases asserted `/tools/merge-pdf?handoff=h_…`, the
+ *    address whose payload fetch put the token in the server's logs; they
+ *    now hold that the address carries no token and the claim finds it
+ *    where the receiving page looks (`takeCarriedHandoff`).
+ *  - the launching page's history entry notes where the files went
+ *    (`readDeparture`), so Back can say so.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -26,9 +34,11 @@ import {
   HANDOFF_MAX_TOTAL_BYTES,
   HandoffStore,
   MemoryHandoffBackend,
-  readHandoffId,
   type HandoffBackend,
 } from "@/lib/handoff";
+import { HANDOFF_CARRY_KEY } from "@/lib/handoff/carry-key";
+import { takeCarriedHandoff } from "@/lib/handoff/carry";
+import { readDeparture } from "@/lib/handoff/departure";
 import {
   configureTelemetry,
   resetTelemetry,
@@ -51,11 +61,43 @@ function launch(input: Omit<LaunchInput, "router">) {
 }
 
 async function claimedFrom(href: string) {
-  const id = readHandoffId(new URL(href, "https://x.test").search);
+  const url = new URL(href, "https://x.test");
+  // The address itself carries nothing.
+  expect(url.search).toBe("");
+  const id = takeCarriedHandoff(url.pathname);
   return id ? claimHandoff(id) : null;
 }
 
+/** This tab, as far as a launch can see it: sessionStorage and history. */
+let session: Map<string, string>;
+let refuseSession = false;
+function fakeTab() {
+  session = new Map();
+  refuseSession = false;
+  const history = {
+    state: { __NA: true } as unknown,
+    replaceState(state: unknown) {
+      history.state = state;
+    },
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      sessionStorage: {
+        getItem: (k: string) => session.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          if (refuseSession) throw new Error("SecurityError");
+          session.set(k, v);
+        },
+        removeItem: (k: string) => void session.delete(k),
+      },
+      history,
+    },
+  });
+}
+
 beforeEach(() => {
+  fakeTab();
   pushed = [];
   events = [];
   __setHandoffStoreForTests(
@@ -64,6 +106,7 @@ beforeEach(() => {
   configureTelemetry((event) => void events.push(event));
 });
 afterEach(() => {
+  Reflect.deleteProperty(globalThis, "window");
   __setHandoffStoreForTests(null);
   resetTelemetry();
 });
@@ -79,7 +122,7 @@ describe("carried: the tool opens with the files in it", () => {
     });
     expect(result).toBe("carried");
     expect(pushed).toHaveLength(1);
-    expect(pushed[0]).toMatch(/^\/tools\/merge-pdf\?handoff=h_/);
+    expect(pushed[0]).toBe("/tools/merge-pdf");
     const record = await claimedFrom(pushed[0]!);
     expect(record?.files.map((f) => f.name)).toEqual(["a.pdf", "b.pdf"]);
     expect(record?.origin).toEqual({ kind: "workspace" });
@@ -257,7 +300,7 @@ describe("openWorkspaceWithFiles: every file, into the workspace", () => {
       router,
     });
     expect(result).toBe("carried");
-    expect(pushed[0]).toMatch(/^\/workspace\?handoff=h_/);
+    expect(pushed[0]).toBe("/workspace");
     const record = await claimedFrom(pushed[0]!);
     expect(record?.toolSlug).toBe("workspace");
     expect(record?.files.map((f) => f.name)).toEqual(["a.pdf", "letter.docx"]);
@@ -285,5 +328,61 @@ describe("openWorkspaceWithFiles: every file, into the workspace", () => {
       }),
     ).toBe("failed");
     expect(pushed).toEqual([]);
+  });
+});
+
+describe("the token travels in this tab, not in the address", () => {
+  it("is carried to the page it opens, once: the claim takes it, and a second read finds nothing", async () => {
+    await launch({
+      toolSlug: "rotate-pdf",
+      files: [pdf("a.pdf")],
+      origin: { kind: "result", fromSlug: "merge-pdf" },
+    });
+    expect(pushed).toEqual(["/tools/rotate-pdf"]);
+    // Positive control: the carried entry exists before the claim.
+    expect(session.get(HANDOFF_CARRY_KEY)).toMatch(
+      /"path":"\/tools\/rotate-pdf"/,
+    );
+    // Addressed: another page does not take it.
+    expect(takeCarriedHandoff("/tools/merge-pdf")).toBeNull();
+    expect(session.has(HANDOFF_CARRY_KEY)).toBe(true);
+    const record = await claimedFrom(pushed[0]!);
+    expect(record?.files.map((f) => f.name)).toEqual(["a.pdf"]);
+    expect(session.has(HANDOFF_CARRY_KEY)).toBe(false);
+    expect(takeCarriedHandoff("/tools/rotate-pdf")).toBeNull();
+  });
+
+  it("a tab whose storage refuses the carry fails, and does not navigate", async () => {
+    refuseSession = true;
+    expect(
+      await launch({
+        toolSlug: "rotate-pdf",
+        files: [pdf("a.pdf")],
+        origin: { kind: "workspace" },
+      }),
+    ).toBe("failed");
+    expect(pushed).toEqual([]);
+    expect(readDeparture()).toBeNull();
+  });
+
+  it("the launching entry notes where the files went, keeping the router's own state", async () => {
+    expect(readDeparture()).toBeNull();
+    await launch({
+      toolSlug: "merge-pdf",
+      files: [pdf("a.pdf"), pdf("b.pdf")],
+      origin: { kind: "result", fromSlug: "split-pdf" },
+    });
+    expect(readDeparture()).toEqual({ slug: "merge-pdf", count: 2 });
+    expect((window.history.state as { __NA?: unknown }).__NA).toBe(true);
+  });
+
+  it("CONTROL: a plain launch (nothing travels) carries nothing and notes nothing", async () => {
+    await launch({
+      toolSlug: "word-to-pdf",
+      files: [docx],
+      origin: { kind: "workspace" },
+    });
+    expect(session.size).toBe(0);
+    expect(readDeparture()).toBeNull();
   });
 });

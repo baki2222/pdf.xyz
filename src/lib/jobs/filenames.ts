@@ -116,7 +116,7 @@ export interface SanitizeDisplayFilenameOptions {
   maxLength?: number;
 }
 
-/** Keep only the safe part of an extension: lowercase alphanumerics, bounded. */
+/** Keep only the safe part of an extension: lower-case alphanumerics, bounded. */
 function normalizeExtension(ext: string): string {
   const cleaned = ext.toLowerCase().replace(/[^a-z0-9]/g, "");
   return cleaned.slice(0, MAX_EXTENSION_LENGTH);

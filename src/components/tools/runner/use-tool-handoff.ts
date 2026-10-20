@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { eligibleFilesFor } from "@/lib/handoff";
 import {
-  claimFromUrl,
+  forgetDeparture,
+  readDeparture,
+  type Departure,
+} from "@/lib/handoff/departure";
+import {
+  claimArrival,
   IDLE,
   LOADING,
   type ClaimedHandoff,
@@ -14,7 +19,7 @@ import { getToolBySlug } from "@/lib/tools";
 import { useToolRun } from "./tool-context";
 
 export {
-  claimFromUrl,
+  claimArrival,
   type ClaimedHandoff,
   type HandoffStatus,
 } from "@/lib/handoff/claim";
@@ -22,25 +27,27 @@ export {
 export type ToolHandoff = ClaimedHandoff & {
   /** The receiving tool's `accept` row, for naming what it can open. */
   accept: readonly string[];
-  /** Dismiss an expired/incompatible notice and fall back to the picker. */
+  /**
+   * Where this page's files went, when this history entry sent them on to
+   * another tool (`@/lib/handoff/departure`) — shown again on Back.
+   */
+  departed: Departure | null;
+  /** Dismiss a notice (expired, incompatible, departed) for the picker. */
   dismiss: () => void;
 };
 
 /**
  * Client hook that lets a tool runner receive files handed off from another
  * page — the workspace, a drop on the home page, or a previous tool.
- * On mount it reads a `?handoff=<id>` token from the URL, claims the matching
- * record from the browser-local handoff store (single-use, so it's consumed),
- * and narrows the files to the ones this tool can actually open.
+ * On mount it takes the token carried to this page (`claimArrival`: this
+ * tab's sessionStorage, or an older `?handoff=` address), claims the
+ * matching record from the browser-local handoff store (single-use, so it's
+ * consumed), and narrows the files to the ones this tool can actually open.
+ * The carried token is removed as it is read, so a reload can't retry a
+ * consumed/expired claim.
  *
- * Everything stays in the browser — the token references origin-private storage,
- * never a server. The `?handoff` param is stripped immediately so a reload can't
- * retry a consumed/expired claim and the URL stays clean and shareable-free.
- *
- * The strip applies through `window.history.replaceState`, the App Router's
- * `router.replace`, and a follow-up `replaceState` scheduled for the next
- * frame — see `stripHandoffParam` in `@/lib/handoff/claim` for why all three
- * are needed across a hard page load and an in-app soft navigation.
+ * With nothing carried here, it reads whether THIS history entry sent its
+ * files on to another tool (`readDeparture`), so Back says where they went.
  */
 
 /**
@@ -50,6 +57,7 @@ export type ToolHandoff = ClaimedHandoff & {
 export function useToolHandoff(slug: string | undefined): ToolHandoff {
   const router = useRouter();
   const [state, setState] = useState<ClaimedHandoff>(IDLE);
+  const [departed, setDeparted] = useState<Departure | null>(null);
   // The page's job: told which tools these files already went through, so it
   // can draw the steps and "Continue with" can pass them on.
   const arrived = useToolRun()?.arrived;
@@ -68,12 +76,16 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
     if (!slug || startedRef.current) return;
     startedRef.current = true;
 
-    const claim = claimFromUrl(
+    const claim = claimArrival(
       slug,
       (entries) => eligibleFilesFor(slug, entries),
       router,
     );
-    if (!claim) return;
+    if (!claim) {
+      const left = readDeparture();
+      if (left) queueMicrotask(() => mountedRef.current && setDeparted(left));
+      return;
+    }
 
     queueMicrotask(() => {
       if (mountedRef.current) {
@@ -95,13 +107,17 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
     });
   }, [slug, router, arrived]);
 
-  const dismiss = useCallback(() => setState(IDLE), []);
+  const dismiss = useCallback(() => {
+    setState(IDLE);
+    setDeparted(null);
+    forgetDeparture();
+  }, []);
   const accept = useMemo(
     () => (slug ? (getToolBySlug(slug)?.accept ?? []) : []),
     [slug],
   );
 
-  return { ...state, accept, dismiss };
+  return { ...state, accept, departed, dismiss };
 }
 
 /** Frames to wait for the carried file's header before the page's heading. */

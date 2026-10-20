@@ -110,7 +110,10 @@ export function WorkerStatusSlot({
   children,
 }: {
   state: WorkerSlotState;
-  /** Tailwind min-heights, e.g. `min-h-[31rem] sm:min-h-[26rem]`. */
+  /**
+   * Tailwind min-height classes (31rem, then 26rem from `sm`, say). Not
+   * spelled out here: Tailwind turns a class named in a comment into CSS.
+   */
   reserve: string;
   children: ReactNode;
 }) {
