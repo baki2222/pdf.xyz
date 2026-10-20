@@ -39,6 +39,7 @@ import {
 } from "@/lib/tools/where-it-runs";
 import { ToolCardView } from "@/components/tools/tool-card-view";
 import { ModeShape } from "@/components/tools/processing-badge";
+import { announceLocation } from "@/lib/location-search";
 import { cn } from "@/lib/utils";
 
 const counts = getCategoryCounts();
@@ -396,6 +397,8 @@ export function ToolsExplorer({
     if (!chosen) return;
     const qs = toolsSearch(window.location.search, chosen);
     window.history.replaceState(null, "", `${window.location.pathname}${qs}`);
+    // The header's links read the query too ("AI tools" on ?category=ai).
+    announceLocation();
   }, [chosen]);
 
   // The engine arrives on demand. Until it does, a query shows the grid as

@@ -411,7 +411,7 @@ function blocksFromGeometry(lines: GeoLine[], bodySize: number): Block[] {
     const step = prev ? prev.y - line.y : 0;
     // A step back UP the page is a new column or an out-of-order block. It
     // ends the paragraph unless the sentence visibly runs on: the previous
-    // line has no closing punctuation and this one starts in lowercase —
+    // line has no closing punctuation and this one starts in lower case —
     // flowed text crossing into the next column mid-sentence.
     const jump = prev !== null && step < -line.size * 0.5;
     const flowsOn =

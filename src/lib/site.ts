@@ -45,10 +45,27 @@ export const siteConfig = {
   xHandle: null as string | null,
 } as const;
 
+/**
+ * When a primary-nav item is the current page: a path, either exact or with
+ * everything under it (`prefix`), and optionally query values that must
+ * also be present. A rule with a query is more specific than any rule
+ * without one — `/tools?category=ai` is the AI tools, though its path is
+ * `/tools`'s.
+ */
+export type NavMatch = {
+  readonly path: string;
+  readonly prefix?: boolean;
+  readonly query?: Readonly<Record<string, string>>;
+};
+
 export type NavItem = {
   label: string;
   href: string;
   description?: string;
+  /** When it is current (see {@link currentNavHref}); none for an anchor. */
+  match?: readonly NavMatch[];
+  /** Shown in the desktop row only from `lg`; always in the menu. */
+  wide?: boolean;
 };
 
 /**
@@ -56,38 +73,88 @@ export type NavItem = {
  * announced but not built. Only the footer needs this — primary nav items all
  * go somewhere — so the optionality lives here rather than on `NavItem`.
  */
-export type FooterNavItem = Omit<NavItem, "href"> & { href?: string };
+export type FooterNavItem = Omit<NavItem, "href" | "match" | "wide"> & {
+  href?: string;
+};
+
+const AI_HREF = categoryHref("ai");
 
 export const primaryNav: NavItem[] = [
-  { label: "All tools", href: "/tools" },
-  { label: "Workspace", href: "/workspace" },
-  { label: "AI tools", href: categoryHref("ai") },
-  { label: "Pricing", href: "/#pricing" },
+  {
+    label: "All tools",
+    href: "/tools",
+    match: [{ path: "/tools", prefix: true }],
+  },
+  {
+    label: "AI tools",
+    href: AI_HREF,
+    // The category page, and the old shared filter URL the explorer still
+    // reads (category-href.ts): both are the AI tools.
+    match: [
+      { path: AI_HREF, prefix: true },
+      { path: "/tools", query: { category: "ai" } },
+    ],
+  },
+  {
+    label: "Guides",
+    href: "/guides",
+    match: [{ path: "/guides", prefix: true }],
+  },
+  {
+    label: "Workspace",
+    href: "/workspace",
+    match: [{ path: "/workspace", prefix: true }],
+  },
+  // An in-page anchor: never current. Hidden below `lg` in the header row
+  // (D.1), where four links already fill it; the menu always has it.
+  { label: "Pricing", href: "/#pricing", wide: true },
 ];
 
-/**
- * Which primary-nav entry the current path belongs to: the LONGEST href that
- * is a path prefix of it, so `/tools/category/ai` lights "AI tools" and not
- * also "All tools". A plain `startsWith` per item marked both, which was
- * invisible while the AI link was a `?category=` URL no pathname can start
- * with. In-page anchors (`/#pricing`) never mark a page as current.
- */
-export function activeNavHref(
+/** How specific a rule's match on this location is, or -1 for none. */
+function matchScore(
+  rule: NavMatch,
   pathname: string,
+  search: URLSearchParams | null,
+): number {
+  const onPath =
+    pathname === rule.path ||
+    (rule.prefix === true && pathname.startsWith(`${rule.path}/`));
+  if (!onPath) return -1;
+  if (rule.query) {
+    // Without the query (the server render, before it is known) a rule that
+    // needs one cannot be said to match.
+    if (!search) return -1;
+    for (const [key, value] of Object.entries(rule.query)) {
+      if (search.get(key) !== value) return -1;
+    }
+    return 10_000 + rule.path.length;
+  }
+  return rule.path.length;
+}
+
+/**
+ * Which primary-nav entry the current location belongs to: the item whose
+ * most specific rule matches best, so `/tools/category/ai` and
+ * `/tools?category=ai` light "AI tools" and not also "All tools". Pass
+ * `search: null` when the query is not known (the server render): rules that
+ * need it then do not match. In-page anchors (`/#pricing`) have no rules and
+ * never mark a page as current.
+ */
+export function currentNavHref(
+  pathname: string,
+  search: URLSearchParams | null,
   items: readonly NavItem[] = primaryNav,
 ): string | undefined {
-  let best: string | undefined;
-  for (const { href } of items) {
-    if (!href.startsWith("/") || href.includes("#")) continue;
-    const matches =
-      href === "/"
-        ? pathname === "/"
-        : pathname === href || pathname.startsWith(`${href}/`);
-    if (matches && (best === undefined || href.length > best.length)) {
-      best = href;
+  let best: { href: string; score: number } | undefined;
+  for (const item of items) {
+    for (const rule of item.match ?? []) {
+      const score = matchScore(rule, pathname, search);
+      if (score >= 0 && (best === undefined || score > best.score)) {
+        best = { href: item.href, score };
+      }
     }
   }
-  return best;
+  return best?.href;
 }
 
 export const footerNav: { title: string; items: FooterNavItem[] }[] = [
