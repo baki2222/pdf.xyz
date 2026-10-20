@@ -23,10 +23,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
-import {
-  PathnameContext,
-  SearchParamsContext,
-} from "next/dist/shared/lib/hooks-client-context.shared-runtime";
+import { PathnameContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { footerNav, primaryNav } from "@/lib/site";
 import { GUIDE_META } from "@/lib/guides/meta.generated";
@@ -38,6 +35,7 @@ import {
   toolCount,
 } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
+import { announceLocation } from "@/lib/location-search";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
 
@@ -51,13 +49,18 @@ const ROUTER = {
 } as never;
 
 function at(pathname: string, children: ReactNode, search = "") {
+  // The header reads the query from the address (not useSearchParams, which
+  // bails a prerendered page's boundary out of the server render).
+  window.history.replaceState(
+    null,
+    "",
+    `${pathname}${search ? `?${search}` : ""}`,
+  );
   return (
     <PathnameContext.Provider value={pathname}>
-      <SearchParamsContext.Provider value={new URLSearchParams(search)}>
-        <AppRouterContext.Provider value={ROUTER}>
-          {children}
-        </AppRouterContext.Provider>
-      </SearchParamsContext.Provider>
+      <AppRouterContext.Provider value={ROUTER}>
+        {children}
+      </AppRouterContext.Provider>
     </PathnameContext.Provider>
   );
 }
@@ -97,7 +100,7 @@ function phoneNavs(root: ParentNode): string[][] {
     );
 }
 
-const toggle = () => screen.getByRole("button", { name: /menu/i });
+const toggle = () => screen.getByRole("button", { name: "Open menu" });
 const menu = () =>
   document.querySelector<HTMLDialogElement>("dialog#mobile-menu");
 
@@ -213,8 +216,24 @@ describe("the header", () => {
     );
     expect(current).toEqual(["AI tools"]);
     expect(
-      within(primary).getByRole("link", { name: "AI tools" }).getAttribute("href"),
+      within(primary)
+        .getByRole("link", { name: "AI tools" })
+        .getAttribute("href"),
     ).toBe(categoryHref("ai"));
+  });
+
+  it("follows a query the page rewrites in place (the /tools explorer's chips)", () => {
+    render(at("/tools", <SiteHeader />));
+    const primary = screen.getByRole("navigation", { name: "Primary" });
+    const current = () =>
+      [...primary.querySelectorAll("[aria-current]")].map((a) => a.textContent);
+    expect(current()).toEqual(["All tools"]);
+    // What the explorer does on a chip: replaceState, then announce it.
+    act(() => {
+      window.history.replaceState(null, "", "/tools?category=ai");
+      announceLocation();
+    });
+    expect(current()).toEqual(["AI tools"]);
   });
 
   it("control: on plain /tools it is All tools", () => {
