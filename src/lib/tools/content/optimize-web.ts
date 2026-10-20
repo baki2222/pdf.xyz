@@ -95,7 +95,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Wait for the worker check",
-      body: "On load the panel asks the worker status endpoint whether a worker is ready to accept jobs, and shows the answer in a badge, which reads “Secure worker” on the live site. The drop box takes a file at once, but nothing is uploaded until that answer is yes and you press the button: while the check runs the panel says “Checking the secure worker…”, a failed check offers “Check again”, and if the worker is not enabled it offers “Notify me when this ships”, which only adds one to a count of requests for this tool.",
+      body: "On load the panel asks the worker status endpoint whether a worker is ready to accept jobs, and shows the answer in a badge, which reads “Secure worker” on the live site. The drop box takes a file at once, and it goes to the secure worker only once that answer is yes and you press the button: while the check runs the panel says “Checking the secure worker…”, a failed check offers “Check again”, and if the worker is not enabled it offers “Notify me when this ships”, which only adds one to a count of requests for this tool.",
     },
     {
       title: "Add one PDF",

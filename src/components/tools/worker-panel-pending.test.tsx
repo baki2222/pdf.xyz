@@ -52,6 +52,8 @@ import { resolveDaemonReadiness } from "@/lib/workers/daemon/readiness";
 import { resolveAiReadiness } from "@/lib/workers/ai/readiness";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { NotifyMe } from "./notify-me";
+import { READY_WORKER_STATUS } from "@/tests/ready-worker-status";
+import { resetWorkerStatusForTests } from "./use-worker-status";
 import {
   catalogTool,
   panelComponent,
@@ -207,15 +209,41 @@ describe("POSITIVE CONTROL: the same panels once the worker is known to be off",
       });
       const text = (container.textContent ?? "").replace(/\s+/g, " ");
       if (NEVER_PRETENDS.test(text)) seen.neverPretends += 1;
-      const claims = CLAIMS.get(subject.slug);
-      if (claims && text.includes(claims.notScanned)) seen.notScanned += 1;
+      unmount();
+    }
+    // The scan claim, where it is now drawn. Until WP-10 the not-enabled
+    // panel drew the docket, so "Files are not scanned for malware here"
+    // showed with an OFF worker; its reason box stands in place of the
+    // docket now (nothing will run), so the claim is read from a READY
+    // worker that reports no scanner — the state it describes. (The page's
+    // one status check is cached; a new answer needs a new page.)
+    resetWorkerStatusForTests({ sleep: () => Promise.resolve() });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ ...READY_WORKER_STATUS, scan: OFF.scan }),
+      })),
+    );
+    for (const subject of SCANNABLE) {
+      const Panel = await componentOf(subject);
+      const { container, unmount } = render(
+        createElement(Panel, { tool: toolOf(subject.slug) }),
+      );
+      const claims = CLAIMS.get(subject.slug)!;
+      await waitFor(() =>
+        expect(container.textContent ?? "").toContain(claims.notScanned),
+      ).catch(() => {});
+      if ((container.textContent ?? "").includes(claims.notScanned))
+        seen.notScanned += 1;
       unmount();
     }
     // Rule 1, the other direction: each pattern still catches a shipped
     // sentence, so none of the absences above is decoration.
     expect(seen.neverPretends).toBeGreaterThan(0);
     expect(seen.notScanned).toBe(SCANNABLE.length);
-  });
+  }, 30_000);
 });
 
 describe("a status endpoint that cannot be reached", () => {

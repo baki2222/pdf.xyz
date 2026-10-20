@@ -160,7 +160,7 @@ const content: ToolContent = {
     },
     {
       q: "Why is there no upload area, only a notice?",
-      a: 'The panel first checks whether the secure worker can run LibreOffice. You can add a file at once, but nothing is uploaded until a check confirms the worker and you press Convert to PDF. If the badge reads "Not enabled", that button stays off and a "Notify me when this ships" button appears under it. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it.',
+      a: 'The panel first checks whether the secure worker can run LibreOffice. You can add a file at once; it goes to the secure worker only after a check confirms the worker and you press Convert to PDF. If the badge reads "Not enabled", that button stays off and a "Notify me when this ships" button appears under it. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it.',
     },
   ],
 
