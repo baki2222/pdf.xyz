@@ -65,7 +65,7 @@ const AUDIENCE_CLAIMS: { name: string; pattern: RegExp; instead: string }[] = [
   {
     name: "a crowd counted in round numbers",
     // "thousands who edit", "hundreds of professionals". Deliberately NOT
-    // bare "hundred(s)": "one file or a hundred" (workflow-section, live) is
+    // bare "hundred(s)": "one file or a hundred" (workflow-section until WP-13) is
     // about the reader's files, and "thousands of pages" would be about their
     // document — the ban is a crowd of PEOPLE this system never counted.
     pattern:
@@ -139,7 +139,7 @@ const TRUE_SENTENCES = [
   // The replacement for the shipped sentence: quantities the page derives
   // from the catalogue at render time — measured, so stateable.
   "Edit, convert, and sign documents without giving up your privacy: 50 tools, 41 of them running in-browser, and no sign-up to start.",
-  // Live workflow copy: "a hundred" is the reader's files, not our audience.
+  // Workflow copy (shipped until WP-13): "a hundred" is the reader's files, not our audience.
   "Drag in one file or a hundred. They stage in your browser — nothing uploads until a tool needs it.",
   // The code shapes the flattened scan actually walks past:
   '` To stay within the request limits, ${notes.join(", and ")}.`',

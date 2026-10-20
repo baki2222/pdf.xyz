@@ -84,3 +84,55 @@ test.describe("unknown routes answer 404", () => {
     expect(res.status()).toBe(404);
   });
 });
+
+/**
+ * The smart 404 (design spec D.10, E.12; WP-13). The page reads the address
+ * it was asked for, and its search works for a reader with JavaScript off:
+ * a server-rendered GET form to /tools, which ranks `?q=` in its own server
+ * render. CSP `form-action 'self'` allows it.
+ */
+test.describe("the smart 404", () => {
+  test("/merge suggests Merge PDF and is still a 404", async ({ page }) => {
+    const res = await page.goto("/merge");
+    expect(res?.status()).toBe(404);
+    const row = page.locator('[data-slot="not-found-assist"]');
+    await expect(row).toContainText(/Did you mean Merge PDF\?/);
+    await expect(row.getByRole("link", { name: "Merge PDF" })).toHaveAttribute(
+      "href",
+      "/tools/merge-pdf",
+    );
+    // The island pre-fills the server-rendered input with the path's words.
+    await expect(page.getByRole("searchbox")).toHaveValue("merge");
+  });
+
+  test("the search form works with JavaScript disabled", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    try {
+      const res = await page.goto("/no-such-page-at-all");
+      expect(res?.status()).toBe(404);
+      // Health: JS really is off — the island never ran, so the row is empty
+      // and the input was not pre-filled.
+      await expect(page.locator('[data-slot="not-found-assist"]')).toHaveText(
+        "",
+      );
+      const input = page.getByRole("searchbox");
+      await expect(input).toHaveValue("");
+      await input.fill("merge");
+      await Promise.all([
+        page.waitForURL(/\/tools\?q=merge$/),
+        page.getByRole("button", { name: "Search" }).click(),
+      ]);
+      expect(new URL(page.url()).pathname).toBe("/tools");
+      expect(new URL(page.url()).searchParams.get("q")).toBe("merge");
+      // The server render ranked it: Merge PDF is on the page without JS.
+      await expect(
+        page.locator('main a[href="/tools/merge-pdf"]').first(),
+      ).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+});

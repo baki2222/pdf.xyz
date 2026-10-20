@@ -5,7 +5,7 @@ import { getPopularTools, toolCount } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
 import { ToolIcon } from "@/components/ui/tool-icon";
 import { buttonVariants } from "@/components/ui/button";
-import { MissingPathSuggestion } from "@/components/layout/missing-path-suggestion";
+import { NotFoundAssist } from "@/components/intent/not-found-assist";
 
 /**
  * The 404's own identity. Next already sends a 404 status and its own
@@ -23,6 +23,9 @@ export const metadata: Metadata = {
   title: "Page not found",
   robots: { index: false, follow: true },
 };
+
+/** The search box's id, which the assist island pre-fills. */
+const SEARCH_ID = "not-found-q";
 
 export default function NotFound() {
   const suggestions = getPopularTools(6);
@@ -44,14 +47,46 @@ export default function NotFound() {
           </p>
         </div>
 
-        {/* The address itself often names the tool: /merge-pdf, an old
-            link, a guessed slug. Nothing renders when it names none. */}
-        <MissingPathSuggestion />
+        {/* Server-rendered, so it works with JavaScript off: a plain GET to
+            the catalogue, which ranks `?q=` in its own server render. CSP
+            `form-action 'self'` allows it. The island below pre-fills the
+            box with the address's words and fills the reserved row. */}
+        <div className="flex w-full max-w-md flex-col gap-1">
+          <form
+            action="/tools"
+            method="get"
+            role="search"
+            className="flex flex-col gap-2 text-left"
+          >
+            <label htmlFor={SEARCH_ID} className="text-fg text-sm font-medium">
+              Search the tools
+            </label>
+            <div className="flex gap-2">
+              <input
+                id={SEARCH_ID}
+                name="q"
+                type="search"
+                autoComplete="off"
+                className="border-line-strong bg-panel text-fg placeholder:text-faint focus-visible:outline-accent rounded-ctl h-11 w-full flex-1 border px-3 text-base focus-visible:outline-2 focus-visible:outline-offset-2"
+              />
+              <button
+                type="submit"
+                className={buttonVariants({ variant: "primary", size: "md" })}
+              >
+                <Search className="size-4" aria-hidden />
+                Search
+              </button>
+            </div>
+          </form>
+          {/* The address itself often names the tool: /merge, an old link,
+              a guessed slug. Reserved, so filling it moves nothing. */}
+          <NotFoundAssist inputId={SEARCH_ID} />
+        </div>
 
         <div className="flex flex-col items-center gap-3 sm:flex-row">
           <Link
             href="/"
-            className={buttonVariants({ variant: "primary", size: "md" })}
+            className={buttonVariants({ variant: "secondary", size: "md" })}
           >
             Back to home
             <ArrowRight className="size-4" aria-hidden />
@@ -60,7 +95,6 @@ export default function NotFound() {
             href="/tools"
             className={buttonVariants({ variant: "secondary", size: "md" })}
           >
-            <Search className="size-4" aria-hidden />
             Browse all tools
           </Link>
         </div>
@@ -70,7 +104,7 @@ export default function NotFound() {
             <Link
               key={tool.slug}
               href={`/tools/${tool.slug}`}
-              className="group border-line text-fg hover:border-line-strong hover:bg-wash inline-flex items-center gap-2 rounded-full border py-1.5 pr-4 pl-1.5 text-sm font-medium transition-colors"
+              className="group border-line text-fg hover:border-line-strong hover:bg-wash rounded-tag inline-flex items-center gap-2 border py-1.5 pr-4 pl-1.5 text-sm font-medium transition-colors"
             >
               <ToolIcon icon={tool.icon} size="sm" />
               {tool.name}
