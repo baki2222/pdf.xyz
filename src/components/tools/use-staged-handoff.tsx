@@ -15,7 +15,7 @@ import { getToolBySlug } from "@/lib/tools";
 import { useToolRun } from "./runner/tool-context";
 
 const Notice = lazy(() =>
-  import("./runner/handoff-notice").then(({ StagedHandoffNotice }) => ({
+  import("./runner/staged-handoff-notice").then(({ StagedHandoffNotice }) => ({
     default: StagedHandoffNotice,
   })),
 );

@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -10,7 +12,6 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { announceOutcome } from "@/components/a11y/live-region";
 import {
   AlertTriangle,
@@ -30,8 +31,7 @@ import { PdfEngineError } from "@/lib/pdf/engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { remedyFor, type Remedy, type RemedyInput } from "@/lib/pdf/remedies";
 import type { RunOutput } from "@/lib/intent/run-output";
-import { confirmLeave, registerUnkeptResult } from "@/lib/intent/unsaved";
-import { isPlainClick } from "@/lib/intent/links";
+import { registerUnkeptResult } from "@/lib/intent/unsaved";
 import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
@@ -431,6 +431,24 @@ export function errorNoteLinksUnlock(
  * goes there — never offered from the tool that is that remedy. A cause the
  * engine did not name gets none.
  */
+/** A remedy's plain link: what a modified click, or a page still loading the carrier, gets. */
+function RemedyAnchor({ remedy }: { remedy: Remedy }) {
+  return (
+    <Link
+      href={remedy.href}
+      className="font-semibold underline underline-offset-2"
+    >
+      {remedy.label}
+    </Link>
+  );
+}
+
+const CarryingRemedyLink = lazy(() =>
+  import("./remedy-link").then(({ CarryingRemedyLink }) => ({
+    default: CarryingRemedyLink,
+  })),
+);
+
 export function ErrorNote({
   message,
   action,
@@ -471,7 +489,9 @@ export function ErrorNote({
           <span data-remedy="" className="mt-2 flex flex-col gap-0.5">
             <span>
               {remedy.carries && cause?.file ? (
-                <CarryingRemedyLink remedy={remedy} file={cause.file} />
+                <Suspense fallback={<RemedyAnchor remedy={remedy} />}>
+                  <CarryingRemedyLink remedy={remedy} file={cause.file} />
+                </Suspense>
               ) : (
                 <Link
                   href={remedy.href}
@@ -487,58 +507,6 @@ export function ErrorNote({
         )}
       </span>
     </p>
-  );
-}
-
-/**
- * A remedy's link that takes the file with it (WP-10): the tool that fixes
- * the file STAGES it — nothing uploads until Run there — with a `remedy`
- * origin, and the job's way back (`pending`: the tool that sent it), so the
- * fix's result continues to this tool first. A modified click (new tab) is
- * the plain link it always was; a stash the browser refuses navigates
- * plainly, and the page there asks for the file.
- *
- * Its own component because it needs the App Router: the plain link does
- * not, and an alert drawn outside a page (a panel test) never reaches here.
- */
-function CarryingRemedyLink({ remedy, file }: { remedy: Remedy; file: File }) {
-  const router = useRouter();
-  const run = useToolRun();
-  const [going, setGoing] = useState(false);
-  return (
-    <Link
-      href={remedy.href}
-      aria-busy={going || undefined}
-      onClick={async (event) => {
-        if (!isPlainClick(event)) return;
-        event.preventDefault();
-        if (going) return;
-        setGoing(true);
-        try {
-          const { launchWithFiles } = await import("@/lib/intent/launch");
-          const result = await launchWithFiles({
-            toolSlug: remedy.toolSlug,
-            files: [file],
-            origin: {
-              kind: "remedy",
-              fromSlug: run?.slug ?? "",
-              problem: remedy.problem,
-            },
-            trail: run?.trail ?? [],
-            ...(run ? { pending: { toolSlug: run.slug, parkedId: null } } : {}),
-            suggestion: { source: "remedy", rank: 1 },
-            router,
-            confirmLeave,
-          });
-          if (result === "failed") router.push(remedy.href);
-        } finally {
-          setGoing(false);
-        }
-      }}
-      className="font-semibold underline underline-offset-2"
-    >
-      {remedy.label}
-    </Link>
   );
 }
 
