@@ -78,6 +78,7 @@ export function SinglePdfRunner({
   toolName = "this tool",
   writesPdf = true,
   reader = "pdf-lib",
+  prepare,
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -98,12 +99,15 @@ export function SinglePdfRunner({
    * {@link PdfReader}.
    */
   reader?: PdfReader;
+  /** Fetched while the file opens, before the editor draws — see `useSinglePdf`. */
+  prepare?: () => Promise<void>;
 }) {
   // A tool with a preflight hint (E.9) probes the file as it opens.
   const slug = useToolRun()?.slug ?? "";
   const { pdf, loading, error, open, clear } = useSinglePdf({
     reader,
     preflight: hintNeedFor(slug),
+    prepare,
   });
   // Self-claim only when a parent hasn't already provided a claimed hand-off.
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);

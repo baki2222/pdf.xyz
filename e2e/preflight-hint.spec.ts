@@ -24,7 +24,9 @@ import {
  *     CARRIES the file to Fill Forms, which opens with it and says where it
  *     came from.
  *  3. Control: a text PDF in PDF to Text gets no hint.
- *  4. The hint arrives with the editor, so it moves nothing: the sum of
+ *  4. The hint arrives with the editor: no painted frame shows the file
+ *     header without it (sampled every frame — this holds at any width),
+ *     and so it moves nothing: the sum of
  *     layout shifts outside an input window, from a DROP (which opens no
  *     input window) until the editor is still, is held to the bound
  *     `editor-arrival.spec.ts` uses — with that spec's instrument check,
@@ -185,6 +187,24 @@ for (const { slug, name, make } of [
         await frame();
         box.remove();
       });
+      // Every painted frame from here: was the header drawn WITHOUT its hint?
+      // A CLS sum scales with the screen, so a late hint can pass it on a
+      // wide one (1280 px stayed green with the hint 400 ms late); a frame
+      // that shows the header bare cannot.
+      await page.evaluate(() => {
+        const w = window as unknown as { __frames: number; __bare: number };
+        w.__frames = 0;
+        w.__bare = 0;
+        const tick = () => {
+          const header = document.querySelector("[data-file-header]");
+          if (header) {
+            w.__frames += 1;
+            if (!header.querySelector("[role=note]")) w.__bare += 1;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
       const data = b64(await make());
       const dt = await page.evaluateHandle(
         ({ name, data }) => {
@@ -206,10 +226,23 @@ for (const { slug, name, make } of [
         page.locator("[data-file-header] [role=note]"),
       ).toBeVisible();
       await page.waitForTimeout(1500);
-      const { cls, own } = await page.evaluate(() => {
-        const w = window as unknown as { __cls: number; __own: number };
-        return { cls: w.__cls, own: w.__own };
+      const { cls, own, frames, bare } = await page.evaluate(() => {
+        const w = window as unknown as {
+          __cls: number;
+          __own: number;
+          __frames: number;
+          __bare: number;
+        };
+        return {
+          cls: w.__cls,
+          own: w.__own,
+          frames: w.__frames,
+          bare: w.__bare,
+        };
       });
       expect(own, "the instrument saw no shift of its own").toBeGreaterThan(0);
+      // Health: the sampler saw the header in many frames.
+      expect(frames, "the frame sampler saw no header").toBeGreaterThan(10);
+      expect(bare, "frames that drew the header without its hint").toBe(0);
       expect(cls).toBeLessThanOrEqual(MAX_CLS);
     });

@@ -71,6 +71,12 @@ export interface UseSinglePdfOptions {
    * editor and never moves it afterwards.
    */
   preflight?: HintReason | null;
+  /**
+   * Anything the editor reads synchronously as it first draws — fetched
+   * beside the page board, and awaited before the editor appears. A
+   * failure is the editor's to absorb; the file still opens.
+   */
+  prepare?: () => Promise<void>;
 }
 
 /**
@@ -107,6 +113,7 @@ export function useSinglePdf({
   classifyLocked = false,
   reader = "pdf-lib",
   preflight = null,
+  prepare,
 }: UseSinglePdfOptions = {}) {
   const [pdf, setPdf] = useState<LoadedPdf | null>(null);
   const [locked, setLocked] = useState<LockedPdf | null>(null);
@@ -135,6 +142,7 @@ export function useSinglePdf({
         const [{ pageCount, rotations }, probe] = await Promise.all([
           readPageBoard(bytes, reader),
           preflight ? readPreflight(bytes, preflight) : undefined,
+          prepare?.().catch(() => {}),
         ]);
         setPdf({
           file,
@@ -164,7 +172,7 @@ export function useSinglePdf({
         setLoading(false);
       }
     },
-    [classifyLocked, reader, preflight],
+    [classifyLocked, reader, preflight, prepare],
   );
 
   const clear = useCallback(() => {

@@ -27,12 +27,7 @@ import {
   type RasterFormat,
 } from "@/lib/pdf/pdf-to-image";
 import { downloadBytes } from "@/lib/pdf/browser";
-import { defaultResolution } from "@/lib/intent/defaults";
-import {
-  OPTION_SCHEMAS,
-  recallOptions,
-  rememberOptions,
-} from "@/lib/intent/option-memory";
+import { loadRasterDefaults, rasterDefaults } from "./raster-defaults-chunk";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
@@ -75,6 +70,7 @@ export function PdfToImageRunner({ format }: { format: RasterFormat }) {
       toolName={`PDF to ${label}`}
       writesPdf={false}
       reader="pdfjs"
+      prepare={loadRasterDefaults}
     >
       {(pdf, reset) => (
         <PdfToImageEditor pdf={pdf} format={format} onReset={reset} />
@@ -96,13 +92,17 @@ function PdfToImageEditor({
   const { busy, error, result, run, reset } = useAsyncRun<RasterResult>();
   // A long PDF opens at Screen, said with its reason (smart default);
   // otherwise at the resolution last chosen here (option memory).
-  const [smart] = useState(() =>
-    defaultResolution(pdf.pageCount, RASTER_RESOLUTIONS),
+  // Both fetched while the file opened (`raster-defaults-chunk`).
+  const [prep] = useState(rasterDefaults);
+  const [smart] = useState(
+    () =>
+      prep?.defaults.defaultResolution(pdf.pageCount, RASTER_RESOLUTIONS) ??
+      null,
   );
   const [resolutionId, setResolutionId] = useState<string>(
     () =>
       smart?.id ??
-      recallOptions("pdf-to-image").resolution ??
+      prep?.memory.recallOptions("pdf-to-image").resolution ??
       DEFAULT_RESOLUTION_ID,
   );
   // Only a resolution the reader picked is remembered, never one chosen
@@ -124,10 +124,12 @@ function PdfToImageEditor({
     const controller = new AbortController();
     abortRef.current = controller;
     const resolution = resolutionById(resolutionId);
-    const kept = OPTION_SCHEMAS["pdf-to-image"].resolution.values.find(
+    const memory = prep?.memory;
+    const kept = memory?.OPTION_SCHEMAS["pdf-to-image"].resolution.values.find(
       (id) => id === resolution.id,
     );
-    if (picked && kept) rememberOptions("pdf-to-image", { resolution: kept });
+    if (picked && kept)
+      memory?.rememberOptions("pdf-to-image", { resolution: kept });
     setProgress({ done: 0, total: pdf.pageCount });
     void run(async () => {
       const pages = await rasterizePdf(pdf.bytes, {
