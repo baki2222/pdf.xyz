@@ -13,7 +13,7 @@
  * from `meta.generated.ts`, never the article catalogue, which would bring a
  * dozen modules of interpolated figures into a chunk budgeted at 12 KB gz.
  */
-import { GUIDE_META } from "@/lib/guides/meta.generated";
+import type { GuideMeta } from "@/lib/guides/meta";
 import { footerNav, primaryNav } from "@/lib/site";
 import { tools } from "@/lib/tools";
 import { TASKS } from "@/lib/tools/intents";
@@ -62,7 +62,13 @@ export const PALETTE_ACTIONS: readonly {
 const toolName = new Map(tools.map((t) => [t.slug, t.name]));
 
 /** Every document, in the order the palette groups them. */
-export function paletteDocs(): PaletteDoc[] {
+/**
+ * `guides` is passed in, not imported: the guide meta is a chunk of its
+ * own that the palette fetches beside itself, so its 1.5 KB gz is not in
+ * the palette's 12 KB fetch (lazy-chunks.test.ts; CI measured 12.0009 with
+ * it inside). Until it arrives the palette ranks everything but guides.
+ */
+export function paletteDocs(guides: readonly GuideMeta[]): PaletteDoc[] {
   const toolEntries: PaletteDoc[] = toolDocs(tools).map(({ tool, ...doc }) => ({
     ...doc,
     href: `/tools/${tool.slug}`,
@@ -80,7 +86,7 @@ export function paletteDocs(): PaletteDoc[] {
     toolSlug: task.slug,
   }));
 
-  const guideEntries: PaletteDoc[] = GUIDE_META.map((guide) => ({
+  const guideEntries: PaletteDoc[] = guides.map((guide) => ({
     kind: "guide",
     id: `guide:${guide.slug}`,
     name: guide.title,

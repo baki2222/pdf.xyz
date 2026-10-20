@@ -16,7 +16,7 @@ import { TASKS } from "@/lib/tools/intents";
 import { buildIndex, search } from "./search";
 import { PALETTE_ACTIONS, paletteDocs, type PaletteDoc } from "./palette-index";
 
-const docs = paletteDocs();
+const docs = paletteDocs(GUIDE_META);
 const of = (kind: PaletteDoc["kind"]) => docs.filter((d) => d.kind === kind);
 
 describe("paletteDocs", () => {

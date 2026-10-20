@@ -203,6 +203,18 @@ describe("the combobox contract", () => {
     expect(screen.getByText(/No tool, guide or page matches/)).toBeTruthy();
   });
 
+  it("finds guides once their meta arrives (its own chunk)", async () => {
+    open();
+    type("how to merge");
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("listbox")).getByRole("group", {
+          name: "Guides",
+        }).textContent,
+      ).toMatch(/merge/i),
+    );
+  });
+
   it("a format nothing here opens is answered, in words", () => {
     open();
     type("heic");

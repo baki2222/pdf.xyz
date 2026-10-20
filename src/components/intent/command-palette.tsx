@@ -24,6 +24,7 @@ import {
   type SearchIndex,
 } from "@/lib/intent/search";
 import { paletteDocs, type PaletteDoc } from "@/lib/intent/palette-index";
+import type { GuideMeta } from "@/lib/guides/meta";
 import type { PaletteTrigger } from "@/lib/telemetry/events";
 import { suggestionOpenedEvent, track } from "@/lib/telemetry/track";
 import { cn } from "@/lib/utils";
@@ -62,11 +63,27 @@ const KIND_ORDER: readonly DocKind[] = [
 const STARTER_TASKS = 6;
 const RECENT_SHOWN = 4;
 
-let built: SearchIndex<PaletteDoc> | null = null;
-/** The index, built once per page on first open and kept. */
-function paletteIndex(): SearchIndex<PaletteDoc> {
-  built ??= buildIndex(paletteDocs());
-  return built;
+type Guides = readonly GuideMeta[];
+const NO_GUIDES: Guides = [];
+let built: { guides: Guides; index: SearchIndex<PaletteDoc> } | null = null;
+/** The index, built once per page (again when the guides arrive) and kept. */
+function paletteIndex(guides: Guides): SearchIndex<PaletteDoc> {
+  if (built?.guides !== guides)
+    built = { guides, index: buildIndex(paletteDocs(guides)) };
+  return built.index;
+}
+
+/** The guide meta: its own chunk, fetched as the palette opens. */
+let guidesLoad: Promise<Guides> | null = null;
+function loadGuides(): Promise<Guides> {
+  guidesLoad ??= import("@/lib/guides/meta.generated").then(
+    (m) => m.GUIDE_META,
+    (error: unknown) => {
+      guidesLoad = null;
+      throw error;
+    },
+  );
+  return guidesLoad;
 }
 
 interface Group {
@@ -80,8 +97,12 @@ interface View {
   readonly unsupported: string | null;
 }
 
-function viewFor(query: string, recentSlugs: readonly string[]): View {
-  const index = paletteIndex();
+function viewFor(
+  query: string,
+  recentSlugs: readonly string[],
+  guides: Guides,
+): View {
+  const index = paletteIndex(guides);
   const docs = index.entries.map((e) => e.doc);
   if (!query.trim()) {
     const recent = recentSlugs
@@ -212,7 +233,21 @@ export default function CommandPalette({
   }, [onClose, returnFocus]);
 
   const recentSlugs = useMemo(() => recents.map((r) => r.slug), [recents]);
-  const view = useMemo(() => viewFor(query, recentSlugs), [query, recentSlugs]);
+  const [guides, setGuides] = useState<Guides>(NO_GUIDES);
+  useEffect(() => {
+    let live = true;
+    loadGuides().then(
+      (list) => live && setGuides(list),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  const view = useMemo(
+    () => viewFor(query, recentSlugs, guides),
+    [query, recentSlugs, guides],
+  );
   const flat = useMemo(() => view.groups.flatMap((g) => g.options), [view]);
   // Where each group's options start in `flat`: an option's id and rank.
   const starts = useMemo(() => offsets(view.groups), [view]);
