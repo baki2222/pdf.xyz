@@ -136,7 +136,10 @@ describe("every state-changing route refuses a cross-site browser first", () => 
         "POST src/app/api/uploads/route.ts",
       ]),
     );
-  });
+    // Reads and parses every route handler's source: 3.5-4.3 s on a quiet machine
+    // against vitest's 5 s default, and it timed out under load (2026-10-11,
+    // during a parallel build) — the same class as 2b20baa7.
+  }, 30_000);
 
   it("answers 403 to a cross-site request on every one of them", async () => {
     const refusedWrongly: string[] = [];
