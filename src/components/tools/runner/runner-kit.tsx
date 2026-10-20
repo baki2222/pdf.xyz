@@ -1097,15 +1097,14 @@ export function ResultPanel({
  * panel cannot build the card without writing the sentence a user hears, which
  * is the only kind of convention this codebase has not drifted out of.
  *
- * `output`, when the card has the file in hand, adds the receipt and
- * "Continue with" under its contents, as {@link ResultPanel} does. Optional
- * until every worker panel has its file to give (redesign WP-10).
- *
- * Without one, a tool whose output nothing here should touch again (Protect
- * PDF, PDF to PDF/A: `NO_CONTINUE`) still says why nothing follows — the
- * page gives every worker panel its job (`ToolRunProvider`), and this card
- * reads the reason from it. `result-ending.test.tsx` drives Protect PDF's
- * panel to this card.
+ * `output` — REQUIRED since WP-10, when every worker panel came to hand
+ * its file over — adds the receipt and "Continue with" under its contents,
+ * as {@link ResultPanel} does. For a tool whose output nothing here should
+ * touch again (Protect PDF, PDF to PDF/A: `NO_CONTINUE`) "Continue with"
+ * says why nothing follows, from the job the page gives every worker panel
+ * (`ToolRunProvider`). WAS a fallback paragraph here for a card with no
+ * output; no card is without one now. `no-continue-delivered.test.tsx`
+ * drives both panels to this card.
  */
 export function ResultCard({
   announce,
@@ -1117,15 +1116,18 @@ export function ResultCard({
   announce: string;
   children: ReactNode;
   className?: string;
-  output?: RunOutput;
+  /**
+   * REQUIRED since WP-10: every result card is a file to download, so it
+   * carries the receipt and "Continue with" — or, when the plan says
+   * nothing follows, the reason (`ContinueWith` draws it).
+   */
+  output: RunOutput;
   inputBytes?: number;
 }) {
   const outcome = useOutcomeFocus(true, announce);
-  const none = useToolRun()?.plan.none;
   // Every card is a result to download (each worker panel draws one with
-  // its Download), whether or not it is handed the run's `output`: none of
-  // the twelve worker panels is, and their results went unasked-for under a
-  // paste (PR #180 re-review).
+  // its Download): their results went unasked-for under a paste until this
+  // guard covered them (PR #180 re-review).
   const keep = useUnkeptResult(true);
   return (
     <div
@@ -1139,22 +1141,11 @@ export function ResultCard({
       )}
     >
       {children}
-      {output ? (
-        <RunEnding
-          output={output}
-          inputBytes={inputBytes}
-          className="border-ok/30 mt-2 border-t pt-4"
-        />
-      ) : (
-        none && (
-          <p
-            data-no-continue=""
-            className="border-ok/30 text-muted mt-2 border-t pt-4 text-xs leading-5"
-          >
-            {none}
-          </p>
-        )
-      )}
+      <RunEnding
+        output={output}
+        inputBytes={inputBytes}
+        className="border-ok/30 mt-2 border-t pt-4"
+      />
     </div>
   );
 }
