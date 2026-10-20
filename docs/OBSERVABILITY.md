@@ -49,6 +49,7 @@ a free-form string. The events today:
 | `worker_status_checked`     | `mode`, `enabled`                                                                |
 | `worker_operations_checked` | `mode`, `health` (SLO class), `recommendedAction`, `drainable`, `daemonObserved` |
 | `gated_tool_interest`       | `toolSlug`, `capability`                                                         |
+| `palette_opened`            | `trigger` (`shortcut` or `button`) — never the query                             |
 
 Every field is one of: a **public route slug**, a **fixed enum**, a **boolean**,
 or a **coarse bucket label**. No field is a filename, a raw byte count, a raw

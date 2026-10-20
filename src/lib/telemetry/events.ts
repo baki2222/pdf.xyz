@@ -144,6 +144,9 @@ export const SUGGESTION_SOURCES = [
 ] as const;
 export type SuggestionSource = (typeof SUGGESTION_SOURCES)[number];
 
+/** How the command palette was opened. */
+export type PaletteTrigger = "shortcut" | "button";
+
 /** A suggestion's position, coarsened: the top three, then the rest. */
 export type SuggestionRank = "1" | "2" | "3" | "4+";
 
@@ -234,6 +237,15 @@ export type ProductEvent =
       name: "gated_tool_interest";
       toolSlug: string;
       capability: ToolCapability;
+    }
+  | {
+      /**
+       * The command palette opened, and how: the Ctrl/⌘ K shortcut or the
+       * header's button. Never what was typed into it — a query can name a
+       * file, a client or a person, and search text is never sent (E.13).
+       */
+      name: "palette_opened";
+      trigger: PaletteTrigger;
     };
 
 /** Every valid event name. The runtime allowlist behind {@link isKnownEventName}. */
@@ -246,6 +258,7 @@ export const EVENT_NAMES = [
   "worker_status_checked",
   "worker_operations_checked",
   "gated_tool_interest",
+  "palette_opened",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];

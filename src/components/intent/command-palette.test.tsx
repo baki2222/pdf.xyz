@@ -8,7 +8,14 @@
  * the roles and names, which option is active and how the arrows move it,
  * what Enter and Escape do, and the actions.
  */
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { RECENTS_STORAGE_KEY } from "@/lib/intent/recents-key";
@@ -62,9 +69,10 @@ afterEach(() => {
   resetPageTargetsForTests();
 });
 
-function open(
-  props: Partial<Parameters<typeof CommandPalette>[0]> = {},
-): { closed: () => number; trigger: HTMLButtonElement } {
+function open(props: Partial<Parameters<typeof CommandPalette>[0]> = {}): {
+  closed: () => number;
+  trigger: HTMLButtonElement;
+} {
   const trigger = document.createElement("button");
   trigger.textContent = "trigger";
   document.body.appendChild(trigger);
@@ -73,7 +81,7 @@ function open(
     <AppRouterContext.Provider value={ROUTER}>
       <CommandPalette
         trigger="shortcut"
-        returnFocus={trigger}
+        returnFocus={{ current: trigger }}
         onClose={() => {
           closes += 1;
         }}
@@ -84,7 +92,8 @@ function open(
   return { closed: () => closes, trigger };
 }
 
-const box = () => screen.getByRole("combobox", { name: "Find a tool or guide" });
+const box = () =>
+  screen.getByRole("combobox", { name: "Find a tool or guide" });
 const active = () => {
   const id = box().getAttribute("aria-activedescendant");
   return id ? document.getElementById(id) : null;
@@ -194,6 +203,14 @@ describe("the combobox contract", () => {
     expect(screen.getByText(/No tool, guide or page matches/)).toBeTruthy();
   });
 
+  it("a format nothing here opens is answered, in words", () => {
+    open();
+    type("heic");
+    expect(screen.getByRole("note").textContent).toMatch(
+      /^No tool here opens HEIC/,
+    );
+  });
+
   it("Escape closes and returns focus to the trigger", () => {
     const { closed, trigger } = open();
     key("Escape");
@@ -219,10 +236,7 @@ describe("the actions", () => {
     expect(active()?.textContent).toContain("Open a file");
     key("Enter");
     expect(closed()).toBe(1);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
-    });
-    expect(picks).toBe(1);
+    await waitFor(() => expect(picks).toBe(1));
   });
 
   it("Clear local history forgets recents", async () => {
@@ -233,11 +247,10 @@ describe("the actions", () => {
     open();
     type("clear local history");
     key("Enter");
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
-    });
     expect(localStorage.getItem(RECENTS_STORAGE_KEY)).toBeNull();
-    expect(screen.getByRole("status").textContent).toMatch(/cleared/i);
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toMatch(/cleared/i),
+    );
   });
 });
 
@@ -261,9 +274,8 @@ describe("a file dropped on the open palette", () => {
     // Claimed, so the page's own drop handling leaves it alone.
     expect(drop.defaultPrevented).toBe(true);
     expect(closed()).toBe(1);
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
-    });
-    expect(received).toEqual([{ names: ["a.pdf"], why: "none" }]);
+    await waitFor(() =>
+      expect(received).toEqual([{ names: ["a.pdf"], why: "none" }]),
+    );
   });
 });
