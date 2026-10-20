@@ -207,7 +207,9 @@ test.describe("the footer links every tool, as served", () => {
       const hrefs = (
         await footer
           .locator('a[href^="/tools/"]')
-          .evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""))
+          .evaluateAll((links) =>
+            links.map((a) => a.getAttribute("href") ?? ""),
+          )
       ).filter((href) => SLUG_HREF.test(href));
       expect(everyTool.size).toBeGreaterThanOrEqual(40);
       expect(hrefs).toHaveLength(everyTool.size);

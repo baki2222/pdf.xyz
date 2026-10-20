@@ -139,6 +139,21 @@ test("on /tools?category=ai only AI tools is current in the header", async ({
   ).not.toHaveAttribute("aria-current", /.*/);
 });
 
+test("the /tools explorer's AI chip makes AI tools current in the header, in place", async ({
+  page,
+}) => {
+  // The chain: the chip rewrites the query with replaceState (no
+  // navigation), announces it, and the header's links read it again.
+  await page.goto("/tools");
+  const chip = page.getByRole("button", { name: /^AI/ });
+  await waitForHydration(chip);
+  const primary = page.getByRole("navigation", { name: "Primary" });
+  await expect(primary.locator("[aria-current]")).toHaveText(["All tools"]);
+  await chip.click();
+  await expect(page).toHaveURL(/[?&]category=ai/);
+  await expect(primary.locator("[aria-current]")).toHaveText(["AI tools"]);
+});
+
 test("the header renders no file input", async ({ page }) => {
   await page.goto("/");
   await headerLive(page);
