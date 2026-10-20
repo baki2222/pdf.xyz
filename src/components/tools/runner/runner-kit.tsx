@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -41,6 +39,7 @@ import {
   reportToolCompleted,
   reportToolFailed,
 } from "@/lib/telemetry/tool-outcome";
+import { CarryingRemedyLink } from "./remedy-link";
 import { holdRunnerStage } from "./stage-hold";
 import { useToolRun } from "./tool-context";
 
@@ -431,24 +430,6 @@ export function errorNoteLinksUnlock(
  * goes there — never offered from the tool that is that remedy. A cause the
  * engine did not name gets none.
  */
-/** A remedy's plain link: what a modified click, or a page still loading the carrier, gets. */
-function RemedyAnchor({ remedy }: { remedy: Remedy }) {
-  return (
-    <Link
-      href={remedy.href}
-      className="font-semibold underline underline-offset-2"
-    >
-      {remedy.label}
-    </Link>
-  );
-}
-
-const CarryingRemedyLink = lazy(() =>
-  import("./remedy-link").then(({ CarryingRemedyLink }) => ({
-    default: CarryingRemedyLink,
-  })),
-);
-
 export function ErrorNote({
   message,
   action,
@@ -489,9 +470,7 @@ export function ErrorNote({
           <span data-remedy="" className="mt-2 flex flex-col gap-0.5">
             <span>
               {remedy.carries && cause?.file ? (
-                <Suspense fallback={<RemedyAnchor remedy={remedy} />}>
-                  <CarryingRemedyLink remedy={remedy} file={cause.file} />
-                </Suspense>
+                <CarryingRemedyLink remedy={remedy} file={cause.file} />
               ) : (
                 <Link
                   href={remedy.href}

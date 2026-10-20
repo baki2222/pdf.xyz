@@ -158,7 +158,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add one PDF",
-      body: "Once the status badge reads Secure worker, drop your file on the Add your PDF area or choose browse to pick it. The page holds one PDF at a time; press Remove to swap it for another.",
+      body: "Drop your file on the Add your PDF area or choose browse to pick it; it is sent only when you press Export, which works once the status badge reads Secure worker. The page holds one PDF at a time; press Remove to swap it for another.",
     },
     {
       title: "Press Export DOCX",

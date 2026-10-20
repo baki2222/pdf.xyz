@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { attachConsoleGuard } from "./helpers";
 
+const PAGE = "/tools/chat-with-pdf";
+
 test.describe("secure-worker AI tool panel", () => {
   test("the chat-with-pdf page mounts its dedicated secure-worker panel, honestly not-enabled", async ({
     page,
@@ -11,7 +13,7 @@ test.describe("secure-worker AI tool panel", () => {
     // panel is honestly "Not enabled": it shows the pipeline + a notify placeholder and
     // never mounts an uploader or fabricates an answer. (The ready/answer path is
     // exercised by the engine/processor/client unit tests, which inject a fake provider.)
-    await page.goto("/tools/chat-with-pdf");
+    await page.goto(PAGE);
 
     await expect(
       page.getByRole("heading", { level: 1, name: "Chat with PDF" }),
@@ -24,24 +26,22 @@ test.describe("secure-worker AI tool panel", () => {
       }),
     ).toBeVisible();
     await expect(page.getByText("Not enabled")).toBeVisible();
-    // No worker is configured in this environment, so no scanner is running — the
-    // pipeline must show the structural preflight and must NOT claim a malware scan.
-    // This line used to assert the opposite, which is how the false claim shipped.
-    await expect(page.getByText("Structural preflight")).toBeVisible();
+    // INVERTED in WP-10. Until then the not-enabled panel drew the whole
+    // pipeline, and these lines read it there ("Structural preflight",
+    // "3. Processing", "5. Auto-delete"). A worker that is off has no job to
+    // stage, so its reason now stands IN PLACE of the docket; the pipeline
+    // a reader and a crawler get is the one the page SERVES, before any
+    // status is heard — read here from the HTML, and holding neither claim:
+    // not "Malware scan", not "Files are not scanned" — "Safety checks".
+    const served = await (await page.request.get(PAGE)).text();
+    expect(served).toContain("Safety checks");
+    expect(served).not.toContain("Malware scan");
+    expect(served).not.toMatch(/Isolated processing|sandbox|network egress/i);
+    expect(served).toContain("Auto-delete");
+    await expect(page.locator("[data-docket]")).toHaveCount(0);
     await expect(page.getByText("Malware scan")).toHaveCount(0);
-    // Inverted, not deleted: this line used to assert "Isolated processing" was
-    // VISIBLE — on the one tool that sends the document's text to a third-party
-    // AI provider, under a stage promising "no network egress". The AI stage now
-    // says where the text goes.
-    await expect(
-      page.getByText("3. AI processing", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/third-party AI provider/i).first(),
-    ).toBeVisible();
-    await expect(page.getByText("Isolated processing")).toHaveCount(0);
-    await expect(page.getByText(/sandbox|network egress/i)).toHaveCount(0);
-    await expect(page.getByText("5. Auto-delete")).toBeVisible();
+    expect(served).toContain("AI processing");
+    expect(served).toMatch(/third-party AI provider/i);
     await expect(page.getByText(/wiped after processing/i)).toBeVisible();
 
     // The stated reason must be the one that is actually blocking. No AI provider
@@ -51,8 +51,12 @@ test.describe("secure-worker AI tool panel", () => {
       page.getByText(/no ai provider is declared for this deployment/i),
     ).toBeVisible();
 
-    // Not-enabled ⇒ no builder, so no client uploader or in-browser runner is mounted.
-    expect(await page.locator('input[type="file"]').count()).toBe(0);
+    // INVERTED in WP-10 (was "not-enabled ⇒ no builder, so no client
+    // uploader"): the builder and its drop zone are there; asking is off.
+    expect(await page.locator('input[type="file"]').count()).toBe(1);
+    await expect(
+      page.getByRole("button", { name: "Ask the PDF" }),
+    ).toHaveAttribute("aria-disabled", "true");
     await expect(
       page.getByText(/runs in your browser — your file never leaves/i),
     ).toHaveCount(0);

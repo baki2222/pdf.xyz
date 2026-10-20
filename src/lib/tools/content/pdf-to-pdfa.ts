@@ -149,7 +149,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Check the worker badge",
-      body: "The badge at the top reads Secure worker when conversion is available. Otherwise the panel says why and shows no uploader, so nothing is sent.",
+      body: "The badge at the top reads Secure worker when conversion is available. Otherwise the panel says why and its Convert button stays off, so nothing is sent.",
     },
     {
       title: "Add one PDF",

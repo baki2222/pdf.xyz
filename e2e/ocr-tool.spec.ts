@@ -1,12 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { attachConsoleGuard } from "./helpers";
 
+const PAGE = "/tools/ocr-pdf";
+
 test.describe("OCR secure-worker tool page", () => {
   test("shows an honest OCR flow and never fakes a result when disabled", async ({
     page,
   }) => {
     const guard = attachConsoleGuard(page);
-    await page.goto("/tools/ocr-pdf");
+    await page.goto(PAGE);
 
     await expect(
       page.getByRole("heading", { level: 1, name: "OCR PDF" }),
@@ -43,31 +45,35 @@ test.describe("OCR secure-worker tool page", () => {
       page.getByText(/needs a secure worker with a native ocr engine/i),
     ).toBeVisible();
 
-    // The full, honest pipeline is shown.
-    // No worker is configured in this environment, so no scanner is running — the
-    // pipeline must show the structural preflight and must NOT claim a malware scan.
-    // This line used to assert the opposite, which is how the false claim shipped.
-    await expect(page.getByText("Structural preflight")).toBeVisible();
+    // The pipeline. (Earlier still, these lines asserted "Isolated processing"
+    // VISIBLE — a stage promising "a single-job sandbox with no network
+    // egress" the daemon never had — and a malware scan nothing ran.)
+    // INVERTED in WP-10. Until then the not-enabled panel drew the whole
+    // pipeline, and these lines read it there ("Structural preflight",
+    // "3. Processing", "5. Auto-delete"). A worker that is off has no job to
+    // stage, so its reason now stands IN PLACE of the docket; the pipeline
+    // a reader and a crawler get is the one the page SERVES, before any
+    // status is heard — read here from the HTML, and holding neither claim:
+    // not "Malware scan", not "Files are not scanned" — "Safety checks".
+    const served = await (await page.request.get(PAGE)).text();
+    expect(served).toContain("Safety checks");
+    expect(served).not.toContain("Malware scan");
+    expect(served).not.toMatch(/Isolated processing|sandbox|network egress/i);
+    expect(served).toContain("Auto-delete");
+    await expect(page.locator("[data-docket]")).toHaveCount(0);
     await expect(page.getByText("Malware scan")).toHaveCount(0);
-    // Inverted, not deleted: this line used to assert "Isolated processing" was
-    // VISIBLE — the title of a stage that promised "a single-job sandbox with no
-    // network egress", which the long-running worker daemon never had. The claim
-    // shipped with this assertion standing behind it.
-    await expect(
-      page.getByText("3. Processing", { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByText("Isolated processing")).toHaveCount(0);
-    await expect(page.getByText(/sandbox|network egress/i)).toHaveCount(0);
-    await expect(page.getByText("5. Auto-delete")).toBeVisible();
 
-    // No uploader is mounted while OCR is unavailable — nothing can be submitted.
-    expect(await page.locator('input[type="file"]').count()).toBe(0);
+    // INVERTED in WP-10 (was "no uploader is mounted while OCR is
+    // unavailable"): the drop zone takes a file; what cannot happen is the
+    // upload — Run is drawn, and off.
+    expect(await page.locator('input[type="file"]').count()).toBe(1);
+    await expect(
+      page.getByRole("button", { name: "Run OCR on the worker" }),
+    ).toHaveAttribute("aria-disabled", "true");
 
     // And no fabricated success / download.
     await expect(page.getByText(/OCR complete/i)).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: /run ocr on the worker/i }),
-    ).toHaveCount(0);
+    // (WAS: no Run button at all. It is drawn since WP-10, and off — above.)
     await expect(page.getByRole("link", { name: /\.pdf$/i })).toHaveCount(0);
 
     // The notify button discloses what pressing it sends, then sends exactly

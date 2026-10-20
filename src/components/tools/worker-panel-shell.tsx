@@ -155,7 +155,11 @@ export function WorkerPanelShell({
           </div>
         </div>
 
-        {children}
+        {/* One column that never grows past the panel (`grid-cols-1` is
+            `minmax(0, 1fr)`): a chosen file's 66-character name, in a flex
+            column, set the page 569px wide at 390. The status slot bounded
+            it while the file row lived inside the slot; it lives here now. */}
+        <div className="grid grid-cols-1 gap-6">{children}</div>
 
         <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
           {specRows.map((row) => (
@@ -182,11 +186,13 @@ function SpecRow({ icon: Icon, label, value }: SpecRowData) {
 
 /**
  * The status-dependent part of a run area, as ONE reserved box
- * ({@link WorkerStatusSlot}): the Run control and the job's own status, the
- * docket, and last — the only part whose height depends on the check — what
- * the check said: "Checking the secure worker…", a failed check's retry, the
- * not-enabled reason with Try again and Notify me, or, ready, the panel's
- * note on what pressing Run sends.
+ * ({@link WorkerStatusSlot}): the Run control and the job's own status, then
+ * the docket and — after it, so nothing above moves when the check answers
+ * — what the check said: "Checking the secure worker…", a failed check's
+ * retry, or, ready, the panel's note on what pressing Run sends. A worker
+ * that is not enabled gets its reason, Try again and Notify me IN PLACE of
+ * the docket (there is no job to stage), so the reserve is the taller of
+ * the two rather than their sum.
  *
  * Run is drawn in every state and is live only when the status is ready and
  * the panel says it has what it needs (`blocked`); everything above the
@@ -225,10 +231,10 @@ export function WorkerGate({
       <div className="flex flex-col gap-4">
         {run(available)}
         {jobStatus}
-        <LiveStages stages={stages} events={job.events} bytes={bytes} />
-        {available ? (
-          note
-        ) : phase === "ready" ? (
+        {phase === "ready" && !available ? (
+          // In place of the docket, not under it: nothing will happen to a
+          // file here, so there are no stages to show — and the reserve is
+          // the taller of the two, not their sum.
           <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-4">
             {off}
             <p className="text-muted text-xs leading-relaxed">
@@ -238,11 +244,18 @@ export function WorkerGate({
             <TryAgain onRetry={retry} />
           </div>
         ) : (
-          <WorkerStatusPending
-            phase={phase}
-            onRetry={retry}
-            limited={limited}
-          />
+          <>
+            <LiveStages stages={stages} events={job.events} bytes={bytes} />
+            {available ? (
+              note
+            ) : (
+              <WorkerStatusPending
+                phase={phase === "ready" ? "error" : phase}
+                onRetry={retry}
+                limited={limited}
+              />
+            )}
+          </>
         )}
       </div>
     </WorkerStatusSlot>

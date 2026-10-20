@@ -382,7 +382,7 @@ declare global {
   }
 }
 
-type StatusStep = "hold-then-fail" | "local" | "ready";
+type StatusStep = "hold-then-fail" | "fail" | "local" | "ready";
 
 /** Answer `/api/worker/status` by plan, in the page (no `page.route`). */
 async function planStatus(page: Page, plan: StatusStep[]): Promise<void> {
@@ -410,6 +410,7 @@ async function planStatus(page: Page, plan: StatusStep[]): Promise<void> {
           await held;
           throw new TypeError("Failed to fetch");
         }
+        if (step === "fail") throw new TypeError("Failed to fetch");
         if (step === "ready")
           return new Response(ready, {
             status: 200,
@@ -481,8 +482,10 @@ for (const width of SLOT_WIDTHS) {
         page,
       }) => {
         const slot = page.locator('[data-slot="worker-status"]');
-        // Checking → failed → (Check again) → this server's answer.
-        await planStatus(page, ["hold-then-fail", "local"]);
+        // Checking → failed → (Check again) → this server's answer. The
+        // check retries a network failure twice itself (WP-10's one shared
+        // check, `use-worker-status.ts`), so "failed" takes three.
+        await planStatus(page, ["hold-then-fail", "fail", "fail", "local"]);
         await page.goto(`/tools/${slug}`);
         await waitForHydration(slot);
         await expect(slot).toHaveAttribute("data-state", "loading");

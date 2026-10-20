@@ -178,8 +178,10 @@ workspace. Still in this browser; nothing was uploaded."_
 Back in the workspace, clear the files and add a scanned PDF (pages that are
 pictures). Find **OCR PDF** in the list.
 
-**Must hear:** _"Open OCR PDF — you'll add the file there"_, then _"No
-selectable text on page 1"_ and _"uploads only when you start it"_.
+**Must hear:** _"Open OCR PDF with scan.pdf"_ (your file's name), then
+_"No selectable text on page 1"_ and _"uploads only when you start it"_ — a
+worker tool takes the file along since WP-10, and uploads it only on its
+Run.
 
 Then go to <https://pdf.xyz>, add two PDFs on the desk and press **Open in
 workspace** on the ticket.
@@ -189,9 +191,9 @@ browser; nothing was uploaded."_ — never _"from your workspace"_ for files tha
 came from the home page.
 
 **Fails if:** the suggestion count is read more than once for the same files;
-a link's name does not say what it carries; a worker tool's link implies the
-file goes with it; or files from the home page are said to come from the
-workspace.
+a link's name does not say what it carries; a worker tool's link does not
+say the upload waits for its Run; or files from the home page are said to
+come from the workspace.
 
 ---
 
@@ -221,14 +223,13 @@ Arrow through the ticket.
 size and pages, then the first suggestion as _"Open Merge PDF with 2 files"_
 and its description (_"In-browser 2 PDFs · 15 pages"_). A row that carries
 less than all the files says so FIRST in its description — _"takes one file —
-contract.pdf"_, _"opens 2 of your 3 files"_, _"you'll add the file there"_ —
-before any count. **More for these files** is a button, _"collapsed"_; press
+contract.pdf"_, _"opens 2 of your 3 files"_ — before any count. **More for these files** is a button, _"collapsed"_; press
 it.
 
 **Must hear:** _"expanded"_; the next `Tab` is **Open in workspace**, and the
 one after it the first row under More — never the rows first and the
-workspace button last. A worker tool there says _"you'll add the file there"_
-and _"uploads only when you start it"_. Press **Clear**.
+workspace button last. A worker tool there names the file it takes and
+says _"uploads only when you start it"_. Press **Clear**.
 
 **Must hear:** focus back on **Choose files**. The empty desk was never read
 twice: while the ticket is up, the desk under it is not announced at all.
@@ -298,18 +299,19 @@ Merge PDF**. Pick two PDFs.
 _"Loaded 2 files you added."_
 
 <https://pdf.xyz/guides/how-to-convert-pdf-to-word> — the same desk says
-_"Drop a PDF to see which tools open it, or browse"_; it never offers to open
-PDF to Word with the file, which no browser runner can. Pick a PDF.
+_"Drop a PDF to see which tools open it, or browse"_. Pick a PDF.
 
-**Must hear:** the dialog, and as its first suggestion _"Open PDF to Word —
-you'll add report.pdf there"_ (your file's name).
+**Must hear:** the dialog, and as its first suggestion _"Open PDF to Word
+with report.pdf"_ (your file's name) — the worker panel stages the file,
+and it uploads only when you press Export there.
 
 **Fails if:** a dropped or pasted file opens in the tab; a drop beside the
 editor does not replace the file, or a JPG closes it; a replace is not said, or
 leaves focus on the page; the dialog is not named, lets `Tab` out, or keeps
 focus after `Escape`; a paste into a text field opens the dialog; a guide whose
 tool runs on a worker promises to open it with the file, or leaves that tool out
-of the dialog's first row; or the desk says "your file" for two.
+of the dialog's first row; a worker tool's row is said to upload anything
+before its Run; or the desk says "your file" for two.
 
 ---
 
@@ -353,8 +355,11 @@ nothing follows, where every other result offers its next steps.
 **Must hear:** the alert — _"This PDF is password-protected. Remove the
 password with Unlock PDF first, then try again."_ — with **one** link,
 _"Open Unlock PDF"_, followed by _"with the password that opens it."_ and
-where the file goes there (_"…it uploads to the secure worker only when you
-start it."_). Two Unlock links in the alert is a failure.
+where the file goes there (_"Your file goes with you, and it uploads to the
+secure worker only when you start it."_). Two Unlock links in the alert is a
+failure. Follow the link: Unlock PDF says _"…nothing is uploaded until you
+press Unlock on the worker"_, with your file already in it; after the
+unlock, the first _"Continue with"_ link is Rotate PDF.
 
 <https://pdf.xyz/tools/grayscale-pdf> — on a phone (or a narrow window),
 convert a long PDF.
@@ -378,6 +383,38 @@ files; a Continue link does not say what it carries; Compress PDF does not
 say where the file came from; the remedy is a second Unlock link, or tells
 you to leave the password blank; progress speaks every page; the dock hides
 a focused control; or a header link drops unapplied edits without asking.
+
+---
+
+## 11. A worker tool: the drop zone at once, Run when the worker is ready, the docket
+
+<https://pdf.xyz/tools/word-to-pdf> — `Tab` from the top, before the badge
+has changed from _"Checking…"_ (a slow connection makes this easy).
+
+**Must hear:** the drop zone — _"Add your document, or browse"_ — usable at
+once, then **Convert to PDF** read as _"dimmed"_ / _"unavailable"_ until the
+check answers, then a list _"What happens to your file"_ of five items, each
+one line (_"Encrypted upload"_, the checks, _"Processing"_, _"Download"_,
+_"Auto-delete, scheduled · outputs expire after 60 minutes"_), then the
+**What each step does** button, _"collapsed"_. Nothing may say _"Not
+enabled"_ or _"Notify me"_ before the badge does.
+
+Pick a document and press **Convert to PDF**.
+
+**Must hear:** the run's own label (_"Uploading your file…"_, _"Waiting for
+the worker…"_), and from the app's live region at most five stage changes
+(_"Encrypted upload: running."_, _"Processing: running."_ …) — never one
+per poll. The list item that is running is the _"current step"_. When the
+job ends, only the result card speaks.
+
+**Must hear,** after the result: a stage the job passed between two checks
+reads _"passed"_, with no time; the others read a time and a tick; Auto-delete
+still reads _"scheduled"_. The card then reads its receipt and a _"Continue
+with"_ group (Sign PDF among it).
+
+**Fails if:** the drop zone waits for the check; Run is operable before the
+worker is ready; the docket announces every poll, or more than five times a
+job; a stage it never saw is given a time; or Auto-delete is ever ticked.
 
 ---
 
@@ -405,7 +442,11 @@ If something fails, the relevant code is `useOutcomeFocus` and `ResultCard` in
 in `src/components/intent/continue-with.tsx`, `TicketRail` in
 `src/components/intent/ticket-rail.tsx`, `RunBar` in
 `src/components/tools/runner/run-bar.tsx` and `useUnsavedGuard` in
-`src/components/tools/runner/use-unsaved-guard.ts`. Each carries
+`src/components/tools/runner/use-unsaved-guard.ts`; for check 11,
+`WorkerPanelShell` and `WorkerGate` in
+`src/components/tools/worker-panel-shell.tsx`, `LiveStages` in
+`src/components/tools/live-stages.tsx` and `useWorkerStatus` in
+`src/components/tools/use-worker-status.ts`. Each carries
 a docblock explaining what it is protecting against, which is usually faster
 than reading the logic.
 

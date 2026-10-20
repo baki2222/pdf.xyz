@@ -16,9 +16,11 @@ import { useToolRun } from "./tool-context";
  * the plain link it always was; a stash the browser refuses navigates
  * plainly, and the page there asks for the file.
  *
- * Its own module, loaded only when an alert has a file to carry: the App
- * Router, the launch and the hand-off store are no part of a tool page's
- * first load (`runner-kit.tsx` draws the plain link until this arrives).
+ * Its own component because it needs the App Router (the plain link does
+ * not, and an alert drawn outside a page never reaches here), and its own
+ * module so the launch — the hand-off store with it — loads on the click,
+ * not with every tool page. WAS a lazy component too (49f4a56f): a click
+ * before it arrived took the plain link and left the file behind.
  */
 export function CarryingRemedyLink({
   remedy,

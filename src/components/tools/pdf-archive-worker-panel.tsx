@@ -34,17 +34,20 @@ import {
 import { PdfANotes } from "./pdfa-notes";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 on Windows: phone at 360px 327.5px, `sm` at 640px 269px,
- * `lg` at 1024px 269px.
- * The worker-off state grew when its notice gained the logs-and-analytics
- * disclosure (fix/privacy-truth, 2026-10-10), so the phone reserve is refitted
- * to clear the tallest state by at least 3.5%, to the half rem: the headroom
- * Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
- * e2e/tool-layout.mobile.spec.ts).
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
+ *
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: tallest
+ * on Windows 527.5px at 360, 439.5px at 640, 457.5px at 1024; x1.06 —
+ * Linux Chromium's ~2.2% taller text and the 3.5% headroom rule — to the
+ * half rem, then up to a value another panel's slot already uses, so the
+ * thirteen share a handful of classes (the stylesheet has no room for 39).
+ * Linux's own SLOT_NATURAL lines (CI) are the check:
+ * `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[22.5rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
+const STATUS_SLOT = "min-h-[35.5rem] sm:min-h-[29.5rem] lg:min-h-[30.5rem]";
 
 /** Where a user with an open-password PDF can remove the password first. */
 export const UNLOCK_TOOL_SLUG = "unlock-pdf";

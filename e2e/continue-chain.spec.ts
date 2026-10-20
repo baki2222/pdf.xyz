@@ -545,11 +545,11 @@ test("CONTROL: a browser that will not store the file is told so, and nothing na
 test("a password-protected PDF in Rotate offers Unlock PDF once, and says which password — G.7 row 4, its first half", async ({
   page,
 }) => {
-  // G.7 "Encrypted PDF in Rotate": counted as far as it goes before WP-10.
-  // WAS a dead end. Now: pick, then the remedy's link — two actions to the
-  // tool that fixes the file. The rest of the row (Unlock receiving the file
-  // as a remedy, then "Continue with Rotate PDF") needs the worker's stage
-  // mode and is WP-10's, counted in this file with a mocked worker then.
+  // G.7 "Encrypted PDF in Rotate", its first half. WAS a dead end. Now:
+  // pick, then the remedy's link — two actions to the tool that fixes the
+  // file. The rest of the row (Unlock receiving the file as a remedy, then
+  // "Continue with Rotate PDF") needs a worker, so it is counted against a
+  // mocked one in e2e/worker-panels.spec.ts (WP-10): five actions in all.
   let actions = 0;
   await page.goto("/tools/rotate-pdf");
   const input = fileInput(page);

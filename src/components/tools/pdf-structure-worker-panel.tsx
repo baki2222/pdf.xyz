@@ -42,18 +42,20 @@ import { OptimizeOutcome, optimizeDoneSentence } from "./optimize-outcome";
 import { OfficeExportNextStep } from "./office-export-notices";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 on Windows: phone at 360px 438px (Optimize for web; Repair
- * 418.5px), `sm` at 640px 269px, `lg` at 1024px 311.3px.
- * The worker-off state grew when its notice gained the logs-and-analytics
- * disclosure (fix/privacy-truth, 2026-10-10); at `lg` it overflowed the
- * 280px reserve by 31px. The phone and `lg` reserves are refitted to clear
- * the tallest state by at least 3.5%, to the half rem: the headroom Linux
- * Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
- * e2e/tool-layout.mobile.spec.ts).
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
+ *
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: tallest
+ * on Windows 618.5px at 360, 439.5px at 640, 491.8px at 1024; x1.06 —
+ * Linux Chromium's ~2.2% taller text and the 3.5% headroom rule — to the
+ * half rem, then up to a value another panel's slot already uses, so the
+ * thirteen share a handful of classes (the stylesheet has no room for 39).
+ * Linux's own SLOT_NATURAL lines (CI) are the check:
+ * `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[30rem] sm:min-h-[17.5rem] lg:min-h-[20.5rem]";
+const STATUS_SLOT = "min-h-[41rem] sm:min-h-[29.5rem] lg:min-h-[33rem]";
 
 type Mode = "repair" | "optimize";
 

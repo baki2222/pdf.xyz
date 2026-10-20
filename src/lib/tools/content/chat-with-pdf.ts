@@ -175,7 +175,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: "When the status badge reads Secure worker, the Add your PDF, or browse area appears, together with the question box. Drop one PDF on it or click browse.",
+      body: "The Add your PDF, or browse area and the question box are there as soon as the page loads; Ask the PDF works once the status badge reads Secure worker. Drop one PDF on the area or click browse.",
     },
     {
       title: "Type your question",

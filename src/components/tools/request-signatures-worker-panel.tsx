@@ -61,18 +61,20 @@ import {
 } from "./worker-panel-shell";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 — phone at 360px 717.5px, `sm` at 640px 530.5px, `lg` at 1024px
- * 530.5px — plus 4px, to the half rem.
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
  *
- * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
- * (it had measured phone widths only): the tallest state, the larger of
- * Windows and Linux (CI on #187), is 530.5px at 640 and
- * 530.5px at 1024; x1.035, to the half rem — the rule the base
- * reserve uses.
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: tallest
+ * on Windows 527.5px at 360, 439.5px at 640, 457.5px at 1024; x1.06 —
+ * Linux Chromium's ~2.2% taller text and the 3.5% headroom rule — to the
+ * half rem, then up to a value another panel's slot already uses, so the
+ * thirteen share a handful of classes (the stylesheet has no room for 39).
+ * Linux's own SLOT_NATURAL lines (CI) are the check:
+ * `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[46.5rem] sm:min-h-[34.5rem] lg:min-h-[34.5rem]";
+const STATUS_SLOT = "min-h-[35.5rem] sm:min-h-[29.5rem] lg:min-h-[30.5rem]";
 
 interface SignerDraft {
   name: string;

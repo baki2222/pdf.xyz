@@ -159,7 +159,10 @@ test.describe("each row shows what its click carries, uncut", () => {
     });
   });
 
-  test("a PDF that needs a password: Unlock PDF, first, says the click carries nothing — and why it is first, in full", async ({
+  // WAS "…Unlock PDF, first, says the click carries nothing": its lead read
+  // "you'll add locked.pdf there". Unlock PDF stages a carried file since
+  // WP-10, so the click carries it and the lead says when it moves.
+  test("a PDF that needs a password: Unlock PDF, first, takes the file — and why it is first, in full", async ({
     page,
   }) => {
     await idleDesk(page);
@@ -169,7 +172,7 @@ test.describe("each row shows what its click carries, uncut", () => {
       ticket.locator('[data-slot="suggestions"] a[data-suggestion]').first(),
     ).toHaveAttribute("data-suggestion", "unlock-pdf");
     expect(await lead(page, "unlock-pdf")).toMatchObject({
-      text: "you'll add locked.pdf there",
+      text: "uploads only when you start it",
       cut: false,
       inside: true,
     });

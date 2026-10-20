@@ -139,7 +139,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the locked PDF",
-      body: `Once the badge reads Secure worker, drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. If no worker is available, the panel explains why and shows neither the drop area nor the password field.`,
+      body: `Drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. Nothing is sent until you press Unlock on the worker, which works once the badge reads Secure worker; if no worker is available, the panel explains why under that button.`,
     },
     {
       title: "Type the current password",

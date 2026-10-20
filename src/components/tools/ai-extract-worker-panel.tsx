@@ -63,31 +63,20 @@ import {
 } from "./worker-panel-shell";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 on the merge of main into WP-06 — the run state: phone at 360px
- * 877px, `sm` at 640px 646.5px, `lg` at 1024px 705px — plus 4px, to the half
- * rem. The run state includes the daily allowance note, which only a panel
- * that can run says, and the sentence on what a null means (#171).
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
  *
- * WAS a min-height of 44.5rem / 35rem at sm / 37.5rem at lg, from 705 /
- * 552.5 / 591.5px measured on WP-06 before #171 added that sentence to the
- * run area. Merged, the ready state outgrew the reserve by 165px at 360 and
- * 110px at 390, and e2e/tool-layout.mobile.spec.ts ("the worker status slot
- * is one box") failed by name with the four heights.
- *
- * The base step was 55.5rem (888px), from 877px measured on Windows. CI's
- * Linux Chromium sets the same run area 896.5px tall at 360 (#176's first CI
- * run), because text metrics differ by platform, so 57rem (912px) holds
- * both. 640 and 1024 passed on both platforms as they were.
- *
- * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
- * (it had measured phone widths only): the tallest state, the larger of
- * Windows and Linux (CI on #187), is 646.5px (Linux 666px) at 640 and
- * 705px (Linux 724.5px) at 1024; x1.035, to the half rem — the rule the base
- * reserve uses.
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: tallest
+ * on Windows 641.3px at 360, 478px at 640, 535px at 1024; x1.06 —
+ * Linux Chromium's ~2.2% taller text and the 3.5% headroom rule — to the
+ * half rem, then up to a value another panel's slot already uses, so the
+ * thirteen share a handful of classes (the stylesheet has no room for 39).
+ * Linux's own SLOT_NATURAL lines (CI) are the check:
+ * `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[58rem] sm:min-h-[43.5rem] lg:min-h-[47rem]";
+const STATUS_SLOT = "min-h-[42.5rem] sm:min-h-[32rem] lg:min-h-[35.5rem]";
 
 export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
   return (

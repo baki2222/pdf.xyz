@@ -139,7 +139,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the damaged PDF",
-      body: `Drop one PDF onto the box reading "Add a PDF, or browse", or click it and choose the file; up to ${CEILING_MB} MB, and there are no settings to choose. That box is missing until the status badge at the top of the panel reads Secure worker.`,
+      body: `Drop one PDF onto the box reading "Add a PDF, or browse", or click it and choose the file; up to ${CEILING_MB} MB, and there are no settings to choose. The box takes a file at once; nothing is sent until the status badge at the top of the panel reads Secure worker and you press Repair on the worker.`,
     },
     {
       title: "Press Repair on the worker",

@@ -143,7 +143,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your spreadsheet",
-      body: `Click the dashed area marked "Add your document, or browse" to pick one ${formatsOr} file, or drag the file onto it. Its name then appears in place of that area, and Remove clears it if you chose the wrong one. The area is shown only while the panel's badge says "Secure worker".`,
+      body: `Click the dashed area marked "Add your document, or browse" to pick one ${formatsOr} file, or drag the file onto it. Its name then appears in place of that area, and Remove clears it if you chose the wrong one. The area takes a file at once; Convert to PDF works only while the panel's badge says "Secure worker".`,
     },
     {
       title: "Start the conversion",

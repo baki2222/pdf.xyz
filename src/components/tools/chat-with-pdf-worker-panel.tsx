@@ -48,19 +48,20 @@ import {
 } from "./worker-panel-shell";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 — phone at 360px 715.5px, `sm` at 640px 579px, `lg` at 1024px
- * 598.5px — plus 4px, to the half rem. The run state includes the daily
- * allowance note, which only a panel that can run says.
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
  *
- * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
- * (it had measured phone widths only): the tallest state, the larger of
- * Windows and Linux (CI on #187), is 579px at 640 and
- * 598.5px (Linux 618px) at 1024; x1.035, to the half rem — the rule the base
- * reserve uses.
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: tallest
+ * on Windows 687.5px at 360, 517px at 640, 574px at 1024; x1.06 —
+ * Linux Chromium's ~2.2% taller text and the 3.5% headroom rule — to the
+ * half rem, then up to a value another panel's slot already uses, so the
+ * thirteen share a handful of classes (the stylesheet has no room for 39).
+ * Linux's own SLOT_NATURAL lines (CI) are the check:
+ * `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[49rem] sm:min-h-[37.5rem] lg:min-h-[40rem]";
+const STATUS_SLOT = "min-h-[46rem] sm:min-h-[34.5rem] lg:min-h-[38.5rem]";
 
 /**
  * Shown under every answer. The only safeguard against a wrong answer is an

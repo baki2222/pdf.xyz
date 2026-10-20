@@ -62,23 +62,20 @@ import {
 } from "./worker-panel-shell";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 on Windows: phone at 360px 670.5px, `sm` at 640px 507px,
- * `lg` at 1024px 507px. The run state includes the daily allowance note,
- * which only a panel that can run says. That note grew 19.5px at 360px when
- * it began saying who shares the allowance (fix/privacy-truth, 2026-10-10),
- * so the phone reserve is refitted to clear it by at least 3.5%, to the half
- * rem: the headroom Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM
- * in e2e/tool-layout.mobile.spec.ts).
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
  *
- * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
- * (it had measured phone widths only): the tallest state, the larger of
- * Windows and Linux (CI on #187), is 507px at 640 and
- * 507px (Linux 526.5px) at 1024; x1.035, to the half rem — the rule the base
- * reserve uses.
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: tallest
+ * on Windows 641.3px at 360, 452.8px at 640, 495px at 1024; x1.06 —
+ * Linux Chromium's ~2.2% taller text and the 3.5% headroom rule — to the
+ * half rem, then up to a value another panel's slot already uses, so the
+ * thirteen share a handful of classes (the stylesheet has no room for 39).
+ * Linux's own SLOT_NATURAL lines (CI) are the check:
+ * `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[43.5rem] sm:min-h-[33rem] lg:min-h-[34.5rem]";
+const STATUS_SLOT = "min-h-[42.5rem] sm:min-h-[32rem] lg:min-h-[33rem]";
 
 /** The default target language shown in the builder. */
 const DEFAULT_TARGET: TranslateLanguage = "en";
