@@ -125,12 +125,19 @@ describe("every guide's desk, as the page serves it", () => {
 
   it("health check: every guide has a primary tool, and both kinds are present", () => {
     expect(primaries.length).toBeGreaterThanOrEqual(20);
+    // The two kinds were "takes a hand-off" and "takes none" — six worker
+    // primaries on 2026-10-10 (addendum WP-07 #8) took none. Since WP-10 a
+    // worker panel STAGES a carried file, so the kinds are an in-browser
+    // runner and a staged worker panel; both sides must be exercised.
+    const staged = primaries.filter(
+      ({ tool }) => handoffCapabilityFor(tool.slug).mode === "stage",
+    );
     const none = primaries.filter(
       ({ tool }) => !handoffCapabilityFor(tool.slug).supported,
     );
-    // Six on 2026-10-10 (addendum WP-07 #8); both sides must be exercised.
-    expect(none.length).toBeGreaterThanOrEqual(1);
-    expect(primaries.length - none.length).toBeGreaterThanOrEqual(10);
+    expect(staged.length).toBeGreaterThanOrEqual(1);
+    expect(none).toEqual([]);
+    expect(primaries.length - staged.length).toBeGreaterThanOrEqual(10);
   });
 
   it("sits between the introduction and the first Open button, and promises only what the runner does", async () => {
@@ -229,7 +236,12 @@ describe("the desk", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("a tool with no in-browser runner: the desk never launches it, it shows what opens the file", async () => {
+  // WAS "a tool with no in-browser runner: the desk never launches it", and
+  // its row said "you'll add report.pdf there": a worker panel took no
+  // hand-off. A desk that opens nothing itself (`opens: null`) still only
+  // shows what opens the file; the row for the tool it teaches CARRIES it
+  // now (WP-10's stage mode), and the file uploads only on that page's Run.
+  it("a desk that opens nothing itself shows what opens the file, and the tool it teaches carries it", async () => {
     const { container } = await mount({
       tool: { slug: "pdf-to-word", name: "PDF to Word" },
       opens: null,
@@ -247,7 +259,7 @@ describe("the desk", () => {
     expect(push).not.toHaveBeenCalled();
     // WAS: PDF to Word ranked like any other tool — about 26th of 42, under
     // "More", below Compress, Sign and Edit (WP-07 review). The tool the
-    // guide teaches is the first row, and says the file is added there.
+    // guide teaches is the first row, and takes the file with it.
     const rows = await within(dialog).findAllByRole(
       "link",
       { name: /^Open / },
@@ -257,7 +269,7 @@ describe("the desk", () => {
     expect(first.getAttribute("data-suggestion")).toBe("pdf-to-word");
     expect(first).toBe(rows[0]);
     expect(first.getAttribute("aria-label")).toBe(
-      "Open PDF to Word — you'll add report.pdf there",
+      "Open PDF to Word with report.pdf",
     );
   });
 

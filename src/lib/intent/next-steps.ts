@@ -200,20 +200,28 @@ export function continueTargetsFor(
     if (eligible.has(slug) && !order.includes(slug)) order.push(slug);
 
   return {
-    targets: order.slice(0, CANDIDATES).map((slug) => {
-      const target = bySlug.get(slug)!;
-      const mode = handoffCapabilityFor(slug).mode as ContinueTarget["mode"];
-      const accepted = formatsOf(target.accept);
-      return {
-        slug,
-        name: target.name,
-        processing: target.processing,
-        mode,
-        combines:
-          mode === "collect" &&
-          formatsOf(target.outputs).every((f) => accepted.includes(f)),
-        ceilingBytes: toolFileCeilingBytes(target),
-      };
-    }),
+    targets: order
+      .slice(0, CANDIDATES)
+      .map((slug) => continueTarget(bySlug.get(slug)!)),
+  };
+}
+
+/**
+ * One tool as a Continue row. Exported for the one row the server cannot
+ * plan: the tool a remedy's file is owed back to (`ContinueWith`). Call it
+ * only for a tool a hand-off can reach.
+ */
+export function continueTarget(target: Tool): ContinueTarget {
+  const mode = handoffCapabilityFor(target.slug).mode as ContinueTarget["mode"];
+  const accepted = formatsOf(target.accept);
+  return {
+    slug: target.slug,
+    name: target.name,
+    processing: target.processing,
+    mode,
+    combines:
+      mode === "collect" &&
+      formatsOf(target.outputs).every((f) => accepted.includes(f)),
+    ceilingBytes: toolFileCeilingBytes(target),
   };
 }

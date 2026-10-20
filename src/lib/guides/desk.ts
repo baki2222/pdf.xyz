@@ -9,7 +9,7 @@
  * gate that enforces the cap — through the component a visitor reads it in.
  */
 import type { GuideDeskProps } from "@/components/intent/guide-desk";
-import { handoffCapabilityFor } from "@/lib/handoff/capability";
+import { handoffCapabilityFor, takesOneFile } from "@/lib/handoff/capability";
 import { acceptNoun } from "@/lib/intent/accept-noun";
 import {
   EXTENSIONS_BY_FORMAT,
@@ -41,7 +41,7 @@ export function guideDeskProps(tool: Tool): GuideDeskProps {
   ].join(",");
   return {
     tool: { slug: tool.slug, name: tool.name },
-    opens: mode === "none" ? null : mode === "single" ? "one" : "many",
+    opens: mode === "none" ? null : takesOneFile(mode) ? "one" : "many",
     noun: acceptNoun(tool.accept),
     accept,
     hint: stagingHint(tool),

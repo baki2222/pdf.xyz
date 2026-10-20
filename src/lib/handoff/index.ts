@@ -13,7 +13,11 @@ import { MemoryHandoffBackend, type HandoffBackend } from "./backend";
 import { IndexedDbHandoffBackend, isIndexedDbAvailable } from "./idb";
 import { HANDOFF_MAX_TOTAL_BYTES, totalHandoffBytes } from "./record";
 import { HandoffStore } from "./store";
-import { eligibleFilesFor, handoffCapabilityFor } from "./capability";
+import {
+  eligibleFilesFor,
+  handoffCapabilityFor,
+  takesOneFile,
+} from "./capability";
 import type { HandoffMeta } from "./origin";
 import type { HandoffFileEntry, HandoffRecord } from "./types";
 
@@ -162,5 +166,5 @@ export function handoffPayload(
   const cap = handoffCapabilityFor(toolSlug);
   if (!cap.supported) return [];
   const eligible = eligibleFilesFor(toolSlug, [...files]);
-  return cap.mode === "single" ? eligible.slice(0, 1) : eligible;
+  return takesOneFile(cap.mode) ? eligible.slice(0, 1) : eligible;
 }

@@ -11,15 +11,25 @@
  *  - `single` : the runner works on exactly one file at a time (rotate, split,
  *               organize, extract/delete pages, text conversion) — a handoff
  *               pre-loads the first eligible file.
- *  - `none`   : no in-browser handoff (worker/AI tools, or client tools without
- *               a runner yet).
+ *  - `stage`  : a secure-worker or AI panel (every tool with no in-browser
+ *               runner, which `tool-page-registry.test.ts` routes to a
+ *               panel) that takes files. It STAGES the first eligible file:
+ *               the file waits in the panel, in this browser, and is
+ *               uploaded only when the reader presses Run (WP-10).
+ *  - `none`   : nothing to carry into — an unknown slug, or a tool that
+ *               takes no file at all (webpage-to-pdf takes a URL).
  */
 
 import { formatOf, toolAcceptsFormat } from "@/lib/intent/formats";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
 import { getToolBySlug } from "@/lib/tools";
 
-export type HandoffMode = "collect" | "batch" | "single" | "none";
+export type HandoffMode = "collect" | "batch" | "single" | "stage" | "none";
+
+/** A mode that takes exactly one file: a single runner, or a staged panel. */
+export function takesOneFile(mode: HandoffMode): boolean {
+  return mode === "single" || mode === "stage";
+}
 
 export interface HandoffCapability {
   mode: HandoffMode;
@@ -66,14 +76,24 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
 /** Resolve a tool slug to its handoff capability. */
 export function handoffCapabilityFor(slug: string): HandoffCapability {
   const kind = getRunnerKind(slug);
-  const mode = kind ? MODE_BY_KIND[kind] : "none";
-  if (mode === "single") {
+  const mode = kind ? MODE_BY_KIND[kind] : stagedMode(slug);
+  if (takesOneFile(mode)) {
     return { mode, supported: true, minFiles: 1, maxFiles: 1 };
   }
   if (mode === "collect" || mode === "batch") {
     return { mode, supported: true, minFiles: mode === "collect" ? 2 : 1 };
   }
   return { mode: "none", supported: false, minFiles: 0, maxFiles: 0 };
+}
+
+/**
+ * A tool with no in-browser runner is a worker panel's; it stages a file
+ * when its catalogue row takes files — every format but a lone `URL`.
+ */
+function stagedMode(slug: string): HandoffMode {
+  const accept = getToolBySlug(slug)?.accept;
+  if (!accept || accept.length === 0) return "none";
+  return accept.every((f) => f.toUpperCase() === "URL") ? "none" : "stage";
 }
 
 /** The minimal file shape the eligibility filter needs. */

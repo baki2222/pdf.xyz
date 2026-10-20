@@ -9,15 +9,19 @@ import {
   type ToolRun,
 } from "@/components/tools/runner/tool-context";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
-import { eligibleFilesFor } from "@/lib/handoff/capability";
+import {
+  eligibleFilesFor,
+  handoffCapabilityFor,
+} from "@/lib/handoff/capability";
 import { HANDOFF_MAX_TOTAL_BYTES } from "@/lib/handoff/record";
 import { CONTINUE_SHOWN } from "@/lib/intent/continue-shown";
 import { launchWithFiles } from "@/lib/intent/launch";
 import { isPlainClick, toolHref } from "@/lib/intent/links";
-import type { ContinueTarget } from "@/lib/intent/next-steps";
+import { continueTarget, type ContinueTarget } from "@/lib/intent/next-steps";
 import { outputFiles, type RunOutput } from "@/lib/intent/run-output";
 import { confirmLeave } from "@/lib/intent/unsaved";
 import { getProcessingMeta } from "@/lib/tools/processing";
+import { getToolBySlug } from "@/lib/tools";
 import { cn, formatBytes } from "@/lib/utils";
 
 /**
@@ -57,6 +61,14 @@ export function ContinueWith({ output }: { output: RunOutput }) {
   return run ? <ContinueRows run={run} output={output} /> : null;
 }
 
+/** The tool a remedy's files are owed back to, as a Continue row. */
+function returnTarget(run: ToolRun): ContinueTarget | null {
+  if (!run.returnTo || run.returnTo === run.slug) return null;
+  const tool = getToolBySlug(run.returnTo);
+  if (!tool || !handoffCapabilityFor(tool.slug).supported) return null;
+  return continueTarget(tool);
+}
+
 function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
   const router = useRouter();
   const headingId = useId();
@@ -67,7 +79,15 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
   const several = files.length > 1;
   const carried = (target: ContinueTarget) =>
     eligibleFilesFor(target.slug, [...files]);
-  const offered = run.plan.targets
+  // A remedy's files go back first: Rotate sent a locked PDF to Unlock, so
+  // Unlock's result continues to Rotate before anything the plan ranks.
+  // Built here, from the catalogue, because the server's plan for this tool
+  // cannot know who will send it a file to fix.
+  const back = returnTarget(run);
+  const offered = [
+    ...(back ? [back] : []),
+    ...run.plan.targets.filter((t) => t.slug !== back?.slug),
+  ]
     .filter((t) => t.slug !== run.slug && !run.trail.includes(t.slug))
     .filter((t) => !several || t.combines)
     .filter((t) => carried(t).length === files.length);

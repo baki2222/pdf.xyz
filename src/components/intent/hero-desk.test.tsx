@@ -55,6 +55,7 @@ import { DropLayer } from "./drop-layer";
 import { HeroDesk } from "./hero-desk";
 import { arrangeLine } from "./ticket-view";
 import { TICKET_PROBES, TICKET_SETTLE_MS } from "./use-ticket";
+import { peekCarriedHandoff } from "@/lib/handoff/carry-key";
 
 const push = vi.fn<(href: string) => void>();
 const ROUTER = {
@@ -210,7 +211,11 @@ describe("the desk hands the staged files to the tool", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("a Word file: its row says the file is added there, and opens the plain page", async () => {
+  // INVERTED in WP-10. WAS "a Word file: its row says the file is added
+  // there, and opens the plain page" — Word to PDF had no way to take a
+  // carried file. Its panel STAGES one now (nothing uploads until its Run),
+  // so the row names the file it takes, and the click carries it.
+  it("a Word file: its row carries it to Word to PDF, where it is staged", async () => {
     const doc = new File(["PK\u0003\u0004 docx"], "letter.docx", {
       type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
@@ -224,7 +229,7 @@ describe("the desk hands the staged files to the tool", () => {
     const open = await within(ticket).findByRole(
       "link",
       {
-        name: `Open ${getToolBySlug("word-to-pdf")!.name} — you'll add letter.docx there`,
+        name: `Open ${getToolBySlug("word-to-pdf")!.name} with letter.docx`,
       },
       { timeout: 5000 },
     );
@@ -232,8 +237,9 @@ describe("the desk hands the staged files to the tool", () => {
       fireEvent.click(open);
     });
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
-    // Plain: no file could travel to a tool that has no runner here.
     expect(push.mock.calls[0]![0]).toBe("/tools/word-to-pdf");
+    // Carried: the token for this page is in this tab.
+    expect(peekCarriedHandoff("/tools/word-to-pdf")).not.toBeNull();
   });
 
   it("the negative control: the old zone's only action drops the file", async () => {
@@ -558,9 +564,10 @@ describe("each row leads with what the click carries", () => {
   }
 
   // The composed chain, staged files to the words drawn and the name read:
-  // a Word file and two PDFs (the review's drop, 2026-10-10), where Word to
-  // PDF carries nothing and opens one of the three.
-  it("a Word file and two PDFs: Word to PDF says which file you'll add there — drawn and in its name", async () => {
+  // a Word file and two PDFs (the review's drop, 2026-10-10). Until WP-10
+  // Word to PDF carried nothing here and its row read "you'll add
+  // report.docx there"; it stages one file now, so it says which it takes.
+  it("a Word file and two PDFs: Word to PDF says which file it takes — drawn and in its name", async () => {
     const { container } = render(withRouter(<Desk />));
     stage(container, [
       docx("report.docx"),
@@ -569,14 +576,18 @@ describe("each row leads with what the click carries", () => {
     ]);
     const row = await rowFor(await suggestions(), "word-to-pdf");
     expect(row.querySelector("[data-lead]")?.textContent).toBe(
-      "you'll add report.docx there",
+      "opens 1 of your 3 files",
     );
     expect(row.getAttribute("aria-label")).toBe(
-      `Open ${getToolBySlug("word-to-pdf")!.name} — you'll add report.docx there`,
+      `Open ${getToolBySlug("word-to-pdf")!.name} with report.docx`,
     );
   });
 
-  it("positive control: two Word files and a PDF — no one name to give, so the row counts which", async () => {
+  // WAS "no one name to give, so the row counts which" ("you'll add the 2
+  // DOCX files there"): with nothing carried, no file could be named. A
+  // staged panel takes ONE, the first, and the row names it — the rule the
+  // in-browser one-file runners keep.
+  it("two Word files and a PDF: the one file Word to PDF takes is named", async () => {
     const { container } = render(withRouter(<Desk />));
     stage(container, [
       docx("report.docx"),
@@ -585,10 +596,10 @@ describe("each row leads with what the click carries", () => {
     ]);
     const row = await rowFor(await suggestions(), "word-to-pdf");
     expect(row.querySelector("[data-lead]")?.textContent).toBe(
-      "you'll add the 2 DOCX files there",
+      "takes one file — report.docx",
     );
     expect(row.getAttribute("aria-label")).toBe(
-      `Open ${getToolBySlug("word-to-pdf")!.name} — you'll add the 2 DOCX files there`,
+      `Open ${getToolBySlug("word-to-pdf")!.name} with report.docx`,
     );
   });
 });

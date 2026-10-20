@@ -226,7 +226,7 @@ export interface BatchToolInfo {
    * a time (so a batch opens the first queued file), while `collect`/`batch`
    * tools take the whole set. Omitted/`none` is treated as a whole-set launch.
    */
-  handoff?: "collect" | "batch" | "single" | "none";
+  handoff?: "collect" | "batch" | "single" | "stage" | "none";
 }
 
 export type BatchStatus =
