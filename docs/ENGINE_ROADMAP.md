@@ -234,8 +234,9 @@ suggestions), wired to React by `src/app/workspace/use-workspace.ts`.
   `worker-disabled` (secure-worker tool not enabled in this environment), or
   `unavailable` — derived from tool capability, never faked. Ready live tools
   use a browser-only handoff: files are written to origin-private IndexedDB,
-  opened with `/tools/<slug>?handoff=<id>`, claimed exactly once, and then the
-  URL token is stripped.
+  opened at `/tools/<slug>` with the id carried in this tab's sessionStorage
+  (it rode in the URL as `?handoff=<id>` until 2026-10-20), and claimed
+  exactly once.
 - **Name-free persistence.** Only tool preferences and a tool-oriented activity
   log persist (versioned, migrated, guarded `localStorage`). File names and sizes
   stay in memory/IndexedDB only for the active handoff TTL; activity logs never

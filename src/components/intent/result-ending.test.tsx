@@ -31,6 +31,8 @@ import {
   MemoryHandoffBackend,
 } from "@/lib/handoff";
 import { HANDOFF_MAX_TOTAL_BYTES } from "@/lib/handoff/record";
+import { HANDOFF_CARRY_KEY } from "@/lib/handoff/carry-key";
+import { takeCarriedHandoff } from "@/lib/handoff/carry";
 import { readHandoffId } from "@/lib/handoff/url";
 import { continueTargetsFor, NO_CONTINUE } from "@/lib/intent/next-steps";
 import { outputFile, type OutputFile } from "@/lib/intent/run-output";
@@ -39,7 +41,7 @@ import { getToolBySlug, tools } from "@/lib/tools";
 import { formatBytes } from "@/lib/utils";
 import { ContinueWith } from "./continue-with";
 import { CountMismatch, OutputFacts } from "./output-facts";
-import { arrivedByHandoff, TicketRail } from "./ticket-rail";
+import { arrivedByHandoff, carriedHere, TicketRail } from "./ticket-rail";
 
 /** An output of `size` bytes that is never read — sizes past what a test can allocate. */
 function sized(name: string, size: number): OutputFile {
@@ -289,8 +291,11 @@ describe("Continue with", () => {
     });
     await vi.waitFor(() => expect(push).toHaveBeenCalledTimes(1));
     const href = push.mock.calls[0]![0] as string;
-    expect(href).toMatch(/^\/tools\/compress-pdf\?handoff=/);
-    const id = new URL(href, "http://x").searchParams.get("handoff")!;
+    // INVERTED 2026-10-20: was `?handoff=` in the address, whose payload
+    // fetch carried the token to the server's logs. Now the plain address,
+    // and the token carried to it in this tab.
+    expect(href).toBe("/tools/compress-pdf");
+    const id = takeCarriedHandoff(href)!;
     const record = await claimHandoff(id);
     expect(record?.files.map((f) => f.name)).toEqual(["merged.pdf"]);
     expect(record?.origin).toEqual({ kind: "result", fromSlug: "merge-pdf" });
@@ -585,6 +590,60 @@ describe("the job's steps", () => {
     expect(
       addresses.filter((a) => !arrivedByHandoff(a)).length,
     ).toBeGreaterThan(1);
+  });
+
+  it("a token carried to this page holds the row from the first commit, before the runner says anything", () => {
+    const back = at("");
+    window.sessionStorage.setItem(
+      HANDOFF_CARRY_KEY,
+      JSON.stringify({ path: "/tools/compress-pdf", id: "h_0123456789abcdef" }),
+    );
+    try {
+      render(
+        <ToolRunProvider
+          tool={job("compress-pdf").info}
+          plan={job("compress-pdf").plan}
+        >
+          <TicketRail />
+        </ToolRunProvider>,
+      );
+      expect(document.querySelector("[data-ticket-rail-slot]")).not.toBeNull();
+      // Looked at, not taken: the runner's claim still finds it.
+      expect(window.sessionStorage.getItem(HANDOFF_CARRY_KEY)).not.toBeNull();
+    } finally {
+      window.sessionStorage.removeItem(HANDOFF_CARRY_KEY);
+      back();
+    }
+  });
+
+  it("the row reads a carried token the way the runner's claim does (`takeCarriedHandoff`)", () => {
+    const here = "/tools/compress-pdf";
+    const stored = [
+      JSON.stringify({ path: here, id: "h_0123456789abcdef" }),
+      JSON.stringify({ path: here, id: "h_x" }),
+      JSON.stringify({ path: here, id: `h_${"a".repeat(78)}` }),
+      JSON.stringify({ path: here, id: `h_${"a".repeat(79)}` }),
+      JSON.stringify({ path: here, id: "h_" }),
+      JSON.stringify({ path: here, id: "x_123" }),
+      JSON.stringify({ path: here, id: 7 }),
+      JSON.stringify({ path: "/tools/merge-pdf", id: "h_0123456789abcdef" }),
+      JSON.stringify({ id: "h_0123456789abcdef" }),
+      JSON.stringify("h_0123456789abcdef"),
+      "not json",
+      null,
+    ];
+    const answers = stored.map((raw) => {
+      if (raw === null) window.sessionStorage.removeItem(HANDOFF_CARRY_KEY);
+      else window.sessionStorage.setItem(HANDOFF_CARRY_KEY, raw);
+      const row = carriedHere(here);
+      const claim = takeCarriedHandoff(here) !== null;
+      expect(row, String(raw)).toBe(claim);
+      return row;
+    });
+    window.sessionStorage.removeItem(HANDOFF_CARRY_KEY);
+    // Health: both answers occur.
+    expect(answers.filter(Boolean).length).toBeGreaterThan(1);
+    expect(answers.filter((a) => !a).length).toBeGreaterThan(1);
   });
 
   it("CONTROL: an address with no hand-off holds nothing", () => {

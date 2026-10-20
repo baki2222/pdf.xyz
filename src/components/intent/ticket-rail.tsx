@@ -3,6 +3,7 @@
 import { useLayoutEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { useToolRun } from "@/components/tools/runner/tool-context";
+import { peekCarriedHandoff } from "@/lib/handoff/carry-key";
 import { getToolBySlug } from "@/lib/tools";
 
 /**
@@ -12,11 +13,13 @@ import { getToolBySlug } from "@/lib/tools";
  * step, and ticked too once its result is on screen.
  *
  * THE ROW IS THERE FROM THE ARRIVING PAGE'S FIRST FRAME, AND STAYS. A page
- * reached by a hand-off says so in its address (`?handoff=`, the token the
- * runner claims and then strips). An in-app navigation writes the address
- * in the commit that draws the new page, before that commit's layout
- * effects — so the row reads it in a LAYOUT effect, whose update React
- * applies before the browser paints, and the row (24 px, full width, its
+ * reached by a hand-off finds its token carried to its path in this tab's
+ * sessionStorage (`@/lib/handoff/carry-key`; until 2026-10-20 the token
+ * rode in the address, `?handoff=`, which is still read). The launch
+ * writes it before navigating, and the runner takes it in a PASSIVE
+ * effect — after this commit's layout effects — so the row reads it in a
+ * LAYOUT effect, whose update React applies before the browser paints,
+ * and the row (24 px, full width, its
  * own line at every width) is in the arriving page's first painted frame,
  * before anyone knows whether the files carry a job. It is never closed
  * within the visit: the steps are drawn INTO it when the claim reports them, and a
@@ -38,8 +41,9 @@ import { getToolBySlug } from "@/lib/tools";
  * Continue hop with 400 ms of latency (PR #180 review, c7abb986). The
  * test that pinned (2) is inverted in `e2e/continue-chain.mobile.spec.ts`.
  *
- * Not covered: a FULL load of a `?handoff=` address, where the server's
- * HTML (prerendered, so without the row) paints before the page hydrates.
+ * Not covered: a FULL load of a page a token was carried to (or of a
+ * `?handoff=` address), where the server's HTML (prerendered, so without
+ * the row) paints before the page hydrates.
  * Every hand-off here navigates in-app (`launchWithFiles`). Not
  * `useSearchParams`: in a prerendered page it bails its boundary out of the
  * server render (`src/deploy/own-panel-first-load.test.ts`).
@@ -59,16 +63,28 @@ import { getToolBySlug } from "@/lib/tools";
 export const arrivedByHandoff = (search: string): boolean =>
   /[?&]handoff=h_[^&]/.test(search);
 
+/**
+ * A token is carried to `pathname`: `takeCarriedHandoff`'s rule (an `h_`
+ * token addressed to this path), read without consuming it and without the
+ * id module, for the reason above. `result-ending.test.tsx` holds the two
+ * to one answer.
+ */
+export const carriedHere = (pathname: string): boolean =>
+  /^h_[\s\S]{1,78}$/.test(peekCarriedHandoff(pathname) ?? "");
+
 export function TicketRail() {
   const run = useToolRun();
   // Latched: open from the first commit that knew of a hand-off, and for
-  // the rest of the visit — the runner strips the token from the address.
+  // the rest of the visit — the runner takes the token as it claims.
   const [held, setHeld] = useState(false);
   useLayoutEffect(() => {
     // Measured before the browser paints, and set before it does: the one
     // re-render this costs is the point (React's "measure before paint").
+    const arrived =
+      carriedHere(window.location.pathname) ||
+      arrivedByHandoff(window.location.search);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
-    if (arrivedByHandoff(window.location.search)) setHeld(true);
+    if (arrived) setHeld(true);
   }, []);
   const wanted = run !== null && (run.trail.length > 0 || run.bringing);
   if (wanted && !held) setHeld(true);

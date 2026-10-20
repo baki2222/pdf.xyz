@@ -45,13 +45,20 @@ Carrying files from one page to a tool is local-only:
   hand-off id. A tool that cannot receive files opens plainly; a write that
   fails does **not** navigate — the page says the files did not travel and
   offers a plain link.
-- The tool opens as `/tools/<slug>?handoff=<id>`, claims the record once
-  (`claimFromUrl`, `src/lib/handoff/claim.ts`), filters incompatible files,
-  reconstructs `File` objects in the browser, and removes the token from the
-  address bar. A file with no declared type takes its name's type from the
-  server's own table, or none — never an invented `application/pdf`.
-- `/workspace?handoff=<id>` claims a record addressed to the reserved target
-  `workspace` the same way ("Open in workspace" on the home page). A second
+- The id travels in this tab's sessionStorage (`pdfxyz.handoff`,
+  `src/lib/handoff/carry.ts`), addressed to the page it opens, and the tool
+  opens at its plain address `/tools/<slug>` — so no request URL carries it
+  (until 2026-10-20 it rode as `?handoff=<id>`, and the page payload's fetch
+  put it in the server's access logs; `e2e/handoff-transport.spec.ts` reads
+  every request of a hop). The tool claims the record once (`claimArrival`,
+  `src/lib/handoff/claim.ts`), removing the carried id as it reads it, filters
+  incompatible files and reconstructs `File` objects in the browser. An
+  address that still names `?handoff=<id>` is claimed the same way and the
+  token removed from the address bar. A file with no declared type takes its
+  name's type from the server's own table, or none — never an invented
+  `application/pdf`.
+- `/workspace` claims a record addressed to the reserved target `workspace`
+  the same way ("Open in workspace" on the home page). A second
   reserved target, `parked`, will hold files set aside while another step runs
   first (WP-08). Neither is a tool slug (`origin.test.ts`).
 - **Provenance travels with the bytes, and is the only metadata added.** Each

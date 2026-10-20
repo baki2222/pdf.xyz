@@ -35,10 +35,11 @@ import {
   claimHandoff,
   HandoffStore,
   MemoryHandoffBackend,
-  readHandoffId,
   stashHandoff,
   type HandoffBackend,
 } from "@/lib/handoff";
+import { HANDOFF_CARRY_KEY } from "@/lib/handoff/carry-key";
+import { takeCarriedHandoff } from "@/lib/handoff/carry";
 import { getPopularTools } from "@/lib/tools";
 import { imageOnlyPdf, textPdf } from "@/tests/pdf-text-fixtures";
 import { buildToolSummaries } from "./presenter";
@@ -85,6 +86,7 @@ const rowFor = (name: RegExp) =>
 
 beforeEach(() => {
   pushed = [];
+  window.sessionStorage.clear();
   __setHandoffStoreForTests(
     new HandoffStore({ backend: new MemoryHandoffBackend() }),
   );
@@ -129,10 +131,10 @@ describe("a suggestion is a link that carries the files", () => {
 
     fireEvent.click(merge);
     await waitFor(() => expect(pushed).toHaveLength(1));
-    expect(pushed[0]).toMatch(/^\/tools\/merge-pdf\?handoff=h_/);
-    const record = await claimHandoff(
-      readHandoffId(new URL(pushed[0]!, "https://x.test").search)!,
-    );
+    // INVERTED 2026-10-20: the address no longer carries the token (its
+    // payload fetch sent it to the server's logs); the tab does.
+    expect(pushed[0]).toBe("/tools/merge-pdf");
+    const record = await claimHandoff(takeCarriedHandoff("/tools/merge-pdf")!);
     expect(record?.files.map((f) => f.name)).toEqual(["a.pdf", "b.pdf"]);
     expect(record?.origin).toEqual({ kind: "workspace" });
   });
@@ -233,6 +235,22 @@ describe("the workspace receives files", () => {
     // WAS /loaded the 2 files you added/: see origin.test.ts.
     expect(screen.getByText(/loaded 2 files you added/i)).toBeTruthy();
     expect(window.location.search).toBe("");
+  });
+
+  it("claims a hand-off carried to it in this tab (how launches carry it), and takes the token", async () => {
+    const id = await stashHandoff(
+      "workspace",
+      [await pdfFile("a.pdf", textPdf([60]))],
+      { origin: { kind: "drop", surface: "home" } },
+    );
+    window.sessionStorage.setItem(
+      HANDOFF_CARRY_KEY,
+      JSON.stringify({ path: "/workspace", id }),
+    );
+    renderWorkspace();
+    const staged = await screen.findByRole("list", { name: /staged files/i });
+    await waitFor(() => expect(within(staged).getByText("a.pdf")).toBeTruthy());
+    expect(window.sessionStorage.getItem(HANDOFF_CARRY_KEY)).toBeNull();
   });
 });
 
