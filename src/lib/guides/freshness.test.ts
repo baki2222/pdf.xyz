@@ -55,7 +55,9 @@ function content(guide: Guide): Omit<Guide, "updated"> {
 }
 
 function contentHash(guide: Guide): string {
-  return createHash("sha256").update(canonical(content(guide))).digest("hex");
+  return createHash("sha256")
+    .update(canonical(content(guide)))
+    .digest("hex");
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -79,18 +81,26 @@ function freshnessFindings(
   for (const guide of list) {
     const { slug, updated } = guide;
     if (!isValidIsoDate(updated)) {
-      findings.push(`${slug}: updated "${updated}" is not a valid yyyy-mm-dd date`);
+      findings.push(
+        `${slug}: updated "${updated}" is not a valid yyyy-mm-dd date`,
+      );
       continue;
     }
     if (updated > today) {
-      findings.push(`${slug}: updated ${updated} is in the future (today is ${today})`);
+      findings.push(
+        `${slug}: updated ${updated} is in the future (today is ${today})`,
+      );
     }
     if (isValidIsoDate(guide.published) && updated < guide.published) {
-      findings.push(`${slug}: updated ${updated} is before published ${guide.published}`);
+      findings.push(
+        `${slug}: updated ${updated} is before published ${guide.published}`,
+      );
     }
     const rec = table[slug];
     if (!rec) {
-      findings.push(`${slug}: not in freshness.fixture.json — add ${entryFor(guide)}`);
+      findings.push(
+        `${slug}: not in freshness.fixture.json — add ${entryFor(guide)}`,
+      );
       continue;
     }
     const hash = contentHash(guide);
@@ -109,7 +119,9 @@ function freshnessFindings(
   const live = new Set(list.map((g) => g.slug));
   for (const slug of Object.keys(table)) {
     if (!live.has(slug)) {
-      findings.push(`${slug}: recorded in freshness.fixture.json but no such guide — remove the entry`);
+      findings.push(
+        `${slug}: recorded in freshness.fixture.json but no such guide — remove the entry`,
+      );
     }
   }
   return findings;
@@ -127,7 +139,14 @@ describe("guide freshness: updated moves when the content does", () => {
 
   it("health: the hashed content is the reader's content, and it tells guides apart", () => {
     const keys = Object.keys(content(guides[0]!));
-    for (const k of ["title", "description", "intro", "steps", "sections", "faq"]) {
+    for (const k of [
+      "title",
+      "description",
+      "intro",
+      "steps",
+      "sections",
+      "faq",
+    ]) {
       expect(keys).toContain(k);
     }
     expect(keys).not.toContain("updated");
@@ -140,7 +159,9 @@ describe("guide freshness: updated moves when the content does", () => {
 
   describe("controls — the check reports what it claims to", () => {
     const base = guides[0]!;
-    const table: Table = { [base.slug]: { contentHash: contentHash(base), updated: base.updated } };
+    const table: Table = {
+      [base.slug]: { contentHash: contentHash(base), updated: base.updated },
+    };
     const check = (g: Guide) => freshnessFindings([g], table, base.updated);
 
     it("negative: the unchanged guide has no findings", () => {
@@ -148,14 +169,21 @@ describe("guide freshness: updated moves when the content does", () => {
     });
 
     const edits: Record<string, (g: Guide) => Guide> = {
-      "a step": (g) => ({ ...g, steps: [...g.steps.slice(0, -1), `${g.steps.at(-1)} Edited.`] }),
+      "a step": (g) => ({
+        ...g,
+        steps: [...g.steps.slice(0, -1), `${g.steps.at(-1)} Edited.`],
+      }),
       "a section body": (g) => ({
         ...g,
-        sections: g.sections.map((s, i) => (i === 0 ? { ...s, body: [...s.body, "Edited."] } : s)),
+        sections: g.sections.map((s, i) =>
+          i === 0 ? { ...s, body: [...s.body, "Edited."] } : s,
+        ),
       }),
       "an FAQ answer": (g) => ({
         ...g,
-        faq: g.faq.map((f, i) => (i === 0 ? { ...f, answer: `${f.answer} Edited.` } : f)),
+        faq: g.faq.map((f, i) =>
+          i === 0 ? { ...f, answer: `${f.answer} Edited.` } : f,
+        ),
       }),
     };
     for (const [what, edit] of Object.entries(edits)) {
