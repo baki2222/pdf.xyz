@@ -57,8 +57,14 @@ import {
  * state it shows at the narrowest width of each breakpoint, measured
  * 2026-10-10 — phone at 360px 619px, `sm` at 640px 501.5px, `lg` at 1024px
  * 521px — plus 4px, to the half rem.
+ *
+ * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
+ * (it had measured phone widths only): the tallest state, the larger of
+ * Windows and Linux (CI on #187), is 501.5px at 640 and
+ * 521px (Linux 540.5px) at 1024; x1.035, to the half rem — the rule the base
+ * reserve uses.
  */
-const STATUS_SLOT = "min-h-[40.5rem] sm:min-h-[32rem] lg:min-h-[33rem]";
+const STATUS_SLOT = "min-h-[40.5rem] sm:min-h-[32.5rem] lg:min-h-[35rem]";
 
 type Phase = WorkerPhase;
 type Mode = "protect" | "unlock";

@@ -44,8 +44,14 @@ import {
  * to clear the tallest state by at least 3.5%, to the half rem: the headroom
  * Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
  * e2e/tool-layout.mobile.spec.ts).
+ *
+ * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
+ * (it had measured phone widths only): the tallest state, the larger of
+ * Windows and Linux (CI on #187), is 269px at 640 and
+ * 288.5px at 1024; x1.035, to the half rem — the rule the base
+ * reserve uses.
  */
-const STATUS_SLOT = "min-h-[24rem] sm:min-h-[17.5rem] lg:min-h-[18.5rem]";
+const STATUS_SLOT = "min-h-[24rem] sm:min-h-[17.5rem] lg:min-h-[19rem]";
 
 type OfficeTool = "word-to-pdf" | "excel-to-pdf" | "powerpoint-to-pdf";
 type Phase = WorkerPhase;

@@ -83,8 +83,14 @@ import {
  * Linux Chromium sets the same run area 896.5px tall at 360 (#176's first CI
  * run), because text metrics differ by platform, so 57rem (912px) holds
  * both. 640 and 1024 passed on both platforms as they were.
+ *
+ * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
+ * (it had measured phone widths only): the tallest state, the larger of
+ * Windows and Linux (CI on #187), is 646.5px (Linux 666px) at 640 and
+ * 705px (Linux 724.5px) at 1024; x1.035, to the half rem — the rule the base
+ * reserve uses.
  */
-const STATUS_SLOT = "min-h-[58rem] sm:min-h-[41rem] lg:min-h-[44.5rem]";
+const STATUS_SLOT = "min-h-[58rem] sm:min-h-[43.5rem] lg:min-h-[47rem]";
 
 type Phase = WorkerPhase;
 
