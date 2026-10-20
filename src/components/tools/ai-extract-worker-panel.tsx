@@ -73,7 +73,7 @@ import {
  * rem. The run state includes the daily allowance note, which only a panel
  * that can run says, and the sentence on what a null means (#171).
  *
- * WAS `min-h-[44.5rem] sm:min-h-[35rem] lg:min-h-[37.5rem]`, from 705 /
+ * WAS a min-height of 44.5rem / 35rem at sm / 37.5rem at lg, from 705 /
  * 552.5 / 591.5px measured on WP-06 before #171 added that sentence to the
  * run area. Merged, the ready state outgrew the reserve by 165px at 360 and
  * 110px at 390, and e2e/tool-layout.mobile.spec.ts ("the worker status slot

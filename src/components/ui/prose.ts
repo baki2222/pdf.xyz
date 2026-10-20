@@ -6,7 +6,7 @@
  * 75. The measure is relative to the font size of the element it is set on,
  * so it goes on the same element as the font size.
  *
- * In `em`, not `ch`. The first fix was `max-w-[70ch]`, and it changed nothing
+ * In `em`, not `ch`. The first fix was a 70ch max-width, and it changed nothing
  * a reader could count: `ch` is the advance of the digit zero, and Geist's is
  * 0.664 em against 0.47 em for an average character of its prose. "70ch" was
  * therefore a 744px column of about 100 characters a line, every guide and
