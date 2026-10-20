@@ -363,6 +363,13 @@ test("every tool page fits a phone: its facts row never scrolls and the page nev
  * is drawn at (390). A run area that outgrows its reserve fails here by
  * name, with the four heights.
  *
+ * The `sm:` and `lg:` reserves are constants too, so they get the same bound:
+ * each breakpoint's NARROWEST width (640 for `sm:`, 1024 for `lg:`), where
+ * its text wraps most and where each panel's docblock says it was fitted. A
+ * wider width (768, 1280) measures the easier case and passes reserves that
+ * overflow at 640. Until 2026-10-20 only the two phone widths were measured,
+ * so every `sm:`/`lg:` reserve shipped with nothing checking it.
+ *
  * WHAT SHIPPED (review of WP-06, 2026-10-10): the checking box was a bare
  * `min-h-32` (128px) and the run area up to 718px, directly under the tool's
  * name on a phone; CLS 0.0582 on Protect PDF at 390 with a ready answer.
@@ -456,7 +463,10 @@ const slotHeight = (page: Page) =>
  */
 const SLOT_HEADROOM = process.platform === "linux" ? 1.01 : 1.03;
 
-for (const width of [360, 390]) {
+/** Phone (base: 360, 390), `sm:` (640) and `lg:` (1024) — at least one per reserve. */
+const SLOT_WIDTHS = [360, 390, 640, 1024] as const;
+
+for (const width of SLOT_WIDTHS) {
   test.describe(`${width}px`, () => {
     test.use({ viewport: { width, height: 844 } });
 
