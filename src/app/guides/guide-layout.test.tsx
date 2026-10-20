@@ -6,12 +6,14 @@
  * prerenders — never from a typed list of guides or anchors:
  *
  *  - contents: one list of the article's own section anchors, as a
- *    `<details>` below `xl` and a sticky list in the left gutter at `xl`;
+ *    `<details>` below `lg` and a sticky list in the left column from `lg`
+ *    (the spec says `xl`; guide-contents.tsx says why the page uses `lg`);
  *    its links are exactly the `section[id]`s the article renders, so a
  *    section added later is listed by existing;
  *  - the sticky "Open {tool}" bar is the article's LAST child, so it rides
  *    the whole article and stops at its end, and it sits above the consent
- *    banner (`bottom-[var(--sf-bottom-inset)]`, published by the banner);
+ *    banner (`bottom: var(--sf-bottom-inset, 0px)`, published by the
+ *    banner);
  *  - body copy is 16px at every width and in the reading colour (B.4);
  *  - "Related guides" lists only guides that share a tool with this one,
  *    never the guide itself. The predicate's positive control is below.
@@ -63,7 +65,7 @@ describe("health", () => {
 });
 
 describe("contents", () => {
-  it("lists exactly the article's own sections, collapsed below xl and sticky at xl", async () => {
+  it("lists exactly the article's own sections, collapsed below lg and sticky from lg", async () => {
     const wrong: string[] = [];
     for (const slug of slugs) {
       const doc = await renderGuide(slug);
@@ -81,14 +83,11 @@ describe("contents", () => {
         );
         continue;
       }
-      if (!hasClass(details, "xl:hidden"))
-        wrong.push(`${slug}: the <details> shows at xl`);
-      if (!hasClass(rail, "hidden") || !hasClass(rail, "xl:block"))
-        wrong.push(`${slug}: the rail is not xl-only`);
-      if (
-        !/(?:^|\s)xl:sticky(?:\s|$)|(?:^|\s)sticky(?:\s|$)/.test(cls(rail)) &&
-        !rail.querySelector('[class~="sticky"], [class~="xl:sticky"]')
-      )
+      if (!hasClass(details, "lg:hidden"))
+        wrong.push(`${slug}: the <details> shows from lg`);
+      if (!hasClass(rail, "max-lg:hidden"))
+        wrong.push(`${slug}: the rail shows below lg`);
+      if (!hasClass(rail, "lg:sticky"))
         wrong.push(`${slug}: the rail is not sticky`);
       for (const [name, box] of [
         ["details", details],
@@ -119,11 +118,9 @@ describe("the sticky open bar", () => {
         if (!hasClass(bar, c)) wrong.push(`${slug}: last child lacks ${c}`);
       // The banner's inset, with a 0px fallback: unset, a bare var() would
       // make `bottom` invalid, and a sticky bar with no bottom never sticks.
-      if (
-        !/(?:^|\s)bottom-\[var\(--sf-bottom-inset,0px\)\](?:\s|$)/.test(
-          cls(bar),
-        )
-      )
+      // An inline style (the stylesheet is at its ceiling), so read that.
+      const bottom = bar?.getAttribute("style")?.replace(/\s+/g, "") ?? "";
+      if (!bottom.includes("bottom:var(--sf-bottom-inset,0px)"))
         wrong.push(`${slug}: the bar does not sit on --sf-bottom-inset`);
       const link = bar?.querySelector(`a[href="/tools/${primary.slug}"]`);
       if (!link?.textContent?.includes(`Open ${primary.name}`))

@@ -63,6 +63,16 @@ import { tools } from "./index";
 const ROOT = process.cwd();
 const rel = (f: string) => path.relative(ROOT, f).replace(/\\/g, "/");
 
+/** The final narrative (WP-13), exactly as the section must render it. */
+const NARRATIVE = {
+  heading: "One file, many tools, without picking it again.",
+  steps: [
+    "Drop a file anywhere — the tab reads it, nothing uploads.",
+    "Open the tool we suggest, with the reason we suggest it.",
+    "Every PDF made in your browser offers the next tool, with the file already loaded.",
+  ],
+} as const;
+
 /** Workflow-feature claims, as shapes. */
 const PATTERNS: readonly RegExp[] = [
   /\b(?:save|saved|store)\w*\s+(?:a\s+|your\s+)?(?:workflow|pipeline|sequence)s?\s+as\s+(?:a\s+)?preset/i,
@@ -95,16 +105,6 @@ const MUST_SURVIVE: readonly string[] = [
 ];
 
 const hits = (text: string) => PATTERNS.filter((p) => p.test(text));
-
-/** The final narrative (WP-13), exactly as the section must render it. */
-const NARRATIVE = {
-  heading: "One file, many tools, without picking it again.",
-  steps: [
-    "Drop a file anywhere — the tab reads it, nothing uploads.",
-    "Open the tool we suggest, with the reason we suggest it.",
-    "Every PDF made in your browser offers the next tool, with the file already loaded.",
-  ],
-} as const;
 
 /**
  * GATED claims: a shape that may ship only while `offenders()` is empty.
