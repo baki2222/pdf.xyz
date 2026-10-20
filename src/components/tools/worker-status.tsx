@@ -66,11 +66,7 @@ export function WorkerStatusSlot({
     <div
       data-slot="worker-status"
       data-state={state}
-      className={cn(
-        "grid grid-cols-1",
-        state !== "run" && "[&>*]:justify-center",
-        reserve,
-      )}
+      className={cn("grid grid-cols-1 content-start", reserve)}
     >
       {children}
     </div>
@@ -97,12 +93,15 @@ export function WorkerStatusSlot({
 export function WorkerStatusPending({
   phase,
   onRetry,
+  limited = false,
 }: {
   phase: Exclude<WorkerPhase, "ready">;
   onRetry: () => void;
+  /** The check was answered 429 and the page has waited: Try again. */
+  limited?: boolean;
 }) {
   return (
-    <div className="border-line bg-wash flex min-h-32 flex-col justify-center gap-3 rounded-[4px] border p-4">
+    <div className="border-line bg-wash flex flex-col justify-center gap-3 rounded-[4px] border p-4">
       {phase === "loading" ? (
         <p
           role="status"
@@ -115,8 +114,10 @@ export function WorkerStatusPending({
       ) : (
         <>
           <p role="status" className="text-muted text-sm leading-relaxed">
-            We couldn&rsquo;t reach the worker status service just now. Nothing
-            is uploaded until the worker is confirmed.
+            {limited
+              ? "The worker status service is busy and asked us to wait. "
+              : "We couldn’t reach the worker status service just now. "}
+            Nothing is uploaded until the worker is confirmed.
           </p>
           <button
             type="button"
@@ -124,7 +125,7 @@ export function WorkerStatusPending({
             className="border-line text-fg hover:bg-panel inline-flex items-center gap-1.5 self-start rounded-[3px] border px-3 py-1.5 text-sm font-medium transition"
           >
             <RotateCw className="size-3.5" aria-hidden />
-            Check again
+            {limited ? "Try again" : "Check again"}
           </button>
         </>
       )}

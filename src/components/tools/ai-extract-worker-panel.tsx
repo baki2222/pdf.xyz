@@ -10,7 +10,6 @@ import {
   Timer,
   Trash2,
 } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import { aiReadLimitFor } from "@/lib/jobs/ai-read-limit";
 import {
@@ -30,7 +29,6 @@ import {
   AI_EXTRACT_NULL_MEANING,
   AI_EXTRACT_NULL_PAST_CUT,
 } from "@/lib/jobs/ai-extract-null-meaning";
-import type { WorkerStatus } from "@/lib/workers/status";
 import {
   aiDailyAllowanceNote,
   aiToolUnavailableDetail,
@@ -46,7 +44,6 @@ import { TruncationNotice } from "./truncation-notice";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
-import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
@@ -57,13 +54,13 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import { useStagedHandoff } from "./use-staged-handoff";
 import {
-  useWorkerStatus,
-  WorkerStatusPending,
-  type WorkerPhase,
-  WorkerStatusSlot,
-  workerSlotState,
-} from "./worker-status";
+  useWorkerPanel,
+  WorkerGate,
+  WorkerPanelShell,
+  workerOutput,
+} from "./worker-panel-shell";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
@@ -92,170 +89,64 @@ import {
  */
 const STATUS_SLOT = "min-h-[58rem] sm:min-h-[43.5rem] lg:min-h-[47rem]";
 
-type Phase = WorkerPhase;
-
-function badgeFor(
-  phase: Phase,
-  status: WorkerStatus | null,
-): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading")
-    return { tone: "info", label: "Checking…", pulse: true };
-  if (phase === "error" || !status)
-    return { tone: "muted", label: "Status unknown", pulse: false };
-  return canRunAiExtract(status)
-    ? { tone: "ok", label: "Secure worker", pulse: false }
-    : { tone: "muted", label: "Not enabled", pulse: false };
-}
-
 export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
-  const { phase, status, retry } = useWorkerStatus();
-
-  const badge = badgeFor(phase, status);
-  const available = phase === "ready" && canRunAiExtract(status);
-  // Read only once the status is known: the loading and error phases
-  // render <WorkerStatusPending>, which claims nothing about the tool.
-  const unavailableDetail = aiToolUnavailableDetail(status);
-
   return (
-    <div className="">
-      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="border-accent/40 bg-accent/10 text-accent inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
-              <Sparkles className="size-3" aria-hidden />
-              AI extraction
-            </span>
-            <StatusBadge
-              tone={badge.tone}
-              label={badge.label}
-              pulse={badge.pulse}
-            />
-          </div>
-          <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on a secure worker
-          </h2>
-          <p className="text-muted text-sm leading-relaxed">
-            The worker extracts your PDF&apos;s selectable text and asks a
-            configured AI model to pull the fields you describe into clean JSON,
-            then returns an extraction package — the model&apos;s JSON, a
-            readable rendering, and a manifest recording the model and scope.
-            With no AI model configured, a scanned PDF with no selectable text,
-            or a model reply that isn&apos;t valid JSON, the job fails instead
-            of guessing. The model is instructed to use only the document&apos;s
-            text, but AI output can still be wrong, so check important values
-            against your PDF.
-          </p>
-        </div>
-
-        <WorkerStatusSlot
-          state={workerSlotState(phase, available)}
-          reserve={STATUS_SLOT}
-        >
-          {available ? (
-            <div className="flex flex-col gap-6">
-              {/* Said only when the panel can run, so it is part of the
-                  run area. Above the slot it pushed the whole slot down
-                  as the status answered: Chat with PDF read CLS 0.0241 at
-                  390 with the slot reserved (measured 2026-10-10). */}
-              <p className="text-muted text-xs leading-relaxed">
-                {aiDailyAllowanceNote(tool.slug)}
-              </p>
-              <AiExtractBuilder refuse={(file) => pickRefusal(tool, file)} />
-            </div>
-          ) : phase === "ready" ? (
-            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-              <p className="text-muted text-sm leading-relaxed">
-                {unavailableDetail}
-              </p>
-              <p className="text-muted text-xs leading-relaxed">
-                No builder is shown until the worker is ready, so {tool.name}{" "}
-                never pretends to produce an extraction it cannot actually
-                generate.
-              </p>
-              <NotifyMe
-                toolName={tool.name}
-                toolSlug={tool.slug}
-                checking={false}
-              />
-            </div>
-          ) : (
-            <WorkerStatusPending phase={phase} onRetry={retry} />
-          )}
-        </WorkerStatusSlot>
-
-        <div className="flex flex-col gap-3">
-          <h3 className="text-faint kicker">What happens</h3>
-          <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status ? status.scan.active : null, tool).map(
-              (stage, index, all) => (
-                <li key={stage.id} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center self-stretch">
-                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
-                      <Sparkles className="size-4" aria-hidden />
-                    </span>
-                    {index < all.length - 1 && (
-                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-fg text-sm font-medium">
-                      {index + 1}. {stage.title}
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      {stage.description}
-                    </span>
-                  </div>
-                </li>
-              ),
-            )}
-          </ol>
-        </div>
-
-        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
-          <SpecRow
-            icon={Download}
-            label="Output"
-            value="ZIP · extraction.json + model-output.json + extraction.md + manifest"
-          />
-          <SpecRow
-            icon={Timer}
-            label="Retention"
-            value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
-          />
-          <SpecRow
-            icon={ShieldCheck}
-            label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${aiReadLimitFor(tool.slug).toLocaleString("en-US")} characters read`}
-          />
-        </div>
-      </div>
-    </div>
+    <WorkerPanelShell
+      tool={tool}
+      tone="accent"
+      engine={{ label: "AI extraction", icon: Sparkles }}
+      description={
+        <>
+          The worker extracts your PDF&apos;s selectable text and asks a
+          configured AI model to pull the fields you describe into clean JSON,
+          then returns an extraction package — the model&apos;s JSON, a readable
+          rendering, and a manifest recording the model and scope. With no AI
+          model configured, a scanned PDF with no selectable text, or a model
+          reply that isn&apos;t valid JSON, the job fails instead of guessing.
+          The model is instructed to use only the document&apos;s text, but AI
+          output can still be wrong, so check important values against your PDF.
+        </>
+      }
+      canRun={canRunAiExtract}
+      specRows={[
+        {
+          icon: Download,
+          label: "Output",
+          value:
+            "ZIP · extraction.json + model-output.json + extraction.md + manifest",
+        },
+        {
+          icon: Timer,
+          label: "Retention",
+          value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
+        },
+        {
+          icon: ShieldCheck,
+          label: "Limit",
+          value: `${formatBytes(JOB_LIMITS.maxFileBytes)}/file · ${aiReadLimitFor(tool.slug).toLocaleString("en-US")} characters read`,
+        },
+      ]}
+    >
+      <AiExtractBuilder
+        tool={tool}
+        refuse={(file) => pickRefusal(tool, file)}
+      />
+    </WorkerPanelShell>
   );
 }
 
-function SpecRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Download;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="text-muted inline-flex items-center gap-2 text-sm">
-        <Icon className="text-muted size-4" aria-hidden />
-        {label}
-      </span>
-      <span className="text-fg text-right text-sm font-medium">{value}</span>
-    </div>
-  );
-}
+const RUN_LABEL = "Extract data";
 
 const EMPTY_FIELD: ExtractionField = { name: "", type: "string" };
 
-function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
+function AiExtractBuilder({
+  tool,
+  refuse,
+}: {
+  tool: Tool;
+  refuse: PickRefusal;
+}) {
+  const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<ExtractionMode>("schema");
   const [prompt, setPrompt] = useState("");
@@ -266,6 +157,10 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
       resumeSecurityJob(id, { ...controls, tool: "ai-extract" }),
   });
   const { busy, outcome, setOutcome, run } = job;
+  const staged = useStagedHandoff(tool.slug, RUN_LABEL, (files) => {
+    setOutcome(null);
+    setFile(files[0] ?? null);
+  });
 
   const namedFields = fields.filter((f) => f.name.trim().length > 0);
   // The worker refuses two fields with the same name (case and spacing
@@ -281,7 +176,7 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
   const canRun = file != null && !busy && requestReady;
 
   const start = useCallback(async () => {
-    if (!file || !requestReady) return;
+    if (!file || !requestReady || !available) return;
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       // Counted before upload so the run is charged what this document holds,
@@ -313,18 +208,11 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
       );
       return result;
     });
-  }, [file, mode, prompt, namedFields, requestReady, run]);
+  }, [file, mode, prompt, namedFields, requestReady, run, available]);
 
   return (
-    <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
-      <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
-        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker sends only the
-        PDF&apos;s selectable text to a configured AI model — it does not read
-        scanned images (run OCR first) — and the model is told to use only that
-        text. AI output can still be wrong.
-      </p>
-
+    <div className="flex flex-col gap-4">
+      {staged}
       {file ? (
         <ChosenFileTarget
           file={file}
@@ -491,21 +379,65 @@ function AiExtractBuilder({ refuse }: { refuse: PickRefusal }) {
         {AI_EXTRACT_NOT_NULL_WARNING}
       </p>
 
-      <WorkerRunButton
-        onClick={start}
-        busy={busy}
-        // `canRun` already folds in `!busy`; both go through one blocked branch.
-        disabled={!canRun}
-        busyLabel={jobBusyLabel(job.phase, "Extracting…")}
-        icon={ScanSearch}
-        tone="violet"
-      >
-        Extract data
-      </WorkerRunButton>
-
-      <WorkerJobStatus job={job} />
+      <WorkerGate
+        reserve={STATUS_SLOT}
+        job={job}
+        bytes={file?.size}
+        run={(ready) => (
+          <WorkerRunButton
+            onClick={start}
+            busy={busy}
+            // `canRun` already folds in `!busy`; both go through one blocked branch.
+            disabled={!ready || !canRun}
+            busyLabel={jobBusyLabel(job.phase, "Extracting…")}
+            icon={ScanSearch}
+          >
+            {RUN_LABEL}
+          </WorkerRunButton>
+        )}
+        jobStatus={<WorkerJobStatus job={job} />}
+        note={
+          <div className="flex flex-col gap-2">
+            <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
+              <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              Your PDF uploads to a private secure-worker job only when you
+              press {RUN_LABEL}. The worker sends only the PDF&apos;s selectable
+              text to a configured AI model — it does not read scanned images
+              (run OCR first) — and the model is told to use only that text. AI
+              output can still be wrong.
+            </p>
+            {/* Said only when the panel can run, inside the reserved slot:
+                above it, it pushed the whole slot down as the status
+                answered (Chat with PDF read CLS 0.0241 at 390, 2026-10-10). */}
+            <p className="text-muted text-xs leading-relaxed">
+              {aiDailyAllowanceNote(tool.slug)}
+            </p>
+          </div>
+        }
+        off={
+          <>
+            <p className="text-muted text-sm leading-relaxed">
+              {aiToolUnavailableDetail(status)}
+            </p>
+            <p className="text-muted text-xs leading-relaxed">
+              {RUN_LABEL} stays off until the worker is ready, so {tool.name}{" "}
+              never pretends to produce an extraction it cannot actually
+              generate.
+            </p>
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={false}
+            />
+          </>
+        }
+      />
       {outcome?.ok === true && (
-        <ResultCard announce="Your AI extraction package is ready.">
+        <ResultCard
+          announce="Your AI extraction package is ready."
+          output={workerOutput(outcome.output, outcome.artifact)}
+          inputBytes={file?.size}
+        >
           <TruncationNotice
             job={outcome.job}
             consequence={AI_EXTRACT_NULL_PAST_CUT}

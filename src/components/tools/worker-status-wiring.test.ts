@@ -57,6 +57,10 @@ const STATUS_FETCH_OWNERS = new Set([
 const STAGES_CALL_OWNERS = new Set([
   "src/lib/jobs/capabilities.ts", // the definition
   "src/components/tools/worker-panel-shell.tsx", // the one panel caller
+  // A tri-state wrapper from the wave-1 merge that no component imports (its
+  // own test is its only caller — `pipeline-pending.test.ts`). Not a panel's
+  // stage list; listed so a new caller is a decision, not an accident.
+  "src/lib/jobs/pipeline-pending.ts",
 ]);
 
 /** Lines with their full-line comments dropped; prose may name the call. */

@@ -149,7 +149,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your HTML file",
-      body: "Drag one .html or .htm file onto the dashed drop zone, or click it to pick one. The name then appears with a Remove button. When no secure worker is ready, the drop area is not shown at all: you get the worker's status and a “Notify me when this ships” button.",
+      body: "Drag one .html or .htm file onto the dashed drop zone, or click it to pick one. The name then appears with a Remove button. The drop zone works before the page has heard from the worker; the file is sent only when you press Render PDF, and that button stays off until a secure worker is ready. When none is, the panel says why and offers a “Notify me when this ships” button.",
     },
     {
       title: "Click Render PDF",

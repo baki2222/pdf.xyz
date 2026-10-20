@@ -89,19 +89,6 @@ export function stageForPhase(
   }
 }
 
-/** The first time each stage was stamped, in the order it was stamped. */
-export function observedStages(
-  events: readonly PhaseEvent[],
-  stages: readonly PipelineStage[],
-): Map<string, { at: number }> {
-  const seen = new Map<string, { at: number }>();
-  for (const event of events) {
-    const stage = stageForPhase(event.phase, stages);
-    if (stage !== null && !seen.has(stage)) seen.set(stage, { at: event.at });
-  }
-  return seen;
-}
-
 /**
  * `pollJobToTerminal`'s `onStatus`, forwarded to a client's `onPhase`. A
  * completed status is NOT forwarded: the client still has the download to

@@ -43,6 +43,7 @@ import {
   panelDispatchArms,
 } from "@/tests/worker-panel-dispatch";
 import { LOST_CONNECTION, useWorkerJob } from "./worker-job";
+import { readyFileInput } from "@/tests/worker-ready";
 
 const ARMS = panelDispatchArms();
 const SUBJECTS = ARMS.flatMap((arm) =>
@@ -281,7 +282,7 @@ describe("a fresh run, end to end (Extract Tables)", () => {
     let input: Element | null = null;
     for (let i = 0; i < 50 && !input; i += 1) {
       await advance(10);
-      input = document.querySelector('input[type="file"]');
+      input = readyFileInput();
     }
     fireEvent.change(input!, {
       target: {
@@ -365,7 +366,7 @@ describe("a fresh run, end to end (Extract Tables)", () => {
     const Panel = await panelComponent(arm);
     render(createElement(Panel, { tool: catalogTool("extract-tables") }));
     const input = await waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
+      const found = readyFileInput();
       if (!found) throw new Error("no input");
       return found;
     });

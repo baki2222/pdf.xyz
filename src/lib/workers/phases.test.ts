@@ -6,7 +6,6 @@ import { getToolBySlug } from "@/lib/tools";
 import { pollJobToTerminal, type PollFetch } from "./job-polling";
 import {
   JOB_PHASES,
-  observedStages,
   phaseOfStatus,
   stageForPhase,
   type JobPhase,
@@ -80,26 +79,6 @@ describe("phases → stages", () => {
     expect(reached.has("address")).toBe(false);
     expect(reached.has("process")).toBe(true);
     expect(reached.has("download")).toBe(true);
-  });
-
-  it("observedStages stamps the first time per stage, and none for phases with no stage", () => {
-    const stages = PIPELINES["scan off"];
-    const seen = observedStages(
-      [
-        { phase: "uploading", at: 0 },
-        { phase: "uploaded", at: 100 },
-        { phase: "queued", at: 120 },
-        { phase: "processing", at: 300 },
-        { phase: "processing", at: 900 },
-        { phase: "downloading", at: 1000 },
-        { phase: "done", at: 1200 },
-      ],
-      stages,
-    );
-    expect([...seen.keys()]).toEqual(["upload", "process", "download"]);
-    expect(seen.get("process")).toEqual({ at: 300 });
-    expect(seen.has("preflight")).toBe(false);
-    expect(seen.has("delete")).toBe(false);
   });
 });
 

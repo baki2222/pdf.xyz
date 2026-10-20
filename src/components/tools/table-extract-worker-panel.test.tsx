@@ -24,6 +24,7 @@ import type { PdfLayoutExtractor } from "@/lib/workers/table-extract/engine";
 import { PdfTextExecError } from "@/lib/workers/pdf-text/errors";
 import { rc4EncryptedPdf } from "@/tests/pdf-office-fixtures";
 import { TableExtractWorkerPanel } from "./table-extract-worker-panel";
+import { readyFileInput } from "@/tests/worker-ready";
 
 const tool = getToolBySlug("extract-tables")!;
 const providers = getProviderReadiness("remote-configured");
@@ -129,7 +130,7 @@ function stubNetwork(job: Job) {
 async function extractOnePdf() {
   render(<TableExtractWorkerPanel tool={tool} />);
   const input = await vi.waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
+    const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
     return found;
   });

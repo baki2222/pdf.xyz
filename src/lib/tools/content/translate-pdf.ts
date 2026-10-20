@@ -27,8 +27,9 @@ import {
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
  *  - src/components/tools/translate-worker-panel.tsx — the "Add your PDF, or
- *    browse" drop zone (one file, with a Remove button), shown only once
- *    canRunTranslate (secure worker + AI provider) passes; the "Translate
+ *    browse" drop zone (one file, with a Remove button), shown at once, with
+ *    Translate PDF off until canRunTranslate (secure worker + AI provider)
+ *    passes (WP-10); the "Translate
  *    into" and "Source language" selects ("Auto-detect" first), "Instructions
  *    (optional)", the "Translate PDF" button (its busy label is
  *    `jobBusyLabel(job.phase, "Translating…")`: Uploading your file…,
@@ -232,7 +233,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add one PDF",
-      body: `Drop a PDF on the box labelled "Add your PDF, or browse", or click it to pick one; Remove clears it. The box appears only once the page confirms a secure worker with an AI model is available.`,
+      body: `Drop a PDF on the box labelled "Add your PDF, or browse", or click it to pick one; Remove clears it. The box takes a file at once; Translate PDF works only once the page confirms a secure worker with an AI model is available, and nothing is uploaded before you press it.`,
     },
     {
       title: "Pick the languages",

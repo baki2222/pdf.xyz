@@ -187,8 +187,19 @@ describe("eligibleFilesFor", () => {
     ]);
   });
 
-  it("returns nothing for an unsupported tool", () => {
-    expect(eligibleFilesFor("ocr-pdf", [pdf, pdfByExt])).toEqual([]);
+  // WAS `eligibleFilesFor("ocr-pdf", …)` → [], when a worker panel could not
+  // take a hand-off. OCR PDF stages one now (WP-10); the URL tool cannot.
+  it("returns nothing for a tool that takes no file", () => {
+    expect(eligibleFilesFor("webpage-to-pdf", [pdf, pdfByExt])).toEqual([]);
+  });
+
+  it("stages a worker panel's file by its accept row", () => {
+    expect(eligibleFilesFor("ocr-pdf", [pdf, png, pdfByExt])).toEqual([
+      pdf,
+      png,
+      pdfByExt,
+    ]);
+    expect(eligibleFilesFor("unlock-pdf", [pdf, png])).toEqual([pdf]);
   });
 });
 

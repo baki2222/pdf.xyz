@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react";
 import {
-  Download,
   Eye,
   EyeOff,
   FileDown,
@@ -13,7 +12,6 @@ import {
   Timer,
   Unlock,
 } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
   DEFAULT_PDF_KEY_LENGTH,
@@ -22,7 +20,6 @@ import {
   PDF_ENCRYPTION_LEVELS,
   type PdfKeyLength,
 } from "@/lib/jobs/pdf-security";
-import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunPdfSecurity,
   runWorkerProtect,
@@ -33,7 +30,6 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { cn, formatBytes } from "@/lib/utils";
-import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
@@ -44,13 +40,13 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import { useStagedHandoff } from "./use-staged-handoff";
 import {
-  useWorkerStatus,
-  WorkerStatusPending,
-  type WorkerPhase,
-  WorkerStatusSlot,
-  workerSlotState,
-} from "./worker-status";
+  useWorkerPanel,
+  WorkerGate,
+  WorkerPanelShell,
+  workerOutput,
+} from "./worker-panel-shell";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
@@ -66,7 +62,6 @@ import {
  */
 const STATUS_SLOT = "min-h-[40.5rem] sm:min-h-[32.5rem] lg:min-h-[35rem]";
 
-type Phase = WorkerPhase;
 type Mode = "protect" | "unlock";
 
 /**
@@ -86,59 +81,6 @@ export function isPasswordMissing(_mode: Mode, password: string): boolean {
 /** Number of UTF-8 bytes a password occupies (the bound qpdf actually enforces). */
 function passwordByteLength(password: string): number {
   return new TextEncoder().encode(password).length;
-}
-
-function StageIcon({ id, className }: { id: string; className?: string }) {
-  switch (id) {
-    case "process":
-      return <Lock className={className} aria-hidden />;
-    case "scan":
-      return <ShieldCheck className={className} aria-hidden />;
-    case "download":
-      return <Download className={className} aria-hidden />;
-    case "delete":
-      return <Timer className={className} aria-hidden />;
-    default:
-      return <FileUp className={className} aria-hidden />;
-  }
-}
-
-function SpecRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof FileUp;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="text-muted inline-flex items-center gap-2 text-sm">
-        <Icon className="text-muted size-4" aria-hidden />
-        {label}
-      </span>
-      <span className="text-fg text-right text-sm font-medium">{value}</span>
-    </div>
-  );
-}
-
-/** Honest availability badge derived from the live worker status. */
-function badgeFor(
-  phase: Phase,
-  status: WorkerStatus | null,
-): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading")
-    return { tone: "info", label: "Checking…", pulse: true };
-  if (phase === "error" || !status) {
-    return { tone: "muted", label: "Status unknown", pulse: false };
-  }
-  if (canRunPdfSecurity(status)) {
-    return status.mode === "local-dev"
-      ? { tone: "warn", label: "Local-dev worker", pulse: true }
-      : { tone: "ok", label: "Secure worker", pulse: false };
-  }
-  return { tone: "muted", label: "Not enabled", pulse: false };
 }
 
 const COPY: Record<
@@ -171,9 +113,10 @@ const COPY: Record<
 
 /**
  * Premium, honest secure-worker panel for `/tools/protect-pdf` and
- * `/tools/unlock-pdf`. It reads the live, presence-only `/api/worker/status`
- * endpoint and only offers the real qpdf-backed flow when a worker is genuinely
- * available; otherwise it says so plainly and offers no upload. It never fakes a
+ * `/tools/unlock-pdf`. The file and password can be given at once; the run —
+ * the only thing that uploads — waits for the live, presence-only
+ * `/api/worker/status` check to say a worker is genuinely available, and
+ * otherwise the panel says so plainly and uploads nothing. It never fakes a
  * result — every protected/unlocked file here is real output downloaded from the
  * worker. The password is entered in a masked field and travels only in the job
  * request body; it is never shown in copy, a URL, or a log.
@@ -181,102 +124,28 @@ const COPY: Record<
 export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "protect-pdf" ? "protect" : "unlock";
   const copy = COPY[mode];
-  const HeaderIcon = copy.icon;
-
-  const { phase, status, retry } = useWorkerStatus();
-
-  const badge = badgeFor(phase, status);
-  const available = phase === "ready" && canRunPdfSecurity(status);
 
   return (
-    <div className="">
-      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
-        {/* Header */}
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
-              <HeaderIcon className="size-3" aria-hidden />
-              {copy.badge}
-            </span>
-            <StatusBadge
-              tone={badge.tone}
-              label={badge.label}
-              pulse={badge.pulse}
-            />
-          </div>
-          <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on a secure worker
-          </h2>
-          <p className="text-muted text-sm leading-relaxed">{copy.blurb}</p>
-        </div>
-
-        {/* Status-dependent action area */}
-        <WorkerStatusSlot
-          state={workerSlotState(phase, available && status !== null)}
-          reserve={STATUS_SLOT}
-        >
-          {available && status ? (
-            <SecurityRunArea
-              mode={mode}
-              localDevOnly={status.localDevOnly}
-              refuse={(file) => pickRefusal(tool, file)}
-            />
-          ) : (
-            <SecurityUnavailable
-              onRetry={retry}
-              phase={phase}
-              status={status}
-              toolName={tool.name}
-              toolSlug={tool.slug}
-            />
-          )}
-        </WorkerStatusSlot>
-
-        {/* Pipeline: honest "here's what will happen" */}
-        <div className="flex flex-col gap-3">
-          <h3 className="text-faint kicker">What happens to your file</h3>
-          <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status ? status.scan.active : null, tool).map(
-              (stage, i, all) => (
-                <li key={stage.id} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center self-stretch">
-                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
-                      <StageIcon id={stage.id} className="size-4" />
-                    </span>
-                    {i < all.length - 1 && (
-                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-fg text-sm font-medium">
-                      {i + 1}. {stage.title}
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      {stage.description}
-                    </span>
-                  </div>
-                </li>
-              ),
-            )}
-          </ol>
-        </div>
-
-        {/* Spec rows */}
-        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
-          <SpecRow icon={FileUp} label="Input" value="One PDF" />
-          <SpecRow icon={FileDown} label="Output" value="PDF" />
-          <SpecRow
-            icon={Timer}
-            label="Retention"
-            value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
-          />
-          <SpecRow
-            icon={ShieldCheck}
-            label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
-          />
-        </div>
-
+    <WorkerPanelShell
+      tool={tool}
+      engine={{ label: copy.badge, icon: copy.icon }}
+      description={copy.blurb}
+      canRun={canRunPdfSecurity}
+      specRows={[
+        { icon: FileUp, label: "Input", value: "One PDF" },
+        { icon: FileDown, label: "Output", value: "PDF" },
+        {
+          icon: Timer,
+          label: "Retention",
+          value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
+        },
+        {
+          icon: ShieldCheck,
+          label: "Limit",
+          value: `${formatBytes(JOB_LIMITS.maxFileBytes)}/file`,
+        },
+      ]}
+      footer={
         <p className="text-muted text-xs leading-relaxed">
           No account required. This runs on a separate processing server, not in
           your browser: files travel over an encrypted connection, are processed
@@ -284,45 +153,14 @@ export function PdfSecurityWorkerPanel({ tool }: { tool: Tool }) {
           are deleted automatically. Your password is never logged.{" "}
           {PASSWORD_QUEUE_LIFETIME}
         </p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The honest "not running here" state: a clear reason from the live status plus a
- * notify placeholder. Renders NO uploader and NO password field — nothing can be
- * submitted, so nothing pretends it can.
- */
-function SecurityUnavailable({
-  phase,
-  onRetry,
-  status,
-  toolName,
-  toolSlug,
-}: {
-  phase: Phase;
-  onRetry: () => void;
-  status: WorkerStatus | null;
-  toolName: string;
-  toolSlug: string;
-}) {
-  // Until the status is KNOWN this box says nothing about the tool: the
-  // server renders the loading phase, and "Notify me when this ships" there
-  // told search engines that live tools had not shipped. A failed status
-  // check gets a retry, not a notify button.
-  if (phase !== "ready")
-    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
-  return (
-    <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-4">
-      <p className="text-warn text-sm leading-relaxed">
-        {status?.security.detail ??
-          "PDF password protection isn't enabled in this environment. No file is uploaded."}
-      </p>
-      <div className="flex flex-col gap-2">
-        <NotifyMe toolName={toolName} toolSlug={toolSlug} checking={false} />
-      </div>
-    </div>
+      }
+    >
+      <SecurityRunArea
+        mode={mode}
+        tool={tool}
+        refuse={(file) => pickRefusal(tool, file)}
+      />
+    </WorkerPanelShell>
   );
 }
 
@@ -402,13 +240,14 @@ export function PasswordField({
  */
 function SecurityRunArea({
   mode,
-  localDevOnly,
+  tool,
   refuse,
 }: {
   mode: Mode;
-  localDevOnly: boolean;
+  tool: Tool;
   refuse: PickRefusal;
 }) {
+  const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState("");
   const [keyLength, setKeyLength] = useState<PdfKeyLength>(
@@ -423,6 +262,13 @@ function SecurityRunArea({
       }),
   });
   const { busy, outcome, setOutcome, run } = job;
+  // A file carried here (a merge's "Continue with", an encrypted PDF's
+  // remedy) is staged: it waits beside the password field, and nothing —
+  // file or password — leaves this browser until Run.
+  const staged = useStagedHandoff(tool.slug, COPY[mode].cta, (files) => {
+    setOutcome(null);
+    setFile(files[0] ?? null);
+  });
 
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
@@ -430,7 +276,7 @@ function SecurityRunArea({
   const canSubmit = file !== null && !passwordMissing && !tooLong && !busy;
 
   const start = useCallback(async () => {
-    if (!file || passwordMissing || tooLong) return;
+    if (!file || passwordMissing || tooLong || !available) return;
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
@@ -450,17 +296,20 @@ function SecurityRunArea({
             );
       return result;
     });
-  }, [file, password, keyLength, mode, tooLong, passwordMissing, run]);
+  }, [
+    file,
+    password,
+    keyLength,
+    mode,
+    tooLong,
+    passwordMissing,
+    run,
+    available,
+  ]);
 
   return (
-    <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
-      <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
-        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        {localDevOnly
-          ? "This runs on your local-dev worker — the file and password are processed in-process on this machine, not sent to any third party."
-          : "Running this uploads your file to the secure worker; your password travels with the job through our queue and is used only to perform the operation."}
-      </p>
-
+    <div className="flex flex-col gap-4">
+      {staged}
       {file ? (
         <ChosenFileTarget
           file={file}
@@ -580,18 +429,45 @@ function SecurityRunArea({
         </div>
       )}
 
-      <WorkerRunButton
-        onClick={start}
-        busy={busy}
-        // `canSubmit` already folds in `!busy`; both go through one blocked branch.
-        disabled={!canSubmit}
-        busyLabel={jobBusyLabel(job.phase, COPY[mode].running)}
-        icon={mode === "protect" ? Lock : Unlock}
-      >
-        {COPY[mode].cta}
-      </WorkerRunButton>
-
-      <WorkerJobStatus job={job} />
+      <WorkerGate
+        reserve={STATUS_SLOT}
+        job={job}
+        bytes={file?.size}
+        run={(ready) => (
+          <WorkerRunButton
+            onClick={start}
+            busy={busy}
+            // `canSubmit` already folds in `!busy`; both go through one blocked branch.
+            disabled={!ready || !canSubmit}
+            busyLabel={jobBusyLabel(job.phase, COPY[mode].running)}
+            icon={mode === "protect" ? Lock : Unlock}
+          >
+            {COPY[mode].cta}
+          </WorkerRunButton>
+        )}
+        jobStatus={<WorkerJobStatus job={job} />}
+        note={
+          <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            {status?.localDevOnly
+              ? "This runs on your local-dev worker — the file and password are processed in-process on this machine, not sent to any third party."
+              : `Nothing leaves this browser until you press ${COPY[mode].cta}. Then your file uploads to the secure worker; your password travels with the job through our queue and is used only to perform the operation.`}
+          </p>
+        }
+        off={
+          <>
+            <p className="text-warn text-sm leading-relaxed">
+              {status?.security.detail ??
+                "PDF password protection isn't enabled in this environment. No file is uploaded."}
+            </p>
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={false}
+            />
+          </>
+        }
+      />
 
       {outcome?.ok === true && (
         <ResultCard
@@ -600,6 +476,8 @@ function SecurityRunArea({
               ? "Your PDF is protected and ready."
               : "Your PDF is unlocked and ready."
           }
+          output={workerOutput(outcome.output, outcome.artifact)}
+          inputBytes={file?.size}
         >
           <p className="text-ok text-sm">
             {mode === "protect"

@@ -1,0 +1,77 @@
+/**
+ * The OCR languages a reader most likely needs, read from what their browser
+ * says they read (`navigator.languages`). OCR against the wrong language does
+ * not fail — it returns plausible gibberish from a completed job — so the
+ * panel preselects these, says why, and leaves every chip editable.
+ *
+ * Pure and dependency-free apart from the catalogue, so it runs on the
+ * server (where there is no `navigator`) as a no-op and is tested in Node.
+ */
+import {
+  DEFAULT_OCR_LANGUAGE,
+  MAX_OCR_LANGUAGES,
+  type OcrLanguage,
+} from "./ocr";
+
+/**
+ * BCP-47 primary language subtag → recognition pack. Every OCR language is
+ * reached exactly by this map (`ocr-browser-languages.test.ts` holds it both
+ * ways). Chinese is special-cased below: only the Simplified script has a
+ * pack, so `zh-TW` and `zh-Hant` map to nothing rather than to the wrong one.
+ */
+export const OCR_LANGUAGE_BY_BCP47: Readonly<Record<string, OcrLanguage>> = {
+  en: "eng",
+  es: "spa",
+  fr: "fra",
+  de: "deu",
+  it: "ita",
+  pt: "por",
+  nl: "nld",
+  ru: "rus",
+  uk: "ukr",
+  pl: "pol",
+  sv: "swe",
+  tr: "tur",
+  zh: "chi_sim",
+  ja: "jpn",
+  ko: "kor",
+  vi: "vie",
+  id: "ind",
+  th: "tha",
+  ar: "ara",
+  hi: "hin",
+  bn: "ben",
+};
+
+/** Traditional-script Chinese tags: a script or a region that writes it. */
+const TRADITIONAL_ZH = /^zh-(?:hant|tw|hk|mo)\b/i;
+
+function packFor(tag: string): OcrLanguage | null {
+  const primary = tag.split("-")[0]?.toLowerCase() ?? "";
+  if (primary === "zh" && TRADITIONAL_ZH.test(tag)) return null;
+  return OCR_LANGUAGE_BY_BCP47[primary] ?? null;
+}
+
+/**
+ * `languages` ∩ the OCR catalogue, in the reader's order, English always
+ * kept, at most {@link MAX_OCR_LANGUAGES} — English inside the cap.
+ */
+export function ocrLanguagesFromBrowser(
+  languages: readonly string[],
+): OcrLanguage[] {
+  const picked: OcrLanguage[] = [];
+  for (const tag of languages) {
+    const pack = packFor(tag);
+    if (pack && !picked.includes(pack)) picked.push(pack);
+  }
+  if (picked.includes(DEFAULT_OCR_LANGUAGE))
+    return picked.slice(0, MAX_OCR_LANGUAGES).includes(DEFAULT_OCR_LANGUAGE)
+      ? picked.slice(0, MAX_OCR_LANGUAGES)
+      : [
+          ...picked
+            .filter((p) => p !== DEFAULT_OCR_LANGUAGE)
+            .slice(0, MAX_OCR_LANGUAGES - 1),
+          DEFAULT_OCR_LANGUAGE,
+        ];
+  return [...picked.slice(0, MAX_OCR_LANGUAGES - 1), DEFAULT_OCR_LANGUAGE];
+}

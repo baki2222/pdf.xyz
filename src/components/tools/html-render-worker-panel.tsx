@@ -9,9 +9,7 @@ import {
   ShieldCheck,
   Timer,
 } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunHtmlRender,
   runWorkerHtmlToPdf,
@@ -27,7 +25,6 @@ import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
-import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
@@ -39,13 +36,13 @@ import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { decodeTextFile } from "@/lib/text/decode-text-file";
+import { useStagedHandoff } from "./use-staged-handoff";
 import {
-  useWorkerStatus,
-  WorkerStatusPending,
-  type WorkerPhase,
-  WorkerStatusSlot,
-  workerSlotState,
-} from "./worker-status";
+  useWorkerPanel,
+  WorkerGate,
+  WorkerPanelShell,
+  workerOutput,
+} from "./worker-panel-shell";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
@@ -61,188 +58,59 @@ import {
  */
 const STATUS_SLOT = "min-h-[24rem] sm:min-h-[20rem] lg:min-h-[21.5rem]";
 
-type Phase = WorkerPhase;
 type Mode = "html" | "url";
-
-function badgeFor(
-  phase: Phase,
-  status: WorkerStatus | null,
-): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading") {
-    return { tone: "info", label: "Checking…", pulse: true };
-  }
-  if (phase === "error" || !status) {
-    return { tone: "muted", label: "Status unknown", pulse: false };
-  }
-  return canRunHtmlRender(status)
-    ? { tone: "ok", label: "Secure worker", pulse: false }
-    : { tone: "muted", label: "Not enabled", pulse: false };
-}
-
-function SpecRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof FileCode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="text-muted inline-flex items-center gap-2 text-sm">
-        <Icon className="text-muted size-4" aria-hidden />
-        {label}
-      </span>
-      <span className="text-fg text-right text-sm font-medium">{value}</span>
-    </div>
-  );
-}
 
 export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "webpage-to-pdf" ? "url" : "html";
   const Icon = mode === "url" ? Globe : FileCode;
   const ceilingBytes = toolFileCeilingBytes(tool);
-  const { phase, status, retry } = useWorkerStatus();
-
-  const badge = badgeFor(phase, status);
-  const available = phase === "ready" && canRunHtmlRender(status);
 
   return (
-    <div className="">
-      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
-              <Icon className="size-3" aria-hidden />
-              Chromium renderer
-            </span>
-            <StatusBadge
-              tone={badge.tone}
-              label={badge.label}
-              pulse={badge.pulse}
-            />
-          </div>
-          <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on a secure worker
-          </h2>
-          <p className="text-muted text-sm leading-relaxed">
-            Chromium renders{" "}
-            {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
-            real print PDF on the isolated worker. It produces a PDF artifact or
-            fails honestly — no screenshot placeholder and no browser-side fake.
-          </p>
-        </div>
-
-        <WorkerStatusSlot
-          state={workerSlotState(phase, available)}
-          reserve={STATUS_SLOT}
-        >
-          {available ? (
-            <HtmlRenderRunArea mode={mode} tool={tool} />
-          ) : (
-            <HtmlRenderUnavailable
-              onRetry={retry}
-              phase={phase}
-              status={status}
-              toolName={tool.name}
-              toolSlug={tool.slug}
-            />
-          )}
-        </WorkerStatusSlot>
-
-        <div className="flex flex-col gap-3">
-          <h3 className="text-faint kicker">What happens</h3>
-          <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status ? status.scan.active : null, tool).map(
-              (stage, index, all) => (
-                <li key={stage.id} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center self-stretch">
-                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
-                      <Icon className="size-4" aria-hidden />
-                    </span>
-                    {index < all.length - 1 && (
-                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-fg text-sm font-medium">
-                      {index + 1}. {stage.title}
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      {stage.description}
-                    </span>
-                  </div>
-                </li>
-              ),
-            )}
-          </ol>
-        </div>
-
-        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
-          <SpecRow
-            icon={mode === "url" ? Globe : FileCode}
-            label="Input"
-            value={mode === "url" ? "One public URL" : "One HTML file"}
-          />
-          <SpecRow icon={Download} label="Output" value="PDF" />
-          <SpecRow
-            icon={Timer}
-            label="Retention"
-            value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
-          />
-          {/* The per-file cap, only where there IS a file. This row stated
-              "100.0 MB/file" on `webpage-to-pdf` too — three rows under an
-              Input row correctly reading "One public URL", for a tool the API
-              refuses uploads for outright (`parseCreateUploadSessionRequest`
-              answers `unprocessable_entity` on any `files` for a url-input
-              tool). A per-file ceiling on a tool with no file input is not a
-              conservative claim, it is a meaningless one, and it was the only
-              size figure on that page. */}
-          {ceilingBytes !== null && (
-            <SpecRow
-              icon={ShieldCheck}
-              label="Limit"
-              value={`${formatBytes(ceilingBytes)}/file`}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HtmlRenderUnavailable({
-  phase,
-  onRetry,
-  status,
-  toolName,
-  toolSlug,
-}: {
-  phase: Phase;
-  onRetry: () => void;
-  status: WorkerStatus | null;
-  toolName: string;
-  toolSlug: string;
-}) {
-  // Until the status is KNOWN this box says nothing about the tool: the
-  // server renders the loading phase, and "Notify me when this ships" there
-  // told search engines that live tools had not shipped. A failed status
-  // check gets a retry, not a notify button.
-  if (phase !== "ready")
-    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
-  const detail =
-    status?.daemon.detail ?? "The secure worker is not drainable here.";
-
-  return (
-    <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-      <p className="text-muted text-sm leading-relaxed">{detail}</p>
-      <p className="text-muted text-xs leading-relaxed">
-        No runner is shown until the worker is ready, so {toolName} never
-        pretends to process input it cannot actually render.
-      </p>
-      <NotifyMe toolName={toolName} toolSlug={toolSlug} checking={false} />
-    </div>
+    <WorkerPanelShell
+      tool={tool}
+      engine={{ label: "Chromium renderer", icon: Icon }}
+      description={
+        <>
+          Chromium renders{" "}
+          {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
+          real print PDF on the isolated worker. It produces a PDF artifact or
+          fails honestly — no screenshot placeholder and no browser-side fake.
+        </>
+      }
+      canRun={canRunHtmlRender}
+      specRows={[
+        {
+          icon: Icon,
+          label: "Input",
+          value: mode === "url" ? "One public URL" : "One HTML file",
+        },
+        { icon: Download, label: "Output", value: "PDF" },
+        {
+          icon: Timer,
+          label: "Retention",
+          value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
+        },
+        // The per-file cap, only where there IS a file. This row stated
+        // "100.0 MB/file" on `webpage-to-pdf` too — three rows under an
+        // Input row correctly reading "One public URL", for a tool the API
+        // refuses uploads for outright (`parseCreateUploadSessionRequest`
+        // answers `unprocessable_entity` on any `files` for a url-input
+        // tool). A per-file ceiling on a tool with no file input is not a
+        // conservative claim, it is a meaningless one, and it was the only
+        // size figure on that page.
+        ...(ceilingBytes !== null
+          ? [
+              {
+                icon: ShieldCheck,
+                label: "Limit",
+                value: `${formatBytes(ceilingBytes)}/file`,
+              },
+            ]
+          : []),
+      ]}
+    >
+      <HtmlRenderRunArea mode={mode} tool={tool} />
+    </WorkerPanelShell>
   );
 }
 
@@ -282,7 +150,10 @@ function useUnbundledAssetsNote(file: File | null): string | null {
   return note && note.file === file ? note.text : null;
 }
 
+const RUN_LABEL = "Render PDF";
+
 function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
+  const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("https://");
   const urlId = useId();
@@ -296,8 +167,15 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   });
   const { busy, outcome, setOutcome, run } = job;
   const assetsNote = useUnbundledAssetsNote(mode === "html" ? file : null);
+  // A URL tool takes no file, so nothing can be carried to it: the hook
+  // stays idle there (its capability is `none`).
+  const staged = useStagedHandoff(tool.slug, RUN_LABEL, (files) => {
+    setOutcome(null);
+    setFile(files[0] ?? null);
+  });
 
   const start = useCallback(async () => {
+    if (!available) return;
     await run(async (controls) => {
       const result =
         mode === "url"
@@ -313,21 +191,16 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
             : { ok: false as const, message: "Choose an HTML file first." };
       return result;
     });
-  }, [file, mode, url, run]);
+  }, [file, mode, url, run, available]);
 
-  const disabled =
-    busy || (mode === "html" ? !file : url.trim().length <= "https://".length);
+  const missing =
+    mode === "html" ? !file : url.trim().length <= "https://".length;
+  const detail =
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
 
   return (
-    <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
-      <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
-        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job.{" "}
-        {mode === "url"
-          ? "Only public http(s) URLs are accepted; private/localhost targets are rejected."
-          : "The uploaded HTML is stored only for the short worker lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses."}
-      </p>
-
+    <div className="flex flex-col gap-4">
+      {staged}
       {mode === "url" ? (
         // Named by a visible label: the placeholder used to be the field's
         // only name, and it vanishes on the first keystroke.
@@ -407,20 +280,51 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         />
       )}
 
-      <WorkerRunButton
-        onClick={start}
-        busy={busy}
-        // `disabled` already folds in `busy`; both go through one blocked branch.
-        disabled={disabled}
-        busyLabel={jobBusyLabel(job.phase, "Rendering PDF…")}
-        icon={FileCode}
-      >
-        Render PDF
-      </WorkerRunButton>
-
-      <WorkerJobStatus job={job} />
+      <WorkerGate
+        reserve={STATUS_SLOT}
+        job={job}
+        bytes={mode === "html" ? file?.size : undefined}
+        run={(ready) => (
+          <WorkerRunButton
+            onClick={start}
+            busy={busy}
+            disabled={!ready || missing}
+            busyLabel={jobBusyLabel(job.phase, "Rendering PDF…")}
+            icon={FileCode}
+          >
+            {RUN_LABEL}
+          </WorkerRunButton>
+        )}
+        jobStatus={<WorkerJobStatus job={job} />}
+        note={
+          <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            {mode === "url"
+              ? `Pressing ${RUN_LABEL} starts a private secure-worker job. Only public http(s) URLs are accepted; private/localhost targets are rejected.`
+              : `Your HTML uploads to a private secure-worker job only when you press ${RUN_LABEL}. It is stored only for the short worker lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
+          </p>
+        }
+        off={
+          <>
+            <p className="text-muted text-sm leading-relaxed">{detail}</p>
+            <p className="text-muted text-xs leading-relaxed">
+              {RUN_LABEL} stays off until the worker is ready, so {tool.name}{" "}
+              never pretends to process input it cannot actually render.
+            </p>
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={false}
+            />
+          </>
+        }
+      />
       {outcome?.ok === true && (
-        <ResultCard announce="Your PDF is ready.">
+        <ResultCard
+          announce="Your PDF is ready."
+          output={workerOutput(outcome.output, outcome.artifact)}
+          inputBytes={mode === "html" ? file?.size : undefined}
+        >
           <p className="text-ok text-sm">Your PDF is ready.</p>
           <DownloadCta
             onClick={() =>

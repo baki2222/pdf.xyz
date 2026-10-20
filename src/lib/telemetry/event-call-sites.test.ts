@@ -256,9 +256,11 @@ describe("the instruments", () => {
       SITES.some(
         (s) =>
           s.event === "worker_status_checked" &&
-          // The one shared status hook every worker panel mounts (it was a
-          // copy in each panel, summarize-worker-panel.tsx among them).
-          s.file === "src/components/tools/worker-status.tsx",
+          // The one shared status check every worker panel reads (it was a
+          // copy in each panel, summarize-worker-panel.tsx among them, then
+          // a hook in worker-status.tsx that each panel ran; since WP-10 one
+          // request per page).
+          s.file === "src/components/tools/use-worker-status.ts",
       ),
     ).toBe(true);
   });

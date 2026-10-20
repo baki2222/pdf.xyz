@@ -45,6 +45,7 @@ import { blankPages, noPictures } from "@/tests/page-scan-stubs";
 import { noisePagesPdf, notePagesPdf } from "@/tests/docx-picture-fixtures";
 import { flowStandIn } from "@/tests/poppler-flow-standin";
 import { PdfOfficeExportWorkerPanel } from "./pdf-office-export-worker-panel";
+import { readyFileInput } from "@/tests/worker-ready";
 
 const wordTool = getToolBySlug("pdf-to-word")!;
 const providers = getProviderReadiness("remote-configured");
@@ -198,7 +199,7 @@ function stubNetwork(served: { job: Job; output?: Uint8Array }) {
 async function exportOnePdf() {
   render(<PdfOfficeExportWorkerPanel tool={wordTool} />);
   const input = await vi.waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
+    const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
     return found;
   });
@@ -548,7 +549,7 @@ describe("PDF to PowerPoint panel — pages kept only as pictures", () => {
   async function exportPptx() {
     render(<PdfOfficeExportWorkerPanel tool={pptxTool} />);
     const input = await vi.waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
+      const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
       return found;
     });
@@ -655,7 +656,7 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
   async function exportPptx() {
     render(<PdfOfficeExportWorkerPanel tool={pptxTool} />);
     const input = await vi.waitFor(() => {
-      const found = document.querySelector('input[type="file"]');
+      const found = readyFileInput();
       if (!found) throw new Error("no file input yet");
       return found;
     });

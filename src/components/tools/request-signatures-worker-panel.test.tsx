@@ -10,7 +10,7 @@
  * LAST page, the input is clamped to the document, and the preview draws the
  * exact layout the request will carry.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -21,7 +21,6 @@ import {
 import { PDFDocument } from "pdf-lib";
 import { getToolBySlug } from "@/lib/tools";
 import { signatureBlockFields } from "@/lib/jobs/request-signatures";
-import { pickRefusal } from "@/lib/uploads/pick-check";
 import {
   PDF_ENCRYPTED_UNKNOWN_MESSAGE,
   PDF_NEEDS_PASSWORD_MESSAGE,
@@ -37,18 +36,38 @@ import {
   userPasswordObjectStreamPdf,
 } from "@/tests/encrypted-pdf-fixture";
 import { readPdfFrames } from "@/lib/pdf/page-frame";
+import { READY_WORKER_STATUS } from "@/tests/ready-worker-status";
 import {
-  RequestBuilder,
+  RequestSignaturesWorkerPanel,
   clampSignaturePage,
 } from "./request-signatures-worker-panel";
 
-afterEach(() => {
-  cleanup();
+// A ready deployment: since WP-10 the builder's Run waits on the page's
+// status check, so the "runnable" controls below need one to say yes.
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => READY_WORKER_STATUS,
+    })),
+  );
 });
 
-/** The panel's own pick refusal, so the builder is driven as the panel mounts it. */
-const refuse = (file: File) =>
-  pickRefusal(getToolBySlug("request-signatures")!, file);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+/**
+ * The builder, as the page mounts it: inside its panel (WP-10). It rendered
+ * the builder bare until the drop zone moved out of the status gate — the
+ * builder now reads the page's status through the panel shell, and its drop
+ * zone renders before the status answers, so the panel is all a test needs.
+ */
+const TOOL = getToolBySlug("request-signatures")!;
+const Builder = () => <RequestSignaturesWorkerPanel tool={TOOL} />;
 
 async function pdfFile(
   pages: number,
@@ -97,7 +116,7 @@ describe("clampSignaturePage", () => {
 
 describe("RequestBuilder signature page", () => {
   it("defaults to the LAST page of the picked PDF and caps the input at its page count", async () => {
-    const { container } = render(<RequestBuilder refuse={refuse} />);
+    const { container } = render(<Builder />);
     // Before a file, the default is page 1 with no known upper bound.
     expect(pageInput().value).toBe("1");
 
@@ -113,7 +132,7 @@ describe("RequestBuilder signature page", () => {
   });
 
   it("previews the exact layout the request carries, on the chosen page", async () => {
-    const { container } = render(<RequestBuilder refuse={refuse} />);
+    const { container } = render(<Builder />);
     pick(container, await pdfFile(2));
     await waitFor(() => expect(pageInput().value).toBe("2"));
     // No valid signer yet: nothing would be sent, so nothing is drawn.
@@ -158,7 +177,7 @@ describe("RequestBuilder signature page", () => {
    * each lock is checked with a file that HAS that lock.
    */
   async function lockAlert(bytes: Uint8Array): Promise<HTMLElement> {
-    const { container } = render(<RequestBuilder refuse={refuse} />);
+    const { container } = render(<Builder />);
     addSigner();
     pick(
       container,
@@ -224,7 +243,7 @@ describe("RequestBuilder signature page", () => {
   });
 
   it("control: a PDF no reader can open is left to the worker, not called locked", async () => {
-    const { container } = render(<RequestBuilder refuse={refuse} />);
+    const { container } = render(<Builder />);
     addSigner();
     pick(
       container,
@@ -249,7 +268,7 @@ describe("RequestBuilder signature page", () => {
   });
 
   it("control: an unlocked PDF with a signer is runnable and shows no lock alert", async () => {
-    const { container } = render(<RequestBuilder refuse={refuse} />);
+    const { container } = render(<Builder />);
     addSigner();
     pick(container, await pdfFile(1));
     await screen.findByTestId("signature-page-preview");

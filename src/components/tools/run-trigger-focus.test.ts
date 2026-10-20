@@ -2,6 +2,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { buttonVariants } from "@/components/ui/button";
+import { WORKER_RUN_CLASSES } from "./runner/runner-kit";
 
 /**
  * A button the user just pressed must not be taken away from them.
@@ -35,12 +37,25 @@ const ROOTS = [
 const TRIGGER_OWNER = path.join("tools", "runner", "runner-kit.tsx");
 
 /**
- * The hand-rolled trigger's class fingerprint: the tone tint at the run-button
- * size. `px-6 py-2.5` is load-bearing — the same colour pair renders a tiny
- * badge in `suggested-tools.tsx`, and a guard that flags an unrelated `<span>`
- * is a guard the next person deletes.
+ * The hand-rolled trigger's class fingerprint: a tone tint at the run-button
+ * size, as the worker trigger was drawn until WP-10 made it solid
+ * (`WORKER_RUN_CLASSES`). The tint pair alone also draws pills and badges,
+ * so the fingerprint is the tint WITH its hover step — a button's, never a
+ * badge's.
+ *
+ * WAS `/(?:blue|violet)-500\/15 px-6 py-2\.5/`: the palette the trigger used
+ * before the token system (bb78ee79). From that commit on it matched no
+ * file at all, the owner included — a guard of nothing, which is why it now
+ * carries a positive control against the markup it was written to catch.
  */
-const TRIGGER_MARKUP = /(?:blue|violet)-500\/15 px-6 py-2\.5/;
+const TRIGGER_MARKUP =
+  /bg-(?:info|accent)\/10 text-(?:info|accent) hover:bg-(?:info|accent)\/20/;
+
+/** The trigger's markup as it shipped before WP-10 (runner-kit, d0c0316f). */
+const PRE_WP10_TRIGGER = [
+  "inline-flex w-full items-center justify-center gap-2 rounded-[3px] border px-6 py-2.5 text-sm font-semibold transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-65 sm:w-auto sm:self-start",
+  "border-info/40 bg-info/10 text-info hover:bg-info/20",
+].join(" ");
 
 function sourceFiles(): string[] {
   const walk = (dir: string): string[] =>
@@ -163,12 +178,34 @@ describe("a run does not blur the user who started it", () => {
     ).toEqual([]);
   });
 
+  it("positive control: the fingerprint catches the trigger it was written for", () => {
+    expect(TRIGGER_MARKUP.test(PRE_WP10_TRIGGER)).toBe(true);
+    expect(
+      TRIGGER_MARKUP.test(PRE_WP10_TRIGGER.replace(/info/g, "accent")),
+    ).toBe(true);
+  });
+
+  it("the worker trigger is the solid primary, from the button variants", () => {
+    // The fix itself: green only while WorkerRunButton draws the primary.
+    expect(WORKER_RUN_CLASSES).toContain("bg-invert");
+    expect(WORKER_RUN_CLASSES).toContain(
+      buttonVariants({ variant: "primary", size: "lg" }).split(" ")[0]!,
+    );
+    expect(TRIGGER_MARKUP.test(WORKER_RUN_CLASSES)).toBe(false);
+    const owner = readFileSync(
+      path.join(process.cwd(), "src", "components", TRIGGER_OWNER),
+      "utf8",
+    );
+    expect(owner).toMatch(/className=\{WORKER_RUN_CLASSES\}/);
+  });
+
   it("keeps the worker panels' trigger markup in one place", () => {
     // The copying is what let one fix miss fourteen sites. A fifteenth copy
     // would be correct today and wrong at the next fix, so it is the copying
     // itself that is disallowed — use <WorkerRunButton>.
+    // No exemption for the owner since WP-10: it draws the solid primary, so
+    // a tint trigger anywhere — the owner included — is a regression.
     const offenders = sourceFiles()
-      .filter((file) => !file.endsWith(TRIGGER_OWNER))
       .filter((file) => TRIGGER_MARKUP.test(readFileSync(file, "utf8")))
       .map(relative);
 

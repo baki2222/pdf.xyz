@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { announceOutcome } from "@/components/a11y/live-region";
 import {
   AlertTriangle,
@@ -29,7 +30,8 @@ import { PdfEngineError } from "@/lib/pdf/engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { remedyFor, type Remedy, type RemedyInput } from "@/lib/pdf/remedies";
 import type { RunOutput } from "@/lib/intent/run-output";
-import { registerUnkeptResult } from "@/lib/intent/unsaved";
+import { confirmLeave, registerUnkeptResult } from "@/lib/intent/unsaved";
+import { isPlainClick } from "@/lib/intent/links";
 import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
@@ -468,12 +470,16 @@ export function ErrorNote({
         {remedy && (
           <span data-remedy="" className="mt-2 flex flex-col gap-0.5">
             <span>
-              <Link
-                href={remedy.href}
-                className="font-semibold underline underline-offset-2"
-              >
-                {remedy.label}
-              </Link>{" "}
+              {remedy.carries && cause?.file ? (
+                <CarryingRemedyLink remedy={remedy} file={cause.file} />
+              ) : (
+                <Link
+                  href={remedy.href}
+                  className="font-semibold underline underline-offset-2"
+                >
+                  {remedy.label}
+                </Link>
+              )}{" "}
               {remedy.why}.
             </span>
             {remedy.where && <span className="text-xs">{remedy.where}</span>}
@@ -481,6 +487,58 @@ export function ErrorNote({
         )}
       </span>
     </p>
+  );
+}
+
+/**
+ * A remedy's link that takes the file with it (WP-10): the tool that fixes
+ * the file STAGES it — nothing uploads until Run there — with a `remedy`
+ * origin, and the job's way back (`pending`: the tool that sent it), so the
+ * fix's result continues to this tool first. A modified click (new tab) is
+ * the plain link it always was; a stash the browser refuses navigates
+ * plainly, and the page there asks for the file.
+ *
+ * Its own component because it needs the App Router: the plain link does
+ * not, and an alert drawn outside a page (a panel test) never reaches here.
+ */
+function CarryingRemedyLink({ remedy, file }: { remedy: Remedy; file: File }) {
+  const router = useRouter();
+  const run = useToolRun();
+  const [going, setGoing] = useState(false);
+  return (
+    <Link
+      href={remedy.href}
+      aria-busy={going || undefined}
+      onClick={async (event) => {
+        if (!isPlainClick(event)) return;
+        event.preventDefault();
+        if (going) return;
+        setGoing(true);
+        try {
+          const { launchWithFiles } = await import("@/lib/intent/launch");
+          const result = await launchWithFiles({
+            toolSlug: remedy.toolSlug,
+            files: [file],
+            origin: {
+              kind: "remedy",
+              fromSlug: run?.slug ?? "",
+              problem: remedy.problem,
+            },
+            trail: run?.trail ?? [],
+            ...(run ? { pending: { toolSlug: run.slug, parkedId: null } } : {}),
+            suggestion: { source: "remedy", rank: 1 },
+            router,
+            confirmLeave,
+          });
+          if (result === "failed") router.push(remedy.href);
+        } finally {
+          setGoing(false);
+        }
+      }}
+      className="font-semibold underline underline-offset-2"
+    >
+      {remedy.label}
+    </Link>
   );
 }
 
@@ -627,20 +685,21 @@ function ProgressLine({ done, total, unit }: RunProgress) {
 }
 
 /**
- * Tone of a worker panel's run trigger. Blue is the secure-worker default; the
- * five AI panels (chat, extract, summarize, translate, signature requests) are
- * violet to match the violet framing their surrounding card already uses.
+ * The classes of a worker panel's run trigger: the solid primary at the large
+ * size, full width on a phone (spec C.3, WP-10). WAS an outline-on-tint
+ * button in two tones (blue, and violet on the five AI panels), the one run
+ * trigger on the site that did not look like one. `run-trigger-focus.test.ts`
+ * fingerprints this string, so a copy of it outside this module fails there.
  */
-export type WorkerRunTone = "blue" | "violet";
-
-const WORKER_RUN_TONE: Record<WorkerRunTone, string> = {
-  blue: "border-info/40 bg-info/10 text-info hover:bg-info/20",
-  violet: "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20",
-};
+export const WORKER_RUN_CLASSES = buttonVariants({
+  variant: "primary",
+  size: "lg",
+  className: "w-full font-semibold sm:w-auto sm:self-start",
+});
 
 /**
- * The run trigger for the worker panels — the outline-on-tint button that starts
- * a real job on the secure worker.
+ * The run trigger for the worker panels — the solid button that starts a real
+ * job on the secure worker.
  *
  * WHY THIS EXISTS AT ALL
  * Fourteen panels hand-rolled it: the same forty-class string pasted verbatim,
@@ -668,7 +727,6 @@ export function WorkerRunButton({
   busyLabel,
   icon: Icon,
   children,
-  tone = "blue",
 }: {
   onClick: () => void;
   busy?: boolean;
@@ -677,7 +735,6 @@ export function WorkerRunButton({
   busyLabel: string;
   icon: LucideIcon;
   children: ReactNode;
-  tone?: WorkerRunTone;
 }) {
   const blocked = Boolean(busy) || Boolean(disabled);
   return (
@@ -692,10 +749,7 @@ export function WorkerRunButton({
       }}
       aria-disabled={blocked || undefined}
       aria-busy={busy}
-      className={cn(
-        "inline-flex w-full items-center justify-center gap-2 rounded-[3px] border px-6 py-2.5 text-sm font-semibold transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-65 sm:w-auto sm:self-start",
-        WORKER_RUN_TONE[tone],
-      )}
+      className={WORKER_RUN_CLASSES}
     >
       {busy ? (
         <>

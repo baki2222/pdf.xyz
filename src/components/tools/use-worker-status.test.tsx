@@ -120,18 +120,20 @@ describe("useWorkerStatus", () => {
       () => new Response("", { status: 502 }),
       ok,
     ]);
-    let retry = () => {};
     function Retrying() {
       const s = useWorkerStatus();
-      retry = s.retry;
-      return <p data-testid="r">{s.phase}</p>;
+      return (
+        <button type="button" data-testid="r" onClick={s.retry}>
+          {s.phase}
+        </button>
+      );
     }
     render(<Retrying />);
     await waitFor(() =>
       expect(screen.getByTestId("r")).toHaveTextContent("error"),
     );
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    act(() => retry());
+    act(() => screen.getByTestId("r").click());
     await waitFor(() =>
       expect(screen.getByTestId("r")).toHaveTextContent("ready"),
     );

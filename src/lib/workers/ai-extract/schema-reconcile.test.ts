@@ -340,7 +340,11 @@ describe("the surfaces that list the package's contents list what it contains", 
       "src/components/tools/ai-extract-worker-panel.tsx",
       "utf8",
     );
-    const outputRow = panel.slice(panel.indexOf('label="Output"'));
+    // The row as the panel declares it — a JSX prop until WP-10 moved the
+    // spec rows onto the shell, an object field since.
+    const at = panel.search(/label(?:=|: )"Output"/);
+    expect(at, "health: the panel declares an Output row").toBeGreaterThan(0);
+    const outputRow = panel.slice(at);
     const { createAiExtractProcessor } =
       await import("../processor/ai-extract");
     const detail = createAiExtractProcessor({

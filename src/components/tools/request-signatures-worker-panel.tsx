@@ -10,7 +10,6 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
   MAX_REQUEST_SIGNERS,
@@ -33,7 +32,6 @@ import {
   encryptedPdfMessage,
   probePdfEncryption,
 } from "@/lib/pdf/encryption";
-import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunRequestSignatures,
   runWorkerRequestSignatures,
@@ -43,7 +41,6 @@ import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
-import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
@@ -55,13 +52,13 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import { useStagedHandoff } from "./use-staged-handoff";
 import {
-  useWorkerStatus,
-  WorkerStatusPending,
-  type WorkerPhase,
-  WorkerStatusSlot,
-  workerSlotState,
-} from "./worker-status";
+  useWorkerPanel,
+  WorkerGate,
+  WorkerPanelShell,
+  workerOutput,
+} from "./worker-panel-shell";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
@@ -77,24 +74,9 @@ import {
  */
 const STATUS_SLOT = "min-h-[46.5rem] sm:min-h-[34.5rem] lg:min-h-[34.5rem]";
 
-type Phase = WorkerPhase;
-
 interface SignerDraft {
   name: string;
   email: string;
-}
-
-function badgeFor(
-  phase: Phase,
-  status: WorkerStatus | null,
-): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading")
-    return { tone: "info", label: "Checking…", pulse: true };
-  if (phase === "error" || !status)
-    return { tone: "muted", label: "Status unknown", pulse: false };
-  return canRunRequestSignatures(status)
-    ? { tone: "ok", label: "Secure worker", pulse: false }
-    : { tone: "muted", label: "Not enabled", pulse: false };
 }
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -214,135 +196,33 @@ function SignaturePagePreview({
 }
 
 export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
-  const { phase, status, retry } = useWorkerStatus();
-
-  const badge = badgeFor(phase, status);
-  const available = phase === "ready" && canRunRequestSignatures(status);
-  // Read only once the status is known: the loading and error phases
-  // render <WorkerStatusPending>, which claims nothing about the tool.
-  const unavailableDetail =
-    status?.daemon.detail ?? "The secure worker is not drainable here.";
-
   return (
-    <div className="">
-      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="border-accent/40 bg-accent/10 text-accent inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
-              <PenLine className="size-3" aria-hidden />
-              Signature request
-            </span>
-            <StatusBadge
-              tone={badge.tone}
-              label={badge.label}
-              pulse={badge.pulse}
-            />
-          </div>
-          <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on a secure worker
-          </h2>
-          <p className="text-muted text-sm leading-relaxed">
-            The worker adds real fillable fields for each signer and returns a
-            signature-request package — the prepared PDF, a manifest, and an
-            audit trail. It prepares and records the request; it never
-            fabricates a signed document, and legally-binding delivery to
-            external signers needs a configured e-signature provider.
-          </p>
-        </div>
-
-        <WorkerStatusSlot
-          state={workerSlotState(phase, available)}
-          reserve={STATUS_SLOT}
-        >
-          {available ? (
-            <RequestBuilder refuse={(file) => pickRefusal(tool, file)} />
-          ) : phase === "ready" ? (
-            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-              <p className="text-muted text-sm leading-relaxed">
-                {unavailableDetail}
-              </p>
-              <p className="text-muted text-xs leading-relaxed">
-                No builder is shown until the worker is ready, so {tool.name}{" "}
-                never pretends to prepare a request it cannot actually package.
-              </p>
-              <NotifyMe
-                toolName={tool.name}
-                toolSlug={tool.slug}
-                checking={false}
-              />
-            </div>
-          ) : (
-            <WorkerStatusPending phase={phase} onRetry={retry} />
-          )}
-        </WorkerStatusSlot>
-
-        <div className="flex flex-col gap-3">
-          <h3 className="text-faint kicker">What happens</h3>
-          <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status ? status.scan.active : null, tool).map(
-              (stage, index, all) => (
-                <li key={stage.id} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center self-stretch">
-                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
-                      <PenLine className="size-4" aria-hidden />
-                    </span>
-                    {index < all.length - 1 && (
-                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-fg text-sm font-medium">
-                      {index + 1}. {stage.title}
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      {stage.description}
-                    </span>
-                  </div>
-                </li>
-              ),
-            )}
-          </ol>
-        </div>
-
-        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
-          <SpecRow
-            icon={Download}
-            label="Output"
-            value="ZIP · prepared PDF + manifest"
-          />
-          <SpecRow
-            icon={Timer}
-            label="Retention"
-            value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
-          />
-          <SpecRow
-            icon={ShieldCheck}
-            label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SpecRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Download;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="text-muted inline-flex items-center gap-2 text-sm">
-        <Icon className="text-muted size-4" aria-hidden />
-        {label}
-      </span>
-      <span className="text-fg text-right text-sm font-medium">{value}</span>
-    </div>
+    <WorkerPanelShell
+      tool={tool}
+      tone="accent"
+      engine={{ label: "Signature request", icon: PenLine }}
+      description="The worker adds real fillable fields for each signer and returns a signature-request package — the prepared PDF, a manifest, and an audit trail. It prepares and records the request; it never fabricates a signed document, and legally-binding delivery to external signers needs a configured e-signature provider."
+      canRun={canRunRequestSignatures}
+      specRows={[
+        {
+          icon: Download,
+          label: "Output",
+          value: "ZIP · prepared PDF + manifest",
+        },
+        {
+          icon: Timer,
+          label: "Retention",
+          value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
+        },
+        {
+          icon: ShieldCheck,
+          label: "Limit",
+          value: `${formatBytes(JOB_LIMITS.maxFileBytes)}/file`,
+        },
+      ]}
+    >
+      <RequestBuilder tool={tool} refuse={(file) => pickRefusal(tool, file)} />
+    </WorkerPanelShell>
   );
 }
 
@@ -411,7 +291,16 @@ async function lockOfUnreadable(bytes: Uint8Array): Promise<string | null> {
   return null;
 }
 
-export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
+const RUN_LABEL = "Prepare signature request";
+
+export function RequestBuilder({
+  tool,
+  refuse,
+}: {
+  tool: Tool;
+  refuse: PickRefusal;
+}) {
+  const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const [picked, setPicked] = useState<PickedPdf | null>(null);
   const [signers, setSigners] = useState<SignerDraft[]>([
@@ -495,6 +384,9 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
     },
     [setOutcome],
   );
+  const staged = useStagedHandoff(tool.slug, RUN_LABEL, (files) =>
+    pickFile(files[0] ?? null),
+  );
 
   const updateSigner = useCallback(
     (index: number, patch: Partial<SignerDraft>) => {
@@ -518,7 +410,7 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
   }, []);
 
   const start = useCallback(async () => {
-    if (!file || cleanSigners.length === 0) return;
+    if (!file || cleanSigners.length === 0 || !available) return;
     await run(async (controls) => {
       const result = await runWorkerRequestSignatures(
         {
@@ -538,17 +430,11 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
       );
       return result;
     });
-  }, [file, picked, cleanSigners, fields, routing, title, run]);
+  }, [file, picked, cleanSigners, fields, routing, title, run, available]);
 
   return (
-    <div className="border-accent/40 bg-accent/10 flex flex-col gap-4 rounded-[4px] border p-4">
-      <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
-        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        Running this uses a private secure-worker job. The worker prepares the
-        PDF with real fillable fields and packages the request — it does not
-        collect or certify signatures.
-      </p>
-
+    <div className="flex flex-col gap-4">
+      {staged}
       {file ? (
         <ChosenFileTarget
           file={file}
@@ -712,21 +598,56 @@ export function RequestBuilder({ refuse }: { refuse: PickRefusal }) {
           );
         })()}
 
-      <WorkerRunButton
-        onClick={start}
-        busy={busy}
-        // `canRun` already folds in `!busy`; both go through one blocked branch.
-        disabled={!canRun}
-        busyLabel={jobBusyLabel(job.phase, "Preparing request…")}
-        icon={PenLine}
-        tone="violet"
-      >
-        Prepare signature request
-      </WorkerRunButton>
-
-      <WorkerJobStatus job={job} />
+      <WorkerGate
+        reserve={STATUS_SLOT}
+        job={job}
+        bytes={file?.size}
+        run={(ready) => (
+          <WorkerRunButton
+            onClick={start}
+            busy={busy}
+            // `canRun` already folds in `!busy`; both go through one blocked branch.
+            disabled={!ready || !canRun}
+            busyLabel={jobBusyLabel(job.phase, "Preparing request…")}
+            icon={PenLine}
+          >
+            {RUN_LABEL}
+          </WorkerRunButton>
+        )}
+        jobStatus={<WorkerJobStatus job={job} />}
+        note={
+          <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            Your PDF uploads to a private secure-worker job only when you press{" "}
+            {RUN_LABEL}. The worker prepares the PDF with real fillable fields
+            and packages the request — it does not collect or certify
+            signatures.
+          </p>
+        }
+        off={
+          <>
+            <p className="text-muted text-sm leading-relaxed">
+              {status?.daemon.detail ??
+                "The secure worker is not drainable here."}
+            </p>
+            <p className="text-muted text-xs leading-relaxed">
+              {RUN_LABEL} stays off until the worker is ready, so {tool.name}{" "}
+              never pretends to prepare a request it cannot actually package.
+            </p>
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={false}
+            />
+          </>
+        }
+      />
       {outcome?.ok === true && (
-        <ResultCard announce="Your signature-request package is ready.">
+        <ResultCard
+          announce="Your signature-request package is ready."
+          output={workerOutput(outcome.output, outcome.artifact)}
+          inputBytes={file?.size}
+        >
           <p className="text-ok text-sm">
             Your signature-request package is ready — the prepared PDF with
             fillable fields, a manifest, and an audit trail.
