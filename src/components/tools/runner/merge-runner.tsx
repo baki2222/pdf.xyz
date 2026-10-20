@@ -328,7 +328,7 @@ export function MergeRunner() {
                 <span className="text-fg block truncate text-sm">
                   {item.name}
                 </span>
-                <span className="text-muted block text-xs">
+                <span className="text-muted block truncate text-xs">
                   {item.pageCount} page{item.pageCount === 1 ? "" : "s"} ·{" "}
                   {formatBytes(item.size)}
                 </span>
@@ -363,9 +363,17 @@ export function MergeRunner() {
               </span>
             </li>
           ))}
+          {/* The row a file is read into, at a file row's height: a 36 px
+              box between the same padding, and the row's two lines held to
+              one each (`truncate` above). Shorter, the file row that
+              replaces it pushed "Add more PDFs" down — 60 px at 360 wide,
+              where the size line wrapped to four — counted after a drop
+              (`e2e/editor-arrival.spec.ts`). */}
           {loading > 0 && (
-            <li className="bg-panel border-line text-muted flex items-center gap-2 rounded-[4px] border px-3 py-3 text-sm">
-              <Spinner />
+            <li className="bg-panel border-line text-muted flex items-center gap-3 rounded-[4px] border px-3 py-2.5 text-sm">
+              <span className="grid size-9 shrink-0 place-items-center">
+                <Spinner />
+              </span>
               Reading {loading} file{loading === 1 ? "" : "s"}…
             </li>
           )}
