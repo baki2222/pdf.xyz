@@ -1,11 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { readNotoTtf } from "@/lib/pdf/noto-source";
 import { setFontByteSource } from "@/lib/pdf/unicode-font";
 import { discloseKeyingForTests } from "@/lib/ratelimit/config";
+import { resetWorkerStatusForTests } from "@/components/tools/use-worker-status";
 import {
   setPdfjsForAccessSource,
   type PdfjsForAccess,
@@ -63,4 +64,14 @@ afterEach(() => {
 // limiter keys by address while /privacy says it does not.
 afterEach(() => {
   discloseKeyingForTests(undefined);
+});
+
+// The worker status is ONE check per page, cached at module level
+// (`use-worker-status.ts`). Under `isolate: false` a page is the whole
+// worker, so every test starts with the page's answer forgotten — a test
+// that stubs a not-ready status must not read the last test's ready one —
+// and with its retry backoff instant (a test that wants the waits injects
+// its own clock).
+beforeEach(() => {
+  resetWorkerStatusForTests({ sleep: () => Promise.resolve() });
 });
