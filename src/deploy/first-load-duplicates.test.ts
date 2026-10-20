@@ -1,65 +1,55 @@
 // @vitest-environment node
 /**
- * The root layout's chunk carries no module that another chunk the same page
- * loads up front also carries — beyond the duplicates both parents of the
- * design-batch-B merge already had. Read from the built chunks a browser
- * downloads (CLAUDE.md rule 5), by webpack module id.
+ * No module is defined by two chunks of the same page's first load — ANY two,
+ * not only the root layout and another. A second copy is bytes every visitor
+ * downloads and webpack then ignores (the runtime registers a module id once).
+ * Read from the built chunks a browser downloads (CLAUDE.md rule 5), by
+ * webpack module id, over every prerendered page the build produced.
  *
- * THE DEFECT THIS WAS WRITTEN AGAINST, measured 2026-10-10 on the merge of main
- * 552bed45 into design batch B 9b4affd4 (ae7f483b): the layout chunk grew
+ * HISTORY 1, 2026-10-10 — the guard this file began as. On the merge of main
+ * 552bed45 into design batch B 9b4affd4 (ae7f483b) the layout chunk grew
  * 18.6 -> 23.9 KB raw with its own copies of six modules — lucide's icon base
  * (`createLucideIcon`, `Icon`, `mergeClasses`), `cn()`, the Button and the
  * telemetry client — that `4032-*.js` ALSO carried, and every page loads
- * both: +2.0-2.3 KB gz on every page that is not a tool page. Neither parent
- * had it. A size budget saw only "heavier", and the ceilings were raised to
- * fit (bundle-budget.test.ts, the /tools and /workspace rows).
+ * both: +2.0-2.3 KB gz on every page that is not a tool page. A size budget
+ * saw only "heavier", and the ceilings were raised to fit. That was fixed in
+ * the import graph (`global-error.tsx` imported the reporter, not the barrel;
+ * `error.tsx` dropped `Container`) and this file held the root LAYOUT's
+ * modules to two shrink-only tolerances: one every-page duplicate (Next's
+ * `next/navigation` shim, 190 B) and three page duplicates (1,702 B).
  *
- * WHY IT HAPPENED, recorded with the chunk sets webpack's SplitChunksPlugin
- * saw on all three builds (a plugin tapped before and after it): those
- * modules are shared by the layout (SiteHeader, WebVitals), `app/error.tsx`
- * and the tool route (its ErrorBoundary) — ~20.7 KB of source between them,
- * just over Next's 20,000-byte `minSize`. Webpack only offers a shared chunk
- * for a chunk SET that some module has exactly, and no module was imported
- * by exactly those three: the telemetry barrel was also imported by
- * `app/global-error.tsx`, a root webpack never splits. So the candidates were
- * PAIRS — {error, layout} at 21,034 bytes and {error, tool route} at 26,079
- * (the ErrorBoundary also brings `upload-disclosure`, `session-uploads` and
- * RotateCcw) — and the bigger pair wins. In each parent a group that included
- * the tool route had taken the shared modules first (main: the home page's
- * static upload zone shared them with the tool, status and workspace routes;
- * batch B: the unsplit tool route shared them with status and workspace), so
- * {error, tool route} fell under `minSize` and {error, layout} won. The merge
- * removed both (WP-05 moved the home page's upload zone into the lazy desk
- * island; #175 split the tool route), and the pair without the layout won.
- * Not the request cap, not HandoffSweep, not next/font.
+ * HISTORY 2, 2026-10-20 — that set was too narrow (CLAUDE.md rule 4: the
+ * right predicate over the wrong set). It asked only "does the LAYOUT share a
+ * module with another chunk", so a module copied between two NON-layout
+ * chunks of one page was invisible. Measured on main 97e4b84e, all 89 pages:
+ * every page carried 9-14 duplicated modules, 6.3-9.1 KB raw (one copy of
+ * each counted), and the layout tiers saw at most 4 of them. On every page:
+ * the telemetry client (1,784 + 1,701 + 674 + 319 + 198 B) in
+ * `app/global-error` AND the shared chunk 4107 / `app/error`; lucide's icon
+ * base (`Icon` 895 B, `createLucideIcon` 463 B, `mergeClasses` 120 B) in 4107
+ * AND `app/not-found` (and a third time in the home, guide, guides-index,
+ * tools and category page chunks); lucide's `ArrowRight` in `app/error` AND
+ * `app/not-found`; Next's `next/navigation` shim in the layout AND
+ * `app/not-found`. Per page: `cn()` (404 B) and the Button (913 B) in 4107 AND
+ * the home page's preloaded desk chunk, /tools, /workspace, /status and
+ * /privacy; the category list (1,138 B) in the layout AND 6165 on tool and
+ * workspace pages; the LiveRegion (412 B) in the layout AND a tool page's
+ * preloaded panel chunk.
  *
- * THE FIX IS IN THE IMPORT GRAPH: `global-error.tsx` imports the reporter
- * module rather than the barrel, so the barrel's chunk set is exactly
- * {layout, error, tool route} and webpack groups the three's common modules
- * once; and `error.tsx` no longer imports `Container`, the one module only it
- * and the layout shared — at 287 bytes it could never reach a shared chunk,
- * so every page downloaded it twice. This file holds the PROPERTY, not those
- * two lines: any other change that regroups the chunks fails here too.
+ * WHY: Next registers the root layout, `error`, `not-found` and
+ * `global-error` as four separate entries, and every page loads all four.
+ * SplitChunks only shares a module across exactly the chunk SET some group of
+ * modules has, above Next's 20,000-byte `minSize`, so a module imported by
+ * two of the four (plus some pages) lands in a shared chunk for a SUBSET of
+ * its chunks and stays copied in the rest.
  *
- * TWO TIERS, both bounded at what both parents measured (main 552bed45 and
- * batch B 9b4affd4, over all 88 pages that load the layout):
- *  - EVERY-PAGE: a duplicate whose other copy is in a chunk every layout page
- *    loads — downloaded twice on every page of the site. Both parents: exactly
- *    ONE, on every page: Next's own `next/navigation` re-export (190 bytes),
- *    which the layout and `app/not-found` each import. Tolerance 1, at most
- *    512 bytes (the tolerance is for a shim, not for a module).
- *  - PAGE: the other copy is in a chunk only some pages load. Both parents:
- *    at most THREE per page, 1,702 bytes (the tool pages: the category list,
- *    lucide's `X`, the live region; /tools: the category list, `X`, the
- *    category href). Tolerance 3, at most 2,048 bytes.
- * Each tolerance is held from below too: when the build stops needing it,
- * this fails and asks for the lower figure, so it can only shrink.
+ * Tolerance: ZERO, at any size — the property, not a budget.
  *
  * Runs under `pnpm test:bundle` (it needs `.next`), never `pnpm test`.
  */
 import type * as TS from "typescript";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
@@ -70,28 +60,6 @@ const ts = createRequire(import.meta.url)("typescript") as typeof TS;
 const ROOT = process.cwd();
 const NEXT_DIR = path.join(ROOT, ".next");
 const APP_DIR = path.join(NEXT_DIR, "server", "app");
-
-interface Tier {
-  name: string;
-  why: string;
-  /** Most duplicated modules any page may carry in this tier. */
-  modules: number;
-  /** Most bytes (of the layout's copies) any page may carry in this tier. */
-  bytes: number;
-}
-
-const EVERY_PAGE: Tier = {
-  name: "every-page",
-  why: "another chunk EVERY page loads carries it too, so every page of the site downloads it twice",
-  modules: 1,
-  bytes: 512,
-};
-const PAGE: Tier = {
-  name: "page",
-  why: "a chunk this page loads carries it too",
-  modules: 3,
-  bytes: 2048,
-};
 
 /** A webpack module as one chunk defines it. */
 interface ChunkModule {
@@ -184,33 +152,33 @@ interface Duplicate {
   id: string;
   bytes: number;
   excerpt: string;
-  /** The other first-load chunks that define the same module id. */
-  alsoIn: string[];
+  /** Every first-load chunk that defines this module id (two or more). */
+  in: string[];
 }
 
 /**
- * The layout's modules that another of `files` also defines. `tables` reads a
- * file's module table (injected so the positive control can feed a copy).
+ * The modules that two or more of `files` define. `tables` reads a file's
+ * module table (injected so the positive control can feed a copy).
  */
-function layoutDuplicates(
+function duplicates(
   files: string[],
   tables: (file: string) => ChunkModule[] = (f) => moduleTable(f),
 ): Duplicate[] {
-  const layout = files.filter(isRootLayoutChunk);
-  if (layout.length !== 1)
-    throw new Error(
-      `expected exactly one root layout chunk, found ${layout.length}: ${layout.join(", ")}`,
-    );
-  const others = files.filter((f) => f !== layout[0]);
-  const ids = new Map(
-    others.map((f) => [f, new Set(tables(f).map((m) => m.id))]),
-  );
-  return tables(layout[0]!)
-    .map((m) => ({
-      ...m,
-      alsoIn: others.filter((f) => ids.get(f)!.has(m.id)),
-    }))
-    .filter((d) => d.alsoIn.length > 0);
+  const where = new Map<string, { m: ChunkModule; in: string[] }>();
+  for (const f of files)
+    for (const m of tables(f)) {
+      const seen = where.get(m.id);
+      if (seen) seen.in.push(f);
+      else where.set(m.id, { m, in: [f] });
+    }
+  return [...where.values()]
+    .filter((w) => w.in.length > 1)
+    .map((w) => ({
+      id: w.m.id,
+      bytes: w.m.bytes,
+      excerpt: w.m.excerpt,
+      in: w.in,
+    }));
 }
 
 const name = (file: string) =>
@@ -224,8 +192,6 @@ interface Corpus {
   pages: string[];
   /** Pages that do not (Next's own `_global-error` page renders without it). */
   without: string[];
-  /** Chunk files every layout page loads. */
-  everyPage: Set<string>;
 }
 
 let corpus: Corpus | undefined;
@@ -236,27 +202,20 @@ function getCorpus(): Corpus {
     chunkFiles(NEXT_DIR, html).some(isRootLayoutChunk),
   );
   const without = all.filter((html) => !pages.includes(html));
-  const sets = pages.map((html) => new Set(chunkFiles(NEXT_DIR, html)));
-  const everyPage = new Set(
-    [...(sets[0] ?? [])].filter((f) => sets.every((s) => s.has(f))),
-  );
-  corpus = { pages, without, everyPage };
+  corpus = { pages, without };
   return corpus;
 }
 
-function tiersOf(html: string): Map<Tier, Duplicate[]> {
-  const { everyPage } = getCorpus();
-  const dups = layoutDuplicates(chunkFiles(NEXT_DIR, html));
-  return new Map([
-    [EVERY_PAGE, dups.filter((d) => d.alsoIn.some((f) => everyPage.has(f)))],
-    [PAGE, dups.filter((d) => !d.alsoIn.some((f) => everyPage.has(f)))],
-  ]);
-}
+/** Every prerendered page, `_global-error` included: it has a first load too. */
+const allPages = () => {
+  const { pages, without } = getCorpus();
+  return [...pages, ...without];
+};
 
 const describeDup = (d: Duplicate) =>
-  `module ${d.id} (${d.bytes} B, also in ${d.alsoIn.map(name).join(" + ")}): ${d.excerpt}…`;
+  `module ${d.id} (${d.bytes} B, in ${d.in.map(name).join(" + ")}): ${d.excerpt}…`;
 
-describe("the root layout's chunk carries no module another first-load chunk also carries", () => {
+describe("no module is defined by two chunks of the same page's first load", () => {
   const built = existsSync(APP_DIR);
 
   it("has a build to measure", () => {
@@ -280,17 +239,16 @@ describe("the root layout's chunk carries no module another first-load chunk als
       tools.map((t) => `tools/${t.slug}.html`).filter((html) => !set.has(html)),
       "catalogue tool pages missing from the walk",
     ).toEqual([]);
-    // 88 on 2026-10-10 (50 tools, 22 guides, 8 categories, 8 others): a
-    // plausibility bound both ways, so a walk that shrank or swallowed a
-    // second build cannot pass.
+    // 88 on 2026-10-10 and 2026-10-20 (50 tools, 22 guides, 8 categories, 8
+    // others): a plausibility bound both ways, so a walk that shrank or
+    // swallowed a second build cannot pass.
     expect(pages.length).toBeGreaterThanOrEqual(60);
     expect(pages.length).toBeLessThanOrEqual(200);
   });
 
-  it("health check: the module reader reads every chunk a page loads, and reads enough of them", () => {
+  it("health check: the module reader reads every chunk a page loads, and reads the bulk of each", () => {
     if (!built) return;
-    const { pages, everyPage } = getCorpus();
-    for (const html of pages) {
+    for (const html of allPages()) {
       const files = chunkFiles(NEXT_DIR, html);
       // moduleTable throws on a webpack chunk it reads nothing from; the
       // files it reads none from are the two that are not JSONP chunks at
@@ -300,93 +258,87 @@ describe("the root layout's chunk carries no module another first-load chunk als
         unread.map(name),
         `${html}: first-load files no module was read from`,
       ).toHaveLength(2);
+      // The definitions read must be the whole chunk but its JSONP wrapper
+      // and entry bootstrap: a reader that kept only some keys of a table
+      // would miss the copies in the rest. Most bytes outside the table on
+      // 2026-10-20: ~380, in a 37 KB chunk; the smallest entries are ~190 B.
+      for (const f of files.filter((f) => !unread.includes(f))) {
+        const read = moduleTable(f).reduce((sum, m) => sum + m.bytes, 0);
+        expect(
+          statSync(f).size - read,
+          `${html}: bytes of ${name(f)} not read as a module definition`,
+        ).toBeLessThanOrEqual(1024);
+      }
       const total = files.reduce((sum, f) => sum + moduleTable(f).length, 0);
       // ~200-300 per page on 2026-10-10.
       expect(
         total,
         `${html}: modules read across its first load`,
       ).toBeGreaterThanOrEqual(100);
-      const layout = files.find(isRootLayoutChunk)!;
-      // 16-22 on 2026-10-10.
-      expect(
-        moduleTable(layout).length,
-        `${html}: modules read from ${name(layout)}`,
-      ).toBeGreaterThanOrEqual(8);
     }
-    // The every-page set is the shared spine (runtime, framework, the layout,
-    // error and not-found entries…), not empty and not a whole page's list.
-    expect(everyPage.size).toBeGreaterThanOrEqual(6);
-    expect(
-      [...everyPage].some(isRootLayoutChunk),
-      "the layout chunk is in every layout page's first load",
-    ).toBe(true);
   });
 
-  it("positive control: a layout module copied into another first-load chunk is reported, in the right tier", () => {
+  it("positive control: a module copied between two NON-layout first-load chunks is reported", () => {
     if (!built) return;
-    const { pages, everyPage } = getCorpus();
-    const html = pages.includes("index.html") ? "index.html" : pages[0]!;
+    // A tool page, and two chunks that are not the layout — the not-found
+    // entry and the tool page's own entry: the pair the guard before
+    // 2026-10-20 could not see.
+    const html = `tools/${tools[0]!.slug}.html`;
     const files = chunkFiles(NEXT_DIR, html);
-    const layout = files.find(isRootLayoutChunk)!;
-    const victim = moduleTable(layout).find((m) =>
-      layoutDuplicates(files).every((d) => d.id !== m.id),
-    )!;
+    const posix = (f: string) => f.split(SEP).join("/");
+    const donor = files.find((f) =>
+      posix(f).includes("/chunks/app/not-found-"),
+    );
+    const host = files.find((f) =>
+      posix(f).includes("/chunks/app/tools/[slug]/page-"),
+    );
+    expect(
+      donor,
+      `${html}: the not-found entry is in its first load`,
+    ).toBeDefined();
+    expect(
+      host,
+      `${html}: the tool page entry is in its first load`,
+    ).toBeDefined();
+    const clean = new Set(duplicates(files).map((d) => d.id));
+    const victim = moduleTable(donor!).find((m) => !clean.has(m.id));
     expect(
       victim,
-      "the layout has a module no other chunk carries",
+      "the donor has a module no other chunk carries",
     ).toBeDefined();
-    // A COPY of a real every-page chunk with the victim's definition pasted
-    // into its table — the file on disk is never touched.
-    const host = files.find(
-      (f) => everyPage.has(f) && f !== layout && moduleTable(f).length > 0,
-    )!;
-    const original = readFileSync(host, "utf8");
-    const table = moduleTable(host);
-    const anchor = `${table[0]!.id}:`;
+    // A COPY of the host with the victim's definition pasted into its table —
+    // the file on disk is never touched.
+    const original = readFileSync(host!, "utf8");
+    const anchor = `${moduleTable(host!)[0]!.id}:`;
     const at = original.indexOf(anchor, original.indexOf("push("));
     expect(at, "the copy has somewhere to put the module").toBeGreaterThan(0);
-    const copy = `${original.slice(0, at)}${victim.id}:(e,t,n)=>{},${original.slice(at)}`;
+    const copy = `${original.slice(0, at)}${victim!.id}:(e,t,n)=>{},${original.slice(at)}`;
     const read = (f: string) =>
       f === host ? moduleTable(f, copy) : moduleTable(f);
     // The mutation landed: the copy's table has the victim, the file's does not.
-    expect(read(host).map((m) => m.id)).toContain(victim.id);
-    expect(moduleTable(host).map((m) => m.id)).not.toContain(victim.id);
-    const found = layoutDuplicates(files, read).find((d) => d.id === victim.id);
-    expect(found?.alsoIn, "the reader reports the copied module").toEqual([
-      host,
-    ]);
-    expect(everyPage.has(found!.alsoIn[0]!)).toBe(true);
+    expect(read(host!).map((m) => m.id)).toContain(victim!.id);
+    expect(moduleTable(host!).map((m) => m.id)).not.toContain(victim!.id);
+    const found = duplicates(files, read).find((d) => d.id === victim!.id);
+    expect(found?.in, "the reader reports the copied module").toEqual(
+      files.filter((f) => f === donor || f === host),
+    );
   });
 
-  for (const tier of [EVERY_PAGE, PAGE]) {
-    it(`${tier.name} tier: no page carries more than ${tier.modules} duplicated layout module(s) or ${tier.bytes} bytes of them`, () => {
-      if (!built) return;
-      const over = getCorpus()
-        .pages.map((html) => ({ html, dups: tiersOf(html).get(tier)! }))
-        .filter(
-          ({ dups }) =>
-            dups.length > tier.modules ||
-            dups.reduce((s, d) => s + d.bytes, 0) > tier.bytes,
-        )
-        .map(
-          ({ html, dups }) =>
-            `${html}: ${dups.length} module(s), ${dups.reduce((s, d) => s + d.bytes, 0)} B — ${tier.why}:\n    ${dups.map(describeDup).join("\n    ")}`,
-        );
-      expect(
-        over,
-        `the root layout's chunk duplicates modules another first-load chunk carries (${tier.name} tier, tolerance ${tier.modules}). Find the module's importers: webpack can only share a module between the layout and another entry through a chunk SET some module has exactly (see this file's docblock). Do not raise the tolerance to fit.`,
-      ).toEqual([]);
-    });
-
-    it(`${tier.name} tier: the tolerance is still needed (it can only shrink)`, () => {
-      if (!built) return;
-      const most = Math.max(
-        ...getCorpus().pages.map((html) => tiersOf(html).get(tier)!.length),
+  it("no page's first load defines any module twice", () => {
+    if (!built) return;
+    const over = allPages()
+      .map((html) => ({ html, dups: duplicates(chunkFiles(NEXT_DIR, html)) }))
+      .filter(({ dups }) => dups.length > 0)
+      .map(
+        ({ html, dups }) =>
+          `${html}: ${dups.length} module(s), ${dups.reduce((s, d) => s + d.bytes, 0)} B:\n    ${dups
+            .sort((x, y) => y.bytes - x.bytes)
+            .map(describeDup)
+            .join("\n    ")}`,
       );
-      expect(
-        most,
-        `no page needs the ${tier.name} tier's tolerance of ${tier.modules} any more — lower it to ${most}`,
-      ).toBeGreaterThanOrEqual(tier.modules);
-    });
-  }
+    expect(
+      over,
+      "first-load chunks of one page define the same module, so every visitor downloads it twice. Find the module's importers and the chunks that hold it (this file's docblock: the four root entries). Do not add a tolerance to fit.",
+    ).toEqual([]);
+  });
 });
