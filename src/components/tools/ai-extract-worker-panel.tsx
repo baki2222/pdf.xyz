@@ -68,15 +68,15 @@ import {
  * not enabled, ready — at the narrowest width of each breakpoint.
  *
  * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
- * and what the check said, the drop zone having moved out of it: tallest
- * on Windows 641.3px at 360, 478px at 640, 535px at 1024; x1.06 —
- * Linux Chromium's ~2.2% taller text and the 3.5% headroom rule — to the
- * half rem, then up to a value another panel's slot already uses, so the
- * thirteen share a handful of classes (the stylesheet has no room for 39).
- * Linux's own SLOT_NATURAL lines (CI) are the check:
- * `e2e/tool-layout.mobile.spec.ts`.
+ * and what the check said, the drop zone having moved out of it: the
+ * tallest state, the larger of Windows and Linux (CI's SLOT_NATURAL lines
+ * on 507b6383), is 660.8px at 360, 478px at 640, 535px at 1024;
+ * x1.035, to the half rem, then up to a value another panel's slot already
+ * uses, so the thirteen share a handful of classes. A first fit from
+ * Windows alone (x1.06) left PowerPoint to PDF and PDF to PowerPoint
+ * short on Linux at 360. The check: `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[42.5rem] sm:min-h-[32rem] lg:min-h-[35.5rem]";
+const STATUS_SLOT = "min-h-[43rem] sm:min-h-[32rem] lg:min-h-[35.5rem]";
 
 export function AiExtractWorkerPanel({ tool }: { tool: Tool }) {
   return (
