@@ -34,7 +34,7 @@ export function TextSourceNotes({
       {readNote && (
         <p
           role="status"
-          className="border-line bg-wash text-muted flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+          className="border-line bg-wash text-muted rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
         >
           <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
           <span>{readNote}</span>
@@ -43,7 +43,7 @@ export function TextSourceNotes({
       {damaged && (
         <p
           role="status"
-          className="border-warn/40 bg-warn/10 text-warn flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+          className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
         >
           <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>{damaged}</span>

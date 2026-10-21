@@ -345,7 +345,7 @@ function AnnotateEditor({
           </span>
         }
       >
-        <div className="border-line bg-wash flex flex-col gap-4 rounded-[4px] border p-4">
+        <div className="border-line bg-wash rounded-panel flex flex-col gap-4 border p-4">
           <TypePicker
             value={draft.type}
             onChange={(type) => setField("type", type)}
@@ -463,7 +463,7 @@ function TypePicker({
             aria-checked={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-[3px] border px-3 py-1.5 text-xs font-medium transition",
+              "rounded-ctl inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition",
               active
                 ? "border-accent/40 bg-accent/10 text-accent"
                 : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
@@ -503,7 +503,7 @@ function ColorSwatches({
             title={swatch.label}
             onClick={() => onChange(swatch.hex)}
             className={cn(
-              "ring-offset-wash size-5 rounded-full ring-offset-1 transition",
+              "ring-offset-wash rounded-tag size-5 ring-offset-1 transition",
               active
                 ? "ring-fg ring-2"
                 : "ring-line-strong hover:ring-fg/50 ring-1",
@@ -639,7 +639,7 @@ function TypeFields({
             rows={2}
             placeholder="Type the note to place on the page…"
             onChange={(event) => setField("text", event.target.value)}
-            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas w-full resize-y rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl w-full resize-y border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
           <span className="text-muted text-[11px]">
             Y is the baseline of the first line; wrapped lines flow downward.
@@ -726,7 +726,7 @@ function MarkupList({
 }) {
   if (markups.length === 0) {
     return (
-      <p className="border-line bg-wash text-muted rounded-[4px] border border-dashed px-4 py-6 text-center text-xs">
+      <p className="border-line bg-wash text-muted rounded-panel border border-dashed px-4 py-6 text-center text-xs">
         No markups yet. Add one above — it appears on the page preview.
       </p>
     );
@@ -736,14 +736,14 @@ function MarkupList({
       {markups.map((markup, index) => (
         <li
           key={markup.id}
-          className="border-line bg-wash flex items-center gap-3 rounded-[3px] border px-3.5 py-2.5"
+          className="border-line bg-wash rounded-ctl flex items-center gap-3 border px-3.5 py-2.5"
         >
           <span
             aria-hidden
-            className="ring-line-strong size-3 shrink-0 rounded-full ring-1"
+            className="ring-line-strong rounded-tag size-3 shrink-0 ring-1"
             style={{ backgroundColor: markup.annotation.color }}
           />
-          <span className="bg-accent/10 text-accent grid shrink-0 place-items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
+          <span className="bg-accent/10 text-accent rounded-tag grid shrink-0 place-items-center px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
             {TYPE_LABEL[markup.annotation.type]}
           </span>
           <span className="text-muted min-w-0 flex-1 truncate text-xs">
@@ -753,7 +753,7 @@ function MarkupList({
             type="button"
             onClick={() => onRemove(markup.id)}
             aria-label={`Remove markup ${index + 1}`}
-            className="text-muted hover:bg-wash hover:text-err shrink-0 rounded-md p-1 transition"
+            className="text-muted hover:bg-wash hover:text-err rounded-ctl shrink-0 p-1 transition"
           >
             <Trash2 className="size-4" aria-hidden />
           </button>
@@ -782,7 +782,7 @@ function PagePreview({
   return (
     <div className="flex flex-col items-center gap-2">
       <div
-        className="relative w-full max-w-[180px] overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-black/10"
+        className="rounded-sheet relative w-full max-w-[180px] overflow-hidden bg-white shadow-sm ring-1 ring-black/10"
         style={{
           aspectRatio: `${page.width} / ${page.height}`,
           // Lets a note size itself in page-relative `cqw` units.
@@ -894,7 +894,7 @@ function PagePreview({
 /** The load-bearing honesty of this tool: flattened markup, not comments. */
 function HonestScopeNote() {
   return (
-    <div className="border-info/40 bg-info/10 text-info flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
+    <div className="border-info/40 bg-info/10 text-info rounded-panel flex items-start gap-3 border px-4 py-3.5 text-sm">
       <Info className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
       <p className="leading-relaxed">
         <span className="font-semibold">
@@ -921,7 +921,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

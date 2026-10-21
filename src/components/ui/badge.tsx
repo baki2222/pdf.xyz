@@ -36,7 +36,7 @@ export function ToolBadgePill({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-[2px] border px-1.5 py-px font-mono text-[10px] font-medium tracking-wider uppercase",
+        "rounded-tag inline-flex items-center border px-1.5 py-px font-mono text-[10px] font-medium tracking-wider uppercase",
         style.className,
         className,
       )}
@@ -56,7 +56,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "text-muted border-line inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-xs",
+        "text-muted border-line rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-1 font-mono text-xs",
         className,
       )}
     >

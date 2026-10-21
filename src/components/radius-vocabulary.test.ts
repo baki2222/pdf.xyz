@@ -10,10 +10,11 @@ import { describe, expect, it } from "vitest";
  * `rounded-sheet` 0px. Everything else is a corner nobody can find by name.
  *
  * Until WP-14 the tree spelled the literals — 209 arbitrary-pixel corners in
- * 81 files, 19 `rounded-md`, 38 `rounded-lg` and 5 bare `rounded` on
+ * 81 files, 19 medium and 38 large named sizes and 5 bare `rounded` on
  * 2026-10-21 — so "the panel radius" was a convention a reader inferred from
- * 128 copies of `4px`, and `rounded-lg` (8px) quietly made the workspace a
+ * 128 copies of `4px`, and the large size (8px) quietly made the workspace a
  * second, rounder product. This rejects every spelling that is not a name.
+ * (This file spells no banned class whole — `R` below assembles them.)
  *
  * THE SET is derived, not typed: every `.ts`, `.tsx` and `.css` file under
  * `src`, tests included. Tailwind reads comments, so the raw text is what is

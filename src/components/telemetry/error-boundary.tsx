@@ -77,7 +77,7 @@ function DefaultBoundaryFallback({ retry }: { retry: () => void }) {
   return (
     <div
       role="alert"
-      className="border-line bg-wash flex flex-col items-center gap-4 rounded-[4px] border px-6 py-12 text-center"
+      className="border-line bg-wash rounded-panel flex flex-col items-center gap-4 border px-6 py-12 text-center"
     >
       <div className="flex flex-col gap-1.5">
         <p className="text-fg text-base font-semibold">

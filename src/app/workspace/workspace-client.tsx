@@ -151,7 +151,7 @@ function factChips(file: WorkspaceFile): FactChip[] {
 
 /** A file-type chip in the summary: "PDF · 2". */
 const FAMILY_CHIP =
-  "border-line bg-wash text-muted rounded-[2px] border px-2 py-0.5 font-mono text-[11px] font-medium";
+  "border-line bg-wash text-muted rounded-tag border px-2 py-0.5 font-mono text-[11px] font-medium";
 
 const CHIP_TONE: Record<FactChip["tone"], string> = {
   faint: "text-faint",
@@ -310,7 +310,7 @@ export function WorkspaceClient({
           {rejected.length > 0 && (
             <div
               role="alert"
-              className="border-warn/40 bg-warn/10 flex flex-col gap-2 rounded-[3px] border p-3.5"
+              className="border-warn/40 bg-warn/10 rounded-ctl flex flex-col gap-2 border p-3.5"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-warn inline-flex items-center gap-1.5 text-sm font-medium">
@@ -321,7 +321,7 @@ export function WorkspaceClient({
                 <button
                   type="button"
                   onClick={ws.dismissRejected}
-                  className="text-warn hover:bg-wash hover:text-fg grid size-6 place-items-center rounded-md transition"
+                  className="text-warn hover:bg-wash hover:text-fg rounded-ctl grid size-6 place-items-center transition"
                   aria-label="Dismiss"
                 >
                   <X className="size-3.5" aria-hidden />
@@ -353,9 +353,9 @@ export function WorkspaceClient({
                 return (
                   <li
                     key={file.id}
-                    className="bg-panel border-line flex items-center gap-3 rounded-[3px] border px-3 py-2.5 motion-safe:transition-[opacity,translate] motion-safe:duration-200 motion-safe:starting:-translate-y-1 motion-safe:starting:opacity-0"
+                    className="bg-panel border-line rounded-ctl flex items-center gap-3 border px-3 py-2.5 motion-safe:transition-[opacity,translate] motion-safe:duration-200 motion-safe:starting:-translate-y-1 motion-safe:starting:opacity-0"
                   >
-                    <span className="bg-wash text-accent grid size-9 shrink-0 place-items-center rounded-lg">
+                    <span className="bg-wash text-accent rounded-panel grid size-9 shrink-0 place-items-center">
                       <Icon className="size-4" aria-hidden />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col">
@@ -374,7 +374,7 @@ export function WorkspaceClient({
                         data-facts=""
                         className="figure text-muted min-w-0 text-[11px] leading-relaxed max-sm:min-h-[2lh]"
                       >
-                        <span className="border-line bg-wash text-muted inline-block rounded border px-1 py-px align-[1px] font-sans text-[10px] leading-none font-semibold tracking-wide uppercase">
+                        <span className="border-line bg-wash text-muted rounded-tag inline-block border px-1 py-px align-[1px] font-sans text-[10px] leading-none font-semibold tracking-wide uppercase">
                           {file.kind}
                         </span>{" "}
                         {metaFacts(file, chips).map((fact, i, all) => (
@@ -399,7 +399,7 @@ export function WorkspaceClient({
                       type="button"
                       onClick={() => ws.removeFile(file.id)}
                       aria-label={`Remove ${file.name}`}
-                      className="text-muted hover:bg-wash hover:text-fg grid size-7 shrink-0 place-items-center rounded-md transition"
+                      className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-7 shrink-0 place-items-center transition"
                     >
                       <X className="size-3.5" aria-hidden />
                     </button>
@@ -408,7 +408,7 @@ export function WorkspaceClient({
               })}
             </ul>
           ) : (
-            <div className="border-line bg-wash flex flex-col items-center gap-1 rounded-[4px] border border-dashed px-6 py-8 text-center">
+            <div className="border-line bg-wash rounded-panel flex flex-col items-center gap-1 border border-dashed px-6 py-8 text-center">
               <p className="text-muted text-sm font-medium">
                 No files staged yet
               </p>
@@ -569,7 +569,7 @@ function ArrivalNote({
     <p
       role="status"
       className={cn(
-        "flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-[3px] border px-3 py-2 text-xs",
+        "rounded-ctl flex flex-wrap items-center gap-x-1.5 gap-y-1 border px-3 py-2 text-xs",
         loaded
           ? "border-ok/40 bg-ok/10 text-ok"
           : "border-warn/40 bg-warn/10 text-warn",
@@ -592,7 +592,7 @@ function ArrivalNote({
       <button
         type="button"
         onClick={onDismiss}
-        className="hover:bg-wash ml-auto rounded-md px-2 py-0.5 transition"
+        className="hover:bg-wash rounded-ctl ml-auto px-2 py-0.5 transition"
       >
         Dismiss
       </button>
@@ -630,7 +630,7 @@ function RecentActivity({
           <button
             type="button"
             onClick={onClearSession}
-            className="text-muted hover:bg-wash hover:text-fg inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition"
+            className="text-muted hover:bg-wash hover:text-fg rounded-ctl inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-xs font-medium transition"
             title="Clear staged files, remembered tools, activity, and any pending hand-off — all on this device"
           >
             <Trash2 className="size-3.5" aria-hidden />
@@ -642,7 +642,7 @@ function RecentActivity({
       {!hydrated ? (
         <ul className="flex flex-col gap-2" aria-hidden>
           {[0, 1].map((i) => (
-            <li key={i} className="bg-wash h-9 animate-pulse rounded-lg" />
+            <li key={i} className="bg-wash rounded-panel h-9 animate-pulse" />
           ))}
         </ul>
       ) : actions.length === 0 ? (
@@ -656,7 +656,7 @@ function RecentActivity({
             return (
               <li
                 key={action.id}
-                className="border-line bg-wash flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5"
+                className="border-line bg-wash rounded-panel flex items-center gap-2.5 border px-2.5 py-1.5"
               >
                 <Icon className="text-muted size-3.5 shrink-0" aria-hidden />
                 <span className="text-muted min-w-0 flex-1 truncate text-xs">

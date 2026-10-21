@@ -172,10 +172,10 @@ export function ExtractionResult({
         role="group"
         aria-label="No extractable images found"
         data-motion-ui=""
-        className="border-warn/40 bg-warn/10 focus-visible:ring-warn/50 motion-safe:animate-rise flex flex-col gap-5 rounded-[4px] border p-6 outline-none focus-visible:ring-2"
+        className="border-warn/40 bg-warn/10 focus-visible:ring-warn/50 motion-safe:animate-rise rounded-panel flex flex-col gap-5 border p-6 outline-none focus-visible:ring-2"
       >
         <div className="flex items-start gap-3">
-          <span className="bg-warn/10 text-warn grid size-10 shrink-0 place-items-center rounded-[4px]">
+          <span className="bg-warn/10 text-warn rounded-panel grid size-10 shrink-0 place-items-center">
             <FileWarning className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col gap-1">
@@ -378,7 +378,7 @@ function ImageGrid({
           return (
             <div
               key={image.name}
-              className="group border-line bg-wash overflow-hidden rounded-[4px] border"
+              className="group border-line bg-wash rounded-panel overflow-hidden border"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -394,7 +394,7 @@ function ImageGrid({
                   type="button"
                   onClick={() => onDownload(image)}
                   title={`Download ${image.name}`}
-                  className="border-line bg-wash text-muted hover:bg-wash inline-grid size-7 shrink-0 place-items-center rounded-full border transition"
+                  className="border-line bg-wash text-muted hover:bg-wash rounded-ctl inline-grid size-7 shrink-0 place-items-center border transition"
                 >
                   <Download className="size-3.5" aria-hidden />
                 </button>
@@ -429,7 +429,7 @@ function ImageNotes({ images }: { images: ExtractedImage[] }) {
   const rows = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
 
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <FileWarning className="text-warn size-4" aria-hidden />
         {noted} image{noted === 1 ? "" : "s"} saved with a caveat
@@ -461,7 +461,7 @@ function SkippedNote({ skipped }: { skipped: SkippedImage[] }) {
   const rows = [...groups.entries()].sort((a, b) => b[1] - a[1]);
 
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <FileWarning className="text-warn size-4" aria-hidden />
         {skipped.length} image{skipped.length === 1 ? "" : "s"} skipped
@@ -488,7 +488,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

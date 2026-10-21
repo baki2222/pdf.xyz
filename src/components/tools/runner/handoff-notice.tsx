@@ -38,7 +38,7 @@ export function HandoffLoading() {
   return (
     <div
       role="status"
-      className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm"
+      className="border-line bg-wash text-muted rounded-panel flex items-center justify-center gap-2 border px-6 py-12 text-sm"
     >
       <Spinner />
       Bringing your files over…
@@ -62,7 +62,7 @@ export function HandoffProblem({
       <div
         role="status"
         data-handoff-departed=""
-        className="border-line bg-wash text-muted flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+        className="border-line bg-wash text-muted rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
       >
         <ArrowRight className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
@@ -73,7 +73,7 @@ export function HandoffProblem({
         <button
           type="button"
           onClick={handoff.dismiss}
-          className="hover:text-fg ml-auto shrink-0 rounded-md px-2 py-0.5 text-xs underline transition"
+          className="hover:text-fg rounded-ctl ml-auto shrink-0 px-2 py-0.5 text-xs underline transition"
         >
           Dismiss
         </button>
@@ -94,14 +94,14 @@ export function HandoffProblem({
   return (
     <div
       role="status"
-      className="border-warn/40 bg-warn/10 text-warn flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+      className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
       <span>{body}</span>
       <button
         type="button"
         onClick={handoff.dismiss}
-        className="text-warn hover:bg-warn/10 hover:text-warn ml-auto shrink-0 rounded-md px-2 py-0.5 text-xs transition"
+        className="text-warn hover:bg-warn/10 hover:text-warn rounded-ctl ml-auto shrink-0 px-2 py-0.5 text-xs transition"
       >
         Dismiss
       </button>
@@ -149,7 +149,7 @@ export function HandoffLoadedBadge({
     <p
       role="status"
       aria-live="polite"
-      className="border-ok/40 bg-ok/10 text-ok inline-flex flex-wrap items-center gap-1.5 rounded-[3px] border px-3 py-2 text-xs"
+      className="border-ok/40 bg-ok/10 text-ok rounded-ctl inline-flex flex-wrap items-center gap-1.5 border px-3 py-2 text-xs"
     >
       <FolderInput className="size-3.5 shrink-0" aria-hidden />
       {/* Names the file for a remedy; a name with no break opportunity

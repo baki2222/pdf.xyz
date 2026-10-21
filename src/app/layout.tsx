@@ -170,7 +170,7 @@ export default function RootLayout({
       <body className="theme-paper bg-canvas text-fg min-h-dvh font-sans antialiased">
         <a
           href="#main"
-          className="bg-invert text-fg-invert sr-only rounded-[3px] px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]"
+          className="bg-invert text-fg-invert rounded-ctl sr-only px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]"
         >
           Skip to content
         </a>

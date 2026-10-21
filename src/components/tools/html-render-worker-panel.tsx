@@ -222,7 +222,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
               setUrl(event.target.value);
               setOutcome(null);
             }}
-            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-panel w-full rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-panel rounded-ctl w-full border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
             placeholder="https://example.com"
           />
         </div>
@@ -238,7 +238,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
               setFile(files[0] ?? null);
             }}
           >
-            <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+            <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
               <span className="truncate">{file.name}</span>
               <button
                 type="button"

@@ -94,10 +94,11 @@
      while the tree hard-codes 4px panels and cards, 3px controls and 2px
      tags. A sheet — a surface that IS a page — is square; controls and UI
      containers are lightly handled. `design-tokens.test.ts` fails a
-     non-zero radius token that no shipped source renders. The call sites
-     still spell the literals (rounded-[4px] and friends); moving them onto
-     these names is the last package of the redesign, and until then the
-     names are vocabulary, not a description of every corner. */
+     non-zero radius token that no shipped source renders. Since WP-14
+     (2026-10-21) these four names are the ONLY corner vocabulary:
+     `radius-vocabulary.test.ts` rejects arbitrary pixel corners, the named
+     sizes and bare `rounded` anywhere under src, and pins the full (pill) radius to
+     status dots, spinners and the radio glyph. */
   --radius-tag: 2px; /* badges, chips, kbd, step numbers */
   --radius-ctl: 3px; /* buttons, inputs, selects, toggles */
   --radius-panel: 4px; /* UI containers: panels, cards, dialogs, notes */

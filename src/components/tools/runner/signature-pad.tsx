@@ -127,7 +127,7 @@ export function SignaturePad({
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      <div className="border-line relative overflow-hidden rounded-[4px] border bg-white">
+      <div className="border-line rounded-panel relative overflow-hidden border bg-white">
         <canvas
           ref={canvasRef}
           width={BACKING_WIDTH}

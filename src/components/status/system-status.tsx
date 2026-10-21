@@ -86,7 +86,7 @@ function ProviderRow({
       ? "Configured"
       : "Not configured";
   return (
-    <div className="border-line bg-wash flex flex-col gap-1.5 rounded-[3px] border p-3">
+    <div className="border-line bg-wash rounded-ctl flex flex-col gap-1.5 border p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
           <Icon className="text-faint size-3.5" aria-hidden />
@@ -172,7 +172,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
               {localTools.map((tool) => (
                 <li
                   key={tool.slug}
-                  className="border-line bg-wash text-fg rounded-[2px] border px-2.5 py-1 text-xs"
+                  className="border-line bg-wash text-fg rounded-tag border px-2.5 py-1 text-xs"
                 >
                   {tool.name}
                 </li>
@@ -227,7 +227,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
               </p>
               {/* Per-capability honesty: OCR is called out explicitly so the page
                   never implies a searchable-PDF pipeline that isn't wired up. */}
-              <div className="border-line bg-wash flex flex-col gap-1.5 rounded-[3px] border p-3">
+              <div className="border-line bg-wash rounded-ctl flex flex-col gap-1.5 border p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
                     <ScanText className="text-faint size-3.5" aria-hidden />
@@ -255,7 +255,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
               {/* Same honesty for the AI tools: a drainable pipeline says nothing
                   about whether a model is wired, so AI reports its own readiness
                   rather than being implied by the worker's. */}
-              <div className="border-line bg-wash flex flex-col gap-1.5 rounded-[3px] border p-3">
+              <div className="border-line bg-wash rounded-ctl flex flex-col gap-1.5 border p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
                     <Sparkles className="text-faint size-3.5" aria-hidden />

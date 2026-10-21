@@ -156,7 +156,7 @@ export function HeaderFooterEditor({
         title="Header"
         aside={
           headerPreview.trim() && (
-            <span className="border-line bg-wash text-muted rounded-full border px-2.5 py-1 text-xs">
+            <span className="border-line bg-wash text-muted rounded-tag border px-2.5 py-1 text-xs">
               {headerPreview}
             </span>
           )
@@ -188,7 +188,7 @@ export function HeaderFooterEditor({
         title="Footer"
         aside={
           footerPreview.trim() && (
-            <span className="border-line bg-wash text-muted rounded-full border px-2.5 py-1 text-xs">
+            <span className="border-line bg-wash text-muted rounded-tag border px-2.5 py-1 text-xs">
               {footerPreview}
             </span>
           )

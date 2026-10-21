@@ -96,7 +96,7 @@ export default function StatusPage() {
               return (
                 <div
                   key={id}
-                  className="bg-panel border-line flex flex-col gap-2 rounded-[4px] border p-5"
+                  className="bg-panel border-line rounded-panel flex flex-col gap-2 border p-5"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-fg text-sm font-semibold">

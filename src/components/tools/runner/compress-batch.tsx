@@ -193,7 +193,7 @@ export function CompressBatchRunner({
       )}
 
       {/* Honest scope banner: lossless-only, on-device. */}
-      <div className="bg-panel border-line flex items-start gap-2.5 rounded-[4px] border p-4">
+      <div className="bg-panel border-line rounded-panel flex items-start gap-2.5 border p-4">
         <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
         <p className="text-muted text-sm leading-relaxed">
           Batch <span className="text-fg">lossless compression</span> repacks
@@ -235,11 +235,11 @@ export function CompressBatchRunner({
           aria-valuenow={progress.pct}
           aria-valuetext={`${progress.settled} of ${progress.total} files processed`}
           aria-label="Batch compression progress"
-          className="bg-wash h-2 w-full overflow-hidden rounded-full"
+          className="bg-wash rounded-tag h-2 w-full overflow-hidden"
         >
           <span
             className={cn(
-              "bg-accent block h-full rounded-full transition-[width] duration-300",
+              "bg-accent rounded-tag block h-full transition-[width] duration-300",
               state.phase === "canceled" && "bg-faint",
             )}
             style={{ width: `${progress.pct}%` }}
@@ -263,7 +263,7 @@ export function CompressBatchRunner({
       {settled && signedCount > 0 && (
         <label
           htmlFor={includeSignedId}
-          className="border-warn/40 bg-warn/10 text-warn flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+          className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
         >
           <input
             id={includeSignedId}
@@ -395,7 +395,7 @@ function BatchRow({
   allowDownload: boolean;
 }) {
   return (
-    <li className="bg-panel border-line flex items-center gap-3 rounded-[3px] border px-3 py-2.5">
+    <li className="bg-panel border-line rounded-ctl flex items-center gap-3 border px-3 py-2.5">
       <StatusGlyph status={item.status} />
       <span className="min-w-0 flex-1">
         <span className="text-fg block truncate text-sm">{item.name}</span>
@@ -410,7 +410,7 @@ function BatchRow({
             downloadBytes(item.result!.bytes, item.result!.outputName)
           }
           aria-label={`Download compressed ${item.name}`}
-          className="text-muted hover:bg-wash hover:text-fg grid size-8 shrink-0 place-items-center rounded-lg transition"
+          className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-8 shrink-0 place-items-center transition"
         >
           <Download className="size-4" aria-hidden />
         </button>
@@ -467,7 +467,7 @@ function StatusGlyph({
 }: {
   status: BatchItem<CompressResult>["status"];
 }) {
-  const base = "grid size-8 shrink-0 place-items-center rounded-lg";
+  const base = "grid size-8 shrink-0 place-items-center rounded-panel";
   switch (status) {
     case "running":
       return (

@@ -332,7 +332,7 @@ export function WorkerJobStatus<R extends { ok: boolean }>({
     return (
       <div
         role="status"
-        className="border-info/40 bg-info/10 flex flex-col gap-3 rounded-[4px] border px-4 py-3"
+        className="border-info/40 bg-info/10 rounded-panel flex flex-col gap-3 border px-4 py-3"
       >
         <p className="text-fg flex items-start gap-2 text-sm leading-relaxed">
           <Hourglass className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -347,7 +347,7 @@ export function WorkerJobStatus<R extends { ok: boolean }>({
           <button
             type="button"
             onClick={job.resume}
-            className="border-line text-fg hover:bg-panel inline-flex items-center gap-1.5 rounded-[3px] border px-3 py-1.5 text-sm font-medium transition"
+            className="border-line text-fg hover:bg-panel rounded-ctl inline-flex items-center gap-1.5 border px-3 py-1.5 text-sm font-medium transition"
           >
             <RotateCw className="size-3.5" aria-hidden />
             Keep waiting

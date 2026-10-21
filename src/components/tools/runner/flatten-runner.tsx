@@ -104,14 +104,14 @@ export function FlattenEditor({
       >
         <div className="flex flex-col gap-3">
           {!result.hadForm && (
-            <p className="border-warn/40 bg-warn/10 text-warn max-w-2xl rounded-[4px] border px-4 py-3 text-sm">
+            <p className="border-warn/40 bg-warn/10 text-warn rounded-panel max-w-2xl border px-4 py-3 text-sm">
               This PDF did not contain AcroForm fields to flatten, so nothing in
               it was flattened. Comments, markup annotations, and
               optional-content layers are not flattened by this browser tool.
             </p>
           )}
           {result.skipped.length > 0 && (
-            <div className="border-line bg-wash max-w-2xl rounded-[4px] border px-4 py-3 text-sm">
+            <div className="border-line bg-wash rounded-panel max-w-2xl border px-4 py-3 text-sm">
               <p className="text-fg font-medium">
                 Left as-is, still interactive:
               </p>
@@ -257,7 +257,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

@@ -26,7 +26,7 @@ export function AnalyticsChoices() {
   const consent = useAnalyticsConsent();
 
   return (
-    <div className="border-line mt-2 flex flex-col gap-3 rounded-[3px] border p-4">
+    <div className="border-line rounded-ctl mt-2 flex flex-col gap-3 border p-4">
       <p className="text-fg text-sm font-medium" aria-live="polite">
         {STATE_COPY[consent ?? "undecided"]}
       </p>

@@ -101,7 +101,7 @@ export function WorkerStatusPending({
   limited?: boolean;
 }) {
   return (
-    <div className="border-line bg-wash flex flex-col justify-center gap-3 rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel flex flex-col justify-center gap-3 border p-4">
       {phase === "loading" ? (
         <p
           role="status"
@@ -122,7 +122,7 @@ export function WorkerStatusPending({
           <button
             type="button"
             onClick={onRetry}
-            className="border-line text-fg hover:bg-panel inline-flex items-center gap-1.5 self-start rounded-[3px] border px-3 py-1.5 text-sm font-medium transition"
+            className="border-line text-fg hover:bg-panel rounded-ctl inline-flex items-center gap-1.5 self-start border px-3 py-1.5 text-sm font-medium transition"
           >
             <RotateCw className="size-3.5" aria-hidden />
             {limited ? "Try again" : "Check again"}

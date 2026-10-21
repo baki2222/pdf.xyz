@@ -35,7 +35,7 @@ export function ToolIcon(props: {
       // tool's icon (`tool-card.test.tsx`); the SVG itself says nothing.
       data-icon={icon}
       className={cn(
-        "border-line bg-wash text-fg relative inline-flex shrink-0 items-center justify-center rounded-[3px] border",
+        "border-line bg-wash text-fg rounded-ctl relative inline-flex shrink-0 items-center justify-center border",
         dims.box,
         className,
       )}

@@ -183,7 +183,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

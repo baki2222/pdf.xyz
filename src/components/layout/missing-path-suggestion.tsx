@@ -67,7 +67,7 @@ export function MissingPathSuggestion({
 
   if (suggestions.length === 0) return null;
   return (
-    <div className="border-line bg-wash flex flex-col items-center gap-3 rounded-[4px] border px-5 py-4">
+    <div className="border-line bg-wash rounded-panel flex flex-col items-center gap-3 border px-5 py-4">
       <p className="text-fg text-sm font-medium">Did you mean</p>
       <ul className="flex flex-wrap items-center justify-center gap-2">
         {suggestions.map((tool) => (

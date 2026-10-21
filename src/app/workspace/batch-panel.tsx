@@ -141,10 +141,10 @@ export function BatchPanel({
   return (
     <section
       aria-labelledby="batch-heading"
-      className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-5"
+      className="bg-panel border-line rounded-panel flex flex-col gap-4 border p-5"
     >
       <div className="flex items-center gap-2.5">
-        <span className="border-line bg-wash text-fg grid size-8 place-items-center rounded-lg border">
+        <span className="border-line bg-wash text-fg rounded-panel grid size-8 place-items-center border">
           <Layers className="size-4" aria-hidden />
         </span>
         <div className="min-w-0">
@@ -173,7 +173,7 @@ export function BatchPanel({
           id={selectId}
           value={batch.toolSlug ?? ""}
           onChange={(e) => onSetTool(e.target.value || null)}
-          className="bg-panel border-line text-fg focus-visible:border-accent/40 focus-visible:ring-accent/50 w-full rounded-[3px] border px-3 py-2 text-sm outline-none focus-visible:ring-2"
+          className="bg-panel border-line text-fg focus-visible:border-accent/40 focus-visible:ring-accent/50 rounded-ctl w-full border px-3 py-2 text-sm outline-none focus-visible:ring-2"
         >
           <option value="">Choose a tool…</option>
           <optgroup label="Runs in your browser">
@@ -247,14 +247,14 @@ export function BatchPanel({
               return (
                 <li
                   key={id}
-                  className="border-line bg-wash text-muted inline-flex max-w-full items-center gap-1.5 rounded-lg border py-1 pr-1 pl-2.5 text-xs"
+                  className="border-line bg-wash text-muted rounded-tag inline-flex max-w-full items-center gap-1.5 border py-1 pr-1 pl-2.5 text-xs"
                 >
                   <span className="max-w-[10rem] truncate">{file.name}</span>
                   <button
                     type="button"
                     onClick={() => onRemove(id)}
                     aria-label={`Remove ${file.name} from batch`}
-                    className="text-muted hover:bg-wash hover:text-fg grid size-5 shrink-0 place-items-center rounded transition"
+                    className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-5 shrink-0 place-items-center transition"
                   >
                     <X className="size-3" aria-hidden />
                   </button>
@@ -274,7 +274,7 @@ export function BatchPanel({
       {/* Step 3 — honest launch / worker path */}
       <div
         className={cn(
-          "flex flex-col gap-3 rounded-[3px] border p-3.5",
+          "rounded-ctl flex flex-col gap-3 border p-3.5",
           content.tone === "ready" && "border-ok/40 bg-ok/10",
           content.tone === "worker" && "border-info/40 bg-info/10",
           content.tone === "muted" && "border-line bg-wash",

@@ -16,7 +16,7 @@ export const OCR_TOOL_HREF = "/tools/ocr-pdf";
  */
 export function NoSelectableTextNote({ extra }: { extra?: string }) {
   return (
-    <div className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-3 rounded-[4px] border p-4 text-sm leading-relaxed">
+    <div className="border-warn/40 bg-warn/10 text-warn rounded-panel flex flex-col gap-3 border p-4 text-sm leading-relaxed">
       <p>
         This PDF has no selectable text — it is probably scanned or made of
         images. {OCR_TOOL_NAME} can recognize the text (it can output TXT); open

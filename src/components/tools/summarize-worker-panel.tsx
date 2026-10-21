@@ -179,7 +179,7 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
             setFile(files[0] ?? null);
           }}
         >
-          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
             <span className="truncate">{file.name}</span>
             <button
               type="button"
@@ -212,7 +212,7 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
           <select
             value={length}
             onChange={(e) => setLength(e.target.value as SummaryLength)}
-            className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           >
             {LENGTH_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -226,7 +226,7 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
           <select
             value={format}
             onChange={(e) => setFormat(e.target.value as SummaryFormat)}
-            className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           >
             {FORMAT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -245,7 +245,7 @@ function SummaryBuilder({ tool, refuse }: { tool: Tool; refuse: PickRefusal }) {
             }
             maxLength={MAX_SUMMARY_FOCUS_CHARS}
             placeholder="e.g. focus on financial risks and obligations"
-            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           />
         </label>
       </div>

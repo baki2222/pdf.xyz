@@ -147,7 +147,7 @@ export function PageNumbersEditor({
       <RunnerSection
         title="Format"
         aside={
-          <span className="border-line bg-wash text-muted rounded-full border px-2.5 py-1 text-xs">
+          <span className="border-line bg-wash text-muted rounded-tag border px-2.5 py-1 text-xs">
             Preview: <span className="text-accent">{preview || "—"}</span>
           </span>
         }

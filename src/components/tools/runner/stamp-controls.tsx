@@ -55,7 +55,7 @@ export function PositionPicker({
     <div
       role="radiogroup"
       aria-label={label}
-      className="border-line bg-canvas grid aspect-[4/3] w-40 grid-cols-3 grid-rows-3 gap-1 rounded-[4px] border p-1.5"
+      className="border-line bg-canvas rounded-panel grid aspect-[4/3] w-40 grid-cols-3 grid-rows-3 gap-1 border p-1.5"
     >
       {STAMP_POSITIONS.map((position) => {
         const { h, v } = resolveAlign(position);
@@ -70,7 +70,7 @@ export function PositionPicker({
             title={POSITION_LABELS[position]}
             onClick={() => onChange(position)}
             className={cn(
-              "flex rounded-lg border p-1.5 transition",
+              "rounded-ctl flex border p-1.5 transition",
               H_JUSTIFY[h],
               V_ALIGN[v],
               active
@@ -129,7 +129,7 @@ export function RangeField({
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="bg-wash accent-accent h-1.5 w-full cursor-pointer appearance-none rounded-full"
+        className="bg-wash accent-accent rounded-tag h-1.5 w-full cursor-pointer appearance-none"
       />
     </div>
   );
@@ -151,7 +151,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="border-line bg-canvas inline-flex rounded-[3px] border p-1"
+      className="border-line bg-canvas rounded-ctl inline-flex border p-1"
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -164,7 +164,7 @@ export function SegmentedControl<T extends string>({
             title={option.title}
             onClick={() => onChange(option.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition",
+              "rounded-ctl inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition",
               active ? "bg-accent/10 text-accent" : "text-muted hover:text-fg",
             )}
           >
@@ -205,7 +205,7 @@ export function TextField({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas w-full rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+        className="border-line text-fg placeholder:text-muted focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl w-full border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
       />
     </div>
   );
@@ -242,7 +242,7 @@ export function NumberField({
           if (Number.isNaN(next)) return;
           onChange(Math.min(max, Math.max(min, Math.round(next))));
         }}
-        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas w-full rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl w-full border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
       />
     </div>
   );
@@ -266,7 +266,7 @@ export function TokenButtons({
           key={token}
           type="button"
           onClick={() => onInsert(token)}
-          className="border-line bg-wash text-accent hover:border-accent/40 hover:bg-accent/10 rounded-md border px-2 py-0.5 font-mono text-[11px] transition"
+          className="border-line bg-wash text-accent hover:border-accent/40 hover:bg-accent/10 rounded-ctl border px-2 py-0.5 font-mono text-[11px] transition"
         >
           {label}
         </button>

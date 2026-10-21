@@ -161,7 +161,7 @@ function SignaturePagePreview({
     <figure className="flex flex-col items-center gap-2">
       <div
         data-testid="signature-page-preview"
-        className="relative w-full max-w-[220px] overflow-hidden rounded-[2px] bg-white shadow-md ring-1 ring-black/10"
+        className="rounded-sheet relative w-full max-w-[220px] overflow-hidden bg-white shadow-md ring-1 ring-black/10"
         style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
       >
         {image && (
@@ -177,7 +177,7 @@ function SignaturePagePreview({
           <span
             key={index}
             data-field-box=""
-            className="border-accent bg-accent/15 text-accent absolute flex items-start overflow-hidden rounded-[2px] border border-dashed px-0.5 text-[8px] leading-tight font-semibold"
+            className="border-accent bg-accent/15 text-accent rounded-tag absolute flex items-start overflow-hidden border border-dashed px-0.5 text-[8px] leading-tight font-semibold"
             style={{
               left: `${field.x * 100}%`,
               bottom: `${field.y * 100}%`,
@@ -447,7 +447,7 @@ export function RequestBuilder({
             pickFile(files[0] ?? null);
           }}
         >
-          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
             <span className="truncate">{file.name}</span>
             <span className="text-muted flex shrink-0 items-center gap-3 text-xs">
               {reading
@@ -499,7 +499,7 @@ export function RequestBuilder({
         </div>
         {signers.map((signer, index) => (
           <div key={index} className="flex flex-wrap items-center gap-2">
-            <span className="bg-accent/10 text-accent grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold">
+            <span className="bg-accent/10 text-accent rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold">
               {index + 1}
             </span>
             <input
@@ -508,7 +508,7 @@ export function RequestBuilder({
               onChange={(e) => updateSigner(index, { name: e.target.value })}
               placeholder="Full name"
               aria-label={`Signer ${index + 1} name`}
-              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent min-w-[8rem] flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent rounded-ctl min-w-[8rem] flex-1 border px-3 py-1.5 text-sm outline-none"
             />
             <input
               type="email"
@@ -516,14 +516,14 @@ export function RequestBuilder({
               onChange={(e) => updateSigner(index, { email: e.target.value })}
               placeholder="email@company.com"
               aria-label={`Signer ${index + 1} email`}
-              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent min-w-[10rem] flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+              className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent rounded-ctl min-w-[10rem] flex-1 border px-3 py-1.5 text-sm outline-none"
             />
             <button
               type="button"
               onClick={() => removeSigner(index)}
               aria-disabled={signers.length <= 1 || undefined}
               aria-label={`Remove signer ${index + 1}`}
-              className="text-muted hover:text-err shrink-0 rounded-lg p-1.5 transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+              className="text-muted hover:text-err rounded-ctl shrink-0 p-1.5 transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
             >
               <Trash2 className="size-4" aria-hidden />
             </button>
@@ -539,7 +539,7 @@ export function RequestBuilder({
             onChange={(e) =>
               setRouting(e.target.value as RequestSignatureRouting)
             }
-            className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           >
             <option value="sequential">Sequential — one at a time</option>
             <option value="parallel">Parallel — everyone at once</option>
@@ -557,7 +557,7 @@ export function RequestBuilder({
             onChange={(e) =>
               setPage(clampSignaturePage(Number(e.target.value), pageCount))
             }
-            className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           />
         </label>
         <label className="text-muted flex flex-col gap-1 text-xs sm:col-span-2">
@@ -567,7 +567,7 @@ export function RequestBuilder({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="e.g. Master Services Agreement"
-            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           />
         </label>
         <label className="text-muted flex items-center gap-2 text-sm sm:col-span-2">
@@ -575,7 +575,7 @@ export function RequestBuilder({
             type="checkbox"
             checked={includeDate}
             onChange={(e) => setIncludeDate(e.target.checked)}
-            className="border-line-strong bg-wash size-4 rounded"
+            className="border-line-strong bg-wash rounded-ctl size-4"
           />
           Add a date field next to each signature
         </label>

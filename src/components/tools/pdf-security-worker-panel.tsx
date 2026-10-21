@@ -211,7 +211,7 @@ export function PasswordField({
           spellCheck={false}
           aria-describedby={`${id}-hint`}
           className={cn(
-            "border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 focus:bg-wash w-full rounded-[3px] border px-3 py-2.5 pr-11 text-sm transition outline-none",
+            "border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 focus:bg-wash rounded-ctl w-full border px-3 py-2.5 pr-11 text-sm transition outline-none",
             busy && "opacity-50",
           )}
           placeholder="••••••••"
@@ -323,7 +323,7 @@ function SecurityRunArea({
             setFile(files[0] ?? null);
           }}
         >
-          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
             <span className="truncate">{file.name}</span>
             <button
               type="button"
@@ -410,7 +410,7 @@ function SecurityRunArea({
                   aria-disabled={busy || undefined}
                   title={level.description}
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition aria-disabled:opacity-50",
+                    "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition aria-disabled:opacity-50",
                     active
                       ? "border-accent/40 bg-accent/10 text-accent"
                       : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",

@@ -60,7 +60,7 @@ export function ConsentBanner() {
     <section
       ref={insetFrom}
       aria-label="Analytics consent"
-      className="bg-canvas border-line-strong fixed right-4 bottom-4 left-4 z-[90] mx-auto max-w-xl rounded-[3px] border p-4 shadow-lg sm:left-auto sm:mx-0"
+      className="bg-canvas border-line-strong rounded-ctl fixed right-4 bottom-4 left-4 z-[90] mx-auto max-w-xl border p-4 shadow-lg sm:left-auto sm:mx-0"
     >
       <p className="text-fg text-sm leading-relaxed">
         <span className="font-semibold">Analytics, only if you say yes.</span>{" "}

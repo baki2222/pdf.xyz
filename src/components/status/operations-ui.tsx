@@ -742,7 +742,7 @@ export function HealthBadge({ health }: { health: HealthClass }) {
 /** A compact fact pill (e.g. "Vantage · web"). Bounded label + value only. */
 function FactPill({ label, value }: { label: string; value: string }) {
   return (
-    <span className="border-line bg-wash text-fg inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px]">
+    <span className="border-line bg-wash text-fg rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px]">
       <span className="text-muted">{label}</span>
       {value}
     </span>
@@ -762,12 +762,12 @@ export function OperationsHealthCard({ view }: { view: SafeOperationsView }) {
   const meta = HEALTH_META[view.health];
   const Icon = meta.icon;
   return (
-    <div className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-5">
+    <div className="bg-panel border-line rounded-panel flex flex-col gap-4 border p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <span
             className={cn(
-              "grid size-10 place-items-center rounded-[3px] border",
+              "rounded-ctl grid size-10 place-items-center border",
               TILE_TONE[meta.tone],
             )}
           >
@@ -869,13 +869,13 @@ export function RecommendedActionCallout({
   return (
     <div
       className={cn(
-        "flex items-start gap-3 rounded-[4px] border p-4",
+        "rounded-panel flex items-start gap-3 border p-4",
         CALLOUT_TONE[tone],
       )}
     >
       <span
         className={cn(
-          "mt-0.5 grid size-8 shrink-0 place-items-center rounded-[3px] border",
+          "rounded-ctl mt-0.5 grid size-8 shrink-0 place-items-center border",
           TILE_TONE[tone],
         )}
       >
@@ -919,7 +919,7 @@ export function DaemonObservabilityCaveat({
   // Observed: a worker is genuinely visible.
   if (daemon.state === "observed") {
     return (
-      <div className="border-ok/40 bg-ok/10 text-ok flex items-start gap-3 rounded-[4px] border p-4 text-sm">
+      <div className="border-ok/40 bg-ok/10 text-ok rounded-panel flex items-start gap-3 border p-4 text-sm">
         <Cpu className="mt-0.5 size-4 shrink-0" aria-hidden />
         <p className="leading-relaxed">
           {daemon.source === "self"
@@ -933,7 +933,7 @@ export function DaemonObservabilityCaveat({
   if (daemon.state === "stale" || daemon.state === "unknown") {
     return (
       <div
-        className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border p-4 text-sm"
+        className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border p-4 text-sm"
         role="note"
       >
         <Cpu className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -960,7 +960,7 @@ export function DaemonObservabilityCaveat({
   // Disabled: the honest web residual (proven copy — the app never becomes the daemon).
   return (
     <div
-      className="border-info/40 bg-info/10 text-info flex items-start gap-3 rounded-[4px] border p-4 text-sm"
+      className="border-info/40 bg-info/10 text-info rounded-panel flex items-start gap-3 border p-4 text-sm"
       role="note"
     >
       <Cpu className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -1022,7 +1022,7 @@ function SubsystemTile({ sub }: { sub: SafeSubsystem }) {
   const health = HEALTH_META[sub.health];
   const Icon = meta.icon;
   return (
-    <div className="border-line bg-wash flex flex-col gap-2 rounded-[3px] border p-3">
+    <div className="border-line bg-wash rounded-ctl flex flex-col gap-2 border p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
           <Icon className="text-faint size-3.5" aria-hidden />
@@ -1134,7 +1134,7 @@ function ProofRow({
 }) {
   const meta = PROOF_META[proof];
   return (
-    <div className="border-line bg-wash flex items-center justify-between gap-2 rounded-[3px] border p-3">
+    <div className="border-line bg-wash rounded-ctl flex items-center justify-between gap-2 border p-3">
       <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
         <Icon className="text-faint size-3.5" aria-hidden />
         {label}
@@ -1181,7 +1181,7 @@ export function ProofsCard({
 /** A single labeled loop counter. */
 function LoopStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="border-line bg-wash flex flex-col rounded-[3px] border px-2.5 py-2">
+    <div className="border-line bg-wash rounded-ctl flex flex-col border px-2.5 py-2">
       <span className="text-fg text-sm font-semibold tabular-nums">
         {value}
       </span>

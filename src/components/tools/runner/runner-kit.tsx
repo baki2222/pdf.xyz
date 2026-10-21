@@ -453,7 +453,7 @@ export function ErrorNote({
   return (
     <p
       role="alert"
-      className="border-err/40 bg-err/10 text-err flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+      className="border-err/40 bg-err/10 text-err rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
       {/* Most messages name the file ("<name> isn't a PDF"); see NAME_WRAP. */}
@@ -773,7 +773,7 @@ export function DownloadCta({
   children: ReactNode;
 }) {
   const classes = cn(
-    "bg-invert text-fg-invert hover:bg-invert/85 inline-flex items-center justify-center gap-2 rounded-[3px] font-semibold transition-colors",
+    "bg-invert text-fg-invert hover:bg-invert/85 inline-flex items-center justify-center gap-2 rounded-ctl font-semibold transition-colors",
     DOWNLOAD_CTA_SIZE[size],
     className,
   );
@@ -981,7 +981,7 @@ export function ResultPanel({
       <div className="flex items-start gap-3">
         <span
           className={cn(
-            "grid size-10 shrink-0 place-items-center rounded-[3px]",
+            "rounded-ctl grid size-10 shrink-0 place-items-center",
             tone === "warn"
               ? "bg-warn/15 text-warn"
               : tone === "ok"
@@ -1088,7 +1088,7 @@ export function ResultCard({
       aria-label={announce}
       onClickCapture={keep}
       className={cn(
-        "border-ok/30 bg-ok/10 focus-visible:ring-ok/50 flex flex-col gap-2 rounded-[4px] border p-4 outline-none focus-visible:ring-2",
+        "border-ok/30 bg-ok/10 focus-visible:ring-ok/50 rounded-panel flex flex-col gap-2 border p-4 outline-none focus-visible:ring-2",
         className,
       )}
     >
@@ -1170,7 +1170,7 @@ export function ChipButton({
       title={title}
       aria-pressed={active}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-[2px] border px-3 py-1.5 text-xs font-medium transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
+        "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
         active
           ? "border-accent/50 bg-accent/10 text-accent"
           : "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
@@ -1227,11 +1227,11 @@ export function PreviewStatus({
           Rendering previews… {done}/{target}
         </span>
         <span
-          className="bg-line h-1 w-full overflow-hidden rounded-full"
+          className="bg-line rounded-tag h-1 w-full overflow-hidden"
           aria-hidden
         >
           <span
-            className="bg-accent block h-full rounded-full transition-[width] duration-300"
+            className="bg-accent rounded-tag block h-full transition-[width] duration-300"
             style={{ width: `${pct}%` }}
           />
         </span>
@@ -1317,7 +1317,7 @@ export function UndecodedImagesNotice({
   return (
     <div
       role="alert"
-      className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm"
+      className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3.5 text-sm"
     >
       <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
       <p className="leading-relaxed">

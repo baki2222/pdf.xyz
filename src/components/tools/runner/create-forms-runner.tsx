@@ -105,7 +105,7 @@ function FormBuilderStage({
     return (
       <div className="flex flex-col gap-4">
         <FileHeader pdf={pdf} />
-        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
+        <div className="border-line bg-wash text-muted rounded-panel flex items-center justify-center gap-2 border px-6 py-12 text-sm">
           <Spinner />
           Reading the PDF…
         </div>
@@ -372,14 +372,14 @@ function FormBuilder({
             />
           ))}
           {drafts.length === 0 && (
-            <p className="border-line-strong bg-wash text-muted rounded-[4px] border border-dashed px-4 py-8 text-center text-sm">
+            <p className="border-line-strong bg-wash text-muted rounded-panel border border-dashed px-4 py-8 text-center text-sm">
               No fields yet — add one to start building your form.
             </p>
           )}
           <button
             type="button"
             onClick={addField}
-            className="border-line bg-wash text-fg hover:border-accent/40 hover:bg-accent/10 hover:text-fg inline-flex items-center justify-center gap-1.5 self-start rounded-full border px-3.5 py-2 text-xs font-medium transition"
+            className="border-line bg-wash text-fg hover:border-accent/40 hover:bg-accent/10 hover:text-fg rounded-ctl inline-flex items-center justify-center gap-1.5 self-start border px-3.5 py-2 text-xs font-medium transition"
           >
             <Plus className="size-4" aria-hidden />
             Add field
@@ -426,7 +426,7 @@ function FormBuilder({
 function CoordinateHelp({ context }: { context: NewFormContext }) {
   const first = context.pageSizes[0];
   return (
-    <div className="border-line bg-wash flex items-start gap-3 rounded-[4px] border px-4 py-3.5">
+    <div className="border-line bg-wash rounded-panel flex items-start gap-3 border px-4 py-3.5">
       <Info className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
       <div className="text-muted flex flex-col gap-1 text-xs leading-relaxed">
         <span>
@@ -458,7 +458,7 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
  * ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  "w-full rounded-[3px] border border-line bg-canvas px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
+  "w-full rounded-ctl border border-line bg-canvas px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
 
 function FieldCard({
   draft,
@@ -484,7 +484,7 @@ function FieldCard({
     : `Page ${draft.page} · out of range`;
 
   return (
-    <div className="border-line bg-wash flex flex-col gap-4 rounded-[4px] border p-4 sm:p-5">
+    <div className="border-line bg-wash rounded-panel flex flex-col gap-4 border p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SegmentedControl
           label="Field type"
@@ -495,7 +495,7 @@ function FieldCard({
         <button
           type="button"
           onClick={onRemove}
-          className="border-line text-muted hover:border-err/40 hover:bg-err/10 hover:text-err inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition"
+          className="border-line text-muted hover:border-err/40 hover:bg-err/10 hover:text-err rounded-ctl inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-xs transition"
           aria-label="Remove field"
         >
           <Trash2 className="size-3.5" aria-hidden />
@@ -783,7 +783,7 @@ function Toggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="border-line bg-wash flex cursor-pointer items-start gap-3 rounded-[4px] border p-3.5">
+    <label className="border-line bg-wash rounded-panel flex cursor-pointer items-start gap-3 border p-3.5">
       <input
         type="checkbox"
         checked={checked}

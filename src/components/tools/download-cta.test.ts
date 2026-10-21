@@ -61,7 +61,7 @@ const CTA_MARKUP = /hover:bg-invert\/85 inline-flex/;
 const STYLED_AS_SOMETHING_ELSE: { file: string; fingerprint: RegExp }[] = [
   {
     file: path.join("tools", "chat-with-pdf-worker-panel.tsx"),
-    fingerprint: /border-line text-muted[^"]*rounded-full/,
+    fingerprint: /border-line text-muted[^"]*rounded-tag/,
   },
 ];
 

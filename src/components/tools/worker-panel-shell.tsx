@@ -129,12 +129,12 @@ export function WorkerPanelShell({
 
   return (
     <PanelContext.Provider value={state}>
-      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
+      <div className="border-line bg-panel rounded-panel flex flex-col gap-6 border p-5 sm:p-7">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
             <span
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                "rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-1 text-[11px] font-medium",
                 PILL[tone],
               )}
             >
@@ -161,7 +161,7 @@ export function WorkerPanelShell({
             it while the file row lived inside the slot; it lives here now. */}
         <div className="grid grid-cols-1 gap-6">{children}</div>
 
-        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
+        <div className="bg-panel border-line divide-line rounded-panel divide-y border px-4 py-1">
           {specRows.map((row) => (
             <SpecRow key={row.label} {...row} />
           ))}
@@ -235,7 +235,7 @@ export function WorkerGate({
           // In place of the docket, not under it: nothing will happen to a
           // file here, so there are no stages to show — and the reserve is
           // the taller of the two, not their sum.
-          <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-4">
+          <div className="border-warn/40 bg-warn/10 rounded-panel flex flex-col gap-3 border p-4">
             {off}
             <p className="text-muted text-xs leading-relaxed">
               Nothing is uploaded while the worker is unavailable. A file you
@@ -267,7 +267,7 @@ function TryAgain({ onRetry }: { onRetry: () => void }) {
     <button
       type="button"
       onClick={onRetry}
-      className="border-line text-fg hover:bg-panel inline-flex items-center gap-1.5 self-start rounded-[3px] border px-3 py-1.5 text-sm font-medium transition"
+      className="border-line text-fg hover:bg-panel rounded-ctl inline-flex items-center gap-1.5 self-start border px-3 py-1.5 text-sm font-medium transition"
     >
       <RotateCw className="size-3.5" aria-hidden />
       Try again

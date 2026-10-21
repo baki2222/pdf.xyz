@@ -269,15 +269,15 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
       {rangeError && <ErrorNote message={rangeError} />}
 
       <RunnerSection title="Crop preview">
-        <div className="border-line bg-canvas flex justify-center rounded-[4px] border p-5">
+        <div className="border-line bg-canvas rounded-panel flex justify-center border p-5">
           {preview ? (
             <div
-              className="relative w-full max-w-[200px] overflow-hidden rounded-lg bg-white/90 shadow-sm ring-1 ring-black/10"
+              className="rounded-sheet relative w-full max-w-[200px] overflow-hidden bg-white/90 shadow-sm ring-1 ring-black/10"
               style={{ aspectRatio: `${preview.width} / ${preview.height}` }}
             >
               <span
                 aria-hidden
-                className="border-accent/40 bg-accent/10 absolute rounded-[3px] border border-dashed"
+                className="border-accent/40 bg-accent/10 rounded-ctl absolute border border-dashed"
                 style={{
                   top: `${preview.top}%`,
                   right: `${preview.right}%`,
@@ -290,7 +290,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
             // Still, and the preview frame's own shape — not the pulsing box
             // #184 removed from Edit, Annotate and Redact. Held there by
             // e2e/editor-arrival.spec.ts.
-            <div className="bg-wash relative aspect-[3/4] w-full max-w-[200px] overflow-hidden rounded-lg" />
+            <div className="bg-wash rounded-sheet relative aspect-[3/4] w-full max-w-[200px] overflow-hidden" />
           )}
         </div>
       </RunnerSection>

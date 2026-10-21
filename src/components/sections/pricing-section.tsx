@@ -73,7 +73,7 @@ export function PricingSection() {
           description={`Every one of the ${toolCount} tools is free to use today — no account, no card, no trial clock. Here is exactly how that works and what will change.`}
         />
 
-        <div className="border-line divide-line bg-panel grid divide-y rounded-[4px] border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+        <div className="border-line divide-line bg-panel rounded-panel grid divide-y border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
           {groups.map((group) => (
             <div key={group.name} className="flex flex-col gap-5 p-7 sm:p-8">
               <div className="flex flex-col gap-2">
@@ -104,7 +104,7 @@ export function PricingSection() {
           ))}
         </div>
 
-        <div className="border-line bg-wash flex flex-col items-start gap-4 rounded-[4px] border p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+        <div className="border-line bg-wash rounded-panel flex flex-col items-start gap-4 border p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7">
           <p className="text-muted max-w-2xl text-sm leading-relaxed">
             When paid options arrive they will cover the server-side work above
             — and the in-browser tools stay free. Until then, there is simply
