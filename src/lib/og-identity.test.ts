@@ -3,11 +3,14 @@
  * The brand mark exists in three places and the site is the only one that
  * counts.
  *
- * `logo.tsx` renders the identity a visitor actually sees: a square in the
- * ACCENT beside a mono wordmark. `src/app/icon.svg` is the browser tab, the
- * installed PWA tile and the Apple touch icon. `src/lib/og.tsx` is every
- * social preview and every Google rich result. The last two cannot import the
- * stylesheet or the component, so both restate the mark in literal hex.
+ * `logo.tsx` renders the identity a visitor actually sees: since 2026-10-21
+ * the brand pack's Folded P, a petrol P with a cyan corner fold that is the
+ * first letter of the name. `src/app/icon.svg` is the browser tab.
+ * `src/lib/og.tsx` is every social preview, the Apple touch icon and the PWA
+ * icons. All of them draw from ONE module, `src/lib/brand.ts`, except
+ * `icon.svg`, which cannot import and so restates it — and is held to it
+ * below, element for element. The brand's ink, petrol and paper are the
+ * site's own light tokens, and that is held too.
  *
  * ── WHY THIS FILE EXISTS ────────────────────────────────────────────────────
  *
@@ -48,6 +51,15 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { withoutComments } from "@/lib/tools/copy-surface";
 import { CARD } from "@/lib/og";
+import {
+  BRAND,
+  LOGO_COLOURS,
+  LOGO_GLYPHS,
+  P_BODY,
+  P_FOLD,
+  logoSvg,
+  tileSvg,
+} from "@/lib/brand";
 
 const ROOT = process.cwd();
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -56,12 +68,13 @@ const CSS = read("src/app/globals.css");
 const ICON = read("src/app/icon.svg");
 const OG = read("src/lib/og.tsx");
 const LOGO = read("src/components/layout/logo.tsx");
+const BRAND_SOURCE = read("src/lib/brand.ts");
 
 /**
- * A `--sf-*` value from the DARK block, which is the ground both the icon tile
- * and the social card sit on. Parsed with string operations rather than a
- * regular expression: the sibling guard's first version lost its escapes
- * through a shell and silently matched nothing.
+ * A `--sf-*` value from the DARK block, which is the ground the social card
+ * sits on. Parsed with string operations rather than a regular expression:
+ * the sibling guard's first version lost its escapes through a shell and
+ * silently matched nothing.
  */
 function darkToken(name: string): string {
   const media = CSS.indexOf("@media (prefers-color-scheme: dark)");
@@ -85,12 +98,10 @@ function darkToken(name: string): string {
 }
 
 /**
- * A `--sf-*` value from the LIGHT block. The mark's ground is the light
- * scheme's ink — the same near-black the site sets type in — while the square
- * on top of it is the DARK scheme's accent, because that is the value tuned to
- * sit on ink. Reading each from the block it belongs to is the whole point: an
- * earlier version of this guard asked the dark block for `--sf-invert` and got
- * #e8edf1, the inverse of what the tile paints.
+ * A `--sf-*` value from the LIGHT block, where the brand's ink, petrol and
+ * paper live. Reading each token from the block it belongs to is the whole
+ * point: an earlier version of this guard asked the dark block for
+ * `--sf-invert` and got #e8edf1, the inverse of what it meant.
  */
 function lightToken(name: string): string {
   const media = CSS.indexOf("@media (prefers-color-scheme: dark)");
@@ -136,33 +147,125 @@ const RETIRED = [
  */
 const PIXEL_BLIND_SPOT = ["#94a3b8"];
 
+/**
+ * The drawings the identity has retired, by path commands only they used:
+ * the violet tile's document glyph (twice), then the registration mark's trim
+ * ticks — at 512 in `icon.svg` and at 32 in `og.tsx`. Each `shipped` line is
+ * quoted from the file that shipped it, and the corpus test below proves
+ * every pattern still catches its own excerpt.
+ */
+const RETIRED_DRAWINGS: { pattern: string; shipped: string }[] = [
+  {
+    pattern: "V186 A8 8",
+    shipped: '<path d="M298 104 V186 A8 8 0 0 0 306 194 H388"/>',
+  },
+  { pattern: "M13 3v5h5", shipped: '<path d="M13 3v5h5"/>' },
+  {
+    pattern: "M104 104 H160",
+    shipped: '<path d="M104 104 H160 M104 104 V160"/>',
+  },
+  { pattern: "M6.5 6.5 H10", shipped: '<path d="M6.5 6.5 H10 M6.5 6.5 V10"/>' },
+];
+
+/** `icon.svg` without its comment and the whitespace between its tags. */
+function iconDrawing(source: string): string {
+  return source
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/>\s+</g, "><")
+    .trim();
+}
+
+/** What `tileSvg` draws inside its `<svg>`: the tile, the P and the fold. */
+function tileBody(svg: string): string {
+  return svg.slice(svg.indexOf(">") + 1, svg.lastIndexOf("</svg>"));
+}
+
+/**
+ * The header's logo, as code: it draws the brand module's P and lettering in
+ * both schemes' colours, and nothing of the lockup before it. Run on the
+ * shipped file AND on an excerpt of the retired one, so the predicate is
+ * shown able to fail.
+ */
+function headerDrawsTheFoldedP(source: string): string[] {
+  const code = withoutComments(source);
+  const verdict: string[] = [];
+  for (const needed of [
+    'from "@/lib/brand"',
+    "d={P_BODY}",
+    "d={P_FOLD}",
+    "LOGO_GLYPHS.map",
+    "LOGO_COLOURS.light[role]",
+    "LOGO_COLOURS.dark[role]",
+  ]) {
+    if (!code.includes(needed)) verdict.push("lacks " + needed);
+  }
+  // The previous lockup's tells. Spelt with "·" for the hyphen and restored
+  // at runtime: Tailwind scans this file, and a class written whole here
+  // would ship in the stylesheet.
+  for (const retired of ["reg·square", "bg·accent", "font·mono", "gradient"]) {
+    const word = retired.replace("·", "-");
+    if (code.includes(word)) verdict.push("still has " + word);
+  }
+  return verdict;
+}
+
 describe("the brand mark agrees with the site, not just with itself", () => {
   it("the palette parses (health check)", () => {
     // Without this, every assertion below could compare against nothing.
     expect(darkToken("accent")).toMatch(/^#[0-9a-f]{6}$/);
-    expect(lightToken("invert")).toMatch(/^#[0-9a-f]{6}$/);
-    expect(darkToken("accent")).not.toBe(lightToken("invert"));
+    expect(lightToken("accent")).toMatch(/^#[0-9a-f]{6}$/);
+    expect(darkToken("accent")).not.toBe(lightToken("accent"));
   });
 
-  it("the favicon is drawn in the palette's ink and accent", () => {
-    const icon = ICON.toLowerCase();
-    expect(icon).toContain(lightToken("invert")); // the tile
-    expect(icon).toContain(darkToken("accent")); // the square and trim ticks
+  it("the identity's ink, petrol and paper are the site's light tokens", () => {
+    // The pack was drawn from the live site (its design notes say so), and
+    // this is the binding that keeps that true: change the site's accent and
+    // the logo's P is red here, not quietly a different blue.
+    expect(BRAND.ink).toBe(lightToken("fg"));
+    expect(BRAND.petrol).toBe(lightToken("accent"));
+    expect(BRAND.paper).toBe(lightToken("canvas"));
+    expect(LOGO_COLOURS.light.mark).toBe(lightToken("accent"));
+    expect(LOGO_COLOURS.light.letters).toBe(lightToken("fg"));
   });
 
-  it("the share cards are drawn in the same two values", () => {
-    const og = OG.toLowerCase();
-    expect(og).toContain(lightToken("invert"));
-    expect(og).toContain(darkToken("accent"));
-    // The card ground is the dark canvas, not an invented near-black.
-    expect(og).toContain(darkToken("canvas"));
+  it("icon.svg draws exactly what the brand module draws", () => {
+    // Element for element, not "contains a colour": the favicon is the one
+    // copy that cannot import, so it is compared to the module's own output.
+    const drawn = iconDrawing(ICON);
+    const body = tileBody(tileSvg("favicon"));
+    expect(body.length, "tileSvg drew nothing").toBeGreaterThan(200);
+    expect(body).toContain(P_BODY);
+    expect(body).toContain(P_FOLD);
+    expect(drawn).toContain(body);
+    // Positive control through the same predicate: one colour changed in the
+    // file is a failure, so the comparison can see a drift.
+    expect(iconDrawing(ICON.replace(BRAND.cyan, "#000000"))).not.toContain(
+      body,
+    );
   });
 
-  it("neither copy still carries the retired palette", () => {
+  it("og.tsx draws the logo and the mark from the brand module", () => {
+    const og = withoutComments(OG);
+    expect(og).toContain('from "./brand"');
+    expect(og).toContain('logoSvg("dark")');
+    expect(og).toContain("tileSvg(kind)");
+    // And what logoSvg returns is the whole signature: the P, its fold, and
+    // every glyph of `df.xyz`, in the dark variant's colours.
+    const svg = logoSvg("dark");
+    expect(svg).toContain(P_BODY);
+    expect(svg).toContain(P_FOLD);
+    expect(LOGO_GLYPHS.length).toBe(5);
+    for (const glyph of LOGO_GLYPHS) expect(svg).toContain(glyph.d);
+    for (const colour of Object.values(LOGO_COLOURS.dark))
+      expect(svg).toContain(colour);
+  });
+
+  it("no copy still carries the retired palette", () => {
     const offenders: string[] = [];
     for (const [label, source] of [
       ["src/app/icon.svg", ICON],
       ["src/lib/og.tsx", OG],
+      ["src/lib/brand.ts", BRAND_SOURCE],
     ] as const) {
       for (const hex of RETIRED) {
         if (source.toLowerCase().includes(hex))
@@ -171,39 +274,50 @@ describe("the brand mark agrees with the site, not just with itself", () => {
     }
     expect(
       offenders,
-      "these surfaces still render the identity the header retired:\n  " +
+      "these surfaces still render an identity the header retired:\n  " +
         offenders.join("\n  "),
     ).toEqual([]);
     // Positive control through the same predicate.
     expect(RETIRED.some((hex) => ("fill=" + hex).includes(hex))).toBe(true);
   });
 
-  it("the header's own mark is still the accent square this is derived from", () => {
-    // If the header identity changes again, this guard must be revisited
-    // rather than left asserting a relationship to something that moved.
-    // Comment-stripped, because logo.tsx's own docblock NAMES the retired
-    // mark ("a violet gradient rounded square") — the first version of this
-    // assertion matched that sentence and failed on prose describing the very
-    // thing it was checking was gone. A guard that reads comments is reading
-    // the author, not the product.
-    const logoCode = withoutComments(LOGO);
-    expect(logoCode).toContain("bg-accent");
-    expect(logoCode).not.toContain("gradient");
+  it("the header draws the Folded P, from the brand module", () => {
+    // WAS "the header's own mark is still the accent square this is derived
+    // from": `bg-accent` present, no gradient. That comment said a changed
+    // header identity meant revisiting this guard rather than leaving it
+    // asserting a relationship to something that moved; on 2026-10-21 it
+    // moved, to the brand pack's Folded P, and this is the revisit.
+    expect(headerDrawsTheFoldedP(LOGO)).toEqual([]);
+    // Positive control: the lockup this replaced, excerpted (hyphens as "·"),
+    // fails the same predicate on both counts.
+    const retired = [
+      'import { ActivitySquare } from "./activity-square";',
+      'const SQUARE = "reg·square bg·accent size-2.5";',
+      '<span className="text-fg font·mono font-semibold">pdf</span>',
+    ]
+      .join(String.fromCharCode(10))
+      .replaceAll("·", "-");
+    const verdict = headerDrawsTheFoldedP(retired);
+    expect(verdict).toContain("lacks d={P_BODY}");
+    expect(verdict).toContain("still has bg-accent");
   });
 
-  it("the document glyph is gone from both copies", () => {
-    // The retired mark's tell was a page outline with a folded corner: two
-    // path commands that only that drawing used.
+  it("no retired drawing survives, and every pattern catches its own excerpt", () => {
+    // Both directions (CLAUDE.md rule 1): a pattern nothing exercises is
+    // decoration, so each must match the line it was written from.
+    expect(
+      RETIRED_DRAWINGS.filter((r) => !r.shipped.includes(r.pattern)),
+    ).toEqual([]);
     for (const [label, source] of [
       ["src/app/icon.svg", ICON],
       ["src/lib/og.tsx", OG],
+      ["src/lib/brand.ts", BRAND_SOURCE],
     ] as const) {
-      expect(source, label + " still draws the document glyph").not.toContain(
-        "V186 A8 8",
-      );
-      expect(source, label + " still draws the document glyph").not.toContain(
-        "M13 3v5h5",
-      );
+      for (const { pattern } of RETIRED_DRAWINGS) {
+        expect(source, label + " still draws " + pattern).not.toContain(
+          pattern,
+        );
+      }
     }
   });
 });
@@ -419,7 +533,6 @@ describe("the card palette is the site's palette", () => {
     expect(CARD.faint).toBe(darkToken("faint"));
     expect(CARD.accent).toBe(darkToken("accent"));
     expect(CARD.ok).toBe(darkToken("ok"));
-    expect(CARD.tile).toBe(lightToken("invert"));
   });
 
   it("covers every token a card paints (health check)", () => {
@@ -433,7 +546,6 @@ describe("the card palette is the site's palette", () => {
       "muted",
       "ok",
       "panel",
-      "tile",
     ]);
   });
 
@@ -472,18 +584,30 @@ describe("the card palette is the site's palette", () => {
     expect(registered.has("Inter")).toBe(false);
   });
 
-  it("the lockup splits the wordmark the way the header does", () => {
-    // logo.tsx: an accent square, `pdf` in the foreground, `.xyz` muted. The
-    // card drew `.xyz` in the ACCENT for as long as it had a violet tile —
-    // two independent inventions in one lockup.
-    const logoCode = withoutComments(LOGO);
-    expect(logoCode).toContain("bg-accent");
-    expect(logoCode).toContain("text-muted");
-    expect(logoCode).toContain("font-mono");
-
-    const og = withoutComments(OG);
-    expect(og).toContain("background: CARD.accent");
-    expect(og).toContain("color: CARD.muted");
-    expect(og).toContain('fontFamily: "Geist Mono"');
+  it("the card and the header split the logo's colours the same way", () => {
+    // WAS "the lockup splits the wordmark the way the header does": an accent
+    // square, `pdf` in the foreground, `.xyz` muted, on both. The card once
+    // drew `.xyz` in the ACCENT — two inventions in one lockup — and the same
+    // drift is possible now between the header's two schemes and the card's
+    // one. The header paints each part `light-dark()` of the brand's two
+    // variants by ROLE; the card is the dark variant by the same roles.
+    expect(withoutComments(LOGO)).toContain("style={paint(glyph.role)}");
+    const card = logoSvg("dark");
+    for (const glyph of LOGO_GLYPHS) {
+      // The glyph's own tag: from its `<path` to its `d`, and no further back.
+      const at = card.indexOf(glyph.d);
+      expect(at, "glyph at x " + glyph.x + " not drawn").toBeGreaterThan(0);
+      const tag = card.slice(card.lastIndexOf("<path", at), at);
+      expect(tag, glyph.role + " at x " + glyph.x).toContain(
+        `fill="${LOGO_COLOURS.dark[glyph.role]}"`,
+      );
+    }
+    // `df` and `.xyz` really are two colours in both variants, or the split
+    // this test exists for is not there to keep.
+    for (const scheme of ["light", "dark"] as const) {
+      expect(LOGO_COLOURS[scheme].letters).not.toBe(
+        LOGO_COLOURS[scheme].suffix,
+      );
+    }
   });
 });

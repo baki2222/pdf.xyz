@@ -689,12 +689,13 @@
       rotate 160ms var(--ease-snap);
   }
 
-  /* M16: busy, the square turns a quarter twice and holds still (1s, then
-     hollow and still for as long as the run lasts); done, one ring. */
-  .reg-square[data-activity="busy"] {
+  /* M16: busy, the P's corner folds down and back (1s, then the P is
+     hollow and still for as long as the run lasts); done, one ring leaves
+     its outline. */
+  .reg-mark[data-activity="busy"] .reg-fold {
     animation: reg-turn 1s var(--ease-snap);
   }
-  .reg-square[data-activity="done"] {
+  .reg-mark[data-activity="done"] .reg-body {
     animation: reg-ring 600ms var(--ease-out-expo);
   }
 
@@ -730,19 +731,17 @@
 @keyframes reg-turn {
   15%,
   50% {
-    rotate: 90deg;
-  }
-  65%,
-  to {
-    rotate: 180deg;
+    scale: 0;
   }
 }
 @keyframes reg-ring {
   from {
-    box-shadow: 0 0 0 0 var(--sf-accent);
+    stroke: currentColor;
+    stroke-width: 0;
   }
   to {
-    box-shadow: 0 0 0 6px transparent;
+    stroke: transparent;
+    stroke-width: 40px;
   }
 }
 @keyframes lift {
@@ -752,21 +751,37 @@
   }
 }
 
-/* The activity square's STATES (M16, M2), which reduced motion keeps: hollow
-   while busy, leaning while a file is held over the page. Unlayered, so they
-   win over the square's `bg-accent`. In forced colours the square is the
-   system's text colour, and keeps its fill. */
-.reg-square[data-activity="busy"] {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--sf-accent);
+/* The logo P's STATES (M16, M2), which reduced motion keeps: hollow while
+   busy, leaning from its foot while a file is held over the page. The ring
+   is painted under the fill, so only its outer half shows; the fold turns
+   into its own corner. */
+.reg-mark {
+  transform-box: fill-box;
+  transform-origin: 0 100%;
 }
-html[data-dragging] .reg-square {
-  rotate: 45deg;
+.reg-body {
+  paint-order: stroke;
 }
+.reg-fold {
+  transform-box: fill-box;
+  transform-origin: 100% 0;
+}
+.reg-mark[data-activity="busy"] .reg-body {
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 12px;
+}
+html[data-dragging] .reg-mark {
+  rotate: -12deg;
+}
+/* In forced colours the whole logo, states and all, is the system's text
+   colour. Its parts set `color` inline (`light-dark()` of the brand's two
+   variants), and Chromium gives an SVG `preserve-parent-color`, which keeps
+   an explicit colour, so only an important rule reaches them. Measured: the
+   logo stayed petrol and ink on a black high-contrast ground without it. */
 @media (forced-colors: active) {
-  .reg-square {
-    --sf-accent: CanvasText;
-    forced-color-adjust: none;
+  .brand-logo * {
+    color: CanvasText !important;
   }
 }
 

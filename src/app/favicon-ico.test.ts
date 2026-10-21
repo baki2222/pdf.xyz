@@ -21,11 +21,16 @@
  * `renderBrandMark`, the same source the Apple and PWA icons use — so a
  * failure here means someone changed the mark and did not rebuild, which is a
  * one-command fix rather than a redrawing.
+ *
+ * 2026-10-21: the mark changed again, to the brand pack's Folded P — a white
+ * P with a cyan fold on a rounded petrol tile — and the previous one (an
+ * accent square and trim ticks on an ink tile) joined the retired list below.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { CARD } from "@/lib/og";
+import { BRAND } from "@/lib/brand";
 import { countNear, decodePng, hexToRgb } from "@/lib/png-probe";
 
 const ICO = readFileSync(path.join(process.cwd(), "src/app/favicon.ico"));
@@ -69,20 +74,38 @@ describe("the browser tab icon", () => {
     }
   });
 
-  it.each(decoded)("$size px is drawn in the accent", ({ png, size }) => {
-    // The mark is an ink tile with an accent square and four accent trim
-    // ticks. At 16px the square is ~4px, so the floor is deliberately low —
-    // the state being caught is ZERO, which is what a violet tile scores.
-    const accent = countNear(png, hexToRgb(CARD.accent), 40);
-    expect(accent, `${size}px has no accent pixel at all`).toBeGreaterThan(
-      Math.max(2, (size * size) / 80),
-    );
+  it.each(decoded)("$size px is the white P on petrol", ({ png, size }) => {
+    // The tile is most of the icon and the P about a fifth of it; the floors
+    // are deliberately low — the states being caught are ZERO, which is what
+    // the previous ink tile scores for petrol, and a blank or inverted tile
+    // for white. Measured 2026-10-21: 186 petrol and 30 white of 256 at
+    // 16px, 1,715 and 406 of 2,304 at 48px.
+    const area = size * size;
+    const petrol = countNear(png, hexToRgb(BRAND.petrol), 40);
+    const white = countNear(png, hexToRgb(BRAND.white), 40);
+    expect(petrol, `${size}px has no petrol tile`).toBeGreaterThan(area / 3);
+    expect(white, `${size}px has no white P`).toBeGreaterThan(area / 12);
+    expect(white, `${size}px is more white than a P`).toBeLessThan(area / 3);
   });
 
-  it.each(decoded)("$size px paints none of the retired mark", ({ png }) => {
+  it.each(decoded.filter((image) => image.size >= 32))(
+    "$size px keeps the cyan fold",
+    ({ png }) => {
+      // At 16px the fold is antialiased into its neighbours — one pixel
+      // within tolerance, measured — so it is held from 32 up (6 at 32px,
+      // 27 at 48px).
+      expect(countNear(png, hexToRgb(BRAND.cyan), 40)).toBeGreaterThan(2);
+    },
+  );
+
+  it.each(decoded)("$size px paints none of the retired marks", ({ png }) => {
+    // The violet document tile, and then the registration mark: the dark
+    // accent square and ticks on an ink tile.
     for (const hex of ["#8b5cf6", "#6366f1", "#3b82f6"]) {
       expect(countNear(png, hexToRgb(hex), 40), hex).toBe(0);
     }
+    expect(countNear(png, hexToRgb(CARD.accent), 24), "accent square").toBe(0);
+    expect(countNear(png, hexToRgb(BRAND.ink), 24), "ink tile").toBe(0);
   });
 
   it("is the same mark the other icon surfaces render", () => {
@@ -94,7 +117,7 @@ describe("the browser tab icon", () => {
       path.join(process.cwd(), "scripts/build-favicon.ts"),
       "utf8",
     );
-    expect(script).toContain("renderBrandMark");
+    expect(script).toContain('renderBrandMark(size, "favicon")');
     const pkg = JSON.parse(
       readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
     ) as { scripts: Record<string, string> };

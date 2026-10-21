@@ -3,8 +3,15 @@ import { siteConfig } from "@/lib/site";
 
 /**
  * Web App Manifest — makes pdf.xyz installable and gives the browser proper
- * name/theme metadata. Icons: a scalable SVG plus 192/512 PNGs generated at
- * build time from the shared brand mark (see src/app/manifest-icon-*.png).
+ * name/theme metadata. Icons: a scalable SVG (the favicon's rounded tile)
+ * plus 192/512 PNGs generated at build time from the shared brand mark (see
+ * src/app/manifest-icon-*.png) — the Folded P on a petrol ground that runs to
+ * every edge, the P inside the 80% safe circle, so the 512 is a true maskable
+ * icon and not the rounded tile cropped by a launcher's mask.
+ *
+ * `theme_color` stays the canvas, not the pack's petrol: an installed app's
+ * title bar is the page's own chrome, and `theme-palette-copies.test.ts`
+ * binds every chrome colour to `--sf-canvas`.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
