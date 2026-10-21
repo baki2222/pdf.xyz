@@ -32,11 +32,12 @@ describe("tool families", () => {
     const families = toolFamilies();
     for (const tool of tools) {
       const homes = families.filter((f) => f.tools.includes(tool));
-      expect(homes.map((f) => f.id), tool.slug).toEqual([familyOf(tool)]);
+      expect(
+        homes.map((f) => f.id),
+        tool.slug,
+      ).toEqual([familyOf(tool)]);
     }
-    expect(families.reduce((n, f) => n + f.tools.length, 0)).toBe(
-      tools.length,
-    );
+    expect(families.reduce((n, f) => n + f.tools.length, 0)).toBe(tools.length);
   });
 
   it("fold only categories that share a first word: Convert holds both directions", () => {

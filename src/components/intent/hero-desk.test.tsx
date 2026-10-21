@@ -82,7 +82,7 @@ function Desk() {
       id="upload"
       accept={acceptAttribute()}
       acceptHint="PDF up to 100 MB"
-      tasks={<p>tasks</p>}
+      note={<p>note</p>}
     />
   );
 }

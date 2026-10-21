@@ -153,7 +153,8 @@ const ALLOWED: { file: string; arm: Arm; reason: string }[] = [
 const FULL: { file: string; count: number; reason: string }[] = [
   { file: "src/app/workspace/loading.tsx", count: 1, reason: "spinner" },
   {
-    file: "src/components/intent/hero-desk.tsx",
+    // Moved from the desk to the hero's trust line on 2026-10-21.
+    file: "src/components/sections/hero.tsx",
     count: 1,
     reason: "status dot (ok)",
   },

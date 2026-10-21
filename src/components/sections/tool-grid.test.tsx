@@ -6,7 +6,7 @@
  *
  * WAS a table of contents: fifty dot-leader rows under eight category heads,
  * each row wearing a mono uppercase mode label ("SECURE WORKER"), and on a
- * phone only three rows per category shown (`tool-showcase.test.tsx`,
+ * phone only three rows per category shown (the tool-showcase test,
  * retired with the section; its "links every tool" property lives on here).
  *
  * Read from the RENDERED HOME PAGE (`renderToStaticMarkup(<HomePage />)`),
@@ -33,7 +33,9 @@ function served(): Document {
 /** The cards: the items of the tools section's list of links. */
 function cards(root: ParentNode): HTMLLIElement[] {
   return [
-    ...root.querySelectorAll<HTMLLIElement>("section#tools ul[data-tool-grid] > li"),
+    ...root.querySelectorAll<HTMLLIElement>(
+      "section#tools ul[data-tool-grid] > li",
+    ),
   ];
 }
 

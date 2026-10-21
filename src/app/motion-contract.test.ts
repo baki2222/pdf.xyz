@@ -112,7 +112,11 @@ describe("the corpus is the whole stylesheet and everything that ships", () => {
     // activity square's turn and ring, the masthead lift, the drawn rule,
     // the station light and the glyph's move. A floor below the real count
     // would let a reader that lost the stylesheet's motion region pass.
-    expect(keyframesIn(css).length).toBeGreaterThanOrEqual(8);
+    // WAS 8 until 2026-10-21: the drawn rule (M18), the station light (M19)
+    // and the glyph's move (M22) left with the stats band, the workflow
+    // section and the desk's task list. Five remain: sweep, rise, turn,
+    // ring, lift.
+    expect(keyframesIn(css).length).toBeGreaterThanOrEqual(5);
     // 16 animate-* tokens on 2026-10-09 (pulse, spin, float-up). A reader
     // that lost the literals would find none and pass both directions below.
     expect(

@@ -1719,8 +1719,10 @@ test.describe("the home desk as files arrive", () => {
             device.use.viewport.width,
           );
           // Health: the reading saw the hero's parts and what follows it
-          // (kicker, title, desk, lede, actions, trust, next section).
-          expect(m.witnesses).toBeGreaterThanOrEqual(7);
+          // (title, desk, lede, trust, next section). WAS 7 — kicker, title,
+          // desk, lede, actions, trust, next section — until the plain hero
+          // of 2026-10-21 dropped the kicker and the two links.
+          expect(m.witnesses).toBeGreaterThanOrEqual(5);
           expect(m.boxAfter, "the desk changed height").toBe(m.boxBefore);
           expect(m.moved, "something around or under the desk moved").toEqual(
             [],

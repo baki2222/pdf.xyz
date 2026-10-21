@@ -83,8 +83,11 @@ describe("category links go through categoryHref", () => {
     expect(files.length).toBeGreaterThan(200);
     for (const known of [
       "src/lib/site.ts",
-      "src/components/sections/ai-section.tsx",
-      "src/components/sections/tool-showcase.tsx",
+      // ai-section.tsx and tool-showcase.tsx linked categories until the
+      // home page's plain redesign (2026-10-21) retired both; the category
+      // page and the tool page still do.
+      "src/app/tools/category/[category]/page.tsx",
+      "src/app/tools/[slug]/page.tsx",
       "src/components/tools/tools-explorer.tsx",
     ]) {
       expect(sources.has(known), known).toBe(true);

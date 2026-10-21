@@ -66,25 +66,18 @@ export interface Task {
 }
 
 /**
- * The glyph a hero task is drawn with. Named here so the task and its
- * picture travel together; `TaskGlyph` (src/components/intent/task-glyph.tsx)
- * draws each one, in the home desk's task list.
+ * Six jobs in a person's words, first in the search's aliases. WAS the home
+ * desk's "Start from a task" list, each drawn with its own glyph; the list
+ * and the glyphs retired on 2026-10-21, when every tool became a card on
+ * the home page.
  */
-export type TaskGlyphName =
-  "compress" | "merge" | "sign" | "photos" | "to-word" | "ocr";
-
-export interface HeroTask extends Task {
-  readonly glyph: TaskGlyphName;
-}
-
-/** Six jobs to offer before a file arrives, each with its glyph. */
-export const HERO_TASKS: readonly HeroTask[] = [
-  { label: "Make a PDF smaller", slug: "compress-pdf", glyph: "compress" },
-  { label: "Combine PDFs", slug: "merge-pdf", glyph: "merge" },
-  { label: "Sign a PDF", slug: "sign-pdf", glyph: "sign" },
-  { label: "Photos to PDF", slug: "jpg-to-pdf", glyph: "photos" },
-  { label: "PDF to Word", slug: "pdf-to-word", glyph: "to-word" },
-  { label: "Make a scan searchable", slug: "ocr-pdf", glyph: "ocr" },
+export const HERO_TASKS: readonly Task[] = [
+  { label: "Make a PDF smaller", slug: "compress-pdf" },
+  { label: "Combine PDFs", slug: "merge-pdf" },
+  { label: "Sign a PDF", slug: "sign-pdf" },
+  { label: "Photos to PDF", slug: "jpg-to-pdf" },
+  { label: "PDF to Word", slug: "pdf-to-word" },
+  { label: "Make a scan searchable", slug: "ocr-pdf" },
 ];
 
 /**
@@ -92,7 +85,7 @@ export const HERO_TASKS: readonly HeroTask[] = [
  * so what the home page says a tool does is also what finds it.
  */
 export const TASKS: readonly Task[] = [
-  ...HERO_TASKS.map(({ label, slug }) => ({ label, slug })),
+  ...HERO_TASKS,
   { label: "Split a PDF into parts", slug: "split-pdf" },
   { label: "Delete a page", slug: "remove-pages" },
   { label: "Pull out some pages", slug: "extract-pages" },

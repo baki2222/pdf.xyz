@@ -49,10 +49,8 @@ import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { WorkflowSection } from "@/components/sections/workflow-section";
-import { handoffCapabilityFor } from "@/lib/handoff/capability";
+import HomePage from "@/app/page";
 import { browserPdfDeadEnds, browserPdfTools } from "@/lib/intent/dead-ends";
-import { continueTargetsFor } from "@/lib/intent/next-steps";
 import {
   copyFiles,
   flattenForPhraseSearch,
@@ -129,9 +127,14 @@ const GATED: ReadonlyArray<{
   },
 ];
 
-/** Visible text of the rendered section, tags dropped. */
+/**
+ * Visible text of the rendered HOME PAGE, tags dropped. WAS the workflow
+ * section alone (WP-13), which retired on 2026-10-21 with the plain home
+ * page; its successor, "How it works", is read as part of the whole page,
+ * so a claim moved into any home section is read too.
+ */
 function sectionText(): string {
-  const html = renderToStaticMarkup(createElement(WorkflowSection));
+  const html = renderToStaticMarkup(createElement(HomePage));
   return html
     .replace(/<[^>]+>/g, " ")
     .replace(/&#x27;|&#39;/g, "'")
@@ -162,9 +165,11 @@ describe("workflow-feature claims — the ban list and its corpus", () => {
 describe("no surface sells chaining, presets or reruns", () => {
   const files = copyFiles();
 
-  it("health: the walk reaches the homepage's workspace section", () => {
+  it("health: the walk reaches the homepage's steps section", () => {
+    // WAS workflow-section.tsx, retired 2026-10-21; How it works is where a
+    // workflow claim would now be written.
     expect(files.map(rel)).toContain(
-      "src/components/sections/workflow-section.tsx",
+      "src/components/sections/how-it-works.tsx",
     );
   });
 
@@ -182,79 +187,30 @@ describe("no surface sells chaining, presets or reruns", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("finds no claim in the RENDERED section either", () => {
-    const html = renderToStaticMarkup(createElement(WorkflowSection));
-    const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect(text.length).toBeGreaterThan(200);
+  it("finds no claim in the RENDERED home page either", () => {
+    const text = sectionText();
+    expect(text.length).toBeGreaterThan(2000);
     expect(hits(text)).toEqual([]);
   });
 });
 
-describe("the final narrative (WP-13)", () => {
-  it("the section renders the heading and the three steps", () => {
+/*
+ * RETIRED 2026-10-21, history kept. "The final narrative (WP-13)" asserted the
+ * home page rendered NARRATIVE's heading and three steps, and "the stations
+ * are a chain the product really offers" read the section's five
+ * `data-station` items and held each consecutive pair to an edge the
+ * result's "Continue with" row offers. Both pinned the workflow section,
+ * which the owner's plain redesign removed (its steps are now "How it
+ * works", which names no chain). The narrative's sentences stay in
+ * MUST_SURVIVE as true sentences no ban pattern may catch; the chain
+ * property lives on in `next-steps.test.ts`, whose subject it always was.
+ */
+describe("the final narrative (WP-13) no longer ships", () => {
+  it("the home page renders neither its heading nor its stations", () => {
     const text = sectionText();
-    expect(text).toContain(NARRATIVE.heading);
-    for (const step of NARRATIVE.steps) expect(text).toContain(step);
-  });
-});
-
-/** The rendered strip's stations, in order: `data-station` and its label. */
-function stations(): { station: string; label: string }[] {
-  const html = renderToStaticMarkup(createElement(WorkflowSection));
-  return [
-    ...html.matchAll(
-      /data-station="([^"]+)"[\s\S]*?<span[^>]*data-station-label[^>]*>([^<]+)<\/span>/g,
-    ),
-  ].map((m) => ({ station: m[1]!, label: m[2]! }));
-}
-
-describe("the stations are a chain the product really offers", () => {
-  it("health: the strip renders four tools and ends on Download", () => {
-    const list = stations();
-    expect(list.map((s) => s.label)).toEqual([
-      "Merge",
-      "Compress",
-      "Page numbers",
-      "Sign",
-      "Download",
-    ]);
-    expect(list.at(-1)!.station).toBe("download");
-  });
-
-  it("every tool station names a catalogue tool with an in-browser handoff", () => {
-    const list = stations().filter((s) => s.station !== "download");
-    expect(list.length).toBeGreaterThanOrEqual(3);
-    for (const { station, label } of list) {
-      const tool = tools.find((t) => t.slug === station);
-      expect(tool, `${station} is not a tool`).toBeDefined();
-      // The chip's words are the tool's own name, minus the trailing "PDF".
-      expect(tool!.name.toLowerCase()).toContain(label.toLowerCase());
-      expect(handoffCapabilityFor(station).supported, station).toBe(true);
-    }
-  });
-
-  it("each consecutive pair is a step the result's Continue with row offers", () => {
-    const chain = stations()
-      .filter((s) => s.station !== "download")
-      .map((s) => s.station);
-    const broken: string[] = [];
-    for (let i = 0; i + 1 < chain.length; i++) {
-      const from = tools.find((t) => t.slug === chain[i])!;
-      const offered = continueTargetsFor(from, tools).targets.map(
-        (t) => t.slug,
-      );
-      if (!offered.includes(chain[i + 1]!))
-        broken.push(`${chain[i]} -> ${chain[i + 1]}`);
-    }
-    expect(broken).toEqual([]);
-  });
-
-  it("POSITIVE CONTROL: the edge check sees a pair that does not follow", () => {
-    // Sign PDF is followed only by finishing steps; Merge is not one.
-    const sign = tools.find((t) => t.slug === "sign-pdf")!;
-    expect(
-      continueTargetsFor(sign, tools).targets.map((t) => t.slug),
-    ).not.toContain("merge-pdf");
+    expect(text).not.toContain(NARRATIVE.heading);
+    const html = renderToStaticMarkup(createElement(HomePage));
+    expect(html).not.toMatch(/data-station=/);
   });
 });
 
@@ -269,9 +225,14 @@ describe("gated claims ship only while their property holds", () => {
     }
   });
 
-  it("health: the gated sentence is live, so the gate is exercised", () => {
-    const text = sectionText();
-    expect(GATED.some((g) => g.pattern.test(text))).toBe(true);
+  // INVERTED 2026-10-21: "the gated sentence is live, so the gate is
+  // exercised". Step 3 left with the workflow section, so no surface ships
+  // the gated shape today and the check below reads its surfaces without a
+  // match. What keeps that from being a blind pass is that the surfaces are
+  // real and the pattern still bites its corpus (the test above).
+  it("health: the gate reads real surfaces", () => {
+    expect(sectionText().length).toBeGreaterThan(2000);
+    expect(copyFiles().length).toBeGreaterThanOrEqual(20);
   });
 
   it("a gated claim on any visitor surface has its property holding", () => {

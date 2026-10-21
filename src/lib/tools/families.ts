@@ -50,7 +50,9 @@ export function toolFamilies(): ToolFamily[] {
     const ids = members.get(id)!;
     const own = categories.filter((c) => ids.includes(c.id));
     const label =
-      own.length === 1 ? own[0]!.short : sharedFirstWord(own.map((c) => c.name));
+      own.length === 1
+        ? own[0]!.short
+        : sharedFirstWord(own.map((c) => c.name));
     return {
       id,
       label,

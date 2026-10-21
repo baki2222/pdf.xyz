@@ -77,9 +77,7 @@ describe("the home card's words", () => {
   });
 
   it("every shipped specialist line is caught by some pattern", () => {
-    expect(SHIPPED_JARGON.filter((s) => jargonIn(s).length === 0)).toEqual(
-      [],
-    );
+    expect(SHIPPED_JARGON.filter((s) => jargonIn(s).length === 0)).toEqual([]);
   });
 
   it("every pattern catches some shipped line", () => {

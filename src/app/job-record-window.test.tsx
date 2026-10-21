@@ -22,9 +22,11 @@
  * and hand-typed words do not.
  *
  * The sentences are DISCOVERED (every sentence in the rendered markup that
- * mentions a job record), never listed, and there must be at least three of
- * them — the card, the FAQ answer, and its JSON-LD twin — so a page that
- * stopped rendering one cannot pass by saying less.
+ * mentions a job record), never listed, and there must be at least two of
+ * them — the FAQ answer and its JSON-LD twin — so a page that stopped
+ * rendering one cannot pass by saying less. WAS three until 2026-10-21: the
+ * security card ("Auto-deleted on a schedule") retired with the privacy
+ * grid in the plain redesign; /privacy states the window in full.
  *
  * DEFAULT, not the live value: production can override the TTL with
  * `PDFXYZ_QUEUE_JOB_TTL_SECONDS`, which a static page cannot read. The
@@ -82,11 +84,11 @@ describe("the homepage states the job record's lifetime the queue enforces", () 
   const text = servedText(renderToStaticMarkup(<HomePage />));
   const sentences = jobRecordSentences(text);
 
-  it("finds the card, the FAQ answer and its JSON-LD twin", () => {
+  it("finds the FAQ answer and its JSON-LD twin", () => {
     expect(
       sentences.length,
       `job-record sentences found:\n  ${sentences.join("\n  ")}`,
-    ).toBeGreaterThanOrEqual(3);
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("every one of them states DEFAULT_JOB_TTL_SECONDS", () => {

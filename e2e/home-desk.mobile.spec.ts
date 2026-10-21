@@ -189,23 +189,26 @@ test.describe("each row shows what its click carries, uncut", () => {
   });
 });
 
-test("each task shows where its tool runs, and the legend says what the shapes mean", async ({
+/*
+ * INVERTED 2026-10-21, history kept. This was "each task shows where its tool
+ * runs, and the legend says what the shapes mean": the desk's six "Start
+ * from a task" links, each named with its mode word ("Make a scan
+ * searchable, Secure worker") and drawn with two glyphs. The owner's plain
+ * redesign took the task list out of the desk — every tool is now a card
+ * under the hero, its badge in plain words — so the list must be GONE, and
+ * where a tool runs is said on its card, visibly, on a phone too.
+ */
+test("the desk carries no task list; each card says where its tool runs, in plain words", async ({
   page,
 }) => {
   await page.goto("/");
-  const tasks = page.getByRole("list", { name: "Start from a task" });
-  const links = tasks.getByRole("link");
-  await expect(links).toHaveCount(6);
-  // The mode word is not drawn on a phone, but it is in each link's name.
   await expect(
-    tasks.getByRole("link", {
-      // The sr-only word is a separate box: the name puts a space before it.
-      name: /^Make a scan searchable\s?, Secure worker$/,
-    }),
-  ).toBeVisible();
-  for (const link of await links.all())
-    expect(
-      await link.locator("svg[aria-hidden]").count(),
-    ).toBeGreaterThanOrEqual(2);
-  await expect(page.getByText("uploads only when you start it")).toBeVisible();
+    page.getByRole("list", { name: "Start from a task" }),
+  ).toHaveCount(0);
+  const card = page
+    .locator("section#tools ul[data-tool-grid] > li")
+    .filter({ has: page.locator('a[href="/tools/ocr-pdf"]') });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("Secure server", { exact: true })).toBeVisible();
+  await expect(card).not.toContainText(/worker/i);
 });

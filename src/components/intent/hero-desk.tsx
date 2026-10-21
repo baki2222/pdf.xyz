@@ -48,9 +48,16 @@ function focusOrphaned(): boolean {
  *
  * IDLE is server-rendered and works before hydration: "Choose files" is a
  * label around a native file input, the caption under it is generated from
- * the same list as the input's `accept` (both passed in by the server, so
- * this island imports neither the list nor the catalogue), and the six task
- * links are the server's own markup, passed through.
+ * the same list as the input's `accept`, and the note under that is the
+ * server's own markup (all passed in by the server, so this island imports
+ * neither the list nor the catalogue).
+ *
+ * WAS a working desk on the first screen — a mono "Drop a file · checked in
+ * this tab" kicker, the six "Start from a task" links with their mode
+ * shapes, and a perforation between them. The owner's brief (2026-10-21)
+ * found the home page read as a developer's tool; the tasks became the tool
+ * cards under the hero, and the idle desk is now a plain drop area: the
+ * button, the drop hint, what it takes, and one sentence on where files go.
  *
  * WITH FILES, the box's content swaps in place (one height, so nothing
  * below moves): the rows land at once, the ticket's chunk is fetched if the
@@ -66,15 +73,15 @@ export function HeroDesk({
   id,
   accept,
   acceptHint,
-  tasks,
+  note,
 }: {
   /** The anchor every "Choose files" link on the page points at. */
   id: string;
   /** The picker's `accept`, generated on the server with the caption. */
   accept: string;
   acceptHint: string;
-  /** The server-rendered task list, label included. */
-  tasks: ReactNode;
+  /** The server-rendered sentence on where the files go. */
+  note: ReactNode;
 }) {
   const ticket = useTicket();
   const { state, add, clear, dispatch } = ticket;
@@ -215,20 +222,24 @@ export function HeroDesk({
               </div>
               <div
                 ref={idleRef}
-                className={cn("flex flex-col", !idle && "invisible")}
+                className={cn(
+                  "flex flex-col items-center justify-center text-center",
+                  !idle && "invisible",
+                )}
                 inert={!idle}
                 aria-hidden={!idle || undefined}
               >
-                <p className="kicker text-faint">
-                  Drop a file<span aria-hidden> · </span>
-                  <span className="sr-only">, </span>checked in this tab
-                </p>
+                <FilePlus
+                  className="text-accent size-10"
+                  strokeWidth={1.25}
+                  aria-hidden
+                />
                 <DropSheetPick
                   className={buttonVariants({
                     variant: "primary",
                     size: "lg",
                     className: cn(
-                      "mt-3 w-full cursor-pointer",
+                      "mt-4 w-full max-w-xs cursor-pointer",
                       "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2",
                       "motion-safe:active:translate-y-px",
                     ),
@@ -250,20 +261,9 @@ export function HeroDesk({
                 >
                   {acceptHint}
                 </p>
-                <p className="text-muted mt-1.5 flex gap-2 text-xs leading-snug text-pretty">
-                  <span
-                    aria-hidden
-                    className="bg-ok mt-[0.3rem] size-1.5 shrink-0 rounded-full"
-                  />
-                  <span>
-                    Your files stay in this browser until you start a step
-                    marked Secure worker or AI.
-                  </span>
-                </p>
+                {note}
                 <SamplePdfButton className="mt-1" onSample={onSample} />
-                <div aria-hidden className="perforation my-2.5" />
-                {tasks}
-                <RecentsSlot className="mt-auto pt-1" />
+                <RecentsSlot className="w-full pt-1" />
               </div>
               {!idle && (
                 <section

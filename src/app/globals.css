@@ -647,10 +647,11 @@
  *  WP-12, the signature layer, moves only INK, never words (F.1;
  *  `e2e/motion.spec.ts` "words stay"): the masthead's square turning while
  *  work is busy and ringing once when it is done (M16), the masthead's
- *  rule lifting off the page as it scrolls (M17), the stats rule drawing
- *  from its cap (M18), the workflow's stations lighting as they pass
- *  (M19), an FAQ answer opening (M20), a task glyph's parts moving on hover
- *  or focus (M22). Each has a still end state that says the same thing, and
+ *  rule lifting off the page as it scrolls (M17), and an FAQ answer
+ *  opening (M20). The stats rule drawing (M18), the workflow's stations
+ *  lighting (M19) and the task glyphs moving (M22) went with the surfaces
+ *  they moved, in the home page's plain redesign (2026-10-21). Each that
+ *  remains has a still end state that says the same thing, and
  *  that state is all a reduced-motion reader gets (`e2e/motion.rm.spec.ts`).
  *  The rest of the ending's motion — the dimension line drawing (M9), the
  *  proof ring (M10), Continue rows in turn (M11), the rail's steps (M12),
@@ -697,12 +698,6 @@
     animation: reg-ring 600ms var(--ease-out-expo);
   }
 
-  /* M22: a task glyph's parts perform their task once, and land where they
-     started — on hover or keyboard focus of the task's link. */
-  :is(a:hover, a:focus-visible) [data-part] {
-    animation: glyph 900ms var(--ease-snap);
-  }
-
   /* M20: an FAQ answer opens to its height rather than appearing. */
   @supports selector(::details-content) {
     .faq-item {
@@ -720,7 +715,7 @@
     }
   }
 
-  /* Scroll-linked (M17-M19). `animation-timeline` after the shorthand, which
+  /* Scroll-linked (M17). `animation-timeline` after the shorthand, which
      resets it. */
   @supports (animation-timeline: view()) {
     /* M17: the masthead's rule lifts as the page scrolls under it. */
@@ -728,19 +723,6 @@
       animation: lift linear both;
       animation-timeline: scroll(root);
       animation-range: 0 64px;
-    }
-    /* M18: the stats rule draws out from its first cap. */
-    [data-draw] {
-      transform-origin: left;
-      animation: draw-x linear both;
-      animation-timeline: view();
-      animation-range: entry 0% cover 25%;
-    }
-    /* M19: each station's chip takes the accent as it passes mid-screen. */
-    .workflow-station-chip {
-      animation: station linear both;
-      animation-timeline: view();
-      animation-range: cover 0% cover 50%;
     }
   }
 }
@@ -763,25 +745,10 @@
     box-shadow: 0 0 0 6px transparent;
   }
 }
-@keyframes glyph {
-  50% {
-    translate: var(--gx, 0) var(--gy, 0);
-  }
-}
 @keyframes lift {
   to {
     border-color: var(--sf-line-strong);
     box-shadow: 0 1px 0 var(--sf-line);
-  }
-}
-@keyframes draw-x {
-  from {
-    transform: scaleX(0);
-  }
-}
-@keyframes station {
-  to {
-    border-color: var(--sf-accent);
   }
 }
 
@@ -801,36 +768,6 @@ html[data-dragging] .reg-square {
     --sf-accent: CanvasText;
     forced-color-adjust: none;
   }
-}
-
-/* What each task glyph's part does (M22), in the glyph's own 24px units. */
-[data-part="press-top"] {
-  --gy: 1.5px;
-}
-[data-part="press-bottom"] {
-  --gy: -1.5px;
-}
-[data-part="left"] {
-  --gx: 1.5px;
-  --gy: 1.5px;
-}
-[data-part="right"] {
-  --gx: -1.5px;
-  --gy: 1.5px;
-}
-[data-part="stroke"],
-[data-part="arrow"] {
-  --gx: 1.5px;
-}
-[data-part="nib"] {
-  --gx: -1.5px;
-  --gy: 1.5px;
-}
-[data-part="photo"] {
-  --gx: 2px;
-}
-[data-part="lines"] {
-  --gy: 1px;
 }
 
 /* A view transition's overlay never takes a click meant for the page

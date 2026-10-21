@@ -1,50 +1,58 @@
 import { Container } from "@/components/ui/container";
-import { SectionHeading } from "@/components/ui/section-heading";
 import { faqs } from "@/lib/faq";
+import { siteConfig } from "@/lib/site";
 
 /**
- * A numbered, ruled register beside the heading — the same index voice as
- * the workflow steps and the catalogue, so the accordion stops being the
- * one generic block on the page. The numerals are decoration (aria-hidden);
- * the questions and answers carry the words, unchanged.
+ * The FAQ: every question in `faqs` — the same list the page's FAQPage
+ * JSON-LD is built from, so what a crawler is told is what a reader can
+ * open — as plain disclosure rows. WAS a numbered register beside a large
+ * heading, with mono numerals; the questions and answers are unchanged.
+ *
+ * The contact line closes it, and carries `#contact` (linked from the
+ * footer); it was the About section's "Talk to us" panel until 2026-10-21.
  */
 export function FaqSection() {
   return (
     <section
       id="faq"
-      className="border-line scroll-mt-24 border-b py-20 sm:py-24"
+      className="border-line scroll-mt-24 border-b py-10 sm:py-14"
     >
-      <Container className="grid gap-12 lg:grid-cols-12">
-        <SectionHeading
-          className="lg:col-span-4"
-          eyebrow="FAQ"
-          title="Questions, answered"
-          description="Everything you might want to know before dropping in your first file."
-        />
-
-        <div className="border-line flex flex-col self-start border-t lg:col-span-8">
-          {faqs.map((faq, i) => (
-            <details
-              key={faq.q}
-              className="faq-item group border-line hover:bg-wash border-b transition-colors [&_summary::-webkit-details-marker]:hidden"
+      <Container className="grid gap-8 lg:grid-cols-12">
+        <h2 className="font-display text-fg text-display-2 font-medium text-balance lg:col-span-4">
+          Questions, answered
+        </h2>
+        <div className="lg:col-span-8">
+          <div className="border-line border-t">
+            {faqs.map((faq) => (
+              <details
+                key={faq.q}
+                className="faq-item group border-line border-b [&_summary::-webkit-details-marker]:hidden"
+              >
+                <summary className="text-fg hover:text-accent flex cursor-pointer items-center justify-between gap-4 py-4 text-[15px] font-medium transition-colors">
+                  {faq.q}
+                  <span
+                    aria-hidden
+                    className="text-faint shrink-0 text-lg leading-none transition-transform group-open:rotate-45"
+                  >
+                    +
+                  </span>
+                </summary>
+                <p className="text-muted max-w-2xl pb-4 text-sm leading-relaxed">
+                  {faq.a}
+                </p>
+              </details>
+            ))}
+          </div>
+          <p id="contact" className="text-muted mt-6 scroll-mt-24 text-sm">
+            Another question? Write to{" "}
+            <a
+              href={`mailto:${siteConfig.contactEmail}`}
+              className="text-accent font-medium underline-offset-4 hover:underline"
             >
-              <summary className="grid cursor-pointer grid-cols-[2.5rem_1fr_auto] items-baseline gap-3 px-1 py-5">
-                <span className="text-accent font-mono text-xs" aria-hidden>
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span className="text-fg text-[15px] font-medium">{faq.q}</span>
-                <span
-                  className="text-faint shrink-0 self-center font-mono text-lg leading-none transition-transform group-open:rotate-45"
-                  aria-hidden
-                >
-                  +
-                </span>
-              </summary>
-              <p className="text-muted max-w-2xl px-1 pb-5 pl-[3.25rem] text-sm leading-relaxed">
-                {faq.a}
-              </p>
-            </details>
-          ))}
+              {siteConfig.contactEmail}
+            </a>
+            .
+          </p>
         </div>
       </Container>
     </section>

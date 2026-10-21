@@ -133,6 +133,7 @@ import {
 } from "@/lib/workers/heartbeat";
 import { toolFacts } from "./tool-facts";
 import {
+  cardSummary,
   pageContent,
   pageFaq,
   pageIntro,
@@ -165,6 +166,7 @@ function catalogueCopy(): CopyEntry[] {
     at("name", tool.name);
     if (tool.seoTitle) at("seoTitle", tool.seoTitle);
     at("tagline", tool.tagline);
+    if (tool.cardSummary) at("cardSummary", cardSummary(tool));
     at("description", tool.description);
     tool.keywords.forEach((k, i) => at(`keywords[${i}]`, k));
     // Through `page-copy`, the accessors the page renders — since

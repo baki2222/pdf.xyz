@@ -201,10 +201,10 @@ describe("the surface set is alive", () => {
   it("covers the scene of the shipped defect", () => {
     // The sentence lived in cta-section.tsx. A surface that cannot see the
     // file this guard exists because of is the wrong surface, whatever else
-    // it covers.
-    expect(files.map(relative)).toContain(
-      "src/components/sections/cta-section.tsx",
-    );
+    // it covers. That band retired on 2026-10-21 (the plain home page); the
+    // home page's pitch now lives in the hero, which is where such a claim
+    // would be written next.
+    expect(files.map(relative)).toContain("src/components/sections/hero.tsx");
   });
 });
 
