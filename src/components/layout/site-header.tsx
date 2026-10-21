@@ -21,13 +21,17 @@ import { OpenFilesButton } from "./open-files-button";
  * file input — "Open files" opens the page's own picker — so the first file
  * input on any page is that page's (G.5 trap 3, site-landmarks.test.tsx).
  * Its height is `--sf-header-h`, which the scroll padding also reads
- * (scroll-behavior.test.ts).
+ * (scroll-behavior.test.ts). Scrolled off the top, its rule lifts (M17,
+ * `data-masthead`); its square reports the page's activity (M16).
  */
 export function SiteHeader() {
   return (
-    <header className="bg-canvas border-line sticky top-0 z-50 border-b">
+    <header
+      data-masthead
+      className="bg-canvas border-line sticky top-0 z-50 border-b"
+    >
       <Container className="flex h-[var(--sf-header-h)] items-center gap-6">
-        <Logo />
+        <Logo live />
 
         <nav className="hidden items-center gap-5 md:flex" aria-label="Primary">
           <NavLinks variant="bar" />

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reportActivity, resetActivityForTests } from "@/lib/activity/bus";
-import { TAB_SIGNAL_MIN_MS, TabSignal } from "./tab-signal";
+import { TabSignal } from "./tab-signal";
+import { TAB_SIGNAL_MIN_MS, startTabSignal } from "./tab-signal-engine";
 
 /**
  * C.2 TabSignal: a run that ends while its tab is hidden says so in the tab —
@@ -18,11 +19,15 @@ beforeEach(() => {
     configurable: true,
     get: () => visibility,
   });
-  document.title = "Merge PDF — pdf.xyz";
   document.head.innerHTML = `<link rel="icon" href="${ICON}" type="image/svg+xml" sizes="any">`;
+  // After the head is replaced: its <title> went with it.
+  document.title = "Merge PDF — pdf.xyz";
   document.documentElement.style.setProperty("--sf-accent", "rgb(7, 86, 122)");
 });
+let stop: (() => void) | null = null;
 afterEach(() => {
+  stop?.();
+  stop = null;
   cleanup();
   resetActivityForTests();
   vi.restoreAllMocks();
@@ -52,8 +57,23 @@ function show() {
 }
 
 describe("TabSignal", () => {
+  it("the component starts the signal: mounted, a hidden run's end is marked; unmounted, nothing is", async () => {
+    const { unmount } = render(<TabSignal />);
+    // The engine is fetched after mount; it is listening once a run's end
+    // marks the title.
+    await waitFor(() => {
+      run(TAB_SIGNAL_MIN_MS, "done", "hidden");
+      expect(document.title).toBe("Done · Merge PDF — pdf.xyz");
+    });
+    unmount();
+    // Unmounting restores, and stops listening.
+    expect(document.title).toBe("Merge PDF — pdf.xyz");
+    run(TAB_SIGNAL_MIN_MS, "done", "hidden");
+    expect(document.title).toBe("Merge PDF — pdf.xyz");
+  });
+
   it("a long run that finishes in a hidden tab marks its title and icon, and visible restores both", () => {
-    render(<TabSignal />);
+    stop = startTabSignal();
     run(TAB_SIGNAL_MIN_MS + 500, "done", "hidden");
     expect(document.title).toBe("Done · Merge PDF — pdf.xyz");
     expect(icon()).toMatch(/^data:image\/svg\+xml,/);
@@ -65,13 +85,13 @@ describe("TabSignal", () => {
   });
 
   it("a failure says it needs attention", () => {
-    render(<TabSignal />);
+    stop = startTabSignal();
     run(TAB_SIGNAL_MIN_MS, "failed", "hidden");
     expect(document.title).toBe("Needs attention · Merge PDF — pdf.xyz");
   });
 
   it("a short run, or one that ends in view, changes nothing", () => {
-    render(<TabSignal />);
+    stop = startTabSignal();
     run(TAB_SIGNAL_MIN_MS - 1, "done", "hidden");
     expect(document.title).toBe("Merge PDF — pdf.xyz");
     expect(icon()).toBe(ICON);
@@ -81,7 +101,7 @@ describe("TabSignal", () => {
   });
 
   it("two finished runs before the reader comes back prefix the title once", () => {
-    render(<TabSignal />);
+    stop = startTabSignal();
     run(TAB_SIGNAL_MIN_MS, "failed", "hidden");
     run(TAB_SIGNAL_MIN_MS, "done", "hidden");
     expect(document.title).toBe("Done · Merge PDF — pdf.xyz");

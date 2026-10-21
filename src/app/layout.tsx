@@ -10,6 +10,7 @@ import { Ga4Gate } from "@/components/analytics/ga4-gate";
 import { LiveRegion } from "@/components/a11y/live-region";
 import { HandoffSweep } from "@/components/layout/handoff-sweep";
 import { DropLayer } from "@/components/intent/drop-layer";
+import { TabSignal } from "@/components/layout/tab-signal";
 import { isTelemetryEnabled } from "@/lib/telemetry";
 import { cn } from "@/lib/utils";
 import "./globals.css";
@@ -185,6 +186,9 @@ export default function RootLayout({
             the privacy page's hand-off lifetime sentence true. Renders
             nothing; never creates storage for a visitor who has none. */}
         <HandoffSweep />
+        {/* A run that finishes while this tab is hidden says so in the tab's
+            title and icon, until the tab is shown again. Renders nothing. */}
+        <TabSignal />
         {/* The app's single ARIA live region. It lives here, above every route,
             because the one that already existed was rendered inside a runner's
             editor branch and was unmounted by the early return that showed the

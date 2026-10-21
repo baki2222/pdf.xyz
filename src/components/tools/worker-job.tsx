@@ -13,6 +13,7 @@ import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import type { WorkerJobPhase } from "@/lib/workers/job-polling";
 import type { PhaseEvent } from "@/lib/workers/phases";
 import { ErrorNote, warmEnding } from "./runner/runner-kit";
+import { cancelActivity, reportActivity } from "@/lib/activity/bus";
 
 /**
  * What a worker panel hands its job client: a way to stop, a way to learn the
@@ -188,6 +189,9 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
       setPhase(null);
       setEvents([]);
       setOutcome(null);
+      // The masthead's square and a hidden tab's title read this (spec E.11):
+      // this hook is the one place a worker run reports.
+      reportActivity("busy");
       // The result card's receipt and "Continue with" load on demand; asked
       // for now, they are in hand when the job ends minutes later.
       void warmEnding().catch(() => {});
@@ -215,7 +219,10 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
         if (ctl.signal.aborted) {
           // Canceled from here — or superseded by a newer run, which then
           // owns the state and this one leaves it alone.
-          if (controller.current === ctl) setOutcome(CANCELED);
+          if (controller.current === ctl) {
+            setOutcome(CANCELED);
+            cancelActivity();
+          }
           return null;
         }
         const stillRunning =
@@ -230,6 +237,9 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
           setEvents((prev) => [...prev, { phase: "failed", at }]);
         }
         setOutcome(result);
+        // A job the tab stopped waiting for has not ended: no news yet.
+        if (stillRunning) cancelActivity();
+        else reportActivity(result.ok ? "done" : "failed");
         return result;
       } finally {
         // A run that starts always stops: whatever happened above, the busy

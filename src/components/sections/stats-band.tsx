@@ -65,8 +65,12 @@ export function StatsBand() {
         {/* Set like a measured drawing: each figure sits on the strip rule
             with a dimension end-cap at its origin, so a number that WAS
             measured (the counts are derived from the catalogue) also reads
-            as measured. The cap is the mark cyan — decoration, never text. */}
-        <dl className="border-line-strong/50 grid grid-cols-2 border-t lg:grid-cols-4">
+            as measured. The cap is the mark cyan — decoration, never text.
+            The rule is its own element so it can DRAW from the cap as the band
+            scrolls in (M18) while the figures on it stay still; one pixel, as
+            the border it replaced was. */}
+        <div aria-hidden data-draw className="border-line-strong/50 border-t" />
+        <dl className="grid grid-cols-2 lg:grid-cols-4">
           {stats.map((stat, i) => (
             <div
               key={stat.label}

@@ -3,10 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { DropVia, PageTarget, Route } from "@/lib/intent/page-target";
+import { currentActivity, reportActivity } from "@/lib/activity/bus";
 import type { DragState, DropTicket } from "./drop-layer-view";
 
 /*
- * NOTHING HERE IS IMPORTED AT RUN TIME BUT REACT AND NEXT. This module is in
+ * NOTHING HERE IS IMPORTED AT RUN TIME BUT REACT, NEXT AND THE ACTIVITY BUS
+ * (a few lines the masthead's square reads `drag` from, which every page's
+ * root entries carry anyway — `first-load-duplicates.test.ts` holds that it
+ * ships once). This module is in
  * the root layout's chunk, and a module the layout shares with a page's own
  * chunks is downloaded twice on that page (`first-load-duplicates.test.ts`).
  * So the layer fetches the rest: the REGISTRY (`@/lib/intent/page-target`,
@@ -285,6 +289,7 @@ export function DropLayer() {
       kinds = describeDrag(transfer);
       count = kinds.length;
       html.setAttribute("data-dragging", "");
+      reportActivity("drag");
       void view().catch(() => {});
       void registry()
         .then(settled)
@@ -313,6 +318,8 @@ export function DropLayer() {
       armed = null;
       route = null;
       html.removeAttribute("data-dragging");
+      // Only the drag's own state: a run that began meanwhile keeps its own.
+      if (currentActivity().state === "drag") reportActivity("idle");
       setDrag((d) => (d ? { ...d, open: false } : d));
     };
 

@@ -50,6 +50,7 @@ import {
   acceptAttribute,
   acceptHint,
 } from "@/components/upload/accepted-kinds";
+import { ViewTransition } from "@/components/motion/vt";
 
 /**
  * The ranked suggestions: not part of the page's first load, so the ranking,
@@ -263,41 +264,43 @@ export function WorkspaceClient({
           {/* The drop panel: the one drop primitive, and the page's target —
               a file dropped or pasted anywhere on the workspace is staged
               here, and one it cannot read says so below, like any other. */}
-          <DropDesk
-            accept={ACCEPT}
-            multiple
-            onFiles={onFiles}
-            pageTarget={WORKSPACE_TARGET}
-          >
-            {(api) => (
-              <DropSheetPick
-                className={cn(
-                  "rounded-sheet relative flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
-                  "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
-                  "border-line-strong bg-wash group-data-[armed]/sheet:border-accent/40 group-data-[over]/sheet:bg-accent/10",
-                )}
-              >
-                <span className="text-muted group-data-[armed]/sheet:text-accent grid size-14 place-items-center transition-colors">
-                  <UploadCloud
-                    className="size-7"
-                    strokeWidth={1.75}
-                    aria-hidden
-                  />
-                </span>
-                <span className="flex flex-col gap-1">
-                  <span className="text-fg text-base font-semibold">
-                    Drop files here, or{" "}
-                    <span className="text-accent underline underline-offset-4">
-                      browse
+          <ViewTransition name="work-sheet">
+            <DropDesk
+              accept={ACCEPT}
+              multiple
+              onFiles={onFiles}
+              pageTarget={WORKSPACE_TARGET}
+            >
+              {(api) => (
+                <DropSheetPick
+                  className={cn(
+                    "rounded-sheet relative flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
+                    "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
+                    "border-line-strong bg-wash group-data-[armed]/sheet:border-accent/40 group-data-[over]/sheet:bg-accent/10",
+                  )}
+                >
+                  <span className="text-muted group-data-[armed]/sheet:text-accent grid size-14 place-items-center transition-colors">
+                    <UploadCloud
+                      className="size-7"
+                      strokeWidth={1.75}
+                      aria-hidden
+                    />
+                  </span>
+                  <span className="flex flex-col gap-1">
+                    <span className="text-fg text-base font-semibold">
+                      Drop files here, or{" "}
+                      <span className="text-accent underline underline-offset-4">
+                        browse
+                      </span>
+                    </span>
+                    <span id={api.hintId} className="text-muted text-sm">
+                      {acceptHint()}
                     </span>
                   </span>
-                  <span id={api.hintId} className="text-muted text-sm">
-                    {acceptHint()}
-                  </span>
-                </span>
-              </DropSheetPick>
-            )}
-          </DropDesk>
+                </DropSheetPick>
+              )}
+            </DropDesk>
+          </ViewTransition>
 
           {ws.arrival && (
             <ArrivalNote arrival={ws.arrival} onDismiss={ws.dismissArrival} />

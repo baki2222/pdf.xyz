@@ -12,7 +12,10 @@ import { uploadFiles, waitForHydration, writeTempPdf } from "./helpers";
  * `animate()` that never asked) shows up here as a running animation.
  *
  * One exception, by name: the spinner (`spin`), which says work is pending
- * and has no still frame that says so.
+ * and has no still frame that says so. The spec's predicate is "running with
+ * a duration over 1ms"; this one also counts a running SCROLL-driven
+ * animation, whose duration reads "auto" and would pass that predicate while
+ * following the scrollbar.
  */
 const EXCEPT = new Set(["spin"]);
 
@@ -22,8 +25,12 @@ async function running(page: Page, step: string): Promise<string[]> {
       document
         .getAnimations()
         .filter((a) => {
+          if (a.playState !== "running") return false;
+          // A scroll-driven animation's duration is "auto": it runs as far
+          // as the scrollbar, so it is seen by its timeline instead.
+          if (a.timeline !== document.timeline) return true;
           const d = a.effect?.getTiming().duration;
-          return a.playState === "running" && typeof d === "number" && d > 1;
+          return typeof d === "number" && d > 1;
         })
         .filter((a) => !except.includes((a as CSSAnimation).animationName))
         .map((a) => {

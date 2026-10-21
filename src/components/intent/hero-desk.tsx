@@ -29,6 +29,7 @@ import {
   prefetchTicket,
   useTicket,
 } from "./use-ticket";
+import { ViewTransition } from "@/components/motion/vt";
 
 /** Where the desk's files came from, for the tool page to say. */
 const ORIGIN: HandoffOrigin = { kind: "drop", surface: "home" };
@@ -198,99 +199,101 @@ export function HeroDesk({
           // 110px (WP-05 review, measured on the served build). No height is
           // typed anywhere: one typed per breakpoint and pointer drifted from
           // the content it was measured on in the first draft.
-          <div
-            ref={deskRef}
-            data-desk=""
-            className="grid flex-1 grid-cols-[minmax(0,1fr)] *:col-start-1 *:row-start-1"
-          >
+          <ViewTransition name="work-sheet">
             <div
-              aria-hidden
-              inert
-              data-desk-ghost=""
-              className="invisible flex flex-col"
+              ref={deskRef}
+              data-desk=""
+              className="grid flex-1 grid-cols-[minmax(0,1fr)] *:col-start-1 *:row-start-1"
             >
-              <TicketFrame ghost />
-            </div>
-            <div
-              ref={idleRef}
-              className={cn("flex flex-col", !idle && "invisible")}
-              inert={!idle}
-              aria-hidden={!idle || undefined}
-            >
-              <p className="kicker text-faint">
-                Drop a file<span aria-hidden> · </span>
-                <span className="sr-only">, </span>checked in this tab
-              </p>
-              <DropSheetPick
-                className={buttonVariants({
-                  variant: "primary",
-                  size: "lg",
-                  className: cn(
-                    "mt-3 w-full cursor-pointer",
-                    "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2",
-                    "motion-safe:active:translate-y-px",
-                  ),
-                })}
+              <div
+                aria-hidden
+                inert
+                data-desk-ghost=""
+                className="invisible flex flex-col"
               >
-                <FilePlus className="size-4" aria-hidden />
-                Choose files
-              </DropSheetPick>
-              {/* Said only while it is true: from the same value that makes
-                  the sheet catch the page's drops. */}
-              {api.catchesPageDrops && (
-                <p className="text-muted mt-2 hidden text-center text-xs pointer-fine:block">
-                  or drop them anywhere on this page
+                <TicketFrame ghost />
+              </div>
+              <div
+                ref={idleRef}
+                className={cn("flex flex-col", !idle && "invisible")}
+                inert={!idle}
+                aria-hidden={!idle || undefined}
+              >
+                <p className="kicker text-faint">
+                  Drop a file<span aria-hidden> · </span>
+                  <span className="sr-only">, </span>checked in this tab
                 </p>
-              )}
-              <p
-                id={api.hintId}
-                className="text-muted mt-3 text-xs leading-snug"
-              >
-                {acceptHint}
-              </p>
-              <p className="text-muted mt-1.5 flex gap-2 text-xs leading-snug text-pretty">
-                <span
-                  aria-hidden
-                  className="bg-ok mt-[0.3rem] size-1.5 shrink-0 rounded-full"
-                />
-                <span>
-                  Your files stay in this browser until you start a step marked
-                  Secure worker or AI.
-                </span>
-              </p>
-              <SamplePdfButton className="mt-1" onSample={onSample} />
-              <div aria-hidden className="perforation my-2.5" />
-              {tasks}
-              <RecentsSlot className="mt-auto pt-1" />
-            </div>
-            {!idle && (
-              <section
-                ref={regionRef}
-                aria-labelledby={headingId}
-                tabIndex={-1}
-                data-motion-ui=""
-                className="flex flex-col outline-none"
-              >
-                {View ? (
-                  <View
-                    state={state}
-                    variant="desk"
-                    headingId={headingId}
-                    origin={ORIGIN}
-                    source="desk"
-                    onEvent={dispatch}
-                    onAddFiles={api.pick}
-                    onClear={clear}
-                  />
-                ) : (
-                  <PendingTicket
-                    headingId={headingId}
-                    names={state.entries.map((e) => e.file.name)}
-                  />
+                <DropSheetPick
+                  className={buttonVariants({
+                    variant: "primary",
+                    size: "lg",
+                    className: cn(
+                      "mt-3 w-full cursor-pointer",
+                      "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2",
+                      "motion-safe:active:translate-y-px",
+                    ),
+                  })}
+                >
+                  <FilePlus className="size-4" aria-hidden />
+                  Choose files
+                </DropSheetPick>
+                {/* Said only while it is true: from the same value that makes
+                  the sheet catch the page's drops. */}
+                {api.catchesPageDrops && (
+                  <p className="text-muted mt-2 hidden text-center text-xs pointer-fine:block">
+                    or drop them anywhere on this page
+                  </p>
                 )}
-              </section>
-            )}
-          </div>
+                <p
+                  id={api.hintId}
+                  className="text-muted mt-3 text-xs leading-snug"
+                >
+                  {acceptHint}
+                </p>
+                <p className="text-muted mt-1.5 flex gap-2 text-xs leading-snug text-pretty">
+                  <span
+                    aria-hidden
+                    className="bg-ok mt-[0.3rem] size-1.5 shrink-0 rounded-full"
+                  />
+                  <span>
+                    Your files stay in this browser until you start a step
+                    marked Secure worker or AI.
+                  </span>
+                </p>
+                <SamplePdfButton className="mt-1" onSample={onSample} />
+                <div aria-hidden className="perforation my-2.5" />
+                {tasks}
+                <RecentsSlot className="mt-auto pt-1" />
+              </div>
+              {!idle && (
+                <section
+                  ref={regionRef}
+                  aria-labelledby={headingId}
+                  tabIndex={-1}
+                  data-motion-ui=""
+                  className="flex flex-col outline-none"
+                >
+                  {View ? (
+                    <View
+                      state={state}
+                      variant="desk"
+                      headingId={headingId}
+                      origin={ORIGIN}
+                      source="desk"
+                      onEvent={dispatch}
+                      onAddFiles={api.pick}
+                      onClear={clear}
+                    />
+                  ) : (
+                    <PendingTicket
+                      headingId={headingId}
+                      names={state.entries.map((e) => e.file.name)}
+                    />
+                  )}
+                </section>
+              )}
+            </div>
+          </ViewTransition>
         )}
       </DropDesk>
     </div>

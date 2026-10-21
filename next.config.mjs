@@ -249,6 +249,17 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },
+  // The sheet-travel view transition (WP-12, M26) and the catalogue's
+  // refilter (M23), built in only with PDFXYZ_VIEW_TRANSITIONS=1. Next 16.3
+  // has no `experimental.viewTransition` any more — its bundled React canary
+  // ships `<ViewTransition>` to every App Router build — so the gate is this
+  // value, inlined into the client and read by `src/components/motion/vt.tsx`.
+  // OFF by default until e2e/motion.spec.ts's view-transition block is green
+  // in CI on a flagged build.
+  env: {
+    PDFXYZ_VIEW_TRANSITIONS:
+      process.env.PDFXYZ_VIEW_TRANSITIONS === "1" ? "1" : "0",
+  },
   webpack: clientWebpack,
   async redirects() {
     return [
