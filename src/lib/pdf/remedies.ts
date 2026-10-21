@@ -74,8 +74,13 @@ export function remedyCarries(toolSlug: string): boolean {
   return handoffCapabilityFor(toolSlug).supported;
 }
 
-/** The sentence for a remedy's mode; worker tools are the only ones today. */
-function whereFor(mode: ProcessingMode, carries: boolean): string | null {
+/**
+ * The sentence for where a file goes in a worker tool; the worker tools are
+ * the only ones today. `carries` says whether the click takes the file with
+ * it. Also said by a preflight hint (`@/components/intent/preflight-hint`),
+ * which passes whether its own target takes the file.
+ */
+export function whereFor(mode: ProcessingMode, carries = false): string | null {
   if (mode !== "server") return null;
   return carries
     ? "Your file goes with you, and it uploads to the secure worker only when you start it."

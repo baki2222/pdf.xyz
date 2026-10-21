@@ -8,6 +8,9 @@ import { countDigitalSignatures } from "@/lib/pdf/digital-signatures";
 import { readPagesWithPdfjs } from "@/lib/pdf/pdfjs";
 import { validatePdfFile } from "@/lib/pdf/files";
 import { causeOf, type RemedyInput } from "@/lib/pdf/remedies";
+import type { HintReason } from "@/lib/intent/hint-tools";
+import { readPreflight } from "@/components/intent/preflight-hint-chunk";
+import type { PdfProbe } from "@/lib/pdf/probe-result";
 import type { Rotation } from "@/lib/pdf/types";
 import { errorMessage } from "./runner-kit";
 
@@ -23,6 +26,11 @@ export interface LoadedPdf {
    * so before Run.
    */
   digitalSignatures: number;
+  /**
+   * What the preflight probe read, for a tool with a hint (E.9): null when
+   * it could not run, absent for a tool that has no hint to give.
+   */
+  probe?: PdfProbe | null;
 }
 
 /**
@@ -57,6 +65,18 @@ export interface UseSinglePdfOptions {
   classifyLocked?: boolean;
   /** Which library reads the page board — see {@link PdfReader}. */
   reader?: PdfReader;
+  /**
+   * Probe the file as it opens, for the hint this tool can give (E.9) —
+   * beside the page board, so the hint arrives in the same update as the
+   * editor and never moves it afterwards.
+   */
+  preflight?: HintReason | null;
+  /**
+   * Anything the editor reads synchronously as it first draws — fetched
+   * beside the page board, and awaited before the editor appears. A
+   * failure is the editor's to absorb; the file still opens.
+   */
+  prepare?: () => Promise<void>;
 }
 
 /**
@@ -92,6 +112,8 @@ export async function readPageBoard(
 export function useSinglePdf({
   classifyLocked = false,
   reader = "pdf-lib",
+  preflight = null,
+  prepare,
 }: UseSinglePdfOptions = {}) {
   const [pdf, setPdf] = useState<LoadedPdf | null>(null);
   const [locked, setLocked] = useState<LockedPdf | null>(null);
@@ -117,13 +139,18 @@ export function useSinglePdf({
       let bytes: Uint8Array | null = null;
       try {
         bytes = await readFileBytes(file);
-        const { pageCount, rotations } = await readPageBoard(bytes, reader);
+        const [{ pageCount, rotations }, probe] = await Promise.all([
+          readPageBoard(bytes, reader),
+          preflight ? readPreflight(bytes, preflight) : undefined,
+          prepare?.().catch(() => {}),
+        ]);
         setPdf({
           file,
           bytes,
           pageCount,
           rotations,
           digitalSignatures: countDigitalSignatures(bytes),
+          ...(probe !== undefined ? { probe } : {}),
         });
       } catch (err) {
         setPdf(null);
@@ -145,7 +172,7 @@ export function useSinglePdf({
         setLoading(false);
       }
     },
-    [classifyLocked, reader],
+    [classifyLocked, reader, preflight, prepare],
   );
 
   const clear = useCallback(() => {

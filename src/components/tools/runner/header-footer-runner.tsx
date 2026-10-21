@@ -12,6 +12,7 @@ import {
 import { applyTokens, type HAlign } from "@/lib/pdf/stamp";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
+import { recallOptions, rememberOptions } from "@/lib/intent/option-memory";
 import { formatBytes } from "@/lib/utils";
 import {
   ErrorNote,
@@ -65,9 +66,15 @@ export function HeaderFooterEditor({
   onReset: () => void;
 }) {
   const [headerText, setHeaderText] = useState("");
-  const [headerAlign, setHeaderAlign] = useState<HAlign>("center");
+  // The last alignments chosen here, never the words (option memory).
+  const [kept] = useState(() => recallOptions("header-footer"));
+  const [headerAlign, setHeaderAlign] = useState<HAlign>(
+    kept.headerAlign ?? "center",
+  );
   const [footerText, setFooterText] = useState("Page {n} of {total}");
-  const [footerAlign, setFooterAlign] = useState<HAlign>("center");
+  const [footerAlign, setFooterAlign] = useState<HAlign>(
+    kept.footerAlign ?? "center",
+  );
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
   // `{date}` in the reader's own locale format when a face we ship can draw it
@@ -101,6 +108,7 @@ export function HeaderFooterEditor({
     headerText.trim().length > 0 || footerText.trim().length > 0;
 
   const onRun = () => {
+    rememberOptions("header-footer", { headerAlign, footerAlign });
     const header: HeaderFooterZone | undefined = headerText.trim()
       ? { [headerAlign]: headerText }
       : undefined;

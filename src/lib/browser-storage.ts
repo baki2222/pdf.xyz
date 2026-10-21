@@ -18,6 +18,7 @@ import { CONSENT_STORAGE_KEY } from "@/lib/analytics/consent-key";
 import { HANDOFF_CARRY_KEY } from "@/lib/handoff/carry-key";
 import { HANDOFF_DB_NAME } from "@/lib/handoff/db-name";
 import { HANDOFF_LIFETIME } from "@/lib/handoff/lifetime";
+import { OPTIONS_STORAGE_KEY } from "@/lib/intent/options-key";
 import { RECENTS_STORAGE_KEY } from "@/lib/intent/recents-key";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
@@ -65,6 +66,14 @@ export const BROWSER_STORAGE: readonly BrowserStore[] = [
       "Which tools recently finished a job in this browser, and when, so the home page can offer them again. Never a file, a file name or anything a file holds.",
     lasts:
       "Until you clear this site's data. Only the most recent few are kept.",
+  },
+  {
+    key: OPTIONS_STORAGE_KEY,
+    perTool: false,
+    area: "localStorage",
+    holds:
+      "The settings you last chose for where page numbers or a header go, a watermark's opacity and angle, and an image resolution — so the next file opens set the same way. Only choices from fixed lists and numbers: never a file, a file name, or any words you typed, such as a watermark's text.",
+    lasts: "Until you clear this site's data.",
   },
   {
     key: HANDOFF_DB_NAME,

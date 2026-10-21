@@ -377,10 +377,8 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
       // Forward until WP-04 shipped renderEvidence() (2026-10-09).
       { shape: /evidence$/i },
       { shape: /remed(?:y|ies)$/i, forward: "WP-08 remedy labels" },
-      {
-        shape: /^(?:hint|remedy|label|phrase)For(?:[A-Z]\w*)?$/,
-        forward: "WP-08 remedyFor(), WP-11 hintFor()",
-      },
+      // Forward until WP-11 shipped hintFor() (2026-10-21).
+      { shape: /^(?:hint|remedy|label|phrase)For(?:[A-Z]\w*)?$/ },
     ];
     const isCopyName = (name: string) => SHAPES.some((s) => s.shape.test(name));
     /** Three or more words: a phrase, not a key or a token. */
