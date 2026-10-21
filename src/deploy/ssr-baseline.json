@@ -1358,17 +1358,13 @@
       "description": "pdf.xyz is a modern, fast, privacy-first PDF platform. Merge, split, compress, convert, edit, sign, and use AI on your documents — most tools run entirely in your browser.",
       "canonical": "https://pdf.xyz",
       "robots": "index, follow",
-      "h1": ["Every PDF tool. Private by design."],
+      "h1": ["Every PDF tool you need, free and private"],
       "h2": [
-        "Built so the privacy promise is checkable",
-        "Every PDF tool, in one private workspace",
-        "Everything you can do with a PDF",
-        "Free right now. All of it.",
-        "How to do it, step by step",
-        "One file, many tools, without picking it again.",
+        "How it works",
         "Questions, answered",
-        "Understand documents, not just process them",
-        "Your documents never become our data"
+        "Step-by-step guides",
+        "What do you want to do?",
+        "Why pdf.xyz"
       ],
       "jsonLdTypes": [
         "Answer",

@@ -22,6 +22,14 @@ import { makePdfBytes, waitForHydration } from "./helpers";
  * made the desk 484px tall and put its bottom at 768, past the bound this
  * file states, and nothing here dropped them (WP-05 review). Every set in
  * {@link DESK_SETS} is brought to the desk now.
+ *
+ * INVERTED 2026-10-21 (review of PR #199), history kept: on a phone the desk
+ * no longer reserves the ticket's height — that reserve was the empty space
+ * that pushed the tool chips to 1,083px — so the files' ticket opens in the
+ * full-screen ticket dialog instead of in the box. What this file holds is
+ * the same property from the other side: the box keeps its size and place
+ * when files arrive (nothing under it moves), and the ticket is whole, in
+ * the dialog, on the screen.
  */
 
 const box = (page: Page) =>
@@ -64,12 +72,25 @@ test("health: the corpus holds every shape the ticket lays out differently", () 
 });
 
 for (const set of DESK_SETS) {
-  test(`${set.name}: the ticket takes the desk's place at the same size, on the first screen`, async ({
+  test(`${set.name}: the ticket opens in the full-screen dialog, and the desk keeps its size and place`, async ({
     page,
   }) => {
     const idle = await idleDesk(page);
     await bring(page, set);
     await ticketSettled(page);
+    const dialog = page.locator("dialog[data-ticket-dialog]");
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByRole("region", { name: TICKET_NAME }),
+    ).toBeVisible();
+    const sheet = await dialog.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    expect(sheet, "the dialog fills the phone's screen").toEqual({
+      w: 390,
+      h: 844,
+    });
     const withFiles = await box(page);
     expect(withFiles).toEqual(idle);
     expect(
@@ -189,23 +210,26 @@ test.describe("each row shows what its click carries, uncut", () => {
   });
 });
 
-test("each task shows where its tool runs, and the legend says what the shapes mean", async ({
+/*
+ * INVERTED 2026-10-21, history kept. This was "each task shows where its tool
+ * runs, and the legend says what the shapes mean": the desk's six "Start
+ * from a task" links, each named with its mode word ("Make a scan
+ * searchable, Secure worker") and drawn with two glyphs. The owner's plain
+ * redesign took the task list out of the desk — every tool is now a card
+ * under the hero, its badge in plain words — so the list must be GONE, and
+ * where a tool runs is said on its card, visibly, on a phone too.
+ */
+test("the desk carries no task list; each card says where its tool runs, in plain words", async ({
   page,
 }) => {
   await page.goto("/");
-  const tasks = page.getByRole("list", { name: "Start from a task" });
-  const links = tasks.getByRole("link");
-  await expect(links).toHaveCount(6);
-  // The mode word is not drawn on a phone, but it is in each link's name.
   await expect(
-    tasks.getByRole("link", {
-      // The sr-only word is a separate box: the name puts a space before it.
-      name: /^Make a scan searchable\s?, Secure worker$/,
-    }),
-  ).toBeVisible();
-  for (const link of await links.all())
-    expect(
-      await link.locator("svg[aria-hidden]").count(),
-    ).toBeGreaterThanOrEqual(2);
-  await expect(page.getByText("uploads only when you start it")).toBeVisible();
+    page.getByRole("list", { name: "Start from a task" }),
+  ).toHaveCount(0);
+  const card = page
+    .locator("section#tools ul[data-tool-grid] > li")
+    .filter({ has: page.locator('a[href="/tools/ocr-pdf"]') });
+  await expect(card).toBeVisible();
+  await expect(card.getByText("Secure server", { exact: true })).toBeVisible();
+  await expect(card).not.toContainText(/worker/i);
 });

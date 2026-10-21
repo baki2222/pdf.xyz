@@ -119,6 +119,7 @@ import type { Guide } from "@/lib/guides";
 import type { Tool } from "./types";
 import { PDF_TO_WORD_KEEPS, toolFacts } from "./tool-facts";
 import {
+  cardSummary,
   pageDescription,
   pageFaq,
   pageIntro,
@@ -312,6 +313,9 @@ async function toolContainer(tool: Tool): Promise<Container> {
     pageTitle(tool),
     pageDescription(tool),
     tool.tagline,
+    // The home page card's line (the tagline, or the plain summary that
+    // stands in for it there).
+    cardSummary(tool),
     tool.description,
     // og:image:alt, exactly as the page composes it.
     `${tool.name} — ${tool.tagline}`,

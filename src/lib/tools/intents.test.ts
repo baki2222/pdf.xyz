@@ -26,10 +26,11 @@ describe("tasks", () => {
     expect(new Set(labels).size).toBe(labels.length);
   });
 
-  it("the six hero tasks are tasks, each with its own tool and glyph", () => {
+  // The glyph each hero task carried retired with the desk's task list
+  // (2026-10-21); the six jobs stay first among the search's aliases.
+  it("the six hero tasks are tasks, each with its own tool", () => {
     expect(HERO_TASKS).toHaveLength(6);
     expect(new Set(HERO_TASKS.map((t) => t.slug)).size).toBe(6);
-    expect(new Set(HERO_TASKS.map((t) => t.glyph)).size).toBe(6);
     for (const hero of HERO_TASKS) {
       expect(TASKS).toContainEqual({ label: hero.label, slug: hero.slug });
     }

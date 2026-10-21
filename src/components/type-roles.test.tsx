@@ -18,7 +18,9 @@
  *     are not class names), with the shipped spellings as the corpus.
  *  2. On the homepage, as RENDERED: the one H1 is the display-1 step; every
  *     section that carries an h2 sets it in display-2 and breathes at the one
- *     rhythm, `py-20 sm:py-24`.
+ *     rhythm, `py-10 sm:py-14` (WAS `py-20 sm:py-24` until 2026-10-21: the
+ *     owner's plain redesign asked for a page under about 5,000px at 1440,
+ *     and the rule is ONE rhythm, not that rhythm).
  *  3. `SectionHeading` is also the H1 of three page templates (/tools, /guides
  *     and every category page); that path keeps the page-title size, because
  *     display-2 is a section step and a page title is not a section.
@@ -171,6 +173,10 @@ const classes = (el: Element | null | undefined) =>
 const contentSections = (doc: Document) =>
   [...doc.querySelectorAll("section")].filter((s) => s.querySelector("h2"));
 
+/** The home page's one section rhythm. */
+const RHYTHM = ["py-10", "sm:py-14"] as const;
+const RHYTHM_NAME = RHYTHM.join(" ");
+
 /** What breaks the one-rhythm rule in a rendered page, by section heading. */
 export function rhythmBreaks(doc: Document): string[] {
   return contentSections(doc).flatMap((section) => {
@@ -180,10 +186,10 @@ export function rhythmBreaks(doc: Document): string[] {
     if (
       !owners.some((el) => {
         const c = classes(el);
-        return c.has("py-20") && c.has("sm:py-24");
+        return RHYTHM.every((r) => c.has(r));
       })
     )
-      breaks.push(`${name}: not py-20 sm:py-24`);
+      breaks.push(`${name}: not ${RHYTHM_NAME}`);
     if (
       [section, ...section.querySelectorAll("*")].some((el) =>
         classes(el).has("sm:py-28"),
@@ -204,7 +210,9 @@ export function offScaleHeadings(doc: Document): string[] {
 
 describe("the homepage, as rendered", () => {
   it("health check: the render holds the sections it is made of", () => {
-    expect(contentSections(home()).length).toBeGreaterThanOrEqual(8);
+    // WAS 8 until 2026-10-21; the plain home page has four: the tools, How
+    // it works with Why pdf.xyz, the FAQ, the guides.
+    expect(contentSections(home()).length).toBeGreaterThanOrEqual(4);
   });
 
   it("the one H1 is the display-1 step", () => {
@@ -228,14 +236,14 @@ describe("the homepage, as rendered", () => {
     for (const el of [first!, ...first!.children]) {
       el.setAttribute(
         "class",
-        (el.getAttribute("class") ?? "").replace(/\bsm:py-24\b/, "sm:py-28"),
+        (el.getAttribute("class") ?? "").replace(/\bsm:py-14\b/, "sm:py-28"),
       );
     }
     h2.setAttribute("class", "font-display text-4xl sm:text-5xl");
     const name = h2.textContent!.trim();
     // Read for the mutated section only, so the control holds on any tree.
     expect(rhythmBreaks(doc).filter((b) => b.startsWith(`${name}:`))).toEqual([
-      `${name}: not py-20 sm:py-24`,
+      `${name}: not ${RHYTHM_NAME}`,
       `${name}: sm:py-28`,
     ]);
     expect(offScaleHeadings(doc).filter((n) => n === name)).toEqual([name]);

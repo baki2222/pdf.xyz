@@ -102,7 +102,9 @@ describe("no readable text in src names WebAssembly", () => {
       path.relative(SRC, f).split(path.sep).join("/"),
     );
     for (const f of [
-      "components/sections/security-section.tsx",
+      // WAS security-section.tsx, which shipped the claim; retired with the
+      // privacy grid on 2026-10-21. Its successor on the home page:
+      "components/sections/why-section.tsx",
       "lib/jobs/capabilities.ts",
       "lib/tools/tool-facts.ts",
       "components/status/system-status.tsx",

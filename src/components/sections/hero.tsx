@@ -1,9 +1,5 @@
-import Link from "next/link";
-import { toolCount } from "@/lib/tools";
-import { Container } from "@/components/ui/container";
-import { buttonVariants } from "@/components/ui/button";
 import { HeroDeskIsland } from "@/components/intent/hero-desk-island";
-import { TaskList } from "@/components/intent/task-list";
+import { Container } from "@/components/ui/container";
 import {
   acceptAttribute,
   acceptHint,
@@ -12,97 +8,59 @@ import {
 /** The home desk's id: the target of every "Choose files" link on the page. */
 export const UPLOAD_ANCHOR = "upload";
 
-/** The task list's label, shared by the kicker and the list it names. */
-const TASKS_LABEL = "desk-tasks";
-
-const trust = [
-  "No sign-up to start",
-  "Most tools run in-browser",
-  "AI built in, not bolted on",
-];
-
 /**
- * Prepress hero: the promise on the left, the working object on the right —
- * a desk a file is dropped on, which becomes the job ticket for that file.
- * No badge pill, no gradient text, no glow. The kicker is a mono spec line,
- * the headline is the grotesque with the promise carried on a process-cyan
- * sweep (the mark at 22% — text stays fg, so the line can never fail
- * contrast), and the desk wears the crop marks: the one place the trim-room
- * device appears on this screen, because it is where a real page will be.
+ * The home page's first screen, for someone who has never heard of us: what
+ * this is in one line, what you can do in one sentence, one button, and one
+ * line on where files go.
  *
- * ONE ORDER FOR EVERY WIDTH. On a phone the desk comes right under the
- * headline — kicker, title, desk, lede, actions, trust — and from `lg` the
- * same DOM is placed in two columns by row and column (no template areas,
- * no reordering): the reading order is the visual order at both sizes.
+ * WAS (until 2026-10-21) a mono spec kicker ("Privacy-first PDF platform ·
+ * 50 tools"), a two-part headline on a cyan sweep, a lede, "Open workspace"
+ * and "Browse all tools", a three-item trust rule, and a working desk with
+ * six task links. The owner's brief: "it looks like advanced developer
+ * style; users struggle to understand". The desk stays — it is how a file
+ * picked or dropped here becomes a job ticket (WP-05/07), and a drop
+ * anywhere on the page still lands in it — but its first state is a plain
+ * drop area.
  *
- * WAS a "Start for free" button beside the lede, aimed at the drop zone
- * beside it. The desk's own "Choose files" is now the page's first action,
- * so the lede keeps the two ways onward that are not a file: the workspace,
- * and the catalogue. "Start with" (six editorial picks) became the desk's
- * six tasks — each a job in a person's words, with where its tool runs.
+ * ONE ORDER FOR EVERY WIDTH: headline, desk, sentence, trust line — so on a
+ * phone the desk is on the first screen (`e2e/home-desk.mobile.spec.ts`).
+ * From `lg` the words take the left column and the desk the right, placed
+ * by row and column, with no reordering.
  */
 export function Hero() {
   return (
     <section className="border-line border-b">
-      <Container className="grid grid-cols-1 pt-6 pb-16 sm:pt-12 lg:grid-cols-12 lg:grid-rows-[auto_auto_auto_auto_1fr] lg:gap-x-10 lg:pt-16 lg:pb-20">
-        <p className="text-muted kicker lg:col-span-7 lg:row-start-1">
-          Privacy-first PDF platform · {toolCount} tools
-        </p>
-
-        <h1 className="font-display text-fg text-display-1 mt-4 font-bold text-balance sm:mt-6 lg:col-span-7 lg:row-start-2 lg:pr-6">
-          Every PDF tool. <span className="mark-sweep">Private by design.</span>
+      <Container className="grid grid-cols-1 pt-8 pb-12 sm:pt-12 lg:grid-cols-12 lg:grid-rows-[1fr_auto_1fr] lg:gap-x-12 lg:pt-12 lg:pb-12">
+        <h1 className="font-display text-fg text-display-1 font-bold text-balance lg:col-span-6 lg:row-start-1 lg:self-end">
+          Every PDF tool you need, free and private
         </h1>
 
-        <div className="mt-6 lg:col-span-5 lg:col-start-8 lg:row-span-5 lg:row-start-1 lg:mt-2 lg:self-start">
+        <div className="mt-6 lg:col-span-6 lg:col-start-7 lg:row-span-3 lg:row-start-1 lg:mt-0">
           <HeroDeskIsland
             id={UPLOAD_ANCHOR}
             accept={acceptAttribute()}
             acceptHint={acceptHint()}
-            tasks={
-              <>
-                <p id={TASKS_LABEL} className="kicker text-faint">
-                  Start from a task
-                </p>
-                <div className="mt-2">
-                  <TaskList labelledBy={TASKS_LABEL} />
-                </div>
-              </>
+            note={
+              <p className="text-muted mt-3 text-xs leading-snug text-pretty">
+                Your files stay in this browser until you start a step that
+                uploads them.
+              </p>
             }
           />
         </div>
 
-        <p className="text-muted mt-10 max-w-xl text-base leading-relaxed text-pretty sm:text-lg lg:col-span-7 lg:row-start-3 lg:mt-6 lg:pr-6">
-          Merge, split, compress, convert, edit, sign, and run AI on your
-          documents — in one fast, beautiful workspace. Most tools run entirely
-          in your browser, so your files never leave your device.
+        <p className="text-muted mt-6 max-w-xl text-base leading-relaxed text-pretty sm:text-lg lg:col-span-6 lg:row-start-2 lg:mt-6">
+          Merge, split, compress, convert, edit and sign PDFs online — free,
+          with no sign-up.
         </p>
 
-        <div className="mt-7 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6 lg:col-span-7 lg:row-start-4">
-          <Link
-            href="/workspace"
-            className={buttonVariants({ variant: "outline", size: "lg" })}
-          >
-            Open workspace
-          </Link>
-          <Link
-            href="/tools"
-            className="text-fg decoration-line-strong hover:decoration-accent inline-flex items-center gap-1.5 text-[15px] font-medium underline decoration-1 underline-offset-[6px] transition-colors"
-          >
-            Browse all tools
-          </Link>
-        </div>
-
-        <ul className="border-line mt-10 flex w-full flex-wrap items-center gap-x-7 gap-y-2 border-t pt-5 lg:col-span-7 lg:row-start-5 lg:self-end">
-          {trust.map((label) => (
-            <li
-              key={label}
-              className="text-muted inline-flex items-center gap-2 text-[13px]"
-            >
-              <span className="bg-mark size-1.5 shrink-0" aria-hidden />
-              {label}
-            </li>
-          ))}
-        </ul>
+        <p className="text-muted mt-4 flex items-start gap-2 text-sm lg:col-span-6 lg:row-start-3 lg:mt-6 lg:self-start">
+          <span
+            aria-hidden
+            className="bg-ok mt-[0.4rem] size-1.5 shrink-0 rounded-full"
+          />
+          Most tools run in your browser — your files never leave your device.
+        </p>
       </Container>
     </section>
   );

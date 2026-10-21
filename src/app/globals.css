@@ -198,6 +198,18 @@
   --color-scrim: var(--sf-scrim);
   --shadow-sheet: var(--sf-shadow-sheet);
   --shadow-lift: var(--sf-shadow-lift);
+
+  /* The home page's category tiles (review of PR #199): one solid colour per
+     family the chips name, and the glyph drawn on it. Every scope declares
+     them; `design-tokens.test.ts` holds each glyph at 3:1 on its tile. */
+  --color-cat-ink: var(--sf-cat-ink);
+  --color-cat-organize: var(--sf-cat-organize);
+  --color-cat-convert: var(--sf-cat-convert);
+  --color-cat-edit: var(--sf-cat-edit);
+  --color-cat-sign: var(--sf-cat-sign);
+  --color-cat-security: var(--sf-cat-security);
+  --color-cat-optimize: var(--sf-cat-optimize);
+  --color-cat-ai: var(--sf-cat-ai);
 }
 
 /* Type roles that are more than a size. A kicker is the mono label that
@@ -248,6 +260,14 @@
   --sf-scrim: rgb(244 246 248 / 0.92);
   --sf-shadow-sheet: 0 28px 48px -32px rgb(12 18 26 / 0.45);
   --sf-shadow-lift: 0 18px 40px -24px rgb(12 18 26 / 0.35);
+  --sf-cat-ink: #ffffff;
+  --sf-cat-organize: #07567a;
+  --sf-cat-convert: #2563c9;
+  --sf-cat-edit: #6d44c4;
+  --sf-cat-sign: #0d7a50;
+  --sf-cat-security: #c0262e;
+  --sf-cat-optimize: #b1500c;
+  --sf-cat-ai: #a52f80;
 }
 
 .theme-ink {
@@ -275,6 +295,14 @@
   --sf-shadow-sheet:
     0 28px 48px -28px rgb(0 0 0 / 0.8), 0 0 0 1px var(--sf-line);
   --sf-shadow-lift: 0 18px 40px -20px rgb(0 0 0 / 0.7);
+  --sf-cat-ink: #ffffff;
+  --sf-cat-organize: #1f7a8c;
+  --sf-cat-convert: #3d74d6;
+  --sf-cat-edit: #7f5cd6;
+  --sf-cat-sign: #18865b;
+  --sf-cat-security: #d23f47;
+  --sf-cat-optimize: #c05a14;
+  --sf-cat-ai: #b8448f;
 }
 
 /* Dark scheme, by system preference. Paper becomes a cool graphite — the
@@ -311,6 +339,14 @@
     --sf-shadow-sheet:
       0 28px 48px -28px rgb(0 0 0 / 0.8), 0 0 0 1px var(--sf-line);
     --sf-shadow-lift: 0 18px 40px -20px rgb(0 0 0 / 0.7);
+    --sf-cat-ink: #ffffff;
+    --sf-cat-organize: #1f7a8c;
+    --sf-cat-convert: #3d74d6;
+    --sf-cat-edit: #7f5cd6;
+    --sf-cat-sign: #18865b;
+    --sf-cat-security: #d23f47;
+    --sf-cat-optimize: #c05a14;
+    --sf-cat-ai: #b8448f;
   }
 
   .theme-ink {
@@ -337,6 +373,14 @@
     --sf-scrim: rgb(244 246 248 / 0.92);
     --sf-shadow-sheet: 0 28px 48px -32px rgb(12 18 26 / 0.45);
     --sf-shadow-lift: 0 18px 40px -24px rgb(12 18 26 / 0.35);
+    --sf-cat-ink: #ffffff;
+    --sf-cat-organize: #07567a;
+    --sf-cat-convert: #2563c9;
+    --sf-cat-edit: #6d44c4;
+    --sf-cat-sign: #0d7a50;
+    --sf-cat-security: #c0262e;
+    --sf-cat-optimize: #b1500c;
+    --sf-cat-ai: #a52f80;
   }
 }
 
@@ -647,10 +691,11 @@
  *  WP-12, the signature layer, moves only INK, never words (F.1;
  *  `e2e/motion.spec.ts` "words stay"): the masthead's square turning while
  *  work is busy and ringing once when it is done (M16), the masthead's
- *  rule lifting off the page as it scrolls (M17), the stats rule drawing
- *  from its cap (M18), the workflow's stations lighting as they pass
- *  (M19), an FAQ answer opening (M20), a task glyph's parts moving on hover
- *  or focus (M22). Each has a still end state that says the same thing, and
+ *  rule lifting off the page as it scrolls (M17), and an FAQ answer
+ *  opening (M20). The stats rule drawing (M18), the workflow's stations
+ *  lighting (M19) and the task glyphs moving (M22) went with the surfaces
+ *  they moved, in the home page's plain redesign (2026-10-21). Each that
+ *  remains has a still end state that says the same thing, and
  *  that state is all a reduced-motion reader gets (`e2e/motion.rm.spec.ts`).
  *  The rest of the ending's motion — the dimension line drawing (M9), the
  *  proof ring (M10), Continue rows in turn (M11), the rail's steps (M12),
@@ -698,12 +743,6 @@
     animation: reg-ring 600ms var(--ease-out-expo);
   }
 
-  /* M22: a task glyph's parts perform their task once, and land where they
-     started — on hover or keyboard focus of the task's link. */
-  :is(a:hover, a:focus-visible) [data-part] {
-    animation: glyph 900ms var(--ease-snap);
-  }
-
   /* M20: an FAQ answer opens to its height rather than appearing. */
   @supports selector(::details-content) {
     .faq-item {
@@ -721,7 +760,7 @@
     }
   }
 
-  /* Scroll-linked (M17-M19). `animation-timeline` after the shorthand, which
+  /* Scroll-linked (M17). `animation-timeline` after the shorthand, which
      resets it. */
   @supports (animation-timeline: view()) {
     /* M17: the masthead's rule lifts as the page scrolls under it. */
@@ -729,19 +768,6 @@
       animation: lift linear both;
       animation-timeline: scroll(root);
       animation-range: 0 64px;
-    }
-    /* M18: the stats rule draws out from its first cap. */
-    [data-draw] {
-      transform-origin: left;
-      animation: draw-x linear both;
-      animation-timeline: view();
-      animation-range: entry 0% cover 25%;
-    }
-    /* M19: each station's chip takes the accent as it passes mid-screen. */
-    .workflow-station-chip {
-      animation: station linear both;
-      animation-timeline: view();
-      animation-range: cover 0% cover 50%;
     }
   }
 }
@@ -762,25 +788,10 @@
     stroke-width: 40px;
   }
 }
-@keyframes glyph {
-  50% {
-    translate: var(--gx, 0) var(--gy, 0);
-  }
-}
 @keyframes lift {
   to {
     border-color: var(--sf-line-strong);
     box-shadow: 0 1px 0 var(--sf-line);
-  }
-}
-@keyframes draw-x {
-  from {
-    transform: scaleX(0);
-  }
-}
-@keyframes station {
-  to {
-    border-color: var(--sf-accent);
   }
 }
 
@@ -816,36 +827,6 @@ html[data-dragging] .reg-mark {
   .brand-logo * {
     color: CanvasText !important;
   }
-}
-
-/* What each task glyph's part does (M22), in the glyph's own 24px units. */
-[data-part="press-top"] {
-  --gy: 1.5px;
-}
-[data-part="press-bottom"] {
-  --gy: -1.5px;
-}
-[data-part="left"] {
-  --gx: 1.5px;
-  --gy: 1.5px;
-}
-[data-part="right"] {
-  --gx: -1.5px;
-  --gy: 1.5px;
-}
-[data-part="stroke"],
-[data-part="arrow"] {
-  --gx: 1.5px;
-}
-[data-part="nib"] {
-  --gx: -1.5px;
-  --gy: 1.5px;
-}
-[data-part="photo"] {
-  --gx: 2px;
-}
-[data-part="lines"] {
-  --gy: 1px;
 }
 
 /* A view transition's overlay never takes a click meant for the page

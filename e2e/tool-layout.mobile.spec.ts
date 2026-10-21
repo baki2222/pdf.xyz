@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { getAllToolSlugs, getToolsByCategory, tools } from "../src/lib/tools";
+import { getAllToolSlugs, tools } from "../src/lib/tools";
 import { categories } from "../src/lib/tools/categories";
-import { categoryHref } from "../src/lib/tools/category-href";
 import { getRunnerKind } from "../src/lib/pdf/registry";
 import { processingSplit } from "../src/lib/tools/processing-split";
 import { whereItRuns } from "../src/lib/tools/where-it-runs";
@@ -9,8 +8,6 @@ import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
 import { encodePng } from "./client-proof/fixtures";
 import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
-
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * The working surface above the fold on a phone (390×844, the `mobile`
@@ -59,102 +56,39 @@ test("/tools: the first tool card starts above 560px", async ({ page }) => {
   expect(top!).toBeLessThan(560);
 });
 
-/**
- * The design target is about 1,100px. The bound carries the platform spread,
- * measured 2026-10-10 on the same build: Windows Chromium 1,083px and CI's
- * Linux Chromium 1,103px. Text metrics differ by platform. A bound set on one
- * of them fails the other for no change in the layout.
+/*
+ * INVERTED 2026-10-21, history kept. Two tests stood here for WP-06's phone
+ * toolbox: "/: the toolbox section is at most 1120px tall, and still links
+ * every tool" (a two-column grid of category cards, the design target about
+ * 1,100px against 3,678px before), and "/: on a phone each toolbox card
+ * shows its first three tools and a visible link to all of them" (the rest
+ * hidden below `sm`, reached by "All 7 Organize tools →"). The owner's plain
+ * redesign made every tool its own card, shown at every width, so a phone
+ * no longer hides any tool behind a category link: the height of the whole
+ * page is now held instead (`e2e/home-cards.spec.ts`, under 7,000px at 390).
  */
-const TOOLBOX_MAX_PX = 1120;
-
-test(`/: the toolbox section is at most ${TOOLBOX_MAX_PX}px tall, and still links every tool`, async ({
+test("/: on a phone every tool is a visible card, and each card is its tool's link", async ({
   page,
 }) => {
   await page.goto("/");
-  const toolbox = page.locator("section#tools");
-  const height = await toolbox.evaluate((el) =>
-    Math.round(el.getBoundingClientRect().height),
+  const cards = page.locator("section#tools ul[data-tool-grid] > li");
+  await expect(cards).toHaveCount(getAllToolSlugs().length);
+  const hidden = await cards.evaluateAll(
+    (items) =>
+      items.filter((li) => (li as HTMLElement).offsetParent === null).length,
   );
-  expect(height).toBeLessThanOrEqual(TOOLBOX_MAX_PX);
-  // Hidden on a phone is not removed: every tool is still linked in the HTML.
-  const hrefs = await toolbox
+  expect(hidden).toBe(0);
+  const hrefs = await cards
     .locator('a[href^="/tools/"]')
     .evaluateAll((links) => links.map((a) => a.getAttribute("href")));
-  const linked = new Set(hrefs);
-  const missing = getAllToolSlugs().filter(
-    (slug) => !linked.has(`/tools/${slug}`),
+  expect(new Set(hrefs)).toEqual(
+    new Set(getAllToolSlugs().map((slug) => `/tools/${slug}`)),
   );
-  expect(missing).toEqual([]);
-});
-
-/*
- * WHAT THE TITLE CLAIMED AND THE TEST DID NOT (review of WP-06, 2026-10-10):
- * this test was named "…and a link to all of them" and asserted only the
- * heading's href. On a phone that heading is the card's sole way to the
- * category, and it looks like plain text — no arrow, no underline, no accent,
- * and touch has no hover — while "View all" is hidden below `sm`. So a card
- * showing 3 of 7 tools gave no visible way to the other 4, with this test
- * green. It now finds the link a reader sees, by its words, on screen.
- */
-test("/: on a phone each toolbox card shows its first three tools and a visible link to all of them", async ({
-  page,
-}) => {
-  await page.goto("/");
-  const toolbox = page.locator("section#tools");
-  for (const category of categories) {
-    const count = getToolsByCategory(category.id).length;
-    const heading = toolbox.getByRole("heading", {
-      level: 3,
-      name: new RegExp(`^${escapeRegExp(category.name)}`),
-    });
-    await expect(heading, category.id).toBeVisible();
-    await expect(heading.getByRole("link"), category.id).toHaveAttribute(
-      "href",
-      categoryHref(category.id),
-    );
-    // The card is the heading's nearest ancestor that also holds the rows.
-    const card = heading.locator(
-      "xpath=ancestor::*[.//a[starts-with(@href, '/tools/') and not(contains(@href, '/category/'))]][1]",
-    );
-    const shown = await card
-      .locator('a[href^="/tools/"]:not([href*="/category/"])')
-      .evaluateAll(
-        (links) =>
-          links.filter((a) => (a as HTMLElement).offsetParent !== null).length,
-      );
-    expect(shown, category.id).toBe(Math.min(3, count));
-    // The way to the rest: a link a reader SEES, saying how many there are
-    // and naming the category, under the rows. Visible is the property: the
-    // heading's link alone passed every check here while reading as text.
-    const all = card
-      .getByRole("link", { name: new RegExp(`^All ${count} `) })
-      .filter({ visible: true });
-    await expect(all, category.id).toHaveCount(1);
-    await expect(all, category.id).toHaveAttribute(
-      "href",
-      categoryHref(category.id),
-    );
-    expect(
-      (await all.textContent())?.toLowerCase(),
-      `${category.id}: the link does not name its category`,
-    ).toContain(category.name.toLowerCase());
-    const [rows, link] = await Promise.all([
-      card
-        .locator('a[href^="/tools/"]:not([href*="/category/"])')
-        .evaluateAll((links) =>
-          Math.max(
-            ...links
-              .filter((a) => (a as HTMLElement).offsetParent !== null)
-              .map((a) => a.getBoundingClientRect().bottom),
-          ),
-        ),
-      all.evaluate((a) => a.getBoundingClientRect().top),
-    ]);
-    expect(
-      link,
-      `${category.id}: the link is not under the rows`,
-    ).toBeGreaterThanOrEqual(rows - 1);
-  }
+  // No card is wider than the screen.
+  const widest = await cards.evaluateAll((items) =>
+    Math.max(...items.map((li) => li.getBoundingClientRect().right)),
+  );
+  expect(widest).toBeLessThanOrEqual(390);
 });
 
 /**

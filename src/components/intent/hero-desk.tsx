@@ -35,6 +35,25 @@ import { ViewTransition } from "@/components/motion/vt";
 const ORIGIN: HandoffOrigin = { kind: "drop", surface: "home" };
 
 type TicketViewComponent = typeof import("./ticket-view").default;
+type TicketDialogComponent = typeof import("./ticket-dialog").default;
+
+/**
+ * Below `sm` the desk is a compact drop box and its files open the job
+ * ticket in the full-screen ticket dialog; from `sm` the ticket takes the
+ * desk's place, at the height the desk reserved for it. The same width
+ * `sm:` means in the stylesheet (40rem), so the box that hides its ghost
+ * frame and the code that routes its files agree.
+ */
+const PHONE = "(max-width: 39.99rem)";
+const onPhone = () =>
+  typeof window.matchMedia === "function" && window.matchMedia(PHONE).matches;
+
+/** Files the phone's dialog opened with. */
+interface DialogFiles {
+  readonly files: File[];
+  readonly via: DropVia;
+  readonly sample: boolean;
+}
 
 /** Is focus nowhere a person put it — on the body, or on a node now gone? */
 function focusOrphaned(): boolean {
@@ -48,15 +67,27 @@ function focusOrphaned(): boolean {
  *
  * IDLE is server-rendered and works before hydration: "Choose files" is a
  * label around a native file input, the caption under it is generated from
- * the same list as the input's `accept` (both passed in by the server, so
- * this island imports neither the list nor the catalogue), and the six task
- * links are the server's own markup, passed through.
+ * the same list as the input's `accept`, and the note under that is the
+ * server's own markup (all passed in by the server, so this island imports
+ * neither the list nor the catalogue).
+ *
+ * WAS a working desk on the first screen — a mono "Drop a file · checked in
+ * this tab" kicker, the six "Start from a task" links with their mode
+ * shapes, and a perforation between them. The owner's brief (2026-10-21)
+ * found the home page read as a developer's tool; the tasks became the tool
+ * cards under the hero, and the idle desk is now a plain drop area: the
+ * button, the drop hint, what it takes, and one sentence on where files go.
  *
  * WITH FILES, the box's content swaps in place (one height, so nothing
  * below moves): the rows land at once, the ticket's chunk is fetched if the
  * approach did not already fetch it, the files are measured in this tab, and
  * the suggestions appear when the facts are in. Nothing is uploaded; a tool
  * opens with the files through a hand-off in this browser.
+ *
+ * ON A PHONE (below `sm`) the box reserves nothing for the ticket — that
+ * reserve was the empty space that pushed the tool chips to 1,083px (review
+ * of PR #199) — so its files open the same ticket in the full-screen ticket
+ * dialog instead, with this desk's origin. The box keeps its size either way.
  *
  * FOCUS. After a pick the control that was used is gone, so focus moves to
  * the ticket (its region is named by its heading); after Clear, back to
@@ -66,15 +97,15 @@ export function HeroDesk({
   id,
   accept,
   acceptHint,
-  tasks,
+  note,
 }: {
   /** The anchor every "Choose files" link on the page points at. */
   id: string;
   /** The picker's `accept`, generated on the server with the caption. */
   accept: string;
   acceptHint: string;
-  /** The server-rendered task list, label included. */
-  tasks: ReactNode;
+  /** The server-rendered sentence on where the files go. */
+  note: ReactNode;
 }) {
   const ticket = useTicket();
   const { state, add, clear, dispatch } = ticket;
@@ -121,9 +152,27 @@ export function HeroDesk({
       regionRef.current?.focus({ preventScroll: true });
   }, [state.arrival, state.phase, state.via, focusPick]);
 
-  const onFiles = useCallback(
-    (files: File[], via: DropVia) => add(files, via),
+  // A phone's files go to the ticket dialog (see PHONE): the box stays its
+  // compact self, and nothing on the page moves.
+  const [dialog, setDialog] = useState<DialogFiles | null>(null);
+  const [Dialog, setDialogView] = useState<TicketDialogComponent | null>(null);
+  const receive = useCallback(
+    (files: File[], via: DropVia, sample: boolean) => {
+      if (!onPhone()) {
+        add(files, via, sample ? { sample } : undefined);
+        return;
+      }
+      setDialog({ files, via, sample });
+      import("./ticket-dialog").then(
+        (mod) => setDialogView(() => mod.default),
+        () => add(files, via, sample ? { sample } : undefined),
+      );
+    },
     [add],
+  );
+  const onFiles = useCallback(
+    (files: File[], via: DropVia) => receive(files, via, false),
+    [receive],
   );
   // A link to `#id` (the colophon's "Choose files") lands on the control
   // that starts: the picker while the desk is empty, the ticket after.
@@ -152,8 +201,8 @@ export function HeroDesk({
     [launching],
   );
   const onSample = useCallback(
-    (file: File) => add([file], "pick", { sample: true }),
-    [add],
+    (file: File) => receive([file], "pick", true),
+    [receive],
   );
 
   return (
@@ -209,61 +258,66 @@ export function HeroDesk({
                 aria-hidden
                 inert
                 data-desk-ghost=""
-                className="invisible flex flex-col"
+                className="invisible flex flex-col max-sm:hidden"
               >
                 <TicketFrame ghost />
               </div>
               <div
                 ref={idleRef}
-                className={cn("flex flex-col", !idle && "invisible")}
+                className={cn(
+                  "flex flex-col justify-center",
+                  !idle && "invisible",
+                )}
                 inert={!idle}
                 aria-hidden={!idle || undefined}
               >
-                <p className="kicker text-faint">
-                  Drop a file<span aria-hidden> · </span>
-                  <span className="sr-only">, </span>checked in this tab
-                </p>
-                <DropSheetPick
-                  className={buttonVariants({
-                    variant: "primary",
-                    size: "lg",
-                    className: cn(
-                      "mt-3 w-full cursor-pointer",
-                      "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2",
-                      "motion-safe:active:translate-y-px",
-                    ),
-                  })}
-                >
-                  <FilePlus className="size-4" aria-hidden />
-                  Choose files
-                </DropSheetPick>
-                {/* Said only while it is true: from the same value that makes
-                  the sheet catch the page's drops. */}
-                {api.catchesPageDrops && (
-                  <p className="text-muted mt-2 hidden text-center text-xs pointer-fine:block">
-                    or drop them anywhere on this page
-                  </p>
-                )}
-                <p
-                  id={api.hintId}
-                  className="text-muted mt-3 text-xs leading-snug"
-                >
-                  {acceptHint}
-                </p>
-                <p className="text-muted mt-1.5 flex gap-2 text-xs leading-snug text-pretty">
-                  <span
+                {/* One column, centred in the box, its lines set left: a
+                    line that changes its words (the sample's "loading")
+                    then grows to the right instead of moving sideways
+                    (layout-stability, "nothing inside it shifts"). */}
+                <div className="mx-auto flex w-full max-w-sm flex-col">
+                  <FilePlus
+                    className="text-accent size-10 max-sm:hidden"
+                    strokeWidth={1.25}
                     aria-hidden
-                    className="bg-ok mt-[0.3rem] size-1.5 shrink-0 rounded-full"
                   />
-                  <span>
-                    Your files stay in this browser until you start a step
-                    marked Secure worker or AI.
-                  </span>
-                </p>
-                <SamplePdfButton className="mt-1" onSample={onSample} />
-                <div aria-hidden className="perforation my-2.5" />
-                {tasks}
-                <RecentsSlot className="mt-auto pt-1" />
+                  <DropSheetPick
+                    className={buttonVariants({
+                      variant: "primary",
+                      size: "lg",
+                      className: cn(
+                        "w-full cursor-pointer sm:mt-4",
+                        "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2",
+                        "motion-safe:active:translate-y-px",
+                      ),
+                    })}
+                  >
+                    <FilePlus className="size-4" aria-hidden />
+                    Choose files
+                  </DropSheetPick>
+                  {/* Said only while it is true: from the same value that makes
+                  the sheet catch the page's drops. */}
+                  {api.catchesPageDrops && (
+                    <p className="text-muted mt-2 hidden text-center text-xs pointer-fine:block">
+                      or drop them anywhere on this page
+                    </p>
+                  )}
+                  {note}
+                  <SamplePdfButton className="mt-1" onSample={onSample} />
+                  {/* The size limits, one press away (review of PR #199: a
+                      phone's first screen printed all four). Still the
+                      picker's description, read from the closed disclosure;
+                      each tool page states its own limits too. */}
+                  <details className="text-muted text-xs">
+                    <summary className="hover:text-fg w-fit cursor-pointer py-1">
+                      File limits
+                    </summary>
+                    <p id={api.hintId} className="pb-1 leading-snug">
+                      {acceptHint}
+                    </p>
+                  </details>
+                  <RecentsSlot className="pt-1" />
+                </div>
               </div>
               {!idle && (
                 <section
@@ -296,6 +350,17 @@ export function HeroDesk({
           </ViewTransition>
         )}
       </DropDesk>
+      {dialog && Dialog && (
+        <Dialog
+          files={dialog.files}
+          via={dialog.via}
+          sample={dialog.sample}
+          why={{ kind: "none" }}
+          exclude={null}
+          origin={ORIGIN}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,15 +1,9 @@
 import type { Metadata } from "next";
 import { Hero } from "@/components/sections/hero";
-import { StatsBand } from "@/components/sections/stats-band";
-import { ToolShowcase } from "@/components/sections/tool-showcase";
-import { WorkflowSection } from "@/components/sections/workflow-section";
-import { AiSection } from "@/components/sections/ai-section";
-import { SecuritySection } from "@/components/sections/security-section";
-import { PricingSection } from "@/components/sections/pricing-section";
+import { ToolGrid } from "@/components/sections/tool-grid";
+import { HowAndWhy } from "@/components/sections/how-and-why";
 import { FaqSection } from "@/components/sections/faq-section";
 import { GuidesSection } from "@/components/sections/guides-section";
-import { AboutSection } from "@/components/sections/about-section";
-import { CtaSection } from "@/components/sections/cta-section";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import {
@@ -36,20 +30,20 @@ export default function HomePage() {
       {/* The paper scope is applied once, on <body> in the root layout, and
           `:root` shares its tokens, so this page, the header and the footer
           resolve one palette in either colour scheme. This wrapper only sets
-          the page's ground and ink; the closing band inverts locally with
-          `.theme-ink`. */}
+          the page's ground and ink.
+
+          The order is a first-time visitor's (owner's brief, 2026-10-21):
+          what this is and one button; every tool as a card; how it works;
+          why; questions; guides. WAS eleven sections, among them a stats
+          band, the workflow narrative, an AI pitch, a privacy grid, a pricing
+          panel, About, and an ink closing band — merged into "Why pdf.xyz",
+          the FAQ, and the cards' own badges. */}
       <div className="bg-canvas text-fg">
         <Hero />
-        <StatsBand />
-        <ToolShowcase />
-        <WorkflowSection />
-        <AiSection />
-        <SecuritySection />
-        <PricingSection />
+        <ToolGrid />
+        <HowAndWhy />
         <FaqSection />
         <GuidesSection />
-        <AboutSection />
-        <CtaSection />
       </div>
     </>
   );

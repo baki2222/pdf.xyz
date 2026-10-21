@@ -31,6 +31,16 @@ export function pageContent(tool: Tool): ToolContent | undefined {
   return getToolContent(tool.slug);
 }
 
+/**
+ * The home page card's one-line summary: the authored `cardSummary` where the
+ * tagline is a specialist's, else the tagline. The card renders this and the
+ * claim guards (`claims-vs-capability`, `capability-hedges`) read it, so a
+ * summary is held to the same capability facts as the tagline it replaces.
+ */
+export function cardSummary(tool: Tool): string {
+  return tool.cardSummary ?? tool.tagline;
+}
+
 /** The "About this tool" paragraphs: authored intro, else the description. */
 export function pageIntro(tool: Tool): readonly string[] {
   return pageContent(tool)?.intro ?? [tool.description];

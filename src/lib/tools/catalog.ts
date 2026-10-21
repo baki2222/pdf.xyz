@@ -176,6 +176,8 @@ export const tools: Tool[] = [
     slug: "compress-pdf",
     name: "Compress PDF",
     tagline: "Analyze size and optimize losslessly.",
+    cardSummary:
+      "See what makes a PDF large, and repack it without losing quality.",
     description:
       "See exactly what's inflating your PDF and losslessly repack it in your browser. Deep image downsampling runs on a secure, auto-deleting worker.",
     category: "optimize",
@@ -232,6 +234,8 @@ export const tools: Tool[] = [
     // The name carries the head term: it is the <title>, the H1 and the card.
     name: "Optimize PDF for Web",
     tagline: "Fast-loading, linearized PDFs.",
+    cardSummary:
+      "Let a PDF's first page show while the rest is still downloading.",
     description:
       "Linearize a PDF for Fast Web View, so its first page can show while the rest downloads — not compression. Runs on a worker that deletes the input after the job.",
     category: "optimize",
@@ -262,6 +266,7 @@ export const tools: Tool[] = [
     slug: "word-to-pdf",
     name: "Word to PDF",
     tagline: "DOCX and DOC into a shareable PDF.",
+    cardSummary: "Turn Word documents into a PDF that's easy to share.",
     description:
       // LibreOffice lays the document out, not Word. Since the wave-1 L03
       // merge the worker image installs metric clones of Calibri, Cambria,
@@ -361,6 +366,7 @@ export const tools: Tool[] = [
     slug: "html-to-pdf",
     name: "HTML to PDF",
     tagline: "Render HTML files as PDF.",
+    cardSummary: "Turn an HTML file into a PDF.",
     description:
       "Convert an HTML file into PDF with a real Chromium rendering engine on a secure worker that deletes the input when the job finishes.",
     category: "convert-to",
@@ -459,6 +465,7 @@ export const tools: Tool[] = [
     // `worker-tool-answers.test.ts` and claims-vs-capability.test.ts decode a
     // real export against this copy.
     tagline: "Editable DOCX from a PDF's text and pictures.",
+    cardSummary: "Turn a PDF's text and pictures into an editable Word file.",
     description:
       "Turn a PDF's text into editable Word (DOCX) paragraphs in reading order, its pictures placed between them. Fonts and layout are not recreated; scans need OCR first.",
     category: "convert-from",
@@ -525,6 +532,7 @@ export const tools: Tool[] = [
     slug: "pdf-to-jpg",
     name: "PDF to JPG",
     tagline: "Render pages as JPG images.",
+    cardSummary: "Turn each page into a JPG image.",
     description:
       "Export each PDF page as a high-resolution JPG image — rendered right in your browser.",
     category: "convert-from",
@@ -546,6 +554,7 @@ export const tools: Tool[] = [
     slug: "pdf-to-png",
     name: "PDF to PNG",
     tagline: "Export pages as lossless PNGs.",
+    cardSummary: "Save each page as a sharp PNG image.",
     description:
       // Was "with a transparent or white background": every page is rendered
       // onto white (render.ts), and the runner offers no transparent option;
@@ -569,6 +578,8 @@ export const tools: Tool[] = [
     slug: "pdf-to-pdfa",
     name: "PDF to PDF/A",
     tagline: `Archive-oriented ${PDF_A_STANDARD}, made with Ghostscript.`,
+    cardSummary:
+      "Save a PDF in the PDF/A format, made for long-term archiving.",
     description: `Convert PDFs to ${PDF_A_STANDARD} for long-term archiving — processed by Ghostscript on a secure worker that deletes the input when the job finishes.`,
     category: "convert-from",
     icon: "pdfa",
@@ -634,6 +645,7 @@ export const tools: Tool[] = [
     name: "Extract Tables",
     seoTitle: "Extract Tables from PDF to CSV & Excel",
     tagline: "Detected tables into CSV/Excel.",
+    cardSummary: "Copy the tables in a PDF's text into spreadsheet files.",
     description:
       "Detect aligned tables inside a PDF's selectable text and export them to clean CSV files plus a combined Excel workbook. Scanned PDFs need OCR first.",
     category: "convert-from",
@@ -1050,6 +1062,7 @@ export const tools: Tool[] = [
     slug: "summarize-pdf",
     name: "Summarize PDF",
     tagline: "Key points and TL;DR in seconds.",
+    cardSummary: "Get the key points and an outline of a long PDF.",
     description:
       "Generate concise summaries, bullet takeaways, and section outlines from long PDFs.",
     category: "ai",
@@ -1083,6 +1096,8 @@ export const tools: Tool[] = [
     name: "AI Data Extraction",
     seoTitle: "Extract Data from PDF to JSON with AI",
     tagline: "Pull structured fields from PDFs.",
+    cardSummary:
+      "Pull details like totals and dates from invoices and receipts.",
     description:
       "Extract fields from PDF invoices, receipts and contracts into clean JSON with AI — read from the PDF's selectable text.",
     category: "ai",

@@ -43,9 +43,8 @@ import { ANNOUNCE_DELAY_MS } from "@/components/tools/tools-explorer";
 // In memory before /tools asks for it, so the page's own `import()` of the
 // search chunk resolves inside the test rather than racing it.
 import { rankTools } from "@/lib/tools/search-tools";
-import { CtaSection } from "@/components/sections/cta-section";
-import { StatsBand } from "@/components/sections/stats-band";
-import { PricingSection } from "@/components/sections/pricing-section";
+import { WhySection } from "@/components/sections/why-section";
+import HomePage from "./page";
 import PrivacyPage from "./privacy/page";
 import ToolsPage from "./tools/page";
 import StatusPage from "./status/page";
@@ -220,15 +219,13 @@ async function chooseEachPlace(): Promise<
  * so the page is what is rendered here.
  */
 const COUNT_SURFACES: Surface[] = [
+  // The home page's one count since 2026-10-21: "Why pdf.xyz"'s privacy
+  // point. WAS two surfaces, the closing CTA band and the spec strip; both
+  // retired with the plain redesign, and their counts with them.
   {
-    name: "homepage CTA",
-    module: "src/components/sections/cta-section.tsx",
-    render: () => renderSurface(<CtaSection />),
-  },
-  {
-    name: "homepage spec strip",
-    module: "src/components/sections/stats-band.tsx",
-    render: () => renderSurface(<StatsBand />),
+    name: "homepage, Why pdf.xyz",
+    module: "src/components/sections/why-section.tsx",
+    render: () => renderSurface(<WhySection />),
   },
   {
     name: "/privacy",
@@ -254,10 +251,14 @@ const COUNT_SURFACES: Surface[] = [
  */
 const PROMISE_SURFACES: Surface[] = [
   ...COUNT_SURFACES,
+  // WAS the pricing card ("…run entirely on your device — your files never
+  // leave it"), retired 2026-10-21. The promise now sits in the hero's trust
+  // line, which calls nothing, so the WHOLE home page is read here, bound to
+  // the one module on it that calls the partition.
   {
-    name: "homepage pricing",
-    module: "src/components/sections/pricing-section.tsx",
-    render: () => renderSurface(<PricingSection />),
+    name: "homepage, whole",
+    module: "src/components/sections/why-section.tsx",
+    render: () => renderSurface(<HomePage />),
   },
 ];
 
@@ -367,7 +368,9 @@ describe("every surface that states a partition count is rendered here", () => {
   const callers = splitCallers();
 
   it("health: the walk finds the callers, and the call pattern tells a call from a mention", () => {
-    expect(callers.length).toBeGreaterThanOrEqual(6);
+    // WAS 6 until 2026-10-21: the home page's CTA band, spec strip and
+    // pricing card were three callers; "Why pdf.xyz" is the one that remains.
+    expect(callers.length).toBeGreaterThanOrEqual(5);
     expect(callers).toContain(STATUS_MODULE);
     expect(SPLIT_CALL.test("const s = processingSplit();")).toBe(true);
     expect(SPLIT_CALL.test("const s = processingSplit (tools);")).toBe(true);

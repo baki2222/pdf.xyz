@@ -46,6 +46,14 @@ export interface Tool {
   seoTitle?: string;
   /** Short line used on cards. */
   tagline: string;
+  /**
+   * The home page card's one line, in a first-time visitor's words, where the
+   * tagline speaks a specialist's ("linearized", "DOCX", "TL;DR"). Read only
+   * through `cardSummary()` in `./page-copy`, which falls back to the
+   * tagline; the same claim guards read it as read the tagline, and
+   * `card-copy.test.ts` holds its length and its vocabulary.
+   */
+  cardSummary?: string;
   /** Longer description used on the tool page and meta description. */
   description: string;
   category: ToolCategoryId;
