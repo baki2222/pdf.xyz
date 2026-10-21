@@ -87,6 +87,8 @@ interface ShiftRecord {
     reserved: boolean;
     /** The `data-slot` it is in (or is), if any. */
     slot: string | null;
+    /** Inside the home desk, or inside the ticket dialog. */
+    where: "desk" | "dialog" | null;
     move: string;
   }[];
 }
@@ -214,6 +216,11 @@ function observe(reserved: string) {
             elementOf(s.node)
               ?.closest("[data-slot]")
               ?.getAttribute("data-slot") ?? null,
+          where: elementOf(s.node)?.closest("[data-desk-stack]")
+            ? ("desk" as const)
+            : elementOf(s.node)?.closest("[data-ticket-dialog]")
+              ? ("dialog" as const)
+              : null,
           move: `${Math.round(s.currentRect.x - s.previousRect.x)},${Math.round(s.currentRect.y - s.previousRect.y)} ${Math.round(s.previousRect.width)}->${Math.round(s.currentRect.width)}w`,
         })),
       });
@@ -1592,6 +1599,8 @@ interface DeskArrival {
   witnesses: number;
   counted: ShiftRecord[];
   inDesk: ShiftRecord[];
+  /** What the ticket dialog's own shifts cost (a phone's ticket is there). */
+  dialogShift: number;
   cls: number;
   /** Ticket slots whose content is taller than their reserved height. */
   overflowing: string[];
@@ -1657,7 +1666,10 @@ async function measureDeskArrival(
   await page.waitForTimeout(1200);
 
   const after = await page.evaluate((from) => {
-    const ticket = document.querySelector("[data-desk] section");
+    // On a phone the ticket opens in the dialog (review of PR #199).
+    const ticket =
+      document.querySelector("[data-desk] section") ??
+      document.querySelector("[data-ticket-dialog] section");
     const overflowing = [
       ...(ticket?.querySelectorAll<HTMLElement>("[data-slot]") ?? []),
     ]
@@ -1687,7 +1699,15 @@ async function measureDeskArrival(
     moved,
     witnesses: before.witnesses.length,
     counted,
-    inDesk: after.shifts.filter((s) => s.sources.some((x) => x.reserved)),
+    // In the DESK: on a phone the ticket opens in the dialog (review of
+    // PR #199), whose slots are reserved too but are not the desk's; the
+    // dialog is held below, by what its shifts cost.
+    inDesk: after.shifts.filter((s) =>
+      s.sources.some((x) => x.reserved && x.where !== "dialog"),
+    ),
+    dialogShift: after.shifts
+      .filter((s) => s.sources.some((x) => x.where === "dialog"))
+      .reduce((sum, s) => sum + s.value, 0),
     cls: counted.reduce((sum, s) => sum + s.value, 0),
     overflowing: after.overflowing,
   };
@@ -1735,6 +1755,16 @@ test.describe("the home desk as files arrive", () => {
             m.overflowing,
             "a ticket slot overflows its reserved height",
           ).toEqual([]);
+          // A phone's ticket opens in the full-screen dialog. Its facts lines
+          // lengthen at their ends as they land (by design, ticket-view's
+          // "a fact that lands lengthens the line to the right"), which
+          // Chrome records as a shift of value 0.0000 (measured 2026-10-21,
+          // 23 PDFs: a fact 160 -> 164px wide, nothing moved). What is held
+          // is the cost: nothing a reader could see.
+          expect(
+            m.dialogShift,
+            "the ticket dialog moved as its facts landed",
+          ).toBeLessThanOrEqual(0.001);
           expect(
             m.cls,
             `the page moved as the files arrived:\n${report(m.counted)}`,
