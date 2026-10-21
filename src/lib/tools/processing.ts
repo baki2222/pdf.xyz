@@ -52,6 +52,11 @@ export type ProcessingShape = "dot" | "half" | "ring" | "diamond";
 export interface ProcessingMeta {
   label: string;
   short: string;
+  /**
+   * The home card's badge, in a visitor's words: no "worker", no mono caps.
+   * `card-copy.test.ts` holds every one against the jargon list.
+   */
+  plain: string;
   description: string;
   hue: ProcessingHue;
   shape: ProcessingShape;
@@ -81,6 +86,7 @@ export const HYBRID_SUMMARY = `The main work runs in your browser, and on that p
  */
 export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
   client: {
+    plain: "In your browser",
     label: "Runs in your browser",
     short: "In-browser",
     description:
@@ -96,6 +102,7 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
     },
   },
   server: {
+    plain: "Secure server",
     label: "Secure worker",
     short: "Secure worker",
     description:
@@ -111,6 +118,7 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
     },
   },
   hybrid: {
+    plain: "Browser first",
     label: "Browser-first",
     short: "Hybrid",
     description: HYBRID_SUMMARY,
@@ -125,6 +133,7 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
     },
   },
   ai: {
+    plain: "AI",
     label: "AI-assisted",
     short: "AI",
     // Names the third party: the AI work is done by an outside provider, from
