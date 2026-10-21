@@ -41,7 +41,7 @@ export function Hero() {
             accept={acceptAttribute()}
             acceptHint={acceptHint()}
             note={
-              <p className="text-muted mt-1.5 text-xs leading-snug text-pretty">
+              <p className="text-muted mt-3 text-xs leading-snug text-pretty">
                 Your files stay in this browser until you start a step that
                 uploads them.
               </p>

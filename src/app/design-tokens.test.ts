@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 import { buttonVariants } from "@/components/ui/button";
 import { compositeOver, contrastRatio, parseColor } from "@/lib/a11y/contrast";
 import { parseCss, type CssBlock } from "@/lib/motion/contract";
+import { toolFamilies } from "@/lib/tools/families";
 
 const ROOT = process.cwd();
 const CSS = readFileSync(path.join(ROOT, "src/app/globals.css"), "utf8");
@@ -301,5 +302,53 @@ describe("an unavailable or busy primary button keeps its label at AA", () => {
 
   it("positive control: a button dimmed to half fails on the light panel", () => {
     expect(worst(SCOPES.get("light paper")!, 0.5)).toBeLessThan(AA);
+  });
+});
+
+/*
+ * The home page's category colours (review of PR #199, 2026-10-21: the pale
+ * tinted tiles did not read as categories at a glance). Each family the
+ * catalogue folds into a chip owns a solid tile token, `--sf-cat-<family>`,
+ * and every tile draws its glyph in `--sf-cat-ink`. The family set is
+ * DERIVED from `toolFamilies()`, so a new family without a token fails here
+ * rather than rendering an empty tile.
+ */
+describe("every family's tile keeps its glyph at 3:1 (non-text), in every scope", () => {
+  const families = toolFamilies().map((f) => f.id);
+  const NON_TEXT = 3;
+
+  it("health check: the families are the catalogue's, and each scope has their tokens", () => {
+    expect(families.length).toBeGreaterThanOrEqual(6);
+    for (const [name, tokens] of SCOPES)
+      for (const id of families)
+        expect(tokens.has(`--sf-cat-${id}`), `${name}: --sf-cat-${id}`).toBe(
+          true,
+        );
+  });
+
+  it.each([...SCOPES.keys()])("%s", (name) => {
+    const tokens = SCOPES.get(name)!;
+    const ink = colour(tokens, "cat-ink");
+    for (const id of families) {
+      const ratio = contrastRatio(ink, colour(tokens, `cat-${id}`));
+      expect(ratio, `glyph on ${id} in ${name}`).toBeGreaterThanOrEqual(
+        NON_TEXT,
+      );
+    }
+  });
+
+  it("no two families share a tile colour in a scope", () => {
+    for (const [name, tokens] of SCOPES) {
+      const values = families.map((id) => tokens.get(`--sf-cat-${id}`));
+      expect(new Set(values).size, name).toBe(families.length);
+    }
+  });
+
+  it("positive control: the brand cyan as a tile fails under a white glyph", () => {
+    const tokens = new Map(SCOPES.get("light paper")!);
+    tokens.set("--sf-cat-ink", "#ffffff");
+    expect(
+      contrastRatio(colour(tokens, "cat-ink"), colour(tokens, "mark")),
+    ).toBeLessThan(NON_TEXT);
   });
 });

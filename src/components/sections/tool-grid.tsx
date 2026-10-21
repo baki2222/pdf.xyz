@@ -13,19 +13,25 @@ import { cn } from "@/lib/utils";
 import { ToolFilter } from "./tool-filter";
 
 /**
- * Each family's colour: its icon, drawn in a theme role, on a tile tinted
- * with the same colour (`bg-current/10`). Roles, never palette hues
- * (`raw-palette.test.ts`), so both schemes resolve them. Decorative: the
- * card's name says what the tool is. A family missing here is drawn in ink.
+ * Each family's colour: a solid tile, `bg-cat-<family>`, with its glyph in
+ * `text-cat-ink` — the same class on the family's chip swatch, so a card and
+ * its chip cannot disagree. The tokens are declared in every theme scope of
+ * `globals.css`, and `design-tokens.test.ts` holds each glyph at 3:1 on its
+ * tile in all four. Spelled out, one literal per family, because Tailwind
+ * only generates a class it can read in the source; `tool-grid.test.tsx`
+ * holds every rendered family to `bg-cat-<its id>`.
+ *
+ * WAS a theme ink at 10% on the tile (`bg-current/10`) with the glyph in the
+ * ink: every tile read as the same pale square (review of PR #199).
  */
-const FAMILY_INK: Record<string, string> = {
-  organize: "text-accent",
-  convert: "text-info",
-  edit: "text-warn",
-  sign: "text-ok",
-  security: "text-err",
-  optimize: "text-fg",
-  ai: "text-mark",
+const FAMILY_TILE: Record<string, string> = {
+  organize: "bg-cat-organize",
+  convert: "bg-cat-convert",
+  edit: "bg-cat-edit",
+  sign: "bg-cat-sign",
+  security: "bg-cat-security",
+  optimize: "bg-cat-optimize",
+  ai: "bg-cat-ai",
 };
 
 /** The chip that shows every card. */
@@ -47,7 +53,7 @@ const CHIP =
  * mode's shape — never the mono uppercase label the old index rows wore.
  */
 function HomeToolCard({ tool }: { tool: Tool }) {
-  const ink = FAMILY_INK[familyOf(tool)] ?? "text-fg";
+  const tile = FAMILY_TILE[familyOf(tool)] ?? "bg-invert";
   return (
     <Link
       href={`/tools/${tool.slug}`}
@@ -55,9 +61,10 @@ function HomeToolCard({ tool }: { tool: Tool }) {
     >
       <span
         aria-hidden
+        data-tile=""
         className={cn(
-          "rounded-ctl grid size-10 shrink-0 place-items-center bg-current/10",
-          ink,
+          "rounded-ctl text-cat-ink grid size-10 shrink-0 place-items-center",
+          tile,
         )}
       >
         {createElement(getIcon(tool.icon), {
@@ -132,6 +139,16 @@ export function ToolGrid() {
                   aria-pressed={chip.id === ALL}
                   className={CHIP}
                 >
+                  {chip.id !== ALL && (
+                    <span
+                      aria-hidden
+                      data-swatch=""
+                      className={cn(
+                        "rounded-tag size-2.5 shrink-0",
+                        FAMILY_TILE[chip.id] ?? "bg-invert",
+                      )}
+                    />
+                  )}
                   {chip.label}{" "}
                   <span className="text-faint group-aria-pressed:text-fg-invert/70 text-xs tabular-nums">
                     {chip.count}

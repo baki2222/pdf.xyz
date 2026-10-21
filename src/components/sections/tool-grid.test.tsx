@@ -117,6 +117,38 @@ describe("the home page's tool cards, as served", () => {
   });
 });
 
+/*
+ * Review of PR #199 (2026-10-21): the pale tiles did not tell the categories
+ * apart. Each card's tile is now its family's solid colour, and the chip of
+ * that family carries a swatch of the same colour — ONE class per family,
+ * `bg-cat-<family>`, so the two cannot drift. Whether each colour keeps its
+ * glyph legible is `design-tokens.test.ts`'s ("every family's tile…").
+ */
+describe("a family's colour is the same on its cards and its chip", () => {
+  it("every card's tile and its family's chip swatch wear bg-cat-<family>", () => {
+    const doc = served();
+    const families = toolFamilies();
+    expect(families.length).toBeGreaterThanOrEqual(6);
+    const items = cards(doc);
+    expect(items.length).toBe(tools.length);
+    for (const li of items) {
+      const family = li.getAttribute("data-family");
+      const tile = li.querySelector("[data-tile]");
+      expect(tile, li.textContent ?? "").not.toBeNull();
+      expect(tile!.classList.contains(`bg-cat-${family}`), `${family}`).toBe(
+        true,
+      );
+      expect(tile!.classList.contains("text-cat-ink")).toBe(true);
+    }
+    for (const f of families) {
+      const chip = doc.querySelector(`button[data-family="${f.id}"]`);
+      const swatch = chip?.querySelector("[data-swatch]");
+      expect(swatch, f.id).not.toBeNull();
+      expect(swatch!.classList.contains(`bg-cat-${f.id}`), f.id).toBe(true);
+    }
+  });
+});
+
 describe("the chips filter the cards", () => {
   it("a chip shows its family's cards alone, and All shows every card again", () => {
     const { container } = render(<HomePage />);

@@ -100,3 +100,39 @@ for (const [name, viewport, max] of [
     expect(height).toBeLessThan(max);
   });
 }
+
+/*
+ * Review of PR #199 (2026-10-21): a phone's first screen still read as
+ * technical — the drop box printed every size limit ("PDF up to 100 MB ·
+ * Word, Excel, PowerPoint up to 50 MB · …") — and the box's reserved
+ * height left the chips far below it. The limits now sit behind a "File
+ * limits" disclosure (the tool pages state them too), and the box is
+ * compact on a phone.
+ */
+test.describe("a phone's first screen", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("the size limits are behind a File limits disclosure", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const limits = page.getByText(/PDF up to \d+ MB/);
+    await expect(limits).toBeHidden();
+    await page.locator("#upload").getByText("File limits").click();
+    await expect(limits).toBeVisible();
+  });
+
+  test("the chips start just past the first screen", async ({ page }) => {
+    await page.goto("/");
+    const top = await page
+      .getByRole("group", { name: "Filter tools by category" })
+      .evaluate((el) =>
+        Math.round(el.getBoundingClientRect().top + window.scrollY),
+      );
+    // Measured at 390x844 on the served build (Windows Chromium,
+    // 2026-10-21): 1,083 in the first round, when the desk reserved the
+    // ticket's height; 868 with the compact box. The bound is that plus a
+    // platform margin for text metrics.
+    expect(top).toBeLessThanOrEqual(920);
+  });
+});

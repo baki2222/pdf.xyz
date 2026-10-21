@@ -28,6 +28,14 @@ export interface TicketDialogProps {
   /** The tool page it opened on, never offered back to itself. */
   readonly exclude: string | null;
   readonly onClose: () => void;
+  /**
+   * Where the files came from, for the tool page to say. The drop layer's
+   * dialog leaves it out (`surface: "dialog"`); the home desk on a phone
+   * opens this dialog for its own picks and drops, so it passes its own.
+   */
+  readonly origin?: HandoffOrigin;
+  /** The files are the site's sample PDF (the desk's "Try a sample PDF"). */
+  readonly sample?: boolean;
 }
 
 /** Why the files did not go into the tool on this page — said once, at the top. */
@@ -72,6 +80,8 @@ export default function TicketDialog({
   why,
   exclude,
   onClose,
+  origin = ORIGIN,
+  sample = false,
 }: TicketDialogProps) {
   const { state, add, dispatch } = useTicket();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -115,12 +125,12 @@ export default function TicketDialog({
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
-      if (!cancelled) add(files, via);
+      if (!cancelled) add(files, via, sample ? { sample } : undefined);
     });
     return () => {
       cancelled = true;
     };
-  }, [add, files, via]);
+  }, [add, files, via, sample]);
 
   // The view arrives with the ticket's chunk.
   useEffect(() => {
@@ -204,7 +214,7 @@ export default function TicketDialog({
                   state={state}
                   variant="dialog"
                   headingId={headingId}
-                  origin={ORIGIN}
+                  origin={origin}
                   source="dialog"
                   exclude={exclude}
                   pin={why.kind === "stage" ? why.slug : null}

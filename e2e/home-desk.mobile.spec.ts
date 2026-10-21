@@ -22,6 +22,14 @@ import { makePdfBytes, waitForHydration } from "./helpers";
  * made the desk 484px tall and put its bottom at 768, past the bound this
  * file states, and nothing here dropped them (WP-05 review). Every set in
  * {@link DESK_SETS} is brought to the desk now.
+ *
+ * INVERTED 2026-10-21 (review of PR #199), history kept: on a phone the desk
+ * no longer reserves the ticket's height — that reserve was the empty space
+ * that pushed the tool chips to 1,083px — so the files' ticket opens in the
+ * full-screen ticket dialog instead of in the box. What this file holds is
+ * the same property from the other side: the box keeps its size and place
+ * when files arrive (nothing under it moves), and the ticket is whole, in
+ * the dialog, on the screen.
  */
 
 const box = (page: Page) =>
@@ -64,12 +72,25 @@ test("health: the corpus holds every shape the ticket lays out differently", () 
 });
 
 for (const set of DESK_SETS) {
-  test(`${set.name}: the ticket takes the desk's place at the same size, on the first screen`, async ({
+  test(`${set.name}: the ticket opens in the full-screen dialog, and the desk keeps its size and place`, async ({
     page,
   }) => {
     const idle = await idleDesk(page);
     await bring(page, set);
     await ticketSettled(page);
+    const dialog = page.locator("dialog[data-ticket-dialog]");
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByRole("region", { name: TICKET_NAME }),
+    ).toBeVisible();
+    const sheet = await dialog.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    expect(sheet, "the dialog fills the phone's screen").toEqual({
+      w: 390,
+      h: 844,
+    });
     const withFiles = await box(page);
     expect(withFiles).toEqual(idle);
     expect(

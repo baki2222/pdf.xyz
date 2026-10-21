@@ -198,6 +198,18 @@
   --color-scrim: var(--sf-scrim);
   --shadow-sheet: var(--sf-shadow-sheet);
   --shadow-lift: var(--sf-shadow-lift);
+
+  /* The home page's category tiles (review of PR #199): one solid colour per
+     family the chips name, and the glyph drawn on it. Every scope declares
+     them; `design-tokens.test.ts` holds each glyph at 3:1 on its tile. */
+  --color-cat-ink: var(--sf-cat-ink);
+  --color-cat-organize: var(--sf-cat-organize);
+  --color-cat-convert: var(--sf-cat-convert);
+  --color-cat-edit: var(--sf-cat-edit);
+  --color-cat-sign: var(--sf-cat-sign);
+  --color-cat-security: var(--sf-cat-security);
+  --color-cat-optimize: var(--sf-cat-optimize);
+  --color-cat-ai: var(--sf-cat-ai);
 }
 
 /* Type roles that are more than a size. A kicker is the mono label that
@@ -248,6 +260,14 @@
   --sf-scrim: rgb(244 246 248 / 0.92);
   --sf-shadow-sheet: 0 28px 48px -32px rgb(12 18 26 / 0.45);
   --sf-shadow-lift: 0 18px 40px -24px rgb(12 18 26 / 0.35);
+  --sf-cat-ink: #ffffff;
+  --sf-cat-organize: #07567a;
+  --sf-cat-convert: #2563c9;
+  --sf-cat-edit: #6d44c4;
+  --sf-cat-sign: #0d7a50;
+  --sf-cat-security: #c0262e;
+  --sf-cat-optimize: #b1500c;
+  --sf-cat-ai: #a52f80;
 }
 
 .theme-ink {
@@ -275,6 +295,14 @@
   --sf-shadow-sheet:
     0 28px 48px -28px rgb(0 0 0 / 0.8), 0 0 0 1px var(--sf-line);
   --sf-shadow-lift: 0 18px 40px -20px rgb(0 0 0 / 0.7);
+  --sf-cat-ink: #ffffff;
+  --sf-cat-organize: #1f7a8c;
+  --sf-cat-convert: #3d74d6;
+  --sf-cat-edit: #7f5cd6;
+  --sf-cat-sign: #18865b;
+  --sf-cat-security: #d23f47;
+  --sf-cat-optimize: #c05a14;
+  --sf-cat-ai: #b8448f;
 }
 
 /* Dark scheme, by system preference. Paper becomes a cool graphite — the
@@ -311,6 +339,14 @@
     --sf-shadow-sheet:
       0 28px 48px -28px rgb(0 0 0 / 0.8), 0 0 0 1px var(--sf-line);
     --sf-shadow-lift: 0 18px 40px -20px rgb(0 0 0 / 0.7);
+    --sf-cat-ink: #ffffff;
+    --sf-cat-organize: #1f7a8c;
+    --sf-cat-convert: #3d74d6;
+    --sf-cat-edit: #7f5cd6;
+    --sf-cat-sign: #18865b;
+    --sf-cat-security: #d23f47;
+    --sf-cat-optimize: #c05a14;
+    --sf-cat-ai: #b8448f;
   }
 
   .theme-ink {
@@ -337,6 +373,14 @@
     --sf-scrim: rgb(244 246 248 / 0.92);
     --sf-shadow-sheet: 0 28px 48px -32px rgb(12 18 26 / 0.45);
     --sf-shadow-lift: 0 18px 40px -24px rgb(12 18 26 / 0.35);
+    --sf-cat-ink: #ffffff;
+    --sf-cat-organize: #07567a;
+    --sf-cat-convert: #2563c9;
+    --sf-cat-edit: #6d44c4;
+    --sf-cat-sign: #0d7a50;
+    --sf-cat-security: #c0262e;
+    --sf-cat-optimize: #b1500c;
+    --sf-cat-ai: #a52f80;
   }
 }
 
