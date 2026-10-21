@@ -43,7 +43,7 @@ export function PdfANotes({ job }: { job: Job | undefined }) {
   return (
     <div
       role="status"
-      className="border-info/40 bg-info/10 text-info flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
+      className="border-info/40 bg-info/10 text-info rounded-panel flex flex-col gap-2 border px-4 py-3 text-sm"
     >
       <p className="flex items-start gap-2">
         <Scissors className="mt-0.5 size-4 shrink-0" aria-hidden />

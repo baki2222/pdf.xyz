@@ -67,7 +67,7 @@ export function AboutSection() {
 
         <div
           id="contact"
-          className="border-line bg-panel grid scroll-mt-24 gap-6 rounded-[4px] border p-7 sm:grid-cols-[1fr_auto] sm:items-center sm:p-9"
+          className="border-line bg-panel rounded-panel grid scroll-mt-24 gap-6 border p-7 sm:grid-cols-[1fr_auto] sm:items-center sm:p-9"
         >
           <div className="flex flex-col gap-2">
             <h3 className="font-display text-fg text-2xl font-medium tracking-tight">
@@ -80,7 +80,7 @@ export function AboutSection() {
           </div>
           <a
             href={mailto}
-            className="border-line-strong text-fg hover:bg-wash inline-flex h-11 items-center gap-2 self-start rounded-[3px] border px-5 text-sm font-medium transition-colors sm:self-center"
+            className="border-line-strong text-fg hover:bg-wash rounded-ctl inline-flex h-11 items-center gap-2 self-start border px-5 text-sm font-medium transition-colors sm:self-center"
           >
             <Mail className="size-4" strokeWidth={1.5} aria-hidden />
             {siteConfig.contactEmail}

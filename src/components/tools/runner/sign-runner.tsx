@@ -306,7 +306,7 @@ function SignEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         </div>
       </RunnerSection>
 
-      <div className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3 text-sm">
+      <div className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3 text-sm">
         <ShieldAlert className="text-warn mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
           Electronic signature — this places a visual signature onto your PDF.
@@ -349,7 +349,7 @@ function TypedPreview({
 }) {
   const trimmed = text.trim();
   return (
-    <div className="border-line flex min-h-16 items-center justify-center rounded-[4px] border bg-white px-6 py-4">
+    <div className="border-line rounded-panel flex min-h-16 items-center justify-center border bg-white px-6 py-4">
       {trimmed ? (
         <span
           className={cn(
@@ -371,7 +371,7 @@ function TypedPreview({
 /** Preview a drawn or uploaded signature on a light card. */
 function SignaturePreview({ url }: { url: string }) {
   return (
-    <div className="border-line flex items-center justify-center rounded-[4px] border bg-white p-4">
+    <div className="border-line rounded-panel flex items-center justify-center border bg-white p-4">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={url}

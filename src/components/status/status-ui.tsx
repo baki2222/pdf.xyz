@@ -78,7 +78,7 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
+        "rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px] font-medium",
         styles.pill,
         className,
       )}
@@ -132,7 +132,7 @@ export function RecoverableError({
     <div
       role="alert"
       className={cn(
-        "border-err/40 bg-err/10 text-err flex flex-col gap-3 rounded-[4px] border p-4 text-sm",
+        "border-err/40 bg-err/10 text-err rounded-panel flex flex-col gap-3 border p-4 text-sm",
         className,
       )}
     >
@@ -210,7 +210,7 @@ export function AssuranceNote({
   return (
     <p
       className={cn(
-        "flex items-start gap-2 rounded-[4px] border px-4 py-3 text-xs leading-relaxed",
+        "rounded-panel flex items-start gap-2 border px-4 py-3 text-xs leading-relaxed",
         styles.box,
         className,
       )}
@@ -250,7 +250,7 @@ export function StatusCard({
   icon?: typeof Info;
 }) {
   return (
-    <div className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-5">
+    <div className="bg-panel border-line rounded-panel flex flex-col gap-4 border p-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-fg inline-flex items-center gap-2 text-sm font-semibold">
           <Icon className="text-faint size-4" aria-hidden />

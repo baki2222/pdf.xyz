@@ -257,7 +257,7 @@ function CompressSingle({
  */
 function Pending({ children }: { children: ReactNode }) {
   return (
-    <div className="border-line bg-wash text-muted flex flex-1 items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
+    <div className="border-line bg-wash text-muted rounded-panel flex flex-1 items-center justify-center gap-2 border px-6 py-12 text-sm">
       <Spinner />
       {children}
     </div>
@@ -360,9 +360,9 @@ function CompressLocked({
       <div
         role="status"
         aria-label="This PDF has permission restrictions"
-        className="border-info/40 bg-info/10 flex items-start gap-3 rounded-[4px] border p-5"
+        className="border-info/40 bg-info/10 rounded-panel flex items-start gap-3 border p-5"
       >
-        <span className="bg-wash text-info grid size-10 shrink-0 place-items-center rounded-[4px]">
+        <span className="bg-wash text-info rounded-panel grid size-10 shrink-0 place-items-center">
           <Lock className="size-5" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
@@ -545,11 +545,11 @@ function CompressEditor({
         role="group"
         aria-label={`Analysis complete. ${title}.`}
         className={cn(
-          "focus-visible:ring-ok/50 flex items-start gap-3 rounded-[4px] border p-5 outline-none focus-visible:ring-2",
+          "focus-visible:ring-ok/50 rounded-panel flex items-start gap-3 border p-5 outline-none focus-visible:ring-2",
           headline.tone,
         )}
       >
-        <span className="bg-wash grid size-10 shrink-0 place-items-center rounded-[4px]">
+        <span className="bg-wash rounded-panel grid size-10 shrink-0 place-items-center">
           <HeadlineIcon className="size-5" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
@@ -803,7 +803,7 @@ function WorkerDeepPanel({
   }
 
   return (
-    <div className="bg-panel border-line flex flex-col gap-3 rounded-[4px] border p-4">
+    <div className="bg-panel border-line rounded-panel flex flex-col gap-3 border p-4">
       <div className="flex items-start gap-2.5">
         <ServerCog className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
         <div className="flex flex-1 flex-col gap-1">
@@ -866,7 +866,7 @@ function WorkerBadge({
   if (status === undefined) return null;
   if (status?.mode === "local-dev") {
     return (
-      <span className="border-warn/40 bg-warn/10 text-warn inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium">
+      <span className="border-warn/40 bg-warn/10 text-warn rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px] font-medium">
         <span className="bg-warn size-1.5 rounded-full" aria-hidden />
         Local-dev worker
       </span>
@@ -874,14 +874,14 @@ function WorkerBadge({
   }
   if (canRunDeep) {
     return (
-      <span className="border-ok/40 bg-ok/10 text-ok inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium">
+      <span className="border-ok/40 bg-ok/10 text-ok rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px] font-medium">
         <span className="bg-ok size-1.5 rounded-full" aria-hidden />
         Secure worker
       </span>
     );
   }
   return (
-    <span className="border-line bg-wash text-muted inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium">
+    <span className="border-line bg-wash text-muted rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px] font-medium">
       <span className="bg-faint size-1.5 rounded-full" aria-hidden />
       Not enabled
     </span>
@@ -993,7 +993,7 @@ function DeepRunControls({
             {outcome.job?.results?.compression?.pageCheck === "unverified" && (
               <p
                 role="status"
-                className="border-warn/40 bg-warn/10 text-warn flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm"
+                className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
               >
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
                 <span>
@@ -1025,7 +1025,7 @@ function DeepRunControls({
             {...noGain}
             role="group"
             aria-label="Compression finished with no size reduction"
-            className="border-line bg-wash text-muted focus-visible:ring-ok/50 rounded-[4px] border p-4 text-sm outline-none focus-visible:ring-2"
+            className="border-line bg-wash text-muted focus-visible:ring-ok/50 rounded-panel border p-4 text-sm outline-none focus-visible:ring-2"
           >
             The worker couldn&apos;t shrink this file further without losing
             quality — the original is already efficient.
@@ -1059,7 +1059,7 @@ function SignatureWarning({
     <div
       role="group"
       aria-label={`This PDF has ${count} ${noun}`}
-      className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-3 rounded-[4px] border px-4 py-3 text-sm"
+      className="border-warn/40 bg-warn/10 text-warn rounded-panel flex flex-col gap-3 border px-4 py-3 text-sm"
     >
       <p className="flex items-start gap-2">
         <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -1101,7 +1101,7 @@ function StatTile({
   hint?: string;
 }) {
   return (
-    <div className="border-line bg-wash flex flex-col gap-1 rounded-[4px] border p-3.5">
+    <div className="border-line bg-wash rounded-panel flex flex-col gap-1 border p-3.5">
       <span className="text-muted inline-flex items-center gap-1.5 text-[11px] font-medium tracking-wide uppercase">
         <Icon className="size-3.5" aria-hidden />
         {label}
@@ -1126,7 +1126,7 @@ function RejectionsNote({
   return (
     <div
       role="alert"
-      className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
+      className="border-warn/40 bg-warn/10 text-warn rounded-panel flex flex-col gap-2 border px-4 py-3 text-sm"
     >
       <div className="flex items-start justify-between gap-3">
         <span className="flex items-center gap-2 font-medium">
@@ -1137,7 +1137,7 @@ function RejectionsNote({
         <button
           type="button"
           onClick={onDismiss}
-          className="text-warn hover:bg-warn/10 hover:text-warn shrink-0 rounded-md px-2 py-0.5 text-xs transition"
+          className="text-warn hover:bg-warn/10 hover:text-warn rounded-ctl shrink-0 px-2 py-0.5 text-xs transition"
         >
           Dismiss
         </button>

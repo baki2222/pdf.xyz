@@ -302,7 +302,7 @@ function TranslateBuilder({
             setFile(files[0] ?? null);
           }}
         >
-          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
             <span className="truncate">{file.name}</span>
             <button
               type="button"
@@ -342,7 +342,7 @@ function TranslateBuilder({
             onChange={(e) =>
               setTargetLanguage(e.target.value as TranslateLanguage)
             }
-            className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           >
             {TRANSLATE_LANGUAGES.map((code) => (
               <option key={code} value={code}>
@@ -358,7 +358,7 @@ function TranslateBuilder({
             onChange={(e) =>
               setSourceLanguage(e.target.value as TranslateSourceLanguage)
             }
-            className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           >
             <option value={TRANSLATE_SOURCE_AUTO}>Auto-detect</option>
             {TRANSLATE_LANGUAGES.map((code) => (
@@ -380,7 +380,7 @@ function TranslateBuilder({
             }
             maxLength={MAX_TRANSLATE_INSTRUCTIONS_CHARS}
             placeholder="e.g. keep product names in English, use a formal register"
-            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-lg border px-3 py-1.5 text-sm outline-none"
+            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-1.5 text-sm outline-none"
           />
         </label>
       </div>

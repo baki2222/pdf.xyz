@@ -46,7 +46,7 @@ export function WorkerOperationsDashboard() {
 
       {phase === "loading" && (
         <div
-          className="bg-panel border-line text-muted flex items-center gap-2 rounded-[4px] border p-5 text-sm"
+          className="bg-panel border-line text-muted rounded-panel flex items-center gap-2 border p-5 text-sm"
           role="status"
         >
           <Loader2 className="size-4 animate-spin" aria-hidden />

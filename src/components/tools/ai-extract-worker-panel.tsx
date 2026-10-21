@@ -213,7 +213,7 @@ function AiExtractBuilder({
             setFile(files[0] ?? null);
           }}
         >
-          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
             <span className="truncate">{file.name}</span>
             <button
               type="button"
@@ -240,7 +240,7 @@ function AiExtractBuilder({
         />
       )}
 
-      <div className="border-line bg-wash inline-flex gap-1 self-start rounded-full border p-1 text-xs">
+      <div className="border-line bg-wash rounded-ctl inline-flex gap-1 self-start border p-1 text-xs">
         <ModeTab
           active={mode === "schema"}
           onClick={() => setMode("schema")}
@@ -264,7 +264,7 @@ function AiExtractBuilder({
             maxLength={MAX_EXTRACTION_PROMPT_CHARS}
             rows={3}
             placeholder="e.g. Extract the invoice number, issue date, vendor name, and grand total."
-            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-lg border px-3 py-2 text-sm outline-none"
+            className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-2 text-sm outline-none"
           />
         </label>
       ) : (
@@ -300,7 +300,7 @@ function AiExtractBuilder({
                     // the page scrolled sideways (473px at 390, measured on
                     // the WP-06 review build with a ready worker). A zero
                     // width zeroes that minimum and flex-1 grows it back.
-                    className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 w-0 flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+                    className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl w-0 flex-1 border px-3 py-1.5 text-sm outline-none"
                   />
                   <select
                     value={field.type}
@@ -310,7 +310,7 @@ function AiExtractBuilder({
                         prev.map((f, j) => (j === i ? { ...f, type } : f)),
                       );
                     }}
-                    className="border-line bg-wash text-fg focus:border-accent/40 rounded-lg border px-2 py-1.5 text-sm outline-none"
+                    className="border-line bg-wash text-fg focus:border-accent/40 rounded-ctl border px-2 py-1.5 text-sm outline-none"
                   >
                     {EXTRACTION_FIELD_TYPES.map((t) => (
                       <option key={t} value={t}>
@@ -330,7 +330,7 @@ function AiExtractBuilder({
                     }
                     aria-disabled={fields.length <= 1 || undefined}
                     aria-label="Remove field"
-                    className="border-line text-muted hover:text-fg grid size-8 shrink-0 place-items-center rounded-lg border transition aria-disabled:opacity-40"
+                    className="border-line text-muted hover:text-fg rounded-ctl grid size-8 shrink-0 place-items-center border transition aria-disabled:opacity-40"
                   >
                     <Trash2 className="size-3.5" aria-hidden />
                   </button>
@@ -353,7 +353,7 @@ function AiExtractBuilder({
               )
             }
             aria-disabled={fields.length >= MAX_EXTRACTION_FIELDS || undefined}
-            className="border-line text-muted hover:text-fg inline-flex items-center gap-1.5 self-start rounded-lg border px-3 py-1.5 text-xs font-medium transition aria-disabled:opacity-40"
+            className="border-line text-muted hover:text-fg rounded-ctl inline-flex items-center gap-1.5 self-start border px-3 py-1.5 text-xs font-medium transition aria-disabled:opacity-40"
           >
             <Plus className="size-3.5" aria-hidden />
             Add field
@@ -463,7 +463,7 @@ function ModeTab({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`rounded-full px-3 py-1 font-medium transition ${
+      className={`rounded-tag px-3 py-1 font-medium transition ${
         active ? "bg-accent/10 text-accent" : "text-muted hover:text-fg"
       }`}
     >

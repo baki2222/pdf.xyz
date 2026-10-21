@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { FACTS_LINE, WHERE_LINE } from "./row-lines";
 
 /** A word-shaped bar: real text, so it takes exactly a line of its size. */
-const BAR = "bg-wash rounded-[2px] text-transparent select-none";
+const BAR = "bg-wash rounded-tag text-transparent select-none";
 
 /**
  * The suggestions panel while the files are read: the SAME box as the list

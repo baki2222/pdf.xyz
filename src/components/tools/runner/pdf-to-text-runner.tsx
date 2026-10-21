@@ -96,7 +96,7 @@ function PdfToTextEditor({
         {result.hasText ? (
           <div className="flex flex-col gap-4">
             {empty.length > 0 && <EmptyPagesNote pages={empty} />}
-            <div className="border-line text-fg bg-canvas max-h-72 overflow-auto rounded-[4px] border p-4 text-sm leading-6 whitespace-pre-wrap">
+            <div className="border-line text-fg bg-canvas rounded-panel max-h-72 overflow-auto border p-4 text-sm leading-6 whitespace-pre-wrap">
               {result.text}
             </div>
             <button
@@ -172,7 +172,7 @@ function EmptyPagesNote({ pages }: { pages: number[] }) {
   return (
     <p
       role="status"
-      className="border-warn/40 bg-warn/10 text-warn flex items-start gap-2 rounded-[4px] border px-4 py-3 text-sm leading-relaxed"
+      className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm leading-relaxed"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
       <span>
@@ -209,7 +209,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

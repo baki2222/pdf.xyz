@@ -608,14 +608,14 @@ export function ToolsExplorer({
             aria-label="Search tools"
             // The browser's own ✕ off: "Clear search" below is the one
             // clear control (Chromium and WebKit drew both, side by side).
-            className="bg-panel border-line placeholder:text-faint focus:border-accent/40 focus-visible:ring-accent/50 text-fg h-12 w-full rounded-[3px] border pr-11 pl-11 text-sm transition outline-none focus-visible:ring-2 [&::-webkit-search-cancel-button]:appearance-none"
+            className="bg-panel border-line placeholder:text-faint focus:border-accent/40 focus-visible:ring-accent/50 text-fg rounded-ctl h-12 w-full border pr-11 pl-11 text-sm transition outline-none focus-visible:ring-2 [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query && (
             <button
               type="button"
               onClick={() => updateAndRefocus({ ...state, query: "" })}
               aria-label="Clear search"
-              className="text-muted hover:bg-wash hover:text-fg absolute top-1/2 right-3.5 grid size-6 -translate-y-1/2 place-items-center rounded-md transition"
+              className="text-muted hover:bg-wash hover:text-fg rounded-ctl absolute top-1/2 right-3.5 grid size-6 -translate-y-1/2 place-items-center transition"
             >
               <X className="size-3.5" aria-hidden />
             </button>

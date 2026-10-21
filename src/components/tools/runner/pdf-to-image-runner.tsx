@@ -357,7 +357,7 @@ export function ImageResult({
           count={result.pages.reduce((sum, p) => sum + p.undecodedImages, 0)}
         />
         {capNote && (
-          <div className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
+          <div className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3.5 text-sm">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
             <p className="leading-relaxed">{capNote}</p>
           </div>
@@ -409,7 +409,7 @@ export function ImageResult({
             return (
               <div
                 key={page.index}
-                className="group border-line bg-wash overflow-hidden rounded-[4px] border"
+                className="group border-line bg-wash rounded-panel overflow-hidden border"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -425,7 +425,7 @@ export function ImageResult({
                     type="button"
                     onClick={() => downloadOne(page)}
                     title={`Download page ${page.index + 1}`}
-                    className="border-line bg-wash text-muted hover:bg-wash inline-grid size-7 place-items-center rounded-full border transition"
+                    className="border-line bg-wash text-muted hover:bg-wash rounded-ctl inline-grid size-7 place-items-center border transition"
                   >
                     <Download className="size-3.5" aria-hidden />
                   </button>
@@ -455,7 +455,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

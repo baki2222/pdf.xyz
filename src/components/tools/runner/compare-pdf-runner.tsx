@@ -319,7 +319,7 @@ export function ComparePdfEditor({
               }
             />
           </div>
-          <div className="border-line text-fg bg-canvas max-h-80 overflow-auto rounded-[4px] border p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
+          <div className="border-line text-fg bg-canvas rounded-panel max-h-80 overflow-auto border p-4 font-mono text-xs leading-5 whitespace-pre-wrap">
             {result.report}
           </div>
           <button
@@ -367,7 +367,7 @@ export function ComparePdfEditor({
             return item ? (
               <div
                 key={item.id}
-                className="border-line bg-wash flex min-w-0 items-start justify-between gap-3 rounded-[4px] border p-4"
+                className="border-line bg-wash rounded-panel flex min-w-0 items-start justify-between gap-3 border p-4"
               >
                 <div className={NAME_WRAP}>
                   <p className="text-fg font-medium">{item.name}</p>
@@ -387,7 +387,7 @@ export function ComparePdfEditor({
                 <button
                   type="button"
                   onClick={() => onRemove(item.id)}
-                  className="text-muted hover:bg-wash hover:text-fg shrink-0 rounded-full p-2"
+                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl shrink-0 p-2"
                 >
                   <X className="size-4" aria-hidden />
                   <span className="sr-only">Remove {item.name}</span>
@@ -396,7 +396,7 @@ export function ComparePdfEditor({
             ) : (
               <div
                 key={slot}
-                className="border-line-strong bg-wash text-muted flex min-h-24 items-center justify-center rounded-[4px] border border-dashed text-sm"
+                className="border-line-strong bg-wash text-muted rounded-panel flex min-h-24 items-center justify-center border border-dashed text-sm"
               >
                 <Plus className="mr-2 size-4" aria-hidden />
                 PDF {slot + 1}
@@ -424,7 +424,7 @@ export function ComparePdfEditor({
       </RunnerSection>
 
       {rejections.length > 0 && (
-        <div className="border-warn/40 bg-warn/10 text-warn rounded-[4px] border p-4 text-sm">
+        <div className="border-warn/40 bg-warn/10 text-warn rounded-panel border p-4 text-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
             <strong>Some files were skipped</strong>
             <button
@@ -465,7 +465,7 @@ export function ComparePdfEditor({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <p className="text-muted text-xs tracking-wide uppercase">{label}</p>
       <p className="text-fg mt-1 text-lg font-semibold">{value}</p>
     </div>
@@ -482,7 +482,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className={cn("border-line bg-wash rounded-[4px] border p-4")}>
+    <div className={cn("border-line bg-wash rounded-panel border p-4")}>
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

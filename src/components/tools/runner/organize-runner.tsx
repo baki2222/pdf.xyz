@@ -315,7 +315,7 @@ function OrganizeEditor({
       <ul
         role="list"
         aria-label="Pages — drag a tile, use its move buttons, or grab its handle and use the arrow keys to reorder"
-        className="border-line bg-wash grid max-h-[58vh] list-none grid-cols-2 gap-3 overflow-auto rounded-[4px] border p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+        className="border-line bg-wash rounded-panel grid max-h-[58vh] list-none grid-cols-2 gap-3 overflow-auto border p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
       >
         {items.map((item, i) => (
           <PageTile

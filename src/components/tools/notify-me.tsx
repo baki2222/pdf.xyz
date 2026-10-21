@@ -73,7 +73,7 @@ export function NotifyMe({
       <p
         role="status"
         className={cn(
-          "inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm",
+          "rounded-tag inline-flex items-center gap-2 border px-3.5 py-2 text-sm",
           "border-ok/40 bg-ok/10 text-ok",
         )}
       >

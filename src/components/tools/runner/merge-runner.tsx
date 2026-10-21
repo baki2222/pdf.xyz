@@ -336,7 +336,7 @@ export function MergeRunner() {
                 setOverIndex(null);
               }}
               className={cn(
-                "bg-panel flex items-center gap-3 rounded-[4px] border px-3 py-2.5 transition",
+                "bg-panel rounded-panel flex items-center gap-3 border px-3 py-2.5 transition",
                 overIndex === index && dragIndex !== null && dragIndex !== index
                   ? "border-accent/40 ring-accent/50 ring-1"
                   : "border-line",
@@ -347,10 +347,10 @@ export function MergeRunner() {
                 className="text-muted size-4 shrink-0 cursor-grab"
                 aria-hidden
               />
-              <span className="bg-wash text-muted grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold tabular-nums">
+              <span className="bg-wash text-muted rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold tabular-nums">
                 {index + 1}
               </span>
-              <span className="bg-wash ring-line grid size-9 shrink-0 place-items-center overflow-hidden rounded-md ring-1">
+              <span className="bg-wash ring-line rounded-sheet grid size-9 shrink-0 place-items-center overflow-hidden ring-1">
                 {item.cover ? (
                   <img
                     src={item.cover.url}
@@ -377,7 +377,7 @@ export function MergeRunner() {
                   onClick={() => move(index, index - 1)}
                   aria-disabled={index === 0 || undefined}
                   aria-label={`Move ${item.name} up`}
-                  className="text-muted hover:bg-wash hover:text-fg grid size-7 place-items-center rounded-lg transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
                 >
                   <ArrowUp className="size-4" aria-hidden />
                 </button>
@@ -386,7 +386,7 @@ export function MergeRunner() {
                   onClick={() => move(index, index + 1)}
                   aria-disabled={index === items.length - 1 || undefined}
                   aria-label={`Move ${item.name} down`}
-                  className="text-muted hover:bg-wash hover:text-fg grid size-7 place-items-center rounded-lg transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
                 >
                   <ArrowDown className="size-4" aria-hidden />
                 </button>
@@ -394,7 +394,7 @@ export function MergeRunner() {
                   type="button"
                   onClick={() => removeAt(index)}
                   aria-label={`Remove ${item.name}`}
-                  className="text-muted hover:bg-err/10 hover:text-err grid size-7 place-items-center rounded-lg transition"
+                  className="text-muted hover:bg-err/10 hover:text-err rounded-ctl grid size-7 place-items-center transition"
                 >
                   <X className="size-4" aria-hidden />
                 </button>
@@ -408,7 +408,7 @@ export function MergeRunner() {
               where the size line wrapped to four — counted after a drop
               (`e2e/editor-arrival.spec.ts`). */}
           {loading > 0 && (
-            <li className="bg-panel border-line text-muted flex items-center gap-3 rounded-[4px] border px-3 py-2.5 text-sm">
+            <li className="bg-panel border-line text-muted rounded-panel flex items-center gap-3 border px-3 py-2.5 text-sm">
               <span className="grid size-9 shrink-0 place-items-center">
                 <Spinner />
               </span>
@@ -465,7 +465,7 @@ function RejectionsNote({
   return (
     <div
       role="alert"
-      className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
+      className="border-warn/40 bg-warn/10 text-warn rounded-panel flex flex-col gap-2 border px-4 py-3 text-sm"
     >
       <div className="flex items-start justify-between gap-3">
         <span className="flex items-center gap-2 font-medium">
@@ -476,7 +476,7 @@ function RejectionsNote({
         <button
           type="button"
           onClick={onDismiss}
-          className="text-warn hover:bg-warn/10 hover:text-warn shrink-0 rounded-md px-2 py-0.5 text-xs transition"
+          className="text-warn hover:bg-warn/10 hover:text-warn rounded-ctl shrink-0 px-2 py-0.5 text-xs transition"
         >
           Dismiss
         </button>

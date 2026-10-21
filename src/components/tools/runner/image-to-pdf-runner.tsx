@@ -291,7 +291,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             {items.map((item, index) => (
               <div
                 key={item.id}
-                className="border-line bg-wash overflow-hidden rounded-[4px] border"
+                className="border-line bg-wash rounded-panel overflow-hidden border"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -383,4 +383,4 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
 }
 
 const iconButtonClass =
-  "inline-grid size-8 place-items-center rounded-full border border-line bg-wash text-muted transition hover:bg-wash aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
+  "inline-grid size-8 place-items-center rounded-ctl border border-line bg-wash text-muted transition hover:bg-wash aria-disabled:cursor-not-allowed aria-disabled:opacity-40";

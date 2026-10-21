@@ -16,11 +16,11 @@ function SheetLines() {
   const widths = ["70%", "90%", "82%", "60%", "88%", "45%"];
   return (
     <div className="flex h-full w-full flex-col gap-[6%] p-[12%]">
-      <span className="h-[10%] w-[55%] rounded-[1px] bg-slate-500/50" />
+      <span className="rounded-tag h-[10%] w-[55%] bg-slate-500/50" />
       {widths.map((w, i) => (
         <span
           key={i}
-          className="h-[5%] rounded-[1px] bg-slate-400/40"
+          className="rounded-tag h-[5%] bg-slate-400/40"
           style={{ width: w }}
         />
       ))}
@@ -154,7 +154,7 @@ export function PageTile({
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       className={cn(
-        "group relative flex flex-col items-center gap-2 rounded-[4px] border p-3 transition duration-200",
+        "group rounded-panel relative flex flex-col items-center gap-2 border p-3 transition duration-200",
         interactive && "cursor-pointer",
         draggable && "cursor-grab active:cursor-grabbing",
         selected
@@ -187,7 +187,7 @@ export function PageTile({
             dragHandle.onToggle();
           }}
           className={cn(
-            "focus-visible:ring-accent/50 absolute top-2 left-2 z-10 grid size-6 cursor-grab place-items-center rounded-md border transition focus:outline-none focus-visible:ring-2 active:cursor-grabbing",
+            "focus-visible:ring-accent/50 rounded-ctl absolute top-2 left-2 z-10 grid size-6 cursor-grab place-items-center border transition focus:outline-none focus-visible:ring-2 active:cursor-grabbing",
             grabbed
               ? "border-accent/40 bg-accent/10 text-accent"
               : "bg-canvas/70 border-line text-muted hover:text-fg",
@@ -197,7 +197,7 @@ export function PageTile({
         </button>
       )}
       {cornerBadge && (
-        <span className="bg-canvas/80 text-fg ring-line absolute top-2 right-2 z-10 grid min-w-5 place-items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ring-1">
+        <span className="bg-canvas/80 text-fg ring-line rounded-tag absolute top-2 right-2 z-10 grid min-w-5 place-items-center px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ring-1">
           {cornerBadge}
         </span>
       )}
@@ -208,13 +208,13 @@ export function PageTile({
             src={thumbnail.url}
             alt=""
             draggable={false}
-            className="max-h-[80%] max-w-[80%] rounded-[2px] bg-white object-contain shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300"
+            className="rounded-sheet max-h-[80%] max-w-[80%] bg-white object-contain shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300"
             style={{ transform: `rotate(${drawn}deg)` }}
           />
         ) : (
           <div
             className={cn(
-              "relative aspect-[1/1.414] h-[78%] overflow-hidden rounded-[3px] bg-gradient-to-br from-white/95 to-slate-200/85 shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300",
+              "rounded-ctl relative aspect-[1/1.414] h-[78%] overflow-hidden bg-gradient-to-br from-white/95 to-slate-200/85 shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300",
               loading && "animate-pulse",
             )}
             style={{ transform: `rotate(${drawn}deg)` }}
@@ -227,7 +227,7 @@ export function PageTile({
       <div className="flex items-center gap-1.5">
         <span className="text-muted text-xs font-medium">{label}</span>
         {rotation !== 0 && (
-          <span className="bg-wash text-muted rounded px-1 text-[10px] font-semibold tabular-nums">
+          <span className="bg-wash text-muted rounded-tag px-1 text-[10px] font-semibold tabular-nums">
             {rotation}°
           </span>
         )}
@@ -275,7 +275,7 @@ export function TileAction({
         if (!disabled) onClick();
       }}
       className={cn(
-        "border-line bg-wash text-muted hover:bg-wash hover:text-fg grid size-7 place-items-center rounded-lg border transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
+        "border-line bg-wash text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-7 place-items-center border transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
         danger && "hover:border-err/40 hover:bg-err/10 hover:text-err",
       )}
     >

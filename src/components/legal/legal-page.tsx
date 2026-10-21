@@ -51,7 +51,7 @@ export function LegalPage({
             </p>
             {/* The reader's one-paragraph summary carries the accent — the
                 rubricated passage of the document. */}
-            <div className="border-accent/30 bg-accent/5 text-fg rounded-[4px] border p-5 text-sm leading-relaxed">
+            <div className="border-accent/30 bg-accent/5 text-fg rounded-panel border p-5 text-sm leading-relaxed">
               {summary}
             </div>
           </header>

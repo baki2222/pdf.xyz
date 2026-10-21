@@ -185,7 +185,7 @@ function MarkdownToPdfEditor({
             onSource({ ...source, text: event.target.value })
           }
           placeholder="# Title\n\nWrite or paste Markdown here…"
-          className="border-line text-fg focus:border-accent focus:ring-accent/50 bg-canvas [min-height:18rem] w-full resize-y rounded-[4px] border px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
+          className="border-line text-fg focus:border-accent focus:ring-accent/50 bg-canvas rounded-panel [min-height:18rem] w-full resize-y border px-4 py-3 font-mono text-sm leading-6 transition outline-none focus:ring-2"
         />
         <TextSourceNotes readNote={source.readNote} text={source.text} />
         <div className="grid gap-3 sm:grid-cols-3">
@@ -247,7 +247,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

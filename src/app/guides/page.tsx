@@ -52,7 +52,7 @@ export default function GuidesPage() {
                   key={guide.slug}
                   href={`/guides/${guide.slug}`}
                   data-guide-card={guide.slug}
-                  className="border-line bg-panel hover:border-line-strong group flex flex-col gap-3 rounded-[4px] border p-5 transition-colors"
+                  className="border-line bg-panel hover:border-line-strong group rounded-panel flex flex-col gap-3 border p-5 transition-colors"
                 >
                   {primary && (
                     <span className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">

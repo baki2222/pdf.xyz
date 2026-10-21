@@ -105,7 +105,7 @@ export function RepairWarnings({
   return (
     <div
       role="status"
-      className="border-warn/40 bg-warn/10 text-warn flex flex-col gap-2 rounded-[4px] border px-4 py-3 text-sm"
+      className="border-warn/40 bg-warn/10 text-warn rounded-panel flex flex-col gap-2 border px-4 py-3 text-sm"
     >
       <p className="flex items-start gap-2">
         <Wrench className="mt-0.5 size-4 shrink-0" aria-hidden />

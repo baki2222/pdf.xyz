@@ -86,7 +86,7 @@ function PdfToMarkdownEditor({
       >
         {result.hasMarkdown ? (
           <div className="flex flex-col gap-4">
-            <div className="border-line text-fg bg-canvas max-h-72 overflow-auto rounded-[4px] border p-4 font-mono text-sm leading-6 whitespace-pre-wrap">
+            <div className="border-line text-fg bg-canvas rounded-panel max-h-72 overflow-auto border p-4 font-mono text-sm leading-6 whitespace-pre-wrap">
               {result.markdown}
             </div>
             <button
@@ -167,7 +167,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

@@ -22,7 +22,7 @@
 export function PagePreviewPlaceholder({ pageNumber }: { pageNumber: number }) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="bg-wash aspect-[3/4] w-full max-w-[180px] rounded-lg" />
+      <div className="bg-wash rounded-sheet aspect-[3/4] w-full max-w-[180px]" />
       <span className="text-muted text-[11px]">Page {pageNumber} preview</span>
     </div>
   );

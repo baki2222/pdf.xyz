@@ -160,7 +160,7 @@ function OverlayEditor({
         }
       >
         {overlay ? (
-          <div className="border-accent/40 bg-accent/10 flex items-center gap-3 rounded-[4px] border px-3.5 py-3">
+          <div className="border-accent/40 bg-accent/10 rounded-panel flex items-center gap-3 border px-3.5 py-3">
             <Layers className="text-accent size-4 shrink-0" aria-hidden />
             <span className="text-fg min-w-0 flex-1 truncate text-sm">
               {overlay.file.name}
@@ -176,7 +176,7 @@ function OverlayEditor({
                 setOverlayError(null);
               }}
               title="Remove overlay"
-              className="border-line bg-wash text-muted hover:bg-wash inline-grid size-7 shrink-0 place-items-center rounded-full border transition"
+              className="border-line bg-wash text-muted hover:bg-wash rounded-ctl inline-grid size-7 shrink-0 place-items-center border transition"
             >
               <X className="size-3.5" aria-hidden />
             </button>
@@ -336,7 +336,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

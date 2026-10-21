@@ -82,7 +82,7 @@ function FormInspector({
     return (
       <div className="flex flex-col gap-4">
         <FileHeader pdf={pdf} />
-        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
+        <div className="border-line bg-wash text-muted rounded-panel flex items-center justify-center gap-2 border px-6 py-12 text-sm">
           <Spinner />
           Reading form fields…
         </div>
@@ -129,9 +129,9 @@ function NoFieldsNotice({
   return (
     <div className="flex flex-col gap-4">
       <FileHeader pdf={pdf} />
-      <div className="border-warn/40 bg-warn/10 flex flex-col gap-3 rounded-[4px] border p-6">
+      <div className="border-warn/40 bg-warn/10 rounded-panel flex flex-col gap-3 border p-6">
         <div className="flex items-start gap-3">
-          <span className="bg-warn/10 text-warn grid size-10 shrink-0 place-items-center rounded-[4px]">
+          <span className="bg-warn/10 text-warn rounded-panel grid size-10 shrink-0 place-items-center">
             <TriangleAlert className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col gap-1">
@@ -266,7 +266,7 @@ function FieldsEditor({
             filled
             {result.flattened ? " · flattened to static content" : ""}
             {flattenFailed && (
-              <span className="border-warn/40 bg-warn/10 text-warn mt-3 flex items-start gap-2 rounded-[4px] border px-3 py-2 text-xs leading-relaxed">
+              <span className="border-warn/40 bg-warn/10 text-warn rounded-panel mt-3 flex items-start gap-2 border px-3 py-2 text-xs leading-relaxed">
                 <TriangleAlert
                   className="mt-0.5 size-3.5 shrink-0"
                   aria-hidden
@@ -319,7 +319,7 @@ function FieldsEditor({
           </span>
         }
       >
-        <div className="border-line bg-wash divide-line flex flex-col divide-y overflow-hidden rounded-[4px] border">
+        <div className="border-line bg-wash divide-line rounded-panel flex flex-col divide-y overflow-hidden border">
           {editable.map((field) => (
             <FieldRow key={field.name} field={field}>
               <FieldControl
@@ -339,7 +339,7 @@ function FieldsEditor({
 
       {unsupported.length > 0 && <UnsupportedNote fields={unsupported} />}
 
-      <label className="border-line bg-wash flex cursor-pointer items-start gap-3 rounded-[4px] border p-4">
+      <label className="border-line bg-wash rounded-panel flex cursor-pointer items-start gap-3 border p-4">
         <input
           type="checkbox"
           checked={flatten}
@@ -412,7 +412,7 @@ function FieldRow({
 }
 
 const INPUT_CLASS =
-  "w-full rounded-[3px] border border-line bg-canvas px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
+  "w-full rounded-ctl border border-line bg-canvas px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
 
 function asString(value: FieldValue): string {
   return typeof value === "string"
@@ -700,10 +700,10 @@ function ReadOnlyControl({ field }: { field: FormFieldInfo }) {
         : (field.text ?? "");
   return (
     <div className="flex items-center gap-2">
-      <span className="border-line text-muted min-w-0 flex-1 truncate rounded-[3px] border px-3.5 py-2.5 text-sm">
+      <span className="border-line text-muted rounded-ctl min-w-0 flex-1 truncate border px-3.5 py-2.5 text-sm">
         {current || <span className="text-muted">(empty)</span>}
       </span>
-      <span className="border-line text-muted inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px]">
+      <span className="border-line text-muted rounded-tag inline-flex shrink-0 items-center gap-1 border px-2 py-1 text-[11px]">
         <Lock className="size-3" aria-hidden />
         Read-only
       </span>
@@ -713,7 +713,7 @@ function ReadOnlyControl({ field }: { field: FormFieldInfo }) {
 
 function UnsupportedNote({ fields }: { fields: FormFieldInfo[] }) {
   return (
-    <div className="border-line bg-wash text-muted flex items-start gap-2 rounded-[4px] border px-4 py-3 text-xs leading-relaxed">
+    <div className="border-line bg-wash text-muted rounded-panel flex items-start gap-2 border px-4 py-3 text-xs leading-relaxed">
       <Info className="text-muted mt-0.5 size-4 shrink-0" aria-hidden />
       <span>
         {fields.length} field{fields.length === 1 ? "" : "s"} of an unsupported

@@ -149,14 +149,14 @@ export function SplitEditor({
       <FileHeader pdf={pdf} />
 
       <RunnerSection title="How to split">
-        <div className="border-line bg-wash inline-flex flex-wrap gap-1 rounded-full border p-1">
+        <div className="border-line bg-wash rounded-ctl inline-flex flex-wrap gap-1 border p-1">
           {MODES.map((m) => (
             <button
               key={m.id}
               type="button"
               onClick={() => setMode(m.id)}
               className={cn(
-                "rounded-full px-3.5 py-1.5 text-xs font-medium transition",
+                "rounded-tag px-3.5 py-1.5 text-xs font-medium transition",
                 mode === m.id
                   ? "bg-invert text-fg-invert"
                   : "text-muted hover:text-fg",
@@ -179,7 +179,7 @@ export function SplitEditor({
             onChange={(e) => setRangeInput(e.target.value)}
             placeholder="e.g. 1-3, 4-6, 7-"
             spellCheck={false}
-            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
           <span className="text-muted text-xs">
             Use commas to separate files. Ranges are inclusive, e.g.{" "}
@@ -199,7 +199,7 @@ export function SplitEditor({
             onChange={(e) =>
               setSize(Math.max(1, Math.floor(Number(e.target.value) || 1)))
             }
-            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 w-32 rounded-[3px] border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl w-32 border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
           />
         </label>
       )}
@@ -221,9 +221,9 @@ export function SplitEditor({
               {parts.map((part, i) => (
                 <li
                   key={part.name}
-                  className="border-line bg-wash flex items-center gap-3 rounded-[3px] border px-3 py-2 text-sm"
+                  className="border-line bg-wash rounded-ctl flex items-center gap-3 border px-3 py-2 text-sm"
                 >
-                  <span className="bg-wash text-muted grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold tabular-nums">
+                  <span className="bg-wash text-muted rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold tabular-nums">
                     {i + 1}
                   </span>
                   <span className="text-muted min-w-0 flex-1 truncate">

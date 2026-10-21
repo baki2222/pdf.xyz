@@ -196,7 +196,7 @@ function RedactEditor({
           </span>
         }
       >
-        <div className="border-line bg-wash flex flex-col gap-4 rounded-[4px] border p-4">
+        <div className="border-line bg-wash rounded-panel flex flex-col gap-4 border p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-muted text-xs">
               {activePage
@@ -346,7 +346,7 @@ function BoxList({
 }) {
   if (boxes.length === 0) {
     return (
-      <p className="border-line bg-wash text-muted rounded-[4px] border border-dashed px-4 py-6 text-center text-xs">
+      <p className="border-line bg-wash text-muted rounded-panel border border-dashed px-4 py-6 text-center text-xs">
         No redaction areas yet. Add one above — its box appears on the page
         preview.
       </p>
@@ -357,9 +357,9 @@ function BoxList({
       {boxes.map((box, index) => (
         <li
           key={box.id}
-          className="border-line bg-wash flex items-center gap-3 rounded-[3px] border px-3.5 py-2.5"
+          className="border-line bg-wash rounded-ctl flex items-center gap-3 border px-3.5 py-2.5"
         >
-          <span className="bg-accent/10 text-accent grid size-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold">
+          <span className="bg-accent/10 text-accent rounded-tag grid size-6 shrink-0 place-items-center text-[11px] font-semibold">
             {index + 1}
           </span>
           <span className="text-muted min-w-0 flex-1 truncate text-xs">
@@ -370,7 +370,7 @@ function BoxList({
             type="button"
             onClick={() => onRemove(box.id)}
             aria-label={`Remove redaction area ${index + 1}`}
-            className="text-muted hover:bg-wash hover:text-err shrink-0 rounded-md p-1 transition"
+            className="text-muted hover:bg-wash hover:text-err rounded-ctl shrink-0 p-1 transition"
           >
             <Trash2 className="size-4" aria-hidden />
           </button>
@@ -417,7 +417,7 @@ function PagePreview({
   return (
     <div className="flex flex-col items-center gap-2">
       <div
-        className="relative w-full max-w-[180px] overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-black/10"
+        className="rounded-sheet relative w-full max-w-[180px] overflow-hidden bg-white shadow-sm ring-1 ring-black/10"
         style={{ aspectRatio: `${page.width} / ${page.height}` }}
       >
         {boxes.map((box) => (
@@ -449,7 +449,7 @@ function PagePreview({
 /** The load-bearing honesty of this tool: the output is a raster PDF. */
 function RasterWarning() {
   return (
-    <div className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3.5 text-sm">
+    <div className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3.5 text-sm">
       <TriangleAlert className="text-warn mt-0.5 size-4 shrink-0" aria-hidden />
       <p className="leading-relaxed">
         <span className="font-semibold">Output is rasterized.</span> Every page
@@ -472,7 +472,7 @@ function InfoTile({
   body: string;
 }) {
   return (
-    <div className="border-line bg-wash rounded-[4px] border p-4">
+    <div className="border-line bg-wash rounded-panel border p-4">
       <div className="text-fg mb-2 flex items-center gap-2 text-sm font-semibold">
         <Icon className="text-accent size-4" aria-hidden />
         {title}

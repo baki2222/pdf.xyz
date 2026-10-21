@@ -215,7 +215,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-[4px] border p-4",
+        "rounded-panel flex flex-col gap-3 border p-4",
         CALLOUT_TONE[meta.tone],
       )}
       role="note"
@@ -225,7 +225,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
         <div className="flex items-center gap-3">
           <span
             className={cn(
-              "grid size-8 shrink-0 place-items-center rounded-[3px] border",
+              "rounded-ctl grid size-8 shrink-0 place-items-center border",
               TILE_TONE[meta.tone],
             )}
           >
@@ -257,7 +257,7 @@ export function AlertPostureCallout({ snapshot }: { snapshot: unknown }) {
           {posture.reasons.map((reason) => (
             <li
               key={reason}
-              className="border-line bg-wash text-fg inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px]"
+              className="border-line bg-wash text-fg rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px]"
             >
               {REASON_COPY[reason]}
             </li>

@@ -373,7 +373,7 @@ function ChatBuilder({
             chooseFile(files[0] ?? null);
           }}
         >
-          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
             <span className="truncate">{file.name}</span>
             <button
               type="button"
@@ -417,7 +417,7 @@ function ChatBuilder({
               ? "e.g. And what is the payment method?"
               : "e.g. What is the total amount due, and when is it due?"
           }
-          className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-lg border px-3 py-2 text-sm outline-none"
+          className="border-line bg-wash text-fg placeholder:text-muted focus:border-accent/40 rounded-ctl border px-3 py-2 text-sm outline-none"
         />
       </label>
 
@@ -494,7 +494,7 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
       {entries.map((entry) => (
         <li
           key={entry.id}
-          className="border-line bg-wash flex flex-col gap-2 rounded-[4px] border p-4"
+          className="border-line bg-wash rounded-panel flex flex-col gap-2 border p-4"
         >
           <p className="text-fg text-sm font-medium">{entry.question}</p>
           {/* Before the answer, not after: a reader who stops at the answer is
@@ -526,7 +526,7 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
           <button
             type="button"
             onClick={() => downloadBytes(entry.output, entry.filename)}
-            className="border-line text-muted hover:border-line-strong hover:text-fg inline-flex items-center gap-2 self-start rounded-full border px-3 py-1.5 text-xs font-medium transition"
+            className="border-line text-muted hover:border-line-strong hover:text-fg rounded-tag inline-flex items-center gap-2 self-start border px-3 py-1.5 text-xs font-medium transition"
           >
             <Download className="size-3.5" aria-hidden />
             {entry.filename}

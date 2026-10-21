@@ -273,7 +273,7 @@ function OcrBody({
   return (
     <>
       {/* Recognition settings */}
-      <div className="bg-panel border-line flex flex-col gap-4 rounded-[4px] border p-4 sm:p-5">
+      <div className="bg-panel border-line rounded-panel flex flex-col gap-4 border p-4 sm:p-5">
         <h3 className="text-faint kicker">Recognition settings</h3>
 
         {/* Languages */}
@@ -322,7 +322,7 @@ function OcrBody({
                         : undefined
                   }
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
+                    "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
                     active
                       ? "border-accent/40 bg-accent/10 text-accent"
                       : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
@@ -364,7 +364,7 @@ function OcrBody({
                   onClick={() => setOutputMode(mode.id)}
                   title={mode.description}
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition",
+                    "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition",
                     active
                       ? "border-accent/40 bg-accent/10 text-accent"
                       : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
@@ -396,7 +396,7 @@ function OcrBody({
             type="checkbox"
             checked={redoOcr}
             onChange={(event) => setRedoOcr(event.target.checked)}
-            className="border-line-strong bg-wash accent-accent mt-0.5 size-4 rounded"
+            className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
           />
           <span className="flex flex-col gap-0.5">
             <span className="text-fg font-medium">Redo existing OCR</span>
@@ -409,7 +409,7 @@ function OcrBody({
           </span>
         </label>
 
-        <p className="border-line bg-wash text-muted rounded-[3px] border px-3 py-2 text-xs">
+        <p className="border-line bg-wash text-muted rounded-ctl border px-3 py-2 text-xs">
           <span className="text-muted font-medium">This request:</span>{" "}
           {describeOcrRequest(request)}
           {redoOcr ? " · redo existing OCR" : ""}
@@ -495,7 +495,7 @@ function OcrRunArea({
             setDiscarded(Math.max(0, files.length - OCR_MAX_INPUT_FILES));
           }}
         >
-          <div className="border-line bg-wash text-fg flex flex-wrap items-center justify-between gap-2 rounded-[3px] border px-3 py-2 text-sm">
+          <div className="border-line bg-wash text-fg rounded-ctl flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm">
             <span className="truncate">{file.name}</span>
             <button
               type="button"
@@ -673,7 +673,7 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
   const languageNames = meta.languages.map(describeOcrLanguage).join(", ");
 
   return (
-    <div className="border-line bg-wash mt-1 flex flex-col gap-1 rounded-[3px] border p-3">
+    <div className="border-line bg-wash rounded-ctl mt-1 flex flex-col gap-1 border p-3">
       <h4 className="text-faint kicker">Recognition summary</h4>
       <dl className="divide-line divide-y">
         {rows.map((row) => (
@@ -706,7 +706,7 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
         </p>
       )}
       {looksLow && (
-        <p className="border-warn/40 bg-warn/10 text-warn mt-1 rounded-lg border px-2.5 py-2 text-xs leading-relaxed">
+        <p className="border-warn/40 bg-warn/10 text-warn rounded-panel mt-1 border px-2.5 py-2 text-xs leading-relaxed">
           {/*
             Deliberately a list of causes, not a diagnosis. Nothing here identifies
             script, so "this document appears to be Bengali" would be invention. The

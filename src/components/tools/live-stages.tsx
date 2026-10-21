@@ -152,7 +152,7 @@ export function LiveStages({
   return (
     <div className="flex flex-col gap-2" data-docket="">
       <h3 className="text-faint kicker">What happens to your file</h3>
-      <ol className="divide-line border-line divide-y rounded-[3px] border px-3">
+      <ol className="divide-line border-line rounded-ctl divide-y border px-3">
         {rows.map((row) => (
           <li
             key={row.stage.id}
@@ -161,7 +161,7 @@ export function LiveStages({
           >
             <span
               aria-hidden
-              className={cn("size-3 shrink-0 rounded-[2px]", MARKER[row.state])}
+              className={cn("rounded-tag size-3 shrink-0", MARKER[row.state])}
             />
             <span
               className={cn(

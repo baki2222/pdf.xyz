@@ -172,7 +172,7 @@ export function SinglePdfRunner({
     <div data-single-pdf-runner="empty" className="flex flex-col gap-4">
       <HandoffProblem handoff={handoff} toolName={toolName} />
       {loading ? (
-        <div className="border-line bg-wash text-muted flex items-center justify-center gap-2 rounded-[4px] border px-6 py-12 text-sm">
+        <div className="border-line bg-wash text-muted rounded-panel flex items-center justify-center gap-2 border px-6 py-12 text-sm">
           <Spinner />
           Reading your PDF…
         </div>
@@ -206,7 +206,7 @@ export function SignedInputNotice({
     <div
       role="note"
       data-signed-input-notice
-      className="border-warn/40 bg-warn/10 text-warn flex items-start gap-3 rounded-[4px] border px-4 py-3 text-sm"
+      className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-3 border px-4 py-3 text-sm"
     >
       <ShieldAlert className="text-warn mt-0.5 size-4 shrink-0" aria-hidden />
       <span>
@@ -242,7 +242,7 @@ export function FileHeader({
   return (
     <div
       data-file-header=""
-      className="bg-panel border-line flex flex-wrap items-center gap-3 rounded-[4px] border px-3.5 py-3"
+      className="bg-panel border-line rounded-panel flex flex-wrap items-center gap-3 border px-3.5 py-3"
     >
       <FileText className="text-accent size-4 shrink-0" aria-hidden />
       <span className="text-fg min-w-0 flex-1 truncate text-sm">
