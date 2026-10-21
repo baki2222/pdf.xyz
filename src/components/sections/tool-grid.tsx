@@ -28,6 +28,18 @@ const FAMILY_INK: Record<string, string> = {
   ai: "text-mark",
 };
 
+/** The chip that shows every card. */
+const ALL = "all";
+
+/*
+ * A chip, in the same utilities as /tools' category chips
+ * (`tools-explorer.tsx`); pressed is drawn from `aria-pressed`, so the state
+ * a screen reader hears is the state the eye sees, and the client script
+ * only has to set the attribute. The site's focus outline is a button's own.
+ */
+const CHIP =
+  "group rounded-tag border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg aria-pressed:bg-invert aria-pressed:text-fg-invert aria-pressed:hover:bg-invert aria-pressed:hover:text-fg-invert inline-flex h-9 shrink-0 items-center gap-1.5 border px-3.5 text-sm font-medium whitespace-nowrap transition-colors aria-pressed:border-transparent";
+
 /**
  * A tool's card: the whole card is one link. Icon tile, the name (the card's
  * only heading), one plain line on what it does (`cardSummary`), and where
@@ -75,6 +87,20 @@ function HomeToolCard({ tool }: { tool: Tool }) {
  */
 export function ToolGrid() {
   const families = toolFamilies();
+  const chips = [
+    {
+      id: ALL,
+      label: "All",
+      count: toolCount,
+      say: `Showing all ${toolCount} tools`,
+    },
+    ...families.map((f) => ({
+      id: f.id,
+      label: f.label,
+      count: f.tools.length,
+      say: `Showing ${f.tools.length} ${f.label} tools`,
+    })),
+  ];
   return (
     <section
       id="tools"
@@ -91,22 +117,43 @@ export function ToolGrid() {
           </p>
         </div>
         <div className="mt-6">
-          <ToolFilter
-            label="Filter tools by category"
-            chips={families.map((f) => ({
-              id: f.id,
-              label: f.label,
-              count: f.tools.length,
-            }))}
-            // In chip order, so "All" reads family by family.
-            cards={families.flatMap((f) =>
-              f.tools.map((tool) => ({
-                slug: tool.slug,
-                family: f.id,
-                card: <HomeToolCard tool={tool} />,
-              })),
-            )}
-          />
+          <ToolFilter>
+            <div
+              role="group"
+              aria-label="Filter tools by category"
+              className="flex flex-wrap gap-2"
+            >
+              {chips.map((chip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  data-family={chip.id}
+                  data-say={chip.say}
+                  aria-pressed={chip.id === ALL}
+                  className={CHIP}
+                >
+                  {chip.label}{" "}
+                  <span className="text-faint group-aria-pressed:text-fg-invert/70 text-xs tabular-nums">
+                    {chip.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p role="status" className="sr-only" />
+            <ul
+              data-tool-grid=""
+              className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5"
+            >
+              {/* In chip order, so "All" reads family by family. */}
+              {families.flatMap((f) =>
+                f.tools.map((tool) => (
+                  <li key={tool.slug} data-family={f.id}>
+                    <HomeToolCard tool={tool} />
+                  </li>
+                )),
+              )}
+            </ul>
+          </ToolFilter>
         </div>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted text-sm text-pretty">

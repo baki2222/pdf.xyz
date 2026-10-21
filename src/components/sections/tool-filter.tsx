@@ -1,101 +1,37 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { cn } from "@/lib/utils";
-
-/** A family's chip: its id, its word, and how many tools it holds. */
-export interface FilterChip {
-  readonly id: string;
-  readonly label: string;
-  readonly count: number;
-}
-
-/** One card, drawn on the server, with the family it belongs to. */
-export interface FilterCard {
-  readonly slug: string;
-  readonly family: string;
-  readonly card: ReactNode;
-}
-
-const ALL = "all";
-
-/*
- * The chip, in the same utilities as /tools' category chips
- * (`tools-explorer.tsx`), so the home page adds no CSS for it. The site's
- * focus outline is a button's own.
- */
-const CHIP =
-  "rounded-tag inline-flex h-9 shrink-0 items-center gap-1.5 border px-3.5 text-sm font-medium whitespace-nowrap transition-colors";
-const CHIP_ON = "bg-invert text-fg-invert border-transparent";
-const CHIP_OFF =
-  "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg";
+import type { MouseEvent, ReactNode } from "react";
 
 /**
- * The home page's chips and the card grid they filter.
+ * The home page's chips, made to work: a click on a chip presses it, and
+ * shows only the cards of its family.
  *
- * THE CARDS ARE THE SERVER'S. Each arrives drawn — icon, name, summary,
- * badge — so this module carries no catalogue and no icon registry; it only
- * decides which items show. Every card is in the server's HTML, none hidden:
- * with no script the chips do nothing and every tool shows, and a crawler
- * reads all of them (`tool-grid.test.tsx`, from the rendered page).
+ * EVERYTHING IS THE SERVER'S. The chips, the status line and every card
+ * arrive as server markup (`./tool-grid`), all cards shown and "All"
+ * pressed, so with no script every tool shows and a crawler reads all of
+ * them (`tool-grid.test.tsx`, from the rendered page). This wrapper carries
+ * no markup, no class names and no catalogue — only the click — so the home
+ * page's own script grows by a few hundred bytes, not by the grid.
  *
- * The chips are toggle buttons (`aria-pressed`) in a named group: one is
- * pressed at a time, "All" first. A filter is said once, politely, in a
- * status line.
+ * It writes three things, all on the server's own nodes: each chip's
+ * `aria-pressed`, each card item's `hidden`, and the status line's words.
+ * React renders none of them again: this component has no state, and the
+ * markup it wraps is static server output.
  */
-export function ToolFilter({
-  label,
-  chips,
-  cards,
-}: {
-  /** Names the chip group, e.g. "Filter tools by category". */
-  label: string;
-  chips: readonly FilterChip[];
-  cards: readonly FilterCard[];
-}) {
-  const [on, setOn] = useState(ALL);
-  const chosen = chips.find((c) => c.id === on);
-  return (
-    <>
-      <div role="group" aria-label={label} className="flex flex-wrap gap-2">
-        {[{ id: ALL, label: "All", count: cards.length }, ...chips].map(
-          (chip) => {
-            const pressed = on === chip.id;
-            return (
-              <button
-                key={chip.id}
-                type="button"
-                aria-pressed={pressed}
-                onClick={() => setOn(chip.id)}
-                className={cn(CHIP, pressed ? CHIP_ON : CHIP_OFF)}
-              >
-                {chip.label}{" "}
-                <span
-                  className={cn(
-                    "text-xs tabular-nums",
-                    pressed ? "text-fg-invert/70" : "text-faint",
-                  )}
-                >
-                  {chip.count}
-                </span>
-              </button>
-            );
-          },
-        )}
-      </div>
-      <p role="status" className="sr-only">
-        {chosen ? `Showing ${chosen.count} ${chosen.label} tools` : ""}
-      </p>
-      <ul
-        data-tool-grid=""
-        className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5"
-      >
-        {cards.map((c) => (
-          <li key={c.slug} hidden={on !== ALL && c.family !== on}>
-            {c.card}
-          </li>
-        ))}
-      </ul>
-    </>
-  );
+export function ToolFilter({ children }: { children: ReactNode }) {
+  const onClick = (event: MouseEvent<HTMLDivElement>) => {
+    const chip = (event.target as Element).closest<HTMLElement>(
+      "button[data-family]",
+    );
+    if (!chip) return;
+    const family = chip.dataset.family;
+    const root = event.currentTarget;
+    for (const c of root.querySelectorAll("button[data-family]"))
+      c.setAttribute("aria-pressed", String(c === chip));
+    for (const li of root.querySelectorAll<HTMLElement>("li[data-family]"))
+      li.hidden = family !== "all" && li.dataset.family !== family;
+    const status = root.querySelector("[role=status]");
+    if (status) status.textContent = chip.dataset.say ?? "";
+  };
+  return <div onClick={onClick}>{children}</div>;
 }

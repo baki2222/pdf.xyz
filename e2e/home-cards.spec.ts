@@ -15,8 +15,8 @@ import { toolFamilies } from "../src/lib/tools/families";
  * about 7,000.
  *
  * THE PHONE TARGET IS NOT MET, and this bound says so rather than hiding it.
- * Measured on the served build (Windows Chromium, 2026-10-21): 4,98x px at
- * 1440, 10,7xx px at 390. At 390 the footer alone (WP-09, out of scope) is
+ * Measured on the served build (Windows Chromium, 2026-10-21): 4,983px at
+ * 1440, 10,728px at 390. At 390 the footer alone (WP-09, out of scope) is
  * about 2,000px, and fifty cards that each carry a one-line summary and a
  * badge are about 5,400px stacked; dropping the summaries on a phone would
  * reach about 6,900, at the cost of the one thing the brief asked every
@@ -24,7 +24,8 @@ import { toolFamilies } from "../src/lib/tools/families";
  * metrics differ between Windows and CI's Linux), so the page cannot grow
  * back toward 14,131 unseen.
  */
-const MAX_HEIGHT = { desktop: 5000, phone: 11300 } as const;
+// Desktop: the brief's 5,000 plus the same platform margin.
+const MAX_HEIGHT = { desktop: 5200, phone: 11300 } as const;
 
 const grid = "section#tools ul[data-tool-grid] > li";
 
