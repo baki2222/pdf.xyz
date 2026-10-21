@@ -708,7 +708,18 @@ const LAYOUT = {
 const UNALLOCATED = 0.4;
 const TOOL_PAGES_TO_COME = {
   // WP-08 landed 2026-10-10 (its 4.5 deleted here, as the rule says).
-  "WP-11": 1.5,
+  //
+  // WP-10 and WP-11 landed 2026-10-21 (#195 and #194); their entries are
+  // deleted, and what they spent is measured, not allocated (gz, weigher):
+  //   WP-10, d0c0316f -> 952734ef:  rotate 251.6 -> 252.1, ocr 250.9 ->
+  //     254.6, summarize 256.2 -> 259.6. G.1 gave WP-10 "~0", on the
+  //     premise that 14 status fetches and 14 stage lists would dedupe;
+  //     since #175 a page loads only its own panel, so there was one of
+  //     each per page to begin with, and nothing to offset.
+  //   WP-11 + WP-13, merged into WP-10 at 507b6383: rotate 252.1 -> 253.5,
+  //     ocr 254.6 -> 255.1, summarize 259.6 -> 260.2 (one merge, one figure).
+  // WP-14 (radius vocabulary) was allocated no tool-page growth in G.1, so
+  // what is still to come here is WP-12's share and the 0.4 no one holds.
   "WP-12": 0.3,
   unallocated: UNALLOCATED,
 };
@@ -717,7 +728,11 @@ const TOOL_PAGES_TO_COME = {
  * does its arithmetic against THAT, so the control's numbers stay the
  * ones it was written with whatever lands after.
  */
-const TOOL_PAGES_TO_COME_AT_WP07 = { "WP-08": 4.5, ...TOOL_PAGES_TO_COME };
+const TOOL_PAGES_TO_COME_AT_WP07 = {
+  "WP-08": 4.5,
+  "WP-11": 1.5,
+  ...TOOL_PAGES_TO_COME,
+};
 const STILL_TO_COME: Record<string, Record<string, number>> = {
   "tools/rotate-pdf.html": TOOL_PAGES_TO_COME,
   "tools/ocr-pdf.html": TOOL_PAGES_TO_COME,

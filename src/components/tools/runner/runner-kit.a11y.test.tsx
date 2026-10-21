@@ -410,7 +410,14 @@ describe("WorkerRunButton", () => {
 
 describe("ResultCard", () => {
   it("names itself with the sentence it would speak", async () => {
-    render(<ResultCard announce="Your PDF/A file is ready.">body</ResultCard>);
+    render(
+      <ResultCard
+        announce="Your PDF/A file is ready."
+        output={outputFile(new Uint8Array([0x25]), "a.pdf")}
+      >
+        body
+      </ResultCard>,
+    );
     const card = await screen.findByRole("group", {
       name: "Your PDF/A file is ready.",
     });

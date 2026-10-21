@@ -21,11 +21,8 @@
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
 import type { OcrOptions } from "@/lib/jobs/ocr";
-import {
-  phaseOfJob,
-  pollJobToTerminal,
-  type WorkerJobPhase,
-} from "./job-polling";
+import { pollJobToTerminal, type WorkerJobPhase } from "./job-polling";
+import { forwardStatus } from "./phases";
 import { OCR_JOB_POLL } from "@/lib/jobs/client-wait";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
 import { readWorkerError } from "./read-error";
@@ -152,7 +149,6 @@ async function runWorkerOcrSteps(
 ): Promise<OcrWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const { signal } = options;
-  options.onPhase?.("uploading");
 
   // 1. Reserve an upload slot for exactly this file.
   const sessionRes = await fetchImpl("/api/uploads", {
@@ -183,6 +179,7 @@ async function runWorkerOcrSteps(
   //    the request, not after: once bytes are on the wire a crash fallback can
   //    no longer honestly claim the file never left the device.
   markUploadStarted();
+  options.onPhase?.("uploading");
   const uploadRes = await fetchImpl(slot.url, {
     method: slot.method,
     headers: slot.headers,
@@ -192,6 +189,7 @@ async function runWorkerOcrSteps(
   if (!uploadRes.ok) {
     return readError(uploadRes, "Uploading the file to the worker failed.");
   }
+  options.onPhase?.("uploaded");
 
   // 3. Create the job with the validated OCR options.
   const jobRes = await fetchImpl("/api/jobs", {
@@ -225,7 +223,6 @@ async function finishOcrJob(
 ): Promise<OcrWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const { signal } = options;
-  options.onPhase?.(phaseOfJob(started.status));
 
   // 4. Poll to a terminal state (a production worker is async).
   const polled = await pollJobToTerminal({
@@ -233,7 +230,7 @@ async function finishOcrJob(
     fetchImpl,
     pollIntervalMs: options.pollIntervalMs ?? OCR_JOB_POLL.intervalMs,
     maxPollAttempts: options.maxPollAttempts ?? OCR_JOB_POLL.maxAttempts,
-    onJob: (next) => options.onPhase?.(phaseOfJob(next.status)),
+    onStatus: forwardStatus(options.onPhase),
     ...(signal ? { signal } : {}),
     ...(options.sleep ? { sleepImpl: options.sleep } : {}),
   });
@@ -283,6 +280,7 @@ async function finishOcrJob(
     });
   }
 
+  options.onPhase?.("done");
   return { ok: true, job, artifacts: downloaded };
 }
 

@@ -48,6 +48,8 @@ import {
   panelComponent,
   panelDispatchArms,
 } from "@/tests/worker-panel-dispatch";
+import { readyFileInput } from "@/tests/worker-ready";
+import { withAppRouter } from "@/tests/app-router";
 
 const READY = {
   mode: "remote-configured",
@@ -192,8 +194,7 @@ describe("a reason for no next step reaches the page that has one", () => {
         });
         renderOnPage(tool, <Panel tool={tool} />);
         const input = await waitFor(() => {
-          const el =
-            document.querySelector<HTMLInputElement>('input[type="file"]');
+          const el = readyFileInput();
           expect(el).not.toBeNull();
           return el!;
         });
@@ -211,10 +212,13 @@ describe("a reason for no next step reaches the page that has one", () => {
         const card = await screen.findByRole("group", {
           name: driver.announce,
         });
+        // Found, not got: since WP-10 the worker card carries its output,
+        // so the reason arrives with the result's ending chunk (the
+        // receipt and "Continue with"), which loads on demand.
         expect(
-          within(card)
-            .getByText(NO_CONTINUE[tool.slug]!)
-            .hasAttribute("data-no-continue"),
+          (await within(card).findByText(NO_CONTINUE[tool.slug]!)).hasAttribute(
+            "data-no-continue",
+          ),
         ).toBe(true);
       });
     }
@@ -233,7 +237,7 @@ describe("a reason for no next step reaches the page that has one", () => {
     }));
     render(<Panel tool={tool} />);
     const input = await waitFor(() => {
-      const el = document.querySelector<HTMLInputElement>('input[type="file"]');
+      const el = readyFileInput();
       expect(el).not.toBeNull();
       return el!;
     });
@@ -251,12 +255,16 @@ describe("a reason for no next step reaches the page that has one", () => {
 });
 
 function renderOnPage(tool: Tool, ui: React.ReactElement) {
+  // In the App Router's context, as the page is: since WP-10 the worker
+  // card carries its output, so it draws "Continue with", which launches.
   render(
-    <ToolRunProvider
-      tool={{ slug: tool.slug, name: tool.name, category: tool.category }}
-      plan={continueTargetsFor(tool, tools)}
-    >
-      {ui}
-    </ToolRunProvider>,
+    withAppRouter(
+      <ToolRunProvider
+        tool={{ slug: tool.slug, name: tool.name, category: tool.category }}
+        plan={continueTargetsFor(tool, tools)}
+      >
+        {ui}
+      </ToolRunProvider>,
+    ),
   );
 }

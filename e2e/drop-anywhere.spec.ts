@@ -468,26 +468,26 @@ test.describe("a guide's desk at 390", () => {
   });
 });
 
-test("a guide whose tool has no in-browser runner offers what opens the file, and promises nothing else", async ({
+// INVERTED in WP-10. WAS "a guide whose tool has no in-browser runner offers
+// what opens the file, and promises nothing else": its desk read "Drop a PDF
+// to see which tools open it", and a drop opened the dialog with the row
+// "Open PDF to Word — you'll add report.pdf there". The worker panel STAGES a
+// carried file now (it uploads only on that page's Export), so the desk opens
+// the tool it teaches with the file, as every runner's desk does.
+test("a guide whose tool runs on a worker opens it with the dropped file, staged", async ({
   page,
 }) => {
   await page.goto("/guides/how-to-convert-pdf-to-word");
   await layerLive(page);
   await deskLive(page);
   const desk = page.locator("[data-guide-desk]");
-  await expect(desk).toContainText("Drop a PDF to see which tools open it");
-  await expect(desk).not.toContainText("open PDF to Word");
-  await dropOn(heading(page), [await pdf("report.pdf")]);
-  const dialog = ticketDialog(page);
-  await expect(dialog).toContainText("report.pdf");
-  // The tool the guide teaches comes first — WAS about 26th of 42, under
-  // "More", below Compress, Sign and Edit (WP-07 review).
-  const first = dialog.locator("[data-suggestion]").first();
-  await expect(first).toHaveAttribute("data-suggestion", "pdf-to-word");
-  await expect(first).toHaveAccessibleName(
-    "Open PDF to Word — you'll add report.pdf there",
-  );
-  await expect(page).toHaveURL(/\/guides\/how-to-convert-pdf-to-word$/);
+  await expect(desk).toContainText("Drop a PDF to open PDF to Word with it");
+  await dropOn(desk.locator("[data-drop-sheet]"), [await pdf("report.pdf")]);
+  await expect(page).toHaveURL(/\/tools\/pdf-to-word$/, { timeout: 20_000 });
+  await expect(
+    page.getByText(/nothing is uploaded until you press Export DOCX/),
+  ).toBeVisible();
+  await expect(page.getByText("report.pdf", { exact: true })).toBeVisible();
 });
 
 test("a category page has no target: a drop opens the ticket dialog", async ({

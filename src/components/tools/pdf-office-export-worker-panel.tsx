@@ -2,9 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { Download, FileText, ShieldCheck, Timer } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
-import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunPdfOfficeExport,
   runWorkerPdfOfficeExport,
@@ -14,7 +12,6 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
-import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
@@ -25,37 +22,33 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import { useStagedHandoff } from "./use-staged-handoff";
 import {
-  useWorkerStatus,
-  WorkerStatusPending,
-  type WorkerPhase,
-  WorkerStatusSlot,
-  workerSlotState,
-} from "./worker-status";
+  useWorkerPanel,
+  WorkerGate,
+  WorkerPanelShell,
+  workerOutput,
+} from "./worker-panel-shell";
 import { OfficeExportCoverageNotice } from "./office-export-coverage";
 import { OfficeExportNextStep } from "./office-export-notices";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 on Windows: phone at 360px 327.5px, `sm` at 640px 269px,
- * `lg` at 1024px 269px.
- * The worker-off state grew when its notice gained the logs-and-analytics
- * disclosure (fix/privacy-truth, 2026-10-10), so the phone reserve is refitted
- * to clear the tallest state by at least 3.5%, to the half rem: the headroom
- * Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
- * e2e/tool-layout.mobile.spec.ts).
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
  *
- * Refitted 2026-10-20, when the slot test began measuring `sm` and `lg`
- * (it had measured phone widths only): the tallest state, the larger of
- * Windows and Linux (CI on #187), is 269px at 640 and
- * 288.5px at 1024; x1.035, to the half rem — the rule the base
- * reserve uses.
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: the
+ * tallest state, the larger of Windows and Linux (CI's SLOT_NATURAL lines
+ * on 507b6383), is 547px at 360, 439.5px at 640, 457.5px at 1024;
+ * x1.035, to the half rem, then up to a value another panel's slot already
+ * uses, so the thirteen share a handful of classes. A first fit from
+ * Windows alone (x1.06) left PowerPoint to PDF and PDF to PowerPoint
+ * short on Linux at 360. The check: `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[24rem] sm:min-h-[17.5rem] lg:min-h-[19rem]";
+const STATUS_SLOT = "min-h-[35.5rem] sm:min-h-[29.5rem] lg:min-h-[30.5rem]";
 
 type PdfOfficeTool = "pdf-to-word" | "pdf-to-excel" | "pdf-to-powerpoint";
-type Phase = WorkerPhase;
 
 function isPdfOfficeTool(slug: string): slug is PdfOfficeTool {
   return (
@@ -109,167 +102,56 @@ const EXPORT_COPY: Record<
   },
 };
 
-function badgeFor(
-  phase: Phase,
-  status: WorkerStatus | null,
-): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading")
-    return { tone: "info", label: "Checking…", pulse: true };
-  if (phase === "error" || !status)
-    return { tone: "muted", label: "Status unknown", pulse: false };
-  return canRunPdfOfficeExport(status)
-    ? { tone: "ok", label: "Secure worker", pulse: false }
-    : { tone: "muted", label: "Not enabled", pulse: false };
-}
-
 export function PdfOfficeExportWorkerPanel({ tool }: { tool: Tool }) {
-  const { phase, status, retry } = useWorkerStatus();
   const officeTool: PdfOfficeTool = isPdfOfficeTool(tool.slug)
     ? tool.slug
     : "pdf-to-word";
 
-  const badge = badgeFor(phase, status);
-  const available =
-    phase === "ready" &&
-    canRunPdfOfficeExport(status) &&
-    isPdfOfficeTool(tool.slug);
-  // Read only once the status is known: the loading and error phases
-  // render <WorkerStatusPending>, which claims nothing about the tool.
-  const unavailableDetail =
-    status?.daemon.detail ?? "The secure worker is not drainable here.";
-
   return (
-    <div className="">
-      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
-              <FileText className="size-3" aria-hidden />
-              {EXPORT_COPY[officeTool].badge}
-            </span>
-            <StatusBadge
-              tone={badge.tone}
-              label={badge.label}
-              pulse={badge.pulse}
-            />
-          </div>
-          <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on a secure worker
-          </h2>
-          <p className="text-muted text-sm leading-relaxed">
-            {EXPORT_COPY[officeTool].summary}
-          </p>
-        </div>
-
-        <WorkerStatusSlot
-          state={workerSlotState(phase, available)}
-          reserve={STATUS_SLOT}
-        >
-          {available ? (
-            <PdfOfficeRunArea
-              tool={officeTool}
-              output={extensionFor(officeTool)}
-              refuse={(file) => pickRefusal(tool, file)}
-            />
-          ) : phase === "ready" ? (
-            <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-              <p className="text-muted text-sm leading-relaxed">
-                {unavailableDetail}
-              </p>
-              <p className="text-muted text-xs leading-relaxed">
-                No runner is shown until the worker is ready, so {tool.name}{" "}
-                never pretends to process input it cannot actually convert.
-              </p>
-              <NotifyMe
-                toolName={tool.name}
-                toolSlug={tool.slug}
-                checking={false}
-              />
-            </div>
-          ) : (
-            <WorkerStatusPending phase={phase} onRetry={retry} />
-          )}
-        </WorkerStatusSlot>
-
-        <div className="flex flex-col gap-3">
-          <h3 className="text-faint kicker">What happens</h3>
-          <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status ? status.scan.active : null, tool).map(
-              (stage, index, all) => (
-                <li key={stage.id} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center self-stretch">
-                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
-                      <FileText className="size-4" aria-hidden />
-                    </span>
-                    {index < all.length - 1 && (
-                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-fg text-sm font-medium">
-                      {index + 1}. {stage.title}
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      {stage.description}
-                    </span>
-                  </div>
-                </li>
-              ),
-            )}
-          </ol>
-        </div>
-
-        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
-          <SpecRow
-            icon={Download}
-            label="Output"
-            value={extensionFor(officeTool)}
-          />
-          <SpecRow
-            icon={Timer}
-            label="Retention"
-            value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
-          />
-          <SpecRow
-            icon={ShieldCheck}
-            label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SpecRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Download;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="text-muted inline-flex items-center gap-2 text-sm">
-        <Icon className="text-muted size-4" aria-hidden />
-        {label}
-      </span>
-      <span className="text-fg text-right text-sm font-medium">{value}</span>
-    </div>
+    <WorkerPanelShell
+      tool={tool}
+      engine={{ label: EXPORT_COPY[officeTool].badge, icon: FileText }}
+      description={EXPORT_COPY[officeTool].summary}
+      canRun={(status) =>
+        canRunPdfOfficeExport(status) && isPdfOfficeTool(tool.slug)
+      }
+      specRows={[
+        { icon: Download, label: "Output", value: extensionFor(officeTool) },
+        {
+          icon: Timer,
+          label: "Retention",
+          value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
+        },
+        {
+          icon: ShieldCheck,
+          label: "Limit",
+          value: `${formatBytes(JOB_LIMITS.maxFileBytes)}/file`,
+        },
+      ]}
+    >
+      <PdfOfficeRunArea
+        tool={officeTool}
+        catalogTool={tool}
+        output={extensionFor(officeTool)}
+        refuse={(file) => pickRefusal(tool, file)}
+      />
+    </WorkerPanelShell>
   );
 }
 
 function PdfOfficeRunArea({
   tool,
+  catalogTool,
   output,
   refuse,
 }: {
   tool: PdfOfficeTool;
+  catalogTool: Tool;
   output: string;
   refuse: PickRefusal;
 }) {
+  const { available, status } = useWorkerPanel();
+  const runLabel = `Export ${output}`;
   const [file, setFile] = useState<File | null>(null);
   const job = useWorkerJob<PdfOfficeExportWorkerResult>({
     tool: tool,
@@ -277,8 +159,12 @@ function PdfOfficeRunArea({
       resumeSecurityJob(id, { ...controls, tool: tool }),
   });
   const { busy, outcome, setOutcome, run } = job;
+  const staged = useStagedHandoff(catalogTool.slug, runLabel, (files) => {
+    setOutcome(null);
+    setFile(files[0] ?? null);
+  });
   const start = useCallback(async () => {
-    if (!file) return;
+    if (!file || !available) return;
     await run(async (controls) => {
       const result = await runWorkerPdfOfficeExport(
         {
@@ -290,14 +176,14 @@ function PdfOfficeRunArea({
       );
       return result;
     });
-  }, [file, tool, run]);
+  }, [file, tool, run, available]);
+  // Read only once the status says this panel cannot run.
+  const unavailableDetail =
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
 
   return (
-    <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
-      <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
-        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        {EXPORT_COPY[tool].note}
-      </p>
+    <div className="flex flex-col gap-4">
+      {staged}
       {file ? (
         <ChosenFileTarget
           file={file}
@@ -335,21 +221,65 @@ function PdfOfficeRunArea({
           hint={EXPORT_COPY[tool].hint}
         />
       )}
-      <WorkerRunButton
-        onClick={start}
-        busy={busy}
-        disabled={!file}
-        busyLabel={jobBusyLabel(job.phase, `Exporting ${output}…`)}
-        icon={FileText}
-      >
-        Export {output}
-      </WorkerRunButton>
-      <WorkerJobStatus job={job} />
-      {outcome?.ok === false && !outcome.stillRunning && (
-        <OfficeExportNextStep code={outcome.code} message={outcome.message} />
-      )}
+      <WorkerGate
+        reserve={STATUS_SLOT}
+        job={job}
+        bytes={file?.size}
+        run={(ready) => (
+          <WorkerRunButton
+            onClick={start}
+            busy={busy}
+            disabled={!ready || !file}
+            busyLabel={jobBusyLabel(job.phase, `Exporting ${output}…`)}
+            icon={FileText}
+          >
+            {runLabel}
+          </WorkerRunButton>
+        )}
+        jobStatus={
+          <>
+            <WorkerJobStatus job={job} />
+            {outcome?.ok === false && !outcome.stillRunning && (
+              <OfficeExportNextStep
+                code={outcome.code}
+                message={outcome.message}
+              />
+            )}
+          </>
+        }
+        note={
+          <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            <span>
+              Your PDF uploads only when you press {runLabel}.{" "}
+              {EXPORT_COPY[tool].note}
+            </span>
+          </p>
+        }
+        off={
+          <>
+            <p className="text-muted text-sm leading-relaxed">
+              {unavailableDetail}
+            </p>
+            <p className="text-muted text-xs leading-relaxed">
+              {runLabel} stays off until the worker is ready, so{" "}
+              {catalogTool.name} never pretends to process input it cannot
+              actually convert.
+            </p>
+            <NotifyMe
+              toolName={catalogTool.name}
+              toolSlug={catalogTool.slug}
+              checking={false}
+            />
+          </>
+        }
+      />
       {outcome?.ok === true && (
-        <ResultCard announce={`Your ${output} file is ready.`}>
+        <ResultCard
+          announce={`Your ${output} file is ready.`}
+          output={workerOutput(outcome.output, outcome.artifact)}
+          inputBytes={file?.size}
+        >
           <p className="text-ok text-sm">Your {output} file is ready.</p>
           <OfficeExportCoverageNotice job={outcome.job} tool={tool} />
           <DownloadCta

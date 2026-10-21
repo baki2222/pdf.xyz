@@ -13,9 +13,10 @@
  *    never tells anyone to leave the password blank (Unlock refuses an empty
  *    password — `PDF_RESTRICTED_MESSAGE`);
  *  - a remedy is never the tool that failed;
- *  - it is a plain link while its target cannot take a hand-off, and this
- *    file FAILS the day one can — the exit names the property (the target
- *    receives files), and that is when the remedy must carry the file;
+ *  - it CARRIES the file exactly when its target can take a hand-off. Until
+ *    WP-10 it was a plain link, and this file failed the day a target could
+ *    take one — the exit named the property (the target receives files).
+ *    WP-10's stage mode met it, so the test is inverted, not deleted;
  *  - an error with no kind, and a size refusal, get nothing — the positive
  *    control that the absence of a remedy is a decision too.
  */
@@ -27,6 +28,7 @@ import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "./encryption";
 import {
   REPAIR_TOOL_NAME,
   causeOf,
+  remedyCarries,
   remedyFor,
   type RemedyInput,
 } from "./remedies";
@@ -60,16 +62,28 @@ describe("every refusal the engine can name has a decision", () => {
     },
   );
 
+  // INVERTED in WP-10. WAS "%s: a link today, because its target cannot
+  // take a file yet", asserting `handoffCapabilityFor(target).supported` was
+  // false — with the message "make its remedy carry the file … and invert
+  // this". The worker panels stage a carried file now, so it carries.
   it.each(PDF_ENGINE_ERROR_KINDS.map((k) => [k]))(
-    "%s: a link today, because its target cannot take a file yet",
+    "%s: carries the file, because its target takes a hand-off",
     (kind) => {
       const remedy = remedyFor({ kind, verdict: null }, "rotate-pdf")!;
-      expect(
-        handoffCapabilityFor(remedy.toolSlug).supported,
-        `${remedy.toolName} can take a hand-off now: make its remedy carry the file (origin "remedy", @/lib/handoff) and invert this`,
-      ).toBe(false);
+      expect(handoffCapabilityFor(remedy.toolSlug).supported).toBe(true);
+      expect(remedy.carries).toBe(true);
+      expect(remedy.where).toMatch(/^Your file goes with you/);
     },
   );
+
+  it("positive control: a remedy whose target took no hand-off would not carry", () => {
+    // `carries` is read from the capability, never typed: a target with no
+    // way to receive the file keeps the old link and its old sentence.
+    expect(
+      remedyCarries("webpage-to-pdf"),
+      "webpage-to-pdf takes a URL, not a file",
+    ).toBe(false);
+  });
 
   it("the names the copy uses are the catalogue's", () => {
     expect(getToolBySlug("unlock-pdf")?.name).toBe(UNLOCK_TOOL_NAME);

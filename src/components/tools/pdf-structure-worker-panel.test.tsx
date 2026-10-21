@@ -42,6 +42,7 @@ import { isLinearized } from "@/lib/pdf/linearization";
 import { linearizedPdf } from "@/tests/linearized-pdf-fixture";
 import { PdfStructureWorkerPanel } from "./pdf-structure-worker-panel";
 import { OptimizeOutcome } from "./optimize-outcome";
+import { readyFileInput } from "@/tests/worker-ready";
 
 const providers = getProviderReadiness("remote-configured");
 
@@ -200,7 +201,7 @@ async function runOnePdf(slug: Slug, chosen: Uint8Array = INPUT) {
     </>,
   );
   const input = await vi.waitFor(() => {
-    const found = document.querySelector('input[type="file"]');
+    const found = readyFileInput();
     if (!found) throw new Error("no file input yet");
     return found;
   });

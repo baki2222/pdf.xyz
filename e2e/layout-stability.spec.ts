@@ -440,7 +440,7 @@ const ROUTES: Route[] = [
  * when the test calls `releaseWorkerStatus` — for a reading that must be
  * taken before the answer, however slow the machine is.
  */
-type WorkerAnswer = "local" | "ready" | "held";
+type WorkerAnswer = "local" | "local-late" | "ready" | "held";
 const WORKER_STATUS_DELAY_MS = 500;
 
 declare global {
@@ -489,7 +489,9 @@ async function answerWorkerStatus(
           location.href,
         );
         if (url.pathname !== "/api/worker/status") return real(input, init);
-        if (answer === "local") {
+        if (answer === "local" || answer === "local-late") {
+          if (answer === "local-late")
+            await new Promise((resolve) => setTimeout(resolve, delay));
           const res = await real(input, init);
           window.__workerStatusAnswers!++;
           return res;
@@ -736,8 +738,20 @@ test.describe("layout stability through load, hydration and scroll", () => {
   test.describe("positive controls: each defect, injected, is measured", () => {
     // The worker status slot without its reservation: what WP-06 shipped on
     // a phone. Read through the same measurement as the real pages.
-    test.describe("phone", () => {
-      test.use(LCP_DEVICES.find((d) => d.name === "phone")!.use);
+    //
+    // CHANGED in WP-10. The drop zone (and a panel's options) now render
+    // above the slot from the first paint, so on a real page the slot starts
+    // below the first screen and its answer moves nothing a reader sees: the
+    // old injection (no reserve, a READY answer) measured CLS 0.0002, and
+    // this control went red for the wrong reason. Neither "unreserved" nor
+    // "near the top" alone moves anything now: WorkerGate draws what the
+    // check said LAST in the slot, so a change in its height moves nothing
+    // above it. The control injects the defect that ordering prevents — the
+    // reason box drawn FIRST (CSS `order`), with no reserve, the drop zone
+    // and options out of the layout so the slot sits in the sticky panel's
+    // first screen — and answers late with this server's NOT-ENABLED state.
+    test.describe("desktop", () => {
+      test.use({ viewport: { width: 1440, height: 900 } });
       test("a worker panel whose status part is not reserved", async ({
         page,
       }, testInfo) => {
@@ -746,16 +760,20 @@ test.describe("layout stability through load, hydration and scroll", () => {
             const style = document.createElement("style");
             style.dataset.probe = "";
             style.textContent =
-              '[data-slot="worker-status"]{min-height:0 !important}';
+              '[data-slot="worker-status"]{min-height:0 !important}' +
+              '[data-slot="worker-status"]>div>:last-child{order:-1}' +
+              "[data-tool-panel] [data-drop-sheet]," +
+              "[data-tool-panel] #pdf-security-password," +
+              "[data-tool-panel] [role=radiogroup]{display:none !important}";
             document.head.append(style);
           };
           if (document.head) add();
           else document.addEventListener("DOMContentLoaded", add);
         });
         const route = workerPhoneRoutes().find(
-          (r) => r.name === "/tools/protect-pdf, worker status ready",
+          (r) => r.name === "/tools/protect-pdf, worker status local",
         )!;
-        const served = await answerWorkerStatus(page, "ready");
+        const served = await answerWorkerStatus(page, "local-late");
         const m = await measure(page, await route.url(page), "warm");
         await expect(page.locator("style[data-probe]")).toHaveCount(1);
         expect(await served()).toBeGreaterThan(0);
@@ -764,7 +782,11 @@ test.describe("layout stability through load, hydration and scroll", () => {
           type: "cls",
           description: m.cls.toFixed(4),
         });
-        expect(m.cls, report(m.counted)).toBeGreaterThan(MAX_CLS);
+        // What sees it is the rule every worker route is held to — no shift
+        // sourced inside a reserved slot (`inReserved`) — not the page CLS
+        // bound: the panel is sticky, and 261px of Run button moving is
+        // 0.003 of a 1440x900 screen.
+        expect(m.inReserved, report(m.counted)).not.toEqual([]);
       });
     });
 

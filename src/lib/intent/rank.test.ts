@@ -430,12 +430,11 @@ describe("evidence: each boost shows the fact behind it", () => {
   };
 
   it("a scan: OCR PDF shows which pages have no selectable text, and when the file moves", () => {
-    // OCR PDF runs on a worker: it cannot receive the file yet (WP-10's
-    // stage mode), so its row says the file is added there, and when it
-    // moves.
+    // OCR PDF runs on a worker. Until WP-10 it could not receive the file,
+    // so this row also said "you'll add scan.pdf there"; it stages the file
+    // now (the hand-off carries it), so the row says only when it moves.
     expect(say([scan("scan.pdf")], "ocr-pdf")).toEqual([
       "No selectable text on page 1",
-      "you'll add scan.pdf there",
       "uploads only when you start it",
     ]);
     expect(say([scan("scan.pdf", 5)], "ocr-pdf")[0]).toBe(

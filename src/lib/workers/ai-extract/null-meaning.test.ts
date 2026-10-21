@@ -849,7 +849,9 @@ beforeAll(async () => {
         list,
       ]),
     ),
-    "the rendered page": sentences(page.text),
+    // By block, not the space-joined `text`: since WP-10 the builder is in
+    // the HTML, and its unpunctuated labels ran into the sentence after them.
+    "the rendered page": sentences(page.blockText),
     "the page's FAQPage JSON-LD": page.faq.flatMap((q) => sentences(q.answer)),
     ...panel,
   };
@@ -1063,9 +1065,9 @@ describe("POSITIVE CONTROLS: a paraphrase, a dropped reason and an added reason,
   it("on the page as served, each is refused by the structure — wherever the page says it", () => {
     const at: number[] = [];
     for (
-      let i = page.text.indexOf(AI_EXTRACT_NULL_MEANING);
+      let i = page.blockText.indexOf(AI_EXTRACT_NULL_MEANING);
       i >= 0;
-      i = page.text.indexOf(AI_EXTRACT_NULL_MEANING, i + 1)
+      i = page.blockText.indexOf(AI_EXTRACT_NULL_MEANING, i + 1)
     )
       at.push(i);
     // Health: the page says it in the boolean use case and the "why null"
@@ -1074,13 +1076,15 @@ describe("POSITIVE CONTROLS: a paraphrase, a dropped reason and an added reason,
     // page read as the same paragraph three times, so each section now keeps
     // only the sentence its context needs. Every occurrence is still mutated.
     expect(at.length).toBeGreaterThanOrEqual(2);
-    expect(ownWordingOn({ page: sentences(page.text) }), "before").toEqual([]);
+    expect(ownWordingOn({ page: sentences(page.blockText) }), "before").toEqual(
+      [],
+    );
     for (const { name, to } of MUTATIONS)
       for (const i of at) {
         const served =
-          page.text.slice(0, i) +
+          page.blockText.slice(0, i) +
           to +
-          page.text.slice(i + AI_EXTRACT_NULL_MEANING.length);
+          page.blockText.slice(i + AI_EXTRACT_NULL_MEANING.length);
         // Health: the mutation landed in the served text, read back whole.
         expect(sentences(served), name).toContain(to);
         expect(ownWordingOn({ page: sentences(served) }), name).toEqual([

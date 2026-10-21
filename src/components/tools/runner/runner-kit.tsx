@@ -39,6 +39,7 @@ import {
   reportToolCompleted,
   reportToolFailed,
 } from "@/lib/telemetry/tool-outcome";
+import { CarryingRemedyLink } from "./remedy-link";
 import { holdRunnerStage } from "./stage-hold";
 import { useToolRun } from "./tool-context";
 
@@ -468,12 +469,16 @@ export function ErrorNote({
         {remedy && (
           <span data-remedy="" className="mt-2 flex flex-col gap-0.5">
             <span>
-              <Link
-                href={remedy.href}
-                className="font-semibold underline underline-offset-2"
-              >
-                {remedy.label}
-              </Link>{" "}
+              {remedy.carries && cause?.file ? (
+                <CarryingRemedyLink remedy={remedy} file={cause.file} />
+              ) : (
+                <Link
+                  href={remedy.href}
+                  className="font-semibold underline underline-offset-2"
+                >
+                  {remedy.label}
+                </Link>
+              )}{" "}
               {remedy.why}.
             </span>
             {remedy.where && <span className="text-xs">{remedy.where}</span>}
@@ -627,20 +632,21 @@ function ProgressLine({ done, total, unit }: RunProgress) {
 }
 
 /**
- * Tone of a worker panel's run trigger. Blue is the secure-worker default; the
- * five AI panels (chat, extract, summarize, translate, signature requests) are
- * violet to match the violet framing their surrounding card already uses.
+ * The classes of a worker panel's run trigger: the solid primary at the large
+ * size, full width on a phone (spec C.3, WP-10). WAS an outline-on-tint
+ * button in two tones (blue, and violet on the five AI panels), the one run
+ * trigger on the site that did not look like one. `run-trigger-focus.test.ts`
+ * fingerprints this string, so a copy of it outside this module fails there.
  */
-export type WorkerRunTone = "blue" | "violet";
-
-const WORKER_RUN_TONE: Record<WorkerRunTone, string> = {
-  blue: "border-info/40 bg-info/10 text-info hover:bg-info/20",
-  violet: "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20",
-};
+export const WORKER_RUN_CLASSES = buttonVariants({
+  variant: "primary",
+  size: "lg",
+  className: "w-full font-semibold sm:w-auto sm:self-start",
+});
 
 /**
- * The run trigger for the worker panels — the outline-on-tint button that starts
- * a real job on the secure worker.
+ * The run trigger for the worker panels — the solid button that starts a real
+ * job on the secure worker.
  *
  * WHY THIS EXISTS AT ALL
  * Fourteen panels hand-rolled it: the same forty-class string pasted verbatim,
@@ -668,7 +674,6 @@ export function WorkerRunButton({
   busyLabel,
   icon: Icon,
   children,
-  tone = "blue",
 }: {
   onClick: () => void;
   busy?: boolean;
@@ -677,7 +682,6 @@ export function WorkerRunButton({
   busyLabel: string;
   icon: LucideIcon;
   children: ReactNode;
-  tone?: WorkerRunTone;
 }) {
   const blocked = Boolean(busy) || Boolean(disabled);
   return (
@@ -692,10 +696,7 @@ export function WorkerRunButton({
       }}
       aria-disabled={blocked || undefined}
       aria-busy={busy}
-      className={cn(
-        "inline-flex w-full items-center justify-center gap-2 rounded-[3px] border px-6 py-2.5 text-sm font-semibold transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-65 sm:w-auto sm:self-start",
-        WORKER_RUN_TONE[tone],
-      )}
+      className={WORKER_RUN_CLASSES}
     >
       {busy ? (
         <>
@@ -1043,15 +1044,14 @@ export function ResultPanel({
  * panel cannot build the card without writing the sentence a user hears, which
  * is the only kind of convention this codebase has not drifted out of.
  *
- * `output`, when the card has the file in hand, adds the receipt and
- * "Continue with" under its contents, as {@link ResultPanel} does. Optional
- * until every worker panel has its file to give (redesign WP-10).
- *
- * Without one, a tool whose output nothing here should touch again (Protect
- * PDF, PDF to PDF/A: `NO_CONTINUE`) still says why nothing follows — the
- * page gives every worker panel its job (`ToolRunProvider`), and this card
- * reads the reason from it. `result-ending.test.tsx` drives Protect PDF's
- * panel to this card.
+ * `output` — REQUIRED since WP-10, when every worker panel came to hand
+ * its file over — adds the receipt and "Continue with" under its contents,
+ * as {@link ResultPanel} does. For a tool whose output nothing here should
+ * touch again (Protect PDF, PDF to PDF/A: `NO_CONTINUE`) "Continue with"
+ * says why nothing follows, from the job the page gives every worker panel
+ * (`ToolRunProvider`). WAS a fallback paragraph here for a card with no
+ * output; no card is without one now. `no-continue-delivered.test.tsx`
+ * drives both panels to this card.
  */
 export function ResultCard({
   announce,
@@ -1063,15 +1063,18 @@ export function ResultCard({
   announce: string;
   children: ReactNode;
   className?: string;
-  output?: RunOutput;
+  /**
+   * REQUIRED since WP-10: every result card is a file to download, so it
+   * carries the receipt and "Continue with" — or, when the plan says
+   * nothing follows, the reason (`ContinueWith` draws it).
+   */
+  output: RunOutput;
   inputBytes?: number;
 }) {
   const outcome = useOutcomeFocus(true, announce);
-  const none = useToolRun()?.plan.none;
   // Every card is a result to download (each worker panel draws one with
-  // its Download), whether or not it is handed the run's `output`: none of
-  // the twelve worker panels is, and their results went unasked-for under a
-  // paste (PR #180 re-review).
+  // its Download): their results went unasked-for under a paste until this
+  // guard covered them (PR #180 re-review).
   const keep = useUnkeptResult(true);
   return (
     <div
@@ -1085,22 +1088,11 @@ export function ResultCard({
       )}
     >
       {children}
-      {output ? (
-        <RunEnding
-          output={output}
-          inputBytes={inputBytes}
-          className="border-ok/30 mt-2 border-t pt-4"
-        />
-      ) : (
-        none && (
-          <p
-            data-no-continue=""
-            className="border-ok/30 text-muted mt-2 border-t pt-4 text-xs leading-5"
-          >
-            {none}
-          </p>
-        )
-      )}
+      <RunEnding
+        output={output}
+        inputBytes={inputBytes}
+        className="border-ok/30 mt-2 border-t pt-4"
+      />
     </div>
   );
 }

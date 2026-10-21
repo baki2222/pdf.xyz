@@ -11,8 +11,9 @@ import {
  * Behaviour claims below were read from the implementation on 2026-10-10
  * (they were first read on 2026-09-27; what changed is marked):
  *  - src/components/tools/pdf-office-export-worker-panel.tsx — the run area
- *    only mounts while the status badge reads "Secure worker" (otherwise it
- *    reads "Not enabled" or "Status unknown" and no drop zone is shown); the
+ *    renders at once and its Export works only while the status badge reads
+ *    "Secure worker" (otherwise it reads "Not enabled" or "Status unknown"
+ *    and Export stays off; WP-10); the
  *    drop zone titled "Add your PDF, or" + runner-kit's "browse" (the whole
  *    box is a <label>, so clicking anywhere opens the picker), single-file
  *    only with a "Remove" button once a file is chosen, the "Export PPTX"
@@ -232,7 +233,7 @@ const content: ToolContent = {
     },
     {
       title: "Add your PDF",
-      body: `The upload box appears only while the panel's status badge reads Secure worker; if it says Not enabled or Status unknown, there is nowhere to add a file yet. Drop one PDF on the box headed "Add your PDF, or browse"; clicking inside the dashed outline brings up the file chooser as well. Anything over ${CEILING_MB} MB is turned away at upload. If you picked the wrong file, press Remove beside its name and the box comes back for another.`,
+      body: `The upload box takes a file as soon as the page loads, but the Export button works only while the panel's status badge reads Secure worker; if it says Not enabled or Status unknown, nothing can be sent yet. Drop one PDF on the box headed "Add your PDF, or browse"; clicking inside the dashed outline brings up the file chooser as well. Anything over ${CEILING_MB} MB is turned away at upload. If you picked the wrong file, press Remove beside its name and the box comes back for another.`,
     },
     {
       title: "Press Export PPTX",

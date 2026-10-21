@@ -68,6 +68,7 @@ import { FileHeader, SignedInputNotice } from "./single-pdf-runner";
 import { holdRunnerStage } from "./stage-hold";
 import { useSinglePdf, type LoadedPdf, type LockedPdf } from "./use-single-pdf";
 import { useToolHandoff } from "./use-tool-handoff";
+import { useWorkerStatus } from "../use-worker-status";
 
 /** Where a PDF that needs a password gets unlocked; pinned to the catalog by the runner test. */
 export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
@@ -750,27 +751,18 @@ function WorkerDeepPanel({
   /** False while a known-signed file's warning is unconfirmed: the run waits. */
   signaturesConfirmed: boolean;
 }) {
-  const [status, setStatus] = useState<WorkerStatus | null | undefined>(
-    undefined,
-  );
+  // The page's one shared check (`../use-worker-status`): `undefined` while
+  // it is out, `null` when it failed — the two states this panel draws.
+  const shared = useWorkerStatus();
+  const status: WorkerStatus | null | undefined =
+    shared.phase === "loading"
+      ? undefined
+      : shared.phase === "error"
+        ? null
+        : shared.status;
   const [dpi, setDpi] = useState<number>(150);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<CompressWorkerResult | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((r) => (r.ok ? (r.json() as Promise<WorkerStatus>) : null))
-      .then((s) => {
-        if (active) setStatus(s);
-      })
-      .catch(() => {
-        if (active) setStatus(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const canRunDeep = canRunDeepCompression(status);
   // A run still in flight when the panel unmounts settles its hold then.

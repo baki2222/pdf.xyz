@@ -3,9 +3,7 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { Archive, FileDown, FileUp, ShieldCheck, Timer } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
-import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunPdfArchive,
   runWorkerPdfToPdfA,
@@ -16,7 +14,6 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
-import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
@@ -27,209 +24,69 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import { useStagedHandoff } from "./use-staged-handoff";
 import {
-  useWorkerStatus,
-  WorkerStatusPending,
-  type WorkerPhase,
-  WorkerStatusSlot,
-  workerSlotState,
-} from "./worker-status";
+  useWorkerPanel,
+  WorkerGate,
+  WorkerPanelShell,
+  workerOutput,
+} from "./worker-panel-shell";
 import { PdfANotes } from "./pdfa-notes";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 on Windows: phone at 360px 327.5px, `sm` at 640px 269px,
- * `lg` at 1024px 269px.
- * The worker-off state grew when its notice gained the logs-and-analytics
- * disclosure (fix/privacy-truth, 2026-10-10), so the phone reserve is refitted
- * to clear the tallest state by at least 3.5%, to the half rem: the headroom
- * Linux Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
- * e2e/tool-layout.mobile.spec.ts).
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
+ *
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: the
+ * tallest state, the larger of Windows and Linux (CI's SLOT_NATURAL lines
+ * on 507b6383), is 547px at 360, 439.5px at 640, 457.5px at 1024;
+ * x1.035, to the half rem, then up to a value another panel's slot already
+ * uses, so the thirteen share a handful of classes. A first fit from
+ * Windows alone (x1.06) left PowerPoint to PDF and PDF to PowerPoint
+ * short on Linux at 360. The check: `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[22.5rem] sm:min-h-[17.5rem] lg:min-h-[17.5rem]";
-
-type Phase = WorkerPhase;
+const STATUS_SLOT = "min-h-[35.5rem] sm:min-h-[29.5rem] lg:min-h-[30.5rem]";
 
 /** Where a user with an open-password PDF can remove the password first. */
 export const UNLOCK_TOOL_SLUG = "unlock-pdf";
 
-function badgeFor(
-  phase: Phase,
-  status: WorkerStatus | null,
-): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading")
-    return { tone: "info", label: "Checking…", pulse: true };
-  if (phase === "error" || !status)
-    return { tone: "muted", label: "Status unknown", pulse: false };
-  if (canRunPdfArchive(status)) {
-    return status.mode === "local-dev"
-      ? { tone: "warn", label: "Local-dev worker", pulse: true }
-      : { tone: "ok", label: "Secure worker", pulse: false };
-  }
-  return { tone: "muted", label: "Not enabled", pulse: false };
-}
-
-function SpecRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof FileUp;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="text-muted inline-flex items-center gap-2 text-sm">
-        <Icon className="text-muted size-4" aria-hidden />
-        {label}
-      </span>
-      <span className="text-fg text-right text-sm font-medium">{value}</span>
-    </div>
-  );
-}
-
 export function PdfArchiveWorkerPanel({ tool }: { tool: Tool }) {
-  const { phase, status, retry } = useWorkerStatus();
-
-  const badge = badgeFor(phase, status);
-  const available = phase === "ready" && canRunPdfArchive(status);
-
   return (
-    <div className="">
-      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
-              <Archive className="size-3" aria-hidden />
-              Secure-worker PDF/A
-            </span>
-            <StatusBadge
-              tone={badge.tone}
-              label={badge.label}
-              pulse={badge.pulse}
-            />
-          </div>
-          <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on a secure worker
-          </h2>
-          <p className="text-muted text-sm leading-relaxed">
-            PDF/A conversion uses Ghostscript on the isolated worker to create
-            an archive-oriented PDF/A-2b file. It produces a real PDF output or
-            fails honestly — no browser placeholder and no fabricated compliance
-            claim. We do not validate the result against the PDF/A
-            specification, so this is a best-effort conversion rather than a
-            certification. PDF/A cannot represent everything a PDF can, and
-            anything Ghostscript has to remove is listed with your download.
-          </p>
-        </div>
-
-        <WorkerStatusSlot
-          state={workerSlotState(phase, available && status !== null)}
-          reserve={STATUS_SLOT}
-        >
-          {available && status ? (
-            <ArchiveRunArea
-              localDevOnly={status.localDevOnly}
-              refuse={(file) => pickRefusal(tool, file)}
-            />
-          ) : (
-            <ArchiveUnavailable onRetry={retry} phase={phase} status={status} />
-          )}
-        </WorkerStatusSlot>
-
-        <div className="flex flex-col gap-3">
-          <h3 className="text-faint kicker">What happens to your file</h3>
-          <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status ? status.scan.active : null, tool).map(
-              (stage, i, all) => (
-                <li key={stage.id} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center self-stretch">
-                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
-                      <Archive className="size-4" aria-hidden />
-                    </span>
-                    {i < all.length - 1 && (
-                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-fg text-sm font-medium">
-                      {i + 1}. {stage.title}
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      {stage.description}
-                    </span>
-                  </div>
-                </li>
-              ),
-            )}
-          </ol>
-        </div>
-
-        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
-          <SpecRow icon={FileUp} label="Input" value="One PDF" />
-          <SpecRow
-            icon={FileDown}
-            label="Output"
-            value="PDF/A-2b (best effort, not validated)"
-          />
-          <SpecRow
-            icon={Timer}
-            label="Retention"
-            value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
-          />
-          <SpecRow
-            icon={ShieldCheck}
-            label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
-          />
-        </div>
-      </div>
-    </div>
+    <WorkerPanelShell
+      tool={tool}
+      engine={{ label: "Secure-worker PDF/A", icon: Archive }}
+      description="PDF/A conversion uses Ghostscript on the isolated worker to create an archive-oriented PDF/A-2b file. It produces a real PDF output or fails honestly — no browser placeholder and no fabricated compliance claim. We do not validate the result against the PDF/A specification, so this is a best-effort conversion rather than a certification. PDF/A cannot represent everything a PDF can, and anything Ghostscript has to remove is listed with your download."
+      canRun={canRunPdfArchive}
+      specRows={[
+        { icon: FileUp, label: "Input", value: "One PDF" },
+        {
+          icon: FileDown,
+          label: "Output",
+          value: "PDF/A-2b (best effort, not validated)",
+        },
+        {
+          icon: Timer,
+          label: "Retention",
+          value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
+        },
+        {
+          icon: ShieldCheck,
+          label: "Limit",
+          value: `${formatBytes(JOB_LIMITS.maxFileBytes)}/file`,
+        },
+      ]}
+    >
+      <ArchiveRunArea refuse={(file) => pickRefusal(tool, file)} />
+    </WorkerPanelShell>
   );
 }
 
-function ArchiveUnavailable({
-  phase,
-  onRetry,
-  status,
-}: {
-  phase: Phase;
-  onRetry: () => void;
-  status: WorkerStatus | null;
-}) {
-  // Until the status is KNOWN this box says nothing about the tool: the
-  // server renders the loading phase, and "Notify me when this ships" there
-  // told search engines that live tools had not shipped. A failed status
-  // check gets a retry, not a notify button.
-  if (phase !== "ready")
-    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
-  const detail =
-    status?.daemon.detail ?? "The secure worker is not drainable here.";
-  return (
-    <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-      <p className="text-muted text-sm leading-relaxed">{detail}</p>
-      <p className="text-muted text-xs leading-relaxed">
-        No uploader is shown until the worker is ready, so PDF/A conversion
-        never pretends to process a file it cannot actually run.
-      </p>
-      <NotifyMe
-        toolName="PDF to PDF/A"
-        toolSlug="pdf-to-pdfa"
-        checking={false}
-      />
-    </div>
-  );
-}
+const RUN_LABEL = "Convert to PDF/A";
 
-function ArchiveRunArea({
-  localDevOnly,
-  refuse,
-}: {
-  localDevOnly: boolean;
-  refuse: PickRefusal;
-}) {
+function ArchiveRunArea({ refuse }: { refuse: PickRefusal }) {
+  const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   const job = useWorkerJob<PdfArchiveWorkerResult>({
     tool: "pdf-to-pdfa",
@@ -237,8 +94,12 @@ function ArchiveRunArea({
       resumeSecurityJob(id, { ...controls, tool: "pdf-to-pdfa" }),
   });
   const { busy, outcome, setOutcome, run } = job;
+  const staged = useStagedHandoff("pdf-to-pdfa", RUN_LABEL, (files) => {
+    setOutcome(null);
+    setFile(files[0] ?? null);
+  });
   const start = useCallback(async () => {
-    if (!file) return;
+    if (!file || !available) return;
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result = await runWorkerPdfToPdfA(
@@ -247,15 +108,12 @@ function ArchiveRunArea({
       );
       return result;
     });
-  }, [file, run]);
+  }, [file, run, available]);
+  const detail =
+    status?.daemon.detail ?? "The secure worker is not drainable here.";
   return (
-    <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
-      <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
-        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        {localDevOnly
-          ? "This runs on your local-dev worker on this machine."
-          : "Running this uploads your file to the secure worker, converts it with Ghostscript, and wipes the input after processing."}
-      </p>
+    <div className="flex flex-col gap-4">
+      {staged}
       {file ? (
         <ChosenFileTarget
           file={file}
@@ -293,36 +151,75 @@ function ArchiveRunArea({
           hint="PDF"
         />
       )}
-      <WorkerRunButton
-        onClick={start}
-        busy={busy}
-        disabled={!file}
-        busyLabel={jobBusyLabel(job.phase, "Converting to PDF/A…")}
-        icon={Archive}
-      >
-        Convert to PDF/A
-      </WorkerRunButton>
-      {/* The failure itself (with its ErrorNote), a still-running job and
-          Cancel are the shared hook's; the Unlock pointer below is this
-          tool's own next step for the one code it knows. */}
-      <WorkerJobStatus job={job} />
-      {/* The worker can tell an open-password file from a broken one; the
-          user should not have to guess which Unlock tool that means. */}
-      {outcome?.ok === false &&
-        outcome.code === PDF_ARCHIVE_PASSWORD_REQUIRED_CODE && (
-          <p className="text-muted text-sm">
-            <Link
-              href={`/tools/${UNLOCK_TOOL_SLUG}`}
-              className="text-fg font-medium underline underline-offset-2"
-            >
-              Unlock PDF
-            </Link>{" "}
-            removes the password if you know it. Then convert the unlocked copy
-            here.
-          </p>
+      <WorkerGate
+        reserve={STATUS_SLOT}
+        job={job}
+        bytes={file?.size}
+        run={(ready) => (
+          <WorkerRunButton
+            onClick={start}
+            busy={busy}
+            disabled={!ready || !file}
+            busyLabel={jobBusyLabel(job.phase, "Converting to PDF/A…")}
+            icon={Archive}
+          >
+            {RUN_LABEL}
+          </WorkerRunButton>
         )}
+        jobStatus={
+          <>
+            {/* The failure itself (with its ErrorNote), a still-running job
+                and Cancel are the shared hook's; the Unlock pointer below is
+                this tool's own next step for the one code it knows. */}
+            <WorkerJobStatus job={job} />
+            {/* The worker can tell an open-password file from a broken one;
+                the user should not have to guess which Unlock tool that
+                means. */}
+            {outcome?.ok === false &&
+              outcome.code === PDF_ARCHIVE_PASSWORD_REQUIRED_CODE && (
+                <p className="text-muted text-sm">
+                  <Link
+                    href={`/tools/${UNLOCK_TOOL_SLUG}`}
+                    className="text-fg font-medium underline underline-offset-2"
+                  >
+                    Unlock PDF
+                  </Link>{" "}
+                  removes the password if you know it. Then convert the unlocked
+                  copy here.
+                </p>
+              )}
+          </>
+        }
+        note={
+          <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            {status?.localDevOnly
+              ? `This runs on your local-dev worker on this machine when you press ${RUN_LABEL}.`
+              : `Pressing ${RUN_LABEL} uploads your file to the secure worker, converts it with Ghostscript, and wipes the input after processing.`}
+          </p>
+        }
+        off={
+          <>
+            <p className="text-muted text-sm leading-relaxed">{detail}</p>
+            <p className="text-muted text-xs leading-relaxed">
+              {RUN_LABEL} stays off until the worker is ready, so PDF/A
+              conversion never pretends to process a file it cannot actually
+              run.
+            </p>
+            <NotifyMe
+              toolName="PDF to PDF/A"
+              toolSlug="pdf-to-pdfa"
+              checking={false}
+            />
+          </>
+        }
+      />
       {outcome?.ok === true && (
-        <ResultCard announce="Your PDF/A file is ready.">
+        <ResultCard
+          announce="Your PDF/A file is ready."
+          output={workerOutput(outcome.output, outcome.artifact)}
+          inputBytes={file?.size}
+        >
           {/* Above the download: a user who clicks and leaves is exactly the
               user who needs to know something was dropped from their file. */}
           <PdfANotes job={outcome.job} />

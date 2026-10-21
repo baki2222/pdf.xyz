@@ -99,7 +99,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Pick the PDF to convert",
-      body: `While the worker is unavailable the panel offers "Notify me when this ships" in place of a drop box; once the badge reads "Secure worker", the box is there. Drag a PDF onto the box that reads "Add your PDF, or", or click browse in it. The chosen file's name replaces the box, with a Remove button beside it for undoing a wrong pick.`,
+      body: `The box is there from the start, but its Export button stays off while the worker is unavailable, and the panel offers "Notify me when this ships" instead; once the badge reads "Secure worker", the button works. Drag a PDF onto the box that reads "Add your PDF, or", or click browse in it. The chosen file's name replaces the box, with a Remove button beside it for undoing a wrong pick.`,
     },
     {
       title: "Press Export XLSX",

@@ -190,19 +190,22 @@ describe("carried: the tool opens with the files in it", () => {
 });
 
 describe("plain: nothing could travel, and the tool opens empty", () => {
-  it("a tool with no in-browser runner opens plainly and stashes nothing", async () => {
+  // WAS Word to PDF, "a tool with no in-browser runner": before WP-10 a
+  // worker panel took no hand-off. It stages the file now; the tool that
+  // still takes none is the URL one.
+  it("a tool that takes no file opens plainly and stashes nothing", async () => {
     const result = await launch({
-      toolSlug: "word-to-pdf",
+      toolSlug: "webpage-to-pdf",
       files: [docx],
       origin: { kind: "workspace" },
       suggestion: { source: "workspace", rank: 2 },
     });
     expect(result).toBe("plain");
-    expect(pushed).toEqual(["/tools/word-to-pdf"]);
+    expect(pushed).toEqual(["/tools/webpage-to-pdf"]);
     expect(events).toEqual([
       {
         name: "suggestion_opened",
-        toolSlug: "word-to-pdf",
+        toolSlug: "webpage-to-pdf",
         source: "workspace",
         rank: "2",
         carried: false,
@@ -378,7 +381,7 @@ describe("the token travels in this tab, not in the address", () => {
 
   it("CONTROL: a plain launch (nothing travels) carries nothing and notes nothing", async () => {
     await launch({
-      toolSlug: "word-to-pdf",
+      toolSlug: "webpage-to-pdf",
       files: [docx],
       origin: { kind: "workspace" },
     });

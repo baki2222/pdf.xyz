@@ -11,7 +11,8 @@ import { Hourglass, RotateCw, X } from "lucide-react";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import type { WorkerJobPhase } from "@/lib/workers/job-polling";
-import { ErrorNote } from "./runner/runner-kit";
+import type { PhaseEvent } from "@/lib/workers/phases";
+import { ErrorNote, warmEnding } from "./runner/runner-kit";
 
 /**
  * What a worker panel hands its job client: a way to stop, a way to learn the
@@ -38,6 +39,12 @@ export interface WorkerJob<R extends { ok: boolean }> {
   busy: boolean;
   /** Where the run is, or null before it starts reporting. */
   phase: WorkerJobPhase | null;
+  /**
+   * Every phase the last run reported, in order, with when (`performance.now()`)
+   * — what the docket (`LiveStages`) stamps its stages from. Kept after the
+   * run ends, so a finished or failed job still shows how far it got.
+   */
+  events: readonly PhaseEvent[];
   outcome: Outcome<R> | null;
   setOutcome: (outcome: Outcome<R> | null) => void;
   /**
@@ -147,25 +154,28 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
   useEffect(() => {
     resumeRef.current = config.resume;
   });
-  // A job this tab started and stopped waiting for — before a reload, say —
-  // is offered back, not forgotten. Read once, at mount: the panels mount
-  // their run area only after the status fetch resolves, so this never runs
-  // during a server render (and `readSaved` is total if it ever does).
-  const [restored] = useState(() => readSaved(tool));
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<WorkerJobPhase | null>(null);
-  const [outcome, setOutcome] = useState<Outcome<R> | null>(() =>
-    restored
-      ? {
-          ok: false,
-          message: "A job you started here may still be running on the worker.",
-          jobId: restored.jobId,
-          stillRunning: true,
-        }
-      : null,
-  );
+  const [events, setEvents] = useState<readonly PhaseEvent[]>([]);
+  const [outcome, setOutcome] = useState<Outcome<R> | null>(null);
   const controller = useRef<AbortController | null>(null);
-  const jobId = useRef<string | null>(restored?.jobId ?? null);
+  const jobId = useRef<string | null>(null);
+  // A job this tab started and stopped waiting for — before a reload, say —
+  // is offered back, not forgotten. Read after mount, NOT in a state
+  // initialiser: since WP-10 the run area renders on the server (its drop
+  // zone works before the status check answers), and a saved job read
+  // during hydration would draw a box the server's HTML does not have.
+  useEffect(() => {
+    const restored = readSaved(tool);
+    if (!restored || controller.current) return;
+    jobId.current = restored.jobId;
+    setOutcome({
+      ok: false,
+      message: "A job you started here may still be running on the worker.",
+      jobId: restored.jobId,
+      stillRunning: true,
+    });
+  }, [tool]);
 
   const execute = useCallback(
     async (
@@ -176,7 +186,11 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
       controller.current = ctl;
       setBusy(true);
       setPhase(null);
+      setEvents([]);
       setOutcome(null);
+      // The result card's receipt and "Continue with" load on demand; asked
+      // for now, they are in hand when the job ends minutes later.
+      void warmEnding().catch(() => {});
       try {
         let result: Outcome<R>;
         try {
@@ -187,7 +201,10 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
               writeSaved(tool, id);
             },
             onPhase: (next) => {
-              if (!ctl.signal.aborted) setPhase(next);
+              if (ctl.signal.aborted) return;
+              setPhase(next);
+              const at = performance.now();
+              setEvents((prev) => [...prev, { phase: next, at }]);
             },
           });
         } catch {
@@ -207,6 +224,10 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
         if (!stillRunning) {
           jobId.current = null;
           clearSaved(tool);
+        }
+        if (result.ok === false && !stillRunning) {
+          const at = performance.now();
+          setEvents((prev) => [...prev, { phase: "failed", at }]);
         }
         setOutcome(result);
         return result;
@@ -247,7 +268,7 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
     else setOutcome(CANCELED);
   }, [tool]);
 
-  return { busy, phase, outcome, setOutcome, run, resume, cancel };
+  return { busy, phase, events, outcome, setOutcome, run, resume, cancel };
 }
 
 /** A busy label that says where the run actually is. */

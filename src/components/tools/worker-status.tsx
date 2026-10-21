@@ -1,71 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { RotateCw } from "lucide-react";
-import type { WorkerStatus } from "@/lib/workers/status";
-import { track } from "@/lib/telemetry/track";
 import { cn } from "@/lib/utils";
 import { Spinner } from "./runner/runner-kit";
 
-/**
- * Where a worker panel is in finding out whether it can run.
- *
- * - `loading`: the status fetch has not answered. This is what the SERVER
- *   renders, so it is what every crawler, link preview and first paint gets.
- * - `error`: the status endpoint could not be reached. That says nothing about
- *   whether the tool has shipped.
- * - `ready`: the status is known, and the panel can say what it says.
- */
-export type WorkerPhase = "loading" | "error" | "ready";
-
-/**
- * The one status fetch every worker panel made with its own copy of the same
- * effect. Shared so the error phase can offer a retry — the copies had no way
- * to run the effect again, so a single dropped request left the page saying
- * "unavailable" until a reload.
- */
-export function useWorkerStatus(): {
-  phase: WorkerPhase;
-  status: WorkerStatus | null;
-  retry: () => void;
-} {
-  const [phase, setPhase] = useState<WorkerPhase>("loading");
-  const [status, setStatus] = useState<WorkerStatus | null>(null);
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    fetch("/api/worker/status", { headers: { accept: "application/json" } })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<WorkerStatus>)
-          : Promise.reject(new Error("unreachable")),
-      )
-      .then((next) => {
-        if (!active) return;
-        setStatus(next);
-        setPhase("ready");
-        track({
-          name: "worker_status_checked",
-          mode: next.mode,
-          enabled: next.enabled,
-        });
-      })
-      .catch(() => {
-        if (active) setPhase("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, [attempt]);
-
-  const retry = useCallback(() => {
-    setPhase("loading");
-    setAttempt((n) => n + 1);
-  }, []);
-
-  return { phase, status, retry };
-}
+export { useWorkerStatus, type WorkerPhase } from "./use-worker-status";
+import type { WorkerPhase } from "./use-worker-status";
 
 /** What the status-dependent part of a panel is showing. */
 export type WorkerSlotState = "loading" | "error" | "off" | "run";
@@ -125,11 +66,7 @@ export function WorkerStatusSlot({
     <div
       data-slot="worker-status"
       data-state={state}
-      className={cn(
-        "grid grid-cols-1",
-        state !== "run" && "[&>*]:justify-center",
-        reserve,
-      )}
+      className={cn("grid grid-cols-1 content-start", reserve)}
     >
       {children}
     </div>
@@ -156,12 +93,15 @@ export function WorkerStatusSlot({
 export function WorkerStatusPending({
   phase,
   onRetry,
+  limited = false,
 }: {
   phase: Exclude<WorkerPhase, "ready">;
   onRetry: () => void;
+  /** The check was answered 429 and the page has waited: Try again. */
+  limited?: boolean;
 }) {
   return (
-    <div className="border-line bg-wash flex min-h-32 flex-col justify-center gap-3 rounded-[4px] border p-4">
+    <div className="border-line bg-wash flex flex-col justify-center gap-3 rounded-[4px] border p-4">
       {phase === "loading" ? (
         <p
           role="status"
@@ -174,8 +114,10 @@ export function WorkerStatusPending({
       ) : (
         <>
           <p role="status" className="text-muted text-sm leading-relaxed">
-            We couldn&rsquo;t reach the worker status service just now. Nothing
-            is uploaded until the worker is confirmed.
+            {limited
+              ? "The worker status service is busy and asked us to wait. "
+              : "We couldn’t reach the worker status service just now. "}
+            Nothing is uploaded until the worker is confirmed.
           </p>
           <button
             type="button"
@@ -183,7 +125,7 @@ export function WorkerStatusPending({
             className="border-line text-fg hover:bg-panel inline-flex items-center gap-1.5 self-start rounded-[3px] border px-3 py-1.5 text-sm font-medium transition"
           >
             <RotateCw className="size-3.5" aria-hidden />
-            Check again
+            {limited ? "Try again" : "Check again"}
           </button>
         </>
       )}

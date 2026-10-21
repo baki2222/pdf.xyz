@@ -7,8 +7,8 @@ import { webOptimizedOutputName } from "@/lib/workers/processor/pdf-structure";
 /*
  * Every behavioral claim below was read from the code on 2026-09-27:
  *  - panel: src/components/tools/pdf-structure-worker-panel.tsx — the live
- *    worker check ("Secure worker" / "Not enabled" badge; no uploader until
- *    the check says yes: "Checking the secure worker…" while it runs, "Check
+ *    worker check ("Secure worker" / "Not enabled" badge; the uploader
+ *    renders at once and the run waits until the check says yes (WP-10): "Checking the secure worker…" while it runs, "Check
  *    again" when it fails (WorkerStatusPending), and a count-only "Notify me
  *    when this ships" button only once the worker is known to be off), the
  *    compact dropzone "Add a PDF, or browse", one file only, the "Optimize on the worker" button, and
@@ -95,7 +95,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Wait for the worker check",
-      body: "On load the panel asks the worker status endpoint whether a worker is ready to accept jobs, and shows the answer in a badge, which reads “Secure worker” on the live site. Until that answer is yes, no drop box is shown: while the check runs the panel says “Checking the secure worker…”, a failed check offers “Check again”, and if the worker is not enabled it offers “Notify me when this ships”, which only adds one to a count of requests for this tool.",
+      body: "On load the panel asks the worker status endpoint whether a worker is ready to accept jobs, and shows the answer in a badge, which reads “Secure worker” on the live site. The drop box takes a file at once, and it goes to the secure worker only once that answer is yes and you press the button: while the check runs the panel says “Checking the secure worker…”, a failed check offers “Check again”, and if the worker is not enabled it offers “Notify me when this ships”, which only adds one to a count of requests for this tool.",
     },
     {
       title: "Add one PDF",

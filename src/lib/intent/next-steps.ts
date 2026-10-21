@@ -112,6 +112,17 @@ const FINISHING_ONLY: Readonly<Record<string, readonly string[]>> = {
   "sign-pdf": FINISHING_STEPS,
 };
 
+/**
+ * The tools that FIX a file a tool could not open (an encrypted PDF, a
+ * damaged one): offered by the refusal that needs them (`remedyFor`, which
+ * carries the file there), never as the next step after a result — a file
+ * this site just wrote opens. Until worker panels took hand-offs (WP-10)
+ * nothing could carry a result to them, so the rule had nothing to do;
+ * then Unlock PDF ranked into Merge PDF's four rows. `next-steps.test.ts`
+ * holds this set equal to the remedy targets.
+ */
+export const FIX_ONLY: readonly string[] = ["unlock-pdf", "repair-pdf"];
+
 /** Outputs nothing here should touch again, and the sentence that says why. */
 export const NO_CONTINUE: Readonly<Record<string, string>> = {
   "protect-pdf":
@@ -182,6 +193,7 @@ export function continueTargetsFor(
   const candidates = all.filter(
     (candidate) =>
       candidate.slug !== tool.slug &&
+      !FIX_ONLY.includes(candidate.slug) &&
       handoffCapabilityFor(candidate.slug).supported &&
       produced.some((f) => takes(candidate, f)) &&
       !rules.inverse(tool, candidate) &&
@@ -200,20 +212,28 @@ export function continueTargetsFor(
     if (eligible.has(slug) && !order.includes(slug)) order.push(slug);
 
   return {
-    targets: order.slice(0, CANDIDATES).map((slug) => {
-      const target = bySlug.get(slug)!;
-      const mode = handoffCapabilityFor(slug).mode as ContinueTarget["mode"];
-      const accepted = formatsOf(target.accept);
-      return {
-        slug,
-        name: target.name,
-        processing: target.processing,
-        mode,
-        combines:
-          mode === "collect" &&
-          formatsOf(target.outputs).every((f) => accepted.includes(f)),
-        ceilingBytes: toolFileCeilingBytes(target),
-      };
-    }),
+    targets: order
+      .slice(0, CANDIDATES)
+      .map((slug) => continueTarget(bySlug.get(slug)!)),
+  };
+}
+
+/**
+ * One tool as a Continue row. Exported for the one row the server cannot
+ * plan: the tool a remedy's file is owed back to (`ContinueWith`). Call it
+ * only for a tool a hand-off can reach.
+ */
+export function continueTarget(target: Tool): ContinueTarget {
+  const mode = handoffCapabilityFor(target.slug).mode as ContinueTarget["mode"];
+  const accepted = formatsOf(target.accept);
+  return {
+    slug: target.slug,
+    name: target.name,
+    processing: target.processing,
+    mode,
+    combines:
+      mode === "collect" &&
+      formatsOf(target.outputs).every((f) => accepted.includes(f)),
+    ceilingBytes: toolFileCeilingBytes(target),
   };
 }

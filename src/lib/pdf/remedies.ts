@@ -12,13 +12,15 @@
  * SUCCESS that already says what to do (`NoSelectableTextNote`, and Compare
  * PDF's own states), not a refusal.
  *
- * A REMEDY IS A LINK TODAY. Both targets run on the secure worker, and no
- * worker tool can take a hand-off yet (`handoffCapabilityFor`), so the file
- * cannot travel with the click; the link says where the file goes instead.
- * `remedies.test.ts` fails the day a target CAN take one — the exit names
- * the property (the target receives files), and that is when the remedy
- * starts carrying the file, with a `remedy` origin.
+ * A REMEDY CARRIES THE FILE when its target takes a hand-off
+ * (`handoffCapabilityFor`, read here, never typed). Both targets run on the
+ * secure worker; since WP-10 a worker panel STAGES a carried file — it waits
+ * there and uploads only on Run — so the click takes the file along with a
+ * `remedy` origin (`ErrorNote`). Until then the remedy was a plain link and
+ * said where to add the file; `remedies.test.ts` held that exit by its
+ * property, and was inverted when the property arrived.
  */
+import { handoffCapabilityFor } from "@/lib/handoff/capability";
 import type { ProcessingMode } from "@/lib/tools/types";
 import { getToolBySlug } from "@/lib/tools";
 import {
@@ -42,6 +44,8 @@ export interface RemedyInput {
   readonly kind?: PdfEngineErrorKind | "too-large";
   /** For an encrypted file: what a reader made of its lock. */
   readonly verdict?: EncryptionVerdict | null;
+  /** The file it was about, when the error kept it: what a remedy carries. */
+  readonly file?: File;
 }
 
 export interface Remedy {
@@ -55,6 +59,8 @@ export interface Remedy {
   readonly why: string;
   /** Where the remedy runs, read from the catalogue. */
   readonly processing: ProcessingMode;
+  /** The target takes a hand-off, so the click carries the file there. */
+  readonly carries: boolean;
   /**
    * Where the file goes there, said at the moment it would move — or null
    * for a mode no remedy runs in yet, which `remedies.test.ts` fails, so a
@@ -63,15 +69,22 @@ export interface Remedy {
   readonly where: string | null;
 }
 
+/** Whether a remedy's target takes the file a click would carry to it. */
+export function remedyCarries(toolSlug: string): boolean {
+  return handoffCapabilityFor(toolSlug).supported;
+}
+
 /**
- * The sentence for where a file goes in a tool it cannot be carried to; the
- * worker tools are the only ones today. Also said by a preflight hint whose
- * target cannot take the file yet (`@/components/intent/preflight-hint`).
+ * The sentence for where a file goes in a worker tool; the worker tools are
+ * the only ones today. `carries` says whether the click takes the file with
+ * it. Also said by a preflight hint (`@/components/intent/preflight-hint`),
+ * which passes whether its own target takes the file.
  */
-export function whereFor(mode: ProcessingMode): string | null {
-  return mode === "server"
-    ? "You add the file there, and it uploads to the secure worker only when you start it."
-    : null;
+export function whereFor(mode: ProcessingMode, carries = false): string | null {
+  if (mode !== "server") return null;
+  return carries
+    ? "Your file goes with you, and it uploads to the secure worker only when you start it."
+    : "You add the file there, and it uploads to the secure worker only when you start it.";
 }
 
 /** The words for an encrypted file, by what a reader made of its lock. */
@@ -98,6 +111,7 @@ function remedy(
   const tool = getToolBySlug(toolSlug);
   const toolName = tool?.name ?? fallbackName;
   const processing = tool?.processing ?? "server";
+  const carries = remedyCarries(toolSlug);
   return {
     toolSlug,
     toolName,
@@ -106,7 +120,8 @@ function remedy(
     label: `${verb} ${toolName}`,
     why,
     processing,
-    where: whereFor(processing),
+    carries,
+    where: whereFor(processing, carries),
   };
 }
 

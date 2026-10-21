@@ -31,10 +31,13 @@ import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
 import { toolAcceptsFormat } from "@/lib/intent/formats";
 import { getToolBySlug, tools } from "@/lib/tools";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
+import { PDF_ENGINE_ERROR_KINDS } from "@/lib/pdf/engine";
+import { remedyFor } from "@/lib/pdf/remedies";
 import type { Tool } from "@/lib/tools/types";
 import {
   CONTINUE_SHOWN,
   FINISHING_STEPS,
+  FIX_ONLY,
   NO_CONTINUE,
   continueTargetsFor,
   isInverse,
@@ -263,6 +266,41 @@ describe("the order", () => {
       "crop-pdf",
       "merge-pdf",
     ]);
+  });
+});
+
+/**
+ * A REMEDY IS NOT A NEXT STEP (WP-10). Once worker panels took hand-offs,
+ * Unlock PDF — a remedy, reached from a file a tool could NOT open — was
+ * ranked into Merge PDF's four "Continue with" rows: a file this site had
+ * just written, with no password, offered a tool whose only job is removing
+ * one. The fixers are offered by the error that needs them (`remedyFor`),
+ * so the set here is the remedy targets themselves, derived, both ways.
+ */
+describe("the tools that fix a file are offered by its refusal, never as a next step", () => {
+  const fixers = new Set(
+    PDF_ENGINE_ERROR_KINDS.map(
+      (kind) => remedyFor({ kind, verdict: null }, "")!.toolSlug,
+    ),
+  );
+
+  it("health: the remedy targets are found, and they take hand-offs", () => {
+    expect(fixers.size).toBeGreaterThanOrEqual(2);
+    for (const slug of fixers)
+      expect(handoffCapabilityFor(slug).supported, slug).toBe(true);
+  });
+
+  it("the plan's fix-only set is exactly the remedy targets", () => {
+    expect(new Set(FIX_ONLY)).toEqual(fixers);
+  });
+
+  it("no plan offers one", () => {
+    const offering = tools.flatMap((tool) =>
+      plan(tool.slug)
+        .targets.filter((t) => fixers.has(t.slug))
+        .map((t) => `${tool.slug} → ${t.slug}`),
+    );
+    expect(offering).toEqual([]);
   });
 });
 

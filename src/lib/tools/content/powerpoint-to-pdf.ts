@@ -120,7 +120,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your presentation",
-      body: 'Drop one .pptx or .ppt file on the box that reads "Add your document, or browse", or click browse to pick it. You get that box only when the status badge next to "LibreOffice renderer" says "Secure worker"; any other badge comes with a note on the state of the converter instead.',
+      body: 'Drop one .pptx or .ppt file on the box that reads "Add your document, or browse", or click browse to pick it. The box takes a file at once, and Convert to PDF works only when the status badge next to "LibreOffice renderer" says "Secure worker"; any other badge comes with a note on the state of the converter under that button.',
     },
     {
       title: "Check the file you picked",

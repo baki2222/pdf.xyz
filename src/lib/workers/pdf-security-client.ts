@@ -27,11 +27,8 @@
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
 import type { PdfKeyLength } from "@/lib/jobs/pdf-security";
 import type { WorkerStatus } from "./status";
-import {
-  phaseOfJob,
-  pollJobToTerminal,
-  type WorkerJobPhase,
-} from "./job-polling";
+import { pollJobToTerminal, type WorkerJobPhase } from "./job-polling";
+import { forwardStatus } from "./phases";
 import { jobPollFor } from "@/lib/jobs/client-wait";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
 import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
@@ -231,7 +228,6 @@ async function runSecurityJobSteps(
 ): Promise<PdfSecurityWorkerResult> {
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
-  opts.onPhase?.("uploading");
 
   // 0. A tool that reads only selectable text cannot do anything with a PDF
   //    that has none — and asking the worker costs the user a whole upload AND
@@ -300,6 +296,7 @@ async function runSecurityJobSteps(
   //    the request, not after: once bytes are on the wire a crash fallback can
   //    no longer honestly claim the file never left the device.
   markUploadStarted();
+  opts.onPhase?.("uploading");
   const uploadRes = await fetchImpl(slot.url, {
     method: slot.method,
     headers: slot.headers,
@@ -309,6 +306,7 @@ async function runSecurityJobSteps(
   if (!uploadRes.ok) {
     return readError(uploadRes, "Uploading the file to the worker failed.");
   }
+  opts.onPhase?.("uploaded");
 
   // 3. Create the job with the validated options (this body carries the password).
   const jobRes = await fetchImpl("/api/jobs", {
@@ -351,7 +349,6 @@ export async function finishSecurityJob(
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const { signal } = opts;
   const budget = jobPollFor(tool);
-  opts.onPhase?.(phaseOfJob(started.status));
 
   // 4. Poll to a terminal state (a production worker is async; local-dev is already
   //    terminal on create, so this returns immediately).
@@ -360,7 +357,7 @@ export async function finishSecurityJob(
     fetchImpl,
     pollIntervalMs: opts.pollIntervalMs ?? budget.intervalMs,
     maxPollAttempts: opts.maxPollAttempts ?? budget.maxAttempts,
-    onJob: (next) => opts.onPhase?.(phaseOfJob(next.status)),
+    onStatus: forwardStatus(opts.onPhase),
     ...(signal ? { signal } : {}),
     ...(opts.sleep ? { sleepImpl: opts.sleep } : {}),
   });
@@ -406,6 +403,7 @@ export async function finishSecurityJob(
     return readError(downloadRes, "Downloading the result failed.");
   }
   const output = new Uint8Array(await downloadRes.arrayBuffer());
+  opts.onPhase?.("done");
   return { ok: true, job, artifact, output };
 }
 

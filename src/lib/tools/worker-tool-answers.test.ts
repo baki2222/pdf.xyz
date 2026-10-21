@@ -1997,17 +1997,35 @@ describe("the Chromium pages describe the print the renderer asks for", () => {
 function workerPanelSources(): Map<string, string> {
   const out = new Map<string, string>();
   for (const arm of panelDispatchArms()) {
-    const main = read(panelFile(arm));
-    const nested = [...main.matchAll(/from\s+"\.\/([\w-]+)"/g)]
-      .map((m) => path.join("src/components/tools", `${m[1]}.tsx`))
-      .flatMap((rel) => {
-        try {
-          return [read(rel)];
-        } catch {
-          return [];
+    // The panel and every sibling module it reaches through `./x` imports,
+    // transitively: since WP-10 the shared labels ("Check again", "Try
+    // again", the badge's words) live in the shell, two hops from a panel.
+    const seen = new Set<string>([panelFile(arm)]);
+    const queue = [panelFile(arm)];
+    const parts: string[] = [];
+    while (queue.length > 0) {
+      const file = queue.shift()!;
+      let text: string;
+      try {
+        text = read(file);
+      } catch {
+        continue;
+      }
+      parts.push(text);
+      for (const m of text.matchAll(/from\s+"\.\/([\w-]+)"/g)) {
+        for (const ext of [".tsx", ".ts"]) {
+          const next = path.join("src/components/tools", `${m[1]}${ext}`);
+          if (!seen.has(next)) {
+            seen.add(next);
+            queue.push(next);
+          }
         }
-      });
-    const source = [main, ...nested].join("\n");
+      }
+    }
+    // Health: the walk reached the shell, where the shared labels are.
+    if (!parts.some((t) => t.includes("export function WorkerPanelShell")))
+      throw new Error(`${panelFile(arm)}: the walk never reached the shell`);
+    const source = parts.join("\n");
     for (const slug of arm.slugs) out.set(slug, source);
   }
   return out;

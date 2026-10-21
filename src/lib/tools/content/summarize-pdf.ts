@@ -222,7 +222,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: `Click the box marked "Add your PDF, or browse" to pick a file, or drop one onto it. It takes one PDF per summary, and files over ${CEILING_MB} MB are refused. If the worker's status cannot be checked, a short note and a Check again button take the place of that box. If the worker or its AI model is not ready, the reason takes its place instead, alongside a button labelled "Notify me when this ships". Pressing that sends only the tool's name, to be counted as a request; nobody is notified later.`,
+      body: `Click the box marked "Add your PDF, or browse" to pick a file, or drop one onto it. It takes one PDF per summary, and files over ${CEILING_MB} MB are refused. The box takes a file before the page has heard from the worker, and the file goes to the secure worker only when you press Summarize PDF. If the worker's status cannot be checked, a short note and a Check again button appear under that button, which stays off. If the worker or its AI model is not ready, the reason appears there instead, alongside a button labelled "Notify me when this ships". Pressing that sends only the tool's name, to be counted as a request; nobody is notified later.`,
     },
     {
       title: "Choose a length and a format",

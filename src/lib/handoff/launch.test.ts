@@ -67,9 +67,17 @@ describe("what a hand-off carries", () => {
     ).toEqual(["a.pdf"]);
   });
 
-  it("a tool with no runner, or no eligible file, carries nothing", () => {
-    expect(handoffPayload("word-to-pdf", [docx])).toEqual([]);
+  // WAS "a tool with no runner … carries nothing", with Word to PDF as the
+  // tool: before WP-10 a worker panel took no hand-off. It stages one now —
+  // the file waits in the panel and uploads on Run — so it carries the one
+  // file; a tool that takes no file (webpage-to-pdf) still carries nothing.
+  it("a tool that takes no file, or no eligible file, carries nothing", () => {
+    expect(handoffPayload("webpage-to-pdf", [docx])).toEqual([]);
     expect(handoffPayload("merge-pdf", [docx])).toEqual([]);
+  });
+
+  it("a worker panel stages exactly one eligible file", () => {
+    expect(handoffPayload("word-to-pdf", [docx, docx])).toEqual([docx]);
   });
 
   it("over the hand-off budget, nothing is stashed", async () => {

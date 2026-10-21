@@ -100,7 +100,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Paste the full address",
-      body: 'The field starts with "https://". Select it all and paste the complete link from your address bar over it: pasting after the prefix gives https://https://…, which is refused before any job starts. Only http and https links are accepted. If the secure worker is unavailable, a status note and a "Notify me when this ships" button stand where the field would be.',
+      body: 'The field starts with "https://". Select it all and paste the complete link from your address bar over it: pasting after the prefix gives https://https://…, which is refused before any job starts. Only http and https links are accepted. If the secure worker is unavailable, the Render PDF button stays off and a status note and a "Notify me when this ships" button appear under it.',
     },
     {
       title: "Press Render PDF",

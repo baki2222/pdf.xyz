@@ -25,6 +25,7 @@
  * Pure, and catalogue-free: the index is an argument, so no page carries the
  * catalogue just by importing this.
  */
+import { takesOneFile } from "@/lib/handoff/capability";
 import { imageOnlyRange } from "@/lib/pdf/probe-result";
 import type { Evidence, RankNote } from "./evidence";
 import type { FileFacts } from "./facts";
@@ -435,8 +436,9 @@ export function rankForFiles<T extends ToolIndexEntry>(
         : opens.filter((f) =>
             toolAcceptsFormat(tool.accept, formatOf(f).format),
           );
-    const sent =
-      tool.handoffMode === "single" ? eligible.slice(0, 1) : eligible;
+    const sent = takesOneFile(tool.handoffMode)
+      ? eligible.slice(0, 1)
+      : eligible;
 
     const recent = Math.min(
       RECENT_CAP,
@@ -459,7 +461,7 @@ export function rankForFiles<T extends ToolIndexEntry>(
     } else {
       evidence.push(...countEvidence(tool, basis));
     }
-    if (tool.handoffMode === "single" && eligible.length > 1) {
+    if (takesOneFile(tool.handoffMode) && eligible.length > 1) {
       // Named once: when the fact before says which file, this need not.
       const taken = eligible[0]!;
       evidence.push({

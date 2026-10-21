@@ -125,6 +125,7 @@ export function HandoffLoadedBadge({
   count,
   skipped,
   fileName = null,
+  staged = null,
 }: {
   /** Where the files came from — the claim's `origin`, never a default. */
   origin: HandoffOrigin;
@@ -132,6 +133,11 @@ export function HandoffLoadedBadge({
   skipped: number;
   /** The one file's name, for an origin that names it (a remedy). */
   fileName?: string | null;
+  /**
+   * A worker panel's Run label, when the file is STAGED there (WP-10): it
+   * waits in this browser and uploads only when that button is pressed.
+   */
+  staged?: string | null;
 }) {
   const fromName =
     origin.kind === "result" ||
@@ -153,7 +159,9 @@ export function HandoffLoadedBadge({
       </span>
       <ShieldCheck className="text-ok size-3.5 shrink-0" aria-hidden />
       <span className="text-ok">
-        Still in this browser; nothing was uploaded.
+        {staged
+          ? `Still in this browser; nothing is uploaded until you press ${staged}.`
+          : "Still in this browser; nothing was uploaded."}
         {/* Not "non-PDF": the image and text tools skip PDFs and keep
             images or text, so the only wording true for every tool is
             what the skip actually means. */}

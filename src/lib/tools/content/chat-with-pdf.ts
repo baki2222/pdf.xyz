@@ -26,9 +26,9 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    until the answer was back, until 2026-10-07),
  *    "Remove" beside the file name, the conversation list rendered ABOVE the
  *    question box, the per-answer download button labelled with the ZIP name,
- *    the ContextNote rendered between the box and the button, and that the whole
- *    builder (drop zone included) only mounts when the badge reads
- *    "Secure worker";
+ *    the ContextNote rendered between the box and the button, and that the
+ *    builder (drop zone included) renders at once while asking waits for the
+ *    badge to read "Secure worker" (WP-10);
  *  - src/lib/workers/chat-with-pdf/engine.ts — selectable text only (no OCR,
  *    `no_text` points at OCR PDF; that refusal is reached only by a file the
  *    browser could not parse, since the panel's measureChatDocument and
@@ -175,7 +175,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: "When the status badge reads Secure worker, the Add your PDF, or browse area appears, together with the question box. Drop one PDF on it or click browse.",
+      body: "The Add your PDF, or browse area and the question box are there as soon as the page loads; Ask the PDF works once the status badge reads Secure worker. Drop one PDF on the area or click browse.",
     },
     {
       title: "Type your question",

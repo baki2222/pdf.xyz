@@ -18,7 +18,8 @@ import {
   supportedToolSlugs,
   type RunnerKind,
 } from "@/lib/pdf/registry";
-import { getToolBySlug } from "@/lib/tools";
+import { getAllToolSlugs, getToolBySlug } from "@/lib/tools";
+import { panelDispatchArms } from "@/tests/worker-panel-dispatch";
 import { eligibleFilesFor, handoffCapabilityFor } from "./capability";
 
 describe("handoffCapabilityFor", () => {
@@ -81,18 +82,44 @@ describe("handoffCapabilityFor", () => {
     }
   });
 
-  it("reports unsupported for worker/AI tools and unknown slugs", () => {
-    for (const slug of [
-      "ocr-pdf",
-      "word-to-pdf",
-      "chat-with-pdf",
-      "does-not-exist",
-    ]) {
+  /*
+   * INVERTED in WP-10. This said "reports unsupported for worker/AI tools":
+   * ocr-pdf, word-to-pdf and chat-with-pdf mapped to `none`, because a
+   * worker panel had no way to take a file it did not upload — so a result
+   * could never continue into one, and an encrypted PDF's remedy was a plain
+   * link to Unlock that dropped the file. The panels now STAGE a carried
+   * file (it waits in the panel; nothing is uploaded until Run), so every
+   * panel that takes files takes a hand-off. A tool with no runner and no
+   * file input (webpage-to-pdf: a URL) still has nothing to carry into.
+   */
+  it("reports unsupported for unknown slugs and the URL-only worker tool", () => {
+    for (const slug of ["does-not-exist", "webpage-to-pdf"]) {
       expect(handoffCapabilityFor(slug)).toMatchObject({
         mode: "none",
         supported: false,
       });
     }
+  });
+
+  it("stages a file for exactly the worker panels that take files (derived both ways)", () => {
+    const routed = panelDispatchArms().flatMap((arm) => arm.slugs);
+    expect(routed.length).toBeGreaterThanOrEqual(20);
+    const takesFiles = routed.filter(
+      (slug) =>
+        !getToolBySlug(slug)!.accept.every((f) => f.toUpperCase() === "URL"),
+    );
+    // Health: the URL tool is the one exclusion, and it is in the set.
+    expect(routed.length - takesFiles.length).toBe(1);
+    const staged = getAllToolSlugs().filter(
+      (slug) => handoffCapabilityFor(slug).mode === "stage",
+    );
+    expect(new Set(staged)).toEqual(new Set(takesFiles));
+    for (const slug of staged)
+      expect(handoffCapabilityFor(slug)).toMatchObject({
+        supported: true,
+        minFiles: 1,
+        maxFiles: 1,
+      });
   });
 });
 
@@ -160,8 +187,19 @@ describe("eligibleFilesFor", () => {
     ]);
   });
 
-  it("returns nothing for an unsupported tool", () => {
-    expect(eligibleFilesFor("ocr-pdf", [pdf, pdfByExt])).toEqual([]);
+  // WAS `eligibleFilesFor("ocr-pdf", …)` → [], when a worker panel could not
+  // take a hand-off. OCR PDF stages one now (WP-10); the URL tool cannot.
+  it("returns nothing for a tool that takes no file", () => {
+    expect(eligibleFilesFor("webpage-to-pdf", [pdf, pdfByExt])).toEqual([]);
+  });
+
+  it("stages a worker panel's file by its accept row", () => {
+    expect(eligibleFilesFor("ocr-pdf", [pdf, png, pdfByExt])).toEqual([
+      pdf,
+      png,
+      pdfByExt,
+    ]);
+    expect(eligibleFilesFor("unlock-pdf", [pdf, png])).toEqual([pdf]);
   });
 });
 

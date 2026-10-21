@@ -191,6 +191,15 @@ export function stageTops(a: Arrival): number[] {
  * The job row's slot as the code before 2026-10-17 drew it — open only once
  * the job's steps are drawn into it — for the CONTROL: a stylesheet in every
  * document of the page.
+ *
+ * AND OPENED A BEAT LATE (2026-10-21). By 507b6383 the steps reached the
+ * arriving page in the frame the sampler starts in, so the stage moved
+ * before its first sample: CLS saw the move (401 -> 433) but the frames saw
+ * one position, and the control read "no move" — vacuous, not red. The slot
+ * now opens 300 ms after the steps arrive (a script sets the attribute the
+ * stylesheet waits for), so the sampler is running when the stage moves.
+ * The defect is the same one — the row opening with the steps — only
+ * timed so the instrument can be shown to see it.
  */
 export async function slotOpensWithTheSteps(page: Page) {
   await page.addInitScript(() => {
@@ -198,8 +207,20 @@ export async function slotOpensWithTheSteps(page: Page) {
       const style = document.createElement("style");
       style.dataset.probe = "";
       style.textContent =
-        "[data-ticket-rail-slot]:not(:has([data-ticket-rail])){display:none !important}";
+        "[data-ticket-rail-slot]:not([data-probe-open]){display:none !important}";
       document.head.append(style);
+      const open = () => {
+        for (const slot of document.querySelectorAll(
+          "[data-ticket-rail-slot]:not([data-probe-open])",
+        ))
+          if (slot.querySelector("[data-ticket-rail]"))
+            setTimeout(() => slot.setAttribute("data-probe-open", ""), 300);
+      };
+      new MutationObserver(open).observe(document.documentElement, {
+        subtree: true,
+        childList: true,
+      });
+      open();
     };
     if (document.head) add();
     else document.addEventListener("DOMContentLoaded", add);

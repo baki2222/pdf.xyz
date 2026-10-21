@@ -9,9 +9,7 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
-import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
-import type { WorkerStatus } from "@/lib/workers/status";
 import {
   canRunPdfStructure,
   runWorkerOptimizeWeb,
@@ -22,7 +20,6 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import type { Tool } from "@/lib/tools/types";
 import { pickRefusal, type PickRefusal } from "@/lib/uploads/pick-check";
 import { formatBytes } from "@/lib/utils";
-import { StatusBadge, type StatusTone } from "@/components/status/status-ui";
 import {
   DownloadCta,
   Dropzone,
@@ -33,69 +30,34 @@ import { ChosenFileTarget } from "./chosen-file-target";
 import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
+import { useStagedHandoff } from "./use-staged-handoff";
 import {
-  useWorkerStatus,
-  WorkerStatusPending,
-  type WorkerPhase,
-  WorkerStatusSlot,
-  workerSlotState,
-} from "./worker-status";
+  useWorkerPanel,
+  WorkerGate,
+  WorkerPanelShell,
+  workerOutput,
+} from "./worker-panel-shell";
 import { RepairOutcome, repairDoneSentence } from "./repair-warnings";
 import { OptimizeOutcome, optimizeDoneSentence } from "./optimize-outcome";
 import { OfficeExportNextStep } from "./office-export-notices";
 
 /**
- * The status slot's reserved height (see `WorkerStatusSlot`): the tallest
- * state it shows at the narrowest width of each breakpoint, measured
- * 2026-10-10 on Windows: phone at 360px 438px (Optimize for web; Repair
- * 418.5px), `sm` at 640px 269px, `lg` at 1024px 311.3px.
- * The worker-off state grew when its notice gained the logs-and-analytics
- * disclosure (fix/privacy-truth, 2026-10-10); at `lg` it overflowed the
- * 280px reserve by 31px. The phone and `lg` reserves are refitted to clear
- * the tallest state by at least 3.5%, to the half rem: the headroom Linux
- * Chromium's ~2.2% taller text needs (SLOT_HEADROOM in
- * e2e/tool-layout.mobile.spec.ts).
+ * The status slot's reserved height (see `WorkerStatusSlot` and
+ * `WorkerGate`): the tallest state it shows — checking, a failed check,
+ * not enabled, ready — at the narrowest width of each breakpoint.
+ *
+ * Refitted 2026-10-21 (WP-10), when the slot came to hold Run, the docket
+ * and what the check said, the drop zone having moved out of it: the
+ * tallest state, the larger of Windows and Linux (CI's SLOT_NATURAL lines
+ * on 507b6383), is 638px at 360, 439.5px at 640, 491.8px at 1024;
+ * x1.035, to the half rem, then up to a value another panel's slot already
+ * uses, so the thirteen share a handful of classes. A first fit from
+ * Windows alone (x1.06) left PowerPoint to PDF and PDF to PowerPoint
+ * short on Linux at 360. The check: `e2e/tool-layout.mobile.spec.ts`.
  */
-const STATUS_SLOT = "min-h-[30rem] sm:min-h-[17.5rem] lg:min-h-[20.5rem]";
+const STATUS_SLOT = "min-h-[43rem] sm:min-h-[29.5rem] lg:min-h-[33rem]";
 
-type Phase = WorkerPhase;
 type Mode = "repair" | "optimize";
-
-function badgeFor(
-  phase: Phase,
-  status: WorkerStatus | null,
-): { tone: StatusTone; label: string; pulse: boolean } {
-  if (phase === "loading")
-    return { tone: "info", label: "Checking…", pulse: true };
-  if (phase === "error" || !status)
-    return { tone: "muted", label: "Status unknown", pulse: false };
-  if (canRunPdfStructure(status)) {
-    return status.mode === "local-dev"
-      ? { tone: "warn", label: "Local-dev worker", pulse: true }
-      : { tone: "ok", label: "Secure worker", pulse: false };
-  }
-  return { tone: "muted", label: "Not enabled", pulse: false };
-}
-
-function SpecRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof FileUp;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="text-muted inline-flex items-center gap-2 text-sm">
-        <Icon className="text-muted size-4" aria-hidden />
-        {label}
-      </span>
-      <span className="text-fg text-right text-sm font-medium">{value}</span>
-    </div>
-  );
-}
 
 const COPY: Record<
   Mode,
@@ -128,148 +90,46 @@ const COPY: Record<
 export function PdfStructureWorkerPanel({ tool }: { tool: Tool }) {
   const mode: Mode = tool.slug === "repair-pdf" ? "repair" : "optimize";
   const copy = COPY[mode];
-  const HeaderIcon = copy.icon;
-  const { phase, status, retry } = useWorkerStatus();
-
-  const badge = badgeFor(phase, status);
-  const available = phase === "ready" && canRunPdfStructure(status);
-
   return (
-    <div className="">
-      <div className="border-line bg-panel flex flex-col gap-6 rounded-[4px] border p-5 sm:p-7">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="border-info/40 bg-info/10 text-info inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium">
-              <HeaderIcon className="size-3" aria-hidden />
-              {copy.badge}
-            </span>
-            <StatusBadge
-              tone={badge.tone}
-              label={badge.label}
-              pulse={badge.pulse}
-            />
-          </div>
-          <h2 className="text-fg text-lg font-semibold">
-            {tool.name} runs on a secure worker
-          </h2>
-          <p className="text-muted text-sm leading-relaxed">{copy.blurb}</p>
-        </div>
-
-        <WorkerStatusSlot
-          state={workerSlotState(phase, available && status !== null)}
-          reserve={STATUS_SLOT}
-        >
-          {available && status ? (
-            <StructureRunArea
-              mode={mode}
-              localDevOnly={status.localDevOnly}
-              refuse={(file) => pickRefusal(tool, file)}
-            />
-          ) : (
-            <StructureUnavailable
-              onRetry={retry}
-              phase={phase}
-              status={status}
-              toolName={tool.name}
-              toolSlug={tool.slug}
-            />
-          )}
-        </WorkerStatusSlot>
-
-        <div className="flex flex-col gap-3">
-          <h3 className="text-faint kicker">What happens to your file</h3>
-          <ol className="flex flex-col gap-1">
-            {workerPipelineStages(status ? status.scan.active : null, tool).map(
-              (stage, i, all) => (
-                <li key={stage.id} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center self-stretch">
-                    <span className="border-line bg-wash text-muted grid size-8 shrink-0 place-items-center rounded-full border">
-                      {stage.id === "process" ? (
-                        <HeaderIcon className="size-4" aria-hidden />
-                      ) : (
-                        <FileUp className="size-4" aria-hidden />
-                      )}
-                    </span>
-                    {i < all.length - 1 && (
-                      <span className="bg-wash my-1 w-px flex-1" aria-hidden />
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-0.5 pb-3">
-                    <span className="text-fg text-sm font-medium">
-                      {i + 1}. {stage.title}
-                    </span>
-                    <span className="text-muted text-xs leading-relaxed">
-                      {stage.description}
-                    </span>
-                  </div>
-                </li>
-              ),
-            )}
-          </ol>
-        </div>
-
-        <div className="bg-panel border-line divide-line divide-y rounded-[4px] border px-4 py-1">
-          <SpecRow icon={FileUp} label="Input" value="One PDF" />
-          <SpecRow icon={FileDown} label="Output" value="PDF" />
-          <SpecRow
-            icon={Timer}
-            label="Retention"
-            value={`Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`}
-          />
-          <SpecRow
-            icon={ShieldCheck}
-            label="Limit"
-            value={`${formatBytes(JOB_LIMITS.maxFileBytes)}/file`}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StructureUnavailable({
-  phase,
-  onRetry,
-  status,
-  toolName,
-  toolSlug,
-}: {
-  phase: Phase;
-  onRetry: () => void;
-  status: WorkerStatus | null;
-  toolName: string;
-  toolSlug: string;
-}) {
-  // Until the status is KNOWN this box says nothing about the tool: the
-  // server renders the loading phase, and "Notify me when this ships" there
-  // told search engines that live tools had not shipped. A failed status
-  // check gets a retry, not a notify button.
-  if (phase !== "ready")
-    return <WorkerStatusPending phase={phase} onRetry={onRetry} />;
-  const detail =
-    status?.security.detail ??
-    "This qpdf-backed worker path is not enabled here.";
-  return (
-    <div className="border-line bg-wash flex flex-col gap-3 rounded-[4px] border p-4">
-      <p className="text-muted text-sm leading-relaxed">{detail}</p>
-      <p className="text-muted text-xs leading-relaxed">
-        No uploader is shown until the worker is ready, so {toolName} never
-        pretends to process a file it cannot actually run.
-      </p>
-      <NotifyMe toolName={toolName} toolSlug={toolSlug} checking={false} />
-    </div>
+    <WorkerPanelShell
+      tool={tool}
+      engine={{ label: copy.badge, icon: copy.icon }}
+      description={copy.blurb}
+      canRun={canRunPdfStructure}
+      specRows={[
+        { icon: FileUp, label: "Input", value: "One PDF" },
+        { icon: FileDown, label: "Output", value: "PDF" },
+        {
+          icon: Timer,
+          label: "Retention",
+          value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
+        },
+        {
+          icon: ShieldCheck,
+          label: "Limit",
+          value: `${formatBytes(JOB_LIMITS.maxFileBytes)}/file`,
+        },
+      ]}
+    >
+      <StructureRunArea
+        mode={mode}
+        tool={tool}
+        refuse={(file) => pickRefusal(tool, file)}
+      />
+    </WorkerPanelShell>
   );
 }
 
 function StructureRunArea({
   mode,
-  localDevOnly,
+  tool,
   refuse,
 }: {
   mode: Mode;
-  localDevOnly: boolean;
+  tool: Tool;
   refuse: PickRefusal;
 }) {
+  const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
   // The size of the file the CURRENT outcome came from — recorded when the run
   // starts, so a job resumed after a reload (no file in hand) reports none
@@ -285,9 +145,14 @@ function StructureRunArea({
   });
   const { busy, outcome, setOutcome, run } = job;
   const copy = COPY[mode];
+  const staged = useStagedHandoff(tool.slug, copy.cta, (files) => {
+    setOutcome(null);
+    setRanBytes(undefined);
+    setFile(files[0] ?? null);
+  });
 
   const start = useCallback(async () => {
-    if (!file) return;
+    if (!file || !available) return;
     setRanBytes(file.size);
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -300,17 +165,15 @@ function StructureRunArea({
             );
       return result;
     });
-  }, [file, mode, run]);
+  }, [file, mode, run, available]);
+
+  const detail =
+    status?.security.detail ??
+    "This qpdf-backed worker path is not enabled here.";
 
   return (
-    <div className="border-info/40 bg-info/10 flex flex-col gap-4 rounded-[4px] border p-4">
-      <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
-        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-        {localDevOnly
-          ? "This runs on your local-dev worker on this machine."
-          : "Running this uploads your file to the secure worker, processes it with qpdf, and wipes the input after processing."}
-      </p>
-
+    <div className="flex flex-col gap-4">
+      {staged}
       {file ? (
         <ChosenFileTarget
           file={file}
@@ -351,24 +214,56 @@ function StructureRunArea({
         />
       )}
 
-      <WorkerRunButton
-        onClick={start}
-        busy={busy}
-        disabled={!file}
-        busyLabel={jobBusyLabel(job.phase, copy.running)}
-        icon={copy.icon}
-      >
-        {copy.cta}
-      </WorkerRunButton>
-
-      <WorkerJobStatus job={job} />
-      {outcome?.ok === false && !outcome.stillRunning && (
-        <OfficeExportNextStep
-          code={outcome.code}
-          from={mode === "repair" ? "repair-pdf" : "optimize-web"}
-          message={outcome.message}
-        />
-      )}
+      <WorkerGate
+        reserve={STATUS_SLOT}
+        job={job}
+        bytes={file?.size}
+        run={(ready) => (
+          <WorkerRunButton
+            onClick={start}
+            busy={busy}
+            disabled={!ready || !file}
+            busyLabel={jobBusyLabel(job.phase, copy.running)}
+            icon={copy.icon}
+          >
+            {copy.cta}
+          </WorkerRunButton>
+        )}
+        jobStatus={
+          <>
+            <WorkerJobStatus job={job} />
+            {outcome?.ok === false && !outcome.stillRunning && (
+              <OfficeExportNextStep
+                code={outcome.code}
+                from={mode === "repair" ? "repair-pdf" : "optimize-web"}
+                message={outcome.message}
+              />
+            )}
+          </>
+        }
+        note={
+          <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
+            <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            {status?.localDevOnly
+              ? `This runs on your local-dev worker on this machine when you press ${copy.cta}.`
+              : `Pressing ${copy.cta} uploads your file to the secure worker, processes it with qpdf, and wipes the input after processing.`}
+          </p>
+        }
+        off={
+          <>
+            <p className="text-muted text-sm leading-relaxed">{detail}</p>
+            <p className="text-muted text-xs leading-relaxed">
+              {copy.cta} stays off until the worker is ready, so {tool.name}{" "}
+              never pretends to process a file it cannot actually run.
+            </p>
+            <NotifyMe
+              toolName={tool.name}
+              toolSlug={tool.slug}
+              checking={false}
+            />
+          </>
+        }
+      />
       {outcome?.ok === true && (
         <ResultCard
           announce={
@@ -376,6 +271,8 @@ function StructureRunArea({
               ? repairDoneSentence(outcome.job)
               : optimizeDoneSentence(outcome.output)
           }
+          output={workerOutput(outcome.output, outcome.artifact)}
+          inputBytes={ranBytes}
         >
           {/* Before the download button: a user who clicks and leaves is
               exactly the user this is for. */}

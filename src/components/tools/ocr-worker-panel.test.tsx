@@ -122,18 +122,24 @@ describe("OcrWorkerPanel", () => {
       screen.getByRole("radio", { name: "Text sidecar" }),
     ).toBeInTheDocument();
 
-    // Honest availability badge + notify placeholder, and NO uploader.
+    // Honest availability badge + notify placeholder.
     expect(screen.getByText("Not enabled")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /notify me/i }),
     ).toBeInTheDocument();
-    expect(fileInput()).toBeNull();
+
+    // INVERTED in WP-10. This asserted NO uploader and NO run button while OCR
+    // was off: a drop zone mounted only once the worker said yes, so a reader
+    // on a slow check, or arriving with a file, had nowhere to put it. The
+    // drop zone is there from the first paint now, and what may not happen
+    // while OCR is off is the UPLOAD — Run is drawn but turned off.
+    expect(fileInput()).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: /run ocr on the worker/i }),
+    ).toHaveAttribute("aria-disabled", "true");
 
     // It never fabricates a produced result / download in the disabled state.
     expect(screen.queryByText(/OCR complete/i)).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /run ocr on the worker/i }),
-    ).not.toBeInTheDocument();
   });
 
   it("emits a privacy-safe worker_status_checked event", async () => {
@@ -218,8 +224,12 @@ describe("OcrWorkerPanel", () => {
       screen.getByRole("button", { name: /check again/i }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Notify me when this ships/)).toBeNull();
-    // Still no uploader when availability is unknown.
-    expect(fileInput()).toBeNull();
+    // INVERTED in WP-10 (was "still no uploader when availability is
+    // unknown"): the drop zone takes a file at once; Run stays off.
+    expect(fileInput()).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: /run ocr on the worker/i }),
+    ).toHaveAttribute("aria-disabled", "true");
   });
 });
 

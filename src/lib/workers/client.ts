@@ -17,7 +17,8 @@
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
 import type { CompressionProfile } from "./compression/engine";
-import { pollJobToTerminal } from "./job-polling";
+import { pollJobToTerminal, type WorkerJobPhase } from "./job-polling";
+import { forwardStatus } from "./phases";
 import { markUploadStarted } from "@/lib/uploads/session-uploads";
 import { readWorkerError } from "./read-error";
 import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
@@ -80,6 +81,8 @@ export interface CompressWorkerOptions {
   maxPollAttempts?: number;
   /** Injectable delay so polling is instant under test. */
   sleep?: (ms: number) => Promise<void>;
+  /** Called as the run moves between upload, queue, work and download. */
+  onPhase?: (phase: WorkerJobPhase) => void;
 }
 
 const CONTENT_TYPE = "application/pdf";
@@ -165,6 +168,7 @@ async function runWorkerCompressionSteps(
   //    the request, not after: once bytes are on the wire a crash fallback can
   //    no longer honestly claim the file never left the device.
   markUploadStarted();
+  options.onPhase?.("uploading");
   const uploadRes = await fetchImpl(slot.url, {
     method: slot.method,
     headers: slot.headers,
@@ -174,6 +178,7 @@ async function runWorkerCompressionSteps(
   if (!uploadRes.ok) {
     return readError(uploadRes, "Uploading the file to the worker failed.");
   }
+  options.onPhase?.("uploaded");
 
   // 3. Create the job.
   const options_: Record<string, unknown> = { profile: input.profile };
@@ -210,6 +215,7 @@ async function runWorkerCompressionSteps(
     fetchImpl,
     pollIntervalMs,
     maxPollAttempts,
+    onStatus: forwardStatus(options.onPhase),
     ...(signal ? { signal } : {}),
     ...(options.sleep ? { sleepImpl: options.sleep } : {}),
   });
@@ -242,11 +248,13 @@ async function runWorkerCompressionSteps(
   }
 
   // 5. Download the real output.
+  options.onPhase?.("downloading");
   const downloadRes = await fetchImpl(artifact.url, { signal });
   if (!downloadRes.ok) {
     return readError(downloadRes, "Downloading the compressed file failed.");
   }
   const output = new Uint8Array(await downloadRes.arrayBuffer());
+  options.onPhase?.("done");
 
   return { ok: true, job, artifact, output };
 }

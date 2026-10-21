@@ -26,8 +26,8 @@ import {
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
- *  - src/components/tools/ai-extract-worker-panel.tsx — the builder only mounts
- *    when the worker reports an AI provider; one PDF per run ("Add your PDF, or"
+ *  - src/components/tools/ai-extract-worker-panel.tsx — the builder renders at
+ *    once and its Run waits for the worker to report an AI provider (WP-10); one PDF per run ("Add your PDF, or"
  *    + "browse" drop zone, "Remove"); the "Field schema" (default) / "Prompt"
  *    toggle; "Fields to extract" rows = name input + type select + a bin icon
  *    (aria-label "Remove field", a no-op on the last row) + "Add field"; the

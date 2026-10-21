@@ -689,7 +689,8 @@ const NOT_HEDGES: readonly string[] = [
   "Problems such as a duplicate name, a radio group with one option or a box running off the page appear in red on that card, and “Create form” stays disabled until they are fixed.",
   // `not … yet`: "yet" as a conjunction, and a "yet" the live badge decides.
   "Some PDFs need no password to view yet still block printing or copying, because an owner password sets those permissions.",
-  "If it says Not enabled or Status unknown, there is nowhere to add a file yet.",
+  // (WP-10 rewrote the shipped sentence: the box now takes a file at once.)
+  "If it says Not enabled or Status unknown, nothing can be sent yet.",
   // `while … refuses`: while as time with no refusal, and while as contrast.
   "While the job runs, the button reads Uploading your file…, Waiting for the worker…, Extracting tables… and Downloading the result… in turn.",
   "Only the .html travels here, so text written into the markup survives, while the styling and pictures in that folder do not.",

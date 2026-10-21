@@ -87,7 +87,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the PDF",
-      body: "Drop one PDF onto the area that reads Add your PDF, or browse, or click browse to pick it. As its Selectable PDF hint says, the file needs real text rather than a scanned image. The area appears only while the status badge reads Secure worker, and a Remove button beside the chosen file's name clears a wrong pick.",
+      body: "Drop one PDF onto the area that reads Add your PDF, or browse, or click browse to pick it. As its Selectable PDF hint says, the file needs real text rather than a scanned image. The area takes a file at once, Extract tables works only while the status badge reads Secure worker, and a Remove button beside the chosen file's name clears a wrong pick.",
     },
     {
       title: "Press Extract tables",
