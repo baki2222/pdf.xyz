@@ -108,7 +108,11 @@ describe("the corpus is the whole stylesheet and everything that ships", () => {
   it("health check: real CSS, real sources, real consumers", () => {
     expect(cssFiles.map(rel)).toContain("src/app/globals.css");
     expect(sources.length).toBeGreaterThanOrEqual(200);
-    expect(keyframesIn(css).length).toBeGreaterThanOrEqual(1);
+    // 2 keyframes until WP-12 (sweep, rise); the signature layer brings the
+    // activity square's turn and ring, the masthead lift, the drawn rule,
+    // the station light and the glyph's move. A floor below the real count
+    // would let a reader that lost the stylesheet's motion region pass.
+    expect(keyframesIn(css).length).toBeGreaterThanOrEqual(8);
     // 16 animate-* tokens on 2026-10-09 (pulse, spin, float-up). A reader
     // that lost the literals would find none and pass both directions below.
     expect(
