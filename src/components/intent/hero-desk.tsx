@@ -223,47 +223,53 @@ export function HeroDesk({
               <div
                 ref={idleRef}
                 className={cn(
-                  "flex flex-col items-center justify-center text-center",
+                  "flex flex-col justify-center",
                   !idle && "invisible",
                 )}
                 inert={!idle}
                 aria-hidden={!idle || undefined}
               >
-                <FilePlus
-                  className="text-accent size-10"
-                  strokeWidth={1.25}
-                  aria-hidden
-                />
-                <DropSheetPick
-                  className={buttonVariants({
-                    variant: "primary",
-                    size: "lg",
-                    className: cn(
-                      "mt-4 w-full max-w-xs cursor-pointer",
-                      "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2",
-                      "motion-safe:active:translate-y-px",
-                    ),
-                  })}
-                >
-                  <FilePlus className="size-4" aria-hidden />
-                  Choose files
-                </DropSheetPick>
-                {/* Said only while it is true: from the same value that makes
+                {/* One column, centred in the box, its lines set left: a
+                    line that changes its words (the sample's "loading")
+                    then grows to the right instead of moving sideways
+                    (layout-stability, "nothing inside it shifts"). */}
+                <div className="mx-auto flex w-full max-w-sm flex-col">
+                  <FilePlus
+                    className="text-accent size-10"
+                    strokeWidth={1.25}
+                    aria-hidden
+                  />
+                  <DropSheetPick
+                    className={buttonVariants({
+                      variant: "primary",
+                      size: "lg",
+                      className: cn(
+                        "mt-4 w-full cursor-pointer",
+                        "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2",
+                        "motion-safe:active:translate-y-px",
+                      ),
+                    })}
+                  >
+                    <FilePlus className="size-4" aria-hidden />
+                    Choose files
+                  </DropSheetPick>
+                  {/* Said only while it is true: from the same value that makes
                   the sheet catch the page's drops. */}
-                {api.catchesPageDrops && (
-                  <p className="text-muted mt-2 hidden text-center text-xs pointer-fine:block">
-                    or drop them anywhere on this page
+                  {api.catchesPageDrops && (
+                    <p className="text-muted mt-2 hidden text-center text-xs pointer-fine:block">
+                      or drop them anywhere on this page
+                    </p>
+                  )}
+                  <p
+                    id={api.hintId}
+                    className="text-muted mt-3 text-xs leading-snug"
+                  >
+                    {acceptHint}
                   </p>
-                )}
-                <p
-                  id={api.hintId}
-                  className="text-muted mt-3 text-xs leading-snug"
-                >
-                  {acceptHint}
-                </p>
-                {note}
-                <SamplePdfButton className="mt-1" onSample={onSample} />
-                <RecentsSlot className="w-full pt-1" />
+                  {note}
+                  <SamplePdfButton className="mt-1" onSample={onSample} />
+                  <RecentsSlot className="pt-1" />
+                </div>
               </div>
               {!idle && (
                 <section

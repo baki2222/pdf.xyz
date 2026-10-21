@@ -4,7 +4,6 @@ import {
   acceptAttribute,
   acceptHint,
 } from "@/components/upload/accepted-kinds";
-import { processingMeta } from "@/lib/tools/processing";
 
 /** The home desk's id: the target of every "Choose files" link on the page. */
 export const UPLOAD_ANCHOR = "upload";
@@ -29,9 +28,6 @@ export const UPLOAD_ANCHOR = "upload";
  * by row and column, with no reordering.
  */
 export function Hero() {
-  // The badge words the cards use, so the note names what a visitor sees.
-  const server = processingMeta.server.plain;
-  const ai = processingMeta.ai.plain;
   return (
     <section className="border-line border-b">
       <Container className="grid grid-cols-1 pt-8 pb-12 sm:pt-12 lg:grid-cols-12 lg:grid-rows-[1fr_auto_1fr] lg:gap-x-12 lg:pt-12 lg:pb-12">
@@ -45,9 +41,9 @@ export function Hero() {
             accept={acceptAttribute()}
             acceptHint={acceptHint()}
             note={
-              <p className="text-muted mt-1.5 max-w-xs text-xs leading-snug text-pretty">
-                Your files stay in this browser until you start a tool marked{" "}
-                {server} or {ai}.
+              <p className="text-muted mt-1.5 text-xs leading-snug text-pretty">
+                Your files stay in this browser until you start a step that
+                uploads them.
               </p>
             }
           />

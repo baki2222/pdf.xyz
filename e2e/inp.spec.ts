@@ -80,8 +80,10 @@ test("the page answers within 200 ms while a 2,000-page PDF is measured", async 
   await drop();
   await expect(ticket).toBeVisible();
   await ticket.getByRole("button", { name: /^clear/i }).click();
-  // A task, opened while the first measurement may still be finishing.
-  await page.getByRole("link", { name: /^Combine PDFs/ }).click();
+  // A tool, opened while the first measurement may still be finishing. WAS
+  // the desk's "Combine PDFs" task link, retired 2026-10-21; its tool's card
+  // is the same link to the same page.
+  await page.locator('section#tools a[href="/tools/merge-pdf"]').click();
   await expect(page).toHaveURL(/\/tools\/merge-pdf$/);
 
   const events = await page.evaluate(() => window.__events ?? []);

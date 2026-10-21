@@ -32,9 +32,10 @@ test("the steps render in order, and the first one opens the desk", async ({
   page,
 }) => {
   await page.goto("/");
+  // The heading's own column: the band also holds "Why pdf.xyz".
   const section = page
     .getByRole("heading", { level: 2, name: "How it works" })
-    .locator("xpath=ancestor::section[1]");
+    .locator("xpath=..");
   await section.scrollIntoViewIfNeeded();
   await expect(section.getByRole("heading", { level: 3 })).toHaveText(STEPS);
   await expect(
