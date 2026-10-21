@@ -25,6 +25,9 @@
 @source not inline("container table collapse resize ring isolate");
 @source not inline("static visible list-item lowercase ordinal outline");
 @source not inline("min-h-32");
+/* "rounded" is prose in a dozen docblocks ("floored, never rounded"); since
+   WP-14 no class spells it bare (radius-vocabulary.test.ts). */
+@source not inline("rounded");
 
 /* ------------------------------------------------------------------ *
  *  pdf.xyz design tokens
