@@ -1,14 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
+import { LOGO_ASPECT, logoSvg, tileSvg } from "./brand";
 import { toolCount } from "./tools";
 import { processingSplit } from "./tools/processing-split";
 
 /**
  * Server-only helpers for generating brand imagery at build time — Open Graph /
  * Twitter cards and the PWA/app icons. Everything is rendered locally (brand
- * font loaded from disk, mark inlined as SVG), so image generation never touches
- * the network. Import this only from route/metadata files that run on the server.
+ * font loaded from disk, logo and mark inlined as SVG from `./brand`), so image
+ * generation never touches the network. Import this only from route/metadata files that run on the server.
  */
 
 /** Social card dimensions (Open Graph + Twitter `summary_large_image`). */
@@ -45,19 +46,10 @@ export const CARD = {
   muted: "#a8b3bd",
   /** `--sf-faint`, dark: the quietest line on the card. */
   faint: "#909ba6",
-  /** `--sf-accent`, dark: the mark square, `.xyz`, and the second headline. */
+  /** `--sf-accent`, dark: the eyebrow, the second headline, the glows. */
   accent: "#53c1ee",
   /** `--sf-ok`, dark: the one line on a card that is a privacy claim. */
   ok: "#34d399",
-  /**
-   * `--sf-invert`, LIGHT: the ink tile the accent square sits on.
-   *
-   * Only the favicon and the app icons use it. The site's own lockup is a bare
-   * accent square beside the wordmark with no tile at all (`logo.tsx`), and the
-   * cards render it that way too; an icon cannot, because a 32px square on
-   * transparency is not a mark.
-   */
-  tile: "#10151a",
 } as const;
 
 /** Hairline and fill for the pill chips, derived from `CARD.fg` at low alpha. */
@@ -141,68 +133,36 @@ export async function loadCardFonts() {
   ];
 }
 
+/** An SVG document as an `<img>` source Satori can rasterise. */
+const svgDataUri = (svg: string) =>
+  `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+
+/** The logo on every card: 56px tall, the cards' ground being dark. */
+const OG_LOGO_HEIGHT = 56;
+const OG_LOGO_DATA_URI = svgDataUri(logoSvg("dark"));
+
 /**
- * The lockup every card opens with: the site's own, not a card-shaped variant.
+ * The lockup every card opens with: the site's own logo, the Folded P as the
+ * first letter of the name, in the pack's dark-ground variant — the same
+ * paths `logo.tsx` draws, from `./brand`. `card-pixels.test.ts` finds the P
+ * where the card starts.
  *
- * `logo.tsx` renders a bare accent square beside a mono wordmark, `pdf` in the
- * foreground and `.xyz` muted. This restates those proportions at card scale —
- * the header sets a 10px square against 17px text, so a 40px wordmark takes a
- * 24px square — and `og-identity.test.ts` reads the classes off `logo.tsx` to
- * check the two still agree about which part is the accent.
- *
- * WAS a 72px rounded tile with the square inside it and `.xyz` in the accent:
- * a lockup that existed on no page of the site.
+ * WAS an accent square beside the name set in Geist Mono — the previous
+ * header lockup, restated at card scale; and before that a 72px rounded tile
+ * with the square inside it, a lockup that existed on no page of the site.
  */
 export function OgWordmark() {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 23 }}>
-      <div style={{ width: 24, height: 24, background: CARD.accent }} />
-      <div
-        style={{
-          display: "flex",
-          fontFamily: "Geist Mono",
-          fontSize: 40,
-          fontWeight: 600,
-          letterSpacing: "-0.02em",
-          color: CARD.fg,
-        }}
-      >
-        <span>pdf</span>
-        <span style={{ color: CARD.muted }}>.xyz</span>
-      </div>
-    </div>
+    // Satori rasterises this; it never reaches a page, so next/image has no say.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={OG_LOGO_DATA_URI}
+      width={Math.round(OG_LOGO_HEIGHT * LOGO_ASPECT)}
+      height={OG_LOGO_HEIGHT}
+      alt=""
+    />
   );
 }
-
-/**
- * The pdf.xyz mark: an ink tile, trim-mark corner ticks, and the accent square
- * the header wordmark uses. Kept in sync with `src/app/icon.svg` (the static
- * favicon) so every surface reads the same.
- *
- * IT WAS NOT, AND "KEPT IN SYNC" WAS THE WHOLE PROBLEM. The sentence above was
- * true of this file and icon.svg and false of the product: the header retired
- * the violet gradient tile and its document glyph — logo.tsx calls it
- * "everyone's mark" — while these two copies went on rendering it into the
- * browser tab, the installed icon and every social preview. Two files agreeing
- * with each other is not the same as agreeing with the site, and no test could
- * tell the difference: the e2e check asserts only that the card returns 200
- * with an image content-type. `src/lib/og-identity.test.ts` now binds the mark
- * to the palette and to icon.svg.
- */
-const BRAND_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="${CARD.tile}"/>
-  <g stroke="${CARD.accent}" stroke-width="1.15" fill="none" stroke-linecap="square">
-    <path d="M6.5 6.5 H10 M6.5 6.5 V10"/>
-    <path d="M25.5 6.5 H22 M25.5 6.5 V10"/>
-    <path d="M6.5 25.5 H10 M6.5 25.5 V22"/>
-    <path d="M25.5 25.5 H22 M25.5 25.5 V22"/>
-  </g>
-  <rect x="12.25" y="12.25" width="7.5" height="7.5" fill="${CARD.accent}"/>
-</svg>`;
-
-const BRAND_MARK_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(
-  BRAND_MARK_SVG,
-).toString("base64")}`;
 
 /**
  * The site-wide social card: every link to pdf.xyz that anyone pastes anywhere.
@@ -318,11 +278,21 @@ export async function renderSocialImage(): Promise<ImageResponse> {
   );
 }
 
-/** Render a square brand mark at `size` px — used for the PWA/Apple icons. */
-export function renderBrandMark(size: number): ImageResponse {
+/**
+ * Render the square mark at `size` px: the white Folded P on petrol
+ * (`tileSvg` in `./brand`). `app` — the default — runs the ground to the edges
+ * with the P in the maskable safe zone: the Apple touch icon and both PWA
+ * icons. `favicon` is the rounded tab tile: `pnpm icon:favicon` packs it at
+ * 16/32/48 into `favicon.ico`, the same drawing `icon.svg` restates.
+ */
+export function renderBrandMark(
+  size: number,
+  kind: "app" | "favicon" = "app",
+): ImageResponse {
   return new ImageResponse(
     <div style={{ display: "flex", width: "100%", height: "100%" }}>
-      <img src={BRAND_MARK_DATA_URI} width={size} height={size} alt="" />
+      {/* eslint-disable-next-line @next/next/no-img-element -- Satori, not a page */}
+      <img src={svgDataUri(tileSvg(kind))} width={size} height={size} alt="" />
     </div>,
     { width: size, height: size },
   );

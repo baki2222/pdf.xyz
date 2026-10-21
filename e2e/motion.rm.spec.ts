@@ -120,7 +120,7 @@ test("nothing runs on Merge PDF under reduced motion: load, run, result", async 
     page.getByRole("heading", { name: /pdfs merged/i }),
   ).toBeVisible();
   seen.push(...(await running(page, "result")));
-  // The masthead square still reports the state — without moving.
+  // The masthead logo's P still reports the state — without moving.
   await expect(page.locator("header [data-activity]")).toHaveAttribute(
     "data-activity",
     "done",

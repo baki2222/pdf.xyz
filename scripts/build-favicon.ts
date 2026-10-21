@@ -1,5 +1,7 @@
 /**
- * Regenerate `src/app/favicon.ico` from the brand mark.
+ * Regenerate `src/app/favicon.ico` from the brand mark — the Folded P's
+ * rounded tab tile, `renderBrandMark(size, "favicon")`, which draws
+ * `tileSvg("favicon")` from `src/lib/brand.ts` like `icon.svg` beside it.
  *
  * ── WHY THIS SCRIPT EXISTS ──────────────────────────────────────────────────
  *
@@ -78,7 +80,7 @@ function packIco(images: { size: number; png: Uint8Array }[]): Buffer {
 async function main(): Promise<void> {
   const images = [];
   for (const size of SIZES) {
-    const response = renderBrandMark(size);
+    const response = renderBrandMark(size, "favicon");
     const png = new Uint8Array(await response.arrayBuffer());
     if (png[0] !== 0x89) throw new Error(`size ${size} did not render a PNG`);
     images.push({ size, png });

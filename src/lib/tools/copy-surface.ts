@@ -140,6 +140,11 @@ export function copyFiles(): string[] {
     // The shared social card, painted on every link to a page without its
     // own image. Outside every walked root; listed for that reason.
     path.join(ROOT, "src", "lib", "og.tsx"),
+    // The logo that card and every page's header draw (2026-10-21). It holds
+    // no words — its strings are SVG path data, where a decimal after three
+    // coordinates reads as a sentence to the phrase-module predicate — and is
+    // walked rather than recorded, as the ratchet asks of a new module.
+    path.join(ROOT, "src", "lib", "brand.ts"),
     // Page copy that lives beside engine code, found 2026-10-09 when copy
     // reach began discovering by CONTENT (see the docblock above): option
     // tables a tool page renders, the Crop disclosure, the capability

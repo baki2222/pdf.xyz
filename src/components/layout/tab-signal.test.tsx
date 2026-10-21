@@ -2,6 +2,7 @@
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { reportActivity, resetActivityForTests } from "@/lib/activity/bus";
+import { P_BODY, P_FOLD, tileSvg } from "@/lib/brand";
 import { TabSignal } from "./tab-signal";
 import { TAB_SIGNAL_MIN_MS, startTabSignal } from "./tab-signal-engine";
 
@@ -79,6 +80,15 @@ describe("TabSignal", () => {
     expect(icon()).toMatch(/^data:image\/svg\+xml,/);
     // The colour is the page's own accent, read at run time.
     expect(decodeURIComponent(icon()!)).toContain("rgb(7, 86, 122)");
+    // And it rings the site's mark, not a drawing of its own: the Folded P's
+    // body and fold, on the favicon's tile. (It drew the retired accent
+    // square on ink until the brand pack replaced the mark.)
+    const drawn = decodeURIComponent(icon()!);
+    expect(drawn).toContain(P_BODY);
+    expect(drawn).toContain(P_FOLD);
+    expect(
+      drawn.startsWith("data:image/svg+xml," + tileSvg("favicon").slice(0, -6)),
+    ).toBe(true);
     show();
     expect(document.title).toBe("Merge PDF — pdf.xyz");
     expect(icon()).toBe(ICON);

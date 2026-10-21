@@ -13,7 +13,7 @@ import { uploadFiles, waitForHydration, writeTempPdf } from "./helpers";
  * is seen where it runs.
  *
  * THE SIGNATURE IS FED BY THE RUN (composed chain): a merge in the page moves
- * the masthead's square through `busy` to `done` — runner → `useAsyncRun` →
+ * the masthead logo's P through `busy` to `done` — runner → `useAsyncRun` →
  * bus → header — and the same run finishing in a hidden tab puts "Done · " on
  * the tab's title until the tab is shown again.
  *
@@ -160,7 +160,7 @@ test.describe("words stay", () => {
 
 /**
  * Lets a test read the run's length as long. `performance.now()` gains 4s the
- * moment the masthead square says `busy`, which is AFTER the bus took the
+ * moment the masthead logo's P says `busy`, which is AFTER the bus took the
  * run's start time — so the run ends "4s later" without the test waiting or
  * the product carrying a hook for it. And a hidden tab, on request.
  */
@@ -188,14 +188,14 @@ async function instrument(page: Page) {
       document.dispatchEvent(new Event("visibilitychange"));
     };
     const watch = () => {
-      const square = document.querySelector("header [data-activity]");
-      if (!square) return void requestAnimationFrame(watch);
-      w.__activity.push(square.getAttribute("data-activity")!);
+      const mark = document.querySelector("header [data-activity]");
+      if (!mark) return void requestAnimationFrame(watch);
+      w.__activity.push(mark.getAttribute("data-activity")!);
       new MutationObserver(() => {
-        const state = square.getAttribute("data-activity")!;
+        const state = mark.getAttribute("data-activity")!;
         w.__activity.push(state);
         if (state === "busy") offset += 4000;
-      }).observe(square, {
+      }).observe(mark, {
         attributes: true,
         attributeFilter: ["data-activity"],
       });
@@ -215,7 +215,7 @@ async function mergeTwo(page: Page) {
   ).toBeVisible();
 }
 
-test("a merge moves the masthead square through busy to done", async ({
+test("a merge moves the masthead logo's P through busy to done", async ({
   page,
 }) => {
   await instrument(page);
@@ -231,7 +231,7 @@ test("a merge moves the masthead square through busy to done", async ({
   const seen = await page.evaluate(
     () => (window as unknown as { __activity: string[] }).__activity,
   );
-  expect(seen[0], "the square renders idle before any run").toBe("idle");
+  expect(seen[0], "the P renders idle before any run").toBe("idle");
   expect(seen.indexOf("busy")).toBeLessThan(seen.lastIndexOf("done"));
 });
 

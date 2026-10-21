@@ -12,9 +12,9 @@ import { OpenFilesButton } from "./open-files-button";
  * page's own wrapper: an opaque paper band with a hairline rule, on every
  * route. No blur, no translucency — a masthead, not a glass strip.
  *
- *   1440  ■ pdf.xyz │ All tools  AI tools  Guides  Workspace  Pricing │ [⌕ Find a tool or guide  Ctrl K] [⊕ Open files]
- *    768  ■ pdf.xyz │ All tools  AI tools  Guides  Workspace          │ [⌕] [⊕ Open files]
- *    390  ■ pdf.xyz                                   [⌕] [⊕] [☰]
+ *   1440  pdf.xyz │ All tools  AI tools  Guides  Workspace  Pricing │ [⌕ Find a tool or guide  Ctrl K] [⊕ Open files]
+ *    768  pdf.xyz │ All tools  AI tools  Guides  Workspace          │ [⌕] [⊕ Open files]
+ *    390  pdf.xyz                                     [⌕] [⊕] [☰]
  *
  * Below `md` the desktop `<nav>` is display:none, and the menu's dialog is
  * the page's navigation (a landmark named "Menu"). The header renders NO
@@ -22,7 +22,7 @@ import { OpenFilesButton } from "./open-files-button";
  * input on any page is that page's (G.5 trap 3, site-landmarks.test.tsx).
  * Its height is `--sf-header-h`, which the scroll padding also reads
  * (scroll-behavior.test.ts). Scrolled off the top, its rule lifts (M17,
- * `data-masthead`); its square reports the page's activity (M16).
+ * `data-masthead`); its logo's P reports the page's activity (M16).
  */
 export function SiteHeader() {
   return (
