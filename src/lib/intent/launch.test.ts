@@ -27,7 +27,8 @@
  *  - the launching page's history entry notes where the files went
  *    (`readDeparture`), so Back can say so.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VIEW_TRANSITIONS } from "@/lib/motion/view-transitions";
 import {
   __setHandoffStoreForTests,
   claimHandoff,
@@ -44,7 +45,7 @@ import {
   resetTelemetry,
   type RedactedEvent,
 } from "@/lib/telemetry/track";
-import { launchWithFiles, type LaunchInput } from "./launch";
+import { handoffPush, launchWithFiles, type LaunchInput } from "./launch";
 
 const pdf = (name: string) =>
   new File([`%PDF ${name}`], name, { type: "application/pdf" });
@@ -387,5 +388,33 @@ describe("the token travels in this tab, not in the address", () => {
     });
     expect(session.size).toBe(0);
     expect(readDeparture()).toBeNull();
+  });
+});
+
+describe("a hand-off's navigation and the view-transition flag", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("without the layer, a plain push — one argument, exactly as before", () => {
+    vi.stubEnv("PDFXYZ_VIEW_TRANSITIONS", "0");
+    const push = vi.fn();
+    handoffPush({ push }, "/tools/merge-pdf");
+    expect(push.mock.calls).toEqual([["/tools/merge-pdf"]]);
+  });
+
+  it("with the layer, the push carries the `handoff` transition type", () => {
+    vi.stubEnv("PDFXYZ_VIEW_TRANSITIONS", "1");
+    const push = vi.fn();
+    handoffPush({ push }, "/workspace");
+    expect(push.mock.calls).toEqual([
+      ["/workspace", { transitionTypes: ["handoff"] }],
+    ]);
+  });
+
+  it("reads the flag as the motion module does", () => {
+    // The module's reading is taken at load, in this run's environment.
+    expect(VIEW_TRANSITIONS).toBe(process.env.PDFXYZ_VIEW_TRANSITIONS === "1");
+    const push = vi.fn();
+    handoffPush({ push }, "/x");
+    expect(push.mock.calls[0]!.length === 2).toBe(VIEW_TRANSITIONS);
   });
 });

@@ -45,6 +45,7 @@ import {
   pageUseCases,
 } from "@/lib/tools/page-copy";
 import { categoryHref } from "@/lib/tools/category-href";
+import { ViewTransition } from "@/components/motion/vt";
 
 export function generateStaticParams() {
   return getAllToolSlugs().map((slug) => ({ slug }));
@@ -359,14 +360,16 @@ export default async function ToolPage({
                         a Run press — never past the bottom of the screen once
                         the run settles, the rest given back at the reader's
                         next click or key (`./stage-hold` in the runner kit). */}
-                    <div
-                      data-runner-stage
-                      className="flex flex-1 flex-col [&>*>[data-page-drop-target]:only-of-type]:grow [&>:has(>[data-page-drop-target]:only-of-type)]:grow"
-                    >
-                      <ErrorBoundary boundary="tool-runner">
-                        <ToolRunner kind={runnerKind} slug={tool.slug} />
-                      </ErrorBoundary>
-                    </div>
+                    <ViewTransition name="work-sheet">
+                      <div
+                        data-runner-stage
+                        className="flex flex-1 flex-col [&>*>[data-page-drop-target]:only-of-type]:grow [&>:has(>[data-page-drop-target]:only-of-type)]:grow"
+                      >
+                        <ErrorBoundary boundary="tool-runner">
+                          <ToolRunner kind={runnerKind} slug={tool.slug} />
+                        </ErrorBoundary>
+                      </div>
+                    </ViewTransition>
                   </ToolRunProvider>
                 </div>
               </div>

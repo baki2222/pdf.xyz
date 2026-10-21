@@ -11,6 +11,7 @@ import {
   type BatchState,
 } from "@/lib/batch";
 import { endingReady, errorMessage, failureCode } from "./runner-kit";
+import { cancelActivity, reportActivity } from "@/lib/activity/bus";
 import {
   reportToolCompleted,
   reportToolFailed,
@@ -79,6 +80,8 @@ export function useBatchRunner<R>(
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
+      // A batch left mid-run never reaches its own end below.
+      if (runningRef.current) cancelActivity();
     };
   }, []);
 
@@ -106,6 +109,9 @@ export function useBatchRunner<R>(
     const controller = new AbortController();
     abortRef.current = controller;
     dispatch({ type: "start" });
+    // The masthead's square and a hidden tab's title read this (spec E.11).
+    reportActivity("busy");
+    let failures = 0;
 
     const units = unitsRef.current;
     for (const [index, unit] of units.entries()) {
@@ -129,6 +135,7 @@ export function useBatchRunner<R>(
         // Stopping is the user's choice, not the tool failing.
         if (!controller.signal.aborted && !isAbort(err)) {
           reportToolFailed({ code: failureCode(err) });
+          failures += 1;
         }
         if (last) await endingReady();
         if (!mountedRef.current) return;
@@ -136,6 +143,9 @@ export function useBatchRunner<R>(
       }
     }
     runningRef.current = false;
+    // Stopped is not finished: a canceled batch ends without news.
+    if (controller.signal.aborted || !mountedRef.current) cancelActivity();
+    else reportActivity(failures > 0 ? "failed" : "done");
   }, [process]);
 
   const cancel = useCallback(() => {

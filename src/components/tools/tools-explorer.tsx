@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import {
   BookOpen,
@@ -41,6 +42,7 @@ import { ToolCardView } from "@/components/tools/tool-card-view";
 import { ModeShape } from "@/components/tools/processing-badge";
 import { announceLocation } from "@/lib/location-search";
 import { cn } from "@/lib/utils";
+import { VIEW_TRANSITIONS } from "@/lib/motion/view-transitions";
 
 const counts = getCategoryCounts();
 
@@ -384,6 +386,20 @@ export function ToolsExplorer({
     state.runs !== "all" && runsMembers.has(state.runs) ? state.runs : "all";
   const update = (patch: Partial<ToolsQuery>) =>
     setChosen({ ...state, ...patch });
+  /**
+   * A chip or a radio refilters with a view transition when the layer is
+   * built in (M23): each card keeps its name across the change, so it moves
+   * rather than blinks. Typing never does (M24), and reduced motion never.
+   */
+  const refilter = (patch: Partial<ToolsQuery>) => {
+    if (
+      VIEW_TRANSITIONS &&
+      typeof document.startViewTransition === "function" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    )
+      document.startViewTransition(() => flushSync(() => update(patch)));
+    else update(patch);
+  };
   const searchField = useRef<HTMLInputElement>(null);
   /** Change the filters from a control that the change removes. */
   const updateAndRefocus = (next: ToolsQuery) => {
@@ -688,7 +704,7 @@ export function ToolsExplorer({
                       name={runsName}
                       value={choice.id}
                       checked={checked}
-                      onChange={() => update({ runs: choice.id })}
+                      onChange={() => refilter({ runs: choice.id })}
                       onFocus={(e) =>
                         revealInRow(e.currentTarget.closest("label"))
                       }
@@ -730,7 +746,7 @@ export function ToolsExplorer({
                   key={filter.id}
                   type="button"
                   aria-pressed={selected}
-                  onClick={() => update({ category: filter.id })}
+                  onClick={() => refilter({ category: filter.id })}
                   onFocus={(e) => revealInRow(e.currentTarget)}
                   className={cn(CHIP, selected ? CHIP_ON : CHIP_OFF)}
                 >
@@ -1022,9 +1038,19 @@ function ToolGrid({
 }) {
   return (
     <div className={GRID}>
-      {list.map((tool) => (
-        <ToolCardView key={tool.slug} tool={tool} icon={icons[tool.slug]} />
-      ))}
+      {list.map((tool) =>
+        VIEW_TRANSITIONS ? (
+          <div
+            key={tool.slug}
+            className="grid"
+            style={{ viewTransitionName: `tool-${tool.slug}` }}
+          >
+            <ToolCardView tool={tool} icon={icons[tool.slug]} />
+          </div>
+        ) : (
+          <ToolCardView key={tool.slug} tool={tool} icon={icons[tool.slug]} />
+        ),
+      )}
     </div>
   );
 }

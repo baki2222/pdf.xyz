@@ -9,6 +9,7 @@ import { CheckSquare, GripVertical, Square } from "lucide-react";
 import type { Rotation } from "@/lib/pdf/types";
 import type { Thumbnail } from "@/lib/pdf/render-utils";
 import { cn } from "@/lib/utils";
+import { useUnwrappedAngle } from "./unwrapped-angle";
 
 /** Faux page lines to give tiles the feel of a real document thumbnail. */
 function SheetLines() {
@@ -98,6 +99,8 @@ export function PageTile({
   className?: string;
 }) {
   const interactive = selectable && Boolean(onSelect);
+  // Drawn the short way round: 270° then "Right" turns to 360°, not back to 0°.
+  const drawn = useUnwrappedAngle(rotation);
   const grabbed = dragHandle?.grabbed ?? false;
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -206,7 +209,7 @@ export function PageTile({
             alt=""
             draggable={false}
             className="max-h-[80%] max-w-[80%] rounded-[2px] bg-white object-contain shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300"
-            style={{ transform: `rotate(${rotation}deg)` }}
+            style={{ transform: `rotate(${drawn}deg)` }}
           />
         ) : (
           <div
@@ -214,7 +217,7 @@ export function PageTile({
               "relative aspect-[1/1.414] h-[78%] overflow-hidden rounded-[3px] bg-gradient-to-br from-white/95 to-slate-200/85 shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300",
               loading && "animate-pulse",
             )}
-            style={{ transform: `rotate(${rotation}deg)` }}
+            style={{ transform: `rotate(${drawn}deg)` }}
           >
             <SheetLines />
           </div>

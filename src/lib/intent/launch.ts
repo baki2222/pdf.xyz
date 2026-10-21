@@ -52,7 +52,22 @@ export type LaunchResult = "carried" | "plain" | "cancelled" | "failed";
 
 /** The navigation this needs — the App Router's `push`, or a test's. */
 export interface LaunchRouter {
-  push(href: string): void;
+  push(href: string, options?: { transitionTypes?: string[] }): void;
+}
+
+/**
+ * A hand-off's navigation: the sheet travels with its files when the
+ * view-transition layer is built in (M26, `transitionTypes: ["handoff"]`),
+ * and otherwise a plain push, exactly as before. The flag is read here as
+ * the literal comparison `@/lib/motion/view-transitions` makes, not imported
+ * from it: inlined, the comparison folds away in a build without the layer,
+ * and the ticket's fetch (`lazy-chunks.test.ts`) carries no module for it.
+ * `launch.test.ts` holds the two readings to one answer.
+ */
+export function handoffPush(router: LaunchRouter, href: string): void {
+  if (process.env.PDFXYZ_VIEW_TRANSITIONS === "1")
+    router.push(href, { transitionTypes: ["handoff"] });
+  else router.push(href);
 }
 
 export interface LaunchInput {
@@ -102,7 +117,7 @@ export async function launchWithFiles(
   if (!id || !carryHandoff(target, id)) return "failed";
 
   markDeparture({ slug: toolSlug, count: payload.length });
-  router.push(target);
+  handoffPush(router, target);
   track(
     handoffCreatedEvent({
       toolSlug,
@@ -138,6 +153,6 @@ export async function openWorkspaceWithFiles(input: {
     id = null;
   }
   if (!id || !carryHandoff("/workspace", id)) return "failed";
-  input.router.push("/workspace");
+  handoffPush(input.router, "/workspace");
   return "carried";
 }

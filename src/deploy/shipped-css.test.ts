@@ -23,6 +23,15 @@
  * 15.0 KB gzip-9 (spec G.1: 12.0 at the start of the programme plus a 3.0
  * allowance). Measured 12.3 KB on 2026-10-09 after the token package.
  *
+ * WP-12 (2026-10-21), in gzip-9 bytes against the ceiling's 15,360: main at
+ * c3767ea3 shipped 15,211 (149 left). Blocking the English words that are
+ * also bare utilities (`@source not inline(…)` in globals.css — "grayscale",
+ * "blur", "shadow" and fifteen more that no page renders as a class, the
+ * filter family's thirteen registered properties with them) took it to
+ * 14,687 (-524). The signature and motion layer then added 541: 15,228,
+ * 132 left. The ceiling did NOT move. The blocklist is a claim — "no page
+ * renders these" — so it is tested below, on every prerendered page.
+ *
  * Runs under `pnpm test:bundle` (it needs `.next`), never `pnpm test`.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -34,6 +43,7 @@ import { processingMeta } from "@/lib/tools/processing";
 import { RAW_COLOUR_ALLOWANCE, rawColours } from "@/tests/raw-palette";
 
 const NEXT_DIR = path.join(process.cwd(), ".next");
+const GLOBALS = path.join(process.cwd(), "src", "app", "globals.css");
 const CEILING_GZ_KB = 15.0;
 
 /** The stylesheets prerendered pages link, as files on disk. */
@@ -73,6 +83,26 @@ export function strayColours(css: string, allow: Set<string>): string[] {
     .flatMap((cls) => rawColours(cls))
     .filter((cls) => !allow.has(cls))
     .sort();
+}
+
+/**
+ * The utilities `globals.css` tells Tailwind never to generate
+ * (`@source not inline("…")`): English words a scanned file spells that are
+ * also bare utilities — "grayscale" in the catalogue, "blur" in an event
+ * name. Read from the stylesheet, never typed here.
+ */
+export function blockedUtilities(css: string): string[] {
+  return [...css.matchAll(/@source\s+not\s+inline\(\s*"([^"]*)"\s*\)/g)]
+    .flatMap((m) => m[1]!.split(/\s+/))
+    .filter(Boolean);
+}
+
+/** Class tokens a page's HTML renders, in its `class` attributes. */
+export function renderedClasses(html: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of html.matchAll(/\sclass="([^"]*)"/g))
+    for (const c of m[1]!.split(/\s+/)) if (c) out.add(c);
+  return out;
 }
 
 describe("the shipped stylesheet", () => {
@@ -120,6 +150,53 @@ describe("the shipped stylesheet", () => {
       [...new Set(stray)],
       "Tailwind generated these from a class-shaped word in some scanned file; find it (often a comment, a fixture or dead data) and stop spelling it whole",
     ).toEqual([]);
+  });
+
+  it("a blocked utility is generated for nobody: no page renders one, and the build ships none", () => {
+    if (!built) return;
+    const blocked = blockedUtilities(readFileSync(GLOBALS, "utf8"));
+    // Health: the list is read (18 words on 2026-10-21). A reader that lost
+    // it would find nothing blocked and pass both halves below.
+    expect(blocked.length).toBeGreaterThanOrEqual(10);
+    expect(blocked).toContain("grayscale");
+    const pages = prerenderedPages(NEXT_DIR);
+    expect(pages.length).toBeGreaterThan(20);
+    // A class a page renders and Tailwind was told never to write would
+    // render as NOTHING — the blocklist is a claim that no page uses these.
+    const rendered = pages.flatMap((html) => {
+      const page = readFileSync(
+        path.join(NEXT_DIR, "server", "app", html),
+        "utf8",
+      );
+      return blocked
+        .filter((cls) => renderedClasses(page).has(cls))
+        .map((cls) => `${html}: ${cls}`);
+    });
+    expect(
+      rendered,
+      "a page renders a class globals.css blocks — remove it from the @source not inline(…) list",
+    ).toEqual([]);
+    // …and the block works: the build ships none of them.
+    const shipped = new Set(
+      shippedStylesheets().flatMap((f) => [
+        ...selectorClasses(readFileSync(f, "utf8")),
+      ]),
+    );
+    expect(blocked.filter((cls) => shipped.has(cls))).toEqual([]);
+  });
+
+  it("positive control: the blocklist reader and the class reader each see what they claim", () => {
+    const fixture = `@source not "../x";
+@source not inline("blur  invert");
+@source not inline("shadow");`;
+    expect(blockedUtilities(fixture)).toEqual(["blur", "invert", "shadow"]);
+    const html = `<div class="flex blur"></div><p data-class="invert"></p><span class=" shadow-lg  shadow "></span>`;
+    expect([...renderedClasses(html)].sort()).toEqual([
+      "blur",
+      "flex",
+      "shadow",
+      "shadow-lg",
+    ]);
   });
 
   it(`weighs at most ${CEILING_GZ_KB.toFixed(1)} KB gzipped`, () => {

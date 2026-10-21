@@ -34,6 +34,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { NAME_WRAP } from "@/components/ui/name-wrap";
 import { DropSheet, type SheetTarget } from "@/components/upload/drop-sheet";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
+import { reportActivity } from "@/lib/activity/bus";
 import { cn } from "@/lib/utils";
 import {
   reportToolCompleted,
@@ -177,6 +178,8 @@ export function useAsyncRun<T>() {
     holding.current = settled;
     setBusy(true);
     setError(null);
+    // The masthead's square and a hidden tab's title read this (spec E.11).
+    reportActivity("busy");
     void warmEnding().catch(() => {});
     const started = Date.now();
     try {
@@ -190,10 +193,12 @@ export function useAsyncRun<T>() {
       // still busy for the moment it waits, so nothing flashes.
       await endingReady();
       setResult(value);
+      reportActivity("done");
       return value;
     } catch (err) {
       setError(errorMessage(err));
       reportToolFailed({ code: failureCode(err) });
+      reportActivity("failed");
       return null;
     } finally {
       setBusy(false);

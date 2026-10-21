@@ -12,6 +12,19 @@
 @source not "../tests";
 @source not "../**/*.test.ts";
 @source not "../**/*.test.tsx";
+/* …and inside shipped source, ENGLISH WORDS that are also bare utilities.
+   Tailwind reads "grayscale" in the catalogue, "blur" in an event listener
+   and "shadow" in a font-style list as classes, and the filter family alone
+   drags thirteen registered properties onto every page. None of these is
+   rendered as a class (measured 2026-10-21: no prerendered class attribute
+   and no class literal in source names one). `shipped-css.test.ts` fails a
+   page that renders one, since a blocked class would render as nothing.
+   One short list per line: Prettier wraps a long one into a form Tailwind
+   refuses to parse. */
+@source not inline("grayscale filter blur invert transform shadow");
+@source not inline("container table collapse resize ring isolate");
+@source not inline("static visible list-item lowercase ordinal outline");
+@source not inline("min-h-32");
 
 /* ------------------------------------------------------------------ *
  *  pdf.xyz design tokens
@@ -621,21 +634,25 @@
  *  `no-preference` media block — and a scroll-driven one inside an
  *  `@supports` that tests `animation-timeline` as well.
  *  `motion-contract.test.ts` holds all of that, and fails a keyframe that
- *  nothing plays. That last rule is why the region starts empty: the
- *  planned motion vocabulary (the land, rise, draw-x and sweep keyframes
- *  and the duration scale) arrives with the first component that plays
- *  it, not ahead of it. The home desk (WP-05) brought the first: the crop
- *  marks that draw in when a drop sheet goes live (M1) and grow while a
- *  file is dragged over the page (M2), the stacked sheets that fan apart
- *  then, and the sweep on a fact still being measured (M4, a token above).
- *  WP-08 brought the receipt's rise (M8, the `rise` token above, which
- *  replaced the old 600ms `float-up`). The rest of the ending's motion —
- *  the dimension line drawing (M9), the proof ring (M10), Continue rows in
- *  turn (M11), the rail's steps (M12), the dock sliding up (M13) — waits
- *  for WP-12, which owns this region: as first built it cost the shared
- *  stylesheet 0.2 KB gzip on every page, over the programme's 15.0 KB
- *  ceiling (`shipped-css.test.ts`). Every surface it would move already
- *  ends in its still state, which is what a reduced-motion reader gets.
+ *  nothing plays. The home desk (WP-05) brought the first: the crop marks
+ *  that draw in when a drop sheet goes live (M1) and grow while a file is
+ *  dragged over the page (M2), the stacked sheets that fan apart then, and
+ *  the sweep on a fact still being measured (M4, a token above). WP-08
+ *  brought the receipt's rise (M8, the `rise` token above).
+ *
+ *  WP-12, the signature layer, moves only INK, never words (F.1;
+ *  `e2e/motion.spec.ts` "words stay"): the masthead's square turning while
+ *  work is busy and ringing once when it is done (M16), the masthead's
+ *  rule lifting off the page as it scrolls (M17), the stats rule drawing
+ *  from its cap (M18), the workflow's stations lighting as they pass
+ *  (M19), an FAQ answer opening (M20), a task glyph's parts moving on hover
+ *  or focus (M22). Each has a still end state that says the same thing, and
+ *  that state is all a reduced-motion reader gets (`e2e/motion.rm.spec.ts`).
+ *  The rest of the ending's motion — the dimension line drawing (M9), the
+ *  proof ring (M10), Continue rows in turn (M11), the rail's steps (M12),
+ *  the dock sliding up (M13) — is not built: those surfaces end in their
+ *  still state, and the stylesheet's budget (`shipped-css.test.ts`) went to
+ *  the states that report activity.
  * ------------------------------------------------------------------ */
 
 /* The crop marks' length, registered so it can be transitioned. Inherits
@@ -666,6 +683,156 @@
       translate 160ms var(--ease-snap),
       rotate 160ms var(--ease-snap);
   }
+
+  /* M16: busy, the square turns a quarter twice and holds still (1s, then
+     hollow and still for as long as the run lasts); done, one ring. */
+  .reg-square[data-activity="busy"] {
+    animation: reg-turn 1s var(--ease-snap);
+  }
+  .reg-square[data-activity="done"] {
+    animation: reg-ring 600ms var(--ease-out-expo);
+  }
+
+  /* M22: a task glyph's parts perform their task once, and land where they
+     started — on hover or keyboard focus of the task's link. */
+  :is(a:hover, a:focus-visible) [data-part] {
+    animation: glyph 900ms var(--ease-snap);
+  }
+
+  /* M20: an FAQ answer opens to its height rather than appearing. */
+  @supports selector(::details-content) {
+    .faq-item {
+      interpolate-size: allow-keywords;
+    }
+    .faq-item::details-content {
+      block-size: 0;
+      overflow: clip;
+      transition:
+        block-size 240ms var(--ease-out-expo),
+        content-visibility 240ms allow-discrete;
+    }
+    .faq-item[open]::details-content {
+      block-size: auto;
+    }
+  }
+
+  /* Scroll-linked (M17-M19). `animation-timeline` after the shorthand, which
+     resets it. */
+  @supports (animation-timeline: view()) {
+    /* M17: the masthead's rule lifts as the page scrolls under it. */
+    [data-masthead] {
+      animation: lift linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 64px;
+    }
+    /* M18: the stats rule draws out from its first cap. */
+    [data-draw] {
+      transform-origin: left;
+      animation: draw-x linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 25%;
+    }
+    /* M19: each station's chip takes the accent as it passes mid-screen. */
+    .workflow-station-chip {
+      animation: station linear both;
+      animation-timeline: view();
+      animation-range: cover 0% cover 50%;
+    }
+  }
+}
+
+@keyframes reg-turn {
+  15%,
+  50% {
+    rotate: 90deg;
+  }
+  65%,
+  to {
+    rotate: 180deg;
+  }
+}
+@keyframes reg-ring {
+  from {
+    box-shadow: 0 0 0 0 var(--sf-accent);
+  }
+  to {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+@keyframes glyph {
+  50% {
+    translate: var(--gx, 0) var(--gy, 0);
+  }
+}
+@keyframes lift {
+  to {
+    border-color: var(--sf-line-strong);
+    box-shadow: 0 1px 0 var(--sf-line);
+  }
+}
+@keyframes draw-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes station {
+  to {
+    border-color: var(--sf-accent);
+  }
+}
+
+/* The activity square's STATES (M16, M2), which reduced motion keeps: hollow
+   while busy, leaning while a file is held over the page. Unlayered, so they
+   win over the square's `bg-accent`. In forced colours the square is the
+   system's text colour, and keeps its fill. */
+.reg-square[data-activity="busy"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--sf-accent);
+}
+html[data-dragging] .reg-square {
+  rotate: 45deg;
+}
+@media (forced-colors: active) {
+  .reg-square {
+    --sf-accent: CanvasText;
+    forced-color-adjust: none;
+  }
+}
+
+/* What each task glyph's part does (M22), in the glyph's own 24px units. */
+[data-part="press-top"] {
+  --gy: 1.5px;
+}
+[data-part="press-bottom"] {
+  --gy: -1.5px;
+}
+[data-part="left"] {
+  --gx: 1.5px;
+  --gy: 1.5px;
+}
+[data-part="right"] {
+  --gx: -1.5px;
+  --gy: 1.5px;
+}
+[data-part="stroke"],
+[data-part="arrow"] {
+  --gx: 1.5px;
+}
+[data-part="nib"] {
+  --gx: -1.5px;
+  --gy: 1.5px;
+}
+[data-part="photo"] {
+  --gx: 2px;
+}
+[data-part="lines"] {
+  --gy: 1px;
+}
+
+/* A view transition's overlay never takes a click meant for the page
+   under it (the gate in e2e/motion.spec.ts). */
+::view-transition {
+  pointer-events: none;
 }
 
 /* ------------------------------------------------------------------ *
