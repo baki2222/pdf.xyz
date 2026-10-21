@@ -31,6 +31,7 @@ import ToolCard from "./tools/[slug]/opengraph-image";
 import ToolsIndexCard from "./tools/opengraph-image";
 import WorkspaceCard from "./workspace/opengraph-image";
 import { CARD, renderBrandMark } from "@/lib/og";
+import { BRAND, LOGO_COLOURS } from "@/lib/brand";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import {
   colourDistance,
@@ -75,20 +76,24 @@ const RETIRED = {
 const RETIRED_TOO_CLOSE_TO_SEPARATE = ["#94a3b8"] as const;
 
 /**
- * The box the lockup's accent square lands in.
+ * The box the logo's P lands in: the Folded P, in the pack's dark-ground
+ * colours, is the first letter of every card.
  *
- * A REGION, not a pixel, and it was a pixel first: (91, 83), reasoned from the
- * 80px padding and the 72px top inset, and wrong on all four cards. The square
- * is 24px inside a 40px line box, so Satori centres it down to y=86 — the kind
- * of arithmetic that is easier to measure than to derive. Measured 2026-09-20:
- * the square occupies x 80-104, y 86-110 on every card.
+ * A REGION, not a pixel. The logo is 56px tall at the 80px / 72px inset, so
+ * the P occupies x 80-110, y 83-124 — measured 2026-10-21 on the front card
+ * and the Merge PDF card alike: 775 pixels within 10 units of the dark mark
+ * colour, and 42 of the fold's. The `d` beside it is white and the `.xyz`
+ * dot, the only other mark-coloured shape, lands at x 186-196, outside.
  *
- * Bounded above as well as below. The square is 576px; a region holding twice
- * that is not a square, and `[] ⊆ X` in the other direction — "lots of accent
- * up there" — would pass for a card that had gone entirely cyan.
+ * Bounded above as well as below, because `[] ⊆ X` runs in both directions:
+ * "lots of mark colour up there" would pass for a card that had gone
+ * entirely cyan.
+ *
+ * WAS the accent square of the previous lockup: 24px, x 80-104, y 86-110.
  */
 const MARK_REGION = { x0: 60, y0: 70, x1: 140, y1: 130 } as const;
-const MARK_SQUARE_PX = 24 * 24;
+const MARK_P_PX = 775;
+const MARK_FOLD_PX = 42;
 
 function countNearInRegion(
   png: DecodedPng,
@@ -185,18 +190,21 @@ describe.each(CARDS)("$name", ({ render: renderCard }) => {
     expect(meanChannel, "card is not on a dark ground").toBeLessThan(70);
   });
 
-  it("opens with the accent square of the site's own lockup", async () => {
+  it("opens with the Folded P of the site's own logo", async () => {
     const png = await renderCard();
-    const accent = hexToRgb(CARD.accent);
-    const inMark = countNearInRegion(png, accent, 10);
+    const inP = countNearInRegion(png, hexToRgb(LOGO_COLOURS.dark.mark), 10);
+    const inFold = countNearInRegion(png, hexToRgb(LOGO_COLOURS.dark.fold), 10);
 
-    expect(inMark, "no accent square where the lockup starts").toBeGreaterThan(
-      MARK_SQUARE_PX * 0.85,
-    );
+    expect(inP, "no P where the logo starts").toBeGreaterThan(MARK_P_PX * 0.85);
     expect(
-      inMark,
-      "more accent up there than a 24px square can account for",
-    ).toBeLessThan(MARK_SQUARE_PX * 1.3);
+      inP,
+      "more mark colour up there than the P can account for",
+    ).toBeLessThan(MARK_P_PX * 1.2);
+    // The fold is what makes it this P and not any P.
+    expect(inFold, "the P has lost its fold").toBeGreaterThan(
+      MARK_FOLD_PX * 0.7,
+    );
+    expect(inFold).toBeLessThan(MARK_FOLD_PX * 1.5);
   });
 
   it.each(Object.entries(RETIRED))(
@@ -212,7 +220,7 @@ describe("the square mark, as apple-icon and the PWA icons render it", () => {
   /**
    * `renderBrandMark` is the other renderer: `apple-icon.tsx` calls it at 180,
    * the two `manifest-icon-*.png` handlers at 192 and 512, and
-   * `scripts/build-favicon.ts` at 16/32/48.
+   * `scripts/build-favicon.ts` at 16/32/48 (as the rounded tab tile).
    *
    * `favicon-ico.test.ts` decodes the COMMITTED bytes, which is the right
    * check for a file someone has to remember to rebuild — and it is the wrong
@@ -221,22 +229,54 @@ describe("the square mark, as apple-icon and the PWA icons render it", () => {
    * browser generates on demand turns violet. The stale artifact would be the
    * thing vouching for the live one.
    */
-  it.each([180, 512])("at %i px is the accent on ink", async (size) => {
-    const png = await render(renderBrandMark(size));
-    expect([png.width, png.height]).toEqual([size, size]);
+  it.each([180, 512])(
+    "at %i px is the white P and cyan fold on petrol, edge to edge",
+    async (size) => {
+      const png = await render(renderBrandMark(size));
+      expect([png.width, png.height]).toEqual([size, size]);
 
-    const accent = countNear(png, hexToRgb(CARD.accent), 24);
-    expect(accent, "no accent anywhere in the mark").toBeGreaterThan(
-      (size * size) / 80,
+      // Measured 2026-10-21 at 512: 226,107 petrol, 32,742 white, 2,016 cyan
+      // pixels — the ground, the P and its fold. Floors well under those, as
+      // fractions of the area, so 180 is held to the same proportions.
+      const area = size * size;
+      const petrol = countNear(png, hexToRgb(BRAND.petrol), 24);
+      const white = countNear(png, hexToRgb(BRAND.white), 24);
+      const cyan = countNear(png, hexToRgb(BRAND.cyan), 24);
+      expect(petrol, "no petrol ground").toBeGreaterThan(area * 0.7);
+      expect(white, "no white P").toBeGreaterThan(area * 0.08);
+      expect(white, "more white than a P").toBeLessThan(area * 0.2);
+      expect(cyan, "no cyan fold").toBeGreaterThan(area * 0.004);
+
+      // An app icon is masked by the launcher, so its ground must reach the
+      // corners: the rounded tab tile would leave them transparent.
+      for (const [x, y] of [
+        [0, 0],
+        [size - 1, 0],
+        [0, size - 1],
+        [size - 1, size - 1],
+      ] as const) {
+        expect(
+          colourDistance(pixelAt(png, x, y), hexToRgb(BRAND.petrol)),
+          `corner ${x},${y}`,
+        ).toBeLessThan(3);
+      }
+
+      // The previous mark: the dark accent square and ticks on an ink tile.
+      expect(countNear(png, hexToRgb(CARD.accent), 12), "accent").toBe(0);
+      expect(countNear(png, hexToRgb(BRAND.ink), 12), "ink tile").toBe(0);
+      for (const [name, hex] of Object.entries(RETIRED)) {
+        expect(countNear(png, hexToRgb(hex), 12), name).toBe(0);
+      }
+    },
+  );
+
+  it("the favicon tile leaves its corners transparent and keeps the P", async () => {
+    const png = await render(renderBrandMark(128, "favicon"));
+    expect(png.data[3], "top-left corner is painted").toBe(0);
+    expect(countNear(png, hexToRgb(BRAND.white), 24)).toBeGreaterThan(
+      128 * 128 * 0.12,
     );
-    expect(
-      countNear(png, hexToRgb(CARD.tile), 24),
-      "no ink tile",
-    ).toBeGreaterThan((size * size) / 4);
-
-    for (const [name, hex] of Object.entries(RETIRED)) {
-      expect(countNear(png, hexToRgb(hex), 12), name).toBe(0);
-    }
+    expect(countNear(png, hexToRgb(BRAND.cyan), 24)).toBeGreaterThan(20);
   });
 });
 

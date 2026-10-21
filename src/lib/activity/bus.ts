@@ -1,6 +1,6 @@
 /**
  * What this page is doing, in one word, for the surfaces that report it
- * without being part of the work: the masthead's square (M16) and a hidden
+ * without being part of the work: the masthead logo's P (M16) and a hidden
  * tab's title (`TabSignal`). Spec E.11.
  *
  * Fed by exactly three hooks — `useAsyncRun`, `useBatchRunner`,

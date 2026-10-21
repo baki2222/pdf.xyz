@@ -1,24 +1,17 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="pdf.xyz">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="pdf.xyz">
   <!--
-    The registration mark, not a document glyph.
+    The Folded P on its petrol tile: the browser tab, and the icon a finished
+    run in a hidden tab rings (tab-signal-engine.ts). It is the brand pack's
+    03-web-ready/favicon.svg, drawn by tileSvg("favicon") in src/lib/brand.ts;
+    an SVG cannot import, so the paths and colours are restated here and
+    og-identity.test.ts holds them to that module.
 
-    The header wordmark (src/components/layout/logo.tsx) retired the violet
-    gradient tile with a page icon on purpose — its own docblock calls that
-    "everyone's mark". This file and the share cards kept rendering it anyway,
-    so until 2026-09-20 the browser tab, the installed icon and every social
-    preview showed an identity the site itself had stopped using.
-
-    Ground is ink (--sf-invert), the square is the accent at its dark-scheme
-    value because it sits on ink, and the corner ticks are the trim marks the
-    prepress system is named for. Colours are literals here because an SVG
-    cannot read the stylesheet; theme-palette-copies.test.ts binds them.
+    WAS the registration mark: an accent square and four trim ticks on an ink
+    tile, retired with the header lockup it echoed.
   -->
-  <rect width="512" height="512" rx="116" fill="#10151a"/>
-  <g stroke="#53c1ee" stroke-width="18" fill="none" stroke-linecap="square">
-    <path d="M104 104 H160 M104 104 V160"/>
-    <path d="M408 104 H352 M408 104 V160"/>
-    <path d="M104 408 H160 M104 408 V352"/>
-    <path d="M408 408 H352 M408 408 V352"/>
+  <rect width="128" height="128" rx="24.32" fill="#07567a"/>
+  <g transform="translate(33.28 21.76) scale(.48)">
+    <path fill="#ffffff" fill-rule="evenodd" d="M20 0H84L128 44V92C128 119 110 137 83 137H42V176H0V20C0 9 9 0 20 0Z M42 54V102H78C85 102 89 98 89 91V65C89 58 85 54 78 54Z"/>
+    <path fill="#0891b2" d="M84 0L128 44H96C89.373 44 84 38.627 84 32Z"/>
   </g>
-  <rect x="196" y="196" width="120" height="120" fill="#53c1ee"/>
 </svg>

@@ -1,4 +1,5 @@
 import { subscribeActivity } from "@/lib/activity/bus";
+import { tileSvg } from "@/lib/brand";
 
 /** A run shorter than this ended before anyone looked away (spec C.2). */
 export const TAB_SIGNAL_MIN_MS = 3000;
@@ -13,20 +14,24 @@ const iconLink = () =>
   );
 
 /**
- * The accent square on its ink ground, with a ring: the tab icon of a run
- * that finished while nobody watched. Its colours are the page's own tokens,
- * read at run time, so no colour is typed here.
+ * The tab icon of a run that finished while nobody watched: the favicon
+ * itself — the Folded P on its petrol tile, drawn by `tileSvg` from the same
+ * module `icon.svg` restates — with a ring in its lower corner: a dot in the
+ * page's accent, set off from the tile by the page's canvas. The ring's
+ * colours are the page's own tokens, read at run time, so none is typed here.
+ *
+ * WAS the accent square on an ink ground with a ring round it — the retired
+ * registration mark, so a finished run swapped the tab to a mark the site no
+ * longer used.
  */
 function signalIcon(): string {
   const style = getComputedStyle(document.documentElement);
   const accent = style.getPropertyValue("--sf-accent").trim() || "currentColor";
-  const ground = style.getPropertyValue("--sf-invert").trim() || "transparent";
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">` +
-    `<rect width="32" height="32" rx="7" fill="${ground}"/>` +
-    `<circle cx="16" cy="16" r="11" fill="none" stroke="${accent}" stroke-width="2.5"/>` +
-    `<rect x="12" y="12" width="8" height="8" fill="${accent}"/></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  const canvas = style.getPropertyValue("--sf-canvas").trim() || "transparent";
+  const ring =
+    `<circle cx="102" cy="102" r="22" fill="${accent}" ` +
+    `stroke="${canvas}" stroke-width="10"/>`;
+  return `data:image/svg+xml,${encodeURIComponent(tileSvg("favicon", ring))}`;
 }
 
 /**

@@ -2,11 +2,11 @@
 /**
  * Every run a tool page can start reaches the activity bus (spec E.11).
  *
- * The masthead's square and a hidden tab's title report work — busy, done,
+ * The masthead logo's P and a hidden tab's title report work — busy, done,
  * failed — and both read ONE source, `src/lib/activity/bus.ts`. Nothing
  * reports to it but three hooks: `useAsyncRun` (the browser runners),
  * `useBatchRunner` (a batch of files) and `useWorkerJob` (every worker job).
- * So the claim "the square says when this page is working" is true exactly
+ * So the claim "the P says when this page is working" is true exactly
  * when every panel a tool page mounts runs its work through one of them. A
  * runner that kept its own `busy` state would run silently, and nothing on
  * the page would look wrong.
@@ -188,7 +188,7 @@ describe("every run a tool page can start reaches the activity bus", () => {
       .map(([name]) => name);
     expect(
       silent,
-      "these hooks run work without telling the bus — the square and the tab title cannot see it",
+      "these hooks run work without telling the bus — the logo and the tab title cannot see it",
     ).toEqual([]);
   });
 
