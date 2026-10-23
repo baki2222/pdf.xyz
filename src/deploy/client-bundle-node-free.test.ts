@@ -369,32 +369,40 @@ describe("no client bundle reaches a Node built-in", () => {
     expect(graph.reached.size).toBeGreaterThanOrEqual(150);
   });
 
-  it("POSITIVE CONTROL: the walk crosses a barrel into the module PR #134 changed", () => {
-    // The exact path webpack printed, minus the last hop. If the resolver stops
-    // handling `@/`, an `index.ts` barrel, or a `.tsx` root, this goes red
-    // rather than the offender list quietly emptying.
+  it("POSITIVE CONTROL: the walk crosses an `@/` barrel from a .tsx root into the module behind it", () => {
+    // If the resolver stops handling `@/`, an `index.ts` barrel, or a `.tsx`
+    // root, this goes red rather than the offender list quietly emptying.
+    //
+    // WAS the path webpack printed for PR #134 (operations-dashboard →
+    // alert-posture → observability/index → snapshot → heartbeat/
+    // capabilities). That path was itself the defect that carried pdf-lib to
+    // /status, and it was cut on 2026-10-23 (alert-vocabulary.ts), so the
+    // control moved to a barrel crossing that is meant to exist: the hand-off
+    // notice reads `originPhrase` through `@/lib/handoff`.
     const absent = [
-      "src/components/status/operations-dashboard.tsx",
-      "src/components/status/alert-posture.tsx",
-      "src/lib/workers/observability/index.ts",
-      "src/lib/workers/observability/snapshot.ts",
-      "src/lib/workers/heartbeat/capabilities.ts",
+      "src/components/tools/runner/handoff-notice.tsx",
+      "src/lib/handoff/index.ts",
+      "src/lib/handoff/origin.ts",
     ].filter((hop) => !graph.reached.has(hop));
     expect(absent).toEqual([]);
   });
 
   it("NEGATIVE CONTROL: a module reached ONLY by `import type` is not in the graph", () => {
-    // `snapshot.ts` imports `heartbeat/types` type-only. That edge is erased
-    // before webpack looks, so a walker that reports it is ADDING an edge — the
-    // failure mode that makes a reachability guard sound certain about a module
-    // nothing loads.
+    // The status page's client modules (`operations-ui.tsx`,
+    // `use-worker-operations.ts`) import the observability barrel type-only.
+    // That edge is erased before webpack looks, so a walker that reports it is
+    // ADDING an edge — the failure mode that makes a reachability guard sound
+    // certain about a module nothing loads. (WAS `snapshot.ts` →
+    // `heartbeat/types`; `snapshot.ts` left the client graph on 2026-10-23,
+    // and the barrel is the sharper subject: a VALUE edge into it is what
+    // carried pdf-lib to /status.)
     //
     // Asserted in two halves, because "absent from the graph" is also what a
     // module NOBODY mentions looks like, and that control would be vacuous:
     //  1. a module already in the graph really does name it, type-only, so a
     //     widening walker would have somewhere to widen into;
     //  2. and it is still absent.
-    const target = "src/lib/workers/heartbeat/types.ts";
+    const target = "src/lib/workers/observability/index.ts";
     const namers = [...graph.reached].filter((f) => {
       const src = readFileSync(join(ROOT, f), "utf8");
       const typeOnly = parse(f, src).statements.filter(
