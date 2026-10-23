@@ -107,7 +107,11 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
   },
   server: {
     plain: "Secure server",
-    label: "Runs on a secure server",
+    // Shorter than "Runs in your browser", as "Secure worker" was: a tool
+    // page's facts row holds this and the formats on one phone line, and
+    // "Runs on a secure server" pushed OCR PDF's 9px past it (CI, Linux
+    // fonts, 2026-10-23).
+    label: "On a secure server",
     description:
       "Files are processed on a secure worker, which deletes the upload when the job ends and serves the result for a limited time.",
     shape: "ring",

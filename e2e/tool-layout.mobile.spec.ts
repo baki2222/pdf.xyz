@@ -4,6 +4,7 @@ import { categories } from "../src/lib/tools/categories";
 import { getRunnerKind } from "../src/lib/pdf/registry";
 import { toolFamilies } from "../src/lib/tools/families";
 import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
+import { CONSENT_STORAGE_KEY } from "../src/lib/analytics/consent";
 import { encodePng } from "./client-proof/fixtures";
 import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
 import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
@@ -412,6 +413,13 @@ for (const width of SLOT_WIDTHS) {
         // check retries a network failure twice itself (WP-10's one shared
         // check, `use-worker-status.ts`), so "failed" takes three.
         await planStatus(page, ["hold-then-fail", "fail", "fail", "local"]);
+        // The consent banner answered first: it is fixed to the bottom of
+        // the screen, and "Check again" scrolled into view from just below
+        // the fold landed under it (CI, Linux, 360px, 2026-10-23 — a few
+        // pixels of taller type above the slot put the button there).
+        await page.addInitScript((key) => {
+          window.localStorage.setItem(key, "denied");
+        }, CONSENT_STORAGE_KEY);
         await page.goto(`/tools/${slug}`);
         await waitForHydration(slot);
         await expect(slot).toHaveAttribute("data-state", "loading");

@@ -44,7 +44,7 @@ export type RunsFilter = RunsId | "all";
 
 /** How a choice is named, and said in a sentence of one tool or many. */
 export interface RunsCopy {
-  /** The words for a choice: "Never uploads", "Runs on a secure server". */
+  /** The words for a choice: "Never uploads", "On a secure server". */
   readonly label: string;
   /** "1 tool always keeps your files on your device". */
   readonly one: string;
