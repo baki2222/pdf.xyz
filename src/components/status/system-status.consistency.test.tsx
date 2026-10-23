@@ -37,7 +37,13 @@
  * is gated by its own drainability check).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { buildWorkerStatus, type WorkerStatus } from "@/lib/workers/status";
 import { resetTelemetry } from "@/lib/telemetry/track";
 import { SystemStatus } from "./system-status";
@@ -148,8 +154,12 @@ async function renderCard(status: WorkerStatus): Promise<CardView> {
       .mockImplementation(async () => ({ ok: true, json: async () => status })),
   );
   render(<SystemStatus localTools={[]} />);
+  // The card moved under "Technical details" on 2026-10-23 (the first screen
+  // is a visitor's now: `system-status.plain.test.tsx`). Open it the way a
+  // reader does; a role query does not see a `hidden` region.
+  fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
   const heading = await screen.findByRole("heading", {
-    name: /secure worker/i,
+    name: /^secure worker$/i,
   });
   const header = heading.parentElement as HTMLElement;
   const card = header.parentElement as HTMLElement;

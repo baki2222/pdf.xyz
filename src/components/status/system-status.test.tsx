@@ -78,7 +78,11 @@ describe("SystemStatus", () => {
 
     expect(screen.getByText("Merge PDF")).toBeInTheDocument();
     expect(screen.getByText("Split PDF")).toBeInTheDocument();
-    expect(screen.getByText(/2 tools run/i)).toBeInTheDocument();
+    // Was "2 tools run entirely on your device, in your browser — your files
+    // never leave the browser…" until the visitor's rewrite of 2026-10-23.
+    expect(
+      screen.getByText(/2 tools work right on your device/i),
+    ).toBeInTheDocument();
     expect(screen.getByText("Available")).toBeInTheDocument();
   });
 
@@ -156,7 +160,16 @@ describe("SystemStatus", () => {
 
     expect(await screen.findByText("AI tools")).toBeInTheDocument();
     expect(screen.getByText("Declared")).toBeInTheDocument();
-    expect(screen.getByText(declared.ai.detail)).toBeInTheDocument();
+    // INVERTED 2026-10-23. This asserted the row rendered `ai.detail` as
+    // served — which names the model ("…the anthropic provider (model …)").
+    // Nothing on /status needs the model, so the row now says the provider
+    // is declared without it (`system-status.plain.test.tsx` holds the
+    // absence, with a positive control on the detail).
+    expect(declared.ai.detail).toMatch(/\(model /);
+    expect(screen.queryByText(declared.ai.detail)).toBeNull();
+    expect(
+      screen.getByText(/An AI provider is declared for this deployment/),
+    ).toBeInTheDocument();
   });
 
   it("shows the production pipeline providers, each honestly not configured", async () => {

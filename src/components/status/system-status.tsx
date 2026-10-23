@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
   Cpu,
   Database,
   Loader2,
-  MonitorSmartphone,
+  RefreshCw,
   ScanText,
   Server,
   Sparkles,
@@ -15,6 +18,12 @@ import {
 import type { WorkerStatus } from "@/lib/workers/status";
 import { describeOcrLanguage } from "@/lib/jobs/ocr";
 import { track } from "@/lib/telemetry/track";
+import { canRunPdfSecurity } from "@/lib/workers/pdf-security-client";
+import { canRunAiTool } from "@/lib/workers/ai-tool-availability";
+import type { ProcessingMode } from "@/lib/tools/types";
+import { ModeShape } from "@/components/tools/processing-badge";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   AssuranceNote,
   StatusBadge,
@@ -99,18 +108,197 @@ function ProviderRow({
   );
 }
 
+/** What the page says overall, from the same answers the cards give. */
+type Overall = "loading" | "error" | "working" | "partial";
+
 /**
- * User-facing summary of what pdf.xyz can do right now: which tools run entirely
- * in this browser (always available, never upload) versus whether an optional
- * secure worker is enabled in this environment. The worker half is read live from
- * the honest `/api/worker/status` endpoint — the same presence-only view the tool
- * pages use — so this page can never over-promise a capability that isn't there.
- *
- * Reading the endpoint emits a privacy-safe `worker_status_checked` product event
- * (mode + enabled flag only; no identifiers). A fetch failure is recoverable, not
- * a dead end.
+ * The three verdicts a visitor reads, each the answer the TOOL PAGES give for
+ * the same status: `canRunPdfSecurity` is every secure-server panel's base
+ * predicate, `ocr.available` the OCR panel's, `canRunAiTool` the four AI
+ * panels'. Never this page's own idea of "up" — `system-status.plain.test.tsx`
+ * holds the cards to those predicates over statuses built by the real
+ * derivation.
  */
-export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
+function verdicts(status: WorkerStatus) {
+  const server = canRunPdfSecurity(status);
+  const ocr = status.ocr.available;
+  const ai = canRunAiTool(status);
+  return { server, ocr, ai, all: server && ocr && ai };
+}
+
+const OVERALL_COPY: Record<
+  Overall,
+  { title: string; line: string; tone: StatusTone; icon: LucideIcon }
+> = {
+  loading: {
+    title: "Checking our tools…",
+    line: "Tools that run in your browser work either way.",
+    tone: "info",
+    icon: Loader2,
+  },
+  error: {
+    title: "We couldn’t check our server just now",
+    line: "Tools that run in your browser are not affected.",
+    tone: "muted",
+    icon: AlertTriangle,
+  },
+  working: {
+    title: "All systems working",
+    line: "Every tool is available right now.",
+    tone: "ok",
+    icon: CheckCircle2,
+  },
+  partial: {
+    title: "Some tools are offline",
+    line: "Tools that run in your browser still work. The cards below say which tools are offline.",
+    tone: "warn",
+    icon: AlertTriangle,
+  },
+};
+
+/** The overall box's border and wash, per tone; the text stays `text-fg`. */
+const OVERALL_BOX: Record<StatusTone, string> = {
+  ok: "border-ok/40 bg-ok/10",
+  warn: "border-warn/40 bg-warn/10",
+  danger: "border-err/40 bg-err/10",
+  info: "border-info/40 bg-info/10",
+  muted: "border-line bg-wash",
+};
+
+const OVERALL_ICON_INK: Record<StatusTone, string> = {
+  ok: "text-ok",
+  warn: "text-warn",
+  danger: "text-err",
+  info: "text-info",
+  muted: "text-muted",
+};
+
+/** A card's badge: the plain word for what it found. */
+function verdictBadge(phase: Phase, ok: boolean | null) {
+  if (phase === "loading")
+    return <StatusBadge tone="info" label="Checking…" pulse />;
+  if (phase === "error" || ok === null)
+    return <StatusBadge tone="muted" label="Unknown" />;
+  return ok ? (
+    <StatusBadge tone="ok" label="Available" />
+  ) : (
+    <StatusBadge tone="warn" label="Offline" />
+  );
+}
+
+/** One of the three plain cards: where the tools run, in the tool cards' words. */
+function PlainCard({
+  id,
+  mode,
+  title,
+  verdict,
+  badge,
+  children,
+}: {
+  id: string;
+  mode: ProcessingMode;
+  title: string;
+  verdict: string;
+  badge: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      data-status-card={id}
+      data-verdict={verdict}
+      aria-labelledby={`status-card-${id}`}
+      className="bg-panel border-line rounded-panel flex flex-col gap-3 border p-5"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2
+          id={`status-card-${id}`}
+          className="text-fg inline-flex items-center gap-2 text-base font-semibold"
+        >
+          <ModeShape mode={mode} className="size-2.5" />
+          {title}
+        </h2>
+        {badge}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** A disclosure button and the region it opens (`hidden`, never unmounted). */
+function Disclosure({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <div className={cn("flex flex-col gap-3", className)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((was) => !was)}
+        className="text-muted hover:text-fg inline-flex items-center gap-1.5 self-start text-sm font-medium underline-offset-4 transition hover:underline"
+      >
+        <ChevronDown
+          className={cn("size-4 transition-transform", open && "rotate-180")}
+          aria-hidden
+        />
+        {label}
+      </button>
+      <div id={id} hidden={!open} className="flex flex-col gap-4">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The AI row's words in technical details. `status.ai.detail` names the
+ * model ("…the openai provider (model gpt-5.6-luna)"), which nothing on this
+ * page needs and no guard asked for — so a declared provider is described
+ * without it, and only the not-declared and invalid-configuration details
+ * (which name no model) pass through. `/api/worker/status` still serves it.
+ */
+function aiTechnicalDetail(status: WorkerStatus): string {
+  if (!status.ai.ready) return status.ai.detail;
+  return status.ai.configuredHere
+    ? "An AI provider is declared for this deployment and configured in this process."
+    : "An AI provider is declared for this deployment. The AI tools run on the secure worker, which holds the API key; whether that key is present is not observable from here, and a job without it fails instead of returning a made-up answer.";
+}
+
+/**
+ * What pdf.xyz can do right now, for a VISITOR (owner, 2026-10-23): one
+ * overall line, three plain cards — tools in your browser, on our secure
+ * server, AI — with the OCR languages as a list, and every operator's row
+ * (the pipeline, storage, queue, processor, daemon, and the operations
+ * snapshot passed in as `operations`) one press away under "Technical
+ * details". `children` sit between the cards and that press.
+ *
+ * WAS an operator's dashboard on the first screen: "liveness heartbeat",
+ * "out-of-band secure worker", "Worker daemon · Drainable", the AI
+ * provider's model name.
+ *
+ * The status is read live from `/api/worker/status` — the same
+ * presence-only view the tool pages use. Reading it emits a privacy-safe
+ * `worker_status_checked` event (mode + enabled flag only). A fetch failure
+ * is recoverable, not a dead end.
+ */
+export function SystemStatus({
+  localTools,
+  operations,
+  children,
+}: {
+  localTools: LocalToolRef[];
+  /** The operator's snapshot, drawn inside "Technical details". */
+  operations?: ReactNode;
+  children?: ReactNode;
+}) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState<WorkerStatus | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -146,42 +334,165 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
     };
   }, [nonce]);
 
+  const known = phase === "ready" && status ? verdicts(status) : null;
+  const overall: Overall =
+    phase === "loading"
+      ? "loading"
+      : !known
+        ? "error"
+        : known.all
+          ? "working"
+          : "partial";
+  const copy = OVERALL_COPY[overall];
+  const OverallIcon = copy.icon;
   const badge = status ? workerBadge(status) : null;
+  const ocrLanguages =
+    phase === "ready" &&
+    status?.ocr.available &&
+    status.ocr.languages.length > 0
+      ? status.ocr.languages.map(describeOcrLanguage)
+      : [];
+  const verdictWord = (ok: boolean | undefined) =>
+    phase === "loading"
+      ? "checking"
+      : ok === undefined
+        ? "unknown"
+        : ok
+          ? "available"
+          : "offline";
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        {/* Local, in-browser tools: always on, always private. */}
-        <StatusCard
-          title="In-browser tools"
-          icon={MonitorSmartphone}
+    <div className="flex flex-col gap-6">
+      <div
+        role="status"
+        data-overall={overall}
+        className={cn(
+          "rounded-panel flex items-start gap-3 border p-4 sm:p-5",
+          OVERALL_BOX[copy.tone],
+        )}
+      >
+        <OverallIcon
+          className={cn(
+            "mt-0.5 size-5 shrink-0",
+            OVERALL_ICON_INK[copy.tone],
+            overall === "loading" && "animate-spin",
+          )}
+          aria-hidden
+        />
+        <div className="flex flex-col gap-1">
+          <p className="text-fg text-lg font-semibold">{copy.title}</p>
+          <p className="text-muted text-sm leading-relaxed">{copy.line}</p>
+          {overall === "error" && (
+            <button
+              type="button"
+              onClick={retry}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "mt-2 self-start",
+              )}
+            >
+              <RefreshCw className="size-3.5" aria-hidden />
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <PlainCard
+          id="browser"
+          mode="client"
+          title="Tools that run in your browser"
+          verdict="available"
           badge={<StatusBadge tone="ok" label="Available" />}
         >
           <p className="text-muted text-sm leading-relaxed">
-            {localTools.length} tool{localTools.length === 1 ? "" : "s"} run
-            entirely on your device, in your browser — your files never leave
-            the browser. The page and its processing engine load over the
-            network, with the engine fetched the first time you use a tool;
-            after that the work itself runs on your device.
+            {localTools.length} tool{localTools.length === 1 ? "" : "s"} work
+            right on your device. Your files never leave it.
           </p>
           {localTools.length > 0 && (
-            <ul
-              className="flex flex-wrap gap-1.5"
-              aria-label="In-browser tools"
-            >
-              {localTools.map((tool) => (
-                <li
-                  key={tool.slug}
-                  className="border-line bg-wash text-fg rounded-tag border px-2.5 py-1 text-xs"
-                >
-                  {tool.name}
-                </li>
-              ))}
-            </ul>
+            <Disclosure label={`See all ${localTools.length}`}>
+              <ul
+                className="flex flex-wrap gap-1.5"
+                aria-label="In-browser tools"
+              >
+                {localTools.map((tool) => (
+                  <li
+                    key={tool.slug}
+                    className="border-line bg-wash text-fg rounded-tag border px-2.5 py-1 text-xs"
+                  >
+                    {tool.name}
+                  </li>
+                ))}
+              </ul>
+            </Disclosure>
           )}
-        </StatusCard>
+        </PlainCard>
 
-        {/* Secure worker: read live from the honest status endpoint. */}
+        <PlainCard
+          id="server"
+          mode="server"
+          title="Tools on our secure server"
+          verdict={verdictWord(known?.server)}
+          badge={verdictBadge(phase, known ? known.server : null)}
+        >
+          <p className="text-muted text-sm leading-relaxed">
+            {known && !known.server
+              ? "These tools are offline right now. Try again later."
+              : "Office files, PDF/A, passwords and other heavy jobs. Your file is uploaded, processed, then deleted."}
+          </p>
+          <div className="border-line flex flex-col gap-2 border-t pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-fg inline-flex items-center gap-1.5 text-sm font-medium">
+                <ScanText className="text-muted size-4" aria-hidden />
+                Text recognition (OCR)
+              </span>
+              {verdictBadge(phase, known ? known.ocr : null)}
+            </div>
+            {ocrLanguages.length > 0 && (
+              <ul
+                aria-label="OCR languages"
+                className="text-muted flex flex-wrap gap-x-3 gap-y-1 text-sm"
+              >
+                {ocrLanguages.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </PlainCard>
+
+        <PlainCard
+          id="ai"
+          mode="ai"
+          title="AI tools"
+          verdict={verdictWord(known?.ai)}
+          badge={verdictBadge(phase, known ? known.ai : null)}
+        >
+          <p className="text-muted text-sm leading-relaxed">
+            {known && !known.ai
+              ? "AI tools are offline right now. Try again later."
+              : "Summarize, translate, chat with a PDF, and pull out data. These run on our secure server too."}
+          </p>
+        </PlainCard>
+      </div>
+
+      <AssuranceNote tone="privacy">
+        pdf.xyz is browser-first: whenever a tool can run on your device, it
+        does, and nothing is uploaded. A secure worker is only ever used for
+        work the browser genuinely can&apos;t do — and only after it&apos;s
+        clearly labeled.
+      </AssuranceNote>
+
+      {children}
+
+      <Disclosure
+        label="Technical details"
+        className="border-line border-t pt-6"
+      >
+        {/* The operator's rows, unchanged in substance: the secure-worker
+            card (one verdict, `system-status.consistency.test.tsx`) and the
+            operations snapshot. */}
         <StatusCard
           title="Secure worker"
           icon={Cpu}
@@ -196,10 +507,7 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
           }
         >
           {phase === "loading" && (
-            <p
-              className="text-muted inline-flex items-center gap-2 text-sm"
-              role="status"
-            >
+            <p className="text-muted inline-flex items-center gap-2 text-sm">
               <Loader2 className="size-4 animate-spin" aria-hidden />
               Checking worker availability…
             </p>
@@ -225,8 +533,6 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   ? status.detail
                   : status.pipeline.detail}
               </p>
-              {/* Per-capability honesty: OCR is called out explicitly so the page
-                  never implies a searchable-PDF pipeline that isn't wired up. */}
               <div className="border-line bg-wash rounded-ctl flex flex-col gap-1.5 border p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
@@ -244,17 +550,16 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                 {/* The list the detail refers to ("The languages listed are
                     the recognition packs that worker actually has installed").
                     Until 2026-09-27 the sentence rendered and the list did not. */}
-                {status.ocr.available && status.ocr.languages.length > 0 && (
+                {ocrLanguages.length > 0 && (
                   <p className="text-muted text-xs leading-relaxed">
                     <span className="text-fg font-medium">Languages:</span>{" "}
-                    {status.ocr.languages.map(describeOcrLanguage).join(", ")}
+                    {ocrLanguages.join(", ")}
                   </p>
                 )}
               </div>
 
-              {/* Same honesty for the AI tools: a drainable pipeline says nothing
-                  about whether a model is wired, so AI reports its own readiness
-                  rather than being implied by the worker's. */}
+              {/* AI reports its own readiness rather than being implied by the
+                  worker's — without the model's name (`aiTechnicalDetail`). */}
               <div className="border-line bg-wash rounded-ctl flex flex-col gap-1.5 border p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-fg inline-flex items-center gap-1.5 text-xs font-medium">
@@ -267,14 +572,12 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   />
                 </div>
                 <p className="text-muted text-xs leading-relaxed">
-                  {status.ai.detail}
+                  {aiTechnicalDetail(status)}
                 </p>
               </div>
 
               {/* The production pipeline, piece by piece: signed upload → queued
-                  job → worker processing → signed download → deletion. Each
-                  provider reports its own honest readiness so the page can say
-                  exactly what a real deployment still needs to wire up. */}
+                  job → worker processing → signed download → deletion. */}
               <div className="flex flex-col gap-1.5">
                 <span className="text-faint kicker">Production pipeline</span>
                 <ProviderRow
@@ -298,9 +601,8 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
                   configured={status.providers.processor.configured}
                   detail={status.providers.processor.detail}
                 />
-                {/* The out-of-band worker daemon (Phase 16). "Drainable" means a
-                    separately deployed worker COULD claim + run jobs here — never
-                    that one is actually running, which this app can't observe. */}
+                {/* "Drainable" means a separately deployed worker COULD claim +
+                    run jobs here — never that one is actually running. */}
                 <ProviderRow
                   icon={Cpu}
                   label="Worker daemon"
@@ -316,14 +618,8 @@ export function SystemStatus({ localTools }: { localTools: LocalToolRef[] }) {
             </div>
           )}
         </StatusCard>
-      </div>
-
-      <AssuranceNote tone="privacy">
-        pdf.xyz is browser-first: whenever a tool can run on your device, it
-        does, and nothing is uploaded. A secure worker is only ever used for
-        work the browser genuinely can&apos;t do — and only after it&apos;s
-        clearly labeled.
-      </AssuranceNote>
+        {operations}
+      </Disclosure>
     </div>
   );
 }

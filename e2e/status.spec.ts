@@ -14,17 +14,39 @@ test.describe("system status page", () => {
       page.getByRole("heading", { level: 1, name: /system status/i }),
     ).toBeVisible();
 
-    // Both capability summaries render.
+    // THE FIRST SCREEN IS A VISITOR'S (2026-10-23). Until then it opened on
+    // "In-browser tools" beside a "Secure worker" card of liveness
+    // heartbeats, drainable daemons and the AI model's name; those rows are
+    // under "Technical details" now. One overall line, from the live answer:
+    // in this build nothing is configured, so the server and AI cards are
+    // offline and the page says some tools are.
+    await expect(page.locator("[data-overall]")).toHaveAttribute(
+      "data-overall",
+      "partial",
+    );
+    await expect(page.getByText("Some tools are offline")).toBeVisible();
+    for (const name of [
+      "Tools that run in your browser",
+      "Tools on our secure server",
+      "AI tools",
+    ])
+      await expect(page.getByRole("heading", { name })).toBeVisible();
+
+    // The in-browser card is always available and never uploads. Exact
+    // match: the OCR row honestly says OCR is "unavailable" nearby.
+    await expect(page.getByText("Available", { exact: true })).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: /in-browser tools/i }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: /secure worker/i }),
+      page.locator('[data-status-card="server"]').getByText("Offline"),
     ).toBeVisible();
 
-    // The in-browser card is always available and never uploads. Exact match:
-    // the OCR capability row honestly says OCR is "unavailable" nearby.
-    await expect(page.getByText("Available", { exact: true })).toBeVisible();
+    // The operator's words are not on the first screen…
+    await expect(page.getByText(/cannot drain a worker/i)).toBeHidden();
+    await expect(page.getByText("Production pipeline")).toBeHidden();
+    // …and are one press away.
+    await page.getByRole("button", { name: "Technical details" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Secure worker", exact: true }),
+    ).toBeVisible();
 
     // The worker half is read live from /api/worker/status. In the production
     // build the e2e suite runs, nothing is configured and nothing is observed —
@@ -97,6 +119,9 @@ test.describe("system status page", () => {
     const guard = attachConsoleGuard(page);
     const res = await page.goto("/status");
     expect(res?.status()).toBe(200);
+
+    // The operator dashboard is under "Technical details" since 2026-10-23.
+    await page.getByRole("button", { name: "Technical details" }).click();
 
     // The operator dashboard section renders.
     await expect(

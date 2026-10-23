@@ -71,71 +71,69 @@ export default function StatusPage() {
             System status
           </h1>
           <p className="text-muted max-w-2xl text-base leading-relaxed text-pretty sm:text-lg">
-            pdf.xyz is a privacy-first, browser-first platform. This page shows
-            exactly what runs where in this environment — checked live, with no
-            over-promising. It never reports on your files, only on
-            capabilities.
+            See which pdf.xyz tools are working right now. It is checked live,
+            and this page never sees your files.
           </p>
         </div>
 
-        <SystemStatus localTools={localTools} />
-
-        <div className="bg-line h-px w-full" role="presentation" />
-
-        {/* The operator counterpart to the capability summary above: the same worker
-            stack, projected into SLO health classes and a single next action. */}
-        <WorkerOperationsDashboard />
-
-        <div className="bg-line h-px w-full" role="presentation" />
-
-        <section className="flex flex-col gap-4">
-          <h2 className="text-faint kicker">What runs where</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {CAPABILITY_ORDER.map((id) => {
-              const descriptor = CAPABILITY_DESCRIPTORS[id];
-              return (
-                <div
-                  key={id}
-                  className="bg-panel border-line rounded-panel flex flex-col gap-2 border p-5"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-fg text-sm font-semibold">
-                      {descriptor.label}
-                    </span>
-                    <span className="text-muted inline-flex items-center gap-1.5 text-xs">
-                      <AvailabilityGlyph available={!descriptor.uploadsFiles} />
-                      {descriptor.uploadsFiles
-                        ? "Files uploaded (auto-deleted)"
-                        : "Files never leave your device"}
-                    </span>
+        {/* The operator's snapshot (SLO health classes and a single next
+            action) is drawn inside the summary's "Technical details" — one
+            press away, no longer on a visitor's first screen. */}
+        <SystemStatus
+          localTools={localTools}
+          operations={<WorkerOperationsDashboard />}
+        >
+          <section className="flex flex-col gap-4">
+            <h2 className="text-fg text-base font-semibold">What runs where</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {CAPABILITY_ORDER.map((id) => {
+                const descriptor = CAPABILITY_DESCRIPTORS[id];
+                return (
+                  <div
+                    key={id}
+                    className="bg-panel border-line rounded-panel flex flex-col gap-2 border p-5"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-fg text-sm font-semibold">
+                        {descriptor.label}
+                      </span>
+                      <span className="text-muted inline-flex items-center gap-1.5 text-xs">
+                        <AvailabilityGlyph
+                          available={!descriptor.uploadsFiles}
+                        />
+                        {descriptor.uploadsFiles
+                          ? "Files uploaded (auto-deleted)"
+                          : "Files never leave your device"}
+                      </span>
+                    </div>
+                    <p className="text-muted text-sm leading-relaxed">
+                      {descriptor.summary}
+                    </p>
                   </div>
-                  <p className="text-muted text-sm leading-relaxed">
-                    {descriptor.summary}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-          <p className="text-muted text-xs leading-relaxed">
-            {/* Was: "show an honest, implementation-ready preview until their
+                );
+              })}
+            </div>
+            <p className="text-muted text-xs leading-relaxed">
+              {/* Was: "show an honest, implementation-ready preview until their
                 backend is enabled" — false for all 21. Every server and AI slug
                 has a dedicated worker panel and the one hybrid tool renders the
                 interactive workbench, so a reader was told a live page was
                 inert. The true part is the one worth keeping: nothing is faked
                 locally. */}
-            Secure-worker and AI tools upload your file to a secure worker, as
-            does Compress&apos;s optional worker step, and each tells you so
-            before you run it — pdf.xyz never fakes processing in the browser.
-            The{" "}
-            <Link
-              href="/privacy#files"
-              className="text-accent underline underline-offset-4"
-            >
-              privacy policy
-            </Link>{" "}
-            sets out how uploads, malware scanning and deletion work.
-          </p>
-        </section>
+              Secure-worker and AI tools upload your file to a secure worker, as
+              does Compress&apos;s optional worker step, and each tells you so
+              before you run it — pdf.xyz never fakes processing in the browser.
+              The{" "}
+              <Link
+                href="/privacy#files"
+                className="text-accent underline underline-offset-4"
+              >
+                privacy policy
+              </Link>{" "}
+              sets out how uploads, malware scanning and deletion work.
+            </p>
+          </section>
+        </SystemStatus>
       </Container>
     </div>
   );
