@@ -51,9 +51,14 @@ test.describe("secure-worker AI tool panel", () => {
     // The stated reason must be the one that is actually blocking. No AI provider
     // is declared in this build, so the panel names that — not the daemon — and a
     // user is never asked to upload a PDF for work that provably cannot happen.
-    await expect(
-      page.getByText(/no ai provider is declared for this deployment/i),
-    ).toBeVisible();
+    // Since 2026-10-24 the not-enabled box leads with one sentence and keeps
+    // the reason behind "Why?": hidden until asked for, then shown.
+    const reason = page.getByText(
+      /no ai provider is declared for this deployment/i,
+    );
+    await expect(reason).toBeHidden();
+    await page.getByRole("button", { name: "Why?" }).click();
+    await expect(reason).toBeVisible();
 
     // INVERTED in WP-10 (was "not-enabled ⇒ no builder, so no client
     // uploader"): the builder and its drop zone are there; asking is off.

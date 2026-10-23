@@ -36,7 +36,10 @@ test.describe("system status page", () => {
     // match: the OCR row honestly says OCR is "unavailable" nearby.
     await expect(page.getByText("Available", { exact: true })).toBeVisible();
     await expect(
-      page.locator('[data-status-card="server"]').getByText("Offline"),
+      page
+        .locator('[data-status-card="server"]')
+        .getByText("Offline", { exact: true })
+        .first(),
     ).toBeVisible();
 
     // The operator's words are not on the first screen…

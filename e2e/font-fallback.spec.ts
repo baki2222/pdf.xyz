@@ -281,13 +281,21 @@ test.describe("fallback faces", () => {
       body?.elements ?? 0,
       `the body text was not found:\n${table}`,
     ).toBeGreaterThan(150);
+    // GeistMono's floor is its own: the plain-language pass (#199-#202)
+    // took the mono eyebrows off the cards — the guides index alone had 25
+    // ("MERGE PDF") — and these pages now set 10 mono elements, the guide's
+    // step labels and the home page's kbd hint among them. A floor of 15 for
+    // every face then failed on a site that simply uses less mono, which is
+    // the redesign working, not the selector breaking; 8 still catches a
+    // corpus that lost the face (0) or most of it.
+    const FLOOR: Record<string, number> = { GeistMono: 8 };
     for (const family of families)
       expect(
         groups
           .filter((g) => g.real === family)
           .reduce((n, g) => n + g.elements, 0),
         `too little ${family} text to measure:\n${table}`,
-      ).toBeGreaterThan(15);
+      ).toBeGreaterThan(FLOOR[family] ?? 15);
 
     const off = groups
       .filter((g) => Math.abs(ratio(g) - 1) > TOLERANCE)
