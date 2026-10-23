@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Six sentences the site shipped that nothing in the product backs.
+ * Seven sentences the site shipped that nothing in the product backs.
  *
  *  1. A QUANTITY THE CATALOGUE OWNS, UNDERSTATED. The FAQ said "a handful of
  *     heavy or AI-powered tools use encrypted, auto-deleting workers" and the
@@ -73,6 +73,20 @@
  *     defect is worse than none (WP-08 review, 2026-10-10). If a tool ever
  *     needs the sentence, key its exit on that property, measured from its
  *     result — never on a marker.
+ *
+ *  7. A PROVIDER'S TRAINING, PROMISED ABSOLUTELY. /privacy's file-handling
+ *     list ended "Nothing here is used to train any model — not ours, and
+ *     not a provider's." The first half is pdf.xyz's to promise; the second
+ *     is not. A third-party provider receives the text, and what stops it
+ *     training is its terms plus three switches in our account (verified
+ *     off 2026-08-10) — which the same page's section 3 says, hedge
+ *     included ("We cannot control what a provider does beyond that"); the
+ *     FAQ, the homepage and every AI tool's page give the terms form. One
+ *     page made two claims. It now says pdf.xyz trains no models and points
+ *     to section 3 for the provider.
+ *     NO EXIT CONDITION while a third party receives the text: no test in
+ *     this repository can see a provider's conduct or an account switch, so
+ *     the strongest true sentence is the terms one.
  *
  * THE CORPUS is every file the copy walk reaches (`copyFiles()`), comments
  * removed and JSX flattened to the text a reader sees — so a phrase broken by
@@ -165,6 +179,21 @@ const RULES: readonly Rule[] = [
     shipped: [
       "Start over clears the loaded file, so changing a setting afterwards means picking the original again.",
       "There is no preview, so to change the settings press Start over and choose the file again.",
+    ],
+  },
+  {
+    name: "a provider's training ruled out absolutely",
+    // "not ours, and not a provider's" / "nor any provider's", and the
+    // absolute form the homepage card once used: "never used to train any
+    // model". Bounded by the sentence. A promise about pdf.xyz's OWN use
+    // ("does not permit us … to train a machine-learning model") is not this.
+    patterns: [
+      /\bnot\s+ours\b[^.]{0,20}?\b(?:not|nor)\s+(?:a|the|any)\s+(?:AI\s+)?provider'?s\b/i,
+      /\b(?:nothing|never)\b[^.]{0,30}?\bused\s+to\s+train\s+any\s+(?:AI\s+)?models?\b/i,
+    ],
+    shipped: [
+      "Nothing here is used to train any model — not ours, and not a provider's.",
+      "AI tools run on secure infrastructure and your content is never used to train any model.",
     ],
   },
 ];

@@ -217,8 +217,12 @@ export default function PrivacyPage() {
             {JOB_RECORD_JOURNAL_NOTE}
           </li>
           <li>
-            Nothing here is used to train any model — not ours, and not a
-            provider&apos;s.
+            We train no models, on this or anything else. What the AI provider
+            may do with the text it receives is set out in{" "}
+            <a href="#ai" className={link}>
+              section 3
+            </a>
+            .
           </li>
         </ul>
         {/* The reconciliation sentence, and the reason the two groups above do
