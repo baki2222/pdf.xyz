@@ -124,10 +124,18 @@ function announcement(row: StageRow): string | null {
 
 /**
  * The job docket: the stages this tool's job moves through, stamped live as
- * the browser observes them (spec D.7, E.10). Before a run it is the same
- * honest "what happens to your file" list the panels always showed — the
- * stage descriptions are its `<details>` — and every row is one line, so a
- * status answer that renames the checks stage moves nothing under it.
+ * the browser observes them (spec D.7, E.10) — once there is a job. Every
+ * row is one line, so a status answer that renames the checks stage moves
+ * nothing under it.
+ *
+ * BEFORE A JOB nothing is drawn but one press: "What happens to your file",
+ * which opens each stage's title and what it does. Until 2026-10-23 the
+ * five rows stood here unticked from the first paint — a list that read as
+ * something to fill in, before a visitor had picked a file (owner: "a stage
+ * list shows before anything has happened"). The words did not change and
+ * are in the HTML either way (`hidden`, not unmounted), so every crawler and
+ * every honesty guard reads every stage; `tool-page-layout.test.ts` holds
+ * that no worker page serves the docket and every page serves its stages.
  */
 export function LiveStages({
   stages,
@@ -149,6 +157,45 @@ export function LiveStages({
     rows,
     last === undefined || last === "done" || last === "failed",
   );
+  // A disclosure button, not <details>: that is an ARIA "group", and a
+  // result card is the panel's one group (tests and screen readers find the
+  // result by it). Collapsed by default, so a status answer that rewrites
+  // the checks stage's description moves nothing.
+  const toggle = (label: string, className: string) => (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={detailsId}
+      onClick={() => setOpen((was) => !was)}
+      className={cn(
+        "hover:text-fg self-start font-medium underline-offset-4 transition hover:underline",
+        className,
+      )}
+    >
+      {label}
+    </button>
+  );
+  const described = (
+    <dl
+      id={detailsId}
+      hidden={!open}
+      className="text-muted flex flex-col gap-2 text-xs leading-relaxed"
+    >
+      {stages.map((stage) => (
+        <div key={stage.id}>
+          <dt className="text-fg font-medium">{stage.title}</dt>
+          <dd>{stage.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+  if (events.length === 0)
+    return (
+      <div className="flex flex-col gap-2">
+        {toggle("What happens to your file", "text-muted text-sm")}
+        {described}
+      </div>
+    );
   return (
     <div className="flex flex-col gap-2" data-docket="">
       <h3 className="text-faint kicker">What happens to your file</h3>
@@ -179,32 +226,8 @@ export function LiveStages({
           </li>
         ))}
       </ol>
-      {/* A disclosure button, not <details>: that is an ARIA "group", and a
-          result card is the panel's one group (tests and screen readers
-          find the result by it). Collapsed by default so a status answer
-          that rewrites the checks stage's description moves nothing; in the
-          HTML either way, so every crawler reads every stage's words. */}
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={detailsId}
-        onClick={() => setOpen((was) => !was)}
-        className="text-muted hover:text-fg self-start text-xs font-medium underline-offset-4 transition hover:underline"
-      >
-        What each step does
-      </button>
-      <dl
-        id={detailsId}
-        hidden={!open}
-        className="text-muted flex flex-col gap-2 text-xs leading-relaxed"
-      >
-        {stages.map((stage) => (
-          <div key={stage.id}>
-            <dt className="text-fg font-medium">{stage.title}</dt>
-            <dd>{stage.description}</dd>
-          </div>
-        ))}
-      </dl>
+      {toggle("What each step does", "text-muted text-xs")}
+      {described}
     </div>
   );
 }

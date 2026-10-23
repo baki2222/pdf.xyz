@@ -341,8 +341,9 @@ describe("the surfaces that list the package's contents list what it contains", 
       "utf8",
     );
     // The row as the panel declares it — a JSX prop until WP-10 moved the
-    // spec rows onto the shell, an object field since.
-    const at = panel.search(/label(?:=|: )"Output"/);
+    // spec rows onto the shell, an object field since. Labelled "Output"
+    // until 2026-10-23, "You get" since (plain words on the tool pages).
+    const at = panel.search(/label(?:=|: )"You get"/);
     expect(at, "health: the panel declares an Output row").toBeGreaterThan(0);
     const outputRow = panel.slice(at);
     const { createAiExtractProcessor } =

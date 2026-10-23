@@ -57,8 +57,15 @@ import {
  * uses, so the thirteen share a handful of classes. A first fit from
  * Windows alone (x1.06) left PowerPoint to PDF and PDF to PowerPoint
  * short on Linux at 360. The check: `e2e/tool-layout.mobile.spec.ts`.
+ *
+ * Refitted 2026-10-23, when the stage list stopped being drawn before a
+ * job (one "What happens to your file" press stands in for it): the
+ * tallest state is now not-enabled, off 508/527.5px at 360 (Windows/Linux;
+ * Linux from CI's SLOT_NATURAL lines on 0504da27, a state this change
+ * did not touch), x1.035 to the half rem, then up to a value another
+ * panel already uses.
  */
-const STATUS_SLOT = "min-h-[35.5rem] sm:min-h-[29.5rem] lg:min-h-[30.5rem]";
+const STATUS_SLOT = "min-h-[35.5rem] sm:min-h-[25rem] lg:min-h-[28rem]";
 
 type Mode = "html" | "url";
 
@@ -83,13 +90,13 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
       specRows={[
         {
           icon: Icon,
-          label: "Input",
+          label: "You add",
           value: mode === "url" ? "One public URL" : "One HTML file",
         },
-        { icon: Download, label: "Output", value: "PDF" },
+        { icon: Download, label: "You get", value: "PDF" },
         {
           icon: Timer,
-          label: "Retention",
+          label: "Your files",
           value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
         },
         // The per-file cap, only where there IS a file. This row stated
@@ -104,7 +111,7 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
           ? [
               {
                 icon: ShieldCheck,
-                label: "Limit",
+                label: "Largest file",
                 value: `${formatBytes(ceilingBytes)}/file`,
               },
             ]

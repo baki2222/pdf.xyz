@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   Check,
   FileDown,
@@ -72,8 +78,15 @@ import {
  * uses, so the thirteen share a handful of classes. A first fit from
  * Windows alone (x1.06) left PowerPoint to PDF and PDF to PowerPoint
  * short on Linux at 360. The check: `e2e/tool-layout.mobile.spec.ts`.
+ *
+ * Refitted 2026-10-23, when the stage list stopped being drawn before a
+ * job (one "What happens to your file" press stands in for it): the
+ * tallest state is now not-enabled, off 460.3/479.8px at 360 (Windows/Linux;
+ * Linux from CI's SLOT_NATURAL lines on 0504da27, a state this change
+ * did not touch), x1.035 to the half rem, then up to a value another
+ * panel already uses.
  */
-const STATUS_SLOT = "min-h-[34rem] sm:min-h-[29.5rem] lg:min-h-[30.5rem]";
+const STATUS_SLOT = "min-h-[31.5rem] sm:min-h-[22rem] lg:min-h-[24.5rem]";
 
 const CONTENT_TYPE_BY_EXT: Record<string, string> = {
   pdf: "application/pdf",
@@ -127,7 +140,7 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
         { icon: FileDown, label: "Outputs", value: outputs },
         {
           icon: Timer,
-          label: "Retention",
+          label: "Your files",
           value: `Inputs wiped after processing · outputs ${DEFAULT_RETENTION.outputTtlMinutes} min`,
         },
         {
@@ -270,120 +283,116 @@ function OcrBody({
     parsed.ok && request.languages.every((code) => installed.has(code));
   const browserChose = chosen === null && fromBrowser !== null;
 
-  return (
-    <>
-      {/* Recognition settings */}
-      <div className="bg-panel border-line rounded-panel flex flex-col gap-4 border p-4 sm:p-5">
-        <h3 className="text-faint kicker">Recognition settings</h3>
+  // The file comes first, then what to recognise in it, then Run: a
+  // visitor meets the drop area at the top of the panel (owner,
+  // 2026-10-23). Until then the settings stood above it, and the drop
+  // area started below a 1440 x 900 screen.
+  const settings = (
+    <div className="bg-panel border-line rounded-panel flex flex-col gap-4 border p-4 sm:p-5">
+      <h3 className="text-faint kicker">Recognition settings</h3>
 
-        {/* Languages */}
-        <div className="flex flex-col gap-2">
-          <span className="text-muted inline-flex items-center gap-1.5 text-xs font-medium">
-            <Languages className="size-3.5" aria-hidden />
-            Languages{" "}
-            <span className="text-muted">(up to {MAX_OCR_LANGUAGES})</span>
-          </span>
-          {/*
+      {/* Languages */}
+      <div className="flex flex-col gap-2">
+        <span className="text-muted inline-flex items-center gap-1.5 text-xs font-medium">
+          <Languages className="size-3.5" aria-hidden />
+          Languages{" "}
+          <span className="text-muted">(up to {MAX_OCR_LANGUAGES})</span>
+        </span>
+        {/*
             The single most useful sentence on this page. OCR against the wrong
             language does not fail — it returns confident-looking nonsense — so a
             user who leaves the default alone gets a successful job and unusable
             output, with nothing anywhere to tell them why.
           */}
-          <p className="text-muted text-xs leading-relaxed">
-            Select every language printed on the page — a page that mixes
-            Bengali with English technical terms needs both. The wrong language
-            does not produce an error, it produces plausible-looking gibberish.
-          </p>
-          <div
-            className="flex flex-wrap gap-1.5"
-            role="group"
-            aria-label="OCR languages"
-          >
-            {OCR_LANGUAGES.map((language) => {
-              const active = selected.includes(language.code);
-              const notInstalled = !installed.has(language.code);
-              const atCap = !active && selected.length >= MAX_OCR_LANGUAGES;
-              return (
-                <button
-                  key={language.code}
-                  type="button"
-                  // aria-disabled, never native: the cap flips exactly while the
-                  // user is picking languages, and a natively disabled chip would
-                  // eject their focus and leave the tab order (the #46 rule).
-                  // toggleLanguage respects the cap; `selected` the report.
-                  onClick={() => toggleLanguage(language.code)}
-                  aria-disabled={notInstalled || atCap || undefined}
-                  aria-pressed={active}
-                  title={
-                    notInstalled
-                      ? "Not installed on the current worker — it has no recognition pack for this language."
-                      : atCap
-                        ? `Deselect a language first — at most ${MAX_OCR_LANGUAGES} at once.`
-                        : undefined
-                  }
-                  className={cn(
-                    "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
-                    active
-                      ? "border-accent/40 bg-accent/10 text-accent"
-                      : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
-                  )}
-                >
-                  {active && <Check className="size-3" aria-hidden />}
-                  {language.label}
-                </button>
-              );
-            })}
-          </div>
-          {browserChose && (
-            <p
-              className="text-muted text-xs leading-relaxed"
-              data-ocr-reason=""
-            >
-              Chosen from your browser&apos;s languages. Change them if the page
-              is printed in others.
-            </p>
-          )}
+        <p className="text-muted text-xs leading-relaxed">
+          Select every language printed on the page — a page that mixes Bengali
+          with English technical terms needs both. The wrong language does not
+          produce an error, it produces plausible-looking gibberish.
+        </p>
+        <div
+          className="flex flex-wrap gap-1.5"
+          role="group"
+          aria-label="OCR languages"
+        >
+          {OCR_LANGUAGES.map((language) => {
+            const active = selected.includes(language.code);
+            const notInstalled = !installed.has(language.code);
+            const atCap = !active && selected.length >= MAX_OCR_LANGUAGES;
+            return (
+              <button
+                key={language.code}
+                type="button"
+                // aria-disabled, never native: the cap flips exactly while the
+                // user is picking languages, and a natively disabled chip would
+                // eject their focus and leave the tab order (the #46 rule).
+                // toggleLanguage respects the cap; `selected` the report.
+                onClick={() => toggleLanguage(language.code)}
+                aria-disabled={notInstalled || atCap || undefined}
+                aria-pressed={active}
+                title={
+                  notInstalled
+                    ? "Not installed on the current worker — it has no recognition pack for this language."
+                    : atCap
+                      ? `Deselect a language first — at most ${MAX_OCR_LANGUAGES} at once.`
+                      : undefined
+                }
+                className={cn(
+                  "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
+                  active
+                    ? "border-accent/40 bg-accent/10 text-accent"
+                    : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
+                )}
+              >
+                {active && <Check className="size-3" aria-hidden />}
+                {language.label}
+              </button>
+            );
+          })}
         </div>
-
-        {/* Output mode */}
-        <div className="flex flex-col gap-2">
-          <span className="text-muted text-xs font-medium">Output</span>
-          <div
-            className="flex flex-wrap gap-1.5"
-            role="radiogroup"
-            aria-label="OCR output"
-          >
-            {OCR_OUTPUT_MODES.map((mode) => {
-              const active = outputMode === mode.id;
-              return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => setOutputMode(mode.id)}
-                  title={mode.description}
-                  className={cn(
-                    "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition",
-                    active
-                      ? "border-accent/40 bg-accent/10 text-accent"
-                      : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
-                  )}
-                >
-                  {mode.label}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-muted text-xs leading-relaxed">
-            {
-              OCR_OUTPUT_MODES.find((mode) => mode.id === outputMode)
-                ?.description
-            }
+        {browserChose && (
+          <p className="text-muted text-xs leading-relaxed" data-ocr-reason="">
+            Chosen from your browser&apos;s languages. Change them if the page
+            is printed in others.
           </p>
-        </div>
+        )}
+      </div>
 
-        {/*
+      {/* Output mode */}
+      <div className="flex flex-col gap-2">
+        <span className="text-muted text-xs font-medium">Output</span>
+        <div
+          className="flex flex-wrap gap-1.5"
+          role="radiogroup"
+          aria-label="OCR output"
+        >
+          {OCR_OUTPUT_MODES.map((mode) => {
+            const active = outputMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setOutputMode(mode.id)}
+                title={mode.description}
+                className={cn(
+                  "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition",
+                  active
+                    ? "border-accent/40 bg-accent/10 text-accent"
+                    : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
+                )}
+              >
+                {mode.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-muted text-xs leading-relaxed">
+          {OCR_OUTPUT_MODES.find((mode) => mode.id === outputMode)?.description}
+        </p>
+      </div>
+
+      {/*
           Redo toggle. Until 2026-09-27 this was "Skip pages that already have
           text", off by default, and its copy described the off state as
           re-recognizing those pages. Off actually passed no flag at all, and
@@ -391,38 +400,40 @@ function OcrBody({
           existing text is now the default, and the only opt-in is the
           non-destructive redo (never --force-ocr, which rasterizes pages).
         */}
-        <label className="text-muted flex items-start gap-2.5 text-sm">
-          <input
-            type="checkbox"
-            checked={redoOcr}
-            onChange={(event) => setRedoOcr(event.target.checked)}
-            className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
-          />
-          <span className="flex flex-col gap-0.5">
-            <span className="text-fg font-medium">Redo existing OCR</span>
-            <span className="text-muted text-xs leading-relaxed">
-              Pages that already have text keep it, and only the pages without
-              text are recognized. Turn this on when a PDF&apos;s existing OCR
-              text is poor: that text is removed and those pages are recognized
-              again. Text typed into the document is kept either way. PDFs only.
-            </span>
+      <label className="text-muted flex items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={redoOcr}
+          onChange={(event) => setRedoOcr(event.target.checked)}
+          className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-fg font-medium">Redo existing OCR</span>
+          <span className="text-muted text-xs leading-relaxed">
+            Pages that already have text keep it, and only the pages without
+            text are recognized. Turn this on when a PDF&apos;s existing OCR
+            text is poor: that text is removed and those pages are recognized
+            again. Text typed into the document is kept either way. PDFs only.
           </span>
-        </label>
+        </span>
+      </label>
 
-        <p className="border-line bg-wash text-muted rounded-ctl border px-3 py-2 text-xs">
-          <span className="text-muted font-medium">This request:</span>{" "}
-          {describeOcrRequest(request)}
-          {redoOcr ? " · redo existing OCR" : ""}
-        </p>
-      </div>
+      <p className="border-line bg-wash text-muted rounded-ctl border px-3 py-2 text-xs">
+        <span className="text-muted font-medium">This request:</span>{" "}
+        {describeOcrRequest(request)}
+        {redoOcr ? " · redo existing OCR" : ""}
+      </p>
+    </div>
+  );
 
-      <OcrRunArea
-        tool={tool}
-        request={request}
-        refuse={(file) => pickRefusal(tool, file)}
-        runnable={runnable}
-      />
-    </>
+  return (
+    <OcrRunArea
+      tool={tool}
+      request={request}
+      refuse={(file) => pickRefusal(tool, file)}
+      runnable={runnable}
+      settings={settings}
+    />
   );
 }
 
@@ -440,12 +451,15 @@ function OcrRunArea({
   request,
   refuse,
   runnable,
+  settings,
 }: {
   tool: Tool;
   request: OcrOptions;
   refuse: PickRefusal;
   /** False when the request names a language the worker reports it lacks. */
   runnable: boolean;
+  /** The recognition settings, drawn between the file and Run. */
+  settings: ReactNode;
 }) {
   const { available, status } = useWorkerPanel();
   const [file, setFile] = useState<File | null>(null);
@@ -533,6 +547,8 @@ function OcrRunArea({
           uploaded; run each as its own job.
         </p>
       )}
+
+      {settings}
 
       {available && !runnable && (
         <p className="text-warn text-xs leading-relaxed">

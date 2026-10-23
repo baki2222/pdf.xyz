@@ -74,8 +74,15 @@ import {
  * uses, so the thirteen share a handful of classes. A first fit from
  * Windows alone (x1.06) left PowerPoint to PDF and PDF to PowerPoint
  * short on Linux at 360. The check: `e2e/tool-layout.mobile.spec.ts`.
+ *
+ * Refitted 2026-10-23, when the stage list stopped being drawn before a
+ * job (one "What happens to your file" press stands in for it): the
+ * tallest state is now not-enabled, off 641.3/660.8px at 360 (Windows/Linux;
+ * Linux from CI's SLOT_NATURAL lines on 0504da27, a state this change
+ * did not touch), x1.035 to the half rem, then up to a value another
+ * panel already uses.
  */
-const STATUS_SLOT = "min-h-[43rem] sm:min-h-[32rem] lg:min-h-[35.5rem]";
+const STATUS_SLOT = "min-h-[43rem] sm:min-h-[29.5rem] lg:min-h-[33.5rem]";
 
 /** The default target language shown in the builder. */
 const DEFAULT_TARGET: TranslateLanguage = "en";
@@ -131,17 +138,17 @@ export function TranslateWorkerPanel({
       specRows={[
         {
           icon: Download,
-          label: "Output",
+          label: "You get",
           value: "ZIP · translation.md + translation.txt + manifest",
         },
         {
           icon: Timer,
-          label: "Retention",
+          label: "Your files",
           value: `Input wiped after processing · output ${DEFAULT_RETENTION.outputTtlMinutes} min`,
         },
         {
           icon: ShieldCheck,
-          label: "Limit",
+          label: "Largest file",
           // The number is PER PASS, not per document: a long document is split
           // at page boundaries and translated a few pages at a time. Saying
           // "characters translated" flat would understate the tool by however

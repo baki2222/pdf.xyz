@@ -22,7 +22,7 @@ test.describe("secure-worker AI tool panel", () => {
     // The dedicated panel — not the in-browser runner, and not a fake uploader.
     await expect(
       page.getByRole("heading", {
-        name: /runs on a secure worker/i,
+        name: /runs on our secure server/i,
       }),
     ).toBeVisible();
     await expect(page.getByText("Not enabled")).toBeVisible();
@@ -42,6 +42,10 @@ test.describe("secure-worker AI tool panel", () => {
     await expect(page.getByText("Malware scan")).toHaveCount(0);
     expect(served).toContain("AI processing");
     expect(served).toMatch(/third-party AI provider/i);
+    // Since 2026-10-23 the spec rows sit under the panel's "Details", one
+    // press away: in the HTML from the first paint, shown on the press.
+    expect(served).toMatch(/wiped after processing/i);
+    await page.getByRole("button", { name: "Details", exact: true }).click();
     await expect(page.getByText(/wiped after processing/i)).toBeVisible();
 
     // The stated reason must be the one that is actually blocking. No AI provider

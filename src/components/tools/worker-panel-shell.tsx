@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useId,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { LucideIcon } from "lucide-react";
 import { RotateCw } from "lucide-react";
 import {
@@ -74,8 +81,9 @@ const PILL: Record<"info" | "accent", string> = {
 
 /**
  * Every worker and AI panel's frame (spec C.2, D.7): the engine pill and the
- * live status badge, the panel's `h2` and description, the run area, and the
- * spec rows — with the page's ONE status check (`useWorkerStatus`) and the
+ * live status badge, the panel's `h2`, the run area, and then — one press
+ * away, under "Details" — the panel's description, the spec rows and the
+ * footer, with the page's ONE status check (`useWorkerStatus`) and the
  * tool's ONE stage list (`workerPipelineStages`) computed here, for every
  * panel, instead of in thirteen copies.
  *
@@ -99,7 +107,7 @@ export function WorkerPanelShell({
   tool: Tool;
   engine: { label: string; icon: LucideIcon };
   tone?: "info" | "accent";
-  /** The `h2`; "{tool} runs on a secure worker" when not given. */
+  /** The `h2`; "{tool} runs on our secure server" when not given. */
   heading?: ReactNode;
   description: ReactNode;
   /** Whether a status lets this panel run. Read once the status is known. */
@@ -126,6 +134,8 @@ export function WorkerPanelShell({
   );
   const badge = badgeFor(phase, status, available, readyLabel);
   const Icon = engine.icon;
+  const [details, setDetails] = useState(false);
+  const detailsId = useId();
 
   return (
     <PanelContext.Provider value={state}>
@@ -148,11 +158,8 @@ export function WorkerPanelShell({
             />
           </div>
           <h2 className="text-fg text-lg font-semibold">
-            {heading ?? `${tool.name} runs on a secure worker`}
+            {heading ?? `${tool.name} runs on our secure server`}
           </h2>
-          <div className="text-muted text-sm leading-relaxed">
-            {description}
-          </div>
         </div>
 
         {/* One column that never grows past the panel (`grid-cols-1` is
@@ -161,12 +168,40 @@ export function WorkerPanelShell({
             it while the file row lived inside the slot; it lives here now. */}
         <div className="grid grid-cols-1 gap-6">{children}</div>
 
-        <div className="bg-panel border-line divide-line rounded-panel divide-y border px-4 py-1">
-          {specRows.map((row) => (
-            <SpecRow key={row.label} {...row} />
-          ))}
+        {/*
+         * DETAILS, ONE PRESS AWAY (owner, 2026-10-23). The panel opened with
+         * the engine's own account of itself ("The worker reads each page's
+         * selectable text, in reading order…") above the drop area, and
+         * closed on an Output / Retention / Limit box and a footer of the
+         * same register — 330px of a phone's first screen before the file.
+         * The words are unchanged and in the HTML (`hidden`, not unmounted):
+         * what the claim guards read is what a crawler reads. A disclosure
+         * button, not <details>: that is an ARIA "group", and the result
+         * card is the panel's one group. Last in the panel, so opening it
+         * moves nothing above it.
+         */}
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            aria-expanded={details}
+            aria-controls={detailsId}
+            onClick={() => setDetails((was) => !was)}
+            className="text-muted hover:text-fg self-start text-sm font-medium underline-offset-4 transition hover:underline"
+          >
+            Details
+          </button>
+          <div id={detailsId} hidden={!details} className="flex flex-col gap-4">
+            <div className="text-muted text-sm leading-relaxed">
+              {description}
+            </div>
+            <div className="bg-panel border-line divide-line rounded-panel divide-y border px-4 py-1">
+              {specRows.map((row) => (
+                <SpecRow key={row.label} {...row} />
+              ))}
+            </div>
+            {footer}
+          </div>
         </div>
-        {footer}
       </div>
     </PanelContext.Provider>
   );

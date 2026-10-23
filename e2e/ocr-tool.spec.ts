@@ -17,7 +17,7 @@ test.describe("OCR secure-worker tool page", () => {
     // The dedicated OCR panel (not the generic preview, not a fake uploader).
     await expect(page.getByText("Secure-worker OCR")).toBeVisible();
     await expect(
-      page.getByText("OCR PDF runs on a secure worker"),
+      page.getByText("OCR PDF runs on our secure server"),
     ).toBeVisible();
 
     // Real recognition settings are offered.
