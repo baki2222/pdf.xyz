@@ -18,7 +18,7 @@ import type { ToolBadge } from "@/lib/tools/types";
 
 export interface WorkspaceToolSummary extends ToolIndexEntry {
   badge?: ToolBadge;
-  /** Human capability label, e.g. "In-browser", "Secure worker". */
+  /** Human capability label, e.g. "In your browser", "Secure server". */
   capabilityLabel: string;
   /** True when files leave the device under this tool's capability. */
   uploadsFiles: boolean;

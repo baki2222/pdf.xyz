@@ -42,7 +42,8 @@ test.describe("core pages", () => {
     await expect(
       page.getByRole("heading", {
         level: 1,
-        name: /every pdf tool.*one place/i,
+        // "Every PDF tool, one place" until 2026-10-23.
+        name: "All PDF tools",
       }),
     ).toBeVisible();
     await expect(

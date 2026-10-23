@@ -154,9 +154,9 @@ const DEFAULT_ROUTES = [
   // A query whose only match a filter removed: the empty state's "The filter
   // hides 1 match." and its "Show the match" button (WP-03 review fix).
   "/tools?q=merge&accepts=docx",
-  // WP-06: a chosen "Where it runs" radio — its count sits on the inverted
-  // chip, and only a deep link shows a choice other than "All" checked —
-  // and a worker tool in the head / panel / details layout.
+  // The never-uploads choice checked (a "Where it runs" radio until
+  // 2026-10-23, the "keep files on your device" checkbox now) — and a worker
+  // tool in the head / panel / details layout.
   "/tools?runs=never-uploads",
   "/tools/word-to-pdf",
 ];

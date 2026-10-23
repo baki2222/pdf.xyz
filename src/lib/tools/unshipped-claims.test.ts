@@ -155,8 +155,9 @@ function implementedCapabilities(): ToolCapability[] {
 }
 
 /**
- * A regex naming one capability class, built from its own descriptor label so a
- * renamed capability moves the pattern with it.
+ * A regex naming one capability class, built from one of its names (its
+ * descriptor label, or its id) so a renamed capability moves the pattern
+ * with it.
  *
  * Hyphenation and spacing are SPELLINGS of the same shape, not different
  * subjects: the README wrote "Secure-worker tools" where the descriptor says
@@ -226,7 +227,14 @@ function unshippedClaimsIn(line: string): string[] {
   const named: string[] = [];
   for (const capability of implementedCapabilities()) {
     const label = CAPABILITY_DESCRIPTORS[capability].label;
-    if (classPattern(label).test(line)) {
+    // The class by BOTH its names: the label a visitor reads, and its id,
+    // which is the name the documents use. On 2026-10-23 the label became
+    // "Secure server" (owner: friendlier words) and the pattern built from
+    // it alone stopped seeing "first real secure worker (in progress)" —
+    // the corpus below caught it on the first run. The id does not move
+    // with the wording; a short id is the capitals it is written in.
+    const id = capability.length <= 3 ? capability.toUpperCase() : capability;
+    if ([label, id].some((name) => classPattern(name).test(line))) {
       named.push(
         `capability class "${label}" (every tool in it is implemented)`,
       );

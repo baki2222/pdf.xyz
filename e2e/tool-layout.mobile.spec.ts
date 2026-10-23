@@ -2,8 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { getAllToolSlugs, tools } from "../src/lib/tools";
 import { categories } from "../src/lib/tools/categories";
 import { getRunnerKind } from "../src/lib/pdf/registry";
-import { processingSplit } from "../src/lib/tools/processing-split";
-import { whereItRuns } from "../src/lib/tools/where-it-runs";
+import { toolFamilies } from "../src/lib/tools/families";
 import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
 import { encodePng } from "./client-proof/fixtures";
 import { panelDispatchArms } from "../src/tests/worker-panel-dispatch";
@@ -103,26 +102,29 @@ test("/: on a phone every tool is a visible card, and each card is its tool's li
  * `?category=security` at 675 — all past the 390px screen. The reader saw
  * "All" and "All tools" looking unselected over a filtered grid.
  *
- * Every choice is a case, derived from the partition and the categories,
+ * Every choice is a case, derived from the families and the categories,
  * never typed. A choice that is on screen with the row unscrolled must leave
- * the row unscrolled, so its label stays in view (the control: `?category=
- * organize`, `?runs=never-uploads`); one that is not must be scrolled to,
- * sideways only, clear of the row's edge fade. The health check below proves
- * both kinds are in the set, so neither half passes for want of a case.
+ * the row unscrolled, so its first chip stays in view (the control:
+ * `?category=organize`); one that is not must be scrolled to, sideways only,
+ * clear of the row's edge fade. The health check below proves both kinds are
+ * in the set, so neither half passes for want of a case.
+ *
+ * 2026-10-23: ONE row. The "Where it runs" radios (a second row, behind a
+ * mono label) became a checkbox under the chips, which never scrolls; the
+ * category chips became the home page's families. An old link to one
+ * convert category (`?category=convert-to`) presses its family's chip, so
+ * every category id is still a case beside every family id.
  */
-const RUNS_OPTIONS = whereItRuns(processingSplit());
 const FILTER_LINKS = [
-  ...RUNS_OPTIONS.map((option) => ({
-    query: `?runs=${option.id}`,
-    group: () => ({ role: "radiogroup" as const, name: "Where it runs" }),
-    active: "label:has(input:checked)",
-  })),
-  ...categories.map((category) => ({
-    query: `?category=${category.id}`,
-    group: () => ({ role: "group" as const, name: "Filter by category" }),
-    active: 'button[aria-pressed="true"]',
-  })),
-];
+  ...new Set([
+    ...toolFamilies().map((family) => family.id),
+    ...categories.map((category) => category.id),
+  ]),
+].map((id) => ({
+  query: `?category=${id}`,
+  group: () => ({ role: "group" as const, name: "Filter tools by category" }),
+  active: 'button[aria-pressed="true"]',
+}));
 
 /** Where the active control sits in its row, read in the browser. */
 interface RowReading {
@@ -139,7 +141,7 @@ interface RowReading {
   padRight: number;
   innerWidth: number;
   scrollY: number;
-  /** The row's label, in the viewport. */
+  /** The row's first chip ("All"; its label until 2026-10-23), in the viewport. */
   label: { left: number; right: number } | null;
 }
 
@@ -187,9 +189,10 @@ for (const link of FILTER_LINKS) {
     // Never a vertical scroll: revealing a chip must not move the page.
     expect(r.scrollY, "the page scrolled vertically").toBe(0);
     if (fitsUnscrolled) {
-      // On screen as served: the row stays put and its label stays in view.
+      // On screen as served: the row stays put and its first chip stays in
+      // view.
       expect(r.scrollLeft, "a choice already in view scrolled the row").toBe(0);
-      expect(r.label, "the row has no label").not.toBeNull();
+      expect(r.label, "the row has no first chip").not.toBeNull();
       expect(r.label!.left).toBeGreaterThanOrEqual(0);
       expect(r.label!.right).toBeLessThanOrEqual(r.innerWidth);
     } else {
@@ -214,36 +217,25 @@ test("health: the filter deep links include choices on screen as served and choi
   const positions = await page.evaluate(() =>
     [
       ...document.querySelectorAll<HTMLElement>(
-        '[role="radiogroup"] label, [role="group"][aria-label="Filter by category"] button',
+        '[role="group"][aria-label="Filter tools by category"] button',
       ),
     ].map((el) => {
-      const row = el.closest<HTMLElement>(
-        '[role="radiogroup"], [role="group"]',
-      )!;
+      const row = el.closest<HTMLElement>('[role="group"]')!;
       return {
-        row: row.getAttribute("role"),
         text: el.textContent?.trim() ?? "",
         right: el.getBoundingClientRect().right,
         width: row.clientWidth,
       };
     }),
   );
-  expect(positions.length).toBe(
-    RUNS_OPTIONS.length + 1 + categories.length + 1,
-  );
+  expect(positions.length).toBe(toolFamilies().length + 1);
   const offScreen = positions.filter((p) => p.right > p.width);
   const onScreen = positions.filter((p) => p.right <= p.width);
-  // The reviewer's cases: AI, last in each row, starts off screen in both.
-  for (const role of ["radiogroup", "group"]) {
-    expect(
-      offScreen.filter((p) => p.row === role).map((p) => p.text),
-      role,
-    ).toContainEqual(expect.stringMatching(/^AI/));
-    expect(
-      onScreen.filter((p) => p.row === role),
-      role,
-    ).not.toEqual([]);
-  }
+  // The reviewer's case: AI, last in the row, starts off screen.
+  expect(offScreen.map((p) => p.text)).toContainEqual(
+    expect.stringMatching(/^AI/),
+  );
+  expect(onScreen).not.toEqual([]);
 });
 
 for (const slug of ["merge-pdf", "word-to-pdf", "ocr-pdf"]) {

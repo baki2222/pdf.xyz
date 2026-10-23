@@ -3,11 +3,17 @@
  * A tool card, on every surface that shows one: `/tools`, the eight category
  * pages, a tool page's Related tools and a guide's Tools used.
  *
- * WHAT A CARD CARRIES (redesign C.3, WP-06): the tool's icon (decorative),
- * its name as the card's one heading (an `<h3>` — no new heading, so no
- * surface's outline changes), the badge, the FULL tagline in the DOM (the
- * two-line clamp is visual only), the formats it takes and makes on one mono
- * line ("JPG, PNG → PDF"), and where it runs in the mode's own short word.
+ * WHAT A CARD CARRIES (2026-10-23, the home card everywhere): its family's
+ * coloured tile with the tool's own glyph (decorative), its name as the
+ * card's one heading (an `<h3>` — no new heading, so no surface's outline
+ * changes), the badge, its plain one-line summary (`cardSummary`), and where
+ * it runs in the mode's plain word — and nothing in mono or capitals.
+ *
+ * WAS (redesign C.3, WP-06) the full tagline, the formats it takes and makes
+ * on one mono line ("JPG, PNG → PDF") and the mode's mono short word
+ * ("SECURE WORKER"). This file pinned all three; the test is inverted below,
+ * with the formats line's own checks kept on the tool page's facts row,
+ * which still shows it.
  *
  * WHERE THE ICON COMES FROM is the part with a cost. The icon registry
  * (`@/lib/icons`) is about fifty lucide glyphs; `/tools` renders its cards
@@ -21,7 +27,10 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { ToolCard } from "./tool-card";
+import { FormatsLine } from "./formats-line";
 import { getToolBySlug, tools } from "@/lib/tools";
+import { familyOf } from "@/lib/tools/families";
+import { cardSummary } from "@/lib/tools/page-copy";
 import { processingMeta } from "@/lib/tools/processing";
 import { formatsLine } from "@/lib/tools/formats-line";
 import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
@@ -46,7 +55,7 @@ describe("ToolCard", () => {
     expect(link).toHaveAttribute("href", `/tools/${tool!.slug}`);
   });
 
-  it("every tool's card: one h3, the whole tagline, its formats, where it runs, and its own icon", () => {
+  it("every tool's card: one h3, its plain summary, where it runs, its family's tile and its own icon", () => {
     // Health: the catalogue, not a sample.
     expect(tools.length).toBeGreaterThanOrEqual(40);
     for (const tool of tools) {
@@ -58,15 +67,16 @@ describe("ToolCard", () => {
         tool.slug,
       ).toEqual(["H3"]);
       expect(headings[0]!.textContent, tool.slug).toBe(tool.name);
-      expect(card.textContent, tool.slug).toContain(tool.tagline);
+      expect(card.textContent, tool.slug).toContain(cardSummary(tool));
       expect(card.textContent, tool.slug).toContain(
-        processingMeta[tool.processing].short,
+        processingMeta[tool.processing].plain,
       );
-      const { takes, makes } = formatsLine(tool);
+      const tile = card.querySelector("[data-tile]");
       expect(
-        within(card).getByText(`${takes.join(", ")} → ${makes.join(", ")}`),
+        tile?.classList.contains(`bg-cat-${familyOf(tool)}`),
         tool.slug,
-      ).toBeInTheDocument();
+      ).toBe(true);
+      expect(tile?.classList.contains("text-cat-ink"), tool.slug).toBe(true);
       const icon = card.querySelector("[data-icon]");
       expect(icon?.getAttribute("data-icon"), tool.slug).toBe(tool.icon);
       expect(icon?.closest("[aria-hidden]"), tool.slug).not.toBeNull();
@@ -74,10 +84,46 @@ describe("ToolCard", () => {
     }
   });
 
-  it("the formats line is said, not drawn, to a screen reader", () => {
+  /*
+   * Inverted 2026-10-23. Every card wore "PDF → PDF" and "IN-BROWSER" in mono
+   * capitals, and the home cards — the only ones a first-time visitor could
+   * read — wore neither. Held for EVERY tool's card, so a surface cannot
+   * bring the old foot back for one category.
+   */
+  it("no card wears a mono or uppercase label, a format arrow, or says 'worker'", () => {
+    const offenders: string[] = [];
+    for (const tool of tools) {
+      const { container, unmount } = render(<ToolCard tool={tool} />);
+      const card = cardFor(container, tool.slug);
+      for (const el of [card, ...card.querySelectorAll<HTMLElement>("*")]) {
+        const cls = el.getAttribute("class") ?? "";
+        if (/(^|\s)(font-mono|uppercase|kicker)(\s|$)/.test(cls))
+          offenders.push(`${tool.slug}: ${cls}`);
+      }
+      if (/→|\bworkers?\b/i.test(card.textContent ?? ""))
+        offenders.push(`${tool.slug}: ${card.textContent}`);
+      unmount();
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("positive control: the predicate sees a mono capital label and a format arrow", () => {
+    const { container } = render(
+      <div>
+        <span className="text-muted font-mono uppercase">PDF → PDF</span>
+      </div>,
+    );
+    const el = container.querySelector("span")!;
+    expect(/(^|\s)(font-mono|uppercase|kicker)(\s|$)/.test(el.className)).toBe(
+      true,
+    );
+    expect(/→/.test(el.textContent ?? "")).toBe(true);
+  });
+
+  it("the formats line (a tool page's facts row) is said, not drawn, to a screen reader", () => {
     const tool = getToolBySlug("jpg-to-pdf")!;
-    const { container } = render(<ToolCard tool={tool} />);
-    const card = cardFor(container, tool.slug);
+    const { container } = render(<FormatsLine tool={tool} />);
+    const card = container as HTMLElement;
     // The arrow is hidden; the sentence carries the same facts.
     expect(within(card).getByText("JPG, PNG → PDF")).toHaveAttribute(
       "aria-hidden",

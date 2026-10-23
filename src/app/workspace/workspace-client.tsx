@@ -151,7 +151,7 @@ function factChips(file: WorkspaceFile): FactChip[] {
 
 /** A file-type chip in the summary: "PDF · 2". */
 const FAMILY_CHIP =
-  "border-line bg-wash text-muted rounded-tag border px-2 py-0.5 font-mono text-[11px] font-medium";
+  "border-line bg-wash text-muted rounded-tag border px-2 py-0.5 text-[11px] font-medium";
 
 const CHIP_TONE: Record<FactChip["tone"], string> = {
   faint: "text-faint",
@@ -272,32 +272,44 @@ export function WorkspaceClient({
               pageTarget={WORKSPACE_TARGET}
             >
               {(api) => (
-                <DropSheetPick
-                  className={cn(
-                    "rounded-sheet relative flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
-                    "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
-                    "border-line-strong bg-wash group-data-[armed]/sheet:border-accent/40 group-data-[over]/sheet:bg-accent/10",
-                  )}
-                >
-                  <span className="text-muted group-data-[armed]/sheet:text-accent grid size-14 place-items-center transition-colors">
-                    <UploadCloud
-                      className="size-7"
-                      strokeWidth={1.75}
-                      aria-hidden
-                    />
-                  </span>
-                  <span className="flex flex-col gap-1">
-                    <span className="text-fg text-base font-semibold">
-                      Drop files here, or{" "}
-                      <span className="text-accent underline underline-offset-4">
-                        browse
+                <>
+                  <DropSheetPick
+                    className={cn(
+                      "rounded-sheet relative flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
+                      "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
+                      "border-line-strong bg-wash group-data-[armed]/sheet:border-accent/40 group-data-[over]/sheet:bg-accent/10",
+                    )}
+                  >
+                    <span className="text-muted group-data-[armed]/sheet:text-accent grid size-14 place-items-center transition-colors">
+                      <UploadCloud
+                        className="size-7"
+                        strokeWidth={1.75}
+                        aria-hidden
+                      />
+                    </span>
+                    <span className="flex flex-col gap-1">
+                      <span className="text-fg text-base font-semibold">
+                        Drop files here, or{" "}
+                        <span className="text-accent underline underline-offset-4">
+                          browse
+                        </span>
                       </span>
                     </span>
-                    <span id={api.hintId} className="text-muted text-sm">
+                  </DropSheetPick>
+                  {/* The size limits, one press away, as on the home page's
+                    desk (owner, 2026-10-23: the box printed all four).
+                    Still the picker's description, read from the closed
+                    disclosure; outside the label, so opening it does not
+                    open the picker. */}
+                  <details className="text-muted mt-2 text-xs">
+                    <summary className="hover:text-fg w-fit cursor-pointer py-1">
+                      File limits
+                    </summary>
+                    <p id={api.hintId} className="pb-1 leading-snug">
                       {acceptHint()}
-                    </span>
-                  </span>
-                </DropSheetPick>
+                    </p>
+                  </details>
+                </>
               )}
             </DropDesk>
           </ViewTransition>
@@ -409,12 +421,10 @@ export function WorkspaceClient({
             </ul>
           ) : (
             <div className="border-line bg-wash rounded-panel flex flex-col items-center gap-1 border border-dashed px-6 py-8 text-center">
-              <p className="text-muted text-sm font-medium">
-                No files staged yet
-              </p>
+              <p className="text-muted text-sm font-medium">No files yet</p>
               <p className="text-muted max-w-sm text-xs">
-                Drop documents above to see tool suggestions read from the files
-                themselves, and to build a batch. Nothing is uploaded.
+                Add files above to see the tools that fit them. Nothing is
+                uploaded.
               </p>
             </div>
           )}
@@ -428,7 +438,7 @@ export function WorkspaceClient({
                   <span>
                     {state.files.length} file
                     {state.files.length === 1 ? "" : "s"} ·{" "}
-                    {formatBytes(totalBytes)} — staged in this browser only.
+                    {formatBytes(totalBytes)} — kept in this browser only.
                   </span>
                 ) : (
                   <span>Files stay in this browser. Nothing is uploaded.</span>

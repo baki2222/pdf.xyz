@@ -9,9 +9,11 @@ import { siteConfig } from "@/lib/site";
  * every edge, the P inside the 80% safe circle, so the 512 is a true maskable
  * icon and not the rounded tile cropped by a launcher's mask.
  *
- * `theme_color` stays the canvas, not the pack's petrol: an installed app's
- * title bar is the page's own chrome, and `theme-palette-copies.test.ts`
- * binds every chrome colour to `--sf-canvas`.
+ * `theme_color` is the brand petrol, as the phone browser's toolbar is
+ * (2026-10-23): an installed app's title bar is the same bar. It WAS the
+ * canvas, when `theme-palette-copies.test.ts` bound every chrome colour to
+ * `--sf-canvas`; that test now holds a toolbar to the petrol and a
+ * background (the splash) to the canvas.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -23,9 +25,9 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "portrait-primary",
-    // The installed app's splash and title-bar chrome. These MUST track
-    // `--sf-canvas` in globals.css — the LIGHT value, because the site is
-    // paper-first and a manifest gets one colour, not a media query.
+    // The installed app's splash (`--sf-canvas`, the LIGHT value, because
+    // the site is paper-first and a manifest gets one colour, not a media
+    // query) and title bar (the brand petrol, as above).
     //
     // WERE `#060611`, the retired near-black of the pre-prepress dark theme,
     // for as long as the redesign has been live: install the PWA and the
@@ -35,7 +37,7 @@ export default function manifest(): MetadataRoute.Manifest {
     // the PROPERTY NAME instead, so a file declaring browser chrome cannot
     // opt out by not being on a list.
     background_color: "#f4f6f8",
-    theme_color: "#f4f6f8",
+    theme_color: "#07567a",
     categories: ["productivity", "utilities", "business"],
     lang: "en-US",
     dir: "ltr",

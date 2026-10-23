@@ -5,9 +5,9 @@
  * `globals.css` defines it. Two other files must restate it in literal hex
  * because neither can read a stylesheet:
  *
- *   - `layout.tsx`'s `viewport.themeColor` — the browser paints this behind
- *     overscroll and in the tab strip, so a mismatch reads as a flash of the
- *     previous design on every rubber-band scroll;
+ *   - `layout.tsx`'s `viewport.themeColor` — the phone browser's toolbar.
+ *     It was the canvas, per scheme, until 2026-10-23; it is the brand
+ *     petrol now (see "THE TOOLBAR IS THE BRAND" below);
  *   - `global-error.tsx` — the root error boundary replaces the layout that
  *     imports the stylesheet, so it inlines the whole palette to render at all.
  *
@@ -96,6 +96,13 @@ function token(scheme: "light" | "dark", name: string): string {
   return value;
 }
 
+/**
+ * The brand petrol: the light scheme's accent. The one hex in this file is
+ * the health check's, which proves the parser found the token the owner
+ * named, not some other accent.
+ */
+const BRAND_PETROL = () => token("light", "accent");
+
 /** Every `--sf-*` the two copies restate, so the set is not hand-picked twice. */
 const MIRRORED = [
   "canvas",
@@ -120,7 +127,21 @@ describe("the palette's named copies agree", () => {
     expect(token("light", "canvas")).not.toBe(token("dark", "canvas"));
   });
 
-  it("layout.tsx's themeColor is the canvas, per scheme", () => {
+  /*
+   * ── THE TOOLBAR IS THE BRAND ──────────────────────────────────────────────
+   *
+   * INVERTED 2026-10-23 (owner: "the mobile browser toolbar in the brand
+   * petrol, #07567A, if it looks good"). This test pinned the toolbar to
+   * `--sf-canvas` per scheme ("a mismatch reads as a flash of the previous
+   * design on every rubber-band scroll" — the overscroll is painted from the
+   * page's own background, not from theme-color, in the browsers that tint a
+   * toolbar). It pins the new rule: the toolbar is the brand petrol, read
+   * from the stylesheet as the light scheme's `--sf-accent`, in BOTH schemes —
+   * chosen by screenshot against the dark page (the dark accent, #53c1ee, is
+   * a light cyan that glares above a near-black page; the dark organize tile
+   * read as a different, greyer brand). Nothing here types the hex.
+   */
+  it("layout.tsx's themeColor is the brand petrol, in both schemes", () => {
     const colorFor = (scheme: string): string => {
       const marker = `(prefers-color-scheme: ${scheme})`;
       const line = LAYOUT.split(String.fromCharCode(10)).find(
@@ -132,8 +153,12 @@ describe("the palette's named copies agree", () => {
       const close = after.indexOf(String.fromCharCode(34), open + 1);
       return after.slice(open + 1, close).toLowerCase();
     };
-    expect(colorFor("light")).toBe(token("light", "canvas"));
-    expect(colorFor("dark")).toBe(token("dark", "canvas"));
+    // Health: the brand token is the petrol, and it is not a canvas — a
+    // parser that read the canvas twice would pass the old rule here.
+    expect(BRAND_PETROL()).toBe("#07567a");
+    expect(BRAND_PETROL()).not.toBe(token("light", "canvas"));
+    expect(colorFor("light")).toBe(BRAND_PETROL());
+    expect(colorFor("dark")).toBe(BRAND_PETROL());
   });
   it("global-error.tsx inlines the same values, per scheme", () => {
     // The file declares light `--ge-*` first, then overrides them inside its
@@ -223,10 +248,16 @@ describe("the palette's named copies agree", () => {
  *
  * So this discovers them by the PROPERTY, not the path: any file under `src/`
  * that declares browser chrome — `themeColor`, `theme_color`,
- * `background_color` — has to agree with `--sf-canvas`. A new surface joins
+ * `background_color` — has to agree with the stylesheet. A new surface joins
  * the corpus by doing the thing the corpus is about.
+ *
+ * Since 2026-10-23 the two kinds of chrome have two rules: a TOOLBAR
+ * (`themeColor`, `theme_color` — the phone browser's bar, an installed app's
+ * title bar) is the brand petrol; a BACKGROUND (`background_color`, the
+ * installed app's splash) is the canvas. Until then all three were the canvas.
  */
 const CHROME_KEYS = ["themeColor", "theme_color", "background_color"] as const;
+const TOOLBAR_KEYS = new Set<string>(["themeColor", "theme_color"]);
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -250,10 +281,13 @@ function sourceFiles(dir: string): string[] {
  * source happens to wrap, and this file's whole subject is a value that lives
  * in more than one place.
  */
-function declaredChromeColours(source: string): string[] {
+function declaredChromeColours(
+  source: string,
+  keys: readonly string[] = CHROME_KEYS,
+): string[] {
   const code = withoutComments(source);
   const out: string[] = [];
-  for (const key of CHROME_KEYS) {
+  for (const key of keys) {
     let from = code.indexOf(key + ":");
     while (from !== -1) {
       let depth = 0;
@@ -277,10 +311,21 @@ function declaredChromeColours(source: string): string[] {
 
 describe("browser chrome, wherever it is declared", () => {
   const declarers = sourceFiles(path.join(ROOT, "src"))
-    .map((full) => ({
-      rel: path.relative(ROOT, full).split(path.sep).join("/"),
-      colours: declaredChromeColours(readFileSync(full, "utf8")),
-    }))
+    .map((full) => {
+      const source = readFileSync(full, "utf8");
+      return {
+        rel: path.relative(ROOT, full).split(path.sep).join("/"),
+        colours: declaredChromeColours(source),
+        toolbar: declaredChromeColours(
+          source,
+          CHROME_KEYS.filter((k) => TOOLBAR_KEYS.has(k)),
+        ),
+        background: declaredChromeColours(
+          source,
+          CHROME_KEYS.filter((k) => !TOOLBAR_KEYS.has(k)),
+        ),
+      };
+    })
     .filter((file) => file.colours.length > 0);
 
   it("finds the files that declare it (health check)", () => {
@@ -314,21 +359,35 @@ describe("browser chrome, wherever it is declared", () => {
     expect(declaredChromeColours('// theme_color: "#abcdef",')).toEqual([]);
   });
 
-  it("declares nothing but a canvas value", () => {
+  it("a toolbar declares the brand petrol; a background declares a canvas", () => {
     const canvases = new Set([
       token("light", "canvas"),
       token("dark", "canvas"),
     ]);
+    // Health: both kinds are found, and the split lost no colour.
+    expect(declarers.flatMap((f) => f.toolbar).length).toBeGreaterThanOrEqual(
+      3,
+    );
+    expect(
+      declarers.flatMap((f) => f.background).length,
+    ).toBeGreaterThanOrEqual(1);
+    for (const file of declarers)
+      expect(file.toolbar.length + file.background.length, file.rel).toBe(
+        file.colours.length,
+      );
     const offenders: string[] = [];
     for (const file of declarers) {
-      for (const hex of file.colours) {
+      for (const hex of file.toolbar)
+        if (hex.toLowerCase() !== BRAND_PETROL())
+          offenders.push(file.rel + " (toolbar): " + hex);
+      for (const hex of file.background)
         if (!canvases.has(hex.toLowerCase()))
-          offenders.push(file.rel + ": " + hex);
-      }
+          offenders.push(file.rel + " (background): " + hex);
     }
     expect(
       offenders,
-      "browser chrome that is not `--sf-canvas` in either scheme — the PWA " +
+      "browser chrome off its rule (toolbar: the petrol; background: " +
+        "`--sf-canvas`) — the PWA " +
         "manifest carried the retired #060611 this way: " +
         offenders.join(", "),
     ).toEqual([]);

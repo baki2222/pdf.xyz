@@ -163,11 +163,9 @@ const FULL: { file: string; count: number; reason: string }[] = [
     count: 1,
     reason: "status dot (ok)",
   },
-  {
-    file: "src/components/layout/site-footer.tsx",
-    count: 1,
-    reason: "status dot (systems normal)",
-  },
+  // src/components/layout/site-footer.tsx's status dot ("Privacy-first by
+  // architecture, not by policy.") went with that line on 2026-10-23, when
+  // the footer was made one compact block.
   {
     file: "src/components/status/status-ui.tsx",
     count: 1,

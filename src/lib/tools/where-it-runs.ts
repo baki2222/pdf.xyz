@@ -44,7 +44,7 @@ export type RunsFilter = RunsId | "all";
 
 /** How a choice is named, and said in a sentence of one tool or many. */
 export interface RunsCopy {
-  /** The radio's words: "Never uploads", "Secure worker". */
+  /** The words for a choice: "Never uploads", "Runs on a secure server". */
   readonly label: string;
   /** "1 tool always keeps your files on your device". */
   readonly one: string;
@@ -94,10 +94,10 @@ export const RUNS_COPY: Readonly<Record<RunsId, RunsCopy>> = {
   },
   "secure-worker": {
     label: processingMeta.server.label,
-    one: "runs on a secure worker",
-    many: "run on a secure worker",
+    one: "runs on a secure server",
+    many: "run on a secure server",
   },
-  ai: { label: processingMeta.ai.short, one: "uses AI", many: "use AI" },
+  ai: { label: processingMeta.ai.plain, one: "uses AI", many: "use AI" },
 };
 
 /**

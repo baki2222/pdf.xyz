@@ -13,7 +13,8 @@ import Link from "next/link";
 import { AlertTriangle, ArrowRight, ChevronDown, Loader2 } from "lucide-react";
 import { announceOutcome } from "@/components/a11y/live-region";
 import { ModeShape } from "@/components/tools/processing-badge";
-import { ToolIcon } from "@/components/ui/tool-icon";
+import { FamilyTile } from "@/components/tools/family-tile";
+import { ToolGlyph } from "@/components/tools/tool-glyph";
 import {
   renderEvidence,
   renderNote,
@@ -132,7 +133,9 @@ function SuggestionRow({
         disabled && !launching && "cursor-wait opacity-70",
       )}
     >
-      <ToolIcon icon={row.tool.icon} size="sm" className="mt-0.5" />
+      <FamilyTile category={row.tool.category} size="sm" className="mt-0.5">
+        <ToolGlyph icon={row.tool.icon} />
+      </FamilyTile>
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-fg truncate text-sm font-medium">
           {row.tool.name}
@@ -164,9 +167,7 @@ function SuggestionRow({
             mode={row.tool.processing}
             className="mr-1.5 inline-block align-[-0.5px]"
           />
-          <span className="font-mono font-medium tracking-wide uppercase">
-            {meta.short}
-          </span>
+          <span className="font-medium">{meta.plain}</span>
           {terms.length > 0 && `${FACT_SEP}${terms.join(FACT_SEP)}`}
         </span>
       </span>
@@ -293,7 +294,7 @@ export default function FileSuggestions({
       )}
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 id={headingId} className="kicker text-muted">
+        <h2 id={headingId} className="text-fg text-sm leading-4 font-semibold">
           Suggested for your files
         </h2>
         <Link
@@ -378,7 +379,7 @@ export default function FileSuggestions({
           <div className="mt-3 flex flex-col gap-4">
             {groups.map(([mode, rows]) => (
               <div key={mode} className="flex flex-col gap-1">
-                <p className="kicker text-faint">
+                <p className="text-faint text-xs font-medium">
                   {getProcessingMeta(mode).label}
                 </p>
                 <ul className="flex flex-col gap-0.5">

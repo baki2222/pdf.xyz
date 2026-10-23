@@ -78,8 +78,10 @@ test("a workspace launch sends no request carrying the hand-off token", async ({
 }) => {
   await page.goto("/workspace");
   await uploadFiles(page, await writeTempPdf("turn.pdf", 2));
-  const batch = page.getByRole("region", { name: /batch queue/i });
-  await batch.getByLabel("Tool").selectOption("rotate-pdf");
+  const batch = page.getByRole("region", {
+    name: /use one tool on several files/i,
+  });
+  await batch.getByLabel(/choose a tool/i).selectOption("rotate-pdf");
   await batch.getByRole("button", { name: /add all staged/i }).click();
   const urls = recordRequests(page);
   await batch.getByRole("button", { name: /open rotate pdf/i }).click();

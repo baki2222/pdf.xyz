@@ -156,7 +156,7 @@ test("no view transition starts under reduced motion: a chip on /tools", async (
   });
   await page.goto("/tools");
   const chip = page
-    .getByRole("group", { name: "Filter by category" })
+    .getByRole("group", { name: "Filter tools by category" })
     .getByRole("button")
     .nth(1);
   await waitForHydration(chip);
