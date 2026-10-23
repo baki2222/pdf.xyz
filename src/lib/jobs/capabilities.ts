@@ -7,7 +7,7 @@
  */
 
 import { getToolBySlug } from "@/lib/tools";
-import { HYBRID_SUMMARY } from "@/lib/tools/processing";
+import { HYBRID_SUMMARY, processingMeta } from "@/lib/tools/processing";
 import type { ProcessingMode, Tool } from "@/lib/tools/types";
 import { acceptsDamagedPdf } from "./damaged-input";
 import type { ToolCapability, ToolInputKind } from "./types";
@@ -49,14 +49,14 @@ export const CAPABILITY_DESCRIPTORS: Record<
 > = {
   "in-browser": {
     id: "in-browser",
-    label: "In-browser",
+    label: processingMeta.client.plain,
     summary:
       "Runs entirely on your device, in your browser. Files are never uploaded.",
     uploadsFiles: false,
   },
   "secure-worker": {
     id: "secure-worker",
-    label: "Secure worker",
+    label: processingMeta.server.plain,
     // Deliberately does NOT say "scans": this string is static, so it can only
     // assert what is true in every deployment, and malware scanning is optional and
     // off unless an operator configures it. What is always true is the isolation and
@@ -68,7 +68,7 @@ export const CAPABILITY_DESCRIPTORS: Record<
   },
   hybrid: {
     id: "hybrid",
-    label: "Hybrid",
+    label: processingMeta.hybrid.plain,
     // The mode line's own sentence, not a second one about the same mode: this
     // said "when it can, with an encrypted secure-worker fallback for large or
     // complex files" — a route to the server that does not exist.
@@ -77,7 +77,7 @@ export const CAPABILITY_DESCRIPTORS: Record<
   },
   ai: {
     id: "ai",
-    label: "AI",
+    label: processingMeta.ai.plain,
     // Names the third party. "Runs on secure AI infrastructure" described a
     // provider's API as if it were ours, on the pages whose text is sent to it.
     // The training clause is worded from section 3 of the privacy policy — the

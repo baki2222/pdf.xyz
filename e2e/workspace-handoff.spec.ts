@@ -27,8 +27,10 @@ test("hands a batch off from the workspace to Compress and runs it in-browser", 
     await writeTempPdf("two.pdf", 2),
   ]);
 
-  const batch = page.getByRole("region", { name: /batch queue/i });
-  await batch.getByLabel("Tool").selectOption("compress-pdf");
+  const batch = page.getByRole("region", {
+    name: /use one tool on several files/i,
+  });
+  await batch.getByLabel(/choose a tool/i).selectOption("compress-pdf");
   await batch.getByRole("button", { name: /add all staged/i }).click();
 
   // Two files + a batch-ready tool → real hand-off into the batch runner.
@@ -59,8 +61,10 @@ test("hands a single PDF off from the workspace to Rotate and runs it", async ({
   await page.goto("/workspace");
   await uploadFiles(page, await writeTempPdf("turn.pdf", 2));
 
-  const batch = page.getByRole("region", { name: /batch queue/i });
-  await batch.getByLabel("Tool").selectOption("rotate-pdf");
+  const batch = page.getByRole("region", {
+    name: /use one tool on several files/i,
+  });
+  await batch.getByLabel(/choose a tool/i).selectOption("rotate-pdf");
   await batch.getByRole("button", { name: /add all staged/i }).click();
 
   // Rotate is one-file-at-a-time — the panel says so, honestly.
@@ -129,8 +133,10 @@ test("clear session wipes staged files, remembered activity, and hand-offs", asy
   await uploadFiles(page, await writeTempPdf("keep.pdf", 2));
 
   // Launch a hand-off so the workspace records a persisted activity entry.
-  const batch = page.getByRole("region", { name: /batch queue/i });
-  await batch.getByLabel("Tool").selectOption("compress-pdf");
+  const batch = page.getByRole("region", {
+    name: /use one tool on several files/i,
+  });
+  await batch.getByLabel(/choose a tool/i).selectOption("compress-pdf");
   await batch.getByRole("button", { name: /add all staged/i }).click();
   await batch.getByRole("button", { name: /open compress pdf/i }).click();
   await expect(page).toHaveURL(/\/tools\/compress-pdf$/);

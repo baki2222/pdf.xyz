@@ -1,11 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { categories } from "../src/lib/tools/categories";
-import { processingSplit } from "../src/lib/tools/processing-split";
-import { whereItRuns } from "../src/lib/tools/where-it-runs";
+import { toolFamilies } from "../src/lib/tools/families";
 import { waitForHydration } from "./helpers";
 
 /**
- * The /tools filter chips and "Where it runs" radios, reached by keyboard:
+ * The /tools filter chips and the "keep files on your device" checkbox (the
+ * "Where it runs" radios until 2026-10-23), reached by keyboard:
  * the focus indicator a reader SEES — its colour against the page, whether
  * any of it is cut off — and whether the focused chip is on screen at all.
  *
@@ -30,14 +29,17 @@ import { waitForHydration } from "./helpers";
  *  - on a phone, the control itself inside its row's inset (the row's
  *    scroll-padding, which clears the fade at its ends).
  *
- * Health: every control in both rows is visited, and a control with no
+ * Health: every chip and the checkbox are visited, and a control with no
  * indicator at all fails rather than measuring nothing.
+ *
+ * 2026-10-23: one row of chips — the home page's families, "All" first —
+ * and under it the checkbox, which never scrolls; the radio group and its
+ * row are gone. The chips are still a sideways-scrolling line on a phone.
  */
 
-const RUNS = whereItRuns(processingSplit());
-/** "All" plus one radio per place; "All tools" plus one chip per category. */
-const RADIOS = RUNS.length + 1;
-const CHIPS = categories.length + 1;
+/** "All" plus one chip per family. */
+const CHIPS = toolFamilies().length + 1;
+const CHIP_ROW = { name: "Filter tools by category" } as const;
 
 interface FocusReading {
   name: string;
@@ -176,13 +178,12 @@ function readFocus(): FocusReading {
 }
 
 /**
- * Focus every control in both filter rows, the way a keyboard does: Tab into
- * the radio group, the arrow key through its radios, then Tab through the
- * category chips. Returns a reading per control.
+ * Focus every filter control, the way a keyboard does: Tab through the
+ * chips, then on to the checkbox. Returns a reading per chip, and the
+ * checkbox's reading last.
  */
 async function visitFilters(page: Page): Promise<FocusReading[]> {
-  const radios = page.getByRole("radiogroup", { name: "Where it runs" });
-  const chips = page.getByRole("group", { name: "Filter by category" });
+  const chips = page.getByRole("group", CHIP_ROW);
   const readings: FocusReading[] = [];
   // Two frames for the reveal, then until the control's own transitions end:
   // the chips' `transition-colors` animates the outline colour in, and read
@@ -202,19 +203,16 @@ async function visitFilters(page: Page): Promise<FocusReading[]> {
       );
     });
   await page.getByRole("searchbox", { name: /search tools/i }).focus();
-  await page.keyboard.press("Tab");
-  await expect(radios.getByRole("radio", { checked: true })).toBeFocused();
-  for (let i = 0; i < RADIOS; i++) {
-    if (i > 0) await page.keyboard.press("ArrowRight");
-    await settle();
-    readings.push(await page.evaluate(readFocus));
-  }
   for (let i = 0; i < CHIPS; i++) {
     await page.keyboard.press("Tab");
     await expect(chips.getByRole("button").nth(i)).toBeFocused();
     await settle();
     readings.push(await page.evaluate(readFocus));
   }
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("checkbox")).toBeFocused();
+  await settle();
+  readings.push(await page.evaluate(readFocus));
   return readings;
 }
 
@@ -277,15 +275,18 @@ for (const scheme of ["light", "dark"] as const) {
           page.getByRole("searchbox", { name: /search tools/i }),
         );
         const readings = await visitFilters(page);
-        // Health: every control in both rows was visited, in a row that
-        // scrolls on a phone and wraps on a desktop.
-        expect(readings).toHaveLength(RADIOS + CHIPS);
+        // Health: every chip and the checkbox were visited, the chips in a
+        // row that scrolls on a phone and wraps on a desktop.
+        expect(readings).toHaveLength(CHIPS + 1);
+        const chips = readings.slice(0, CHIPS);
+        const box = readings[CHIPS]!;
         expect(
-          readings.filter((r) => r.inset !== null).length,
+          chips.filter((r) => r.inset !== null).length,
           "phone rows scroll sideways; desktop rows wrap",
-        ).toBe(width.phone ? readings.length : 0);
+        ).toBe(width.phone ? chips.length : 0);
+        expect(box.inset, "the checkbox is not in a scrolling row").toBeNull();
         expect(
-          failures(readings, width.phone),
+          [...failures(chips, width.phone), ...failures([box], false)],
           readings
             .map(
               (r) =>
@@ -349,8 +350,8 @@ test.describe("positive controls: the shipped indicator, injected, is measured",
     const probe = await inject(
       page,
       [
-        '[role="group"][aria-label="Filter by category"] button:focus-visible, [role="radiogroup"] label:has(:focus-visible){outline:none !important;box-shadow:0 0 0 2px color-mix(in oklab, var(--sf-accent) 50%, transparent) !important}',
-        '[role="group"][aria-label="Filter by category"], [role="radiogroup"]{padding-block:0 !important;margin-block:0 !important}',
+        '[role="group"][aria-label="Filter tools by category"] button:focus-visible{outline:none !important;box-shadow:0 0 0 2px color-mix(in oklab, var(--sf-accent) 50%, transparent) !important}',
+        '[role="group"][aria-label="Filter tools by category"]{padding-block:0 !important;margin-block:0 !important}',
       ].join("\n"),
     );
     await page.goto("/tools");
@@ -359,15 +360,14 @@ test.describe("positive controls: the shipped indicator, injected, is measured",
       page.getByRole("searchbox", { name: /search tools/i }),
     );
     const readings = await visitFilters(page);
-    const found = failures(readings, true).join("\n");
+    const found = failures(readings.slice(0, CHIPS), true).join("\n");
     expect(found).toMatch(/is 2\.\d+:1 against the page/);
     expect(found).toMatch(/clipped \d+(\.\d+)?px top/);
     // And a focused chip left where it was: the last one, its row put back
     // to the start after the focus — what no reveal on focus looked like.
-    const last = page
-      .getByRole("group", { name: "Filter by category" })
-      .getByRole("button")
-      .last();
+    // (Back from the checkbox, which the walk ends on.)
+    await page.keyboard.press("Shift+Tab");
+    const last = page.getByRole("group", CHIP_ROW).getByRole("button").last();
     await expect(last).toBeFocused();
     await last.evaluate((el) => {
       el.closest<HTMLElement>('[role="group"]')!.scrollLeft = 0;

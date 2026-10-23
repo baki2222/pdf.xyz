@@ -27,8 +27,11 @@ test("stages files locally, summarizes the mix, removes and clears them", async 
   await page.goto("/workspace");
   await waitForHydration(fileInput(page));
 
-  // Honest, local-only framing is present up front.
-  await expect(page.getByText(/local session only/i)).toBeVisible();
+  // Honest, local-only framing is present up front — in plain words since
+  // 2026-10-23 (a "Local session only" mono pill until then).
+  await expect(
+    page.getByText(/your files stay in this browser/i).first(),
+  ).toBeVisible();
   await expect(page.getByText(/nothing is uploaded/i).first()).toBeVisible();
 
   // Stage two documents — purely in browser memory.
@@ -60,7 +63,7 @@ test("stages files locally, summarizes the mix, removes and clears them", async 
   await expect(page.getByRole("list", { name: /staged files/i })).toHaveCount(
     0,
   );
-  await expect(page.getByText(/no files staged yet/i)).toBeVisible();
+  await expect(page.getByText(/^no files yet$/i)).toBeVisible();
 
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
@@ -87,7 +90,7 @@ test("suggests tools from the staged file mix and links to the runner", async ({
   await expect(mergeLink).toBeVisible();
   await expect(mergeLink).toContainText(/merge pdf/i);
   await expect(mergeLink).toContainText(/2 pdfs/i);
-  await expect(mergeLink.getByText(/in-browser/i)).toBeVisible();
+  await expect(mergeLink.getByText(/in your browser/i)).toBeVisible();
 
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
@@ -131,11 +134,13 @@ test("batch queue launches a live tool and is honest about worker tools", async 
     await writeTempPdf("b.pdf"),
   ]);
 
-  const batch = page.getByRole("region", { name: /batch queue/i });
+  const batch = page.getByRole("region", {
+    name: /use one tool on several files/i,
+  });
   await expect(batch).toBeVisible();
 
   // Choose a live in-browser tool and queue the staged files.
-  await batch.getByLabel("Tool").selectOption("merge-pdf");
+  await batch.getByLabel(/choose a tool/i).selectOption("merge-pdf");
   await batch.getByRole("button", { name: /add all staged/i }).click();
   await expect(batch.getByRole("list", { name: /batch queue/i })).toContainText(
     "a.pdf",
@@ -165,8 +170,10 @@ test("batch queue is honest about secure-worker tools", async ({ page }) => {
   await page.goto("/workspace");
   await uploadFiles(page, await writeTempPdf("scan.pdf"));
 
-  const batch = page.getByRole("region", { name: /batch queue/i });
-  await batch.getByLabel("Tool").selectOption("ocr-pdf");
+  const batch = page.getByRole("region", {
+    name: /use one tool on several files/i,
+  });
+  await batch.getByLabel(/choose a tool/i).selectOption("ocr-pdf");
   await batch.getByRole("button", { name: /add all staged/i }).click();
 
   // Secure-worker tools do not fake a local handoff; they route to the honest
@@ -177,12 +184,16 @@ test("batch queue is honest about secure-worker tools", async ({ page }) => {
   // fix/privacy-truth (2026-10-10), which was unambiguous only because the
   // note said "an encrypted worker". Dropping that unsupported "encrypted"
   // made the note match too, so each is now pinned by what it alone says.
+  //
+  // 2026-10-23: "secure worker" became "secure server" in the UI's words
+  // (owner: friendlier for non-technical visitors); the two lines are still
+  // pinned apart, each by what it alone says.
   await expect(
-    batch.getByText("Runs on a secure worker", { exact: true }),
+    batch.getByText("Runs on a secure server", { exact: true }),
   ).toBeVisible();
   await expect(
     batch.getByText(
-      /^OCR PDF runs on a secure worker, so your file is uploaded rather than processed on your device\./,
+      /^OCR PDF runs on a secure server, so your file is uploaded rather than processed on your device\./,
     ),
   ).toBeVisible();
   await expect(

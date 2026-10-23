@@ -23,6 +23,7 @@ import CategoryPage, {
 import { categories, getToolsByCategory, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
 import { categoryPageCopy } from "@/lib/tools/category-pages";
+import { cardSummary } from "@/lib/tools/page-copy";
 import { processingMeta } from "@/lib/tools/processing";
 import { siteConfig } from "@/lib/site";
 
@@ -115,7 +116,9 @@ describe("category landing pages", () => {
     expect(h1s.size, "two categories share an H1").toBe(ids.length);
   });
 
-  it("each page lists exactly its category's tools, with name, tagline and where it runs", async () => {
+  // The card's line is its plain summary since 2026-10-23 (the home card
+  // everywhere); it is the tagline wherever no summary is authored.
+  it("each page lists exactly its category's tools, with name, summary and where it runs", async () => {
     const seen: string[] = [];
     for (const id of ids) {
       const page = await render(id);
@@ -124,11 +127,11 @@ describe("category landing pages", () => {
       const text = textOf(page.html);
       for (const tool of getToolsByCategory(id)) {
         expect(text, `${id}: ${tool.slug} name`).toContain(tool.name);
-        expect(text, `${id}: ${tool.slug} tagline`).toContain(
-          textOf(tool.tagline),
+        expect(text, `${id}: ${tool.slug} summary`).toContain(
+          textOf(cardSummary(tool)),
         );
         expect(text, `${id}: ${tool.slug} runs`).toContain(
-          processingMeta[tool.processing].short,
+          processingMeta[tool.processing].plain,
         );
       }
       seen.push(...page.toolLinks);

@@ -1,22 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { categories, toolCount, tools } from "@/lib/tools";
+import { toolCount, tools } from "@/lib/tools";
 import { guides } from "@/lib/guides";
 import { Container } from "@/components/ui/container";
-import { SectionHeading } from "@/components/ui/section-heading";
 import {
   ToolsExplorer,
   type ToolIcons,
 } from "@/components/tools/tools-explorer";
-import { ToolIcon } from "@/components/ui/tool-icon";
+import { ToolGlyph } from "@/components/tools/tool-glyph";
 import { buildMetadata } from "@/lib/seo";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { runsChoices, whereItRuns } from "@/lib/tools/where-it-runs";
 
 export const metadata: Metadata = buildMetadata({
   title: "All PDF tools",
-  description: `Browse all ${toolCount} pdf.xyz tools — merge, split, compress, convert, edit, sign, secure, and AI. Filter by category and see exactly where each tool runs.`,
+  description: `Browse all ${toolCount} free pdf.xyz tools — merge, split, compress, convert, edit, sign, secure, and AI. Filter by category and see where each tool runs.`,
   path: "/tools",
   // Without this the file-convention card is ignored: buildMetadata always sets
   // an explicit openGraph.images, and explicit beats convention.
@@ -32,7 +31,9 @@ export const metadata: Metadata = buildMetadata({
  * works. `pages-static.test.ts` fails if a request-time API returns.
  *
  * "Where it runs" is decided HERE, at build time, from the one partition,
- * and handed to the explorer as slugs: `processingSplit` derives "uploads"
+ * and handed to the explorer as slugs (the page offers one of its choices,
+ * "keep files on your device", as a checkbox; a `?runs=` link to any other
+ * still filters): `processingSplit` derives "uploads"
  * through `@/lib/jobs/capabilities`, which this page's browser bundle does
  * not otherwise carry, and the choices never change between builds. The
  * radios' counts are this partition's (`browser-count-surfaces.test.tsx`
@@ -42,28 +43,34 @@ const RUNS = runsChoices(whereItRuns(processingSplit()));
 
 /**
  * Every tool's glyph, drawn here on the server and handed to the explorer,
+ * bare, for its card's coloured tile (`ToolCardView`),
  * which renders its cards on the client: the icon registry stays out of this
  * page's bundle, and the glyphs travel as markup in the page instead.
  */
 const ICONS: ToolIcons = Object.fromEntries(
   tools.map((tool) => [
     tool.slug,
-    <ToolIcon key={tool.slug} icon={tool.icon} size="sm" />,
+    <ToolGlyph key={tool.slug} icon={tool.icon} />,
   ]),
 );
 
 export default function ToolsPage() {
   return (
-    <div className="bg-canvas text-fg py-8 sm:py-20">
-      <Container className="flex flex-col gap-6 sm:gap-12">
-        <SectionHeading
-          as="h1"
-          align="left"
-          className="gap-3 sm:gap-4"
-          eyebrow="Tool catalog"
-          title="Every PDF tool, one place"
-          description={`All ${toolCount} tools, organized into ${categories.length} categories. Search, filter, and each tool tells you honestly whether it runs in your browser or on a secure worker.`}
-        />
+    <div className="bg-canvas text-fg py-8 sm:py-16">
+      <Container className="flex flex-col gap-6 sm:gap-10">
+        {/* A plain heading and one sentence, as on the home page (owner,
+            2026-10-23). WAS a "TOOL CATALOG" mono eyebrow over "Every PDF
+            tool, one place" and a sentence on whether each tool runs "in
+            your browser or on a secure worker". */}
+        <div className="flex flex-col gap-2 sm:gap-3">
+          <h1 className="font-display text-fg text-display-2 font-medium tracking-tight text-balance">
+            All PDF tools
+          </h1>
+          <p className="text-muted max-w-2xl text-base leading-relaxed text-pretty sm:text-lg">
+            {toolCount} free tools to merge, compress, convert, edit and sign
+            your PDFs. Search for what you need, or pick a category.
+          </p>
+        </div>
         <ToolsExplorer runs={RUNS} icons={ICONS} />
         {/* The hub that links every tool also links the guides written for the
             same jobs. The footer's "Guides" item was the only way from here to

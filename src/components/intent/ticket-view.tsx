@@ -288,12 +288,12 @@ function SuggestionRow({
   const mode = (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 font-mono text-[10px] font-medium tracking-wide uppercase",
+        "inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium",
         primary ? "text-muted-invert" : "text-faint",
       )}
     >
       <ModeShape mode={row.tool.processing} />
-      <span className="max-sm:sr-only">{meta.short}</span>
+      <span className="max-sm:sr-only">{meta.plain}</span>
     </span>
   );
 
@@ -373,7 +373,7 @@ function SuggestionRow({
             {!empty && <Line lead={lead} rest={rest} />}
             <span className="sr-only">
               {!empty && SEP}
-              {meta.short}
+              {meta.plain}
             </span>
           </span>
         </span>
@@ -892,7 +892,7 @@ export default function TicketView({
             )}
             {groups.map(([mode, rows]) => (
               <div key={mode} className="flex flex-col gap-0.5">
-                <p className="kicker text-faint">
+                <p className="text-faint text-xs font-medium">
                   {getProcessingMeta(mode).label}
                 </p>
                 <ul className="flex flex-col">

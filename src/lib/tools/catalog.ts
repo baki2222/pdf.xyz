@@ -645,7 +645,12 @@ export const tools: Tool[] = [
     name: "Extract Tables",
     seoTitle: "Extract Tables from PDF to CSV & Excel",
     tagline: "Detected tables into CSV/Excel.",
-    cardSummary: "Copy the tables in a PDF's text into spreadsheet files.",
+    // WAS "Copy the tables in a PDF's text into spreadsheet files.": once
+    // every card took the summary (2026-10-23), PDF to Excel's page served it
+    // in Related tools, and "tables … into spreadsheets" is the promise
+    // worker-tool-answers.test.ts holds that page clear of.
+    cardSummary:
+      "Find the tables in a PDF's text and save them as spreadsheets.",
     description:
       "Detect aligned tables inside a PDF's selectable text and export them to clean CSV files plus a combined Excel workbook. Scanned PDFs need OCR first.",
     category: "convert-from",

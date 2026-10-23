@@ -34,7 +34,7 @@ import {
   getToolBySlug,
   toolCount,
 } from "@/lib/tools";
-import { categoryHref } from "@/lib/tools/category-href";
+import { CATEGORY_PATH_PREFIX, categoryHref } from "@/lib/tools/category-href";
 import { announceLocation } from "@/lib/location-search";
 import { SiteHeader } from "./site-header";
 import { SiteFooter } from "./site-footer";
@@ -247,18 +247,63 @@ describe("the header", () => {
 });
 
 describe("the footer", () => {
-  it("its link columns are a navigation landmark", () => {
+  /*
+   * ONE COMPACT FOOTER (owner, 2026-10-23). The footer was two link blocks:
+   * the columns — one of them, "Categories", listing every category — and
+   * under them the tools band, every tool under the SAME category names
+   * again. On a phone the columns stacked one above another, 1,927px of
+   * footer. Each category is named once now: the band's group heading links
+   * its landing page, and the columns carry everything else.
+   *
+   * WAS "its link columns are a navigation landmark": ONE nav covering every
+   * `footerNav` href, the Categories column's included. Inverted: the
+   * columns' landmark covers every href that is not a category page, the
+   * band covers every category page, and each category page is linked once.
+   */
+  const footerHrefs = footerNav.flatMap((c) =>
+    c.items.flatMap((i) => (i.href ? [i.href] : [])),
+  );
+  const isCategory = (href: string) => href.startsWith(CATEGORY_PATH_PREFIX);
+
+  it("its link columns are a navigation landmark, and the band links the categories", () => {
     const { container } = render(at("/", <SiteFooter />));
-    const hrefs = footerNav.flatMap((c) =>
-      c.items.flatMap((i) => (i.href ? [i.href] : [])),
-    );
-    // Health check on the corpus the loop below runs over.
-    expect(hrefs.length).toBeGreaterThan(10);
+    // Health checks on the corpus the loops below run over: both halves.
+    expect(footerHrefs.filter((h) => !isCategory(h)).length).toBeGreaterThan(6);
+    expect(footerHrefs.filter(isCategory)).toHaveLength(categories.length);
     const navs = phoneNavs(container);
     const covering = navs.filter((links) =>
-      hrefs.every((h) => links.includes(h)),
+      footerHrefs.filter((h) => !isCategory(h)).every((h) => links.includes(h)),
     );
     expect(covering).toHaveLength(1);
+    const band = screen.getByRole("navigation", { name: "Tools by category" });
+    const bandHrefs = [...band.querySelectorAll("a")].map(
+      (a) => a.getAttribute("href") ?? "",
+    );
+    for (const c of categories)
+      expect(bandHrefs, c.id).toContain(categoryHref(c.id));
+  });
+
+  it("names each category once: no category page is linked twice", () => {
+    const { container } = render(at("/", <SiteFooter />));
+    const categoryLinks = [...container.querySelectorAll("a")]
+      .map((a) => a.getAttribute("href") ?? "")
+      .filter(isCategory);
+    expect(categoryLinks.length).toBe(categories.length);
+    expect(new Set(categoryLinks).size).toBe(categoryLinks.length);
+  });
+
+  it("no heading in the footer is a mono capital kicker", () => {
+    const { container } = render(at("/", <SiteFooter />));
+    const marked = [
+      ...container.querySelectorAll<HTMLElement>("h2, h3, summary"),
+    ].filter((el) =>
+      /(^|\s)(kicker|font-mono|uppercase)(\s|$)/.test(el.className),
+    );
+    // Health: there are headings to read.
+    expect(
+      container.querySelectorAll("h2, h3, summary").length,
+    ).toBeGreaterThan(categories.length);
+    expect(marked.map((el) => el.textContent)).toEqual([]);
   });
 
   it("a Guides column: the first five guides, then All guides", () => {

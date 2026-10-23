@@ -30,9 +30,8 @@ export default function GuidesPage() {
       <Container className="flex flex-col gap-12">
         <SectionHeading
           as="h1"
-          eyebrow="Guides"
           title="PDF guides"
-          description="Practical walkthroughs for everyday PDF tasks. Every guide names the tool it uses and says plainly where the processing runs — in your browser, or on an auto-deleting worker."
+          description="Step-by-step help for everyday PDF jobs. Each guide names the tool it uses and says plainly where your file is processed — in your browser, or on a secure server that deletes it afterwards."
         />
         <div className="flex flex-col gap-6">
           <GuideFinder

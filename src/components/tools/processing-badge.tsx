@@ -72,8 +72,14 @@ export function ModeShape({
 }
 
 /**
- * Honest, at-a-glance chip telling the user where a tool runs. Copy comes from
- * the single source of truth in `processing.ts`.
+ * Where a tool runs, at a glance: the mode's shape and its words, from
+ * `processing.ts` — `plain` ("In your browser", "Secure server", "Browser
+ * first", "AI"), or the longer `label` on a tool page's facts row.
+ *
+ * WAS mono capitals ("IN-BROWSER", "SECURE WORKER", "HYBRID") on every
+ * surface but the home cards, which had their own friendly line; one badge
+ * since 2026-10-23 (owner: "check the whole website"), and
+ * `tool-card.test.tsx` fails a card that wears mono or capitals again.
  *
  * `wordClassName` is for tight layouts only — the home toolbox's phone cards
  * pass `max-sm:sr-only`, so the shape shows and the word is still read out
@@ -95,13 +101,13 @@ export function ProcessingBadge({
     <span
       title={meta.description}
       className={cn(
-        "text-muted inline-flex items-center gap-1.5 font-mono text-[11px] font-medium tracking-wide uppercase",
+        "text-muted inline-flex items-center gap-1.5 text-xs",
         className,
       )}
     >
       <ModeShape mode={mode} />
       <span className={wordClassName}>
-        {variant === "short" ? meta.short : meta.label}
+        {variant === "short" ? meta.plain : meta.label}
       </span>
     </span>
   );

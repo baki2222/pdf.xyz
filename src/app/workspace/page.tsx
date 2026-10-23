@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import { ShieldCheck } from "lucide-react";
 import { getPopularTools } from "@/lib/tools";
 import { Container } from "@/components/ui/container";
-import { Pill } from "@/components/ui/badge";
 import { buildMetadata } from "@/lib/seo";
 import { buildToolSummaries } from "./presenter";
 import { WorkspaceClient } from "./workspace-client";
@@ -31,21 +29,19 @@ const popularSummaries = toolSummaries.filter((tool) =>
  */
 export default function WorkspacePage() {
   return (
-    <div className="bg-canvas text-fg py-14 sm:py-20">
-      <Container className="flex flex-col gap-10">
-        <div className="flex flex-col items-start gap-4">
-          <Pill>
-            <ShieldCheck className="text-ok size-3.5" aria-hidden />
-            Local session only
-          </Pill>
+    <div className="bg-canvas text-fg py-8 sm:py-16">
+      <Container className="flex flex-col gap-8">
+        {/* Plain words, no mono chip (owner, 2026-10-23). WAS a "Local
+            session only" mono pill above a sentence about "staging" and the
+            "fact this tab read". */}
+        <div className="flex flex-col items-start gap-3">
           <h1 className="font-display text-fg text-4xl font-medium tracking-tight text-balance sm:text-5xl">
             Your workspace
           </h1>
           <p className="text-muted max-w-2xl text-base leading-relaxed text-pretty sm:text-lg">
-            Stage your documents here, see the tools that fit — each with the
-            fact this tab read from your files — and line up a batch. Nothing is
-            uploaded: the files stay in this browser, and the in-browser tools
-            open with them already loaded.
+            Add your files and we&apos;ll suggest the tools that fit them, or
+            open several files in one tool at once. Nothing is uploaded here:
+            your files stay in this browser.
           </p>
         </div>
 

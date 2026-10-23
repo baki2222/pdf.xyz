@@ -104,7 +104,7 @@ describe("every mode has a shape of its own", () => {
   it.each(MODES)("%s: the word is rendered beside the shape", (mode) => {
     const doc = dom(renderToStaticMarkup(<ProcessingBadge mode={mode} />));
     expect(doc.querySelector("svg")).not.toBeNull();
-    expect(doc.body.textContent).toContain(processingMeta[mode].short);
+    expect(doc.body.textContent).toContain(processingMeta[mode].plain);
   });
 });
 

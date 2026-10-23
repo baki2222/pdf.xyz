@@ -1215,7 +1215,7 @@ async function measureStaging(
   const target =
     scroll === "empty-state"
       ? // The box the staged files replace, at the top.
-        page.getByText(/no files staged yet/i).locator("xpath=..")
+        page.getByText(/^no files yet$/i).locator("xpath=..")
       : scroll === "add-files"
         ? page.getByRole("button", { name: "Add files" })
         : scroll === "recent-activity"

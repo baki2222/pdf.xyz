@@ -28,20 +28,20 @@ function statusContent(
     case "empty":
       return {
         tone: "muted",
-        title: "Build a batch",
-        body: "Choose a tool and add your staged files to line them up.",
+        title: "Nothing to run yet",
+        body: "Pick a tool, then add the files you chose above.",
       };
     case "needs-tool":
       return {
         tone: "muted",
         title: "Choose a tool",
-        body: "Pick the tool you want to run across these files.",
+        body: "Pick the tool you want to use on these files.",
       };
     case "needs-files":
       return {
         tone: "muted",
         title: "Add files",
-        body: "Add staged files to the queue to run them through this tool.",
+        body: "Add the files you chose above, and they open in this tool together.",
       };
     case "ready": {
       const verb =
@@ -63,11 +63,11 @@ function statusContent(
     case "worker-disabled":
       return {
         tone: "worker",
-        title: "Runs on a secure worker",
+        title: "Runs on a secure server",
         // Says what is TRUE from here (this tool uploads; the batch path is
         // browser-only) instead of asserting the worker is off, which this
         // component cannot observe — see the optgroup comment below.
-        body: `${name} runs on a secure worker, so your file is uploaded rather than processed on your device. Open the tool to see exactly what happens to your files first.`,
+        body: `${name} runs on a secure server, so your file is uploaded rather than processed on your device. Open the tool to see exactly what happens to your files first.`,
       };
     default:
       return {
@@ -149,21 +149,18 @@ export function BatchPanel({
         </span>
         <div className="min-w-0">
           <h2 id="batch-heading" className="text-fg text-sm font-semibold">
-            Batch queue
+            Use one tool on several files
           </h2>
           <p className="text-muted text-xs">
-            Line up files, choose one tool, hand them straight over.
+            Choose a tool, add your files, and open them in it all at once.
           </p>
         </div>
       </div>
 
       {/* Step 1 — choose a tool */}
       <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor={selectId}
-          className="text-muted text-xs font-medium tracking-wide uppercase"
-        >
-          Tool
+        <label htmlFor={selectId} className="text-fg text-xs font-medium">
+          1. Choose a tool
         </label>
         {/* The background was `bg-surface-1` — a token that never existed, so
             the class emitted no CSS and this select had been transparent since
@@ -184,7 +181,7 @@ export function BatchPanel({
             ))}
           </optgroup>
           {/*
-            "Secure worker" states WHERE the tool runs — a catalogue fact this
+            "Secure server" states WHERE the tool runs — a catalogue fact this
             component has. It deliberately no longer says "not enabled here":
             the predicate behind this list (`!s.live && s.uploadsFiles`) is two
             static catalogue lookups and never observes the environment, while
@@ -195,7 +192,7 @@ export function BatchPanel({
             state its predicate cannot see; the enablement question belongs to
             the live worker status this component does not fetch.
           */}
-          <optgroup label="Secure worker · your file is uploaded">
+          <optgroup label="Secure server · your file is uploaded">
             {workerTools.map((t) => (
               <option key={t.slug} value={t.slug}>
                 {t.name}
@@ -208,8 +205,11 @@ export function BatchPanel({
       {/* Step 2 — queue files */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-muted text-xs font-medium tracking-wide uppercase">
-            Files ({queued}/{files.length})
+          <span className="text-fg text-xs font-medium">
+            2. Add files{" "}
+            <span className="text-muted font-normal tabular-nums">
+              ({queued} of {files.length})
+            </span>
           </span>
           <div className="flex items-center gap-1.5">
             {queued > 0 && (
@@ -265,7 +265,7 @@ export function BatchPanel({
         ) : (
           <p className="text-muted text-xs">
             {files.length === 0
-              ? "Stage files above, then add them here."
+              ? "Choose files above first, then add them here."
               : "No files queued yet."}
           </p>
         )}

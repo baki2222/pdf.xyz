@@ -1,9 +1,15 @@
 import { FORMATS, formatForToken, type Format } from "@/lib/intent/formats";
 import { categories } from "./categories";
+import { familyIdOf } from "./family-id";
 import type { ToolCategoryId } from "./types";
 import { runsFilter, type RunsFilter } from "./where-it-runs";
 
-export type ToolsFilter = ToolCategoryId | "all";
+/**
+ * A category (`organize`, `convert-to`), a family — the chips' fold, which
+ * for one category is its own id and for the two convert categories is
+ * `convert` — or every tool.
+ */
+export type ToolsFilter = ToolCategoryId | (string & {}) | "all";
 
 export interface ToolsQuery {
   readonly category: ToolsFilter;
@@ -14,7 +20,21 @@ export interface ToolsQuery {
   readonly runs: RunsFilter;
 }
 
-const CATEGORY_IDS = new Set<string>(categories.map((c) => c.id));
+/** Every value `?category=` can carry: each category's id and each family's. */
+const CATEGORY_IDS = new Set<string>([
+  ...categories.map((c) => c.id),
+  ...categories.map((c) => familyIdOf(c.id)),
+]);
+
+/** Whether a tool of `category` is in the filter `filter`. */
+export function filterMatches(
+  category: ToolCategoryId,
+  filter: ToolsFilter,
+): boolean {
+  return (
+    filter === "all" || category === filter || familyIdOf(category) === filter
+  );
+}
 
 /**
  * `?accepts=` as a format some tool takes, in any spelling ("jpeg", "JPG"),
@@ -51,9 +71,7 @@ export function parseToolsQuery(search: string): ToolsQuery {
   const category = params.get("category");
   return {
     category:
-      category !== null && CATEGORY_IDS.has(category)
-        ? (category as ToolCategoryId)
-        : "all",
+      category !== null && CATEGORY_IDS.has(category) ? category : "all",
     query: params.get("q") ?? "",
     accepts: acceptsFormat(params.get("accepts")),
     runs: runsFilter(params.get("runs")),

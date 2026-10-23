@@ -185,7 +185,7 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
                 href={toolHref(target.slug)}
                 onClick={(event) => void open(event, target, i + 1)}
                 aria-busy={busy || undefined}
-                aria-label={`Continue with ${target.name} · ${mode.short} · carries ${what}`}
+                aria-label={`Continue with ${target.name} · ${mode.plain} · carries ${what}`}
                 className="group border-line bg-panel hover:border-line-strong rounded-ctl flex min-h-10 items-center gap-3 border px-3.5 py-2.5 transition-colors"
               >
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -200,7 +200,7 @@ function ContinueRows({ run, output }: { run: ToolRun; output: RunOutput }) {
                       mode={target.processing}
                       className="mr-1.5 inline-block"
                     />
-                    {mode.short}
+                    {mode.plain}
                     <span aria-hidden className="text-faint">
                       {" · "}
                     </span>

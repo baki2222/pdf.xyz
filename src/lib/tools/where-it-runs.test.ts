@@ -48,7 +48,7 @@ describe("whereItRuns", () => {
   it("the uploading choices are labelled with their mode's own words", () => {
     for (const option of options.slice(1)) {
       const meta = processingMeta[option.mode];
-      expect([meta.label, meta.short], option.id).toContain(option.label);
+      expect([meta.label, meta.plain], option.id).toContain(option.label);
     }
   });
 

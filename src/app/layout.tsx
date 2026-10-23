@@ -118,13 +118,14 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  // The canvas tokens, per scheme — the prepress bench since 2026-08-28.
-  // These MUST track --sf-canvas in globals.css: the browser paints this
-  // colour behind overscroll and in the tab strip, and a mismatched pair
-  // reads as a flash of the previous design on every rubber-band scroll.
+  // The phone browser's toolbar: the brand petrol (light `--sf-accent` in
+  // globals.css), in both schemes — the owner's call, 2026-10-23, settled by
+  // screenshot against both pages. WAS the canvas per scheme (#f4f6f8,
+  // #0c1014). `theme-palette-copies.test.ts` reads the token and holds both
+  // entries to it.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f4f6f8" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c1014" },
+    { media: "(prefers-color-scheme: light)", color: "#07567a" },
+    { media: "(prefers-color-scheme: dark)", color: "#07567a" },
   ],
   width: "device-width",
   initialScale: 1,

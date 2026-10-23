@@ -2999,10 +2999,10 @@
     },
     "tools.html": {
       "title": "All PDF tools — pdf.xyz",
-      "description": "Browse all 50 pdf.xyz tools — merge, split, compress, convert, edit, sign, secure, and AI. Filter by category and see exactly where each tool runs.",
+      "description": "Browse all 50 free pdf.xyz tools — merge, split, compress, convert, edit, sign, secure, and AI. Filter by category and see where each tool runs.",
       "canonical": "https://pdf.xyz/tools",
       "robots": "index, follow",
-      "h1": ["Every PDF tool, one place"],
+      "h1": ["All PDF tools"],
       "h2": [
         "AI Tools4",
         "Convert from PDF9",
@@ -9071,7 +9071,11 @@
       "canonical": "https://pdf.xyz/workspace",
       "robots": "noindex, nofollow",
       "h1": ["Your workspace"],
-      "h2": ["Batch queue", "Popular tools", "Recent activity"],
+      "h2": [
+        "Popular tools",
+        "Recent activity",
+        "Use one tool on several files"
+      ],
       "jsonLdTypes": [],
       "links": [
         "/",
