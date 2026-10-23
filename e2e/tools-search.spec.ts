@@ -244,7 +244,8 @@ test.describe("the /tools search, after hydration", () => {
       page.getByRole("heading", { level: 2, name: "Best matches for “flip”" }),
     ).toBeVisible();
     expect((await toolLinks(page))[0]).toBe("/tools/rotate-pdf");
-    await page.getByRole("button", { name: /^All tools/ }).click();
+    // "All tools" until 2026-10-23; the chips are the home page's now.
+    await page.getByRole("button", { name: /^All \d/ }).click();
     await expect(page).toHaveURL(/accepts=pdf/);
     await expect(page).toHaveURL(/q=flip/);
   });

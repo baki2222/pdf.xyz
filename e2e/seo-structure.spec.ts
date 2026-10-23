@@ -140,7 +140,11 @@ test.describe("/tools after hydration", () => {
     page,
   }) => {
     await page.goto("/tools?runs=never-uploads");
-    const radio = page.getByRole("radio", { name: /^Never uploads/ });
+    // A checkbox since 2026-10-23, in plain words; WAS the "Never uploads"
+    // radio of a "Where it runs" group.
+    const radio = page.getByRole("checkbox", {
+      name: /^Only tools that keep files on your device/,
+    });
     await waitForHydration(radio);
     await expect(radio).toBeChecked();
     const never = processingSplit().neverUploads.map((t) => `/tools/${t.slug}`);
@@ -148,9 +152,9 @@ test.describe("/tools after hydration", () => {
     await expect
       .poll(async () => [...(await toolHrefs(page.getByRole("main")))].sort())
       .toEqual(never.sort());
-    // The radio's own count is the partition's.
+    // The control's own count is the partition's.
     await expect(radio).toHaveAccessibleName(
-      new RegExp(`^Never uploads ${never.length}$`),
+      new RegExp(`^Only tools that keep files on your device ${never.length}$`),
     );
   });
 
@@ -158,9 +162,11 @@ test.describe("/tools after hydration", () => {
     page,
   }) => {
     await page.goto("/tools?runs=bogus");
-    const all = page.getByRole("radio", { name: /^All/ });
+    const all = page.getByRole("checkbox", {
+      name: /^Only tools that keep files on your device/,
+    });
     await waitForHydration(all);
-    await expect(all).toBeChecked();
+    await expect(all).not.toBeChecked();
     expect(await toolHrefs(page.getByRole("main"))).toEqual(everyTool);
   });
 });

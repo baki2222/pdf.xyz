@@ -15,12 +15,14 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ANNOUNCE_DELAY_MS,
+  KEEP_LOCAL_LABEL,
   ToolsExplorer,
   resultAnnouncement,
 } from "./tools-explorer";
 import { UNSUPPORTED_FORMATS, toolAcceptsFormat } from "@/lib/intent/formats";
 import { categories, getToolsByCategory, tools } from "@/lib/tools";
 import { categoryHref } from "@/lib/tools/category-href";
+import { toolFamilies } from "@/lib/tools/families";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { runsChoices, whereItRuns } from "@/lib/tools/where-it-runs";
 import * as searchEngine from "@/lib/tools/search-tools";
@@ -169,8 +171,75 @@ describe("ToolsExplorer deep links (read in the browser, not on the server)", ()
     render(<ToolsExplorer loadEngine={engineNow} />);
     fireEvent.click(screen.getByRole("button", { name: /^AI/ }));
     expect(window.location.search).toBe("?category=ai");
-    fireEvent.click(screen.getByRole("button", { name: /^All tools/ }));
+    // "All tools" until 2026-10-23: the chips are the home page's now.
+    fireEvent.click(screen.getByRole("button", { name: /^All \d/ }));
     expect(window.location.search).toBe("");
+  });
+});
+
+/*
+ * 2026-10-23: the category chips are the home page's families, so the two
+ * pages offer one set. "Convert" holds both convert categories; an old link
+ * to one of them still shows that category alone, with Convert pressed.
+ */
+describe("ToolsExplorer category chips are the home page's families", () => {
+  const families = toolFamilies();
+  const chips = () =>
+    within(
+      screen.getByRole("group", { name: /filter tools by category/i }),
+    ).getAllByRole("button");
+  const pressed = () =>
+    chips()
+      .filter((b) => b.getAttribute("aria-pressed") === "true")
+      .map((b) => b.getAttribute("data-family"));
+
+  it("All, then one chip per family, in the catalogue's order, each with its count and swatch", () => {
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    // Health: a fold happened, so this is not the category list again.
+    expect(families.length).toBeLessThan(categories.length);
+    expect(chips().map((b) => b.getAttribute("data-family"))).toEqual([
+      "all",
+      ...families.map((f) => f.id),
+    ]);
+    expect(chips().map((b) => b.textContent)).toEqual([
+      `All ${tools.length}`,
+      ...families.map((f) => `${f.label} ${f.tools.length}`),
+    ]);
+    for (const f of families)
+      expect(
+        chips()
+          .find((b) => b.getAttribute("data-family") === f.id)!
+          .querySelector(`[data-swatch].bg-cat-${f.id}`),
+        f.id,
+      ).not.toBeNull();
+    expect(pressed()).toEqual(["all"]);
+  });
+
+  it("the Convert chip shows both convert categories, under their own headings", () => {
+    const convert = families.find((f) => f.categories.length > 1)!;
+    expect(convert, "health: a family of two categories").toBeDefined();
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    fireEvent.click(
+      chips().find((b) => b.getAttribute("data-family") === convert.id)!,
+    );
+    expect(new Set(toolLinks())).toEqual(
+      new Set(convert.tools.map((t) => `/tools/${t.slug}`)),
+    );
+    expect(window.location.search).toBe(`?category=${convert.id}`);
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.id),
+    ).toEqual(convert.categories.map((id) => `tools-group-${id}`));
+  });
+
+  it("an old link to one convert category shows it alone, with its family's chip pressed", () => {
+    const convert = families.find((f) => f.categories.length > 1)!;
+    const one = convert.categories[0]!;
+    window.history.replaceState(null, "", `/tools?category=${one}`);
+    render(<ToolsExplorer loadEngine={engineNow} />);
+    expect(toolLinks()).toEqual(
+      getToolsByCategory(one).map((t) => `/tools/${t.slug}`),
+    );
+    expect(pressed()).toEqual([convert.id]);
   });
 });
 
@@ -299,7 +368,7 @@ describe("ToolsExplorer ?accepts=", () => {
     expect(
       screen.getByRole("button", { name: /takes jpg/i }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^All tools/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^All \d/ }));
     expect(window.location.search).toBe("?accepts=jpg");
   });
 
@@ -613,10 +682,15 @@ describe("the search engine loads on demand, never with the page", () => {
 
 /**
  * "Where it runs" — the filter a reader reaches for when the question is
- * whether their file leaves the device. Radios, not toggle buttons: one
- * choice at a time, arrow keys between them, and `getByRole("button",
- * {name: /^AI/})` still resolves to the AI CATEGORY chip alone (the smoke
- * e2e and the tests above select it that way).
+ * whether their file leaves the device.
+ *
+ * WAS (WP-06 to 2026-10-23) a radio group under a "WHERE IT RUNS" label:
+ * All, Never uploads, Browser-first, Secure worker, AI. The owner: a
+ * visitor does not think in "never uploads / browser-first / secure worker".
+ * The one choice a visitor makes — keep my files on my device — is a
+ * checkbox now, the never-uploads choice under plain words; a `?runs=` link
+ * to another choice still filters, shown as a chip that removes it. The
+ * radio tests below were inverted to the checkbox, the sentences kept.
  *
  * The choices and their counts are read from `whereItRuns(processingSplit())`
  * at assertion time, never typed: a tool that changes where it runs moves a
@@ -626,32 +700,31 @@ describe("ToolsExplorer: Where it runs", () => {
   const options = whereItRuns(processingSplit());
   /** What `app/tools/page.tsx` hands the explorer: the choices as slugs. */
   const RUNS = runsChoices(options);
-  const group = () => screen.getByRole("radiogroup", { name: "Where it runs" });
-  const radio = (name: RegExp) => within(group()).getByRole("radio", { name });
+  const keepLocal = () =>
+    screen.getByRole("checkbox", { name: new RegExp(`^${KEEP_LOCAL_LABEL}`) });
   const hrefsOf = (list: readonly { slug: string }[]) =>
     list.map((t) => `/tools/${t.slug}`);
+  const never = options.find((o) => o.id === "never-uploads")!;
 
-  it("offers All, then one choice per place a tool runs, each named with its count", () => {
+  it("offers one checkbox, in plain words, with the never-upload count; no radio group", () => {
     render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
-    const expected = [
-      "All",
-      ...options.map((o) => `${o.label} ${o.tools.length}`),
-    ];
-    // Each name resolves to exactly one radio, and there are no others.
-    for (const name of expected) within(group()).getByRole("radio", { name });
-    expect(within(group()).getAllByRole("radio")).toHaveLength(expected.length);
-    expect(radio(/^All$/)).toBeChecked();
+    expect(keepLocal()).not.toBeChecked();
+    expect(keepLocal().closest("label")!.textContent).toBe(
+      `${KEEP_LOCAL_LABEL} ${never.tools.length}`,
+    );
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByText(/where it runs/i)).toBeNull();
     // Health: the never-upload choice is there and is not the whole catalogue.
-    expect(options[0]!.tools.length).toBeGreaterThan(0);
-    expect(options[0]!.tools.length).toBeLessThan(tools.length);
+    expect(never.tools.length).toBeGreaterThan(0);
+    expect(never.tools.length).toBeLessThan(tools.length);
   });
 
-  it("choosing a place shows exactly its tools, keeps the URL shareable, and says so", () => {
+  it("checking it shows exactly the tools that never upload, keeps the URL shareable, and says so", () => {
     vi.useFakeTimers();
     render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
-    const never = options[0]!;
-    fireEvent.click(radio(/^Never uploads/));
-    expect(radio(/^Never uploads/)).toBeChecked();
+    fireEvent.click(keepLocal());
+    expect(keepLocal()).toBeChecked();
     expect(new Set(toolLinks())).toEqual(new Set(hrefsOf(never.tools)));
     expect(window.location.search).toBe("?runs=never-uploads");
     act(() => {
@@ -665,30 +738,45 @@ describe("ToolsExplorer: Where it runs", () => {
     // uploading too; only its optional worker step uploads) said of the 29
     // that never upload.
     expect(status().textContent).not.toMatch(/without uploading/);
-    fireEvent.click(radio(/^All$/));
+    fireEvent.click(keepLocal());
     expect(toolLinks()).toHaveLength(tools.length);
     expect(window.location.search).toBe("");
   });
 
-  it("a deep link checks its choice and filters, after hydration", () => {
+  it("a deep link to another choice filters after hydration, and says so in a chip that removes it", () => {
     window.history.replaceState(null, "", "/tools?runs=secure-worker");
     render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
     const worker = options.find((o) => o.id === "secure-worker")!;
-    expect(radio(/^Secure worker/)).toBeChecked();
+    expect(keepLocal()).not.toBeChecked();
     expect(new Set(toolLinks())).toEqual(new Set(hrefsOf(worker.tools)));
+    const chip = screen.getByRole("button", {
+      name: `${worker.label}, remove this filter`,
+    });
+    // In a visitor's words: the mode's label, never "worker".
+    expect(chip.textContent).not.toMatch(/worker/i);
+    fireEvent.click(chip);
+    expect(toolLinks()).toHaveLength(tools.length);
+    expect(window.location.search).toBe("");
+  });
+
+  it("a deep link to never-uploads checks the box", () => {
+    window.history.replaceState(null, "", "/tools?runs=never-uploads");
+    render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
+    expect(keepLocal()).toBeChecked();
+    expect(new Set(toolLinks())).toEqual(new Set(hrefsOf(never.tools)));
   });
 
   it("without choices from the page there is no such filter, and ?runs= filters nothing", () => {
     window.history.replaceState(null, "", "/tools?runs=never-uploads");
     render(<ToolsExplorer loadEngine={engineNow} />);
-    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(toolLinks()).toHaveLength(tools.length);
   });
 
-  it("negative control: an unknown ?runs= is All, never an empty grid", () => {
+  it("negative control: an unknown ?runs= is every tool, never an empty grid", () => {
     window.history.replaceState(null, "", "/tools?runs=bogus");
     render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
-    expect(radio(/^All$/)).toBeChecked();
+    expect(keepLocal()).not.toBeChecked();
     expect(toolLinks()).toHaveLength(tools.length);
   });
 
@@ -700,7 +788,7 @@ describe("ToolsExplorer: Where it runs", () => {
     );
     render(<ToolsExplorer loadEngine={engineNow} runs={RUNS} />);
     // Health: no AI tool never uploads, so this IS empty.
-    expect(options[0]!.tools.filter((t) => t.category === "ai")).toEqual([]);
+    expect(never.tools.filter((t) => t.category === "ai")).toEqual([]);
     // WAS "No tools work without uploading in AI Tools" (see RUNS_COPY).
     expect(
       screen.getByRole("heading", {
@@ -709,7 +797,7 @@ describe("ToolsExplorer: Where it runs", () => {
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /reset filters/i }));
-    expect(radio(/^All$/)).toBeChecked();
+    expect(keepLocal()).not.toBeChecked();
     expect(toolLinks()).toHaveLength(tools.length);
     expect(window.location.search).toBe("");
   });
@@ -778,7 +866,8 @@ describe("resultAnnouncement: where it runs", () => {
         query: "",
         runs: "secure-worker",
       }),
-    ).toBe("No tools run on a secure worker in AI Tools");
+      // "…on a secure worker…" until 2026-10-23: the UI says "server".
+    ).toBe("No tools run on a secure server in AI Tools");
     // Unchanged when no place is chosen: the sentences pinned above stand.
     expect(
       resultAnnouncement(0, { category: "ai", query: "", accepts: "DOCX" }),

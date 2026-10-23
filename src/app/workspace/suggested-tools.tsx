@@ -4,7 +4,8 @@ import { useId, useMemo } from "react";
 import Link from "next/link";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import { ModeShape } from "@/components/tools/processing-badge";
-import { ToolIcon } from "@/components/ui/tool-icon";
+import { FamilyTile } from "@/components/tools/family-tile";
+import { ToolGlyph } from "@/components/tools/tool-glyph";
 import { getProcessingMeta } from "@/lib/tools/processing";
 import { cn } from "@/lib/utils";
 import { FACTS_LINE, WHERE_LINE } from "./row-lines";
@@ -78,7 +79,9 @@ export function SuggestedTools({
             : "hover:border-line hover:bg-wash border-transparent",
         )}
       >
-        <ToolIcon icon={tool.icon} size="sm" className="mt-0.5" />
+        <FamilyTile category={tool.category} size="sm" className="mt-0.5">
+          <ToolGlyph icon={tool.icon} />
+        </FamilyTile>
         {/* The suggestion row's line boxes (./row-lines): a 20px name, then
             the tagline and where it runs, each held at two lines. */}
         <span className="flex min-w-0 flex-col gap-0.5">
@@ -87,7 +90,7 @@ export function SuggestedTools({
               {tool.name}
             </span>
             {suggested && (
-              <span className="border-accent/40 text-accent rounded-tag border px-1.5 py-0.5 font-mono text-[10px] leading-none font-semibold tracking-wide uppercase">
+              <span className="border-accent/40 text-accent rounded-tag border px-1.5 py-0.5 text-[11px] leading-none font-medium">
                 Suggested
               </span>
             )}
@@ -98,8 +101,8 @@ export function SuggestedTools({
               mode={tool.processing}
               className="mr-1.5 inline-block align-[-0.5px]"
             />
-            <span className="font-mono font-medium tracking-wide uppercase">
-              {getProcessingMeta(tool.processing).short}
+            <span className="font-medium">
+              {getProcessingMeta(tool.processing).plain}
             </span>
           </span>
         </span>
@@ -120,7 +123,7 @@ export function SuggestedTools({
       )}
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 id={headingId} className="kicker text-muted">
+        <h2 id={headingId} className="text-fg text-sm leading-4 font-semibold">
           {preselected ? "Pick up where you left off" : "Popular tools"}
         </h2>
         <Link

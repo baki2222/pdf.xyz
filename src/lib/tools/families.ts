@@ -1,5 +1,6 @@
 import { categories } from "./categories";
 import { tools } from "./catalog";
+import { familyIdOf } from "./family-id";
 import type { Tool, ToolCategoryId } from "./types";
 
 /**
@@ -24,10 +25,8 @@ export interface ToolFamily {
   readonly tools: readonly Tool[];
 }
 
-/** The fold, said once: the family is the first part of the category id. */
-function familyId(category: ToolCategoryId): string {
-  return category.split("-")[0]!;
-}
+/** The fold, said once (`./family-id`): the first part of the category id. */
+const familyId = familyIdOf;
 
 /** The first word every one of `names` starts with, or the first name. */
 function sharedFirstWord(names: readonly string[]): string {

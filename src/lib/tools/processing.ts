@@ -50,11 +50,16 @@ export interface ProcessingHue {
 export type ProcessingShape = "dot" | "half" | "ring" | "diamond";
 
 export interface ProcessingMeta {
+  /** The long label: a tool page's facts row, the share card. */
   label: string;
-  short: string;
   /**
-   * The home card's badge, in a visitor's words: no "worker", no mono caps.
-   * `card-copy.test.ts` holds every one against the jargon list.
+   * The badge, in a visitor's words: no "worker", no mono caps — on every
+   * tool card, chip and row that says where a tool runs.
+   * `card-copy.test.ts` holds it, and `label`, against the jargon list.
+   *
+   * WAS beside a `short` label ("In-browser", "Secure worker", "Hybrid")
+   * that every surface but the home cards printed in mono capitals; `short`
+   * retired on 2026-10-23 and this is the one badge word.
    */
   plain: string;
   description: string;
@@ -88,7 +93,6 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
   client: {
     plain: "In your browser",
     label: "Runs in your browser",
-    short: "In-browser",
     description:
       "This tool processes files entirely on your device. Nothing is uploaded to a server.",
     shape: "dot",
@@ -103,8 +107,11 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
   },
   server: {
     plain: "Secure server",
-    label: "Secure worker",
-    short: "Secure worker",
+    // Shorter than "Runs in your browser", as "Secure worker" was: a tool
+    // page's facts row holds this and the formats on one phone line, and
+    // "Runs on a secure server" pushed OCR PDF's 9px past it (CI, Linux
+    // fonts, 2026-10-23).
+    label: "On a secure server",
     description:
       "Files are processed on a secure worker, which deletes the upload when the job ends and serves the result for a limited time.",
     shape: "ring",
@@ -120,7 +127,6 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
   hybrid: {
     plain: "Browser first",
     label: "Browser-first",
-    short: "Hybrid",
     description: HYBRID_SUMMARY,
     shape: "half",
     hue: {
@@ -135,7 +141,6 @@ export const processingMeta: Record<ProcessingMode, ProcessingMeta> = {
   ai: {
     plain: "AI",
     label: "AI-assisted",
-    short: "AI",
     // Names the third party: the AI work is done by an outside provider, from
     // the PDF's text (privacy policy section 3). "An AI model on secure
     // infrastructure" read as if the model ran on ours.

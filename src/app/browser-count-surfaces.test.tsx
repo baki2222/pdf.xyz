@@ -32,14 +32,15 @@ import {
   fireEvent,
   render,
   screen,
-  within,
 } from "@testing-library/react";
 import { tools } from "@/lib/tools";
 import { processingSplit } from "@/lib/tools/processing-split";
 import { processingMeta } from "@/lib/tools/processing";
-import { whereItRuns } from "@/lib/tools/where-it-runs";
 import { supportedToolSlugs } from "@/lib/pdf/registry";
-import { ANNOUNCE_DELAY_MS } from "@/components/tools/tools-explorer";
+import {
+  ANNOUNCE_DELAY_MS,
+  KEEP_LOCAL_LABEL,
+} from "@/components/tools/tools-explorer";
 // In memory before /tools asks for it, so the page's own `import()` of the
 // search chunk resolves inside the test rather than racing it.
 import { rankTools } from "@/lib/tools/search-tools";
@@ -182,26 +183,38 @@ function announced(): string {
   return screen.getByRole("status").textContent ?? "";
 }
 
-/** Each "Where it runs" radio, chosen in turn: what the page announced. */
+/**
+ * The "Where it runs" control /tools offers, chosen and then cleared: what
+ * the page announced each time.
+ *
+ * WAS each of five radios in turn (All, Never uploads, Browser-first, Secure
+ * worker, AI). Since 2026-10-23 the page offers one plain checkbox — the
+ * never-uploads choice, "Only tools that keep files on your device" — and
+ * the other choices only arrive by an old `?runs=` link, silently (a deep
+ * link announces nothing until the reader acts). The checkbox is FOUND, not
+ * named: every checkbox the page renders is clicked, so a second one added
+ * tomorrow is read here by existing.
+ */
 async function chooseEachPlace(): Promise<
   { choice: string; sentence: string }[]
 > {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   try {
-    const group = screen.getByRole("radiogroup", { name: "Where it runs" });
-    const radios = within(group).getAllByRole("radio");
-    // Health: All and a choice per place; a group of one would read nothing.
-    expect(radios.length).toBeGreaterThanOrEqual(3);
+    const boxes = screen.getAllByRole("checkbox");
+    // Health: the control is there; none would read nothing.
+    expect(boxes.length).toBeGreaterThanOrEqual(1);
     const served: { choice: string; sentence: string }[] = [];
-    // "All" last, so it is a change too and is announced.
-    for (const radio of [...radios.slice(1), radios[0]!]) {
-      fireEvent.click(radio);
-      const sentence = announced();
-      expect(sentence, "a choice was not announced").not.toBe("");
-      served.push({
-        choice: radio.closest("label")?.textContent ?? "",
-        sentence,
-      });
+    for (const box of boxes) {
+      // On, then off: the clear is a change too, and is announced.
+      for (let i = 0; i < 2; i++) {
+        fireEvent.click(box);
+        const sentence = announced();
+        expect(sentence, "a choice was not announced").not.toBe("");
+        served.push({
+          choice: `${box.closest("label")?.textContent ?? ""}${i ? " (cleared)" : ""}`,
+          sentence,
+        });
+      }
     }
     return served;
   } finally {
@@ -600,7 +613,9 @@ const SHIPPED_IN_BROWSER_PATH: readonly string[] = [
   // The in-browser mode's own words, as every card and tool page says them
   // today — read from the module, so a reworded mode moves this corpus.
   processingMeta.client.label,
-  processingMeta.client.short,
+  processingMeta.client.plain,
+  // The mono badge every card wore until 2026-10-23, when `short` retired.
+  "In-browser",
 ];
 
 const inBrowserWording = (sentence: string) =>
@@ -640,9 +655,12 @@ async function servedNeverUploads(query: string): Promise<string[]> {
     });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
-      const group = screen.getByRole("radiogroup", { name: "Where it runs" });
+      // The never-uploads choice: the page's checkbox (a radio until
+      // 2026-10-23, "Never uploads").
       fireEvent.click(
-        within(group).getByRole("radio", { name: /^Never uploads/ }),
+        screen.getByRole("checkbox", {
+          name: new RegExp(`^${escape(KEEP_LOCAL_LABEL)}`),
+        }),
       );
       const sentences = [announced()];
       for (const h of screen.getAllByRole("heading", { level: 2 }))
@@ -676,9 +694,8 @@ describe("the never-upload choice is never worded with the in-browser path", () 
     const sentences = [...corpus.querySelectorAll("p")]
       .slice(1)
       .map((p) => p.textContent ?? "");
-    // One announcement per choice, "All" included…
-    const radios = whereItRuns(split).length + 1;
-    expect(sentences.length).toBeGreaterThanOrEqual(radios);
+    // Two announcements per control the page offers (chosen, cleared)…
+    expect(sentences.length).toBeGreaterThanOrEqual(2);
     // …and for each browser-first tool, a denial and the empty heading.
     for (const tool of BROWSER_FIRST) {
       const q = queryFor(tool.name);
@@ -694,8 +711,8 @@ describe("the never-upload choice is never worded with the in-browser path", () 
   it("the choice's own announcement on /tools", async () => {
     renderSurface(<ToolsPage />);
     const served = await chooseEachPlace();
-    const never = served.find((s) => s.choice.startsWith("Never uploads"));
-    expect(never, "Never uploads was not offered").toBeDefined();
+    const never = served.find((s) => s.choice.startsWith(KEEP_LOCAL_LABEL));
+    expect(never, "the never-uploads checkbox was not offered").toBeDefined();
     // Health: this IS the never-upload count's sentence.
     expect(countClaimsIn(never!.sentence)).toContain(NEVER);
     expect(

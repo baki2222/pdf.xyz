@@ -15,6 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
+import { CAPABILITY_DESCRIPTORS } from "@/lib/jobs/capabilities";
 import { processingMeta } from "./processing";
 import { cardSummary } from "./page-copy";
 
@@ -57,11 +58,27 @@ const SHIPPED_JARGON: readonly string[] = [
   "Editable DOCX from a PDF's text and pictures.",
   "Export pages as lossless PNGs.",
   "Render pages as JPG images.",
-  // The mono labels each row wore, from the table they came from. "AI" is
-  // the one that stays: it is a word visitors use.
-  ...Object.values(processingMeta)
-    .map((m) => m.short)
-    .filter((s) => s !== "AI"),
+  // The mono labels each row wore. WAS derived from `processingMeta[*].short`
+  // so a renamed label stayed in the corpus; `short` is retired (2026-10-23,
+  // the sitewide badge is `plain` now), so the labels are typed here as the
+  // history they are — every one shipped on /tools, the workspace and the
+  // tool pages until then. "AI" is the one that stays: visitors use it.
+  "In-browser",
+  "Secure worker",
+  "Hybrid",
+];
+
+/**
+ * Every word the UI shows for where a tool runs, DISCOVERED from the two
+ * tables that hold them: each mode's `label` and `plain` (badges, chips,
+ * the tool page's facts row, the "Where it runs" words) and each capability's
+ * `label` (/status, the workspace's summaries). A new field that holds a
+ * label must be added to this walk, so the walk reads every string field
+ * that is not a sentence (`description`, `summary`).
+ */
+const VISIBLE_MODE_LABELS: readonly string[] = [
+  ...Object.values(processingMeta).flatMap((m) => [m.label, m.plain]),
+  ...Object.values(CAPABILITY_DESCRIPTORS).map((d) => d.label),
 ];
 
 const jargonIn = (text: string) =>
@@ -74,6 +91,8 @@ describe("the home card's words", () => {
     // The mono labels are in it, so the derivation found the table.
     expect(SHIPPED_JARGON).toContain("Secure worker");
     expect(SHIPPED_JARGON).toContain("In-browser");
+    // Both tables were walked: four modes, two words each, four capabilities.
+    expect(VISIBLE_MODE_LABELS.length).toBeGreaterThanOrEqual(12);
   });
 
   it("every shipped specialist line is caught by some pattern", () => {
@@ -119,6 +138,18 @@ describe("the home card's words", () => {
   it("every mode's badge is in plain words", () => {
     for (const [mode, meta] of Object.entries(processingMeta))
       expect(jargonIn(meta.plain), mode).toEqual([]);
+  });
+
+  /*
+   * 2026-10-23 (owner: "check the whole website"): the home cards spoke
+   * plainly while every other surface still printed "SECURE WORKER",
+   * "IN-BROWSER" and "HYBRID". The badge is one component now, and every
+   * label either table can put on screen is held to the same list.
+   */
+  it("every label the site shows for where a tool runs is in plain words", () => {
+    expect(VISIBLE_MODE_LABELS.filter((l) => jargonIn(l).length > 0)).toEqual(
+      [],
+    );
   });
 
   it("a summary that replaces a tagline is a different line, not a copy", () => {

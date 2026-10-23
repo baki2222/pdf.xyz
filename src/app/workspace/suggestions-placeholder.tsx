@@ -29,7 +29,9 @@ export function SuggestionsPlaceholder({ className }: { className?: string }) {
       )}
     >
       <div className="flex items-center justify-between gap-3">
-        <p className="kicker text-muted">Suggested for your files</p>
+        <p className="text-fg text-sm leading-4 font-semibold">
+          Suggested for your files
+        </p>
         {/* As short as "All tools" in the same place: a longer phrase
             wrapped the heading at 390 and made this box 16px taller. */}
         <span className="text-faint text-xs font-medium">Reading…</span>

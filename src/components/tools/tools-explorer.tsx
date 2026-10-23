@@ -20,14 +20,17 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { categories, getCategoryCounts, toolCount, tools } from "@/lib/tools";
+import { categories, toolCount, tools } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 import { categoryHref } from "@/lib/tools/category-href";
+import { familyIdOf } from "@/lib/tools/family-id";
+import { toolFamilies } from "@/lib/tools/families";
 import { toolAcceptsFormat, type Format } from "@/lib/intent/formats";
 import type { SearchMode } from "@/lib/intent/search";
 import type { UnsupportedAnswer } from "@/lib/intent/unsupported";
 import type { ToolRanking } from "@/lib/tools/search-tools";
 import {
+  filterMatches,
   parseToolsQuery,
   toolsSearch,
   type ToolsFilter,
@@ -40,11 +43,23 @@ import {
 } from "@/lib/tools/where-it-runs";
 import { ToolCardView } from "@/components/tools/tool-card-view";
 import { ModeShape } from "@/components/tools/processing-badge";
+import { FILTER_CHIP, FamilySwatch } from "@/components/tools/family-tile";
 import { announceLocation } from "@/lib/location-search";
 import { cn } from "@/lib/utils";
 import { VIEW_TRANSITIONS } from "@/lib/motion/view-transitions";
 
-const counts = getCategoryCounts();
+/**
+ * The category chips: the home page's families ("Convert" is both convert
+ * categories), so the two pages offer one set of chips in one look.
+ */
+const families = toolFamilies();
+
+/**
+ * The checkbox for the never-uploads choice, in a visitor's words: the
+ * property its members own (`RUNS_COPY["never-uploads"].many`, "always keep
+ * your files on your device"), said as a filter.
+ */
+export const KEEP_LOCAL_LABEL = "Only tools that keep files on your device";
 
 /** How long typing must pause before the result count is announced. */
 export const ANNOUNCE_DELAY_MS = 400;
@@ -59,9 +74,9 @@ export type ToolIcons = Readonly<Record<string, ReactNode>>;
 const NO_ICONS: ToolIcons = {};
 
 /**
- * One filter row: a single sideways-scrolling line on a phone (the chips
- * snap, and the ends fade inside the gutter so the first chip is never
- * dimmed), a label column beside wrapping chips from `sm`.
+ * The chip row: a single sideways-scrolling line on a phone (the chips snap,
+ * and the ends fade inside the gutter so the first chip is never dimmed),
+ * wrapping from `sm` — the home page's chips, in the home page's class.
  *
  * A row that scrolls also CLIPS, at its padding box. It used to be exactly
  * as tall as a chip, so a focused chip's indicator — drawn outside it — lost
@@ -71,37 +86,23 @@ const NO_ICONS: ToolIcons = {};
  * focus outline reaches 4px. Its scroll-padding is 1.5rem, the 1.25rem fade
  * plus that outline, so a chip scrolled to by {@link revealInRow} — or by
  * the browser — stops clear of the fade, its outline whole; its end padding
- * is 1.5rem too, or the last chip could never be scrolled that far in.
+ * is 1.5rem too, or the last chip could never be scrolled that far in —
+ * and so is its START padding: with no label leading the row, "All" sat at
+ * 1.25rem, under the fade and 4px inside the inset (measured 2026-10-23).
  * `e2e/tools-filter-focus.spec.ts` measures both, at 390 and 1440.
+ *
+ * WAS two rows, each behind a mono capital label: "WHERE IT RUNS" (four
+ * radios: Never uploads, Browser-first, Secure worker, AI) and "CATEGORY"
+ * (eight chips). A visitor does not choose a tool by its infrastructure
+ * (owner, 2026-10-23); the one choice a visitor does make — keep my files
+ * on my device — is a plain checkbox under the chips now.
  */
 const FILTER_ROW =
-  "-mx-5 flex snap-x snap-proximity scroll-px-6 items-center gap-2 overflow-x-auto pr-6 pl-5 [scrollbar-width:none] max-sm:-my-1.5 max-sm:py-1.5 max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:grid sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start sm:gap-x-4 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
-/**
- * The row's label. A snap point too: otherwise a phone snaps the row to its
- * first chip on load and the label starts scrolled out of view.
- */
-const FILTER_LABEL =
-  "text-faint kicker shrink-0 snap-start pr-1 whitespace-nowrap sm:pt-2";
-/** The chips: flex items of the scrolling row on a phone, a wrap from `sm`. */
-const FILTER_CHIPS = "contents sm:flex sm:flex-wrap sm:gap-2";
-/**
- * A chip. It draws NO focus style of its own: a category chip is a button
- * and takes the site's `:focus-visible` outline (2px solid accent, 2px out:
- * 7.40:1 on the light canvas, 9.30:1 on the dark), and a radio's label
- * draws the same outline when its hidden input has focus ({@link
- * RADIO_FOCUS}). WAS a half-strength ring, `ring-accent/50` — 2.41:1 on the
- * light canvas, under WCAG 1.4.11's 3:1, and 3.13:1 on the dark.
- */
-const CHIP =
-  "rounded-tag inline-flex h-8 shrink-0 snap-start items-center gap-1.5 border px-3 text-sm font-medium whitespace-nowrap transition-colors";
-/** The site's focus outline, on a radio's label while its input has focus. */
-const RADIO_FOCUS =
-  "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2";
-const CHIP_ON = "bg-invert text-fg-invert border-transparent";
-const CHIP_OFF =
-  "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg";
-const chipCount = (on: boolean) =>
-  cn("text-xs tabular-nums", on ? "text-fg-invert/70" : "text-faint");
+  "-mx-5 flex snap-x snap-proximity scroll-px-6 items-center gap-2 overflow-x-auto pr-6 pl-6 [scrollbar-width:none] max-sm:-my-1.5 max-sm:py-1.5 max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
+/** A chip in the row: the home page's chip, and a snap point. */
+const CHIP = cn(FILTER_CHIP, "snap-start");
+const chipCount =
+  "text-faint group-aria-pressed:text-fg-invert/70 text-xs tabular-nums";
 
 /**
  * Scroll a filter row SIDEWAYS so `control` is wholly in view, clear of the
@@ -193,9 +194,16 @@ export interface ResultOutcome {
   readonly searchFailed?: boolean;
 }
 
-/** The category filter's name, or undefined for every category. */
+/**
+ * The category filter's name — a category's, or a family's chip label — or
+ * undefined for every category.
+ */
 function categoryName(id: ToolsFilter): string | undefined {
-  return id === "all" ? undefined : categories.find((c) => c.id === id)?.name;
+  if (id === "all") return undefined;
+  return (
+    categories.find((c) => c.id === id)?.name ??
+    families.find((f) => f.id === id)?.label
+  );
 }
 
 /**
@@ -456,7 +464,7 @@ export function ToolsExplorer({
     () =>
       (ranking?.ranked ?? tools).filter(
         (tool) =>
-          (active === "all" || tool.category === active) &&
+          filterMatches(tool.category, active) &&
           (accepts === null || toolAcceptsFormat(tool.accept, accepts)) &&
           (runs === "all" || Boolean(runsMembers.get(runs)?.has(tool.slug))),
       ),
@@ -509,23 +517,28 @@ export function ToolsExplorer({
   );
 
   const filters: { id: ToolsFilter; label: string; count: number }[] = [
-    { id: "all", label: "All tools", count: toolCount },
-    ...categories.map((c) => ({
-      id: c.id as ToolsFilter,
-      label: c.short,
-      count: counts[c.id],
+    { id: "all", label: "All", count: toolCount },
+    ...families.map((f) => ({
+      id: f.id,
+      label: f.label,
+      count: f.tools.length,
     })),
   ];
+  /**
+   * The chip a filter presses: its own, or for an old link to one convert
+   * category (`?category=convert-to`) its family's — the grid then shows
+   * that category alone, under its own heading.
+   */
+  const pressed =
+    active === "all" || filters.some((f) => f.id === active)
+      ? active
+      : familyIdOf(active as Tool["category"]);
+  /** The one "Where it runs" choice offered as a control: never uploads. */
+  const keepLocal = runsChoices.find((c) => c.id === "never-uploads");
 
-  // The active choice in each filter row, brought on screen: after
-  // hydration (a deep link's choice applies then) and whenever it changes.
-  const runsRow = useRef<HTMLDivElement>(null);
+  // The active chip, brought on screen: after hydration (a deep link's
+  // choice applies then) and whenever it changes.
   const categoryRow = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    revealInRow(
-      runsRow.current?.querySelector("input:checked")?.closest("label") ?? null,
-    );
-  }, [runs]);
   useEffect(() => {
     revealInRow(
       categoryRow.current?.querySelector('[aria-pressed="true"]') ?? null,
@@ -534,8 +547,6 @@ export function ToolsExplorer({
 
   const resultsHeading = useId();
   const pendingHeading = useId();
-  const runsLabel = useId();
-  const runsName = useId();
   const reset = () =>
     updateAndRefocus({
       category: "all",
@@ -545,7 +556,7 @@ export function ToolsExplorer({
     });
 
   const grouped = (
-    <div className="flex flex-col gap-12">
+    <div className="flex flex-col gap-10 sm:gap-12">
       {groups.map(({ category, tools: groupTools }) => (
         <section
           key={category.id}
@@ -555,15 +566,16 @@ export function ToolsExplorer({
           <div className="flex flex-col gap-1">
             <h2
               id={`tools-group-${category.id}`}
-              className="font-display text-fg text-xl font-medium tracking-tight sm:text-2xl"
+              className="font-display text-fg flex items-center gap-2.5 text-xl font-medium tracking-tight sm:text-2xl"
             >
+              <FamilySwatch family={familyIdOf(category.id)} />
               <Link
                 href={categoryHref(category.id)}
                 className="hover:text-accent transition-colors"
               >
                 {category.name}
               </Link>
-              <span className="text-faint ml-2.5 align-middle font-mono text-xs font-normal tracking-normal">
+              <span className="text-faint font-sans text-sm font-normal tracking-normal tabular-nums">
                 {groupTools.length}
               </span>
             </h2>
@@ -661,102 +673,70 @@ export function ToolsExplorer({
               <X className="text-muted size-3.5" aria-hidden />
             </button>
           )}
+          {/* An old `?runs=` link to a choice the page no longer offers as
+              a control: said, and removable, like a format. */}
+          {runs !== "all" && runs !== keepLocal?.id && (
+            <button
+              type="button"
+              onClick={() => updateAndRefocus({ ...state, runs: "all" })}
+              aria-label={`${RUNS_COPY[runs].label}, remove this filter`}
+              className="border-line-strong bg-select text-fg hover:border-accent/60 rounded-tag inline-flex h-8 items-center gap-1.5 border pr-2 pl-3 text-sm font-medium whitespace-nowrap transition-colors"
+            >
+              {RUNS_COPY[runs].label}
+              <X className="text-muted size-3.5" aria-hidden />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Two filter rows. On a phone each is ONE line that scrolls sideways
-          (its label scrolls with it), so the first tool stays near the top
-          of the screen; from `sm` the label takes a column and the chips
-          wrap beside it. Every chip is focusable, so a keyboard reaches the
-          ones off-screen, and each one focused is scrolled wholly into view
+      {/* The chips, then the one plain choice about where a tool runs.
+          On a phone the chips are ONE line that scrolls sideways, so the
+          first tool stays near the top of the screen; from `sm` they wrap.
+          Every chip is focusable, so a keyboard reaches the ones
+          off-screen, and each one focused is scrolled wholly into view
           (`revealInRow`) — the browser's own scroll left a chip half under
           the fade. */}
-      <div className="flex flex-col gap-2 sm:gap-3">
-        {runsChoices.length > 0 && (
-          <div
-            ref={runsRow}
-            role="radiogroup"
-            aria-labelledby={runsLabel}
-            data-filter-row
-            className={FILTER_ROW}
-          >
-            <span id={runsLabel} className={FILTER_LABEL}>
-              Where it runs
-            </span>
-            <div className={FILTER_CHIPS}>
-              {[{ id: "all" as const }, ...runsChoices].map((choice) => {
-                const checked = runs === choice.id;
-                return (
-                  <label
-                    key={choice.id}
-                    className={cn(
-                      CHIP,
-                      checked ? CHIP_ON : CHIP_OFF,
-                      "relative cursor-pointer",
-                      RADIO_FOCUS,
-                    )}
-                  >
-                    {/* `relative` on the label keeps this input inside the
-                        scrolling row: positioned against the page instead,
-                        a radio off the right edge widened the page. */}
-                    <input
-                      type="radio"
-                      name={runsName}
-                      value={choice.id}
-                      checked={checked}
-                      onChange={() => refilter({ runs: choice.id })}
-                      onFocus={(e) =>
-                        revealInRow(e.currentTarget.closest("label"))
-                      }
-                      className="sr-only"
-                    />
-                    {"mode" in choice ? (
-                      <>
-                        <ModeShape mode={choice.mode} />
-                        {RUNS_COPY[choice.id].label}{" "}
-                        <span className={chipCount(checked)}>
-                          {choice.slugs.length}
-                        </span>
-                      </>
-                    ) : (
-                      "All"
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
+      <div className="flex flex-col gap-3">
         <div
           ref={categoryRow}
           role="group"
-          aria-label="Filter by category"
+          aria-label="Filter tools by category"
           data-filter-row
           className={FILTER_ROW}
         >
-          <span aria-hidden className={FILTER_LABEL}>
-            Category
-          </span>
-          <div className={FILTER_CHIPS}>
-            {filters.map((filter) => {
-              const selected = active === filter.id;
-              return (
-                <button
-                  key={filter.id}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => refilter({ category: filter.id })}
-                  onFocus={(e) => revealInRow(e.currentTarget)}
-                  className={cn(CHIP, selected ? CHIP_ON : CHIP_OFF)}
-                >
-                  {filter.label}
-                  <span className={chipCount(selected)}>{filter.count}</span>
-                </button>
-              );
-            })}
-          </div>
+          {filters.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              data-family={filter.id}
+              aria-pressed={pressed === filter.id}
+              onClick={() => refilter({ category: filter.id })}
+              onFocus={(e) => revealInRow(e.currentTarget)}
+              className={CHIP}
+            >
+              {filter.id !== "all" && <FamilySwatch family={filter.id} />}
+              {filter.label} <span className={chipCount}>{filter.count}</span>
+            </button>
+          ))}
         </div>
+
+        {keepLocal && (
+          <label className="text-muted hover:text-fg inline-flex w-fit cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={runs === keepLocal.id}
+              onChange={(e) =>
+                refilter({ runs: e.target.checked ? keepLocal.id : "all" })
+              }
+              className="accent-accent size-4 shrink-0"
+            />
+            <ModeShape mode={keepLocal.mode} />
+            {KEEP_LOCAL_LABEL}{" "}
+            <span className="text-faint text-xs tabular-nums">
+              {keepLocal.slugs.length}
+            </span>
+          </label>
+        )}
       </div>
 
       {/* Keyed on what it shows: see "NOTHING THE SERVER PAINTED MOVES". */}
@@ -1023,11 +1003,11 @@ function EmptyState({
 }
 
 /**
- * Cards as index rows: a hairline under each, columns apart, no gap between
- * rows — the rows' own rules separate them, as on the category pages.
+ * The home page's cards, in a grid: boxed, a gap between them. WAS index
+ * rows, a hairline under each and no gap (until 2026-10-23).
  */
 const GRID =
-  "grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+  "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
 
 function ToolGrid({
   tools: list,

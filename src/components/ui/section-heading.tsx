@@ -45,7 +45,9 @@ export function SectionHeading({
       )}
     >
       {eyebrow && (
-        <span className="text-accent kicker inline-flex items-center gap-3">
+        // A small plain-case label, not a mono capital kicker (owner,
+        // 2026-10-23: the content pages read as a developer's).
+        <span className="text-accent inline-flex items-center gap-3 text-sm font-medium">
           {eyebrow}
         </span>
       )}

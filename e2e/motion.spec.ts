@@ -365,7 +365,7 @@ test.describe("view transitions (flag on)", () => {
     expect(await calls(page)).toEqual([]);
     await search.fill("");
     const chip = page
-      .getByRole("group", { name: "Filter by category" })
+      .getByRole("group", { name: "Filter tools by category" })
       .getByRole("button")
       .nth(1);
     await chip.click();
