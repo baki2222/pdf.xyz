@@ -6,7 +6,7 @@
  * "scheduled" — never a tick, because nothing here sees it happen.
  */
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { getToolBySlug } from "@/lib/tools";
@@ -118,5 +118,46 @@ describe("<LiveStages>", () => {
     const { container } = render(<LiveStages stages={STAGES} events={[]} />);
     for (const stage of STAGES)
       expect(container.textContent).toContain(stage.description);
+  });
+  /*
+   * Before a job there is nothing to stamp, and a list of five unticked
+   * rows read as a form to fill in (owner, 2026-10-23: "a stage list shows
+   * before anything has happened"). So before the first phase the docket
+   * is not drawn: one press shows what will happen, every stage's title
+   * and description in the markup either way. The docket appears with the
+   * job's first phase.
+   */
+  it("before a job: no docket on screen, one press shows each stage, every word still in the markup", () => {
+    const { container } = render(<LiveStages stages={STAGES} events={[]} />);
+    expect(container.querySelector("[data-docket]")).toBeNull();
+    const toggle = screen.getByRole("button", {
+      name: "What happens to your file",
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const region = container.querySelector(
+      `#${CSS.escape(toggle.getAttribute("aria-controls")!)}`,
+    ) as HTMLElement;
+    expect(region.hidden).toBe(true);
+    for (const stage of STAGES) {
+      expect(region.textContent).toContain(stage.title);
+      expect(region.textContent).toContain(stage.description);
+    }
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(region.hidden).toBe(false);
+  });
+
+  it("the docket appears with the job's first phase", () => {
+    const { container, rerender } = render(
+      <LiveStages stages={STAGES} events={[]} />,
+    );
+    expect(container.querySelector("[data-docket]")).toBeNull();
+    rerender(
+      <LiveStages stages={STAGES} events={[{ phase: "uploading", at: 0 }]} />,
+    );
+    expect(container.querySelector("[data-docket]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-docket] li").length).toBe(
+      STAGES.length,
+    );
   });
 });

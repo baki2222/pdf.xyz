@@ -27,6 +27,7 @@ import { getRunnerKind } from "@/lib/pdf/registry";
 import { processingMeta } from "@/lib/tools/processing";
 import { formatsLine } from "@/lib/tools/formats-line";
 import { toolFacts } from "@/lib/tools/tool-facts";
+import { workerPipelineStages } from "@/lib/jobs/capabilities";
 import {
   pageFaq,
   pageGuides,
@@ -210,5 +211,241 @@ describe("the workbench's first screen", () => {
       expect(markup.get(tool.slug)!, tool.slug).not.toContain(
         "data-first-screen",
       );
+  });
+});
+
+/*
+ * ── A FIRST-TIME VISITOR'S PAGE (owner, 2026-10-23) ─────────────────────
+ * "/tools is still not user-friendly." Measured on production that day: a
+ * tool page ran 5,200-5,900px at 1440 and 8,300-10,000px at 390 — a stage
+ * list before anything had happened, a technical paragraph opening the
+ * panel, every paragraph of the introduction and every FAQ answer, all
+ * open. The content stays (it is what the honesty guards read and what a
+ * crawler indexes); what a visitor SEES first is the short version, the
+ * rest one press away. So these read the served markup twice: whole, and
+ * as SHOWN — a closed `<details>` cut to its `<summary>`, a `hidden`
+ * element removed.
+ */
+
+/** Where the element opening at `at` (a `<tag`) closes, nesting counted. */
+function elementEnd(html: string, at: number, tag: string): number {
+  const re = new RegExp(`<${tag}\\b|</${tag}>`, "g");
+  re.lastIndex = at;
+  let depth = 0;
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    depth += m[0] === `</${tag}>` ? -1 : 1;
+    if (depth === 0) return m.index + m[0].length;
+  }
+  throw new Error(`unbalanced markup: a <${tag}> never closes`);
+}
+
+const OPEN_ATTR = /\sopen(?:=""|\s|>)/;
+
+/**
+ * The markup as shown before a visitor presses anything: every element with
+ * a `hidden` attribute removed, and every `<details>` without `open` cut
+ * down to its `<summary>`.
+ */
+function shownMarkup(html: string): string {
+  let out = html;
+  for (;;) {
+    const m = /<([a-z][a-z0-9]*)\b[^>]*\shidden=""[^>]*>/.exec(out);
+    if (!m) break;
+    out = out.slice(0, m.index) + out.slice(elementEnd(out, m.index, m[1]!));
+  }
+  let from = 0;
+  for (;;) {
+    const at = out.indexOf("<details", from);
+    if (at === -1) break;
+    const openTag = out.slice(at, out.indexOf(">", at) + 1);
+    const end = elementEnd(out, at, "details");
+    if (OPEN_ATTR.test(openTag)) {
+      from = at + openTag.length;
+      continue;
+    }
+    const body = out.slice(at, end);
+    const summary = /<summary\b[\s\S]*?<\/summary>/.exec(body)?.[0] ?? "";
+    out = out.slice(0, at) + openTag + summary + "</details>" + out.slice(end);
+    from = at + openTag.length + summary.length;
+  }
+  return out;
+}
+
+interface DetailsBlock {
+  readonly summary: string;
+  readonly text: string;
+  readonly open: boolean;
+}
+
+/** Every `<details>` of a page: its summary's text, its whole text, whether it starts open. */
+function detailsBlocks(html: string): DetailsBlock[] {
+  const blocks: DetailsBlock[] = [];
+  for (
+    let at = html.indexOf("<details");
+    at !== -1;
+    at = html.indexOf("<details", at + 1)
+  ) {
+    const body = html.slice(at, elementEnd(html, at, "details"));
+    const openTag = body.slice(0, body.indexOf(">") + 1);
+    const summary =
+      /<summary\b[^>]*>([\s\S]*?)<\/summary>/.exec(body)?.[1] ?? "";
+    blocks.push({
+      summary: visibleText(summary),
+      text: visibleText(body),
+      open: OPEN_ATTR.test(openTag),
+    });
+  }
+  return blocks;
+}
+
+/** Every JSON-LD node a page carries, arrays flattened. */
+function jsonLdNodes(html: string): Record<string, unknown>[] {
+  return [
+    ...html.matchAll(
+      /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g,
+    ),
+  ].flatMap((m) => {
+    const parsed = JSON.parse(m[1]!) as unknown;
+    return (Array.isArray(parsed) ? parsed : [parsed]) as Record<
+      string,
+      unknown
+    >[];
+  });
+}
+
+describe("what a first-time visitor sees, and what stays one press away", () => {
+  it("POSITIVE CONTROL: shown markup drops a closed details' body and a hidden element, and keeps an open one", () => {
+    const html =
+      "<main><p>lead</p><details><summary>More details</summary><p>long text</p>" +
+      "<details><summary>inner</summary><p>deep</p></details></details>" +
+      '<div hidden=""><div>stage list</div></div>' +
+      '<details open=""><summary>Q</summary><p>shown answer</p></details></main>';
+    const shown = visibleText(shownMarkup(html));
+    expect(shown).toContain("lead");
+    expect(shown).toContain("More details");
+    expect(shown).not.toContain("long text");
+    expect(shown).not.toContain("deep");
+    expect(shown).not.toContain("stage list");
+    expect(shown).toContain("shown answer");
+    // Health: the whole markup still has every word.
+    for (const word of ["long text", "deep", "stage list"])
+      expect(visibleText(html)).toContain(word);
+    expect(detailsBlocks(html).map((b) => [b.summary, b.open])).toEqual([
+      ["More details", false],
+      ["inner", false],
+      ["Q", true],
+    ]);
+  });
+
+  it("before a job, a worker panel draws no stage list; every stage's title and description is still in the HTML", () => {
+    const pages = tools.filter((t) => !getRunnerKind(t.slug));
+    expect(pages.length, "implausibly few worker pages").toBeGreaterThanOrEqual(
+      15,
+    );
+    for (const tool of pages) {
+      const html = markup.get(tool.slug)!;
+      expect(html, `${tool.slug}: a docket before any job`).not.toContain(
+        "data-docket",
+      );
+      const shown = visibleText(shownMarkup(html));
+      const whole = visibleText(html);
+      const stages = workerPipelineStages(null, tool);
+      expect(stages.length, tool.slug).toBeGreaterThanOrEqual(3);
+      for (const stage of stages) {
+        const said = visibleText(stage.description);
+        expect(whole, `${tool.slug}: ${stage.title}`).toContain(stage.title);
+        expect(whole, `${tool.slug}: ${stage.title}, described`).toContain(
+          said,
+        );
+        expect(shown, `${tool.slug}: ${stage.title}, on screen`).not.toContain(
+          said,
+        );
+      }
+      expect(shown, `${tool.slug}: the stage list is on screen`).not.toContain(
+        stages[stages.length - 1]!.title,
+      );
+    }
+  });
+
+  it("the FAQ is an accordion: each question a closed summary with its answer inside, and the FAQPage JSON-LD asks exactly those questions, in order", () => {
+    let pages = 0;
+    for (const tool of tools) {
+      const faq = pageFaq(tool);
+      if (faq.length === 0) continue;
+      pages += 1;
+      const html = markup.get(tool.slug)!;
+      const questions = new Set(faq.map((e) => visibleText(e.question)));
+      const asked = detailsBlocks(html).filter((b) => questions.has(b.summary));
+      expect(
+        asked.map((b) => b.summary),
+        tool.slug,
+      ).toEqual(faq.map((e) => visibleText(e.question)));
+      for (const [i, block] of asked.entries()) {
+        expect(block.open, `${tool.slug}: "${block.summary}" open`).toBe(false);
+        expect(block.text, `${tool.slug}: "${block.summary}"`).toContain(
+          visibleText(faq[i]!.answer),
+        );
+      }
+      const shown = visibleText(shownMarkup(html));
+      for (const entry of faq)
+        expect(shown, `${tool.slug}: an answer on screen`).not.toContain(
+          visibleText(entry.answer),
+        );
+      const ld = jsonLdNodes(html).find((n) => n["@type"] === "FAQPage") as
+        { mainEntity: { name: string }[] } | undefined;
+      expect(ld, `${tool.slug}: no FAQPage`).toBeDefined();
+      expect(
+        ld!.mainEntity.map((q) => visibleText(q.name)),
+        tool.slug,
+      ).toEqual(asked.map((b) => b.summary));
+    }
+    expect(pages, "implausibly few FAQ pages").toBeGreaterThanOrEqual(40);
+  });
+
+  it("About this tool leads with a short summary; the whole introduction, use cases and facts sit in a closed More details", () => {
+    for (const tool of tools) {
+      const html = markup.get(tool.slug)!;
+      const shown = visibleText(shownMarkup(html));
+      const more = detailsBlocks(html).find(
+        (b) => b.summary === "More details",
+      );
+      expect(more, `${tool.slug}: no More details`).toBeDefined();
+      expect(more!.open, tool.slug).toBe(false);
+      for (const paragraph of pageIntro(tool)) {
+        expect(more!.text, `${tool.slug}: intro`).toContain(
+          visibleText(paragraph),
+        );
+        expect(shown, `${tool.slug}: intro on screen`).not.toContain(
+          visibleText(paragraph),
+        );
+      }
+      for (const useCase of pageUseCases(tool))
+        expect(more!.text, `${tool.slug}: ${useCase.title}`).toContain(
+          visibleText(useCase.body),
+        );
+      for (const fact of toolFacts(tool.slug))
+        expect(more!.text, `${tool.slug}: ${fact.label}`).toContain(
+          visibleText(fact.value),
+        );
+      // The short version is on screen: the tool's own description.
+      expect(shown, tool.slug).toContain(visibleText(tool.description));
+    }
+  });
+
+  it("How it works shows each step's short title; the step's full text is one press away", () => {
+    for (const tool of tools) {
+      const steps = pageSteps(tool);
+      const html = markup.get(tool.slug)!;
+      const shown = visibleText(shownMarkup(html));
+      const titled = steps.filter((s) => s.title);
+      expect(titled.length, `${tool.slug}: untitled steps`).toBe(steps.length);
+      for (const step of titled) {
+        expect(shown, `${tool.slug}: "${step.title}"`).toContain(step.title);
+        expect(shown, `${tool.slug}: step text on screen`).not.toContain(
+          visibleText(step.text),
+        );
+        expect(visibleText(html), tool.slug).toContain(visibleText(step.text));
+      }
+    }
   });
 });
