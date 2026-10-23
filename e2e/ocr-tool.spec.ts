@@ -41,9 +41,14 @@ test.describe("OCR secure-worker tool page", () => {
 
     // Honest capability: disabled in this environment, with a clear reason.
     await expect(page.getByText("Not enabled")).toBeVisible();
-    await expect(
-      page.getByText(/needs a secure worker with a native ocr engine/i),
-    ).toBeVisible();
+    // Since 2026-10-24 the not-enabled box leads with one sentence and keeps
+    // the reason behind "Why?": hidden until asked for, then shown.
+    const reason = page.getByText(
+      /needs a secure worker with a native ocr engine/i,
+    );
+    await expect(reason).toBeHidden();
+    await page.getByRole("button", { name: "Why?" }).click();
+    await expect(reason).toBeVisible();
 
     // The pipeline. (Earlier still, these lines asserted "Isolated processing"
     // VISIBLE — a stage promising "a single-job sandbox with no network

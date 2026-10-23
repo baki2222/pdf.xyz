@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { BellRing, Check } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -44,6 +44,7 @@ export function NotifyMe({
   toolName,
   toolSlug,
   checking,
+  leading,
 }: {
   toolName: string;
   toolSlug: string;
@@ -59,6 +60,11 @@ export function NotifyMe({
    * own "Checking…" line is the whole truth at that moment.
    */
   checking: boolean;
+  /**
+   * A control drawn on the button's row, before it (the not-enabled box's
+   * Try again). Kept in both states, so acknowledging moves nothing else.
+   */
+  leading?: ReactNode;
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
   // Derived here rather than passed in: fourteen panels render this button, and
@@ -69,7 +75,7 @@ export function NotifyMe({
   if (checking) return null;
 
   if (acknowledged) {
-    return (
+    const note = (
       <p
         role="status"
         className={cn(
@@ -84,35 +90,46 @@ export function NotifyMe({
           : " Nothing was sent from your device."}
       </p>
     );
+    return leading ? (
+      <div className="flex flex-col items-start gap-2">
+        {leading}
+        {note}
+      </div>
+    ) : (
+      note
+    );
   }
 
   return (
     <div className="flex flex-col items-start gap-1.5">
-      <button
-        type="button"
-        onClick={() => {
-          if (tool) {
-            // The beacon: the slug, nothing else. Fire-and-forget — a failed
-            // count must never surface to the person asking.
-            void fetch("/api/interest", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ slug: tool.slug }),
-              keepalive: true,
-            }).catch(() => {});
-            track({
-              name: "gated_tool_interest",
-              toolSlug,
-              capability: capabilityForMode(tool.processing),
-            });
-          }
-          setAcknowledged(true);
-        }}
-        className={buttonVariants({ variant: "secondary", size: "sm" })}
-      >
-        <BellRing className="size-4" aria-hidden />
-        Notify me when this ships
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {leading}
+        <button
+          type="button"
+          onClick={() => {
+            if (tool) {
+              // The beacon: the slug, nothing else. Fire-and-forget — a failed
+              // count must never surface to the person asking.
+              void fetch("/api/interest", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ slug: tool.slug }),
+                keepalive: true,
+              }).catch(() => {});
+              track({
+                name: "gated_tool_interest",
+                toolSlug,
+                capability: capabilityForMode(tool.processing),
+              });
+            }
+            setAcknowledged(true);
+          }}
+          className={buttonVariants({ variant: "secondary", size: "sm" })}
+        >
+          <BellRing className="size-4" aria-hidden />
+          Notify me when this ships
+        </button>
+      </div>
       <p className="text-muted text-xs leading-relaxed">
         The count holds only the tool&apos;s name; like any request, the press
         appears in our ordinary server logs. If you allowed analytics, Google

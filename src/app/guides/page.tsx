@@ -9,6 +9,8 @@ import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import { breadcrumbSchema } from "@/lib/structured-data";
 import { GuideFinder } from "@/components/guides/guide-finder";
+import { FamilyTile } from "@/components/tools/family-tile";
+import { ToolGlyph } from "@/components/tools/tool-glyph";
 
 export const metadata: Metadata = buildMetadata({
   title: "PDF guides",
@@ -51,26 +53,32 @@ export default function GuidesPage() {
                   key={guide.slug}
                   href={`/guides/${guide.slug}`}
                   data-guide-card={guide.slug}
-                  className="border-line bg-panel hover:border-line-strong group rounded-panel flex flex-col gap-3 border p-5 transition-colors"
+                  className="border-line bg-panel hover:border-line-strong group rounded-panel flex items-start gap-3.5 border p-5 transition-colors"
                 >
+                  {/* The tool cards' tile: the guide's own tool's family
+                      colour and glyph. WAS a mono-capital eyebrow naming the
+                      tool ("MERGE PDF") and no colour (owner, 2026-10-23).
+                      The title names the job; the guide names its tool. */}
                   {primary && (
-                    <span className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">
-                      {primary.name}
-                    </span>
+                    <FamilyTile category={primary.category}>
+                      <ToolGlyph icon={primary.icon} />
+                    </FamilyTile>
                   )}
-                  <h2 className="text-fg text-lg font-semibold text-balance">
-                    {guide.title}
-                  </h2>
-                  <p className="text-muted text-sm leading-relaxed">
-                    {guide.description}
-                  </p>
-                  <span className="text-accent mt-auto inline-flex items-center gap-1.5 pt-1 text-sm font-medium">
-                    Read the guide
-                    <ArrowRight
-                      className="size-4 transition-transform group-hover:translate-x-0.5"
-                      aria-hidden
-                    />
-                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col gap-2 self-stretch">
+                    <h2 className="text-fg group-hover:text-accent text-lg leading-snug font-semibold text-balance transition-colors">
+                      {guide.title}
+                    </h2>
+                    <p className="text-muted text-sm leading-relaxed">
+                      {guide.description}
+                    </p>
+                    <span className="text-accent mt-auto inline-flex items-center gap-1.5 pt-1 text-sm font-medium">
+                      Read the guide
+                      <ArrowRight
+                        className="size-4 transition-transform group-hover:translate-x-0.5"
+                        aria-hidden
+                      />
+                    </span>
+                  </div>
                 </Link>
               );
             })}

@@ -2809,8 +2809,10 @@
       "robots": "index, follow",
       "h1": ["System status"],
       "h2": [
-        "In-browser tools",
+        "AI tools",
         "Secure worker",
+        "Tools on our secure server",
+        "Tools that run in your browser",
         "What runs where",
         "Worker operations"
       ],
