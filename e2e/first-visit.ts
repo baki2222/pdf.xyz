@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { getAllToolSlugs } from "../src/lib/tools";
 import { getRunnerKind } from "../src/lib/pdf/registry";
+import { READY_WORKER_STATUS } from "../src/tests/ready-worker-status";
 
 /**
  * A tool page as a FIRST-TIME visitor meets it (owner, 2026-10-23: "/tools
@@ -98,7 +99,16 @@ export function firstVisitSuite(size: {
     test("/tools/pdf-to-word: before a job no stage list is drawn; one press shows each step", async ({
       page,
     }) => {
+      // A ready worker, as production answers: the panel that can run. (A
+      // worker that is not enabled draws its reason in place of any stage.)
+      await page.route("**/api/worker/status", (route) =>
+        route.fulfill({ json: READY_WORKER_STATUS }),
+      );
       await page.goto("/tools/pdf-to-word");
+      await expect(page.locator('[data-slot="worker-status"]')).toHaveAttribute(
+        "data-state",
+        "run",
+      );
       await expect(page.locator("[data-docket]")).toHaveCount(0);
       await expect(page.getByText("Auto-delete", { exact: true })).toBeHidden();
       const toggle = page.getByRole("button", {
@@ -149,12 +159,13 @@ async function surface(page: Page) {
     const run =
       root?.querySelector('[data-slot="worker-status"] button') ?? null;
     // A question the panel asks between the file and Run: a field, a
-    // choice, a list — found by what it is, never by the tool's name.
+    // choice, a set of chips, a list — found by what it is, never by the
+    // tool's name.
     const firstOption =
       target && run
         ? ([
             ...(root?.querySelectorAll(
-              'input:not([type="file"]):not([type="hidden"]), select, textarea, [role="radiogroup"]',
+              'input:not([type="file"]):not([type="hidden"]), select, textarea, [role="radiogroup"], [role="group"]',
             ) ?? []),
           ].find(
             (el) =>

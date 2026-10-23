@@ -18,7 +18,6 @@ import { ToolIcon } from "@/components/ui/tool-icon";
 import { ToolBadgePill } from "@/components/ui/badge";
 import { ToolCard } from "@/components/tools/tool-card";
 import { ProcessingBadge } from "@/components/tools/processing-badge";
-import { FormatsLine } from "@/components/tools/formats-line";
 import { ToolRunner } from "@/components/tools/runner/tool-runner";
 import { ToolRunProvider } from "@/components/tools/runner/tool-context";
 import { TicketRail } from "@/components/intent/ticket-rail";
@@ -45,6 +44,7 @@ import {
   pageUseCases,
 } from "@/lib/tools/page-copy";
 import { categoryHref } from "@/lib/tools/category-href";
+import { formatsLine } from "@/lib/tools/formats-line";
 import { ViewTransition } from "@/components/motion/vt";
 
 export function generateStaticParams() {
@@ -67,6 +67,22 @@ export function generateStaticParams() {
  * a 404 status before this module runs.
  */
 export const dynamicParams = false;
+
+/**
+ * A format as people call it, for the line under a tool's name ("PDF →
+ * Word"). Only the names a reader may not know from the extension are
+ * here; any other label is shown as it is.
+ */
+const PLAIN_FORMAT: Readonly<Record<string, string>> = {
+  DOCX: "Word",
+  DOC: "Word",
+  XLSX: "Excel",
+  XLS: "Excel",
+  PPTX: "PowerPoint",
+  PPT: "PowerPoint",
+  TXT: "Text",
+  MD: "Markdown",
+};
 
 export async function generateMetadata({
   params,
@@ -144,58 +160,157 @@ export default async function ToolPage({
     { name: tool.name, path: `/tools/${tool.slug}` },
   ];
 
-  const useCaseList =
-    useCases.length > 0 ? (
-      <ul className="flex flex-col gap-3">
-        {useCases.map((useCase) => (
-          <li key={useCase.title} className="flex flex-col gap-1">
-            <h3 className="text-fg text-sm font-semibold">{useCase.title}</h3>
-            <p className="text-muted text-sm leading-relaxed">{useCase.body}</p>
+  /*
+   * BELOW THE TOOL, A FIRST VISITOR READS THE SHORT VERSION (owner,
+   * 2026-10-23: "/tools is still not user-friendly"). Every word the page
+   * said before is still in its HTML: the introduction, the use cases and
+   * the facts under "More details", each step's text under its title, each
+   * answer under its question — closed `<details>`, so a crawler reads them
+   * and the honesty guards read them where a reader can open them. What
+   * shows: the tool's own description, where it runs, the steps' titles and
+   * the questions. On 0504da27, with all of it open, `main` ran 3,969-4,653px
+   * at 1440 and 6,317-8,094px at 390 (`e2e/first-visit.ts` holds the
+   * after). `tool-page-layout.test.ts` holds, on every page as served,
+   * which words show and which are one press away.
+   *
+   * Every disclosure here is the homepage FAQ's (`faq-item`, the M20 open
+   * animation), so this page adds no stylesheet rule of its own.
+   */
+  const disclosure =
+    "faq-item group border-line border-b [&_summary::-webkit-details-marker]:hidden";
+  const summaryRow =
+    "text-fg hover:text-accent flex cursor-pointer items-center justify-between gap-4 py-3 text-[15px] font-medium transition-colors";
+  const plus = (
+    <span
+      aria-hidden
+      className="text-faint shrink-0 text-lg leading-none transition-transform group-open:rotate-45"
+    >
+      +
+    </span>
+  );
+
+  const about = (
+    <section className="border-line bg-panel rounded-panel flex flex-col gap-3 border p-5 sm:p-6">
+      <h2 className="font-display text-fg text-xl font-medium tracking-tight">
+        About this tool
+      </h2>
+      <p className="text-fg text-base leading-relaxed text-pretty">
+        {tool.description}
+      </p>
+      <p className="text-muted text-sm leading-relaxed">
+        {processing.description}
+      </p>
+      <details className={`${disclosure} border-t`}>
+        <summary className={summaryRow}>
+          More details
+          {plus}
+        </summary>
+        <div className="flex flex-col gap-4 pb-4">
+          {intro.map((paragraph, i) => (
+            <p key={i} className="text-muted text-sm leading-relaxed">
+              {paragraph}
+            </p>
+          ))}
+          {useCases.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h3 className="text-fg text-sm font-semibold">When to use it</h3>
+              <ul className="flex flex-col gap-3">
+                {useCases.map((useCase) => (
+                  <li key={useCase.title} className="flex flex-col gap-1">
+                    <h4 className="text-fg text-sm font-medium">
+                      {useCase.title}
+                    </h4>
+                    <p className="text-muted text-sm leading-relaxed">
+                      {useCase.body}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {facts.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h3 className="text-fg text-sm font-semibold">
+                What this tool can do
+              </h3>
+              <dl className="flex flex-col gap-3">
+                {facts.map((fact) => (
+                  <div key={fact.label} className="flex flex-col gap-1">
+                    <dt className="text-fg text-sm font-medium">
+                      {fact.label}
+                    </dt>
+                    <dd className="text-muted text-sm leading-relaxed">
+                      {fact.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
+        </div>
+      </details>
+    </section>
+  );
+
+  /* Each step's short title, numbered; its whole text one press away. */
+  const howItWorks = steps.length > 0 && (
+    <section className="border-line bg-panel rounded-panel flex flex-col gap-3 border p-5 sm:p-6">
+      <h2 className="font-display text-fg text-xl font-medium tracking-tight">
+        How it works
+      </h2>
+      <ol className="border-line border-t">
+        {steps.map((step, i) => (
+          <li key={i}>
+            <details className={disclosure}>
+              <summary className={summaryRow}>
+                <span className="flex items-center gap-3">
+                  {/* Was white-on-gradient (3.9:1, below AA); the token chip
+                      inverts the theme ground — 16.4:1 here, and correct
+                      inside any future scope. Square since WP-06: a number
+                      that counts a step is a tag. */}
+                  <span className="bg-invert text-fg-invert rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold">
+                    {i + 1}
+                  </span>
+                  {step.title ?? step.text}
+                </span>
+                {plus}
+              </summary>
+              {step.title && (
+                <p className="text-muted pb-3 pl-9 text-sm leading-relaxed">
+                  {step.text}
+                </p>
+              )}
+            </details>
           </li>
         ))}
-      </ul>
-    ) : null;
-
-  const stepList = (
-    <ol className="flex flex-col gap-3">
-      {steps.map((step, i) => (
-        <li key={i} className="flex items-start gap-3">
-          {/* Was white-on-gradient (3.9:1, below AA); the token chip inverts the
-              theme ground — 16.4:1 here, and correct inside any future scope.
-              Square since WP-06: a number that counts a step is a tag. */}
-          <span className="bg-invert text-fg-invert rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold">
-            {i + 1}
-          </span>
-          <span className="text-muted text-sm leading-relaxed">
-            {step.title && (
-              <span className="text-fg font-semibold">{step.title}. </span>
-            )}
-            {step.text}
-          </span>
-        </li>
-      ))}
-    </ol>
+      </ol>
+    </section>
   );
 
   /*
-   * The facts a reader checks before they pick a file: where the tool runs
-   * and what goes in and out. One line, so on a phone the panel sits right
-   * under the tool's name; it may scroll sideways rather than wrap, and
-   * `e2e/tool-layout.mobile.spec.ts` holds that on every tool page today it
-   * never has to.
+   * Where the tool runs and what goes in and out: one line under the name,
+   * so on a phone the panel sits right under it. The formats WERE a mono
+   * chip ("PDF → DOCX"); now the names people use ("PDF → Word"), with each
+   * format's own name kept for assistive tech, which hears a sentence.
    */
+  const { takes, makes } = formatsLine(tool);
+  const plain = (labels: readonly string[]) =>
+    [...new Set(labels.map((label) => PLAIN_FORMAT[label] ?? label))].join(
+      ", ",
+    );
   const factsRow = (
     <div
       data-tool-facts
-      className="-mx-5 flex [scrollbar-width:none] items-center gap-3 overflow-x-auto px-5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2"
     >
       <ProcessingBadge
         mode={tool.processing}
         variant="long"
         className="shrink-0"
       />
-      <span className="border-line bg-wash rounded-tag inline-flex shrink-0 items-center border px-2.5 py-1">
-        <FormatsLine tool={tool} />
+      <span className="text-muted text-sm whitespace-nowrap">
+        <span aria-hidden>{`${plain(takes)} → ${plain(makes)}`}</span>
+        <span className="sr-only">{`Takes ${takes.join(", ")}; makes ${makes.join(", ")}.`}</span>
       </span>
     </div>
   );
@@ -375,28 +490,9 @@ export default async function ToolPage({
               </div>
             </div>
 
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div className="border-line bg-panel rounded-panel flex flex-col gap-3 border p-5">
-                <h2 className="text-faint kicker">About this tool</h2>
-                {intro.map((paragraph, i) => (
-                  <p
-                    key={i}
-                    className={`${i === 0 ? "text-fg" : "text-muted"} text-sm leading-relaxed`}
-                  >
-                    {paragraph}
-                  </p>
-                ))}
-                <p className="text-muted text-sm leading-relaxed">
-                  {processing.description}
-                </p>
-                {useCaseList}
-              </div>
-              {steps.length > 0 && (
-                <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
-                  <h2 className="text-faint kicker">How it works</h2>
-                  {stepList}
-                </div>
-              )}
+            <div className="grid items-start gap-6 lg:grid-cols-2">
+              {about}
+              {howItWorks}
             </div>
           </div>
         ) : (
@@ -450,71 +546,39 @@ export default async function ToolPage({
             </div>
 
             <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-2">
-              {intro.map((paragraph, i) => (
-                <p
-                  key={i}
-                  className={`${i === 0 ? "text-fg text-base" : "text-muted text-sm"} leading-relaxed text-pretty`}
-                >
-                  {paragraph}
-                </p>
-              ))}
-
-              <p className="border-line bg-wash text-muted rounded-panel border p-4 text-sm leading-relaxed">
-                {processing.description}
-              </p>
-
-              {useCaseList && (
-                <div className="flex flex-col gap-4">
-                  <h2 className="text-faint kicker">When to use it</h2>
-                  {useCaseList}
-                </div>
-              )}
-
-              {steps.length > 0 && (
-                <div className="flex flex-col gap-4">
-                  <h2 className="text-faint kicker">How it works</h2>
-                  {stepList}
-                </div>
-              )}
+              {about}
+              {howItWorks}
             </div>
           </div>
         )}
 
-        {(facts.length > 0 || faq.length > 0) && (
-          <div className="grid gap-6 sm:grid-cols-2">
-            {facts.length > 0 && (
-              <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
-                <h2 className="text-faint kicker">What this tool can do</h2>
-                <dl className="flex flex-col gap-3">
-                  {facts.map((fact) => (
-                    <div key={fact.label} className="flex flex-col gap-1">
-                      <dt className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">
-                        {fact.label}
-                      </dt>
-                      <dd className="text-muted text-sm leading-relaxed">
-                        {fact.value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            )}
-            {faq.length > 0 && (
-              <div className="border-line bg-panel rounded-panel flex flex-col gap-4 border p-5">
-                <h2 className="text-faint kicker">Common questions</h2>
-                {faq.map((entry) => (
-                  <div key={entry.question} className="flex flex-col gap-1.5">
-                    <h3 className="text-fg text-sm font-semibold">
-                      {entry.question}
-                    </h3>
-                    <p className="text-muted text-sm leading-relaxed">
-                      {entry.answer}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        {faq.length > 0 && (
+          /* The questions show; each answer is one press away. The FAQPage
+             JSON-LD above is built from this same list, in this order. */
+          <section
+            data-tool-faq
+            className="border-line bg-panel rounded-panel flex flex-col gap-3 border p-5 sm:p-6"
+          >
+            <h2 className="font-display text-fg text-xl font-medium tracking-tight">
+              Common questions
+            </h2>
+            <div className="border-line border-t lg:columns-2 lg:gap-10">
+              {faq.map((entry) => (
+                <details
+                  key={entry.question}
+                  className={`${disclosure} break-inside-avoid`}
+                >
+                  <summary className={summaryRow}>
+                    {entry.question}
+                    {plus}
+                  </summary>
+                  <p className="text-muted pb-4 text-sm leading-relaxed">
+                    {entry.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
+          </section>
         )}
 
         {related.length > 0 && (
@@ -566,7 +630,7 @@ export default async function ToolPage({
                   href={`/guides/${guide.slug}`}
                   className="border-line bg-panel hover:border-line-strong rounded-panel flex flex-col gap-2 border p-5 transition-colors"
                 >
-                  <span className="text-faint font-mono text-[11px] font-medium tracking-wide uppercase">
+                  <span className="text-accent text-xs font-medium">
                     {role === "primary"
                       ? "Step-by-step guide"
                       : "Related guide"}

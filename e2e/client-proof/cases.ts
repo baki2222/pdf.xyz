@@ -1511,7 +1511,11 @@ export const CASES: Record<string, ToolCase> = {
         { name: "left.pdf", mimeType: "application/pdf", buffer: left },
         { name: "right.pdf", mimeType: "application/pdf", buffer: right },
       ]);
-      await expect(ctx.page.getByText("2/2 selected")).toBeVisible();
+      // In the panel: How it works quotes the same words in a step's text,
+      // in the HTML (one press away) since 2026-10-23.
+      await expect(
+        ctx.page.locator("[data-tool-panel]").getByText("2/2 selected"),
+      ).toBeVisible();
       return runAndDownload(
         ctx,
         /compare pdfs/i,

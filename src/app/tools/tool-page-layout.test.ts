@@ -111,20 +111,20 @@ describe("every tool page: head, facts, panel, then the details", () => {
     }
   });
 
+  /*
+   * Until 2026-10-23 the worker layout had no "About this tool" (its intro
+   * ran bare under the head), and "When to use it" and "What this tool can
+   * do" were sections of their own. Both layouts now share one About card,
+   * and those two are its sub-headings (h3) under "More details" — held by
+   * "About this tool leads with a short summary" below, on the words.
+   */
   it("each layout keeps every section its copy calls for", () => {
     for (const tool of tools) {
-      const runner = Boolean(getRunnerKind(tool.slug));
-      const own = runner
-        ? [
-            "About this tool",
-            ...(pageSteps(tool).length ? ["How it works"] : []),
-          ]
-        : [
-            ...(pageUseCases(tool).length ? ["When to use it"] : []),
-            ...(pageSteps(tool).length ? ["How it works"] : []),
-          ];
+      const own = [
+        "About this tool",
+        ...(pageSteps(tool).length ? ["How it works"] : []),
+      ];
       const tail = [
-        ...(toolFacts(tool.slug).length ? ["What this tool can do"] : []),
         ...(pageFaq(tool).length ? ["Common questions"] : []),
         ...(getRelatedTools(tool, 3).length ? ["Related tools"] : []),
         ...(pageGuides(tool).length ? ["Guides"] : []),
@@ -227,6 +227,9 @@ describe("the workbench's first screen", () => {
  * element removed.
  */
 
+/** Authored copy as the page prints it: whitespace collapsed (never tag-stripped — "<base>" in a sentence is text). */
+const said = (copy: string) => copy.replace(/\s+/g, " ").trim();
+
 /** Where the element opening at `at` (a `<tag`) closes, nesting counted. */
 function elementEnd(html: string, at: number, tag: string): number {
   const re = new RegExp(`<${tag}\\b|</${tag}>`, "g");
@@ -290,7 +293,10 @@ function detailsBlocks(html: string): DetailsBlock[] {
     const summary =
       /<summary\b[^>]*>([\s\S]*?)<\/summary>/.exec(body)?.[1] ?? "";
     blocks.push({
-      summary: visibleText(summary),
+      // As assistive tech names it: a decorative "+" is aria-hidden.
+      summary: visibleText(
+        summary.replace(/<span aria-hidden="true"[^>]*>[^<]*<\/span>/g, ""),
+      ),
       text: visibleText(body),
       open: OPEN_ATTR.test(openTag),
     });
@@ -352,13 +358,13 @@ describe("what a first-time visitor sees, and what stays one press away", () => 
       const stages = workerPipelineStages(null, tool);
       expect(stages.length, tool.slug).toBeGreaterThanOrEqual(3);
       for (const stage of stages) {
-        const said = visibleText(stage.description);
+        const words = said(stage.description);
         expect(whole, `${tool.slug}: ${stage.title}`).toContain(stage.title);
         expect(whole, `${tool.slug}: ${stage.title}, described`).toContain(
-          said,
+          words,
         );
         expect(shown, `${tool.slug}: ${stage.title}, on screen`).not.toContain(
-          said,
+          words,
         );
       }
       expect(shown, `${tool.slug}: the stage list is on screen`).not.toContain(
@@ -374,28 +380,28 @@ describe("what a first-time visitor sees, and what stays one press away", () => 
       if (faq.length === 0) continue;
       pages += 1;
       const html = markup.get(tool.slug)!;
-      const questions = new Set(faq.map((e) => visibleText(e.question)));
+      const questions = new Set(faq.map((e) => said(e.question)));
       const asked = detailsBlocks(html).filter((b) => questions.has(b.summary));
       expect(
         asked.map((b) => b.summary),
         tool.slug,
-      ).toEqual(faq.map((e) => visibleText(e.question)));
+      ).toEqual(faq.map((e) => said(e.question)));
       for (const [i, block] of asked.entries()) {
         expect(block.open, `${tool.slug}: "${block.summary}" open`).toBe(false);
         expect(block.text, `${tool.slug}: "${block.summary}"`).toContain(
-          visibleText(faq[i]!.answer),
+          said(faq[i]!.answer),
         );
       }
       const shown = visibleText(shownMarkup(html));
       for (const entry of faq)
         expect(shown, `${tool.slug}: an answer on screen`).not.toContain(
-          visibleText(entry.answer),
+          said(entry.answer),
         );
       const ld = jsonLdNodes(html).find((n) => n["@type"] === "FAQPage") as
         { mainEntity: { name: string }[] } | undefined;
       expect(ld, `${tool.slug}: no FAQPage`).toBeDefined();
       expect(
-        ld!.mainEntity.map((q) => visibleText(q.name)),
+        ld!.mainEntity.map((q) => said(q.name)),
         tool.slug,
       ).toEqual(asked.map((b) => b.summary));
     }
@@ -412,23 +418,21 @@ describe("what a first-time visitor sees, and what stays one press away", () => 
       expect(more, `${tool.slug}: no More details`).toBeDefined();
       expect(more!.open, tool.slug).toBe(false);
       for (const paragraph of pageIntro(tool)) {
-        expect(more!.text, `${tool.slug}: intro`).toContain(
-          visibleText(paragraph),
-        );
+        expect(more!.text, `${tool.slug}: intro`).toContain(said(paragraph));
         expect(shown, `${tool.slug}: intro on screen`).not.toContain(
-          visibleText(paragraph),
+          said(paragraph),
         );
       }
       for (const useCase of pageUseCases(tool))
         expect(more!.text, `${tool.slug}: ${useCase.title}`).toContain(
-          visibleText(useCase.body),
+          said(useCase.body),
         );
       for (const fact of toolFacts(tool.slug))
         expect(more!.text, `${tool.slug}: ${fact.label}`).toContain(
-          visibleText(fact.value),
+          said(fact.value),
         );
       // The short version is on screen: the tool's own description.
-      expect(shown, tool.slug).toContain(visibleText(tool.description));
+      expect(shown, tool.slug).toContain(said(tool.description));
     }
   });
 
@@ -442,9 +446,9 @@ describe("what a first-time visitor sees, and what stays one press away", () => 
       for (const step of titled) {
         expect(shown, `${tool.slug}: "${step.title}"`).toContain(step.title);
         expect(shown, `${tool.slug}: step text on screen`).not.toContain(
-          visibleText(step.text),
+          said(step.text),
         );
-        expect(visibleText(html), tool.slug).toContain(visibleText(step.text));
+        expect(visibleText(html), tool.slug).toContain(said(step.text));
       }
     }
   });
