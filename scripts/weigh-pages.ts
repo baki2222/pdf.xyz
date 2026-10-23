@@ -45,6 +45,7 @@ export const WEIGHED_PAGES = [
   { name: "404", html: "_not-found.html" },
   { name: "tools explorer", html: "tools.html" },
   { name: "workspace", html: "workspace.html" },
+  { name: "status", html: "status.html" },
 ] as const;
 
 interface PageRow {

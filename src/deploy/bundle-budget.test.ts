@@ -676,6 +676,12 @@ const BUDGETS = [
   // (/tools 219.2, /workspace 238.0).
   { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 222.2 },
   { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 241.0 },
+  // ADDED 2026-10-23. The status page had no row, and that is how it carried
+  // pdf-lib and the tool catalogue unnoticed: 1,193 KB raw / 418.5 KB gz on
+  // production, then 707 / 224.1 once alert-vocabulary.ts cut the chain
+  // (lazy-chunks.test.ts holds the pdf-lib half). The homepage's margins: a
+  // pdf-lib-sized return cannot fit under either ceiling.
+  { name: "the status page", html: "status.html", kb: 745, gzKb: 232.0 },
 ] as const;
 
 /**
@@ -1064,7 +1070,10 @@ describe("client bundle budget", () => {
     const NEEDS_CATALOGUE: Record<string, string> = {
       "tools.html": "the /tools explorer filters the catalogue in the client",
       "workspace.html": "the workspace offers every tool for its files",
-      "status.html": "the status page lists every tool's live state",
+      // WAS "status.html" ("the status page lists every tool's live state").
+      // It lists them from the SERVER render; the catalogue rode to the client
+      // only on the alert-posture → observability-barrel chain that also
+      // carried pdf-lib, and left with it (2026-10-23, alert-vocabulary.ts).
     };
     const isToolPage = (html: string) =>
       tools.some((t) => html === `tools/${t.slug}.html`);

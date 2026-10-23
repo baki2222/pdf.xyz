@@ -59,10 +59,12 @@ const LAZY: LazyLibrary[] = [
     // pdf-lib's default Producer/Creator metadata string.
     marker: "pdf-lib (https://github.com/Hopding/pdf-lib)",
     why: "every op takes it through loadPdfLib() at call time, and the Dropzone warms it when files arrive (2026-08-09: -411 KB on every tool page)",
-    allowedAtLoad: {
-      "status.html":
-        "KNOWN DEFECT, not a need: the operations dashboard reaches pdf-lib through a static import chain nobody has traced (redesign spec, appendix 1, audit track). When it is fixed this entry fails as stale; delete it then.",
-    },
+    // WAS `"status.html"`, a KNOWN DEFECT entry (184 KB gz on production,
+    // 2026-10-23). The chain: alert-posture.tsx → the observability barrel →
+    // snapshot.ts → compression/engine → pdf-lib, for two string arrays.
+    // Fixed by moving them to `observability/alert-vocabulary.ts`, which
+    // imports nothing; this entry then failed as stale, as designed.
+    allowedAtLoad: {},
   },
   {
     what: "pdfjs",

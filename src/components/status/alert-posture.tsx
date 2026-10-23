@@ -23,7 +23,7 @@ import {
   ALERT_SEVERITIES,
   type AlertReason,
   type AlertSeverity,
-} from "@/lib/workers/observability";
+} from "@/lib/workers/observability/alert-vocabulary";
 import { cn } from "@/lib/utils";
 import { StatusBadge, type StatusTone } from "./status-ui";
 
