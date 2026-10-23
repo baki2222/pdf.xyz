@@ -105,8 +105,12 @@ describe("OcrWorkerPanel", () => {
     stubFetch(DISABLED);
     render(<OcrWorkerPanel tool={ocrTool} />);
 
-    // The honest not-enabled reason renders once status resolves.
-    expect(await screen.findByText(DISABLED.ocr.detail)).toBeInTheDocument();
+    // The honest not-enabled reason renders once status resolves — inside
+    // the not-enabled box, its own lazy chunk since 2026-10-23, so the wait
+    // covers a cold module load under a busy run, not only the fetch.
+    expect(
+      await screen.findByText(DISABLED.ocr.detail, {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
 
     // OCR-specific configuration is present.
     expect(

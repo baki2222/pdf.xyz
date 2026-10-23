@@ -39,7 +39,6 @@ import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { TruncationNotice } from "./truncation-notice";
 import type { Job } from "@/lib/jobs/types";
-import { NotifyMe } from "./notify-me";
 import { useStagedHandoff } from "./use-staged-handoff";
 import {
   useWorkerPanel,
@@ -67,8 +66,14 @@ import {
  * Linux from CI's SLOT_NATURAL lines on 0504da27, a state this change
  * did not touch), x1.035 to the half rem, then up to a value another
  * panel already uses.
+ *
+ * Refitted 2026-10-24, when the not-enabled box became one sentence,
+ * Try again and Notify me (its reason behind "Why?") and stopped being
+ * the tallest state by a wide margin: the tallest is now 439.5px at
+ * 360/390, 303px at 640, 342px at 1024 on Windows; x1.035, to the
+ * half rem. Linux from CI's SLOT_NATURAL lines on this PR.
  */
-const STATUS_SLOT = "min-h-[43rem] sm:min-h-[29.5rem] lg:min-h-[33.5rem]";
+const STATUS_SLOT = "min-h-[28.5rem] sm:min-h-[20rem] lg:min-h-[22.5rem]";
 
 /**
  * Shown under every answer. The only safeguard against a wrong answer is an
@@ -479,11 +484,6 @@ function ChatBuilder({
               Asking stays off until the worker is ready, so {tool.name} never
               pretends to answer from a document it cannot actually read.
             </p>
-            <NotifyMe
-              toolName={tool.name}
-              toolSlug={tool.slug}
-              checking={false}
-            />
           </>
         }
       />

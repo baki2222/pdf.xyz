@@ -2,6 +2,8 @@
 
 import {
   createContext,
+  lazy,
+  Suspense,
   useContext,
   useId,
   useMemo,
@@ -9,7 +11,6 @@ import {
   type ReactNode,
 } from "react";
 import type { LucideIcon } from "lucide-react";
-import { RotateCw } from "lucide-react";
 import {
   workerPipelineStages,
   type PipelineStage,
@@ -27,6 +28,9 @@ import {
   WorkerStatusSlot,
   workerSlotState,
 } from "./worker-status";
+
+/** The not-enabled box, in its own chunk (see {@link WorkerGate}). */
+const OffBox = lazy(() => import("./worker-off-box"));
 
 /** What every part of a worker panel reads about the page's one check. */
 export interface WorkerPanelState {
@@ -225,8 +229,8 @@ function SpecRow({ icon: Icon, label, value }: SpecRowData) {
  * the docket and — after it, so nothing above moves when the check answers
  * — what the check said: "Checking the secure worker…", a failed check's
  * retry, or, ready, the panel's note on what pressing Run sends. A worker
- * that is not enabled gets its reason, Try again and Notify me IN PLACE of
- * the docket (there is no job to stage), so the reserve is the taller of
+ * that is not enabled gets one sentence, Try again and Notify me (its
+ * reason behind "Why?", see {@link OffBox}) IN PLACE of the docket (there is no job to stage), so the reserve is the taller of
  * the two rather than their sum.
  *
  * Run is drawn in every state and is live only when the status is ready and
@@ -250,7 +254,7 @@ export function WorkerGate({
   job: Pick<WorkerJob<{ ok: boolean }>, "events">;
   /** The Run control: `(available) => <WorkerRunButton disabled={!available || …}>`. */
   run: (available: boolean) => ReactNode;
-  /** Why this panel cannot run, once the check says so (the box's reason and Notify me). */
+  /** Why this panel cannot run, once the check says so: the box's reason, behind "Why?". */
   off: ReactNode;
   /** Ready: what pressing Run sends, and where. */
   note?: ReactNode;
@@ -259,7 +263,7 @@ export function WorkerGate({
   /** Cancel, Keep waiting, and the error — under Run, where the eye is. */
   jobStatus?: ReactNode;
 }) {
-  const { phase, available, stages, retry, limited } = useWorkerPanel();
+  const { tool, phase, available, stages, retry, limited } = useWorkerPanel();
   const state = workerSlotState(phase, available);
   return (
     <WorkerStatusSlot state={state} reserve={reserve}>
@@ -270,14 +274,12 @@ export function WorkerGate({
           // In place of the docket, not under it: nothing will happen to a
           // file here, so there are no stages to show — and the reserve is
           // the taller of the two, not their sum.
-          <div className="border-warn/40 bg-warn/10 rounded-panel flex flex-col gap-3 border p-4">
-            {off}
-            <p className="text-muted text-xs leading-relaxed">
-              Nothing is uploaded while the worker is unavailable. A file you
-              add stays here, and Run turns on once the worker is ready.
-            </p>
-            <TryAgain onRetry={retry} />
-          </div>
+          // Its own chunk: only a worker that is NOT enabled draws it, so a
+          // working tool page does not ship it (nor Notify me) on first load.
+          // The slot's reserve holds the space while it arrives.
+          <Suspense fallback={null}>
+            <OffBox tool={tool} off={off} onRetry={retry} />
+          </Suspense>
         ) : (
           <>
             <LiveStages stages={stages} events={job.events} bytes={bytes} />
@@ -294,19 +296,6 @@ export function WorkerGate({
         )}
       </div>
     </WorkerStatusSlot>
-  );
-}
-
-function TryAgain({ onRetry }: { onRetry: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onRetry}
-      className="border-line text-fg hover:bg-panel rounded-ctl inline-flex items-center gap-1.5 self-start border px-3 py-1.5 text-sm font-medium transition"
-    >
-      <RotateCw className="size-3.5" aria-hidden />
-      Try again
-    </button>
   );
 }
 

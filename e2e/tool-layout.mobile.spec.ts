@@ -429,6 +429,9 @@ for (const width of SLOT_WIDTHS) {
         const failedM = await slotHeight(page);
         await slot.getByRole("button", { name: /check again/i }).click();
         await expect(slot).toHaveAttribute("data-state", "off");
+        // The not-enabled box is its own chunk (2026-10-23): measured once
+        // it is drawn, or the reading is the empty slot and passes anything.
+        await expect(slot.locator("[data-off]")).toBeVisible();
         const offM = await slotHeight(page);
         // A ready deployment, on a fresh page.
         const ready = await page.context().newPage();

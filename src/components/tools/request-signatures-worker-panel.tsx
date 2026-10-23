@@ -49,7 +49,6 @@ import {
   WorkerRunButton,
 } from "./runner/runner-kit";
 import { ChosenFileTarget } from "./chosen-file-target";
-import { NotifyMe } from "./notify-me";
 import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { useStagedHandoff } from "./use-staged-handoff";
@@ -80,8 +79,14 @@ import {
  * Linux from CI's SLOT_NATURAL lines on 0504da27, a state this change
  * did not touch), x1.035 to the half rem, then up to a value another
  * panel already uses.
+ *
+ * Refitted 2026-10-24, when the not-enabled box became one sentence,
+ * Try again and Notify me (its reason behind "Why?") and stopped being
+ * the tallest state by a wide margin: the tallest is now 338px at
+ * 360/390, 225.5px at 640, 230.5px at 1024 on Windows; x1.035, to the
+ * half rem. Linux from CI's SLOT_NATURAL lines on this PR.
  */
-const STATUS_SLOT = "min-h-[35.5rem] sm:min-h-[25rem] lg:min-h-[29rem]";
+const STATUS_SLOT = "min-h-[22rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 
 interface SignerDraft {
   name: string;
@@ -643,11 +648,6 @@ export function RequestBuilder({
               {RUN_LABEL} stays off until the worker is ready, so {tool.name}{" "}
               never pretends to prepare a request it cannot actually package.
             </p>
-            <NotifyMe
-              toolName={tool.name}
-              toolSlug={tool.slug}
-              checking={false}
-            />
           </>
         }
       />
