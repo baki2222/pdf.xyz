@@ -52,12 +52,12 @@ import {
  * panel already uses.
  *
  * Refitted 2026-10-24, when the not-enabled box became one sentence,
- * Try again and Notify me (its reason behind "Why?") and stopped being
- * the tallest state by a wide margin: the tallest is now 338px at
- * 360/390, 225.5px at 640, 230.5px at 1024 on Windows; x1.035, to the
- * half rem. Linux from CI's SLOT_NATURAL lines on this PR.
+ * Why?, Try again and Notify me (the reason one press away): the
+ * tallest state, Windows / Linux (CI's SLOT_NATURAL lines on
+ * 28af68e1), is 338/357.5px at 360-390, 225.5/225.5px at 640,
+ * 230.5/230.5px at 1024; the larger x1.035, to the half rem.
  */
-const STATUS_SLOT = "min-h-[22rem] sm:min-h-[15rem] lg:min-h-[15rem]";
+const STATUS_SLOT = "min-h-[23.5rem] sm:min-h-[15rem] lg:min-h-[15rem]";
 
 type OfficeTool = "word-to-pdf" | "excel-to-pdf" | "powerpoint-to-pdf";
 
