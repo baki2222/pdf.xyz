@@ -62,6 +62,48 @@ export const EDIT: HeldCase = {
   done: /edited pdf ready/i,
 };
 
+/*
+ * Runners whose defaults run as they open — no step before Run — offered as
+ * further subjects to the touch specs, which pick theirs by what a released
+ * hold has to move (`HELD_CASES`, `stage-hold.mobile.spec.ts`).
+ */
+
+/** Crop PDF: the default uniform margins on every page. */
+export const CROP: HeldCase = {
+  slug: "crop-pdf",
+  file: { name: "trimmed.pdf" },
+  prepare: async () => {},
+  run: /^crop pdf$/i,
+  done: /pdf cropped/i,
+};
+
+/** Add Page Numbers: the default format and position. */
+export const PAGE_NUMBERS: HeldCase = {
+  slug: "page-numbers",
+  file: { name: "numbered.pdf" },
+  prepare: async () => {},
+  run: /add page numbers/i,
+  done: /page numbers added/i,
+};
+
+/** Watermark PDF: the default text, size and tilt. */
+export const WATERMARK: HeldCase = {
+  slug: "watermark-pdf",
+  file: { name: "marked.pdf" },
+  prepare: async () => {},
+  run: /add watermark/i,
+  done: /watermark added/i,
+};
+
+/** Every case above, in the order a tie is broken. */
+export const HELD_CASES: readonly HeldCase[] = [
+  SIGN,
+  EDIT,
+  CROP,
+  PAGE_NUMBERS,
+  WATERMARK,
+];
+
 /**
  * The tool open, its file picked, the case's edits made, and the page
  * scrolled to Run as a reader who scrolled down the editor has it: at the
