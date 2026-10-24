@@ -15,6 +15,7 @@
  * upload family. Worker/AI/hybrid steps MUST be free to say upload — that is
  * their truth — so the rule is scoped by capability, never global.
  */
+import { TOOL_HOW } from "./catalog-how";
 import { describe, expect, it } from "vitest";
 import { tools } from "@/lib/tools";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
@@ -66,7 +67,9 @@ describe("structured steps are mode-true", () => {
 
   it("worker tools' default steps do say upload (the scoping is by capability, not a blanket ban)", () => {
     const worker = tools.find(
-      (t) => capabilityForMode(t.processing) === "secure-worker" && !t.how,
+      (t) =>
+        capabilityForMode(t.processing) === "secure-worker" &&
+        !TOOL_HOW[t.slug],
     );
     expect(worker).toBeTruthy();
     if (worker) {
@@ -77,7 +80,7 @@ describe("structured steps are mode-true", () => {
   it("steps no tool authored never claim the tool has options", () => {
     // The subject is the default template, reached through every tool that
     // falls back to it — discovered by asking howToSteps, not typed.
-    const defaulted = tools.filter((t) => howToSteps(t) !== t.how);
+    const defaulted = tools.filter((t) => howToSteps(t) !== TOOL_HOW[t.slug]);
     expect(
       defaulted.length,
       "no tool uses the default steps — the check below is vacuous",

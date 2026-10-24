@@ -417,8 +417,16 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * 22.54 over the desk's fetch. The cost lands on the home page, which loads
  * the first two with the desk and so fetches them twice; on every other page
  * they are the dialog's first copy.
+ *
+ * RAISED 23 -> 23.5 on 2026-10-24, by a move, not new code. The How-it-works
+ * steps left the client catalogue (`tools/catalog-how.ts`), and the modules
+ * only those steps imported (the raster and signature-request constants)
+ * left the catalogue's chunk with them, so the ticket now fetches them as
+ * chunks of their own — counted here, where the catalogue is not. Measured
+ * on both builds: excluding the catalogue 22.56 -> 23.29; INCLUDING it
+ * 35.12 -> 32.58, so the ticket's whole fetch fell by 2.5 KB gz.
  */
-const TICKET_FETCH_GZ_KB = 23;
+const TICKET_FETCH_GZ_KB = 23.5;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

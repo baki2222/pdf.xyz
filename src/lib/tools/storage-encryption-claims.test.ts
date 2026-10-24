@@ -189,7 +189,9 @@ describe("no readable string claims encryption at rest", () => {
   });
 
   it("positive control: a sentence planted in real copy is found through the same reader", () => {
-    const file = path.join(SRC, "lib", "tools", "catalog.ts");
+    // catalog-how.ts since 2026-10-24: the How-it-works steps, this sentence
+    // among them, left the client catalogue (catalog.ts) for it.
+    const file = path.join(SRC, "lib", "tools", "catalog-how.ts");
     const real = readFileSync(file, "utf8");
     const planted = real.replace(
       "Upload your PDF over an encrypted connection.",

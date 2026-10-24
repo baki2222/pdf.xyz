@@ -1,6 +1,6 @@
 "use client";
 
-import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/tool-facts";
+import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Download,
