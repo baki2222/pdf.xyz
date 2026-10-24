@@ -101,7 +101,10 @@ export function createProcessorRegistry(
   if (deps.compression) {
     registry.register(createCompressionProcessor(deps.compression));
   }
-  registry.register(createOcrProcessor(deps.ocr ?? {}));
+  // One OCR processor, served for `ocr-pdf` AND handed to PDF to Word for
+  // its "Recognise text in scans (OCR)" option, so both run the same check.
+  const ocr = createOcrProcessor(deps.ocr ?? {});
+  registry.register(ocr);
   if (deps.pdfSecurity) {
     registry.register(createPdfSecurityProcessor(deps.pdfSecurity));
   }
@@ -118,7 +121,9 @@ export function createProcessorRegistry(
     registry.register(createOfficeConversionProcessor(deps.officeConversion));
   }
   if (deps.pdfOfficeExport) {
-    registry.register(createPdfOfficeExportProcessor(deps.pdfOfficeExport));
+    registry.register(
+      createPdfOfficeExportProcessor(deps.pdfOfficeExport, { ocr }),
+    );
   }
   if (deps.tableExtract) {
     registry.register(createTableExtractProcessor(deps.tableExtract));

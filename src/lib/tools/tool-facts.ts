@@ -42,6 +42,7 @@ import {
   XLSX_MERGE_CAVEAT,
   XLSX_NUMBER_EXAMPLES,
   XLSX_SHEET_NAME,
+  WORD_OCR_LABEL,
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
@@ -1416,7 +1417,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} convert a scanned PDF?`,
-          answer: `Not into text. A scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. Run the scan through ${toolName("ocr-pdf")} first, then export the result: each page's scan then comes through as a picture, followed by its words as text.`,
+          // CHANGED 2026-10-24: "Not into text. … Run the scan through OCR
+          // PDF first, then export the result" — true until the panel could
+          // run OCR in the same job.
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. With the switch on, the worker runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and converts its result in the same job: each page's scan then comes through as a picture, followed by its words as text.`,
         },
       ];
     case "pdf-to-excel":

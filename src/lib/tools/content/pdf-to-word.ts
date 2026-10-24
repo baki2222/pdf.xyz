@@ -2,6 +2,7 @@ import type { ToolContent } from "./types";
 import { getToolBySlug } from "@/lib/tools";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { MAX_LISTED_PAGES } from "@/lib/jobs/office-export-results";
+import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
@@ -81,6 +82,14 @@ import {
  *    is the heartbeat's `docxPictures` (scripts/worker-daemon.ts), which runs
  *    the probe PDF's picture through the running image's own extractor and
  *    reader, and `worker:prove-tools`'s pdf-to-word verdict.
+ *  - CHANGED 2026-10-24: the panel draws a “Recognise text in scans (OCR)”
+ *    checkbox (WORD_OCR_LABEL) and, when on, OCR PDF's language picker
+ *    (ocr-language-picker.tsx). The job then carries `{ ocr: true,
+ *    languages }` (parsePdfToWordOptions in jobs/ocr.ts) and the processor
+ *    runs the registry's OCR processor first — searchable-PDF output, OCR
+ *    PDF's own language and refusal checks — and converts what it returns,
+ *    in ONE job (processor/pdf-office-export.ts). Until then the page said
+ *    "Scans need OCR first" and sent readers to OCR PDF for two passes.
  * HISTORY, kept: until 2026-10-07 this page said every line becomes its own
  * paragraph, a two-column article comes out a slice of each column per line,
  * page breaks are dropped, and a locked PDF is retried and then reported with
@@ -124,11 +133,11 @@ const content: ToolContent = {
 
   seoTitle: "PDF to Word: Editable DOCX With Its Pictures",
 
-  metaDescription: `Convert a PDF to editable Word DOCX: text as paragraphs in reading order, each picture between them at its size. Scans need OCR first. Up to ${CEILING_MB} MB, no account.`,
+  metaDescription: `Convert a PDF to editable Word DOCX: text as paragraphs in reading order, each picture between them at its size. OCR for scans. Up to ${CEILING_MB} MB, no account.`,
 
   intro: [
     `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide (scaled to fit, its shape kept, when it is larger than Word allows), and a picture wider or taller than the page's text area is scaled down to fit. Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.`,
-    `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops and asks you to run OCR first rather than hand you a document of page pictures with nothing in it to edit.`,
+    `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and the worker runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
     `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure worker, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. The worker deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. A run handles a single PDF, and uploads above ${CEILING_MB} MB are refused.`,
   ],
 
@@ -150,8 +159,10 @@ const content: ToolContent = {
       body: "Comments on a PDF sit on top of the page. Once the text is in Word, Track Changes records each edit inside the sentences, so a redline can be accepted or rejected change by change.",
     },
     {
-      title: "Recover text from a scan in two passes",
-      body: "A scanned contract usually arrives as page pictures with no text layer, so on its own it is refused here. Pass it through OCR PDF, which keeps each page image and adds the recognised words beneath it, and bring the OCR'd copy back: each page's scan then comes through as a picture, followed by its words as text you can edit.",
+      // CHANGED 2026-10-24: was "Recover text from a scan in two passes",
+      // through OCR PDF and back — the only way until OCR ran in this job.
+      title: "Recover text from a scan",
+      body: `A scanned contract usually arrives as page pictures with no text layer, so on its own it is refused here. Tick “${WORD_OCR_LABEL}” and pick the languages printed on it: the worker adds the recognised words to each page first, then converts, so each page's scan then comes through as a picture, followed by its words as text you can edit.`,
     },
   ],
 
@@ -181,7 +192,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to pages that are scans?",
-      a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Run the file through OCR PDF and convert the result to have the words as text.`,
+      a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Tick “${WORD_OCR_LABEL}” to have the words as text: the worker runs OCR first, keeping pages that already have text as they are, and converts its result. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page.`,
     },
     {
       q: "How are tables and multi-column pages handled?",
