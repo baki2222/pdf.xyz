@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
 import { encodePng } from "@/lib/pdf/extract-images";
 import { drawRasterImage, embedRasterImage } from "@/lib/pdf/pdf-lib";
-import { colourImagePdf } from "@/tests/colour-image-pdf";
+import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
 import {
   grayscaleVerdict,
   hasColourImage,

@@ -7,6 +7,10 @@
  * grayscale test built that way would have no gray file to pass, and every
  * "is it gray?" check would be tested against colour alone. This writes the
  * image dictionary itself (Flate-compressed samples) and paints it with `Do`.
+ *
+ * It is also the in-image options proof's input (`../options-proof.ts`),
+ * which ships in the worker image, so it lives here and not in `src/tests`
+ * (test-support modules must stay unreachable from shipped code).
  */
 import {
   concatTransformationMatrix,

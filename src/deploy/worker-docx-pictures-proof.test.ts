@@ -226,8 +226,38 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
     expect(specs.length).toBeLessThan(200);
   });
 
+  // The unlabelled pdf-to-word spec is the pictures proof; since 2026-10-24
+  // a second, labelled one proves the OCR option (asserted below), so "the
+  // pdf-to-word spec" is the one with no label.
+  const picturesSpecs = () =>
+    specs.filter(
+      (s) => str(s, "tool") === "pdf-to-word" && prop(s, "label") === undefined,
+    );
+
+  it("the OCR spec sends a real scan with OCR on and reads the scan's words back as text", () => {
+    const ocr = specs.filter((s) => str(s, "label") === "pdf-to-word (ocr)");
+    expect(ocr).toHaveLength(1);
+    const spec = ocr[0]!;
+    expect(str(spec, "tool")).toBe("pdf-to-word");
+    expect(prop(spec, "make")?.initializer.getText(file)).toMatch(
+      /^scannedTextPdf$/,
+    );
+    expect(prop(spec, "options")?.initializer.getText(file)).toMatch(
+      /\bocr:\s*true\b/,
+    );
+    expect(prop(spec, "verify")?.initializer.getText(file)).toMatch(
+      /\bscannedDocxVerdict\(/,
+    );
+    for (const name of ["scannedDocxVerdict", "scannedTextPdf"])
+      expect(importsOf(file).get(name)).toBe("@/tests/word-ocr-proof-fixtures");
+    // Control: every pdf-to-word spec is either the pictures one or this.
+    expect(specs.filter((s) => str(s, "tool") === "pdf-to-word").length).toBe(
+      picturesSpecs().length + ocr.length,
+    );
+  });
+
   it("the pdf-to-word spec sends the Word proof PDF and verifies the picture", () => {
-    const mine = specs.filter((s) => str(s, "tool") === "pdf-to-word");
+    const mine = picturesSpecs();
     expect(mine).toHaveLength(1);
     const spec = mine[0]!;
     expect(prop(spec, "make")?.initializer.getText(file)).toMatch(
@@ -243,9 +273,7 @@ describe("the production proof asks PDF to Word about its picture, and LibreOffi
   });
 
   it("the .docx it returns is laid out by Word to PDF, and judged by the round-trip verdict", () => {
-    const keptAs = specs
-      .filter((s) => str(s, "tool") === "pdf-to-word")
-      .map((s) => str(s, "keepArtifactAs"));
+    const keptAs = picturesSpecs().map((s) => str(s, "keepArtifactAs"));
     expect(keptAs).toHaveLength(1);
     expect(keptAs[0]).toBeTruthy();
     const trips = specs.filter((s) => str(s, "from") === keptAs[0]);

@@ -49,7 +49,7 @@ import { createLocalDevAdapter } from "@/lib/workers/local-dev";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
-import { colourImagePdf } from "@/tests/colour-image-pdf";
+import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
 import { makeSignedPdf } from "@/tests/signed-pdf";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CompressRunner, UNLOCK_TOOL_HREF } from "./compress-runner";

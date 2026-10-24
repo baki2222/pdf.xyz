@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
-import { colourImagePdf } from "@/tests/colour-image-pdf";
+import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
 import {
   parseCompressionOptions,
   planCompression,
