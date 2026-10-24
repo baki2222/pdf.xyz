@@ -34,11 +34,13 @@
  */
 export const EDITOR_KINDS = [
   "text",
+  "textedit",
   "image",
   "signature",
   "shape",
   "line",
   "whiteout",
+  "redact",
   "highlight",
   "ink",
   "note",
@@ -47,11 +49,13 @@ export type EditorKind = (typeof EDITOR_KINDS)[number];
 /** How the tool page names each kind, variants included. */
 export const EDITOR_KIND_FACT: Record<EditorKind, string> = {
   text: "text boxes",
+  textedit: "edits to the text already on the page",
   image: "PNG or JPG pictures",
   signature: "signatures (drawn, typed or from a picture)",
   shape: "rectangles and ellipses",
   line: "lines and arrows",
   whiteout: "whiteout boxes",
+  redact: "redaction boxes that remove the text and picture pixels under them",
   highlight: "highlights",
   ink: "freehand drawing",
   note: "notes",
@@ -64,6 +68,7 @@ export const EDITOR_KIND_FACT: Record<EditorKind, string> = {
  */
 export const MARKUP_KINDS = [
   "whiteout",
+  "redact",
   "highlight",
   "ink",
   "note",

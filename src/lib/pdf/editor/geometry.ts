@@ -107,6 +107,54 @@ export function rectAnchor(
   return viewerToContent(rect.x, rect.y + rect.height, frame);
 }
 
+/** A content-space point → viewer points (top-left origin, y down). */
+export function contentToViewer(
+  x: number,
+  y: number,
+  frame: ExportFrame,
+): { x: number; y: number } {
+  const { box } = frame;
+  let vx: number;
+  let vy: number;
+  switch (frame.rotation) {
+    case 90:
+      vx = y - box.y;
+      vy = box.x + box.width - x;
+      break;
+    case 180:
+      vx = box.x + box.width - x;
+      vy = box.y + box.height - y;
+      break;
+    case 270:
+      vx = box.y + box.height - y;
+      vy = x - box.x;
+      break;
+    default:
+      vx = x - box.x;
+      vy = y - box.y;
+  }
+  return { x: vx, y: frame.height - vy };
+}
+
+/** A viewer rect → the content-space box it covers. */
+export function viewerRectToContent(
+  rect: Rect,
+  frame: ExportFrame,
+): { x0: number; y0: number; x1: number; y1: number } {
+  const pts = [
+    viewerToContent(rect.x, rect.y, frame),
+    viewerToContent(rect.x + rect.width, rect.y, frame),
+    viewerToContent(rect.x, rect.y + rect.height, frame),
+    viewerToContent(rect.x + rect.width, rect.y + rect.height, frame),
+  ];
+  return {
+    x0: Math.min(...pts.map((p) => p.x)),
+    y0: Math.min(...pts.map((p) => p.y)),
+    x1: Math.max(...pts.map((p) => p.x)),
+    y1: Math.max(...pts.map((p) => p.y)),
+  };
+}
+
 /** A guide line drawn while snapping: vertical at `x`, or horizontal at `y`. */
 export type SnapGuide = { axis: "x"; at: number } | { axis: "y"; at: number };
 

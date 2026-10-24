@@ -10,16 +10,27 @@ import {
   NOTE_PADDING,
   arrowHeadSize,
   objectBounds,
+  rectsIntersect,
   type EditorObject,
   type EditorObjectKind,
   type NoteObject,
+  type RedactObject,
   type TextBoxObject,
+  type TextEditObject,
 } from "./editor/model";
 import {
   rectAnchor,
+  viewerRectToContent,
   viewerToContent,
   type ExportFrame,
 } from "./editor/geometry";
+import {
+  applyContentEdits,
+  pruneUnreachable,
+  type ContentEditOptions,
+  type RetextOutcome,
+} from "./editor/content-edit";
+import { browserJpegDecoder } from "./editor/jpeg-pixels";
 import {
   layoutText,
   lineBaseline,
@@ -53,6 +64,8 @@ export interface EditorExportResult {
   pageCount: number;
   objectCount: number;
   counts: Record<EditorObjectKind, number>;
+  /** Per edited run: drawn in its own font, or the face substituted. */
+  retext: RetextOutcome[];
 }
 
 /** One problem with the object list, before anything is drawn. */
@@ -118,6 +131,63 @@ export function validateEditorObjects(
   return issues;
 }
 
+/**
+ * Remove every edited run's glyphs and everything under every redaction box
+ * from the page content, and draw each run's replacement
+ * (`editor/content-edit.ts`). Then drop the objects nothing refers to any
+ * more, so the old content stream and replaced images are not still in the
+ * saved file.
+ */
+async function applyTextAndRedactions(
+  lib: Awaited<ReturnType<typeof loadPdfLib>>,
+  doc: Awaited<ReturnType<typeof loadPdf>>,
+  pages: PDFPage[],
+  frames: ExportFrame[],
+  list: readonly EditorObject[],
+  options: ContentEditOptions,
+): Promise<RetextOutcome[]> {
+  const edits = list.filter((o): o is TextEditObject => o.kind === "textedit");
+  const boxes = list.filter((o): o is RedactObject => o.kind === "redact");
+  if (edits.length === 0 && boxes.length === 0) return [];
+  for (const e of edits) {
+    if (boxes.some((b) => b.page === e.page && rectsIntersect(b, e))) {
+      throw new PdfEngineError(
+        `Text you edited on page ${e.page + 1} sits under a redaction box. Remove the edit or the box first.`,
+      );
+    }
+  }
+  const outcomes: RetextOutcome[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    const retext = edits
+      .filter((e) => e.page === i)
+      .map((e) => ({
+        id: e.id,
+        run: { transform: e.run.transform, width: e.run.width },
+        text: e.text,
+      }));
+    const redact = boxes
+      .filter((b) => b.page === i)
+      .map((b) => ({
+        id: b.id,
+        box: viewerRectToContent(b, frames[i]!),
+        fill: b.fill,
+      }));
+    if (retext.length === 0 && redact.length === 0) continue;
+    const done = await applyContentEdits(
+      lib,
+      doc,
+      pages[i]!,
+      i,
+      retext,
+      redact,
+      options,
+    );
+    outcomes.push(...done.retext);
+  }
+  pruneUnreachable(lib, doc);
+  return outcomes;
+}
+
 function color(
   rgb: (r: number, g: number, b: number) => PdfLibRGB,
   hex: string,
@@ -135,6 +205,7 @@ function color(
 export async function exportEditedPdf(
   bytes: Uint8Array,
   objects: readonly EditorObject[],
+  options: ContentEditOptions = { decodeJpeg: browserJpegDecoder() },
 ): Promise<EditorExportResult> {
   const lib = await loadPdfLib();
   const { rgb, degrees, BlendMode, LineCapStyle } = lib;
@@ -194,6 +265,17 @@ export async function exportEditedPdf(
         : issues[0]!.message,
     );
   }
+
+  // Edit text and Redact rewrite the page content itself — before anything
+  // is drawn on top of it, so what is drawn lands over the rewritten page.
+  const retextOutcomes = await applyTextAndRedactions(
+    lib,
+    doc,
+    pages,
+    frames,
+    list,
+    options,
+  );
 
   const images = new Map<Uint8Array, PDFImage>();
   const embedImage = async (
@@ -282,6 +364,21 @@ export async function exportEditedPdf(
           ...(obj.kind === "image" && obj.opacity < 1
             ? { opacity: clampOpacity(obj.opacity) }
             : {}),
+        });
+        break;
+      }
+      case "textedit":
+        // Removed and redrawn by applyTextAndRedactions.
+        break;
+      case "redact": {
+        const at = rectAnchor(obj, frame);
+        page.drawRectangle({
+          x: at.x,
+          y: at.y,
+          width: obj.width,
+          height: obj.height,
+          rotate,
+          color: obj.fill === "white" ? rgb(1, 1, 1) : rgb(0, 0, 0),
         });
         break;
       }
@@ -409,5 +506,6 @@ export async function exportEditedPdf(
     pageCount: pages.length,
     objectCount: list.length,
     counts,
+    retext: retextOutcomes,
   };
 }
