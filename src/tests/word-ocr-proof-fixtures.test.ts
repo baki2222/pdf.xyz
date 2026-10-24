@@ -30,6 +30,24 @@ async function docx(paragraphs: string[]): Promise<Uint8Array> {
 }
 
 describe("scannedTextPdf — a real scan of a known sentence", () => {
+  // 2026-10-24: production OCR read this line's "4718" as "4/71 6", because
+  // the fixture was painted WITHOUT pdf.js's standard font data — Helvetica
+  // fell back to a narrow outline. The option that paints the real face must
+  // change the pixels, or it has silently stopped loading (a file:// URL did
+  // exactly that: no error, the same fallback).
+  it("is painted in the real Helvetica, not pdf.js's fallback outline", async () => {
+    const typed = await PDFDocument.create();
+    const font = await typed.embedFont("Helvetica");
+    typed.addPage([300, 80]).drawText("4718", { x: 10, y: 30, size: 32, font });
+    const bytes = await typed.save();
+    const [fallback] = await renderPdfPages(bytes, 600);
+    const [real] = await renderPdfPages(bytes, 600, { standardFonts: true });
+    let differ = 0;
+    for (let i = 0; i < real!.data.length; i += 4)
+      if (Math.abs(real!.data[i]! - fallback!.data[i]!) > 64) differ++;
+    expect(differ).toBeGreaterThan(200);
+  });
+
   it("has NO selectable text, so only OCR can put its words in a DOCX", async () => {
     const pdf = await scannedTextPdf();
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
