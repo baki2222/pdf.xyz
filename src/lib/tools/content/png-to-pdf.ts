@@ -1,5 +1,22 @@
 import type { ToolContent } from "./types";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
+import {
+  IMAGE_MARGINS,
+  IMAGE_ORIENTATIONS,
+  IMAGE_PAGE_SIZES,
+} from "@/lib/pdf/image-page-layout";
+import { inches } from "@/lib/pdf/page-geometry";
+
+/** "A, B or C" from the runner's own chip tables. */
+const or = (items: readonly string[]) =>
+  `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+const SIZES = or(IMAGE_PAGE_SIZES.map((s) => s.label));
+const ORIENTATIONS = or(IMAGE_ORIENTATIONS.map((o) => o.label));
+const MARGINS = or(
+  IMAGE_MARGINS.map((m) =>
+    m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label,
+  ),
+);
 
 /**
  * Search-facing copy for PNG to PDF.
@@ -9,14 +26,16 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
  *  - runner: src/components/tools/runner/image-to-pdf-runner.tsx (kind "png")
  *    — Dropzone "Drop PNG images here, or browse", "Image order" list with
  *    Move up / Move down / Remove, Clear, Create PDF ("Creating PDF…"),
- *    result panel "PNG PDF created" with Download PDF. No page-size,
- *    orientation or margin controls exist.
+ *    result panel "PNG PDF created" with Download PDF. Since 2026-10-24 also
+ *    Page size, Orientation, Margin and Output chips
+ *    (src/lib/pdf/image-page-layout.ts), defaulting to the old fixed layout;
+ *    "One PDF per image (ZIP)" gives Download ZIP for more than one image.
  *  - The result panel's "Start over" is deliberately NOT described: its
  *    onReset is `clearItems`, which empties the list but never clears the
  *    run's `result`, so the panel stays up reading "0 images" (as of
  *    2026-09-27). Describe it only once it really resets.
- *  - engine: src/lib/pdf/image-to-pdf.ts — one fixed portrait US Letter page
- *    per image, white rectangle under it, fixed margin, scale capped at 1
+ *  - engine: src/lib/pdf/image-to-pdf.ts — one page per image (by default
+ *    portrait US Letter), white rectangle under it, margin, scale capped at 1
  *    (downscale only; below that, one point per pixel — the PNG's pHYs/DPI is
  *    never read), centred; output named `<first image>-pdf.pdf`; the first
  *    undecodable file throws and stops the whole run.
@@ -40,9 +59,8 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
  *    is a file with a valid signature pdf-lib cannot parse (a 2-frame APNG,
  *    a damaged image). tool-page-substance.test.ts holds the steps to every
  *    refusal the runner gives, in its words.
- *  - The page-size words ("US Letter", "narrow margin") are NOT derived: the
- *    engine's PAGE_WIDTH/PAGE_HEIGHT/MARGIN are module-private. If they
- *    change, this copy goes stale with nothing to catch it.
+ *  - The option lists are derived from the chip tables; the default page
+ *    words are held to the engine by claims-vs-capability.test.ts.
  *  - relatedGuides is empty on purpose, matching jpg-to-pdf: the only image
  *    guide ("how-to-convert-jpg-to-pdf", which lists png-to-pdf in its
  *    tools) promises page size, orientation and margin controls and says the
@@ -54,7 +72,7 @@ const content: ToolContent = {
   metaDescription: `Combine PNG screenshots, diagrams and logos into a single PDF in your browser. Pixels are kept without JPEG blur, up to ${MAX_IMAGE_MB} MB a file, and nothing is uploaded.`,
   intro: [
     "PNG to PDF places every PNG you add on a page of its own and saves the set as a single PDF. It suits what people keep as PNG in the first place — screenshots, diagrams, line art, logos on a transparent background — where crisp edges matter more than a small file. Nothing is turned into JPEG on the way: pixels are stored with lossless Flate compression, so small interface text is not smudged by block artefacts. The one exception is a PNG with sixteen bits per channel, which is cut down to eight.",
-    "Every page is a portrait US Letter sheet with a white background and a narrow margin. A PNG bigger than that area is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel and sits at that size in the middle of the sheet, so a tiny icon stays tiny. Any DPI value stored inside the PNG is ignored.",
+    `Unless you change the page setup, every page is a portrait US Letter sheet with a white background and a 0.5 in margin. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first; Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel, so a tiny icon stays tiny. Any DPI value stored inside the PNG is ignored.`,
     `The work happens in this browser tab: your PNGs are read from your device, laid out there, and handed back as a download, and none of them is uploaded to pdf.xyz. Each file may be up to ${MAX_IMAGE_MB} MB.`,
   ],
   useCases: [
@@ -85,12 +103,16 @@ const content: ToolContent = {
       body: "Under Image order, each card shows a thumbnail, the file name and the page it will become. Move up and Move down shift a card one place; Remove drops it, and Clear empties the list.",
     },
     {
+      title: "Choose the page setup",
+      body: "Below the list, Page size, Orientation and Margin set the page, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone: US Letter, portrait, a 0.5 in margin, one PDF.",
+    },
+    {
       title: "Press Create PDF",
       body: "The button reads Creating PDF… while your browser builds one page per image in the order shown. An image that cannot be decoded halts the whole run, and the error names that file; remove it and press Create PDF again.",
     },
     {
       title: "Save the PDF",
-      body: "The PNG PDF created panel shows the image count and file size. Download PDF names the file after your first image, so chart.png becomes chart-pdf.pdf.",
+      body: "The PNG PDF created panel shows the image count and file size. Download PDF names the file after your first image, so chart.png becomes chart-pdf.pdf. With One PDF per image and more than one image, Download ZIP saves one PDF per image instead, chart.png becoming chart.pdf.",
     },
   ],
   faqs: [
@@ -109,6 +131,10 @@ const content: ToolContent = {
     {
       q: "Why did Create PDF fail on a file it accepted?",
       a: 'Adding a file checks its name, its size and the first bytes of its contents, so a WebP, GIF or other format renamed to .png is turned away as you add it, and a JPEG saved with a .png name is accepted and placed as a JPEG. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image" (or "as a JPG image"), which stops the whole PDF. Remove the file the message names and run it again.',
+    },
+    {
+      q: "Can a page be exactly the size of my screenshot?",
+      a: "Yes. Choose Fit to image under Page size: each page becomes the size of its PNG, one point per pixel, plus the margin you pick (None gives no border at all). Orientation is not needed then, since the page already has the image's shape.",
     },
     {
       q: "Are my images uploaded anywhere?",

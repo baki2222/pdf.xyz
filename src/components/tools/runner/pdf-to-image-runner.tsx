@@ -12,7 +12,9 @@ import {
 import { rasterizePdf, type RasterPage } from "@/lib/pdf/render";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import {
+  DEFAULT_RASTER_COLOR,
   DEFAULT_RESOLUTION_ID,
+  RASTER_COLORS,
   RASTER_MIME,
   RASTER_PREVIEW_LIMIT as PREVIEW_LIMIT,
   lowerResolutionThan,
@@ -24,8 +26,12 @@ import {
   resolutionById,
   shouldZipPages,
   zipOutputName,
+  rasterPageSelection,
+  type RasterColorId,
   type RasterFormat,
+  type RasterPageChoice,
 } from "@/lib/pdf/pdf-to-image";
+import { formatPageNumbers } from "@/lib/pdf/ranges";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { loadRasterDefaults, rasterDefaults } from "./raster-defaults-chunk";
 import { buttonVariants } from "@/components/ui/button";
@@ -59,13 +65,17 @@ export interface RasterResult {
   resolutionLabel: string;
   /** The DPI that preset asked for — what a capped page fell short of. */
   dpi: number;
+  /** True when the pages were rendered in grayscale. */
+  grayscale: boolean;
+  /** Pages in the source document — what each file's page number is out of. */
+  documentPages: number;
 }
 
 export function PdfToImageRunner({ format }: { format: RasterFormat }) {
   const label = format.toUpperCase();
   return (
     <SinglePdfRunner
-      hint={`One PDF · every page becomes a ${label} image, rendered locally in your browser`}
+      hint={`One PDF · each page you choose becomes a ${label} image, rendered locally in your browser`}
       handoffSlug={format === "png" ? "pdf-to-png" : "pdf-to-jpg"}
       toolName={`PDF to ${label}`}
       writesPdf={false}
@@ -108,6 +118,25 @@ function PdfToImageEditor({
   // Only a resolution the reader picked is remembered, never one chosen
   // for them.
   const [picked, setPicked] = useState(false);
+  // Colour is remembered too (option memory); the page range is typed text
+  // and is never kept.
+  const [color, setColor] = useState<RasterColorId>(
+    () =>
+      prep?.memory.recallOptions("pdf-to-image").color ?? DEFAULT_RASTER_COLOR,
+  );
+  const [colorPicked, setColorPicked] = useState(false);
+  const [pageChoice, setPageChoice] = useState<RasterPageChoice>({
+    mode: "all",
+    range: "",
+  });
+  let selection: number[] = [];
+  let rangeError: string | null = null;
+  try {
+    selection = rasterPageSelection(pageChoice, pdf.pageCount);
+  } catch (err) {
+    rangeError = err instanceof Error ? err.message : String(err);
+  }
+  const count = selection.length;
   const [progress, setProgress] = useState<{
     done: number;
     total: number;
@@ -128,13 +157,24 @@ function PdfToImageEditor({
     const kept = memory?.OPTION_SCHEMAS["pdf-to-image"].resolution.values.find(
       (id) => id === resolution.id,
     );
-    if (picked && kept)
-      memory?.rememberOptions("pdf-to-image", { resolution: kept });
-    setProgress({ done: 0, total: pdf.pageCount });
+    if (rangeError || selection.length === 0) return;
+    if (picked || colorPicked) {
+      const prior = memory?.recallOptions("pdf-to-image") ?? {};
+      memory?.rememberOptions("pdf-to-image", {
+        ...prior,
+        ...(picked && kept ? { resolution: kept } : {}),
+        ...(colorPicked ? { color } : {}),
+      });
+    }
+    const pages = selection;
+    const grayscale = color === "gray";
+    setProgress({ done: 0, total: pages.length });
     void run(async () => {
-      const pages = await rasterizePdf(pdf.bytes, {
+      const rendered = await rasterizePdf(pdf.bytes, {
         format,
         dpi: resolution.dpi,
+        pages,
+        grayscale,
         signal: controller.signal,
         onProgress: (done, total) => setProgress({ done, total }),
       });
@@ -142,16 +182,18 @@ function PdfToImageEditor({
         // Editor is unmounting; surface nothing.
         throw new Error("Rendering was cancelled.");
       }
-      if (pages.length === 0) {
+      if (rendered.length === 0) {
         throw new Error("No pages could be rendered from this PDF.");
       }
       return {
-        pages,
-        totalBytes: pages.reduce((sum, p) => sum + p.bytes.byteLength, 0),
-        zip: shouldZipPages(pages.length),
+        pages: rendered,
+        totalBytes: rendered.reduce((sum, p) => sum + p.bytes.byteLength, 0),
+        zip: shouldZipPages(rendered.length),
         resolutionId: resolution.id,
         resolutionLabel: resolution.label,
         dpi: resolution.dpi,
+        grayscale,
+        documentPages: pdf.pageCount,
       } satisfies RasterResult;
     });
   };
@@ -165,6 +207,25 @@ function PdfToImageEditor({
       reset();
       setProgress(null);
     }
+  };
+
+  // Any other option change also clears a finished render.
+  const clearResult = () => {
+    if (result) {
+      reset();
+      setProgress(null);
+    }
+  };
+  const changeColor = (id: RasterColorId) => {
+    if (busy) return;
+    setColor(id);
+    setColorPicked(true);
+    clearResult();
+  };
+  const changePages = (next: RasterPageChoice) => {
+    if (busy) return;
+    setPageChoice(next);
+    clearResult();
   };
 
   if (result) {
@@ -214,6 +275,66 @@ function PdfToImageEditor({
         )}
       </RunnerSection>
 
+      <RunnerSection title="Pages">
+        <div className="flex flex-wrap gap-2">
+          <ChipButton
+            onClick={() => changePages({ ...pageChoice, mode: "all" })}
+            disabled={busy}
+            active={pageChoice.mode === "all"}
+          >
+            All pages
+          </ChipButton>
+          <ChipButton
+            onClick={() => changePages({ ...pageChoice, mode: "range" })}
+            disabled={busy}
+            active={pageChoice.mode === "range"}
+          >
+            Select pages
+          </ChipButton>
+        </div>
+        {pageChoice.mode === "range" && (
+          <label className="flex flex-col gap-2">
+            <span className="text-muted text-sm">
+              Pages to render (of {pdf.pageCount})
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={pageChoice.range}
+              onChange={(e) =>
+                changePages({ mode: "range", range: e.target.value })
+              }
+              placeholder="e.g. 1-3, 5"
+              spellCheck={false}
+              aria-invalid={rangeError ? true : undefined}
+              className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl w-full max-w-xs border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            />
+            <span className="text-muted text-xs">
+              Separate pages with commas; ranges are inclusive, e.g.{" "}
+              <code className="text-muted">1-3, 5, 8-</code>.
+            </span>
+          </label>
+        )}
+        {pageChoice.mode === "range" &&
+          rangeError &&
+          pageChoice.range.trim() && <ErrorNote message={rangeError} />}
+      </RunnerSection>
+
+      <RunnerSection title="Colour">
+        <div className="flex flex-wrap gap-2">
+          {RASTER_COLORS.map((c) => (
+            <ChipButton
+              key={c.id}
+              onClick={() => changeColor(c.id)}
+              disabled={busy}
+              active={c.id === color}
+            >
+              {c.label}
+            </ChipButton>
+          ))}
+        </div>
+      </RunnerSection>
+
       <div className="grid gap-3 sm:grid-cols-3">
         <InfoTile
           icon={ShieldCheck}
@@ -222,14 +343,20 @@ function PdfToImageEditor({
         />
         <InfoTile
           icon={Images}
-          title="Every page"
-          body={`All ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"} are exported as ${label} images.`}
+          title={pageChoice.mode === "all" ? "Every page" : "Chosen pages"}
+          body={
+            pageChoice.mode === "all"
+              ? `All ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"} are exported as ${label} images.`
+              : count > 0
+                ? `${count} of ${pdf.pageCount} pages (${formatPageNumbers(selection.map((i) => i + 1))}) are exported as ${label} images.`
+                : `Type the pages to export, out of ${pdf.pageCount}.`
+          }
         />
         <InfoTile
           icon={FileArchive}
-          title={pdf.pageCount === 1 ? "Single image" : "One ZIP"}
+          title={count === 1 ? "Single image" : "One ZIP"}
           body={
-            pdf.pageCount === 1
+            count === 1
               ? `A single page downloads as one ${label} file.`
               : "Multiple pages are bundled into a single ZIP download."
           }
@@ -245,9 +372,10 @@ function PdfToImageEditor({
             busy={busy}
             busyLabel={`Rendering ${label}…`}
             progress={progress && { ...progress, unit: "pages" }}
+            disabled={count === 0}
           >
             <ImageDown className="size-4" aria-hidden />
-            Render {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"}
+            Render {count} page{count === 1 ? "" : "s"}
           </RunButton>
         </div>
       </RunBar>
@@ -271,6 +399,9 @@ export function ImageResult({
   const label = format.toUpperCase();
   const mime = RASTER_MIME[format];
   const pageCount = result.pages.length;
+  // File names number each page out of the DOCUMENT, so page 5 of a
+  // 12-page PDF is "-page-05" whether or not every page was rendered.
+  const docPages = result.documentPages;
   const { zipping, zipError, downloadZip } = useZipDownload();
 
   // Object URLs for the (capped) preview grid, revoked on change/unmount. URLs
@@ -299,7 +430,7 @@ export function ImageResult({
   const downloadOne = (page: RasterPage) => {
     downloadBytes(
       page.bytes,
-      pageImageName(pdf.file.name, page.index, pageCount, format),
+      pageImageName(pdf.file.name, page.index, docPages, format),
       mime,
     );
   };
@@ -320,7 +451,7 @@ export function ImageResult({
     }
     await downloadZip(
       result.pages.map((page) => ({
-        name: pageImageName(pdf.file.name, page.index, pageCount, format),
+        name: pageImageName(pdf.file.name, page.index, docPages, format),
         bytes: page.bytes,
       })),
       zipOutputName(pdf.file.name, format),
@@ -336,14 +467,14 @@ export function ImageResult({
   return (
     <ResultPanel
       title={`${pageCount} ${label} image${pageCount === 1 ? "" : "s"} ready`}
-      summary={`${result.resolutionLabel} · ${formatBytes(result.totalBytes)}${
+      summary={`${result.resolutionLabel}${result.grayscale ? " · Grayscale" : ""} · ${formatBytes(result.totalBytes)}${
         result.zip ? " · bundled as a ZIP" : ""
       }`}
       onReset={onStartOver}
       output={result.pages.map((page) =>
         outputFile(
           page.bytes,
-          pageImageName(pdf.file.name, page.index, pageCount, format),
+          pageImageName(pdf.file.name, page.index, docPages, format),
           mime,
         ),
       )}

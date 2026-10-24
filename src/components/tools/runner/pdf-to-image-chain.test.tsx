@@ -387,3 +387,118 @@ describe("PDF to PNG at Print — the note and the downloaded pixels agree", () 
     expect(note).toMatch(/^1 of 2 pages are too large for 300 DPI/);
   }, 30_000);
 });
+
+/* ------------------------------------------------------------------ *
+ *  Page selection, through the same chain
+ * ------------------------------------------------------------------ */
+
+describe("PDF to PNG — Select pages renders exactly those pages", () => {
+  /**
+   * Four pages of four different widths, so every delivered PNG names the
+   * page it came from by its pixel width alone — a file holding the wrong
+   * page cannot pass on its name. Rendered at the default (High, 150 DPI).
+   */
+  const WIDTHS = [100, 200, 300, 400] as const;
+  const HIGH = RASTER_RESOLUTIONS.find((r) => r.id === "high")!;
+  const pxFor = (points: number) => Math.floor((points / 72) * HIGH.dpi);
+  // The tests above choose Print, and the runner remembers it (option
+  // memory); these run at the default.
+  beforeEach(() => window.localStorage.clear());
+
+  async function convertPages(range: string | null) {
+    const doc = await PDFDocument.create();
+    for (const w of WIDTHS) doc.addPage([w, 100]);
+    const name = "set.pdf";
+    const file = new File([new Uint8Array(await doc.save())], name, {
+      type: "application/pdf",
+    });
+    const router = {
+      back: () => {},
+      forward: () => {},
+      refresh: () => {},
+      push: () => {},
+      replace: () => {},
+      prefetch: () => {},
+      bfcacheId: "test",
+    };
+    const { container } = render(
+      <AppRouterContext.Provider value={router}>
+        <PdfToImageRunner format="png" />
+      </AppRouterContext.Provider>,
+    );
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(input!, { target: { files: [file] } });
+    await screen.findByRole(
+      "button",
+      { name: /render 4 pages/i },
+      { timeout: 10_000 },
+    );
+    if (range !== null) {
+      fireEvent.click(screen.getByRole("button", { name: "Select pages" }));
+      fireEvent.change(screen.getByPlaceholderText("e.g. 1-3, 5"), {
+        target: { value: range },
+      });
+    }
+    return { name, container };
+  }
+
+  async function renderAndSave(label: RegExp, zip: boolean) {
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    const download = await screen.findByRole(
+      "button",
+      { name: zip ? /download zip/i : /download png/i },
+      { timeout: 20_000 },
+    );
+    fireEvent.click(download);
+    await waitFor(() => expect(downloads).toHaveLength(1));
+    return readBlob(downloads[0]!.blob!);
+  }
+
+  it('"2, 4" of 4: a ZIP of page 2 and page 4, each its own page\'s pixels', async () => {
+    const { name } = await convertPages("2, 4");
+    const saved = await renderAndSave(/render 2 pages/i, true);
+    expect(downloads[0]!.name).toBe(zipOutputName(name, "png"));
+    const zip = await JSZip.loadAsync(saved);
+    expect(Object.keys(zip.files).sort()).toEqual([
+      pageImageName(name, 1, 4, "png"),
+      pageImageName(name, 3, 4, "png"),
+    ]);
+    for (const index of [1, 3]) {
+      const png = await zip
+        .file(pageImageName(name, index, 4, "png"))!
+        .async("uint8array");
+      expect(pngSize(png).width, `page ${index + 1}`).toBe(
+        pxFor(WIDTHS[index]!),
+      );
+    }
+    // Health: exactly two canvases were encoded — the others never rendered.
+    expect(encoded.map((e) => e.width)).toEqual([pxFor(200), pxFor(400)]);
+  }, 30_000);
+
+  it('"3" of 4: one PNG, still named as page 3 of the document', async () => {
+    const { name } = await convertPages("3");
+    const saved = await renderAndSave(/render 1 page/i, false);
+    expect(downloads[0]!.name).toBe("set-page-3.png");
+    expect(downloads[0]!.name).toBe(pageImageName(name, 2, 4, "png"));
+    expect(pngSize(saved).width).toBe(pxFor(300));
+  }, 30_000);
+
+  it("a range the PDF cannot satisfy says why and renders nothing", async () => {
+    await convertPages("2, 9");
+    expect(
+      await screen.findByText(/This PDF has 4 pages — "9" is out of range\./),
+    ).toBeTruthy();
+    const run = screen.getByRole("button", { name: /render 0 pages/i });
+    fireEvent.click(run);
+    expect(encoded).toEqual([]);
+  }, 30_000);
+
+  it("control: All pages renders all four", async () => {
+    await convertPages(null);
+    const saved = await renderAndSave(/render 4 pages/i, true);
+    const zip = await JSZip.loadAsync(saved);
+    expect(Object.keys(zip.files)).toHaveLength(4);
+    expect(encoded.map((e) => e.width)).toEqual(WIDTHS.map(pxFor));
+  }, 30_000);
+});

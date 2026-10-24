@@ -1,5 +1,22 @@
 import type { ToolContent } from "./types";
 import { MAX_IMAGE_MB } from "@/lib/tools/limits";
+import {
+  IMAGE_MARGINS,
+  IMAGE_ORIENTATIONS,
+  IMAGE_PAGE_SIZES,
+} from "@/lib/pdf/image-page-layout";
+import { inches } from "@/lib/pdf/page-geometry";
+
+/** "A, B or C" from the runner's own chip tables. */
+const or = (items: readonly string[]) =>
+  `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+const SIZES = or(IMAGE_PAGE_SIZES.map((s) => s.label));
+const ORIENTATIONS = or(IMAGE_ORIENTATIONS.map((o) => o.label));
+const MARGINS = or(
+  IMAGE_MARGINS.map((m) =>
+    m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label,
+  ),
+);
 
 /**
  * Written against src/lib/pdf/image-to-pdf.ts and
@@ -19,9 +36,17 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
  * "JPG, JPEG, PNG"; until then it said "JPG, JPEG" beside steps and an FAQ
  * saying PNG works (image-to-pdf-accept.test.ts). Only an image whose
  * signature is valid but whose data pdf-lib cannot parse fails at Create PDF
- * ('"x" could not be decoded as a JPG image.'). There are NO page-size,
- * orientation or margin controls; if the runner gains them, this file must
- * change with it.
+ * ('"x" could not be decoded as a JPG image.').
+ *
+ * PAGE SETUP, since 2026-10-24 (src/lib/pdf/image-page-layout.ts): the runner
+ * shows Page size, Orientation, Margin and Output chips, built from the same
+ * tables the lists below are built from. The DEFAULTS are the old fixed
+ * layout — US Letter, portrait, 0.5 in margin, one PDF — so this file said
+ * "no page-size, orientation or margin settings" until then, truthfully.
+ * Every image is still only ever scaled DOWN, on every page size. Orientation
+ * is disabled on Fit to image. "One PDF per image" with a single image still
+ * delivers one PDF; with more than one it is a ZIP of one-page PDFs named
+ * after the images (`imagesToPdfs`).
  *
  * Checked by a real run of `imagesToPdf("jpg", …)` on 2026-09-27: an APP1
  * segment planted in each of three JPEGs appeared three times in the output
@@ -31,10 +56,10 @@ import { MAX_IMAGE_MB } from "@/lib/tools/limits";
  * orientation-6 photo and failed PNG bytes named fake.jpg; both behaviours
  * have since been replaced (above), and the page no longer describes them.
  *
- * NOT DERIVED, and nothing will catch it going stale: "US Letter", "portrait"
- * and "fixed margin" restate PAGE_WIDTH=612, PAGE_HEIGHT=792 and MARGIN=36,
- * which are module-private in image-to-pdf.ts, so this file cannot import
- * them. Export them (or a page-shape fact) and derive these words.
+ * The option lists are derived from the chip tables; the default ("US
+ * Letter", "portrait", "0.5 in") is written out, and
+ * claims-vs-capability.test.ts holds every paper and margin this page names
+ * to the runner's offer and to the page the engine draws.
  *
  * Deliberately NOT described:
  *  - "Start over". The runner passes `clearItems` as the result panel's
@@ -52,7 +77,7 @@ const content: ToolContent = {
   metaDescription: `Combine JPG and JPEG photos into a single PDF, a page per photo, arranged as you like. Built in your browser, not uploaded. Up to ${MAX_IMAGE_MB} MB a photo.`,
   intro: [
     "JPG to PDF takes a batch of JPG or JPEG photos and builds a single PDF with one image on each page. You add the pictures, put them in the order you want, and press Create PDF. The assembly happens inside this browser tab: your photos are read from your device, laid onto pages there, and the finished PDF is saved when you press Download PDF. The images are not uploaded to pdf.xyz.",
-    "Every page comes out the same shape: a white, portrait US Letter page. Each photo is centred inside a fixed margin and shrunk only if it is too big to fit inside that margin. A photo that already fits is never enlarged, so a low-resolution picture can look small in the middle of the page, and a large landscape shot spans the width between the margins with white space above and below it. The tool has no page-size, orientation or margin settings today.",
+    `Unless you change the page setup, each photo goes on a white, portrait US Letter page, centred inside a 0.5 in margin. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page exactly the size of its photo plus the margin. On every page size a photo is shrunk only if it is too big to fit; one that already fits is never enlarged, so a low-resolution picture can look small in the middle of an A4 page.`,
     `The JPEG data is copied into the PDF as it is rather than re-encoded, so there is no second round of compression and the PDF ends up close to the combined size of your photos. A single photo may be as large as ${MAX_IMAGE_MB} MB. PNG images, transparent ones included, can go into the same PDF, and any transparent areas come out white.`,
   ],
   useCases: [
@@ -69,8 +94,12 @@ const content: ToolContent = {
       body: "Visa, rental and claims forms often ask for supporting photos as a single PDF. Because nothing is recompressed, the PDF weighs about as much as the photos together, so if the form caps the upload size, send smaller photos in rather than expecting this step to shrink them.",
     },
     {
-      title: "Photos to print on Letter paper",
-      body: "Each image is scaled to sit inside the page margin and is never cropped, so no photo runs off the edge of a Letter sheet. On a printer loaded with a different paper size, use the print dialog's scale-to-fit setting, whatever that app calls it, so the taller Letter page is shrunk onto the sheet.",
+      title: "Photos to print on A4 or Letter paper",
+      body: "Pick the paper your printer holds under Page size, and Auto orientation for a mix of landscape and portrait shots. Each image is scaled to sit inside the margin and is never cropped, so no photo runs off the edge of the sheet.",
+    },
+    {
+      title: "One PDF for every photo",
+      body: "Some upload forms want each document as its own file. Choose One PDF per image (ZIP) under Output and, with more than one photo, you get a ZIP holding a one-page PDF for each, named after the photo.",
     },
   ],
   steps: [
@@ -83,12 +112,16 @@ const content: ToolContent = {
       body: "Under Image order, each thumbnail is labelled with the page it will become. The Move up and Move down arrows shift a photo one place, Remove takes it out, and Clear below the list empties it.",
     },
     {
+      title: "Choose the page setup",
+      body: "Below the list, Page size, Orientation and Margin set how each page is laid out, and Output chooses One PDF or One PDF per image, which with more than one image arrives as a ZIP. Left alone they give the usual layout: US Letter, portrait, a 0.5 in margin, one PDF. Orientation does not apply to Fit to image, whose pages already take each photo's shape.",
+    },
+    {
       title: "Press Create PDF",
       body: 'The button changes to Creating PDF… while the pages are built on your device. Each file\'s contents were already checked when you added it, so a PNG saved with a .jpg name simply goes in as a PNG. A file whose image data cannot be read stops the run with a message naming it, such as "photo.jpg" could not be decoded as a JPG image.',
     },
     {
       title: "Download the PDF",
-      body: "When JPG PDF created appears with the image count and file size, press Download PDF. The file takes its name from your first image, so holiday.jpg becomes holiday-pdf.pdf.",
+      body: "When JPG PDF created appears with the image count and file size, press Download PDF. The file takes its name from your first image, so holiday.jpg becomes holiday-pdf.pdf. With One PDF per image and more than one photo, the panel offers Download ZIP instead: one PDF per photo, holiday.jpg becoming holiday.pdf, in a ZIP named holiday-pdfs.zip.",
     },
   ],
   faqs: [
@@ -107,6 +140,10 @@ const content: ToolContent = {
     {
       q: "Can I add PNG, HEIC or WebP images?",
       a: 'PNG, yes. PNG and JPG files can go into the same PDF here, each on its own page, and any transparent areas of a PNG come out white. HEIC and WebP are not supported, so convert those pictures to JPG first. A .heic or .webp file is turned away when you add it with "Choose PNG or JPG images." One saved under a .jpg or .png name is caught by its contents, with a note naming its real format.',
+    },
+    {
+      q: "Can I make A4 or landscape pages?",
+      a: `Yes. Page size offers ${SIZES}; Orientation offers ${ORIENTATIONS}, where Auto makes the page landscape for a wide photo and portrait otherwise; Margin offers ${MARGINS}. If you change nothing, every page is US Letter, portrait, with a 0.5 in margin. Photos are never enlarged to fill a bigger page.`,
     },
     {
       q: "How many images can I combine into one PDF?",

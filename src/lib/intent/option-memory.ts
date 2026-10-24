@@ -89,6 +89,8 @@ export const OPTION_SCHEMAS = {
   },
   "pdf-to-image": {
     resolution: oneOf(["screen", "high", "print"] as const),
+    // Colour or grayscale; the page range is typed text and is never kept.
+    color: oneOf(["color", "gray"] as const),
   },
 } as const satisfies Readonly<Record<string, Schema>>;
 

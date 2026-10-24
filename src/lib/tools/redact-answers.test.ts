@@ -61,15 +61,29 @@ const FILTER_NAME: Record<string, string> = {
 };
 
 /**
- * Compile-time: `rasterizePdf` renders every page because it cannot be told to
- * skip one. If a page-subset option is ever added, this stops compiling and
- * the "every page" sentences must be re-checked against how redact calls it.
+ * WAS a compile-time tripwire: `rasterizePdf` rendered every page because it
+ * could not be told to skip one, and a `NoPageSubset` type stopped compiling
+ * the day a page-subset option arrived. It fired on 2026-10-24, when PDF to
+ * JPG/PNG gained page selection (`RasterizeOptions.pages`), and the "every
+ * page" sentences were re-checked against how redact calls it: redact passes
+ * no `pages`, so every page still comes back.
+ *
+ * So the check now pins THAT — the property, at redact's own call site —
+ * rather than the option's absence: the options object redact hands the
+ * rasterizer must not name `pages`. `pagesOptionPassed` is the predicate,
+ * with a positive control in the test below.
  */
-type NoPageSubset = Extract<
-  keyof RasterizeOptions,
-  "pages" | "pageIndices" | "pageNumbers" | "only"
->;
-const noPageSubset: [NoPageSubset] extends [never] ? true : false = true;
+type HasPageSubset = Extract<keyof RasterizeOptions, "pages">;
+const pageSubsetExists: [HasPageSubset] extends [never] ? false : true = true;
+
+function rasterizeCallOptions(source: string): string | null {
+  return (
+    /\brasterize\(\s*bytes,\s*\{([\s\S]*?)\n\s*\}\);/.exec(source)?.[1] ?? null
+  );
+}
+function pagesOptionPassed(options: string): boolean {
+  return /(?:^|[\s,{])(?:pages\s*[:,]|\.\.\.)/.test(withoutComments(options));
+}
 
 let pages: Map<string, RenderedToolPage>;
 let output: PDFDocument;
@@ -164,7 +178,22 @@ describe("the detectors can see what the answers say is gone (positive control)"
     expect(parts.perPage[0]!.annots).toBe(true);
     expect(parts.form).toBe(true);
     expect(parts.outline).toBe(true);
-    expect(noPageSubset).toBe(true);
+    expect(pageSubsetExists).toBe(true);
+  });
+
+  it("redact asks the rasterizer for every page: it passes no page subset", () => {
+    const options = rasterizeCallOptions(
+      readFileSync("src/lib/pdf/redact.ts", "utf8"),
+    );
+    // Health: the call site was found, and it is the one with the paint hook.
+    expect(options, "redact's rasterize(bytes, {…}) call").not.toBeNull();
+    expect(options).toMatch(/onCanvas/);
+    expect(pagesOptionPassed(options!)).toBe(false);
+    // Positive controls: the predicate sees a subset, or a spread that could
+    // carry one.
+    expect(pagesOptionPassed(`${options}\n    pages: [0],`)).toBe(true);
+    expect(pagesOptionPassed(`${options}\n    pages,`)).toBe(true);
+    expect(pagesOptionPassed(`    ...opts,${options}`)).toBe(true);
   });
 });
 
