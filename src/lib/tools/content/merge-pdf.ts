@@ -64,8 +64,8 @@ const content: ToolContent = {
     "Combine two or more PDFs into one file in the order you choose. Drag rows or use the arrow buttons, then merge in your browser. Your files are not uploaded.",
 
   intro: [
-    "Merge PDF joins whole documents end to end: every page of the first file in your list, then every page of the next, down to the bottom. Each row gives the file's page count and size next to a thumbnail of its first page (a plain file icon stands in if that page can't be drawn), and a running total of files and pages heads the list, so you know how long the result will be before you merge. It all happens online in your browser: the PDFs you add are read on your device, not uploaded to pdf.xyz.",
-    "Pages are copied with their content, dimensions and rotation intact, so a landscape spreadsheet printout stays landscape next to portrait letters, and links to web addresses on a page still point where they did. Each file's bookmarks follow one another in the merged bookmarks panel, and form fields stay fillable with what was typed in them; when two files use the same field name, the later one is renamed so their answers stay separate. The title and author, page labels and language each describe one file, so none of them is copied into the merged PDF.",
+    "Merge PDF joins documents end to end: the pages of the first file in your list, then the pages of the next, down to the bottom. By default every page of every file goes in; type a range such as 1-3, 5 in a file's Pages box to take only those pages, which keep their own order. Each row gives the file's page count and size next to a thumbnail of its first page (a plain file icon stands in if that page can't be drawn), and a running total of files and pages heads the list, so you know how long the result will be before you merge. It all happens online in your browser: the PDFs you add are read on your device, not uploaded to pdf.xyz.",
+    "Pages are copied with their content, dimensions and rotation intact, so a landscape spreadsheet printout stays landscape next to portrait letters, and links to web addresses on a page still point where they did. Each file's bookmarks follow one another in the merged bookmarks panel (a bookmark to a page you left out is dropped), and ticking “Add a bookmark for each file” also writes one bookmark per file, named after it and opening its first page, with that file's own bookmarks beneath it. Form fields stay fillable with what was typed in them; when two files use the same field name, the later one is renamed so their answers stay separate. The title and author, page labels and language each describe one file, so none of them is copied into the merged PDF.",
     `Each file can be up to ${maxMb} MB, and the merge button stays disabled until at least two files are in the list. The tool sets no count limit of its own, but every file you add is held in your browser's memory until you remove its row, press “Start over” or leave the page, so the practical ceiling is your device's memory. If one file in a batch is password-protected, only that file is refused, by name, and the others remain in the list.`,
   ],
 
@@ -95,7 +95,11 @@ const content: ToolContent = {
     },
     {
       title: "Put them in order",
-      body: "Drag a row, or press its up and down arrow buttons, which also work from the keyboard. The top row supplies the opening pages; the X button removes a file.",
+      body: "Drag a row, or press its up and down arrow buttons, which also work from the keyboard, or sort the whole list by Name A–Z, Name Z–A or As added. The top row supplies the opening pages; the X button removes a file.",
+    },
+    {
+      title: "Pick pages and bookmarks (optional)",
+      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result.",
     },
     {
       title: "Add anything you missed",
@@ -118,7 +122,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I merge only some pages of a file, or reorder single pages?",
-      a: "Merge works with whole files. To take part of a document, cut it down first with Extract Pages or Delete Pages, then merge the result. To rearrange, rotate, duplicate or delete individual pages after merging, open the combined file in Organize Pages.",
+      a: "Yes to the first: type the pages you want in that file's Pages box, such as 1-3, 5 or 10-, and only those are merged; an empty box takes every page, and the page total above the list counts your selection. The chosen pages keep the file's own order, so typing 5, 1 still gives page 1 before page 5. To rearrange, rotate, duplicate or delete individual pages after merging, open the combined file in Organize Pages.",
     },
     {
       q: "Will merging change the quality or size of my pages?",

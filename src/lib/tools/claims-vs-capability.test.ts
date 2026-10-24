@@ -32,6 +32,9 @@
  *                       text box per slide, no pictures.
  *   merge-pdf           "Drag pages or files into the order you want." — the
  *                       engine takes whole files, and so does the runner.
+ *                       (Since 2026-10-24 a file may give only SOME of its
+ *                       pages, but always in its own order: the probe asks
+ *                       for a reversed selection and reads the order back.)
  *   word-to-pdf         "DOCX and DOC into pixel-perfect PDF." / "…while
  *                       preserving layout, fonts, and formatting." — LibreOffice
  *                       lays it out, and the worker image installs no
@@ -1029,11 +1032,21 @@ const RULES: readonly ClaimRule[] = [
         await mergePdfs([await make([101, 102]), await make([201, 202])]),
       );
       const order = merged.getPages().map((p) => p.getSize().width);
+      // Per-file page selection, asked for pages in REVERSE: a selection
+      // picks pages, so the file's own order must come back.
+      const picked = await PDFDocument.load(
+        await mergePdfs([await make([101, 102]), await make([201, 202])], {
+          pages: [[1, 0], [1]],
+        }),
+      );
+      const pickedOrder = picked.getPages().map((p) => p.getSize().width);
       const wholeFiles =
-        mergePdfs.length === 1 && order.join() === "101,102,201,202";
+        mergePdfs.length === 1 &&
+        order.join() === "101,102,201,202" &&
+        pickedOrder.join() === "101,102,202";
       return {
         present: !wholeFiles,
-        evidence: `mergePdfs takes ${mergePdfs.length} argument(s); merged page order ${order.join(",")}`,
+        evidence: `mergePdfs takes ${mergePdfs.length} required argument(s); merged page order ${order.join(",")}; reversed selection gave ${pickedOrder.join(",")}`,
       };
     },
   },

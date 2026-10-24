@@ -127,9 +127,17 @@ export interface AssembleOptions {
    *   file, and are not carried. Measured at d4b37dd, a merge carried no form
    *   and no bookmarks at all: the widgets stayed on the page with no
    *   `/AcroForm` behind them, so the fields looked filled and could not be
-   *   filled.
+   *   filled. A merge source may also give only SOME of its pages (Merge
+   *   PDF's per-file page selection): a bookmark or field on a page it left
+   *   out is handled exactly as in a subset.
    */
   documentState: "subset" | "merge";
+  /**
+   * Merge only: one title per source. Each source's pages then get ONE
+   * top-level bookmark with that title, opening the source's first output
+   * page, and the source's own bookmarks are written beneath it.
+   */
+  fileBookmarks?: readonly string[];
 }
 
 const MAX_FIELD_DEPTH = 64;
@@ -214,7 +222,18 @@ export async function assemblePages(
     if (options.documentState === "subset") {
       structure = () =>
         carryDocumentStructure(lib, src, out, copiedIndices, resolve, map);
-    } else outlines.push({ src, resolve, map });
+    } else {
+      const title = options.fileBookmarks?.[outlines.length];
+      const first = copiedRefs[0];
+      outlines.push({
+        src,
+        resolve,
+        map,
+        ...(title !== undefined && first
+          ? { wrap: { title, page: first } }
+          : {}),
+      });
+    }
   }
   structure?.();
   if (options.documentState === "merge") {

@@ -1657,7 +1657,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "compress-pdf":
     "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-worker step this tool offers is a server path and is covered by worker:prove-tools, not here.",
   "split-pdf":
-    "Only the default even split into two ranges. Custom ranges, per-page splitting and the single-output (no ZIP) branch are not exercised.",
+    "This case proves only the default even split into two ranges. e2e/merge-tool.spec.ts adds By bookmarks, By file size (every part under the target) and custom ranges merged into one file (the single-output, no-ZIP branch), each read from the downloaded bytes. Every N pages, Each page, and By file size's oversized-single-page notice are not exercised in a browser; that notice's engine half is pinned in src/lib/pdf/merge-split-options.test.ts.",
   "organize-pages":
     "Only the Reverse bulk action. Drag reordering, duplication and per-page rotation inside the organizer are not exercised.",
   "pdf-to-jpg":
