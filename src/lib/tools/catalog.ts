@@ -742,12 +742,13 @@ export const tools: Tool[] = [
     slug: "watermark-pdf",
     name: "Add Watermark",
     seoTitle: "Add a Watermark to a PDF",
-    tagline: "Stamp a text watermark on every page.",
+    tagline: "Stamp a text or image watermark on your pages.",
     description:
-      // Text only, drawn once per page (pdf/watermark.ts): no image input, no
-      // tiling. claims-vs-capability.test.ts reads WatermarkOptions and goes
-      // red the day an image or tile option lands, so the copy moves with it.
-      "Stamp a text watermark on every page of a PDF in your browser — set the text, opacity, angle, size and color. The file never leaves your device.",
+      // Text or a PNG/JPEG, in any of nine cells or tiled, on all or listed
+      // pages (pdf/watermark.ts). Until 2026-10-24 this said text only, and
+      // claims-vs-capability.test.ts held "image" and "tiled" off the page
+      // while WatermarkOptions had neither; that rule now checks the output.
+      "Stamp a text or image watermark on a PDF in your browser: place it anywhere or tile it, on the pages you pick, with opacity, angle, font and color. No upload.",
     category: "edit",
     icon: "watermark",
     processing: "client",

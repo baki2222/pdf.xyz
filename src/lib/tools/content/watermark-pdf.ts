@@ -1,7 +1,12 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { FONT_PACKS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
-import { WATERMARK_FIT } from "@/lib/pdf/watermark";
+import { TILE_FIT, WATERMARK_FIT } from "@/lib/pdf/watermark";
+import {
+  STAMP_FONT_FAMILIES,
+  STAMP_FONT_LABELS,
+  STAMP_POSITIONS,
+} from "@/lib/pdf/stamp";
 
 /**
  * The watermark runner's input gate: `SinglePdfRunner` → `useSinglePdf` →
@@ -13,6 +18,9 @@ const CEILING_MB = Math.round(RUNNER_FILE_CEILINGS.watermark / (1024 * 1024));
 
 /** How much of the visible page a shrunk mark may span, from the engine. */
 const WATERMARK_FIT_PERCENT = Math.round(WATERMARK_FIT * 100);
+
+/** How much of the page one tiled copy may span, from the engine. */
+const TILE_FIT_PERCENT = Math.round(TILE_FIT * 100);
 
 const listFormat = new Intl.ListFormat("en", { type: "conjunction" });
 
@@ -92,18 +100,44 @@ const NO_FACE_EXAMPLE =
  * watermark-runner.tsx with no exported constant, so this copy names the
  * controls and does not state their ranges.
  */
+
+/*
+ * 2026-10-24 (feat/stamp-options): the "no page picker, no position control,
+ * no image input, no tiling" line above is SUPERSEDED, history kept.
+ * `watermarkPdf` now takes `position` (the nine STAMP_POSITIONS cells, or
+ * "tile"), `pages` (parsed by `parsePageList`, the parser Extract and Remove
+ * pages use), `font` (Helvetica, Times or Courier for Western text), `layer`
+ * ("behind" moves the mark's content stream in front of the page's own), and
+ * `image` (PNG or JPEG, `scale` = width as a share of the visible page
+ * width). Each was checked on the saved bytes by `stamp-options.test.ts`:
+ * an image XObject in each of the nine cells, including on a /Rotate 90
+ * page; more than one tile, each wholly inside the visible box; only the
+ * listed pages stamped; the asked-for ink and BaseFont; and, behind, the mark
+ * painted before a full-page opaque rectangle — which is why the copy says
+ * opaque content hides it. A non-Western mark is still drawn from a
+ * downloaded font in its regular weight whatever Font says: the bold faces
+ * have no Unicode cut, and the watermark always asks for bold.
+ */
+const POSITION_COUNT = STAMP_POSITIONS.length;
+const FONT_NAMES = listFormat.format(
+  STAMP_FONT_FAMILIES.map((family) => STAMP_FONT_LABELS[family]),
+);
+const FONT_NAMES_OR = new Intl.ListFormat("en", { type: "disjunction" }).format(
+  STAMP_FONT_FAMILIES.map((family) => STAMP_FONT_LABELS[family]),
+);
+
 const content: ToolContent = {
   slug: "watermark-pdf",
 
-  seoTitle: "Watermark PDF — Add Text Watermark, No Upload",
+  seoTitle: "Watermark PDF — Text or Logo, No Upload",
 
   metaDescription:
-    "Stamp CONFIDENTIAL, DRAFT or your own words diagonally across every PDF page, with opacity, angle, size and color controls. Your PDF stays in your browser.",
+    "Stamp CONFIDENTIAL, DRAFT or your logo on PDF pages: any position or tiled, chosen pages, opacity, angle, font and color. Your PDF stays in your browser.",
 
   intro: [
-    `Add Watermark writes one line of text diagonally across the middle of every page of a PDF: CONFIDENTIAL, DRAFT, SAMPLE or a recipient's name. The Text field starts with CONFIDENTIAL typed in, and four controls shape the mark: Opacity, Rotation and Max font size sliders, plus a Gray, Red or Blue color. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands in the middle of its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
-    `Your browser does the stamping, using pdf-lib, and the PDF never leaves the tab. Western European text, accents like é and ü included, is set in a font built into the PDF format. Letters outside that set, such as a Polish Ł, and ${EXTRA_SCRIPTS} text first make the page download the matching Noto typeface, served by pdf.xyz: the font travels to you, the document stays put. ${RTL_REFUSED} stop the run with an error that lists the characters, rather than being stamped with the letters in reverse order. The page takes a single PDF of up to ${CEILING_MB} MB at a time, and a password-protected one has to go through Unlock PDF before it will open here.`,
-    `The mark is real text drawn over each page's content. Page order and rotation, the title and author, and fillable form fields with their typed values all come through, and the fields stay editable; a field's own box is drawn above the page, so a filled one can cover part of the mark. The saved copy names pdf.xyz as its producer and creator, and because the saved file is rebuilt around new page content, a digital signature on the original stops validating in the watermarked copy.`,
+    `Add Watermark stamps a line of text or a picture on the pages of a PDF: CONFIDENTIAL, DRAFT, a recipient's name, or your logo as a PNG or JPEG. The Text field starts with CONFIDENTIAL typed in, and switching the Watermark type to Image takes a picture instead. Opacity, Rotation and Max font size sliders shape a text mark, which can be set in ${FONT_NAMES} and in Gray, Red, Blue or a Custom color; for a picture, the Image size slider replaces Max font size. By default the mark sits diagonally in the middle of every page. The position grid moves it to any of ${POSITION_COUNT} spots, Tile across the page repeats it in rows, and Pages and layer picks which pages get it and whether it goes over or behind the page's content. Each page is measured on its own, so in a document mixing portrait and landscape sheets every mark lands where it should on its page, and on pages saved with a rotation flag the angle is corrected so the diagonal leans the same way as on upright pages.`,
+    `Your browser does the stamping, using pdf-lib, and the PDF and the picture never leave the tab. Western European text, accents like é and ü included, is set in the font you pick, one built into the PDF format. Letters outside that set, such as a Polish Ł, and ${EXTRA_SCRIPTS} text first make the page download the matching Noto typeface, served by pdf.xyz: the font travels to you, the document stays put. ${RTL_REFUSED} stop the run with an error that lists the characters, rather than being stamped with the letters in reverse order. The page takes a single PDF of up to ${CEILING_MB} MB at a time, and a password-protected one has to go through Unlock PDF before it will open here.`,
+    `The mark is real text, or an embedded picture, drawn into each page's content: over it by default, or under it with Behind content, where anything opaque on the page covers it. Page order and rotation, the title and author, and fillable form fields with their typed values all come through, and the fields stay editable; a field's own box is drawn above the page, so a filled one can cover part of the mark. The saved copy names pdf.xyz as its producer and creator, and because the saved file is rebuilt around new page content, a digital signature on the original stops validating in the watermarked copy.`,
   ],
 
   useCases: [
@@ -116,8 +150,12 @@ const content: ToolContent = {
       body: 'Typing a line such as "Prepared for Northwind — do not forward" on every page tells the reader who the copy was meant for and makes a forwarded copy obvious at a glance.',
     },
     {
+      title: "Brand a report with your logo",
+      body: "Drop your logo as a PNG, set it small in the bottom-right corner at low opacity, and every page carries it without covering the text.",
+    },
+    {
       title: "Share a readable sample",
-      body: "A course pack, report or design portfolio can go out marked SAMPLE at low opacity: prospective buyers can read every page, but a clean copy is not what they receive.",
+      body: "A course pack, report or design portfolio can go out marked SAMPLE at low opacity, tiled across each page: prospective buyers can read every page, but a clean copy is not what they receive.",
     },
     {
       title: "Label HR and finance paperwork without handing it over",
@@ -131,12 +169,16 @@ const content: ToolContent = {
       body: 'Drag one PDF onto the dashed box that says "Drop your PDF here, or browse"; clicking its browse link opens a file picker instead. When it has been read, the file name, page count and file size appear in a bar above the Watermark section.',
     },
     {
-      title: "Type the watermark text",
-      body: "In the Watermark section, replace CONFIDENTIAL in the Text field with your own wording. Add watermark cannot be pressed while that field is empty or holds only spaces.",
+      title: "Type the text or pick a picture",
+      body: "In the Watermark section, replace CONFIDENTIAL in the Text field with your own wording, or switch to Image and drop a PNG or JPEG. Add watermark cannot be pressed while the text is empty or holds only spaces, or while no picture is chosen.",
     },
     {
       title: "Set the appearance",
-      body: "Under Appearance, drag Opacity for how faint the mark is, Rotation for its angle (positive runs uphill from lower left, negative runs downhill, zero lies flat) and Max font size in points, the largest size used (a page too small for it gets the largest size that fits), then pick Gray, Red or Blue.",
+      body: `Under Appearance, drag Opacity for how faint the mark is, Rotation for its angle (positive runs uphill from lower left, negative runs downhill, zero lies flat) and Max font size in points, the largest size used (a page too small for it gets the largest size that fits). A picture has Image size instead: its width as a share of the page width, also shrunk where it would not fit. For text, pick ${FONT_NAMES_OR}, and Gray, Red, Blue or Custom for any color.`,
+    },
+    {
+      title: "Place it",
+      body: `Under Placement, click one of the ${POSITION_COUNT} cells, or tick Tile across the page to repeat the mark in rows; only copies that fit whole on the page are drawn, so a smaller size gives more of them. Pages and layer opens two more choices: Selected pages takes a list such as 1-3, 5, and Behind content draws the mark under the page's content instead of over it.`,
     },
     {
       title: "Stamp and download",
@@ -147,19 +189,23 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can I watermark only some pages, or move the mark off-center?",
-      a: "No. The text goes on every page, centered, and the only placement control is the angle. For wording along the top or bottom edge, Header & Footer does that; to mark only part of a document, split that part off, watermark it and merge the pieces back.",
+      a: "Yes. Open Pages and layer, choose Selected pages and type them as 1-3, 5, or 4- for page 4 to the end; the other pages are left as they were. The position grid puts the mark in a corner, along an edge or in the middle, and Tile across the page repeats it over the whole page. For a line of text along the top or bottom edge, Header & Footer is made for that.",
+    },
+    {
+      q: "What does Behind content do?",
+      a: "It draws the mark before the page's own text and pictures, so they sit on top of it and stay fully readable. Anything opaque hides it, though: on a scanned page, which is one picture covering the sheet, or a page with a filled background, the mark disappears. There, keep Over content and lower the Opacity instead.",
     },
     {
       q: "Can someone remove the watermark?",
-      a: "Not by switching it off: it is written into the page content, not added as a layer or a comment, so a viewer's toggle cannot hide it. But the words are selectable text, and an editor that edits page content can delete them: treat a watermark as a label and a deterrent, not protection.",
+      a: "Not by switching it off: it is written into the page content, not added as an optional layer or a comment, so a viewer's toggle cannot hide it. But a text mark is selectable text, and an editor that edits page content can delete it or a picture: treat a watermark as a label and a deterrent, not protection.",
     },
     {
       q: "Which languages can the watermark text be in?",
-      a: `Plain Western European text, extended Latin, plus ${EXTRA_SCRIPTS}. Anything beyond plain Western text is drawn from a downloaded Noto font in its regular weight, so it is not bold like a Western mark. ${RTL_REFUSED} are refused because lines are set left to right. ${NO_FACE_EXAMPLE} and other scripts with no shipped font are refused too, and one line cannot mix two downloaded faces, such as Bengali with Chinese.`,
+      a: `Plain Western European text, extended Latin, plus ${EXTRA_SCRIPTS}. The Font choice applies to plain Western text; anything beyond it is drawn from a downloaded Noto font in its regular weight, so it is not bold like a Western mark. ${RTL_REFUSED} are refused because lines are set left to right. ${NO_FACE_EXAMPLE} and other scripts with no shipped font are refused too, and one line cannot mix two downloaded faces, such as Bengali with Chinese.`,
     },
     {
       q: "Why is my watermark smaller than I set, or cut off?",
-      a: `It should not be cut off or off-center. Max font size is an upper limit: on a page too small for the text at that size, the mark is drawn at the largest size whose tilted text spans no more than ${WATERMARK_FIT_PERCENT}% of the visible page, and it is centered on the part of the page a reader sees, including a page trimmed with Crop PDF. The result panel says on how many pages it was shrunk. For a larger mark, shorten the text. There is no preview: to try other settings, press Back to adjust after a run, and the options come back as you left them with the same file still loaded.`,
+      a: `It should not be cut off. Max font size and Image size are upper limits: on a page too small for the mark at that size, it is drawn at the largest size whose tilted outline spans no more than ${WATERMARK_FIT_PERCENT}% of the visible page, and it is placed on the part of the page a reader sees, including a page trimmed with Crop PDF. Tiled, each copy is held to ${TILE_FIT_PERCENT}% of the page instead, so the rows have room to repeat. The result panel says on how many pages it was shrunk. For a larger text mark, shorten the text. There is no preview: to try other settings, press Back to adjust after a run, and the options come back as you left them with the same file still loaded.`,
     },
   ],
 

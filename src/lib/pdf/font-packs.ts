@@ -47,7 +47,14 @@ export type FontPackId =
  * face; anything else is routed to a shipped pack by {@link packsForFace}.
  */
 export type StandardFace =
-  "sans" | "sans-bold" | "sans-oblique" | "mono" | "serif-italic";
+  | "sans"
+  | "sans-bold"
+  | "sans-oblique"
+  | "serif"
+  | "serif-bold"
+  | "mono"
+  | "mono-bold"
+  | "serif-italic";
 
 /** A closed, inclusive Unicode code-point range. */
 export type CodePointRange = readonly [number, number];

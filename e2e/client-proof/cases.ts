@@ -18,6 +18,8 @@ import {
   resolutionById,
 } from "../../src/lib/pdf/pdf-to-image";
 import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
+import { addWatermark } from "../../src/lib/pdf/watermark";
+import { addPageNumbers } from "../../src/lib/pdf/page-numbers";
 import { fileInput, waitForHydration } from "../helpers";
 import {
   collapsedStructuredProse,
@@ -919,6 +921,16 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "paged.pdf", { pages: 3 });
+      // A non-default option, driven through the disclosure the page shows:
+      // the cover is counted but not stamped. Until 2026-10-24 this case ran
+      // the defaults only, so an option the runner dropped on the way to the
+      // engine could not turn it red.
+      await ctx.page
+        .getByRole("button", { name: /pages, font and color/i })
+        .click();
+      await ctx.page
+        .getByRole("checkbox", { name: /leave the cover unnumbered/i })
+        .check();
       return runAndDownload(
         ctx,
         /add page numbers/i,
@@ -928,10 +940,21 @@ export const CASES: Record<string, ToolCase> = {
     },
     assert: async (buf) => {
       const texts = await pdfPageTexts(buf);
-      expect(texts[0]).toContain("Page 1 of 3");
+      expect(texts.length).toBe(3);
+      expect(normalizeText(texts[0]!), "the cover is unnumbered").not.toMatch(
+        /Page \d+ of/,
+      );
+      expect(texts[1]).toContain("Page 2 of 3");
       expect(texts[2]).toContain("Page 3 of 3");
     },
-    control: async (ctx) => input(ctx, "paged.pdf"),
+    // The input (no numbers at all), and the DEFAULT run — numbered from the
+    // cover — which differs from the right artifact only in the option this
+    // case drives.
+    control: async (ctx) => [
+      input(ctx, "paged.pdf"),
+      Buffer.from(await addPageNumbers(input(ctx, "paged.pdf"))),
+    ],
+    rejectsBecause: ["Page 2 of 3", "the cover is unnumbered"],
   },
 
   "watermark-pdf": {
@@ -951,8 +974,17 @@ export const CASES: Record<string, ToolCase> = {
       // every pdf-lib page size through pdfjs). LETTER stays so this proof
       // exercises the unshrunk, full-size path; asserting a truncated string
       // would still pin the wrong behaviour.
-      await uploadTextPdf(ctx, "stamped.pdf", { pages: 2, size: LETTER });
+      await uploadTextPdf(ctx, "stamped.pdf", { pages: 3, size: LETTER });
       // Default watermark text is CONFIDENTIAL; the fixture never contains it.
+      // Two non-default options (2026-10-24): Tile, and Selected pages 2-3,
+      // so page 1 must come back clean and pages 2-3 must carry several
+      // whole copies.
+      await ctx.page
+        .getByRole("checkbox", { name: /tile across the page/i })
+        .check();
+      await ctx.page.getByRole("button", { name: /pages and layer/i }).click();
+      await ctx.page.getByRole("radio", { name: /selected pages/i }).click();
+      await ctx.page.getByLabel(/^pages \(1–3\)/i).fill("2-3");
       return runAndDownload(
         ctx,
         /add watermark/i,
@@ -962,17 +994,41 @@ export const CASES: Record<string, ToolCase> = {
     },
     assert: async (buf) => {
       const texts = await pdfPageTexts(buf);
-      expect(texts.length).toBe(2);
-      // Every page, whole word — a watermark that lands on page 1 only is the
-      // likeliest way for this engine to be wrong.
+      expect(texts.length).toBe(3);
+      const copies = (text: string) =>
+        normalizeText(text).split("CONFIDENTIAL").length - 1;
+      expect(copies(texts[0]!), "page 1 was not listed").toBe(0);
+      // Listed pages, whole word, more than once — a tile that collapsed to
+      // the single centred mark, or a list that stamped page 2 only, fails.
+      for (const index of [1, 2]) {
+        expect(
+          copies(texts[index]!),
+          `tiled on page ${index + 1}`,
+        ).toBeGreaterThan(1);
+      }
       for (const [index, text] of texts.entries()) {
-        expect(normalizeText(text), `page ${index + 1}`).toContain(
-          "CONFIDENTIAL",
-        );
         expect(normalizeText(text)).toContain(marker("stamped.pdf", index + 1));
       }
     },
-    control: async (ctx) => input(ctx, "stamped.pdf"),
+    // The input (no mark), the default run (every page, one copy each), and
+    // a tiled run on every page: each differs from the right artifact in one
+    // of the two options this case drives.
+    control: async (ctx) => [
+      input(ctx, "stamped.pdf"),
+      Buffer.from(
+        await addWatermark(input(ctx, "stamped.pdf"), "CONFIDENTIAL"),
+      ),
+      Buffer.from(
+        await addWatermark(input(ctx, "stamped.pdf"), "CONFIDENTIAL", {
+          position: "tile",
+        }),
+      ),
+    ],
+    rejectsBecause: [
+      "tiled on page 2",
+      "page 1 was not listed",
+      "page 1 was not listed",
+    ],
   },
 
   "header-footer": {
