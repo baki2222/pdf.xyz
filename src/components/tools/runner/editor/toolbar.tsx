@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Circle,
   Eraser,
@@ -22,59 +22,63 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
+import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
 import type { Tool } from "./editor-state";
 
-/** Every tool's button: its accessible name, its key, its icon. */
-export const TOOL_BUTTONS: {
+/**
+ * The editor's toolbar: every tool is an icon AND its name — a bar of bare
+ * icons read as "developer style" to the owner (2026-10-24) — grouped the
+ * way a person thinks about the job: Add (text, a picture, a signature),
+ * Shapes, Mark up. On a phone each name sits under its icon and the strip
+ * scrolls sideways, with a fade at the edge that has more.
+ */
+
+export interface ToolButtonSpec {
   tool: Tool;
   label: string;
   key: string;
   icon: typeof Type;
-  group: "main" | "shape";
-}[] = [
-  {
-    tool: "select",
-    label: "Select",
-    key: "V",
-    icon: MousePointer2,
-    group: "main",
-  },
-  { tool: "text", label: "Text", key: "T", icon: Type, group: "main" },
-  { tool: "image", label: "Image", key: "I", icon: ImagePlus, group: "main" },
-  {
-    tool: "signature",
-    label: "Sign",
-    key: "S",
-    icon: Signature,
-    group: "main",
-  },
-  { tool: "rect", label: "Rectangle", key: "R", icon: Square, group: "shape" },
-  { tool: "ellipse", label: "Ellipse", key: "E", icon: Circle, group: "shape" },
-  { tool: "line", label: "Line", key: "L", icon: Minus, group: "shape" },
-  {
-    tool: "arrow",
-    label: "Arrow",
-    key: "A",
-    icon: MoveUpRight,
-    group: "shape",
-  },
-  {
-    tool: "whiteout",
-    label: "Whiteout",
-    key: "W",
-    icon: Eraser,
-    group: "main",
-  },
-  {
+}
+
+const SPEC: Record<Tool, ToolButtonSpec> = {
+  select: { tool: "select", label: "Select", key: "V", icon: MousePointer2 },
+  text: { tool: "text", label: "Text", key: "T", icon: Type },
+  image: { tool: "image", label: "Image", key: "I", icon: ImagePlus },
+  signature: { tool: "signature", label: "Sign", key: "S", icon: Signature },
+  rect: { tool: "rect", label: "Rectangle", key: "R", icon: Square },
+  ellipse: { tool: "ellipse", label: "Ellipse", key: "E", icon: Circle },
+  line: { tool: "line", label: "Line", key: "L", icon: Minus },
+  arrow: { tool: "arrow", label: "Arrow", key: "A", icon: MoveUpRight },
+  whiteout: { tool: "whiteout", label: "Whiteout", key: "W", icon: Eraser },
+  highlight: {
     tool: "highlight",
     label: "Highlight",
     key: "H",
     icon: Highlighter,
-    group: "main",
   },
-  { tool: "ink", label: "Draw", key: "D", icon: Pencil, group: "main" },
-  { tool: "note", label: "Note", key: "N", icon: StickyNote, group: "main" },
+  ink: { tool: "ink", label: "Draw", key: "D", icon: Pencil },
+  note: { tool: "note", label: "Note", key: "N", icon: StickyNote },
+};
+
+/** The Mark-up group is the offered-kinds list Annotate PDF's page counts. */
+const MARKUP_TOOL: Record<(typeof MARKUP_KINDS)[number], Tool> = {
+  whiteout: "whiteout",
+  highlight: "highlight",
+  ink: "ink",
+  note: "note",
+} satisfies Partial<Record<EditorKind, Tool>>;
+
+export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
+  { name: "Select", tools: ["select"] },
+  { name: "Add", tools: ["text", "image", "signature"] },
+  { name: "Shapes", tools: ["rect", "ellipse", "line", "arrow"] },
+  { name: "Mark up", tools: MARKUP_KINDS.map((k) => MARKUP_TOOL[k]) },
 ];
+
+/** Every tool's button, in toolbar order. */
+export const TOOL_BUTTONS: ToolButtonSpec[] = TOOL_GROUPS.flatMap((g) =>
+  g.tools.map((t) => SPEC[t]),
+);
 
 export const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 
@@ -84,19 +88,21 @@ function ToolButton({
   pressed,
   disabled,
   onClick,
-  children,
+  icon: Icon,
+  showLabel = true,
 }: {
   label: string;
   shortcut?: string;
   pressed?: boolean;
   disabled?: boolean;
   onClick: () => void;
-  children: ReactNode;
+  icon: typeof Type;
+  showLabel?: boolean;
 }) {
   return (
     <button
       type="button"
-      aria-label={label}
+      aria-label={showLabel ? undefined : label}
       aria-pressed={pressed}
       aria-keyshortcuts={shortcut}
       title={shortcut ? `${label} (${shortcut})` : label}
@@ -105,19 +111,96 @@ function ToolButton({
         if (!disabled) onClick();
       }}
       className={cn(
-        "rounded-ctl inline-flex size-9 shrink-0 items-center justify-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
+        "rounded-ctl inline-flex shrink-0 items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
+        // Phone: icon over a tiny name. Wider: icon beside the name.
+        "min-h-11 min-w-12 flex-col justify-center gap-0.5 px-1.5 py-1 text-[10px] leading-none",
+        "sm:min-h-9 sm:min-w-0 sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs sm:font-medium",
         pressed
           ? "bg-accent/15 text-accent ring-accent/40 ring-1"
           : "text-muted hover:bg-wash hover:text-fg",
       )}
     >
-      {children}
+      <Icon className="size-4 shrink-0" aria-hidden />
+      {showLabel && <span className="whitespace-nowrap">{label}</span>}
     </button>
   );
 }
 
 function Divider() {
-  return <span aria-hidden className="bg-line mx-1 h-6 w-px shrink-0" />;
+  return (
+    <span aria-hidden className="bg-line mx-1 h-8 w-px shrink-0 self-center" />
+  );
+}
+
+/** A group of tools with its name: a caption on wide screens, a label for all. */
+function Group({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <div
+      role="group"
+      aria-label={name}
+      className="flex shrink-0 flex-col gap-0.5"
+    >
+      <span
+        aria-hidden
+        className="text-faint hidden px-1 text-[10px] font-semibold tracking-wide uppercase sm:block"
+      >
+        {name}
+      </span>
+      <div className="flex items-center gap-0.5">{children}</div>
+    </div>
+  );
+}
+
+/** A sideways-scrolling strip that shows a fade on each side with more. */
+function Strip({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState({ left: false, right: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const read = () =>
+      setMore({
+        left: el.scrollLeft > 2,
+        right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
+      });
+    read();
+    el.addEventListener("scroll", read, { passive: true });
+    const ro =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(read);
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", read);
+      ro?.disconnect();
+    };
+  }, []);
+  return (
+    <div className="relative min-w-0">
+      <div
+        ref={ref}
+        role="toolbar"
+        aria-label="Editor tools"
+        className="flex min-w-0 items-end gap-0.5 overflow-x-auto px-1 py-1 [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden"
+      >
+        {children}
+      </div>
+      <span
+        aria-hidden
+        data-scroll-more="left"
+        className={cn(
+          "from-panel pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r to-transparent transition-opacity sm:hidden",
+          more.left ? "opacity-100" : "opacity-0",
+        )}
+      />
+      <span
+        aria-hidden
+        data-scroll-more="right"
+        className={cn(
+          "from-panel pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l to-transparent transition-opacity sm:hidden",
+          more.right ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </div>
+  );
 }
 
 export function EditorToolbar({
@@ -131,7 +214,6 @@ export function EditorToolbar({
   fit,
   onZoom,
   onFit,
-  trailing,
 }: {
   tool: Tool;
   onTool: (tool: Tool) => void;
@@ -143,7 +225,6 @@ export function EditorToolbar({
   fit: boolean;
   onZoom: (zoom: number) => void;
   onFit: () => void;
-  trailing?: ReactNode;
 }) {
   const step = (dir: 1 | -1) => {
     const next =
@@ -152,104 +233,93 @@ export function EditorToolbar({
         : [...ZOOM_STEPS].reverse().find((z) => z < zoom - 0.001);
     onZoom(next ?? (dir > 0 ? MAX_ZOOM : MIN_ZOOM));
   };
-  const main = TOOL_BUTTONS.filter((b) => b.group === "main");
-  const shapes = TOOL_BUTTONS.filter((b) => b.group === "shape");
-  const render = (b: (typeof TOOL_BUTTONS)[number]) => {
-    const Icon = b.icon;
-    return (
-      <ToolButton
-        key={b.tool}
-        label={b.label}
-        shortcut={b.key}
-        pressed={tool === b.tool}
-        onClick={() => onTool(b.tool)}
-      >
-        <Icon className="size-4" aria-hidden />
-      </ToolButton>
-    );
-  };
   return (
-    <div
-      role="toolbar"
-      aria-label="Editor tools"
-      className="flex min-w-0 [scrollbar-width:thin] items-center gap-0.5 overflow-x-auto px-1 py-1"
-    >
-      {main.slice(0, 4).map(render)}
+    <Strip>
+      {TOOL_GROUPS.map((group, i) => (
+        <div key={group.name} className="flex shrink-0 items-end">
+          {i > 0 && <Divider />}
+          <Group name={group.name}>
+            {group.tools.map((t) => {
+              const b = SPEC[t];
+              return (
+                <ToolButton
+                  key={t}
+                  label={b.label}
+                  icon={b.icon}
+                  shortcut={b.key}
+                  pressed={tool === t}
+                  onClick={() => onTool(t)}
+                />
+              );
+            })}
+          </Group>
+        </div>
+      ))}
       <Divider />
-      <div
-        role="group"
-        aria-label="Shapes"
-        className="flex items-center gap-0.5"
-      >
-        {shapes.map(render)}
-      </div>
+      <Group name="History">
+        <ToolButton
+          label="Undo"
+          icon={Undo2}
+          shortcut="Control+Z"
+          disabled={!canUndo}
+          onClick={onUndo}
+        />
+        <ToolButton
+          label="Redo"
+          icon={Redo2}
+          shortcut="Control+Shift+Z"
+          disabled={!canRedo}
+          onClick={onRedo}
+        />
+      </Group>
       <Divider />
-      {main.slice(4).map(render)}
-      <Divider />
-      <ToolButton
-        label="Undo"
-        shortcut="Control+Z"
-        disabled={!canUndo}
-        onClick={onUndo}
-      >
-        <Undo2 className="size-4" aria-hidden />
-      </ToolButton>
-      <ToolButton
-        label="Redo"
-        shortcut="Control+Shift+Z"
-        disabled={!canRedo}
-        onClick={onRedo}
-      >
-        <Redo2 className="size-4" aria-hidden />
-      </ToolButton>
-      <Divider />
-      <ToolButton
-        label="Zoom out"
-        disabled={zoom <= MIN_ZOOM + 0.001}
-        onClick={() => step(-1)}
-      >
-        <ZoomOut className="size-4" aria-hidden />
-      </ToolButton>
-      <label className="sr-only" htmlFor="editor-zoom">
-        Zoom
-      </label>
-      <select
-        id="editor-zoom"
-        value={fit ? "fit" : String(zoom)}
-        onChange={(e) => {
-          if (e.target.value === "fit") onFit();
-          else onZoom(Number(e.target.value));
-        }}
-        className="border-line bg-canvas text-fg rounded-ctl h-8 shrink-0 border px-1.5 text-xs tabular-nums"
-      >
-        <option value="fit">
-          {fit ? `Fit width (${Math.round(zoom * 100)}%)` : "Fit width"}
-        </option>
-        {!fit && !ZOOM_STEPS.includes(zoom) && (
-          <option value={String(zoom)}>{Math.round(zoom * 100)}%</option>
-        )}
-        {ZOOM_STEPS.map((z) => (
-          <option key={z} value={String(z)}>
-            {Math.round(z * 100)}%
+      <Group name="Zoom">
+        <ToolButton
+          label="Zoom out"
+          icon={ZoomOut}
+          showLabel={false}
+          disabled={zoom <= MIN_ZOOM + 0.001}
+          onClick={() => step(-1)}
+        />
+        <label className="sr-only" htmlFor="editor-zoom">
+          Zoom
+        </label>
+        <select
+          id="editor-zoom"
+          value={fit ? "fit" : String(zoom)}
+          onChange={(e) => {
+            if (e.target.value === "fit") onFit();
+            else onZoom(Number(e.target.value));
+          }}
+          className="border-line bg-canvas text-fg rounded-ctl h-9 shrink-0 border px-1.5 text-xs tabular-nums"
+        >
+          <option value="fit">
+            {fit ? `Fit width (${Math.round(zoom * 100)}%)` : "Fit width"}
           </option>
-        ))}
-      </select>
-      <ToolButton
-        label="Zoom in"
-        disabled={zoom >= MAX_ZOOM - 0.001}
-        onClick={() => step(1)}
-      >
-        <ZoomIn className="size-4" aria-hidden />
-      </ToolButton>
-      <ToolButton label="Fit width" pressed={fit} onClick={onFit}>
-        <Maximize2 className="size-4" aria-hidden />
-      </ToolButton>
-      {trailing && (
-        <>
-          <span className="flex-1" />
-          {trailing}
-        </>
-      )}
-    </div>
+          {!fit && !ZOOM_STEPS.includes(zoom) && (
+            <option value={String(zoom)}>{Math.round(zoom * 100)}%</option>
+          )}
+          {ZOOM_STEPS.map((z) => (
+            <option key={z} value={String(z)}>
+              {Math.round(z * 100)}%
+            </option>
+          ))}
+        </select>
+        <ToolButton
+          label="Zoom in"
+          icon={ZoomIn}
+          showLabel={false}
+          disabled={zoom >= MAX_ZOOM - 0.001}
+          onClick={() => step(1)}
+        />
+        <ToolButton
+          label="Fit width"
+          icon={Maximize2}
+          showLabel={false}
+          pressed={fit}
+          onClick={onFit}
+        />
+      </Group>
+    </Strip>
   );
 }

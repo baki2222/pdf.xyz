@@ -58,6 +58,18 @@ export const EDITOR_KIND_FACT: Record<EditorKind, string> = {
 };
 
 /**
+ * The editor's Mark-up group, in toolbar order — what Annotate PDF opens on
+ * (since 2026-10-24 that page mounts the same editor, Highlight active) and
+ * the list its page counts.
+ */
+export const MARKUP_KINDS = [
+  "whiteout",
+  "highlight",
+  "ink",
+  "note",
+] as const satisfies readonly EditorKind[];
+
+/**
  * The coordinate-op engine's kinds (`edit.ts`). Not what the Edit PDF page
  * offers any more — see {@link EDITOR_KINDS}.
  */
