@@ -133,9 +133,9 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
     "Download it as a .txt file.",
   ],
   "edit-pdf": [
-    "Open your PDF — its pages are preserved exactly.",
-    "Pick a tool and click on the page to place text, images, signatures or shapes.",
-    "Apply & download a PDF with your additions written into the page.",
+    "Open your PDF — every page is shown as your viewer shows it.",
+    "Click a line of text to retype it, or pick a tool and click on the page to add text, images, signatures or shapes.",
+    "Apply & download a PDF with your changes written into the page.",
   ],
   "annotate-pdf": [
     "Open your PDF — Highlight is ready in the Mark up group.",

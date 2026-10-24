@@ -118,6 +118,55 @@ export interface WhiteoutObject extends Base, Boxed {
   kind: "whiteout";
 }
 
+export type RedactFill = "black" | "white";
+
+/**
+ * A redaction: on export the text, image pixels and annotations under the
+ * box are REMOVED from the file (`content-edit.ts`), then the box is filled.
+ */
+export interface RedactObject extends Base, Boxed {
+  kind: "redact";
+  fill: RedactFill;
+}
+
+/** A text run as pdf.js read it, in CONTENT space (pdf-lib's user space). */
+export interface RunGeometryData {
+  /** Text space → user space, font size included. */
+  transform: [number, number, number, number, number, number];
+  /** Advance along the baseline, user units. */
+  width: number;
+}
+
+/**
+ * An edit to text already on the page. `x/y/width/height` are the original
+ * run's box in viewer points (what the overlay covers while editing); on
+ * export the run's glyphs are REMOVED from the content stream and `text` is
+ * drawn where the run began — in the run's own font when it has every
+ * character (`ownChars`), else in the closest standard face (`font`, `bold`,
+ * `italic`). Empty `text` deletes the run.
+ */
+export interface TextEditObject extends Base, Boxed {
+  kind: "textedit";
+  run: RunGeometryData;
+  original: string;
+  text: string;
+  /** Font size as displayed, viewer points. */
+  size: number;
+  color: string;
+  font: EditorFont;
+  bold: boolean;
+  italic: boolean;
+  /** Characters the run's own font can write back. */
+  ownChars: string;
+  /** The run's own font, by name. */
+  fontName: string;
+  /** Baseline start, viewer points. */
+  baseX: number;
+  baseY: number;
+  /** Reading direction on screen, degrees clockwise from +x. */
+  angle: number;
+}
+
 export interface HighlightObject extends Base, Boxed {
   kind: "highlight";
   color: string;
@@ -141,6 +190,8 @@ export type EditorObject =
   | ShapeObject
   | LineObject
   | WhiteoutObject
+  | RedactObject
+  | TextEditObject
   | HighlightObject
   | InkObject;
 
@@ -160,6 +211,8 @@ export type KindsAgree = Assert<Same<EditorObjectKind, EditorKind>>;
 
 export const EDITOR_OBJECT_LABEL: Record<EditorObjectKind, string> = {
   text: "Text box",
+  textedit: "Edited text",
+  redact: "Redaction",
   note: "Note",
   image: "Image",
   signature: "Signature",
@@ -328,6 +381,7 @@ export const ALL_HANDLES: readonly Handle[] = [
 ];
 
 export function handlesFor(obj: EditorObject): readonly Handle[] {
+  if (obj.kind === "textedit") return [];
   if (obj.kind === "text" || obj.kind === "note") return ["w", "e"];
   if (obj.kind === "line") return [];
   return ALL_HANDLES;
@@ -414,6 +468,12 @@ export function describeObject(obj: EditorObject): string {
     case "note": {
       const words = obj.text.trim().slice(0, 40) || "empty";
       return `${EDITOR_OBJECT_LABEL[obj.kind]} “${words}” on ${page}`;
+    }
+    case "textedit": {
+      const words = obj.text.trim().slice(0, 40);
+      return words
+        ? `${EDITOR_OBJECT_LABEL.textedit} “${words}” on ${page}`
+        : `Deleted text “${obj.original.trim().slice(0, 40)}” on ${page}`;
     }
     case "shape":
       return `${obj.shape === "ellipse" ? "Ellipse" : "Rectangle"} on ${page}`;

@@ -7,8 +7,14 @@ import {
   type EditorObject,
   type NoteObject,
   type TextBoxObject,
+  type TextEditObject,
 } from "@/lib/pdf/editor/model";
-import { lineBaseline, lineLeft } from "@/lib/pdf/editor/text";
+import {
+  CSS_FONT_STACK,
+  lineBaseline,
+  lineLeft,
+  needsUnicodeFace,
+} from "@/lib/pdf/editor/text";
 import type { TextKit } from "./measure";
 
 /**
@@ -65,6 +71,61 @@ function Words({
             {line.text}
           </text>
         ),
+      )}
+    </>
+  );
+}
+
+/**
+ * Edited page text: a white cover over the run as it was (the canvas still
+ * shows the original until export removes it), and the new words on the
+ * run's own baseline, size, colour and slant.
+ */
+function EditedText({
+  obj,
+  kit,
+  hideWords,
+}: {
+  obj: TextEditObject;
+  kit: TextKit;
+  hideWords: boolean;
+}) {
+  const unicode = needsUnicodeFace(obj.text);
+  const family = unicode
+    ? kit.family(
+        { ...obj, kind: "text", align: "left", lineHeight: 1 } as never,
+        obj.text,
+      )
+    : CSS_FONT_STACK[obj.font];
+  const pad = Math.max(0.5, obj.size * 0.06);
+  return (
+    <>
+      <rect
+        data-cover=""
+        x={obj.x - pad}
+        y={obj.y - pad}
+        width={obj.width + pad * 2}
+        height={obj.height + pad * 2}
+        fill="#ffffff"
+      />
+      {!hideWords && obj.text.length > 0 && (
+        <text
+          x={obj.baseX}
+          y={obj.baseY}
+          transform={
+            Math.abs(obj.angle) > 0.01
+              ? `rotate(${obj.angle} ${obj.baseX} ${obj.baseY})`
+              : undefined
+          }
+          fontFamily={family}
+          fontSize={obj.size}
+          fontWeight={!unicode && obj.bold ? 700 : 400}
+          fontStyle={!unicode && obj.italic ? "italic" : "normal"}
+          fill={obj.color}
+          style={{ whiteSpace: "pre", fontKerning: "none" }}
+        >
+          {obj.text}
+        </text>
       )}
     </>
   );
@@ -176,6 +237,23 @@ export function ObjectShape({
           width={obj.width}
           height={obj.height}
           fill="#ffffff"
+        />
+      );
+    case "textedit":
+      return <EditedText obj={obj} kit={kit} hideWords={hideWords} />;
+    case "redact":
+      return (
+        <rect
+          x={obj.x}
+          y={obj.y}
+          width={obj.width}
+          height={obj.height}
+          fill={obj.fill === "white" ? "#ffffff" : "#000000"}
+          fillOpacity={0.88}
+          stroke="#dc2626"
+          strokeWidth={1.25}
+          strokeDasharray="4 2"
+          vectorEffect="non-scaling-stroke"
         />
       );
     case "highlight":

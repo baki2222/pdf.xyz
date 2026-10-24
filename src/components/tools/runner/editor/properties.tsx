@@ -18,7 +18,9 @@ import {
   EDITOR_OBJECT_LABEL,
   type EditorObject,
   type TextAlign,
+  type TextEditObject,
 } from "@/lib/pdf/editor/model";
+import { ownFontCovers, substituteLabel } from "@/lib/pdf/editor/runs";
 import { needsUnicodeFace } from "@/lib/pdf/editor/text";
 import type { Defaults, Tool } from "./editor-state";
 
@@ -30,7 +32,8 @@ import type { Defaults, Tool } from "./editor-state";
  */
 
 /** Which defaults bucket an object or tool reads. */
-export type StyleBucket = keyof Defaults | "image" | "signature" | "whiteout";
+export type StyleBucket =
+  keyof Defaults | "image" | "signature" | "whiteout" | "textedit";
 
 export function bucketOf(obj: EditorObject): StyleBucket {
   switch (obj.kind) {
@@ -69,6 +72,8 @@ export function bucketOfTool(tool: Tool): StyleBucket | null {
       return "ink";
     case "whiteout":
       return "whiteout";
+    case "redact":
+      return "redact";
     default:
       return null;
   }
@@ -425,31 +430,94 @@ export function PropertiesPanel({
         <p className="text-muted flex gap-1.5 text-[11px] leading-snug">
           <Info className="mt-0.5 size-3 shrink-0" aria-hidden />
           Whiteout paints a white box over the page. What it covers is still in
-          the file — search, copy and text extraction can find it. Use Redact
-          PDF to remove it.
+          the file — search, copy and text extraction can find it. Use Redact to
+          remove it.
         </p>
+      )}
+
+      {kind === "redact" && (
+        <>
+          <Field label="Box colour">
+            <select
+              aria-label="Redaction box colour"
+              value={shown.fill === "white" ? "white" : "black"}
+              onChange={(e) => set({ fill: e.target.value }, "fill")}
+              className={input}
+            >
+              <option value="black">Black</option>
+              <option value="white">White</option>
+            </select>
+          </Field>
+          <p
+            data-redact-note=""
+            className="text-muted flex gap-1.5 text-[11px] leading-snug"
+          >
+            <Info className="mt-0.5 size-3 shrink-0" aria-hidden />
+            When you apply, the text, picture pixels and comments under the box
+            are removed from the file, not just covered. Lines and shapes drawn
+            under it are covered.
+          </p>
+        </>
+      )}
+
+      {first?.kind === "textedit" && selection.length === 1 && (
+        <TextEditInfo obj={first} />
       )}
 
       {selection.length > 0 && (
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onDuplicate}
-            className="border-line text-muted hover:text-fg rounded-ctl inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-xs"
-          >
-            <Copy className="size-3.5" aria-hidden />
-            Duplicate
-          </button>
+          {kind !== "textedit" && (
+            <button
+              type="button"
+              onClick={onDuplicate}
+              className="border-line text-muted hover:text-fg rounded-ctl inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-xs"
+            >
+              <Copy className="size-3.5" aria-hidden />
+              Duplicate
+            </button>
+          )}
           <button
             type="button"
             onClick={onDelete}
             className="border-line text-muted hover:text-err rounded-ctl inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-xs"
           >
             <Trash2 className="size-3.5" aria-hidden />
-            Delete
+            {kind === "textedit" ? "Undo this edit" : "Delete"}
           </button>
         </div>
       )}
     </section>
+  );
+}
+
+/** What an edit to existing text will be written in, and what it replaces. */
+function TextEditInfo({ obj }: { obj: TextEditObject }) {
+  const own = ownFontCovers(obj.ownChars, obj.text);
+  return (
+    <div className="flex flex-col gap-1.5 text-xs">
+      <p className="text-muted">
+        Was: <span className="text-fg">“{obj.original}”</span>
+      </p>
+      <p className="text-muted">
+        Now:{" "}
+        <span className="text-fg">
+          {obj.text.trim() ? `“${obj.text}”` : "deleted"}
+        </span>
+      </p>
+      {obj.text.trim().length > 0 && (
+        <p
+          data-font-note=""
+          className="text-muted flex gap-1.5 text-[11px] leading-snug"
+        >
+          <Info className="mt-0.5 size-3 shrink-0" aria-hidden />
+          {own
+            ? `Written in the text's own font (${obj.fontName}).`
+            : `Font substituted: ${substituteLabel(obj, obj.text)}. The text's own font (${obj.fontName}) doesn't include every character you typed.`}
+        </p>
+      )}
+      <p className="text-muted text-[11px] leading-snug">
+        The original words are removed from the file when you apply.
+      </p>
+    </div>
   );
 }

@@ -559,10 +559,10 @@ export const tools: Tool[] = [
   {
     slug: "edit-pdf",
     name: "Edit PDF",
-    seoTitle: "Edit PDF — Add Text, Images & Shapes",
-    tagline: "Add text, images, and shapes.",
+    seoTitle: "Edit PDF — Edit Text, Add Images & Shapes",
+    tagline: "Edit text, add images and shapes.",
     description:
-      "Click on the page to add text, images, signatures, shapes, highlights and notes, then move and resize them in your browser. It does not rewrite existing text.",
+      "Click a line of the PDF's own text to retype it, find and replace words, redact, or add text, images, signatures, shapes, highlights and notes, all in your browser.",
     category: "edit",
     icon: "edit",
     processing: "client",
@@ -578,6 +578,7 @@ export const tools: Tool[] = [
     ],
     related: [
       "pdf-to-word",
+      "ocr-pdf",
       "redact-pdf",
       "annotate-pdf",
       "sign-pdf",

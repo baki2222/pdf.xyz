@@ -14,7 +14,9 @@ import {
   DEFAULT_TEXT_STYLE,
   type EditorObject,
   type NoteObject,
+  type RedactFill,
   type TextBoxObject,
+  type TextEditObject,
   type TextStyle,
 } from "@/lib/pdf/editor/model";
 import type { RasterImageFormat } from "@/lib/pdf/pdf-lib";
@@ -30,6 +32,7 @@ import type { SignatureStyle } from "@/lib/pdf/offered-kinds";
 export const TOOLS = [
   "select",
   "text",
+  "edittext",
   "image",
   "signature",
   "rect",
@@ -37,6 +40,7 @@ export const TOOLS = [
   "line",
   "arrow",
   "whiteout",
+  "redact",
   "highlight",
   "ink",
   "note",
@@ -66,7 +70,7 @@ export interface TextEdit {
   /** Not yet in `objects`: committed as an add when the edit ends. */
   isNew: boolean;
   text: string;
-  base: TextBoxObject | NoteObject;
+  base: TextBoxObject | NoteObject | TextEditObject;
 }
 
 export interface Defaults {
@@ -81,6 +85,7 @@ export interface Defaults {
   line: { stroke: string; strokeWidth: number; opacity: number };
   highlight: { color: string; opacity: number };
   ink: { stroke: string; strokeWidth: number; opacity: number };
+  redact: { fill: RedactFill };
 }
 
 export const INITIAL_DEFAULTS: Defaults = {
@@ -90,6 +95,7 @@ export const INITIAL_DEFAULTS: Defaults = {
   line: { stroke: DEFAULT_STROKE, strokeWidth: 2, opacity: 1 },
   highlight: { color: DEFAULT_HIGHLIGHT, opacity: 0.4 },
   ink: { stroke: "#1d4ed8", strokeWidth: 2.5, opacity: 1 },
+  redact: { fill: "black" },
 };
 
 export interface EditorState {
@@ -146,6 +152,8 @@ function say(state: EditorState, message: string): EditorState["said"] {
 function finishEdit(state: EditorState): EditorState {
   const edit = state.editing;
   if (!edit) return state;
+  if (edit.base.kind === "textedit")
+    return finishRetext(state, edit, edit.base);
   const empty = edit.text.trim().length === 0;
   const current = state.objects.find((o) => o.id === edit.id) as
     TextBoxObject | NoteObject | undefined;
@@ -207,6 +215,76 @@ function finishEdit(state: EditorState): EditorState {
     ...next,
     ...done,
     selected: empty ? [] : [edit.id],
+    said: say(state, message),
+  };
+}
+
+/**
+ * Finish editing text that was already on the page. A new edit is added
+ * only if the words changed; an existing one is updated, or removed (the
+ * run is back as it was) when the words are the original again. Empty words
+ * are kept: they delete the run.
+ */
+function finishRetext(
+  state: EditorState,
+  edit: TextEdit,
+  base: TextEditObject,
+): EditorState {
+  const text = edit.text.replace(/[\r\n\t]+/g, " ");
+  const current = state.objects.find((o) => o.id === edit.id) as
+    TextEditObject | undefined;
+  const next: EditorState = { ...state, editing: null };
+  let command: Command | null = null;
+  let message = "";
+  if (edit.isNew || !current) {
+    if (text !== base.original) {
+      command = {
+        label: text.trim() ? "Edit text" : "Delete text",
+        changes: [
+          {
+            id: edit.id,
+            before: null,
+            after: { ...base, text },
+            at: state.objects.length,
+          },
+        ],
+      };
+      message = text.trim() ? "Text edited" : "Text deleted";
+    }
+  } else if (text === current.original) {
+    command = {
+      label: "Restore text",
+      changes: [
+        {
+          id: edit.id,
+          before: current,
+          after: null,
+          at: state.objects.indexOf(current),
+        },
+      ],
+    };
+    message = "Original text restored";
+  } else if (text !== current.text) {
+    command = {
+      label: "Edit text",
+      changes: [
+        {
+          id: edit.id,
+          before: current,
+          after: { ...current, text },
+          at: state.objects.indexOf(current),
+        },
+      ],
+    };
+    message = text.trim() ? "Text edited" : "Text deleted";
+  }
+  if (!command) return next;
+  const done = commit(next.objects, next.history, command);
+  const alive = done.objects.some((o) => o.id === edit.id);
+  return {
+    ...next,
+    ...done,
+    selected: alive ? [edit.id] : [],
     said: say(state, message),
   };
 }

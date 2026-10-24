@@ -831,7 +831,7 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Can I change the existing text in my PDF?",
-        answer: `No. ${nameOf("edit-pdf")} adds new text, images, signatures and shapes, but it cannot retype, restyle, move, or delete text that is already in the file. To rework the existing text, convert the file with ${nameOf("pdf-to-word")}. You can draw a whiteout box over something to hide it; if the information must really be gone, use ${nameOf("redact-pdf")}.`,
+        answer: `Yes, a line at a time. In ${nameOf("edit-pdf")}, choose Edit text, click a line and retype it: the old words are removed from the file and yours are written where they stood. A scanned page has no text to edit until ${nameOf("ocr-pdf")} has been run. To rework whole paragraphs, convert the file with ${nameOf("pdf-to-word")}. A whiteout box only hides something; if the information must really be gone, draw a Redact box, or use ${nameOf("redact-pdf")}.`,
       },
       {
         question: "Can I add an image or a logo to a PDF?",

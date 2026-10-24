@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Circle,
   Eraser,
+  Replace,
   Highlighter,
   ImagePlus,
   Maximize2,
@@ -14,6 +15,8 @@ import {
   Redo2,
   Signature,
   Square,
+  TextCursorInput,
+  SquareSlash,
   StickyNote,
   Type,
   Undo2,
@@ -43,6 +46,12 @@ export interface ToolButtonSpec {
 const SPEC: Record<Tool, ToolButtonSpec> = {
   select: { tool: "select", label: "Select", key: "V", icon: MousePointer2 },
   text: { tool: "text", label: "Text", key: "T", icon: Type },
+  edittext: {
+    tool: "edittext",
+    label: "Edit text",
+    key: "X",
+    icon: TextCursorInput,
+  },
   image: { tool: "image", label: "Image", key: "I", icon: ImagePlus },
   signature: { tool: "signature", label: "Sign", key: "S", icon: Signature },
   rect: { tool: "rect", label: "Rectangle", key: "R", icon: Square },
@@ -50,6 +59,7 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
   line: { tool: "line", label: "Line", key: "L", icon: Minus },
   arrow: { tool: "arrow", label: "Arrow", key: "A", icon: MoveUpRight },
   whiteout: { tool: "whiteout", label: "Whiteout", key: "W", icon: Eraser },
+  redact: { tool: "redact", label: "Redact", key: "B", icon: SquareSlash },
   highlight: {
     tool: "highlight",
     label: "Highlight",
@@ -63,6 +73,7 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
 /** The Mark-up group is the offered-kinds list Annotate PDF's page counts. */
 const MARKUP_TOOL: Record<(typeof MARKUP_KINDS)[number], Tool> = {
   whiteout: "whiteout",
+  redact: "redact",
   highlight: "highlight",
   ink: "ink",
   note: "note",
@@ -70,7 +81,7 @@ const MARKUP_TOOL: Record<(typeof MARKUP_KINDS)[number], Tool> = {
 
 export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
   { name: "Select", tools: ["select"] },
-  { name: "Add", tools: ["text", "image", "signature"] },
+  { name: "Add", tools: ["text", "edittext", "image", "signature"] },
   { name: "Shapes", tools: ["rect", "ellipse", "line", "arrow"] },
   { name: "Mark up", tools: MARKUP_KINDS.map((k) => MARKUP_TOOL[k]) },
 ];
@@ -214,7 +225,11 @@ export function EditorToolbar({
   fit,
   onZoom,
   onFit,
+  finding,
+  onFind,
 }: {
+  finding: boolean;
+  onFind: () => void;
   tool: Tool;
   onTool: (tool: Tool) => void;
   canUndo: boolean;
@@ -255,6 +270,16 @@ export function EditorToolbar({
           </Group>
         </div>
       ))}
+      <Divider />
+      <Group name="Find">
+        <ToolButton
+          label="Find & replace"
+          icon={Replace}
+          shortcut="Control+F"
+          pressed={finding}
+          onClick={onFind}
+        />
+      </Group>
       <Divider />
       <Group name="History">
         <ToolButton

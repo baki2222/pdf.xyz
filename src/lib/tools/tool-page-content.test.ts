@@ -244,9 +244,10 @@ describe("tool pages link where they send the reader", () => {
         `href="/tools/${slug}"`,
       );
     }
-    expect(named).toEqual(
-      expect.arrayContaining(["pdf-to-word", "redact-pdf"]),
-    );
+    // Was ["pdf-to-word", "redact-pdf"] until 2026-10-24 (Phase 2): the
+    // note sent a reader to Redact PDF to delete data. Redact is now a tool
+    // INSIDE the editor, and the note sends a scan to OCR PDF first.
+    expect(named).toEqual(expect.arrayContaining(["pdf-to-word", "ocr-pdf"]));
   });
 });
 
@@ -1088,7 +1089,12 @@ describe("compare-pdf: order, and what counts as a change", () => {
   });
 });
 
-describe("edit-pdf: the text already on the page is kept exactly", () => {
+describe("edit-pdf: the text nobody edited is kept exactly", () => {
+  // Until 2026-10-24 the page said existing text is "kept exactly as they
+  // were", and this pinned that phrase. Since Phase 2 the reader can retype
+  // page text, so the property is narrower and the copy says so: what you
+  // did NOT edit is kept (`editor/content-edit.test.ts` holds the edited
+  // half: the old words are removed, untouched operators byte-identical).
   it("the original content stream survives an edit byte for byte", async () => {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -1115,7 +1121,7 @@ describe("edit-pdf: the text already on the page is kept exactly", () => {
     );
     expect(after[0]!.some((d) => d.text === "Original line")).toBe(true);
     expect(pageTexts(tool("edit-pdf")).join(" ")).toMatch(
-      /kept exactly as they were/,
+      /Text you did not edit is kept exactly as it was/,
     );
   });
 });

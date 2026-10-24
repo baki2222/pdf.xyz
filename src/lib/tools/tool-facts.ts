@@ -1170,13 +1170,15 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `Can ${tool.name} change the text already in my PDF?`,
-          answer: `No. ${tool.name} adds new content on top of the page — ${listed(
-            EDITOR_KINDS.map((k) => EDITOR_KIND_FACT[k]),
-          )} — and the text and objects already there are kept exactly as they were. It cannot retype, move or delete the existing text. To rework the existing text, convert the file with ${toolName("pdf-to-word")}.`,
+          answer: `Yes, a line at a time: choose Edit text, click a line and retype it. When you apply, the old words are removed from the file and the new ones are written where the line began, in its own font when that font has every character, otherwise in the closest standard font. Text you did not edit is kept exactly as it was. A scanned page has no text to change until ${toolName("ocr-pdf")} has been run, and text nested inside embedded objects is refused. The editor also places ${listed(
+            EDITOR_KINDS.filter((k) => k !== "textedit").map(
+              (k) => EDITOR_KIND_FACT[k],
+            ),
+          )}. To rework whole paragraphs, convert the file with ${toolName("pdf-to-word")}.`,
         },
         {
           question: "How do I cover something up?",
-          answer: `Draw a Whiteout box over it. That hides it on the page, but the text underneath is still in the file, where it can be selected, copied or searched. To remove something for good, use ${toolName("redact-pdf")}.`,
+          answer: `Draw a Whiteout box over it. That hides it on the page, but the text underneath is still in the file, where it can be selected, copied or searched. To remove it, draw a Redact box instead: the text and picture pixels under it are removed from the file when you apply.`,
         },
       ];
     case "annotate":

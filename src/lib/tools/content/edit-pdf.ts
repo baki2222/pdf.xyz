@@ -44,9 +44,24 @@ import {
  *    refused by `embedDrawingFont` ("This text mixes …").
  *  - Whiteout is a white filled rectangle; the covered text stays
  *    extractable (`editor-export.test.ts`, "covers but does not remove").
- *  - Existing text and the original content stream survive
- *    (`tool-page-content.test.ts`); a form field's value and the document
- *    title survive (`editor-export.test.ts`).
+ *  - Edit text REMOVES the edited run's glyphs from the content stream and
+ *    draws the new words where the run began, in the run's own font when
+ *    that font has every character, else the closest standard face (Noto
+ *    for other scripts); untouched operators stay byte-identical
+ *    (`editor/content-edit.test.ts`, on the saved file through pdf.js). It
+ *    edits what pdf.js reads as text: a scan has none, an invisible OCR
+ *    layer is not offered, and text nested deeper than one Form XObject,
+ *    or vertical text, is refused with a message (`describeRun`).
+ *  - Find & replace searches every page's runs as currently edited and
+ *    replaces through the same edit (`findMatches`, `replaceAt`).
+ *  - Redact removes the glyphs whose boxes overlap the box, rewrites the
+ *    covered pixels of images under it (a redacted copy), removes
+ *    annotations under it, refuses form fields, inline images and nested
+ *    objects under it, and fills the box; lines and shapes are covered,
+ *    not removed (`applyContentEdits`).
+ *  - Text and objects nobody edited survive (`tool-page-content.test.ts`);
+ *    a form field's value and the document title survive
+ *    (`editor-export.test.ts`).
  *  - Non-WinAnsi text loads the coverage chunk and fontkit as code, then the
  *    face from `fontPackUrl` (`loadPreviewFace` for the on-screen preview,
  *    the same cached bytes for the export); none of those requests carries
@@ -100,12 +115,13 @@ const content: ToolContent = {
   seoTitle: "Edit PDF — Add Text, Images, Signatures and Shapes",
 
   metaDescription:
-    "Click on a PDF page to add text, pictures, signatures, shapes, highlights and notes, then move and resize them. Runs in your browser; your PDF is not uploaded.",
+    "Retype the text in a PDF, find and replace words, redact, and add text, pictures, signatures and shapes. Runs in your browser; your PDF is not uploaded.",
 
   intro: [
     "Edit PDF shows every page of your PDF and lets you add to it by clicking on the page: text boxes you type straight onto the page, PNG or JPG pictures, a signature you draw, type or pick from a picture, rectangles, ellipses, lines and arrows, whiteout boxes, highlights, freehand drawing and notes. Anything you place can be selected, dragged, resized from its handles, restyled, copied or deleted, and every step can be undone.",
-    "It cannot change, move or delete the words that are already in the file. A whiteout box covers an old phrase so new text can sit on top, but the covered words stay in the file, where search and copy still find them. Redact PDF is the tool that removes them.",
-    `Everything runs in your browser tab, so your PDF is not uploaded. Files up to ${MAX_MB} MB open, each picture may be up to ${IMAGE_MB} MB, and a password-protected PDF is turned away until it has been unlocked. Page count, page sizes, existing text, form fields and the title are kept, and rotated or cropped pages are shown and edited the way your viewer shows them. Your additions are written into the page content itself, not added as comments.`,
+    "Edit text changes the words already in the file: click a line, retype it, and when you apply, the old words are removed from the page and yours are written where they stood, in the line's own font when that font has every letter you typed, otherwise in the closest standard font, which the editor names while you type. Find & replace does the same across every page. Redact removes the text and picture pixels under a box you draw. Whiteout only covers: the words under a whiteout box stay in the file, where search and copy still find them.",
+    "Edit text works on real text. A scanned page is a picture of words, so it has nothing to edit until OCR PDF has been run on it; text nested inside embedded objects, and vertical text, is refused with a message rather than half-changed. Each line is retyped as one line: it does not reflow a paragraph.",
+    `Everything runs in your browser tab, so your PDF is not uploaded. Files up to ${MAX_MB} MB open, each picture may be up to ${IMAGE_MB} MB, and a password-protected PDF is turned away until it has been unlocked. Page count, page sizes, the text you did not edit, form fields and the title are kept, and rotated or cropped pages are shown and edited the way your viewer shows them. Your additions are written into the page content itself, not added as comments.`,
   ],
 
   useCases: [
@@ -118,8 +134,12 @@ const content: ToolContent = {
       body: "Choose Sign, then draw your signature, type your name, or pick a picture of your signature, and click where it goes. Drag it into place and resize it from a corner; it is a picture of a signature, not a certificate-based digital signature.",
     },
     {
-      title: "Patch a wrong figure on a finished document",
-      body: "Draw a Whiteout box over the old number, then type the corrected figure on top. Fine for a typo; not for hiding anything confidential, since the old figure is still in the file beneath the box.",
+      title: "Fix a wrong figure on a finished document",
+      body: "Choose Edit text, click the line with the old number and type the right one. The old figure is removed from the file, not hidden under a box.",
+    },
+    {
+      title: "Take a name or an account number out before sharing",
+      body: "Choose Redact and drag a box over it. When you apply, the text and picture pixels under the box are removed from the file and the box is filled black or white. Find & replace (Ctrl+F) finds every place a name appears first.",
     },
     {
       title: "Write in another script",
@@ -134,7 +154,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick a tool and click on the page",
-      body: "Text and Note place a box you type into straight away. Rectangle, Ellipse, Line, Arrow, Whiteout and Highlight draw where you drag, or at a standard size where you click. Draw follows your pointer. Image and Sign ask for a picture or a signature first, then place it where you click.",
+      body: "Edit text outlines every line of the PDF's own text: click one and retype it. Text and Note place a box you type into straight away. Rectangle, Ellipse, Line, Arrow, Whiteout, Redact and Highlight draw where you drag, or at a standard size where you click. Draw follows your pointer. Image and Sign ask for a picture or a signature first, then place it where you click. Find & replace, or Ctrl+F, searches every page.",
     },
     {
       title: "Move, resize and style",
@@ -142,15 +162,16 @@ const content: ToolContent = {
     },
     {
       title: "Apply & download",
-      body: "Apply & download writes your additions into the PDF and downloads it; “Edited PDF ready” then offers Download edited PDF again. The copy is named after yours, with -edited before the .pdf.",
+      body: "Apply & download writes your changes into the PDF and downloads it; “Edited PDF ready” then offers Download edited PDF again. The copy is named after yours, with -edited before the .pdf.",
     },
   ],
 
   faqs: [
     {
       q: "Can I change the existing text in my PDF?",
-      a: "No. It adds content on top and leaves the existing words alone; a whiteout box with new text over it handles a small visible fix. To rewrite text, PDF to Word gives an editable document, though that tool uploads the file to pdf.xyz's secure worker.",
+      a: "Yes, a line at a time. Choose Edit text, click the line and retype it; when you apply, the old words are removed from the file and the new ones are written where they began. They use the line's own font when it has every character you typed; otherwise the closest standard font is used and the editor says which while you type. A scanned page has no text to change until OCR PDF has been run on it, and text nested inside embedded objects is refused. To rewrite whole paragraphs, PDF to Word gives an editable document, though that tool uploads the file to pdf.xyz's secure worker.",
     },
+
     {
       q: "Does my PDF leave my computer while I edit it?",
       a: "No. The pages are drawn and the PDF is written inside your browser tab, with any picture or signature you add. Only when a text box uses characters outside the basic Western set does the page download a Noto font from pdf.xyz's own /fonts/ path, plus the code that embeds it; those requests ask for files by name and carry nothing from your document.",
@@ -160,8 +181,8 @@ const content: ToolContent = {
       a: `Text can be written in the ${scripts} scripts.${rtlSentence} Each text box is drawn with one font, so a box can hold one of these scripts; put a second one in a box of its own. Text in those scripts uses the regular weight of its Noto font, so bold and italic apply to Latin text only.`,
     },
     {
-      q: "Does whiteout remove what is underneath?",
-      a: "No. It paints a white box over the area; the text or image below stays in the file, where search, copy and paste or an image extractor can still reach it. When an account number or a name must be gone, use Redact PDF.",
+      q: "Does whiteout or Redact remove what is underneath?",
+      a: "Whiteout does not: it paints a white box, and the text or image below stays in the file, where search, copy and an image extractor still reach it. Redact does: the text under its box is removed from the page, the pixels of any picture under it are overwritten, and comments under it are deleted. Lines and shapes under the box are covered, not removed. A form field, an inline picture or deeply nested content under a box is refused with a message; Redact PDF, which turns pages into images, handles those. Bookmarks and the document's properties are not changed.",
     },
     {
       q: "Does it work on rotated or cropped pages?",

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -53,8 +54,25 @@ import {
   type NoteObject,
   type Rect,
   type TextBoxObject,
+  type TextEditObject,
 } from "@/lib/pdf/editor/model";
 import { openEditorPdf, type EditorPdf } from "@/lib/pdf/editor/page-render";
+import {
+  openRunStyles,
+  type RunStyleReader,
+} from "@/lib/pdf/editor/run-styles";
+import {
+  editIsForRun,
+  findMatches,
+  ownFontCovers,
+  placeRuns,
+  replaceAt,
+  substituteLabel,
+  textEditFromRun,
+  type FindMatch,
+  type TextRun,
+} from "@/lib/pdf/editor/runs";
+import { CSS_FONT_STACK, needsUnicodeFace } from "@/lib/pdf/editor/text";
 import { cn } from "@/lib/utils";
 import { ErrorNote, useAnnouncer } from "../runner-kit";
 import { PagePreviewPlaceholder } from "../page-preview-placeholder";
@@ -67,6 +85,7 @@ import {
   type PendingImage,
   type Tool,
 } from "./editor-state";
+import { FindPanel, INITIAL_FIND, type FindState } from "./find-panel";
 import { useTextKit, type TextKit } from "./measure";
 import { HitArea, ObjectShape } from "./object-svg";
 import { PageCanvas } from "./page-canvas";
@@ -149,6 +168,7 @@ const PLACING: ReadonlySet<Tool> = new Set([
   "line",
   "arrow",
   "whiteout",
+  "redact",
   "highlight",
 ]);
 
@@ -235,6 +255,8 @@ function makeObject(
       };
     case "whiteout":
       return { id, kind: "whiteout", page, ...rect };
+    case "redact":
+      return { id, kind: "redact", page, ...rect, fill: defaults.redact.fill };
     case "highlight":
       return { id, kind: "highlight", page, ...rect, ...defaults.highlight };
     default:
@@ -247,6 +269,7 @@ const CLICK_SIZE: Partial<Record<Tool, { width: number; height: number }>> = {
   rect: { width: 120, height: 72 },
   ellipse: { width: 100, height: 72 },
   whiteout: { width: 140, height: 28 },
+  redact: { width: 140, height: 20 },
   highlight: { width: 160, height: 18 },
   line: { width: 120, height: 0 },
   arrow: { width: 120, height: 0 },
@@ -310,6 +333,19 @@ export function WysiwygEditor({
   const [signing, setSigning] = useState(
     () => state.tool === "signature" && !state.pending,
   );
+  // Edit text and Find & replace: pdf.js's text runs per page, read on
+  // demand, and the content-stream reading of how each run is drawn.
+  const [runs, setRuns] = useState<Record<number, TextRun[]>>({});
+  const runsRef = useRef(runs);
+  useLayoutEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
+  const runsAsked = useRef(new Set<number>());
+  const [styles, setStyles] = useState<RunStyleReader | null>(null);
+  const stylesPromise = useRef<Promise<RunStyleReader> | null>(null);
+  const [finding, setFinding] = useState(false);
+  const [find, setFind] = useState<FindState>(INITIAL_FIND);
+  const [runNotice, setRunNotice] = useState<string | null>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const pageEls = useRef(new Map<number, HTMLDivElement>());
   const drag = useRef<Drag | null>(null);
@@ -503,6 +539,165 @@ export function WysiwygEditor({
     [layout],
   );
 
+  /* --------------------------- text on the page --------------------------- */
+
+  const loadStyles = useCallback(() => {
+    stylesPromise.current ??= openRunStyles(pdf.bytes).then((reader) => {
+      setStyles(reader);
+      return reader;
+    });
+    return stylesPromise.current;
+  }, [pdf.bytes]);
+
+  const wantRuns = state.tool === "edittext" || finding;
+  useEffect(() => {
+    if (!wantRuns || !doc || !frames) return;
+    void loadStyles().catch(() =>
+      setRunNotice("This PDF's text could not be read for editing."),
+    );
+    const wanted = finding ? frames.map((_, i) => i) : [...near];
+    for (const i of wanted) {
+      if (runsAsked.current.has(i) || !frames[i]) continue;
+      runsAsked.current.add(i);
+      void doc.textContent(i).then((items) => {
+        setRuns((r) => ({ ...r, [i]: placeRuns(i, items, frames[i]!) }));
+      });
+    }
+  }, [wantRuns, finding, doc, frames, near, loadStyles]);
+
+  // Runs a person can edit: an invisible OCR layer is not offered.
+  const editableRuns = useMemo(() => {
+    const out: Record<number, TextRun[]> = {};
+    for (const [page, list] of Object.entries(runs)) {
+      const index = Number(page);
+      out[index] = styles
+        ? list.filter((run) => !styles.style(index, run).invisible)
+        : list;
+    }
+    return out;
+  }, [runs, styles]);
+
+  /** Each edited run's edit, by run key. */
+  const editOfRun = useMemo(() => {
+    const map = new Map<string, TextEditObject>();
+    for (const o of state.objects) {
+      if (o.kind !== "textedit") continue;
+      const run = editableRuns[o.page]?.find((r) => editIsForRun(o, r));
+      if (run) map.set(run.key, o);
+    }
+    return map;
+  }, [state.objects, editableRuns]);
+
+  const matches = useMemo<FindMatch[]>(() => {
+    if (!finding || find.query.length === 0) return [];
+    const list = Object.values(editableRuns)
+      .flat()
+      .sort((a, b) => a.page - b.page || a.index - b.index)
+      .map((r) => ({
+        key: r.key,
+        page: r.page,
+        text: editOfRun.get(r.key)?.text ?? r.str,
+      }));
+    return findMatches(list, find.query, find.matchCase);
+  }, [finding, find.query, find.matchCase, editableRuns, editOfRun]);
+  const matchIndex =
+    matches.length === 0 ? 0 : Math.min(find.index, matches.length - 1);
+  const pagesReading = finding
+    ? (frames?.length ?? 0) - Object.keys(runs).length
+    : 0;
+
+  const revealMatch = useCallback(
+    (m: FindMatch | undefined) => {
+      const el = viewport.current;
+      const slot = m ? layout.slots[m.page] : undefined;
+      const run = m
+        ? runsRef.current[m.page]?.find((r) => r.key === m.run)
+        : undefined;
+      if (!el || !slot || !run) return;
+      el.scrollTo({
+        top: Math.max(0, slot.top + run.rect.y * scale - el.clientHeight / 3),
+      });
+    },
+    [layout, scale],
+  );
+
+  const stepMatch = useCallback(
+    (dir: 1 | -1) => {
+      if (matches.length === 0) return;
+      const next = (matchIndex + dir + matches.length) % matches.length;
+      setFind((f) => ({ ...f, index: next }));
+      revealMatch(matches[next]);
+    },
+    [matches, matchIndex, revealMatch],
+  );
+
+  /** Replace `which` (one match, or all of them) as ONE undo step. */
+  const replaceMatches = useCallback(
+    async (which: FindMatch[], label: string) => {
+      if (which.length === 0) return;
+      let reader: RunStyleReader;
+      try {
+        reader = await loadStyles();
+      } catch {
+        setRunNotice("This PDF's text could not be read for editing.");
+        return;
+      }
+      const s = stateRef.current;
+      const byRun = new Map<string, FindMatch[]>();
+      for (const m of which) byRun.set(m.run, [...(byRun.get(m.run) ?? []), m]);
+      const changes: Change[] = [];
+      let at = s.objects.length;
+      let refused = 0;
+      let replaced = 0;
+      for (const [key, ms] of byRun) {
+        const page = ms[0]!.page;
+        const run = runsRef.current[page]?.find((r) => r.key === key);
+        if (!run) continue;
+        const existing = s.objects.find(
+          (o): o is TextEditObject =>
+            o.kind === "textedit" && editIsForRun(o, run),
+        );
+        const current = existing?.text ?? run.str;
+        const next = replaceAt(
+          current,
+          ms.map((m) => m.start),
+          find.query.length,
+          find.replacement,
+        );
+        if (existing) {
+          changes.push(
+            changeOf(
+              s.objects,
+              existing,
+              next === existing.original ? null : { ...existing, text: next },
+            ),
+          );
+        } else {
+          const style = reader.style(page, run);
+          if (style.refusal) {
+            refused += ms.length;
+            continue;
+          }
+          const added = textEditFromRun(newObjectId(), run, style, next);
+          changes.push({ id: added.id, before: null, after: added, at: at++ });
+        }
+        replaced += ms.length;
+      }
+      if (refused > 0) {
+        setRunNotice(
+          `${refused} match${refused === 1 ? "" : "es"} could not be replaced: that text can't be edited here.`,
+        );
+      }
+      if (changes.length === 0) return;
+      dispatch({
+        type: "commit",
+        command: { label, changes },
+        say: `${replaced} replaced`,
+      });
+    },
+    [dispatch, find.query, find.replacement, loadStyles],
+  );
+
   /* ------------------------------ objects ------------------------------ */
 
   const shown = (obj: EditorObject): EditorObject => {
@@ -561,7 +756,9 @@ export function WysiwygEditor({
   }, [dispatch]);
 
   const pasteObjects = useCallback(
-    (source: EditorObject[], label: string) => {
+    (all: EditorObject[], label: string) => {
+      // An edit of page text belongs to its run: it is never copied.
+      const source = all.filter((o) => o.kind !== "textedit");
       if (source.length === 0 || !frames) return;
       const s = stateRef.current;
       const samePage = source.every((o) => o.page === source[0]!.page);
@@ -601,7 +798,9 @@ export function WysiwygEditor({
   const nudge = useCallback(
     (dx: number, dy: number) => {
       const s = stateRef.current;
-      const moving = s.objects.filter((o) => s.selected.includes(o.id));
+      const moving = s.objects.filter(
+        (o) => s.selected.includes(o.id) && o.kind !== "textedit",
+      );
       if (moving.length === 0 || !frames) return;
       const changes: Change[] = moving.map((o) => {
         let next = moveObject(o, dx, dy);
@@ -820,13 +1019,51 @@ export function WysiwygEditor({
   );
 
   const editExisting = useCallback(
-    (obj: TextBoxObject | NoteObject) => {
+    (obj: TextBoxObject | NoteObject | TextEditObject) => {
       dispatch({
         type: "startEdit",
         edit: { id: obj.id, isNew: false, text: obj.text, base: obj },
       });
     },
     [dispatch],
+  );
+
+  const startRetext = useCallback(
+    async (run: TextRun) => {
+      const existing = stateRef.current.objects.find(
+        (o): o is TextEditObject =>
+          o.kind === "textedit" && editIsForRun(o, run),
+      );
+      if (existing) {
+        editExisting(existing);
+        return;
+      }
+      let reader: RunStyleReader;
+      try {
+        reader = await loadStyles();
+      } catch {
+        setRunNotice("This PDF's text could not be read for editing.");
+        return;
+      }
+      const style = reader.style(run.page, run);
+      if (style.refusal) {
+        setRunNotice(style.refusal);
+        dispatch({ type: "say", message: style.refusal });
+        return;
+      }
+      setRunNotice(null);
+      const id = newObjectId();
+      dispatch({
+        type: "startEdit",
+        edit: {
+          id,
+          isNew: true,
+          text: run.str,
+          base: textEditFromRun(id, run, style),
+        },
+      });
+    },
+    [dispatch, editExisting, loadStyles],
   );
 
   /* ------------------------------ pointer ------------------------------ */
@@ -858,6 +1095,21 @@ export function WysiwygEditor({
         if (!(target as HTMLElement).closest("[data-text-editor]")) {
           dispatch({ type: "endEdit" });
         } else return;
+      }
+
+      if (s.tool === "edittext") {
+        e.preventDefault();
+        if (hit && hit.kind === "textedit") {
+          editExisting(hit);
+          return;
+        }
+        const key =
+          target.closest<SVGElement>("[data-run-key]")?.dataset.runKey;
+        const run = key
+          ? runsRef.current[page]?.find((r) => r.key === key)
+          : undefined;
+        if (run) void startRetext(run);
+        return;
       }
 
       if (s.tool === "select") {
@@ -902,8 +1154,12 @@ export function WysiwygEditor({
             selected = [hit.id];
             dispatch({ type: "select", ids: selected });
           }
+          // Edited page text stays on its run: selectable, not movable.
           const originals = s.objects.filter(
-            (o) => selected.includes(o.id) && o.page === page,
+            (o) =>
+              selected.includes(o.id) &&
+              o.page === page &&
+              o.kind !== "textedit",
           );
           if (originals.length > 0) {
             drag.current = {
@@ -979,6 +1235,7 @@ export function WysiwygEditor({
       frames,
       placePending,
       pointIn,
+      startRetext,
       startText,
     ],
   );
@@ -1260,6 +1517,11 @@ export function WysiwygEditor({
         );
         return;
       }
+      if (mod && key === "f") {
+        e.preventDefault();
+        setFinding(true);
+        return;
+      }
       if (mod && key === "a") {
         e.preventDefault();
         dispatch({
@@ -1270,6 +1532,10 @@ export function WysiwygEditor({
       }
       if (mod) return;
       if (e.key === "Escape") {
+        if (finding) {
+          setFinding(false);
+          return;
+        }
         if (s.tool !== "select") chooseTool("select");
         else if (s.selected.length) dispatch({ type: "select", ids: [] });
         setSigning(false);
@@ -1296,7 +1562,12 @@ export function WysiwygEditor({
       }
       if (e.key === "Enter" && s.selected.length === 1) {
         const obj = s.objects.find((o) => o.id === s.selected[0]);
-        if (obj && (obj.kind === "text" || obj.kind === "note")) {
+        if (
+          obj &&
+          (obj.kind === "text" ||
+            obj.kind === "note" ||
+            obj.kind === "textedit")
+        ) {
           e.preventDefault();
           editExisting(obj);
         }
@@ -1313,6 +1584,7 @@ export function WysiwygEditor({
     current,
     deleteSelected,
     editExisting,
+    finding,
     nudge,
     pasteObjects,
   ]);
@@ -1332,6 +1604,12 @@ export function WysiwygEditor({
       onDelete={deleteSelected}
       onDuplicate={() => pasteObjects(selection, "Duplicate")}
     />
+  ) : state.tool === "edittext" ? (
+    <p className="text-muted text-xs leading-relaxed" data-edit-text-help="">
+      Click any text on the page to change it. When you apply, the old words are
+      removed from the file and yours are written in their place. A scanned page
+      has no text to edit: run OCR PDF on it first.
+    </p>
   ) : (
     <p className="text-muted text-xs leading-relaxed">
       Pick a tool, then click on a page to place it. Select an item to move it,
@@ -1351,6 +1629,8 @@ export function WysiwygEditor({
       fit={zoom.fit}
       onZoom={(z) => changeZoom(z)}
       onFit={fitNow}
+      finding={finding}
+      onFind={() => setFinding((f) => !f)}
     />
   );
 
@@ -1418,6 +1698,32 @@ export function WysiwygEditor({
           />
         )}
 
+        {finding && (
+          <FindPanel
+            state={{ ...find, index: matchIndex }}
+            onChange={(patch) => setFind((f) => ({ ...f, ...patch }))}
+            count={matches.length}
+            reading={Math.max(0, pagesReading)}
+            onStep={stepMatch}
+            onReplace={() => {
+              const m = matches[matchIndex];
+              if (m) void replaceMatches([m], "Replace");
+            }}
+            onReplaceAll={() => void replaceMatches(matches, "Replace all")}
+            onClose={() => setFinding(false)}
+          />
+        )}
+
+        {runNotice && (
+          <p
+            role="status"
+            data-run-notice=""
+            className="border-line bg-panel rounded-panel text-muted border px-3.5 py-2 text-xs"
+          >
+            {runNotice}
+          </p>
+        )}
+
         <div className="grid gap-3 lg:grid-cols-[7.25rem_minmax(0,1fr)_15rem]">
           <div className="hidden h-[min(76vh,1100px)] min-h-[420px] lg:block">
             {ready && (
@@ -1478,6 +1784,44 @@ export function WysiwygEditor({
                         ? { ...state.editing.base, text: state.editing.text }
                         : null
                     }
+                    runs={
+                      state.tool === "edittext"
+                        ? (editableRuns[slot.index]?.filter(
+                            (r) => !editOfRun.has(r.key),
+                          ) ?? null)
+                        : null
+                    }
+                    findHits={
+                      finding
+                        ? matches.flatMap((m, i) => {
+                            if (m.page !== slot.index) return [];
+                            const run = runs[slot.index]?.find(
+                              (r) => r.key === m.run,
+                            );
+                            if (!run) return [];
+                            const text =
+                              editOfRun.get(run.key)?.text ?? run.str;
+                            const len = Math.max(1, text.length);
+                            const r = run.rect;
+                            const flat = Math.abs(run.angle) < 1;
+                            return [
+                              {
+                                rect: flat
+                                  ? {
+                                      x: r.x + (r.width * m.start) / len,
+                                      y: r.y,
+                                      width:
+                                        (r.width * (m.end - m.start)) / len,
+                                      height: r.height,
+                                    }
+                                  : r,
+                                current: i === matchIndex,
+                              },
+                            ];
+                          })
+                        : []
+                    }
+                    onRunActivate={(run) => void startRetext(run)}
                     previewNew={Object.values(state.preview ?? {}).filter(
                       (o) =>
                         o.page === slot.index &&
@@ -1496,7 +1840,11 @@ export function WysiwygEditor({
                     }}
                     onPointerDown={onPagePointerDown}
                     onDoubleClickObject={(obj) => {
-                      if (obj.kind === "text" || obj.kind === "note")
+                      if (
+                        obj.kind === "text" ||
+                        obj.kind === "note" ||
+                        obj.kind === "textedit"
+                      )
                         editExisting(obj);
                     }}
                     onFocusObject={(id) => {
@@ -1651,6 +1999,9 @@ function PageSheet({
   kit,
   objects,
   pendingNew,
+  runs,
+  findHits,
+  onRunActivate,
   previewNew,
   shown,
   selected,
@@ -1678,7 +2029,11 @@ function PageSheet({
   near: boolean;
   kit: TextKit;
   objects: EditorObject[];
-  pendingNew: TextBoxObject | NoteObject | null;
+  pendingNew: TextBoxObject | NoteObject | TextEditObject | null;
+  /** Edit text: the runs to outline (null when the tool is not active). */
+  runs: TextRun[] | null;
+  findHits: { rect: Rect; current: boolean }[];
+  onRunActivate: (run: TextRun) => void;
   previewNew: EditorObject[];
   shown: (obj: EditorObject) => EditorObject;
   selected: string[];
@@ -1699,13 +2054,13 @@ function PageSheet({
     pendingNew ??
     (editing
       ? (drawn.find((o) => o.id === editing.id) as
-          TextBoxObject | NoteObject | undefined)
+          TextBoxObject | NoteObject | TextEditObject | undefined)
       : undefined);
   if (pendingNew) drawn.push(pendingNew);
   const textsToLoad = drawn
     .filter(
-      (o): o is TextBoxObject | NoteObject =>
-        o.kind === "text" || o.kind === "note",
+      (o): o is TextBoxObject | NoteObject | TextEditObject =>
+        o.kind === "text" || o.kind === "note" || o.kind === "textedit",
     )
     .map((o) => o.text);
   useEffect(() => {
@@ -1714,6 +2069,8 @@ function PageSheet({
 
   const placing = tool !== "select";
   const coarse = useCoarsePointer();
+  // The run under the pointer or keyboard focus (Edit text), drawn stronger.
+  const [hot, setHot] = useState<string | null>(null);
   const handlePx = coarse ? HANDLE_PX_TOUCH : HANDLE_PX;
   const handleSize = handlePx / scale;
   // Centred in the visible width when it fits; a page wider than the view
@@ -1732,9 +2089,19 @@ function PageSheet({
       aria-label={`Page ${index + 1} of ${count}`}
       className={cn(
         "absolute bg-white shadow-md ring-1 ring-black/10 select-none",
-        placing ? "cursor-crosshair [touch-action:none]" : "cursor-default",
+        tool === "edittext"
+          ? undefined
+          : placing
+            ? "cursor-crosshair [touch-action:none]"
+            : "cursor-default",
       )}
-      style={{ top: slotTop, left, width, height }}
+      style={{
+        top: slotTop,
+        left,
+        width,
+        height,
+        ...(tool === "edittext" ? { cursor: "text" } : {}),
+      }}
       onPointerDown={(e) => onPointerDown(e, index)}
     >
       <PageCanvas doc={doc} index={index} scale={scale} near={near} />
@@ -1747,8 +2114,55 @@ function PageSheet({
           width={width}
           height={height}
           viewBox={`0 0 ${frame.width} ${frame.height}`}
-          aria-hidden={drawn.length === 0 ? true : undefined}
+          aria-hidden={drawn.length === 0 && !runs?.length ? true : undefined}
         >
+          {findHits.map((h, i) => (
+            <rect
+              key={`find-${i}`}
+              data-find-hit={h.current ? "current" : ""}
+              x={h.rect.x}
+              y={h.rect.y}
+              width={h.rect.width}
+              height={h.rect.height}
+              fill="#facc15"
+              fillOpacity={h.current ? 0.55 : 0.3}
+              stroke={h.current ? "#ea580c" : "none"}
+              strokeWidth={1.5 / scale}
+              pointerEvents="none"
+            />
+          ))}
+          {runs?.map((run) => (
+            <rect
+              key={run.key}
+              data-run-key={run.key}
+              role="button"
+              tabIndex={0}
+              aria-label={`Edit text “${run.str.trim().slice(0, 60)}”`}
+              x={run.rect.x}
+              y={run.rect.y}
+              width={Math.max(run.rect.width, 1)}
+              height={Math.max(run.rect.height, 1)}
+              fill="#2563eb"
+              fillOpacity={hot === run.key ? 0.1 : 0}
+              stroke="#2563eb"
+              strokeOpacity={hot === run.key ? 1 : 0.5}
+              strokeDasharray={`${3 / scale} ${2 / scale}`}
+              strokeWidth={1 / scale}
+              className="outline-none"
+              style={{ cursor: "text" }}
+              onPointerEnter={() => setHot(run.key)}
+              onPointerLeave={() => setHot((k) => (k === run.key ? null : k))}
+              onFocus={() => setHot(run.key)}
+              onBlur={() => setHot((k) => (k === run.key ? null : k))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onRunActivate(run);
+                }
+              }}
+            />
+          ))}
           {drawn.map((obj) => {
             const isSel = selected.includes(obj.id);
             return (
@@ -1922,7 +2336,28 @@ function PageSheet({
         </svg>
       )}
 
-      {editingObj && editing && (
+      {runs && runs.length === 0 && (
+        <p
+          data-no-text=""
+          className="bg-panel text-muted border-line rounded-ctl absolute border px-3 py-2 text-xs shadow-sm"
+          style={{ left: 12, right: 12, top: 12 }}
+        >
+          No editable text on this page. If it is a scan, run OCR PDF on it
+          first.
+        </p>
+      )}
+
+      {editingObj && editing && editingObj.kind === "textedit" && (
+        <RunEditor
+          obj={editingObj}
+          text={editing.text}
+          kit={kit}
+          scale={scale}
+          onChange={onEditText}
+          onDone={onEndEdit}
+        />
+      )}
+      {editingObj && editing && editingObj.kind !== "textedit" && (
         <TextEditor
           obj={editingObj}
           text={editing.text}
@@ -1932,6 +2367,105 @@ function PageSheet({
           onDone={onEndEdit}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Typing over text that was already on the page: one line, on the run's own
+ * baseline, at its size, colour and angle, with a note saying which font
+ * the words will be written in.
+ */
+function RunEditor({
+  obj,
+  text,
+  kit,
+  scale,
+  onChange,
+  onDone,
+}: {
+  obj: TextEditObject;
+  text: string;
+  kit: TextKit;
+  scale: number;
+  onChange: (text: string) => void;
+  onDone: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const noteId = useId();
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.select();
+  }, []);
+  const unicode = needsUnicodeFace(text);
+  const family = unicode
+    ? kit.family(
+        { ...obj, kind: "text", align: "left", lineHeight: 1 } as never,
+        text,
+      )
+    : CSS_FONT_STACK[obj.font];
+  const own = text.trim().length > 0 && ownFontCovers(obj.ownChars, text);
+  const note = !text.trim()
+    ? "The text will be deleted"
+    : own
+      ? `Own font: ${obj.fontName}`
+      : `Font substituted: ${substituteLabel(obj, text)}`;
+  const ascent = obj.size * 0.95;
+  const lineBox = obj.size * 1.2;
+  const width = Math.max(obj.width, text.length * obj.size * 0.62) + obj.size;
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: obj.baseX * scale,
+        top: (obj.baseY - ascent) * scale,
+        transform:
+          Math.abs(obj.angle) > 0.01 ? `rotate(${obj.angle}deg)` : undefined,
+        transformOrigin: `0 ${ascent * scale}px`,
+      }}
+      data-text-editor=""
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <span
+        id={noteId}
+        data-font-note={!text.trim() ? "deleted" : own ? "own" : "substituted"}
+        className="border-line bg-panel text-fg rounded-tag pointer-events-none absolute left-0 border px-1.5 py-0.5 text-[11px] whitespace-nowrap shadow"
+        style={{ bottom: "calc(100% + 4px)" }}
+      >
+        {note}
+      </span>
+      <input
+        ref={ref}
+        type="text"
+        data-run-editor=""
+        aria-label={`Edit text, was “${obj.original}”`}
+        aria-describedby={noteId}
+        value={text}
+        spellCheck
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onDone}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" || e.key === "Enter") {
+            e.preventDefault();
+            onDone();
+          }
+        }}
+        className="outline-accent block border-0 bg-white p-0 outline-2 outline-offset-2 outline-dashed"
+        style={{
+          width: width * scale,
+          height: lineBox * scale,
+          fontFamily: family,
+          fontSize: obj.size * scale,
+          lineHeight: `${lineBox * scale}px`,
+          paddingTop: 0,
+          fontWeight: !unicode && obj.bold ? 700 : 400,
+          fontStyle: !unicode && obj.italic ? "italic" : "normal",
+          color: obj.color,
+          fontKerning: "none",
+        }}
+      />
     </div>
   );
 }
