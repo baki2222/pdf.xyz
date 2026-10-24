@@ -27,6 +27,7 @@ import {
   organizePages,
   splitPdf,
 } from "./engine";
+import { combineRanges, splitPdfBySize } from "./split-modes";
 import { loadPdfjs } from "./pdfjs";
 import { buildSplitParts, rangesPerPage } from "./ranges";
 import type { OrganizePlanItem } from "./types";
@@ -1324,6 +1325,28 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
         b,
         kept.map((sourceIndex) => ({ sourceIndex, rotation: 0 })),
       ),
+    // Split PDF's "merge selected ranges into one file".
+    combineRanges: (b, kept) =>
+      combineRanges(
+        b,
+        kept.map((i) => ({ start: i, end: i })),
+      ),
+  };
+
+  /**
+   * Subset carriers whose parts are CONSECUTIVE pages by construction, so
+   * `KEPT` (pages 1, 3, 5) is not a part they can produce. Each is held to
+   * `splitPdf` instead: for the same parts, what a viewer reads in every part
+   * must be what it reads in splitPdf's — so everything SUBSET_TOOLS proves of
+   * splitPdf carries over. A NEW consecutive-only carrier must be added here,
+   * or the derived check below fails.
+   */
+  const CONSECUTIVE_SUBSET_TOOLS: Record<
+    string,
+    (bytes: Uint8Array) => Promise<{ name: string; bytes: Uint8Array }[]>
+  > = {
+    // A 1-byte target: every page is its own (reported, oversized) part.
+    splitPdfBySize: async (b) => (await splitPdfBySize(b, 1, "doc")).files,
   };
 
   /**
@@ -1331,20 +1354,62 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
    * every exported function that assembles with `documentState: "subset"`. A
    * new subset tool joins this set without anyone naming it. (Until d4b37dd
    * the option was a boolean, and merge — the one `false` — carried nothing.)
+   *
+   * WIDENED 2026-10-24 from `engine.ts` alone to every module in this
+   * directory: Split PDF's by-size and merged-ranges assemblers live in
+   * `split-modes.ts` (kept off the engine chunk every tool page preloads),
+   * and a guard naming one file could not see them.
    */
+  const carrierFiles = readdirSync(__dirname).filter(
+    (f) => f.endsWith(".ts") && !f.includes(".test."),
+  );
   const carriers = (state: "subset" | "merge") =>
-    readFileSync(join(__dirname, "engine.ts"), "utf8")
-      .split(/^export async function /m)
-      .slice(1)
+    carrierFiles
+      .flatMap((file) =>
+        readFileSync(join(__dirname, file), "utf8")
+          .split(/^export async function /m)
+          .slice(1),
+      )
       .filter((body) => body.includes(`documentState: "${state}"`))
       .map((body) => /^(\w+)/.exec(body)![1]!)
       .sort();
 
   it("the tools under test are exactly the engine's document-state carriers (derived)", () => {
+    // Health: the scan read the engine and the split modes, among many.
+    expect(carrierFiles).toEqual(
+      expect.arrayContaining(["engine.ts", "split-modes.ts", "page-copy.ts"]),
+    );
+    expect(carrierFiles.length).toBeGreaterThan(20);
     // Positive control for the parser: it finds merge as the one that merges.
     expect(carriers("merge")).toEqual(["mergePdfs"]);
-    expect(carriers("subset")).toEqual(Object.keys(SUBSET_TOOLS).sort());
+    expect(carriers("subset")).toEqual(
+      [
+        ...Object.keys(SUBSET_TOOLS),
+        ...Object.keys(CONSECUTIVE_SUBSET_TOOLS),
+      ].sort(),
+    );
   });
+
+  for (const [tool, run] of Object.entries(CONSECUTIVE_SUBSET_TOOLS)) {
+    it(`${tool}: every part carries what splitPdf carries for the same pages`, async () => {
+      const bytes = await handbookDoc();
+      const parts = await run(bytes);
+      const reference = await splitPdf(
+        bytes,
+        buildSplitParts("doc", rangesPerPage(PAGE_COUNT)),
+      );
+      // Health: one part per page, so the comparison is page by page.
+      expect(parts.map((p) => p.name)).toEqual(reference.map((p) => p.name));
+      for (const [i, part] of parts.entries()) {
+        const got = await readAsViewer(part.bytes);
+        const want = await readAsViewer(reference[i]!.bytes);
+        expect(got).toEqual(want);
+      }
+      // Positive control: the reference is not vacuously empty.
+      const first = await readAsViewer(reference[0]!.bytes);
+      expect(first.outline.length).toBeGreaterThan(0);
+    });
+  }
 
   it("POSITIVE CONTROL: a viewer reads the whole structure in the input", async () => {
     const bytes = await handbookDoc();

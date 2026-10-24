@@ -412,8 +412,8 @@ describe("user-facing copy does not hand-write figures the code owns", () => {
     // Anchored on the intro's first words: the answer it used to be planted
     // in ("Merge copies pages, …") left the page at the seo/content merge.
     const planted = real.replace(
-      "Merge PDF joins whole documents",
-      "Files up to 100 MB each. Links expire after 60 minutes. Merge PDF joins whole documents",
+      "Merge PDF joins documents",
+      "Files up to 100 MB each. Links expire after 60 minutes. Merge PDF joins documents",
     );
     expect(planted).not.toBe(real);
     const found = findingsIn(file, planted).map(

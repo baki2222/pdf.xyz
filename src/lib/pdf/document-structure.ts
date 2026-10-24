@@ -296,25 +296,42 @@ export interface OutlineSource {
   src: PDFDocument;
   resolve: DestinationResolver;
   map: DestinationMapper;
+  /**
+   * A bookmark for the source itself: `title` (the file's name, which the
+   * user chose to have written) opening `page`, its first page in the
+   * output, with the source's own bookmarks beneath it.
+   */
+  wrap?: { title: string; page: PDFRefT };
 }
 
 /**
  * Write the bookmarks of every source, one source after another, as ONE
  * outline: each source's top-level bookmarks follow the previous source's,
- * each opening its own source's page in the output. No bookmark is invented:
- * a per-file bookmark would need a title, and the only one to hand is the
- * file's local name. `/PageMode /UseOutlines` (open with the bookmark panel
- * showing) is kept when a source asked for it and an outline was written.
+ * each opening its own source's page in the output. No bookmark is invented
+ * unless the caller asks for one: a per-file bookmark needs a title, and the
+ * only one to hand is the file's local name, so it is written only for a
+ * source that carries `wrap` (Merge PDF's "Add a bookmark for each file").
+ * `/PageMode /UseOutlines` (open with the bookmark panel showing) is kept
+ * when a source asked for it and an outline was written.
  */
 export function carryOutlines(
   lib: PdfLibModule,
   out: PDFDocument,
   sources: OutlineSource[],
 ): void {
-  const { PDFName } = lib;
-  const top = sources.flatMap(({ src, resolve, map }) =>
-    readOutline(lib, src, out, resolve, map),
-  );
+  const { PDFName, PDFHexString } = lib;
+  const top = sources.flatMap(({ src, resolve, map, wrap }): Bookmark[] => {
+    const own = readOutline(lib, src, out, resolve, map);
+    if (!wrap) return own;
+    return [
+      {
+        title: PDFHexString.fromText(wrap.title),
+        dest: out.context.obj([wrap.page, PDFName.of("Fit")]),
+        open: false,
+        children: own,
+      },
+    ];
+  });
   if (!writeOutline(lib, out, top)) return;
   const useOutlines = PDFName.of("UseOutlines");
   if (

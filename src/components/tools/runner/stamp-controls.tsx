@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { ShieldCheck } from "lucide-react";
+import { ChevronDown, ShieldCheck } from "lucide-react";
 import {
   resolveAlign,
   STAMP_POSITIONS,
@@ -46,16 +46,23 @@ export function PositionPicker({
   value,
   onChange,
   label = "Position",
+  disabled = false,
 }: {
   value: StampPosition;
   onChange: (position: StampPosition) => void;
   label?: string;
+  /** Greys the grid out and stops it taking clicks (e.g. while tiling). */
+  disabled?: boolean;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="border-line bg-canvas rounded-panel grid aspect-[4/3] w-40 grid-cols-3 grid-rows-3 gap-1 border p-1.5"
+      aria-disabled={disabled || undefined}
+      className={cn(
+        "border-line bg-canvas rounded-panel grid aspect-[4/3] w-40 grid-cols-3 grid-rows-3 gap-1 border p-1.5",
+        disabled && "opacity-50",
+      )}
     >
       {STAMP_POSITIONS.map((position) => {
         const { h, v } = resolveAlign(position);
@@ -68,7 +75,10 @@ export function PositionPicker({
             aria-checked={active}
             aria-label={POSITION_LABELS[position]}
             title={POSITION_LABELS[position]}
-            onClick={() => onChange(position)}
+            aria-disabled={disabled || undefined}
+            onClick={() => {
+              if (!disabled) onChange(position);
+            }}
             className={cn(
               "rounded-ctl flex border p-1.5 transition",
               H_JUSTIFY[h],
@@ -151,7 +161,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="border-line bg-canvas rounded-ctl inline-flex border p-1"
+      className="border-line bg-canvas rounded-ctl inline-flex max-w-full flex-wrap border p-1"
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -271,6 +281,104 @@ export function TokenButtons({
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** A labeled colour swatch (`<input type="color">`, `#rrggbb`). */
+export function ColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        id={id}
+        type="color"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="border-line bg-canvas rounded-ctl h-8 w-10 cursor-pointer border p-0.5"
+      />
+      <label htmlFor={id} className="text-muted text-xs font-medium">
+        {label}
+      </label>
+    </div>
+  );
+}
+
+/** A labeled checkbox for an on/off option. */
+export function CheckboxField({
+  label,
+  checked,
+  onChange,
+  hint,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  hint?: ReactNode;
+}) {
+  return (
+    <label className="text-fg inline-flex cursor-pointer items-start gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="accent-accent mt-0.5 size-4 shrink-0"
+      />
+      <span className="flex flex-col gap-0.5">
+        <span>{label}</span>
+        {hint && <span className="text-muted text-xs">{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+/**
+ * A disclosure for options most runs leave alone: a button that shows and
+ * hides its region, closed by default. A button rather than `<details>`, the
+ * same choice the worker panels make.
+ */
+export function MoreOptions({
+  label,
+  open,
+  onToggle,
+  children,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => onToggle(!open)}
+        className="text-accent hover:text-fg inline-flex items-center gap-1.5 self-start text-sm font-medium transition"
+      >
+        <ChevronDown
+          className={cn("size-4 transition", open && "rotate-180")}
+          aria-hidden
+        />
+        {label}
+      </button>
+      <div
+        id={id}
+        hidden={!open}
+        className={open ? "flex flex-col gap-5" : undefined}
+      >
+        {children}
+      </div>
     </div>
   );
 }

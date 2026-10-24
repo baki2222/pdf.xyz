@@ -95,6 +95,18 @@ describe("the comparison, against controls", () => {
     }
   });
 
+  // `pnpm worker:prove-tools` against production, 2026-10-24: the PowerPoint
+  // round trip FAILED with pdf.js's "Please provide binary data as
+  // `Uint8Array`, rather than `Buffer`" — the harness hands this module the
+  // bytes `fetch` gave it as a Node Buffer, which the `Uint8Array` type
+  // admits, and `buf.slice()` is another Buffer (a VIEW, not a copy).
+  it("takes Node Buffers, the type it is handed off the wire", async () => {
+    const { pdf } = await imageCaptionPdf();
+    const report = await compareFidelity(Buffer.from(pdf), Buffer.from(pdf));
+    expect(report.pages.map((p) => p.score)).toEqual([0]);
+    expect(report.pass).toBe(true);
+  });
+
   it("POSITIVE CONTROL: a PDF scores 0 against itself, and passes", async () => {
     const { pdf } = await imageCaptionPdf();
     const report = await compareFidelity(pdf, pdf);

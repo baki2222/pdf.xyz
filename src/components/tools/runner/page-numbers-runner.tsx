@@ -6,9 +6,20 @@ import {
   addPageNumbers,
   DEFAULT_PAGE_NUMBER_FORMAT,
   numberedOutputName,
+  numberingPlan,
+  PAGE_NUMBER_MARGINS,
   previewPageNumber,
+  type PageNumberMargin,
 } from "@/lib/pdf/page-numbers";
-import type { StampPosition } from "@/lib/pdf/stamp";
+import {
+  hexToRgb,
+  INK,
+  rgbToHex,
+  STAMP_FONT_FAMILIES,
+  STAMP_FONT_LABELS,
+  type StampFontFamily,
+  type StampPosition,
+} from "@/lib/pdf/stamp";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -28,6 +39,9 @@ import {
 import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import {
+  CheckboxField,
+  ColorField,
+  MoreOptions,
   NumberField,
   PositionPicker,
   PrivacyLine,
@@ -48,6 +62,16 @@ export const FORMAT_PRESETS: { value: string; label: string }[] = [
   { value: "{n}", label: "1" },
   { value: "- {n} -", label: "- 1 -" },
 ];
+
+/** The margin presets as the runner labels them, smallest first. */
+const MARGIN_LABELS: Record<PageNumberMargin, string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+
+/** The default ink as a colour-input value; any other value is a choice. */
+const DEFAULT_INK_HEX = rgbToHex(INK);
 
 export function PageNumbersRunner() {
   return (
@@ -82,17 +106,32 @@ export function PageNumbersEditor({
   );
   const [startAt, setStartAt] = useState(kept.startAt ?? 1);
   const [fontSize, setFontSize] = useState(11);
+  const [margin, setMargin] = useState<PageNumberMargin>("medium");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [skipCover, setSkipCover] = useState(false);
+  const [skipLast, setSkipLast] = useState(0);
+  const [facing, setFacing] = useState(false);
+  const [font, setFont] = useState<StampFontFamily>("helvetica");
+  const [inkHex, setInkHex] = useState(DEFAULT_INK_HEX);
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
 
-  const numberedCount = Math.max(0, pdf.pageCount - (startPage - 1));
+  // The engine's own arithmetic, so the preview and the summary cannot
+  // disagree with what is drawn.
+  const plan = useMemo(
+    () =>
+      numberingPlan(pdf.pageCount, { startPage, startAt, skipCover, skipLast }),
+    [pdf.pageCount, startPage, startAt, skipCover, skipLast],
+  );
+  const numberedCount = plan.stamps.length;
   const preview = useMemo(() => {
-    const total = startAt + numberedCount - 1;
+    const first = plan.stamps[0];
+    if (!first) return "";
     return previewPageNumber(
       format || DEFAULT_PAGE_NUMBER_FORMAT,
-      startAt,
-      total,
+      first.n,
+      plan.total,
     );
-  }, [format, startAt, numberedCount]);
+  }, [format, plan]);
 
   const onRun = () => {
     // A preset is kept; anything typed is not.
@@ -112,6 +151,16 @@ export function PageNumbersEditor({
         startPage,
         startAt,
         fontSize,
+        margin: PAGE_NUMBER_MARGINS[margin],
+        skipCover,
+        skipLast,
+        facing,
+        font,
+        // The default ink is passed as nothing at all, so an untouched run
+        // draws exactly the colour it always did.
+        ...(inkHex !== DEFAULT_INK_HEX && hexToRgb(inkHex)
+          ? { color: hexToRgb(inkHex)! }
+          : {}),
       }),
     );
   };
@@ -201,9 +250,63 @@ export function PageNumbersEditor({
               onChange={setFontSize}
               format={(v) => `${v} pt`}
             />
+            <div className="flex flex-col gap-2">
+              <span className="text-muted text-xs font-medium">Margin</span>
+              <SegmentedControl
+                label="Margin from the page edge"
+                value={margin}
+                onChange={setMargin}
+                options={(
+                  Object.keys(PAGE_NUMBER_MARGINS) as PageNumberMargin[]
+                ).map((key) => ({ value: key, label: MARGIN_LABELS[key] }))}
+              />
+            </div>
           </div>
         </div>
       </RunnerSection>
+
+      <MoreOptions
+        label="Pages, font and color"
+        open={moreOpen}
+        onToggle={setMoreOpen}
+      >
+        <div className="flex flex-col gap-3">
+          <CheckboxField
+            label="Leave the cover unnumbered"
+            checked={skipCover}
+            onChange={setSkipCover}
+            hint="Page 1 is counted but gets no number, so page 2 shows the next one."
+          />
+          <CheckboxField
+            label="Facing pages"
+            checked={facing}
+            onChange={setFacing}
+            hint="Swaps left and right on even pages, for printing as a book."
+          />
+          <div className="max-w-52">
+            <NumberField
+              label="Skip last pages"
+              value={skipLast}
+              min={0}
+              max={Math.max(0, pdf.pageCount - 1)}
+              onChange={setSkipLast}
+            />
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <span className="text-muted text-xs font-medium">Font</span>
+          <SegmentedControl
+            label="Page number font"
+            value={font}
+            onChange={setFont}
+            options={STAMP_FONT_FAMILIES.map((family) => ({
+              value: family,
+              label: STAMP_FONT_LABELS[family],
+            }))}
+          />
+        </div>
+        <ColorField label="Color" value={inkHex} onChange={setInkHex} />
+      </MoreOptions>
 
       <PrivacyLine>
         Numbers are drawn on your device — the PDF never leaves your browser.
@@ -213,7 +316,12 @@ export function PageNumbersEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton onClick={onRun} busy={busy} busyLabel="Numbering…">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={numberedCount === 0}
+            busyLabel="Numbering…"
+          >
             <ListOrdered className="size-4" aria-hidden />
             Add page numbers
           </RunButton>

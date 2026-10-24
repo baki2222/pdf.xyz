@@ -1,5 +1,26 @@
-import { test, expect } from "@playwright/test";
-import { attachConsoleGuard, uploadFiles, writeTempPdf } from "./helpers";
+import { test, expect, type Page } from "@playwright/test";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFRef,
+  PDFString,
+} from "pdf-lib";
+import {
+  attachConsoleGuard,
+  fileInput,
+  uploadFiles,
+  waitForHydration,
+  writeTempPdf,
+} from "./helpers";
+import { makeTextPdf } from "./client-proof/fixtures";
+import {
+  captureDownload,
+  pdfPageTexts,
+  zipEntries,
+} from "./client-proof/artifacts";
 
 /**
  * End-to-end proof that a "client" tool really runs in the browser: we generate
@@ -52,4 +73,238 @@ test("merge combines uploaded PDFs client-side and yields a download", async ({
   await download.click();
 
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);
+});
+
+/* ------------------------------------------------------------------ *
+ *  Non-default options, read from the DOWNLOADED bytes.
+ *  Each test moves one option away from its default and asserts a property
+ *  the default run does not have, so the default would fail each.
+ * ------------------------------------------------------------------ */
+
+type Payload = { name: string; mimeType: string; buffer: Buffer };
+const pdfPayload = (name: string, bytes: Uint8Array): Payload => ({
+  name,
+  mimeType: "application/pdf",
+  buffer: Buffer.from(bytes),
+});
+
+async function stage(page: Page, files: Payload[]): Promise<void> {
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles(files);
+}
+
+/** Each page's marker ("label::page-N"), read by pdf.js. */
+async function markers(buf: Buffer): Promise<string[]> {
+  const texts = await pdfPageTexts(buf);
+  return texts.map((t) => /\S+::page-\d+/.exec(t)?.[0] ?? "?");
+}
+
+/** Top-level outline entries: title and the 0-based page each opens. */
+async function topOutline(buf: Buffer): Promise<[string, number][]> {
+  const doc = await PDFDocument.load(buf);
+  const ctx = doc.context;
+  const pageIndex = new Map(
+    doc.getPages().map((p, i) => [p.ref.toString(), i]),
+  );
+  const root = doc.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict);
+  const out: [string, number][] = [];
+  let cur = root ? ctx.lookup(root.get(PDFName.of("First"))) : undefined;
+  while (cur instanceof PDFDict && out.length < 100) {
+    const title = ctx.lookup(cur.get(PDFName.of("Title")));
+    const dest = ctx.lookup(cur.get(PDFName.of("Dest")));
+    const head = dest instanceof PDFArray ? dest.get(0) : undefined;
+    out.push([
+      title instanceof PDFString || title instanceof PDFHexString
+        ? title.decodeText()
+        : "",
+      head instanceof PDFRef ? (pageIndex.get(head.toString()) ?? -1) : -1,
+    ]);
+    const next = cur.get(PDFName.of("Next"));
+    cur = next ? ctx.lookup(next) : undefined;
+  }
+  return out;
+}
+
+test("merge options: sort A–Z, per-file pages and a bookmark per file, at 375 px", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/tools/merge-pdf");
+  // beta is added first, so "Name A–Z" has something to change.
+  await stage(page, [
+    pdfPayload("beta.pdf", await makeTextPdf("beta.pdf", { pages: 2 })),
+    pdfPayload("alpha.pdf", await makeTextPdf("alpha.pdf", { pages: 3 })),
+  ]);
+  await expect(page.getByText("alpha.pdf", { exact: true })).toBeVisible();
+  await expect(page.getByText("beta.pdf", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Name A–Z" }).click();
+  await page.getByLabel(/pages of alpha\.pdf to merge/i).fill("1, 3");
+  await page.getByLabel(/add a bookmark for each file/i).check();
+  await expect(page.getByText(/2 files · 4 pages/)).toBeVisible();
+
+  // The row's page box must not push the page sideways on a phone.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+
+  await page.getByRole("button", { name: /merge 2 pdfs/i }).click();
+  await expect(
+    page.getByRole("heading", { name: /pdfs merged/i }),
+  ).toBeVisible();
+  const buf = await captureDownload(
+    page,
+    page.getByRole("button", { name: /download merged pdf/i }),
+  );
+  expect(await markers(buf)).toEqual([
+    "alpha.pdf::page-1",
+    "alpha.pdf::page-3",
+    "beta.pdf::page-1",
+    "beta.pdf::page-2",
+  ]);
+  expect(await topOutline(buf)).toEqual([
+    ["alpha", 0],
+    ["beta", 2],
+  ]);
+});
+
+/** A text PDF with hand-written top-level bookmarks at `starts` (0-based). */
+async function bookmarkedPdf(
+  label: string,
+  pages: number,
+  starts: number[],
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(await makeTextPdf(label, { pages }));
+  const ctx = doc.context;
+  const pageRefs = doc.getPages().map((p) => p.ref);
+  const rootRef = ctx.nextRef();
+  const refs = starts.map(() => ctx.nextRef());
+  starts.forEach((start, i) => {
+    ctx.assign(
+      refs[i]!,
+      ctx.obj({
+        Title: PDFString.of(`Chapter ${i + 1}`),
+        Parent: rootRef,
+        ...(i > 0 ? { Prev: refs[i - 1]! } : {}),
+        ...(i < refs.length - 1 ? { Next: refs[i + 1]! } : {}),
+        Dest: [pageRefs[start]!, PDFName.of("Fit")],
+      }),
+    );
+  });
+  ctx.assign(
+    rootRef,
+    ctx.obj({
+      Type: "Outlines",
+      First: refs[0]!,
+      Last: refs[refs.length - 1]!,
+      Count: refs.length,
+    }),
+  );
+  doc.catalog.set(PDFName.of("Outlines"), rootRef);
+  return doc.save();
+}
+
+/** Each ZIP entry's page markers, entries in name order. */
+async function partsOf(zip: Buffer): Promise<string[][]> {
+  const entries = [...(await zipEntries(zip)).entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  return Promise.all(entries.map(([, bytes]) => markers(bytes)));
+}
+
+test("split options: by bookmarks cuts at each top-level bookmark's page", async ({
+  page,
+}) => {
+  await page.goto("/tools/split-pdf");
+  await stage(page, [
+    pdfPayload("book.pdf", await bookmarkedPdf("book.pdf", 5, [1, 3])),
+  ]);
+  await expect(page.getByText("book.pdf", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "By bookmarks" }).click();
+  await expect(page.getByText("Chapter 2", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /split into 3 files/i }).click();
+  await expect(page.getByRole("heading", { name: /pdf split/i })).toBeVisible();
+  const zip = await captureDownload(
+    page,
+    page.getByRole("button", { name: /download zip \(3 files\)/i }),
+  );
+  expect(await partsOf(zip)).toEqual([
+    ["book.pdf::page-1"],
+    ["book.pdf::page-2", "book.pdf::page-3"],
+    ["book.pdf::page-4", "book.pdf::page-5"],
+  ]);
+});
+
+test("split options: a PDF without bookmarks greys the mode out with a reason", async ({
+  page,
+}) => {
+  await page.goto("/tools/split-pdf");
+  await stage(page, [
+    pdfPayload("plain.pdf", await makeTextPdf("plain.pdf", { pages: 3 })),
+  ]);
+  await expect(
+    page.getByText(/this pdf has no top-level bookmarks/i),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "By bookmarks" }),
+  ).toHaveAttribute("aria-disabled", "true");
+});
+
+test("split options: merge selected ranges into one file", async ({ page }) => {
+  await page.goto("/tools/split-pdf");
+  await stage(page, [
+    pdfPayload("deck.pdf", await makeTextPdf("deck.pdf", { pages: 4 })),
+  ]);
+  await expect(page.getByText("deck.pdf", { exact: true })).toBeVisible();
+  await page.getByPlaceholder("e.g. 1-3, 4-6, 7-").fill("3-4, 1");
+  await page.getByLabel(/merge selected ranges into one file/i).check();
+  await page.getByRole("button", { name: /split into 1 file/i }).click();
+  await expect(page.getByRole("heading", { name: /pdf split/i })).toBeVisible();
+  const buf = await captureDownload(
+    page,
+    page.getByRole("button", { name: /^download pdf$/i }),
+  );
+  expect(await markers(buf)).toEqual([
+    "deck.pdf::page-3",
+    "deck.pdf::page-4",
+    "deck.pdf::page-1",
+  ]);
+});
+
+test("split options: by file size keeps every part under the target", async ({
+  page,
+}) => {
+  await page.goto("/tools/split-pdf");
+  const lines = Array.from(
+    { length: 40 },
+    (_, i) => `line ${i} ${(i * 7919 + 104729).toString(36).repeat(4)}`,
+  );
+  const source = await makeTextPdf("big.pdf", {
+    pages: 8,
+    bodyLines: lines,
+    unoptimized: true,
+  });
+  await stage(page, [pdfPayload("big.pdf", source)]);
+  await expect(page.getByText("big.pdf", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "By file size" }).click();
+  const targetMb = (source.byteLength / 3 / (1024 * 1024)).toFixed(4);
+  await page.getByLabel(/maximum size per file/i).fill(targetMb);
+  await page.getByRole("button", { name: /split by size/i }).click();
+  await expect(page.getByRole("heading", { name: /pdf split/i })).toBeVisible();
+  const zip = await captureDownload(
+    page,
+    page.getByRole("button", { name: /download zip/i }),
+  );
+  const entries = await zipEntries(zip);
+  // Health: the target really forced several parts.
+  expect(entries.size).toBeGreaterThan(1);
+  const limit = Number(targetMb) * 1024 * 1024;
+  for (const [name, bytes] of entries) {
+    expect(bytes.byteLength, name).toBeLessThanOrEqual(limit);
+  }
+  expect((await partsOf(zip)).flat()).toEqual(
+    Array.from({ length: 8 }, (_, i) => `big.pdf::page-${i + 1}`),
+  );
 });

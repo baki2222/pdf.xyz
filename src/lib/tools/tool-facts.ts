@@ -414,7 +414,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Ordering",
       value:
-        "Drag files to reorder before merging, or use each row's move buttons — the output follows top to bottom.",
+        "Drag files to reorder before merging, use each row's move buttons, or sort by name — the output follows top to bottom.",
     },
   ],
   "split-pdf": [
@@ -437,7 +437,14 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Colors",
       value:
-        "Gray, red, or blue watermark text, placed diagonally across each page.",
+        "Gray, red, blue or any custom color for watermark text, in Helvetica, Times or Courier — or a PNG or JPEG image instead.",
+    },
+    {
+      label: "Placement",
+      // STAMP_POSITIONS is the list the runner's PositionPicker renders;
+      // the tile and page list are `position: "tile"` and `pages` in
+      // watermarkPdf, both read back from the output by stamp-options.test.ts.
+      value: `Diagonal across the middle by default; any of ${STAMP_POSITIONS.length} positions, or tiled in rows across the page, on every page or only the ones you list.`,
     },
   ],
   "page-numbers": [
@@ -456,13 +463,14 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       // STAMP_POSITIONS is the list the runner's PositionPicker renders; the
       // upright claim is placeStamp's rotation cancel, checked on a decoded
       // output page by tool-page-content.test.ts.
-      value: `Any of ${STAMP_POSITIONS.length} positions — each corner, the middle of each edge, or the center. On a rotated page the number still lands there and reads upright.`,
+      value: `Any of ${STAMP_POSITIONS.length} positions — each corner, the middle of each edge, or the center — at a Small, Medium or Large margin, mirrored on even pages for facing pages. On a rotated page the number still lands there and reads upright.`,
     },
     {
       label: "Numbering",
-      // The runner's two NumberField labels, verbatim.
+      // The runner's NumberField labels, verbatim; the cover and tail
+      // options are numberingPlan's, read back by stamp-options.test.ts.
       value:
-        "Start on page skips earlier pages, such as a cover; First number sets the number counting starts from.",
+        "Start on page skips earlier pages, such as a cover; First number sets the number counting starts from; Skip last pages leaves the end unnumbered.",
     },
   ],
   "header-footer": [
@@ -1182,7 +1190,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Can I use an image or logo as the watermark?",
-          answer: `Not in ${tool.name}: it draws text. To put a logo or letterhead on every page, save it as a PDF and use ${toolName("overlay-pdf")}, which draws a page of that PDF on each of yours.`,
+          answer: `Yes: switch the Watermark type to Image and drop a PNG or JPEG. Image size sets its width as a share of the page width, and it takes the same opacity, angle, position and tiling as text. For a full letterhead kept as a PDF, ${toolName("overlay-pdf")} draws a page of that PDF on each of yours instead.`,
         },
         {
           question: "Can someone remove the watermark?",
@@ -1195,7 +1203,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "Can I leave the cover page unnumbered?",
           answer:
-            "Yes. Set “Start on page” to the first page that should carry a number — the pages before it are left as they are — and “First number” to the number that page should show. {total} is the last number printed: “First number” plus the count of numbered pages, minus one. Set “First number” to the same value as “Start on page” and the cover is counted, so {total} is the document's full page count.",
+            "Yes. Set “Start on page” to the first page that should carry a number — the pages before it are left as they are — and “First number” to the number that page should show. {total} is the last number printed: “First number” plus the count of numbered pages, minus one. Set “First number” to the same value as “Start on page” and the cover is counted, so {total} is the document's full page count. Ticking “Leave the cover unnumbered” does the same for a one-page cover: page 1 is counted but carries no number.",
         },
       ];
     case "header-footer":
@@ -2004,6 +2012,12 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
     "Choose a number format preset, or write your own with {n} and {total}.",
     `Pick one of ${STAMP_POSITIONS.length} positions. Set Start on page to skip a cover, and First number to choose where counting starts.`,
     "Select Add page numbers, then download the numbered PDF.",
+  ],
+  "watermark-pdf": [
+    "Pick your PDF — it stays on your device.",
+    "Type the watermark text, or switch to Image and add a PNG or JPEG, such as a logo.",
+    `Set the opacity, angle and size, then a place: one of ${STAMP_POSITIONS.length} positions, or tiled across the page. Pages and layer limits it to the pages you list or draws it behind the content.`,
+    "Select Add watermark, then download the watermarked PDF.",
   ],
   "overlay-pdf": [
     "Pick the base PDF you want to stamp — it stays on your device.",

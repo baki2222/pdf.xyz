@@ -1,6 +1,7 @@
 import type { PDFDocument, PDFFont, RGB as PdfLibRGB } from "pdf-lib";
 import { loadPdf } from "./engine";
 import { embedDrawingFont } from "./unicode-font";
+import type { StandardFace } from "./font-packs";
 import {
   normalizeRotation,
   viewToContent,
@@ -231,6 +232,163 @@ export function placeCenteredStamp(input: PlaceCenteredInput): StampPlacement {
   return { x, y, rotate: theta };
 }
 
+/**
+ * The size of the visible box as a reader sees it: width and height swap on a
+ * quarter-turned page.
+ */
+export function viewerSize(
+  box: PageBox,
+  pageRotation: number,
+): { width: number; height: number } {
+  const rot = normalizeRotation(pageRotation);
+  return rot === 90 || rot === 270
+    ? { width: box.height, height: box.width }
+    : { width: box.width, height: box.height };
+}
+
+/** The axis-aligned span of a `width × height` box turned by `tilt` degrees. */
+export function tiltedSpan(
+  width: number,
+  height: number,
+  tilt: number,
+): { x: number; y: number } {
+  const rad = (tilt * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad));
+  const sin = Math.abs(Math.sin(rad));
+  return { x: width * cos + height * sin, y: width * sin + height * cos };
+}
+
+export interface PlaceTiltedInput {
+  /** The page's visible box ({@link visibleBox}). */
+  box: PageBox;
+  pageRotation: number;
+  /** The stamp's own (untilted) width and height. */
+  width: number;
+  height: number;
+  /** Tilt (degrees, counter-clockwise) in the reader's frame. */
+  tilt: number;
+}
+
+/**
+ * Anchor a tilted stamp so its centre lands on `(cx, cy)` — a point in the
+ * READER's frame ({@link viewToContent}) — and it leans by `tilt` there.
+ *
+ * With the centre of the visible page this is exactly
+ * {@link placeCenteredStamp}: the page centre maps to the box centre under
+ * every `/Rotate`, and the anchor is the same `centre − R(θ)·(w/2, h/2)`.
+ */
+export function placeTiltedAt(
+  input: PlaceTiltedInput & { cx: number; cy: number },
+): StampPlacement {
+  const rot = normalizeRotation(input.pageRotation);
+  const theta = rot + input.tilt;
+  const rad = (theta * Math.PI) / 180;
+  const centre = viewToContent(input.cx, input.cy, input.box, rot);
+  const halfW = input.width / 2;
+  const halfH = input.height / 2;
+  return {
+    x: centre.x - (halfW * Math.cos(rad) - halfH * Math.sin(rad)),
+    y: centre.y - (halfW * Math.sin(rad) + halfH * Math.cos(rad)),
+    rotate: theta,
+  };
+}
+
+/**
+ * Place a tilted stamp in one of the nine cells of the reader's page: its
+ * tilted bounding box sits `inset` (a share of each visible side) in from the
+ * edges it is aligned to, and centred on the axes it is not.
+ */
+export function placeTiltedStamp(
+  input: PlaceTiltedInput & { h: HAlign; v: VAlign; inset: number },
+): StampPlacement {
+  const { width: vw, height: vh } = viewerSize(input.box, input.pageRotation);
+  const span = tiltedSpan(input.width, input.height, input.tilt);
+  const mx = vw * input.inset;
+  const my = vh * input.inset;
+  const cx =
+    input.h === "left"
+      ? mx + span.x / 2
+      : input.h === "right"
+        ? vw - mx - span.x / 2
+        : vw / 2;
+  const cy =
+    input.v === "bottom"
+      ? my + span.y / 2
+      : input.v === "top"
+        ? vh - my - span.y / 2
+        : vh / 2;
+  return placeTiltedAt({ ...input, cx, cy });
+}
+
+/** Upper bound on tiles drawn per page, so a tiny mark on a huge sheet stays cheap. */
+export const MAX_TILES_PER_PAGE = 400;
+
+/**
+ * Repeat a tilted stamp across the reader's page: rows run along the tilt,
+ * every other row shifted half a step, laid from the page centre. Only copies
+ * whose WHOLE tilted box lies inside the visible page are kept, so no tile is
+ * cut off at an edge; of the lattice through the centre and its three
+ * half-step offsets, the one keeping the most copies wins. A stamp that fits
+ * the page at all (the caller's fit) always yields at least the centre copy.
+ */
+export function tilePlacements(input: PlaceTiltedInput): StampPlacement[] {
+  const { width: vw, height: vh } = viewerSize(input.box, input.pageRotation);
+  const w = input.width;
+  const h = input.height;
+  const gap = 0.5 * h + 0.15 * w;
+  const stepU = w + gap;
+  const stepN = h + gap;
+  const rad = (input.tilt * Math.PI) / 180;
+  const ux = Math.cos(rad);
+  const uy = Math.sin(rad);
+  const nx = -uy;
+  const ny = ux;
+  const reach = Math.hypot(vw, vh);
+  const rows = Math.ceil(reach / stepN) + 1;
+  const cols = Math.ceil(reach / stepU) + 1;
+  const eps = 1e-6;
+  const corners = [
+    [-w / 2, -h / 2],
+    [w / 2, -h / 2],
+    [w / 2, h / 2],
+    [-w / 2, h / 2],
+  ] as const;
+  const lattice = (phaseU: number, phaseN: number) => {
+    const centres: { cx: number; cy: number }[] = [];
+    for (let j = -rows; j <= rows; j += 1) {
+      const shift = Math.abs(j) % 2 === 1 ? stepU / 2 : 0;
+      for (let i = -cols; i <= cols; i += 1) {
+        const along = (i + phaseU) * stepU + shift;
+        const across = (j + phaseN) * stepN;
+        const cx = vw / 2 + along * ux + across * nx;
+        const cy = vh / 2 + along * uy + across * ny;
+        const whole = corners.every(([a, b]) => {
+          const px = cx + a * ux + b * nx;
+          const py = cy + a * uy + b * ny;
+          return px >= -eps && px <= vw + eps && py >= -eps && py <= vh + eps;
+        });
+        if (!whole) continue;
+        centres.push({ cx, cy });
+        if (centres.length >= MAX_TILES_PER_PAGE) return centres;
+      }
+    }
+    return centres;
+  };
+  // The lattice through the page centre first, so a tie keeps the
+  // symmetric layout; then the three half-step offsets, which fit more
+  // copies on a page whose size falls between two rows.
+  let best = lattice(0, 0);
+  for (const [pu, pn] of [
+    [0.5, 0],
+    [0, 0.5],
+    [0.5, 0.5],
+  ] as const) {
+    const next = lattice(pu, pn);
+    if (next.length > best.length) best = next;
+  }
+  return best.map(({ cx, cy }) => placeTiltedAt({ ...input, cx, cy }));
+}
+
 /** Stamp our producer/creator so exported files identify their origin. */
 export function stampProducer(doc: PDFDocument): void {
   doc.setProducer(STAMP_PRODUCER);
@@ -257,6 +415,58 @@ export async function embedStampFont(
   doc: PDFDocument,
   texts: readonly string[],
   weight: "regular" | "bold" = "regular",
+  family: StampFontFamily = "helvetica",
 ): Promise<PDFFont> {
-  return embedDrawingFont(doc, texts, weight === "bold" ? "sans-bold" : "sans");
+  return embedDrawingFont(doc, texts, STAMP_FACES[family][weight]);
+}
+
+/**
+ * The type families a stamp may be set in. Each is a font built into the PDF
+ * format, used as-is for Western text; anything else goes through
+ * {@link embedDrawingFont} to the downloaded face that covers it, whichever
+ * family was picked (Courier asks for "mono", so it may get the shipped
+ * monospace face where that covers the text).
+ */
+export type StampFontFamily = "helvetica" | "times" | "courier";
+
+export const STAMP_FONT_FAMILIES: readonly StampFontFamily[] = [
+  "helvetica",
+  "times",
+  "courier",
+] as const;
+
+/** The name a reader sees for each family, as the runners label it. */
+export const STAMP_FONT_LABELS: Record<StampFontFamily, string> = {
+  helvetica: "Helvetica",
+  times: "Times",
+  courier: "Courier",
+};
+
+const STAMP_FACES: Record<
+  StampFontFamily,
+  Record<"regular" | "bold", StandardFace>
+> = {
+  helvetica: { regular: "sans", bold: "sans-bold" },
+  times: { regular: "serif", bold: "serif-bold" },
+  courier: { regular: "mono", bold: "mono-bold" },
+};
+
+/** Parse a `#rrggbb` colour into 0–1 channels; null when it is not one. */
+export function hexToRgb(hex: string): RGB | null {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!m) return null;
+  return {
+    r: parseInt(m[1]!, 16) / 255,
+    g: parseInt(m[2]!, 16) / 255,
+    b: parseInt(m[3]!, 16) / 255,
+  };
+}
+
+/** `#rrggbb` for 0–1 channels — the value an `<input type="color">` takes. */
+export function rgbToHex(color: RGB): string {
+  const part = (v: number) =>
+    Math.round(clamp(v, 0, 1) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${part(color.r)}${part(color.g)}${part(color.b)}`;
 }

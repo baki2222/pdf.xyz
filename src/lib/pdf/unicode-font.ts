@@ -399,7 +399,10 @@ const STANDARD_FACE_NAMES: Record<StandardFace, string> = {
   sans: "Helvetica",
   "sans-bold": "HelveticaBold",
   "sans-oblique": "HelveticaOblique",
+  serif: "TimesRoman",
+  "serif-bold": "TimesRomanBold",
   mono: "Courier",
+  "mono-bold": "CourierBold",
   "serif-italic": "TimesRomanItalic",
 };
 

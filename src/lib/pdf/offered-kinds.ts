@@ -90,17 +90,27 @@ export const FIELD_TYPE_FACT: Record<NewFieldType, string> = {
 };
 
 /** Split PDF — the ways the runner can divide a document. */
-export const SPLIT_MODES = ["ranges", "everyN", "perPage"] as const;
+export const SPLIT_MODES = [
+  "ranges",
+  "everyN",
+  "perPage",
+  "size",
+  "bookmarks",
+] as const;
 export type SplitMode = (typeof SPLIT_MODES)[number];
 export const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
   ranges: "Custom ranges",
   everyN: "Every N pages",
   perPage: "Each page",
+  size: "By file size",
+  bookmarks: "By bookmarks",
 };
 export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
   ranges: "custom page ranges",
   everyN: "every N pages",
   perPage: "one file per page",
+  size: "a maximum file size per part",
+  bookmarks: "top-level bookmarks",
 };
 
 /** Sign PDF — the typed signature's font styles. */

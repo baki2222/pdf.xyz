@@ -676,18 +676,39 @@ describe("the stamping tools answer where and what they stamp", () => {
       expect(drawnText(doc, i)).toContain("DRAFT");
     }
     for (const tool of mounting("watermark")) {
-      // Text only: the engine takes a string, and the runner offers no image.
-      // The runner calls `watermarkPdf` since L11 (8fa96e1), which returns
-      // whether the text had to shrink; `addWatermark`, drawn above, is that
-      // same engine returning the bytes alone.
+      // INVERTED 2026-10-24, history kept. Until then this pinned "text only:
+      // the engine takes a string, and the runner offers no image" — the
+      // runner had no image input and the FAQ said "it draws text". The runner
+      // now takes a PNG or JPEG (a second <Dropzone>) and hands it to the same
+      // `watermarkPdf` as `image`, so the answer must say yes, and the engine
+      // must really draw a picture (the image half of this test, below).
       const src = runnerSource(tool.slug);
-      expect(src).toMatch(/\bwatermarkPdf\(pdf\.bytes, text/);
-      expect(src).not.toMatch(/\.png|image\/|embedRasterImage|<Dropzone/i);
-      expect(answer(tool.slug, /image or logo/)).toMatch(/it draws text/);
+      expect(src).toMatch(/\bwatermarkPdf\(pdf\.bytes,/);
+      expect(src).toMatch(/<Dropzone[\s\S]*?accept="image\/png,image\/jpeg"/);
+      expect(answer(tool.slug, /image or logo/)).toMatch(/^Yes\b/);
+      expect(answer(tool.slug, /image or logo/)).not.toMatch(/it draws text/);
       expect(answer(tool.slug, /remove the watermark/)).toMatch(
         /^Not by switching it off/,
       );
     }
+  });
+
+  it("an image watermark is a picture drawn on the page — no layer, no comment", async () => {
+    // A 1×1 RGB PNG.
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+      "base64",
+    );
+    const bytes = await pdfWithPages([[300, 400]]);
+    const doc = await PDFDocument.load(
+      await addWatermark(bytes, "", { image: { bytes: new Uint8Array(png) } }),
+    );
+    expect(doc.catalog.get(PDFName.of("OCProperties"))).toBeUndefined();
+    expect(doc.getPage(0).node.Annots()?.size() ?? 0).toBe(0);
+    expect(contentOf(doc, 0)).toMatch(/\/Image-?\w*\s+Do\b/);
+    // Positive control: a text mark paints no image.
+    const text = await PDFDocument.load(await addWatermark(bytes, "DRAFT"));
+    expect(contentOf(text, 0)).not.toMatch(/\/Image-?\w*\s+Do\b/);
   });
 
   it("page numbers start where “Start on page” says, and {total} is the last number printed", async () => {
@@ -777,6 +798,12 @@ describe("the stamping tools answer where and what they stamp", () => {
     expect(drawnText(cover, 0)).not.toContain("1/3");
     expect(drawnText(cover, 1)).toContain("2/3");
     expect(drawnText(cover, 2)).toContain("3/3");
+    // The checkbox the answer names (2026-10-24) draws exactly that file.
+    const ticked = await PDFDocument.load(
+      await addPageNumbers(bytes, { format: "{n}/{total}", skipCover: true }),
+    );
+    for (let i = 0; i < 3; i += 1)
+      expect(drawnText(ticked, i)).toEqual(drawnText(cover, i));
 
     for (const tool of mounting("page-numbers")) {
       const served = answer(tool.slug, /cover page/);
@@ -798,7 +825,11 @@ describe("the stamping tools answer where and what they stamp", () => {
       const src = runnerSource(tool.slug);
       const labels = [...served.matchAll(/“([^”]+)”/g)].map((m) => m[1]!);
       expect(new Set(labels)).toEqual(
-        new Set(["Start on page", "First number"]),
+        new Set([
+          "Start on page",
+          "First number",
+          "Leave the cover unnumbered",
+        ]),
       );
       for (const label of labels) expect(src).toContain(`label="${label}"`);
     }
