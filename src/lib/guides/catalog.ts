@@ -771,7 +771,7 @@ export const guides: Guide[] = [
     intro: [
       "To add text to a PDF, open the Edit PDF tool, add your file, choose Text, click on the page where the words should go and type. Pictures, signatures, rectangles, ellipses, lines, arrows, whiteout, highlights, freehand drawing and notes go on the same way: pick the tool, click or drag on the page. When everything is in place, press Apply & download.",
       "Edit PDF runs entirely in your browser, so your PDF stays on your device and no account is needed. New content is written into the page as real text, shapes, and images, and the original pages are kept as they are rather than turned into pictures, so their own text stays selectable.",
-      `One thing to know before you start: Edit PDF adds new content on top of the page. It does not change, move, restyle, or delete the text that is already in the file. Each PDF can be up to ${ceilingMb("edit-pdf")} MB.`,
+      `One thing to know before you start: Edit PDF adds new content on top of the page, and its Edit text tool retypes the file's own text one line at a time. It does not reflow whole paragraphs. Each PDF can be up to ${ceilingMb("edit-pdf")} MB.`,
     ],
     steps: [
       "Open the Edit PDF tool.",
