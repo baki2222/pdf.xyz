@@ -100,6 +100,16 @@ import {
 } from "@/tests/office-font-fixtures";
 import { mixedScanPdf, mixedSidecarVerdict } from "@/tests/ocr-proof-fixtures";
 import {
+  scannedDocxVerdict,
+  scannedTextPdf,
+} from "@/tests/word-ocr-proof-fixtures";
+import { grayscaleVerdict } from "@/lib/workers/compression/image-colour";
+import { readEncryptPermissions } from "@/lib/workers/pdf-security/permission-bits";
+import {
+  ALL_PERMISSIONS_ALLOWED,
+  permissionMismatches,
+} from "@/lib/jobs/pdf-permissions";
+import {
   reportTablesPdf,
   tablesProofVerdict,
 } from "@/tests/table-extract-fixtures";
@@ -155,6 +165,30 @@ const JOB_TIMEOUT_MS = 240_000;
 // A per-run password so a proof job never reuses a fixed secret. It only ever
 // protects a generated fixture and is never printed.
 const PROOF_PASSWORD = `pdfxyz-proof-${process.pid}-${process.hrtime.bigint()}`;
+
+/** What the permissions proof withholds; everything else must stay granted. */
+const PROOF_RESTRICTIONS = { print: false, copy: false, modify: false };
+
+/** The download's /P against {@link PROOF_RESTRICTIONS}, switch by switch. */
+function permissionsVerdict(bytes: Uint8Array): {
+  ok: boolean;
+  detail: string;
+} {
+  const p = readEncryptPermissions(bytes);
+  if (p === null)
+    return {
+      ok: false,
+      detail: "no /Encrypt /P could be read from the output",
+    };
+  const wanted = { ...ALL_PERMISSIONS_ALLOWED, ...PROOF_RESTRICTIONS };
+  const wrong = permissionMismatches(p, wanted);
+  return wrong.length === 0
+    ? {
+        ok: true,
+        detail: `/P ${p}: print, copy and modify withheld; the rest granted`,
+      }
+    : { ok: false, detail: `/P ${p} disagrees on: ${wrong.join(", ")}` };
+}
 
 const PDF_MIME = "application/pdf";
 const DOCX_MIME =
@@ -598,6 +632,21 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "PDF",
   },
+  // Extreme + Grayscale (2026-10-24). `isPdf` passes a colour file under a
+  // grayscale label; the verdict reads every image's colour space in the
+  // download and fails unless each is one component — and fails a file with
+  // no image at all, so a fixture that lost its picture cannot pass.
+  {
+    tool: "compress-pdf",
+    label: "compress-pdf (extreme, grayscale)",
+    make: imagePdf,
+    name: "photo.pdf",
+    type: PDF_MIME,
+    options: { profile: "deep", targetDpi: 72, grayscale: true },
+    expect: isPdf,
+    want: "1-component gray images",
+    verify: (bytes) => grayscaleVerdict(new Uint8Array(bytes)),
+  },
   // Until 2026-09-27 this sent the healthy `textPdf` under the name
   // `broken.pdf`, so the only real-job proof of Repair PDF exercised qpdf's
   // exit 0 and nothing a damaged file goes through. Now it sends real damage —
@@ -713,6 +762,26 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "encrypted PDF",
     keepArtifactAs: "encrypted",
+  },
+  // Permissions (2026-10-24): the /P bits of the DOWNLOAD, read without a
+  // password, against what was asked — the restricted ones withheld, every
+  // other one granted. A worker image older than the option would ignore it
+  // and return an all-allowed file, which this fails.
+  {
+    tool: "protect-pdf",
+    label: "protect-pdf (permissions)",
+    make: textPdf,
+    name: "restricted.pdf",
+    type: PDF_MIME,
+    options: {
+      password: PROOF_PASSWORD,
+      ownerPassword: `${PROOF_PASSWORD}-owner`,
+      keyLength: 256,
+      permissions: PROOF_RESTRICTIONS,
+    },
+    expect: isPdf,
+    want: "encrypted PDF with print, copy and modify withheld",
+    verify: async (bytes) => permissionsVerdict(new Uint8Array(bytes)),
   },
   // Chained deliberately: unlocking the artifact protect-pdf just produced proves
   // both directions against the same document.
@@ -944,6 +1013,20 @@ const SPECS: ProofSpec[] = [
     // decoded (`deployment-proof.ts`, held to its controls by its test).
     verify: (bytes) => docxDeploymentVerdict(bytes),
     keepArtifactAs: "docx-from-pdf",
+  },
+  // OCR in the same job (2026-10-24): a real scan with no text layer, which
+  // the export alone refuses. Passing means OCR ran on the worker AND its
+  // words reached the DOCX as text (`@/tests/word-ocr-proof-fixtures`).
+  {
+    tool: "pdf-to-word",
+    label: "pdf-to-word (ocr)",
+    make: scannedTextPdf,
+    name: "scan.pdf",
+    type: PDF_MIME,
+    options: { ocr: true, languages: ["eng"] },
+    expect: isZipContainer,
+    want: "DOCX with the scan's words as text",
+    verify: (bytes) => scannedDocxVerdict(new Uint8Array(bytes)),
   },
   // A SECOND reader for the same document: the worker's own LibreOffice,
   // through Word to PDF. It is not Word (`pnpm prove:docx-opens` is), but it

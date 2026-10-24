@@ -20,6 +20,17 @@
  * running the engine, not by reading a constant.
  */
 
+/**
+ * PDF to Word's "Recognise text in scans (OCR)" switch, said by the panel and
+ * the tool page from this one sentence. The worker runs the OCR PDF processor
+ * on the file (OCRmyPDF, which keeps pages that already have text) and
+ * converts the searchable PDF it returns, in one job
+ * (`workers/processor/pdf-office-export.ts`).
+ */
+export const WORD_OCR_LABEL = "Recognise text in scans (OCR)";
+export const WORD_OCR_HINT =
+  "Runs OCR on the worker first, in the languages you pick, then converts, all in one job. Scanned pages keep their picture and gain their words as text; pages that already have text are kept as they are.";
+
 /** The one worksheet the export writes. */
 export const XLSX_SHEET_NAME = "Extracted text";
 

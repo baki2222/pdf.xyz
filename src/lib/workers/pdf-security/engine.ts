@@ -34,7 +34,15 @@ import type {
   UnlockPdfOptions,
   PdfKeyLength,
 } from "@/lib/jobs/pdf-security";
+import {
+  ALL_PERMISSIONS_ALLOWED,
+  PDF_PERMISSION_KEYS,
+  permissionMismatches,
+  type PdfPermissionKey,
+  type PdfPermissions,
+} from "@/lib/jobs/pdf-permissions";
 import { looksLikePdf } from "../compression/engine";
+import { readEncryptPermissions } from "./permission-bits";
 
 /** The two tools this engine powers. */
 export const PROTECT_TOOL = "protect-pdf";
@@ -57,6 +65,8 @@ export interface QpdfProtectInput {
   ownerPassword: string;
   /** AES key length. */
   keyLength: PdfKeyLength;
+  /** What a reader may do without the owner password; absent = all allowed. */
+  permissions?: PdfPermissions;
 }
 
 /** What the qpdf runner needs to decrypt a PDF. */
@@ -159,6 +169,11 @@ export interface PdfSecurityResultMeta {
   operation: "protect" | "unlock";
   /** Encryption strength — present for protect only. */
   keyLength?: PdfKeyLength;
+  /**
+   * Protect only: the permission switches withheld, by key (never a
+   * password). Empty when nothing was restricted.
+   */
+  restricted?: PdfPermissionKey[];
   inputBytes: number;
   outputBytes: number;
 }
@@ -315,12 +330,16 @@ export async function runProtect(
   }
   if (requirement === "unreadable") return unreadable();
 
+  const permissions = options.permissions ?? ALL_PERMISSIONS_ALLOWED;
+  const restricted = PDF_PERMISSION_KEYS.filter((key) => !permissions[key]);
+
   let output: Uint8Array;
   try {
     output = await qpdf.protect(input, {
       userPassword: options.password,
       ownerPassword: options.ownerPassword,
       keyLength: options.keyLength,
+      permissions,
     });
   } catch {
     return failed();
@@ -340,6 +359,17 @@ export async function runProtect(
   }
   if (outputRequirement !== "needs-password") return failed();
 
+  // A restriction is a promise about the file's /P bits, so read them back
+  // (`./permission-bits`, no password needed). A /P that grants something the
+  // person withheld, or none we can read, fails the run: a "print blocked"
+  // file that prints is the wrong document. With nothing restricted this is
+  // skipped, so the default path is exactly what it was.
+  if (restricted.length > 0) {
+    const p = readEncryptPermissions(output);
+    if (p === null || permissionMismatches(p, permissions).length > 0)
+      return failed();
+  }
+
   return {
     ok: true,
     output,
@@ -347,6 +377,7 @@ export async function runProtect(
       engine: PDF_SECURITY_ENGINE,
       operation: "protect",
       keyLength: options.keyLength,
+      restricted,
       inputBytes: input.byteLength,
       outputBytes: output.byteLength,
     },

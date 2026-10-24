@@ -36,6 +36,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { looksLikePdf } from "../compression/engine";
 import {
+  PDF_PERMISSION_KEYS,
+  type PdfPermissionKey,
+} from "@/lib/jobs/pdf-permissions";
+import {
   QPDF_EXIT_ERROR,
   QPDF_EXIT_WARNINGS,
   qpdfWroteOutput,
@@ -198,9 +202,33 @@ export function protectArgs(
   // AES-256 (bits=256) is always AES; force AES for the 128-bit level so it is
   // never RC4. 40-bit / RC4 is never offered.
   if (opts.keyLength === 128) encrypt.push("--use-aes=y");
+  // Restrictions, only for the switches turned OFF — so a request with none
+  // builds the argv that shipped before permissions existed. qpdf's default
+  // for every flag is "allowed". Accessibility has no flag here: qpdf
+  // ignores `--accessibility=n` for AES, and the validator refuses it.
+  // The engine reads the output's /P back against these (`./permission-bits`).
+  const allowed = opts.permissions;
+  if (allowed) {
+    for (const key of PDF_PERMISSION_KEYS) {
+      if (allowed[key]) continue;
+      const flag = QPDF_RESTRICTION_FLAG[key];
+      if (flag) encrypt.push(flag);
+    }
+  }
   encrypt.push("--");
   return [...encrypt, inputPath, outputPath];
 }
+
+/** qpdf 11 restriction flag for each switch turned off (R3+ encryption). */
+const QPDF_RESTRICTION_FLAG: Record<PdfPermissionKey, string | null> = {
+  print: "--print=none",
+  copy: "--extract=n",
+  modify: "--modify-other=n",
+  annotate: "--annotate=n",
+  fillForms: "--form=n",
+  accessibility: null,
+  assemble: "--assemble=n",
+};
 
 /** Build the qpdf argument vector for decrypting a PDF with a password. */
 export function unlockArgs(

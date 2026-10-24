@@ -19,6 +19,7 @@
  *    the mode-true default flow. A client tool's steps NEVER claim an
  *    upload; the structured-data guard pins that relationship.
  */
+import { TOOL_HOW } from "./catalog-how";
 import { AI_INPUT_LIMITS, DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { CHAT_TOOL_SLUG } from "@/lib/jobs/chat-with-pdf";
@@ -42,6 +43,7 @@ import {
   XLSX_MERGE_CAVEAT,
   XLSX_NUMBER_EXAMPLES,
   XLSX_SHEET_NAME,
+  WORD_OCR_LABEL,
   XLSX_TEXT_EXAMPLE,
 } from "@/lib/jobs/pdf-office-export";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
@@ -88,6 +90,7 @@ import {
   SPLIT_MODE_FACT,
   SPLIT_MODES,
 } from "@/lib/pdf/offered-kinds";
+import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import {
   MIN_CROP_DIMENSION,
   PT_PER_INCH,
@@ -1142,7 +1145,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Does compressing reduce the quality of my PDF?",
-          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-worker step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}.`,
+          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-worker step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}. Its Grayscale switch is off unless you tick it: ${DEEP_COMPRESSION_GRAYSCALE_HINT}`,
         },
         {
           question: "How much smaller will my PDF get?",
@@ -1473,7 +1476,10 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Can ${tool.name} convert a scanned PDF?`,
-          answer: `Not into text. A scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. Run the scan through ${toolName("ocr-pdf")} first, then export the result: each page's scan then comes through as a picture, followed by its words as text.`,
+          // CHANGED 2026-10-24: "Not into text. … Run the scan through OCR
+          // PDF first, then export the result" — true until the panel could
+          // run OCR in the same job.
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. With the switch on, the worker runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and converts its result in the same job: each page's scan then comes through as a picture, followed by its words as text.`,
         },
       ];
     case "pdf-to-excel":
@@ -2032,6 +2038,7 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
     "Upload your PDF over an encrypted connection.",
     "Type the password that will be needed to open it.",
     `Choose the encryption strength: ${encryptionLabels}. ${describePdfKeyLength(DEFAULT_PDF_KEY_LENGTH)} is the default.`,
+    "Optionally, under Permissions, untick what readers may not do and set an owner password that differs from the open password.",
     "The secure worker encrypts the file and deletes the input when the job finishes.",
     `Download the protected PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ],
@@ -2099,8 +2106,15 @@ function defaultSteps(tool: Tool): readonly string[] {
   ];
 }
 
-export function howToSteps(tool: Tool): readonly string[] {
-  if (tool.how && tool.how.length > 0) return tool.how;
+/**
+ * `authored` defaults to the tool's own steps in `catalog-how.ts`; a test
+ * passes `null` to ask what the page would show without them.
+ */
+export function howToSteps(
+  tool: Tool,
+  authored: readonly string[] | null = TOOL_HOW[tool.slug] ?? null,
+): readonly string[] {
+  if (authored && authored.length > 0) return authored;
   return DERIVED_STEPS[tool.slug] ?? defaultSteps(tool);
 }
 

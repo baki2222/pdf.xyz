@@ -132,7 +132,15 @@ export function nativeArgs(
   inputPath: string,
   outputPath: string,
   targetDpi: number,
+  opts: { grayscale?: boolean } = {},
 ): { command: string; args: string[] } {
+  // Only Ghostscript re-renders through a colour model. Building a grayscale
+  // argv for the others would run a job that cannot do what it was asked;
+  // the planner never routes one here (`GRAYSCALE_TOOLS`), and this is the
+  // backstop if something does.
+  if (opts.grayscale && engine !== "ghostscript") {
+    throw new Error(`${engine} cannot convert colour to grayscale.`);
+  }
   switch (engine) {
     case "ghostscript":
       return {
@@ -151,6 +159,15 @@ export function nativeArgs(
           `-dColorImageResolution=${targetDpi}`,
           `-dGrayImageResolution=${targetDpi}`,
           `-dMonoImageResolution=${targetDpi}`,
+          // Every colour — images, text, drawing — through DeviceGray. The
+          // engine re-reads the output's images (`image-colour.ts`) and fails
+          // the run if one still has more than one component.
+          ...(opts.grayscale
+            ? [
+                "-sColorConversionStrategy=Gray",
+                "-dProcessColorModel=/DeviceGray",
+              ]
+            : []),
           `-sOutputFile=${outputPath}`,
           inputPath,
         ],
@@ -209,6 +226,7 @@ export function createNativeCompressor(
         inputPath,
         outputPath,
         ctx.options.targetDpi,
+        { grayscale: ctx.options.grayscale === true },
       );
       await exec(command, args, {
         timeout: config.timeoutMs,

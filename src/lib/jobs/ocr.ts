@@ -308,6 +308,48 @@ export function parseOcrOptions(
 }
 
 /**
+ * Validated options for a `pdf-to-word` job. Here, beside the OCR contract,
+ * because the one option it adds is "run OCR first", and its languages are
+ * OCR's — the same allowlist, cap and messages, through {@link parseOcrOptions}.
+ */
+export interface PdfToWordOptions {
+  /** Recognise text in scanned pages (OCR) before converting. Off by default. */
+  ocr: boolean;
+  /**
+   * The OCR languages, when `ocr` is on; empty when it is off. Validated
+   * exactly as an OCR PDF job's are.
+   */
+  languages: OcrLanguage[];
+}
+
+/**
+ * Parse the `options` bag of a `pdf-to-word` job. `{}` is today's job: no
+ * OCR. `languages` without `ocr: true` is refused rather than ignored — a
+ * caller who sent languages expected recognition to happen.
+ */
+export function parsePdfToWordOptions(
+  options: Record<string, unknown>,
+): ParseResult<PdfToWordOptions> {
+  const raw = options.ocr;
+  if (raw !== undefined && typeof raw !== "boolean") {
+    return invalid("`options.ocr` must be a boolean.", "options.ocr");
+  }
+  const ocr = raw === true;
+  if (!ocr) {
+    if (options.languages !== undefined) {
+      return invalid(
+        "`options.languages` applies only when `options.ocr` is true.",
+        "options.languages",
+      );
+    }
+    return { ok: true, value: { ocr: false, languages: [] } };
+  }
+  const parsed = parseOcrOptions({ languages: options.languages });
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: { ocr: true, languages: parsed.value.languages } };
+}
+
+/**
  * A short, human summary of a validated OCR request, e.g.
  * "English, Spanish → Searchable PDF + text". Pure; used by the tool UI so the
  * "what will happen" copy always matches the options that would be submitted.

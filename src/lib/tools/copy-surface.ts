@@ -156,7 +156,16 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "jobs", "capabilities.ts"),
     path.join(ROOT, "src", "lib", "jobs", "ocr.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // Protect PDF's permission switch labels and their two "why it cannot
+    // be turned off" sentences (2026-10-24), drawn by the panel and the page.
+    path.join(ROOT, "src", "lib", "jobs", "pdf-permission-labels.ts"),
+    // The in-image options proof's verdict lines (2026-10-24): operator
+    // output, walked because the record outside the walk may not grow.
+    path.join(ROOT, "src", "lib", "workers", "options-proof.ts"),
     path.join(ROOT, "src", "lib", "pdf", "crop-disclosure.ts"),
+    // Compress PDF's Grayscale sentence (2026-10-24), its own leaf so it is
+    // not bundled with every runner that reads offered-kinds.
+    path.join(ROOT, "src", "lib", "pdf", "compress-grayscale.ts"),
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     // The WYSIWYG editor's export refusals (2026-10-24): new phrase code,
     // so walked rather than recorded outside.

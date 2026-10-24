@@ -171,6 +171,52 @@ describe("runWorkerCompression", () => {
     });
   });
 
+  it("sends grayscale only when it is on, so a colour run's options are unchanged", async () => {
+    const bodies: unknown[] = [];
+    const routes = [
+      {
+        match: (u: string, m: string) => u === "/api/uploads" && m === "POST",
+        respond: () => jsonResp(201, SESSION),
+      },
+      {
+        match: (u: string, m: string) =>
+          u === "/api/uploads/local/f_abcdefghij" && m === "PUT",
+        respond: () => jsonResp(200, { ok: true }),
+      },
+      {
+        match: (u: string, m: string) => u === "/api/jobs" && m === "POST",
+        respond: (call: Call) => {
+          bodies.push(
+            JSON.parse(new TextDecoder().decode(call.body as ArrayBuffer)),
+          );
+          return jsonResp(201, completedJob());
+        },
+      },
+      {
+        match: (u: string, m: string) =>
+          u === "/api/artifacts/local/art_abcdefghij" && m === "GET",
+        respond: () => bytesResp(200, OUTPUT),
+      },
+    ];
+    await runWorkerCompression(
+      { ...input, targetDpi: 72, grayscale: true },
+      { fetchImpl: makeFetch(routes).fetchImpl },
+    );
+    await runWorkerCompression(input, {
+      fetchImpl: makeFetch(routes).fetchImpl,
+    });
+    expect(bodies).toHaveLength(2);
+    expect((bodies[0] as { options: unknown }).options).toEqual({
+      profile: "deep",
+      targetDpi: 72,
+      grayscale: true,
+    });
+    expect((bodies[1] as { options: unknown }).options).toEqual({
+      profile: "deep",
+      targetDpi: 150,
+    });
+  });
+
   it("returns the server's honest error when the job fails (no fake file)", async () => {
     const failed: Job = {
       ...completedJob(),

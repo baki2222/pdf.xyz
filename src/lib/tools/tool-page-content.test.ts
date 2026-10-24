@@ -35,6 +35,7 @@
  * checked by RUNNING the engine the page describes and decoding what a user
  * would download — the facts are only as true as that output.
  */
+import { TOOL_HOW } from "./catalog-how";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { createElement } from "react";
@@ -351,7 +352,7 @@ function fileInputs(source: string): { inputs: number; many: boolean } {
 
 /** The steps the page would fall back to for this tool — the blind template. */
 function templateSteps(t: Tool): readonly string[] {
-  return howToSteps({ ...t, slug: "\u27e6template\u27e7", how: undefined });
+  return howToSteps({ ...t, slug: "\u27e6template\u27e7" }, null);
 }
 
 describe("a tool that takes several files describes them in its own steps", () => {
@@ -401,7 +402,7 @@ describe("a tool that takes several files describes them in its own steps", () =
     // gain its own steps cannot turn the control into a crash.
     const defaulted = tools.filter(
       (t) =>
-        !t.how &&
+        !TOOL_HOW[t.slug] &&
         JSON.stringify(howToSteps(t)) === JSON.stringify(templateSteps(t)),
     );
     expect(

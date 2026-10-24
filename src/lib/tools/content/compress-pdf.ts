@@ -49,7 +49,11 @@ const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  * Producer and Creator both read "pdf.xyz" and ModDate was set to the run
  * time. Nothing here claims what the DEEP path keeps beyond the page count:
  * the worker counts pages in and out and rejects a result with fewer pages
- * (engine.ts, `page_loss`), and returns the original rather than a larger file.
+ * (engine.ts, `page_loss`), and returns the original rather than a larger file
+ * — except on a Grayscale run (added 2026-10-24), where the original is in
+ * colour and the gray file ships even when it is not smaller. Grayscale is
+ * Ghostscript-only (`GRAYSCALE_TOOLS`), and the engine re-reads the output's
+ * images and fails the run if one still has more than one colour component.
  */
 const content: ToolContent = {
   slug: "compress-pdf",
@@ -62,7 +66,7 @@ const content: ToolContent = {
   intro: [
     "Compress PDF starts by showing you why a file is big. Add a PDF and your browser counts its pages and images, measures the images' share of the file, and repacks it losslessly into compressed object streams. A verdict (“Lossless cleanup shrank this file”, “This PDF is image-heavy” or “This PDF is already lean”) sits above four figures: current size, pages, images and the lossless result.",
     `That first pass runs online in your browser, on your device, and the PDF is not uploaded for it. Pages, text, bookmarks, filled-in form fields, title and author all carry over. Only a few metadata entries change: Producer and Creator become pdf.xyz, the modification date is updated, and a missing creation date is filled in. The drop box takes PDFs of up to ${MAX_MB} MB each.`,
-    `A lossless repack cannot shrink images. So when it saves less than ${LOSSLESS_PCT}% and images make up ${IMAGE_PCT}% or more of the file, the headline points you to the optional deep image compression step, which uploads the PDF over TLS to pdf.xyz's secure worker. There, Ghostscript downsamples and re-encodes images toward the resolution your Quality setting picks. A worker without Ghostscript falls back to qpdf, which recompresses streams and may re-encode some images as JPEG, or to mutool, which only cleans up and recompresses the structure; neither downsamples, and neither reads the Quality setting. Your upload is deleted when the job finishes, the result link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.${DEEP_CAP_SENTENCE}`,
+    `A lossless repack cannot shrink images. So when it saves less than ${LOSSLESS_PCT}% and images make up ${IMAGE_PCT}% or more of the file, the headline points you to the optional deep image compression step, which uploads the PDF over TLS to pdf.xyz's secure worker. There, Ghostscript downsamples and re-encodes images toward the resolution your Quality setting picks. A worker without Ghostscript falls back to qpdf, which recompresses streams and may re-encode some images as JPEG, or to mutool, which only cleans up and recompresses the structure; neither downsamples, and neither reads the Quality setting. Tick “Grayscale” and Ghostscript also turns every colour on the pages into shades of gray; a worker without Ghostscript refuses that request instead of returning a colour file. Your upload is deleted when the job finishes, the result link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.${DEEP_CAP_SENTENCE}`,
   ],
 
   useCases: [
@@ -99,14 +103,14 @@ const content: ToolContent = {
     },
     {
       title: "Optional: compress images on the worker",
-      body: "In the “Deep image compression (secure worker)” panel, pick Smaller, Balanced or High quality and press “Compress images on the worker”, which uploads your file. If it shrank, press “Download compressed PDF”; if not, the panel says the original is already efficient.",
+      body: "In the “Deep image compression (secure worker)” panel, pick Extreme, Smaller, Balanced or High quality, tick “Grayscale” if you want the pages in shades of gray, and press “Compress images on the worker”, which uploads your file. If it shrank, or was converted to grayscale, press “Download compressed PDF”; if not, the panel says the original is already efficient.",
     },
   ],
 
   faqs: [
     {
       q: "Will compressing my PDF make it look worse?",
-      a: "Not the lossless copy, which changes how the file is packed, not what is on the pages. Deep image compression is lossy: Smaller gives up the most detail, High quality the least, and Balanced is the default. Afterwards the worker checks that the result opens as a PDF and, if it can count them, that no pages went missing; nothing compares how the images look, so open the result before deleting your original.",
+      a: "Not the lossless copy, which changes how the file is packed, not what is on the pages. Deep image compression is lossy: Extreme gives up the most detail, High quality the least, and Balanced is the default. Grayscale removes all colour from the copy; your original keeps it. Afterwards the worker checks that the result opens as a PDF and, if it can count them, that no pages went missing; nothing compares how the images look, so open the result before deleting your original.",
     },
     {
       q: "Is my file uploaded when I use Compress PDF?",
@@ -114,11 +118,11 @@ const content: ToolContent = {
     },
     {
       q: "Can I compress a PDF to a specific target size?",
-      a: "There is no target-size box. The result depends on how much of the file is images and on the Quality setting; the page shows the bytes and percentage saved. Still too big? Choose Smaller and run the worker again. Each run starts from your original.",
+      a: "There is no target-size box. The result depends on how much of the file is images and on the Quality setting; the page shows the bytes and percentage saved. Still too big? Choose Extreme, or tick “Grayscale”, and run the worker again. Each run starts from your original.",
     },
     {
       q: "Why didn't my PDF get any smaller?",
-      a: "A mostly-text file that is already well packed has little to remove, so the page says “This PDF is already lean” and the Lossless result tile may read “No change”. The worker never returns a file bigger than the one you sent; if it cannot shrink it, it says so and offers no download.",
+      a: "A mostly-text file that is already well packed has little to remove, so the page says “This PDF is already lean” and the Lossless result tile may read “No change”. Without Grayscale, the worker never returns a file bigger than the one you sent; if it cannot shrink it, it says so and offers no download. With “Grayscale” ticked the gray copy is offered even when it did not get smaller, because your original is still in colour, and the panel says it did not get smaller.",
     },
     {
       q: "What happens with a password-protected or damaged PDF?",

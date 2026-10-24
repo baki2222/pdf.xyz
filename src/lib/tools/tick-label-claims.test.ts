@@ -87,6 +87,27 @@ const SOURCES = new Map(
   ]),
 );
 
+/**
+ * The modules a list-driven checkbox maps over (`import { LIST } from "…"`
+ * where the file renders `LIST.map(…)` and a `{x.label}` box), loaded so the
+ * walk below reads the labels the component renders, not a typed copy.
+ */
+const LIST_MODULES = new Map<string, Record<string, unknown>>();
+for (const code of SOURCES.values()) {
+  if (!/type="checkbox"/.test(code) || !/\{\s*\w+\.label\s*\}/.test(code))
+    continue;
+  for (const use of code.matchAll(/\b([A-Z][A-Z0-9_]*)\.map\(\(/g)) {
+    const spec = new RegExp(
+      `import\\s*\\{[^}]*\\b${use[1]}\\b[^}]*\\}\\s*from\\s*"(@/lib/[^"]+)"`,
+    ).exec(code)?.[1];
+    if (spec && !LIST_MODULES.has(spec))
+      LIST_MODULES.set(
+        spec,
+        (await import(/* @vite-ignore */ spec)) as Record<string, unknown>,
+      );
+  }
+}
+
 /** Every checkbox a component renders, and the names it can carry. */
 function checkboxes(): Checkbox[] {
   const found: Checkbox[] = [];
@@ -102,6 +123,32 @@ function checkboxes(): Checkbox[] {
         throw new Error(`${file}: a checkbox with no enclosing <label>`);
       const block = code.slice(start, end + "</label>".length);
       const labels = textFragments(block);
+      // A list-driven box: `{LIST.map((item) => … <label>…{item.label}…`.
+      // Its names are the `label`s of the list it maps, read from the module
+      // the component imports it from — the same values it renders.
+      const member = /\{\s*(\w+)\.label\s*\}/.exec(block)?.[1];
+      if (member) {
+        const mapped = [
+          ...code
+            .slice(0, m.index)
+            .matchAll(
+              new RegExp(
+                `\\b([A-Z][A-Z0-9_]*)\\.map\\(\\(\\s*${member}\\b`,
+                "g",
+              ),
+            ),
+        ].pop()?.[1];
+        if (!mapped)
+          throw new Error(`${file}: {${member}.label} with no list it maps`);
+        const from = new RegExp(
+          `import\\s*\\{[^}]*\\b${mapped}\\b[^}]*\\}\\s*from\\s*"([^"]+)"`,
+        ).exec(code)?.[1];
+        const list = from ? LIST_MODULES.get(from)?.[mapped] : undefined;
+        if (!Array.isArray(list))
+          throw new Error(`${file}: cannot read the list ${mapped} it maps`);
+        for (const entry of list as { label?: unknown }[])
+          if (typeof entry.label === "string") labels.push(squash(entry.label));
+      }
       if (/\{\s*label\s*\}/.test(block)) {
         // A wrapper: its name is whatever each caller passes as `label`.
         const fn = [
@@ -182,6 +229,9 @@ describe("a page that says tick names a checkbox that exists", () => {
     expect(LABELS.has("Redo existing OCR")).toBe(true);
     expect(LABELS.has("Flatten after filling")).toBe(true);
     expect(LABELS.has("Checked by default")).toBe(true);
+    // …and one reached only through the list a component maps over
+    // (Protect PDF's permissions, `{info.label}` over PDF_PERMISSIONS).
+    expect(LABELS.has("Copying text and images")).toBe(true);
     // The retired label lives on only in a comment, which is not a control.
     expect(LABELS.has("Skip pages that already have text")).toBe(false);
   });

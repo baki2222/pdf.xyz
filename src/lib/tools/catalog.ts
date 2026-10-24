@@ -1,17 +1,7 @@
 import type { Tool } from "./types";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
-import { US_LETTER_LABEL } from "@/lib/pdf/page-geometry";
-import {
-  RASTER_RESOLUTION_CHOICES as RESOLUTION_CHOICES,
-  RASTER_PREVIEW_LIMIT,
-  RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS,
-} from "@/lib/pdf/pdf-to-image";
-import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import { RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS } from "@/lib/pdf/pdf-to-image";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
-import {
-  MAX_REQUEST_SIGNERS,
-  REQUEST_PACKAGE_FILES,
-} from "@/lib/jobs/request-signatures";
 
 /**
  * The pdf.xyz tool catalog — the single source of truth for every tool.
@@ -46,11 +36,6 @@ export const tools: Tool[] = [
     ],
     // A merged document is most often made smaller to send, or numbered.
     next: ["compress-pdf", "page-numbers"],
-    how: [
-      "Add two or more PDF files.",
-      "Drag files, or use each row's move buttons, to set the order you want.",
-      "Merge and download your combined PDF.",
-    ],
   },
   {
     slug: "split-pdf",
@@ -67,11 +52,6 @@ export const tools: Tool[] = [
     outputs: ["PDF", "ZIP"],
     keywords: ["split pdf", "separate pdf", "extract range", "divide pdf"],
     related: ["merge-pdf", "extract-pages", "organize-pages"],
-    how: [
-      "Pick the PDF you want to split — it stays on your device.",
-      "Choose page ranges or a split-every-N-pages rule.",
-      "Download the result — a single piece saves as a PDF, and several arrive together as one ZIP.",
-    ],
   },
   {
     slug: "organize-pages",
@@ -87,12 +67,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["organize pdf", "reorder pages", "rearrange pdf", "sort pages"],
     related: ["merge-pdf", "remove-pages", "page-numbers", "rotate-pdf"],
-    how: [
-      "Pick your PDF — every page opens as a tile on a page board, and the file stays on your device.",
-      "Drag tiles into a new order, or use each tile's move buttons; rotate, duplicate or delete any page from its tile.",
-      "Change your mind with “Undo” and “Redo” (Ctrl/⌘+Z and Ctrl/⌘+Shift+Z), or start over with “Reset”.",
-      "Click “Apply & export”, then “Download organized PDF”.",
-    ],
   },
   {
     slug: "extract-pages",
@@ -123,12 +97,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["delete pages", "remove pages", "trim pdf", "cut pages"],
     related: ["extract-pages", "organize-pages", "split-pdf"],
-    how: [
-      "Pick your PDF — a thumbnail of every page appears, and the file stays on your device.",
-      "Click the pages to delete, Shift-click to select a run of pages, or type a list like 2-4, 9 and press “Select”.",
-      "Click “Delete” to remove them — at least one page has to stay.",
-      "Click “Download PDF” to save the trimmed copy.",
-    ],
   },
   {
     slug: "rotate-pdf",
@@ -143,12 +111,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["rotate pdf", "turn pages", "orientation", "landscape pdf"],
     related: ["organize-pages", "crop-pdf", "merge-pdf"],
-    how: [
-      "Pick your PDF — every page appears as a thumbnail, and the file stays on your device.",
-      "Select the pages to turn, or select none to turn them all; Shift-click selects a run.",
-      "Turn them with “Left”, “Right” or “180°”, or with the arrows on a single page.",
-      "Click “Apply rotation”, then “Download rotated PDF”.",
-    ],
   },
   {
     slug: "extract-images",
@@ -164,11 +126,6 @@ export const tools: Tool[] = [
     outputs: ["JPG", "PNG", "ZIP"],
     keywords: ["extract images", "save images", "pdf images", "get pictures"],
     related: ["pdf-to-jpg", "pdf-to-png", "compress-pdf"],
-    how: [
-      "Add your PDF — every page is scanned for embedded images, right in your browser.",
-      "Embedded JPEGs are saved as-is; RGB and grayscale images are rebuilt losslessly as PNGs at native size.",
-      "Download the images individually or as one ZIP; anything in an unsupported format is listed as skipped.",
-    ],
   },
 
   // ─────────────────────────────── Optimize ───────────────────────────────
@@ -189,11 +146,6 @@ export const tools: Tool[] = [
     outputs: ["PDF", "ZIP"],
     keywords: ["compress pdf", "reduce size", "shrink pdf", "optimize size"],
     related: ["optimize-web", "remove-pages", "repair-pdf"],
-    how: [
-      "Add your PDF — it's analyzed privately, right in your browser.",
-      "Review the size breakdown and download a lossless-optimized copy.",
-      "For image-heavy files, deep image compression runs on a secure, auto-deleting worker — the page checks one is available before anything leaves your device.",
-    ],
   },
   {
     slug: "ocr-pdf",
@@ -223,11 +175,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["repair pdf", "fix pdf", "recover pdf", "corrupt pdf"],
     related: ["compress-pdf", "optimize-web", "pdf-to-pdfa"],
-    how: [
-      "Upload the damaged PDF over an encrypted connection — it only has to start like a PDF, so a truncated file is taken in.",
-      "Press “Repair on the worker”: qpdf rewrites the file's structure on the secure worker, which deletes the input when the job finishes.",
-      `Download the repaired PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. If the file had to be rebuilt, a list above the download says what was reconstructed.`,
-    ],
   },
   {
     slug: "optimize-web",
@@ -336,16 +283,6 @@ export const tools: Tool[] = [
     outputs: ["PDF", "ZIP"],
     keywords: ["jpg to pdf", "jpeg to pdf", "image to pdf", "photos to pdf"],
     related: ["png-to-pdf", "pdf-to-jpg", "merge-pdf"],
-    // Authored because the runner takes MANY images, and the default steps
-    // say "pick your file" (tool-page-content.test.ts discovers multi-file
-    // runners and requires their own steps).
-    how: [
-      "Pick one or more JPG or PNG images — they stay on your device.",
-      "Put them in page order with each image's “Move up” and “Move down” buttons.",
-      `Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image is centred on its own ${US_LETTER_LABEL} portrait page in one PDF.`,
-      "Click “Create PDF” — the PDF is assembled in your browser.",
-      "Download the PDF — or, with One PDF per image and more than one image, the ZIP of PDFs.",
-    ],
   },
   {
     slug: "png-to-pdf",
@@ -360,13 +297,6 @@ export const tools: Tool[] = [
     outputs: ["PDF", "ZIP"],
     keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],
-    how: [
-      "Pick one or more PNG or JPG images — they stay on your device.",
-      "Put them in page order with each image's “Move up” and “Move down” buttons.",
-      "Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image goes on its own page in one PDF.",
-      "Click “Create PDF” — the PDF is assembled in your browser.",
-      "Download the PDF — or, with One PDF per image and more than one image, the ZIP of PDFs.",
-    ],
   },
   {
     slug: "html-to-pdf",
@@ -382,11 +312,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["html to pdf", "render html", "web to pdf", "markup to pdf"],
     related: ["webpage-to-pdf", "markdown-to-pdf", "word-to-pdf"],
-    how: [
-      "Upload one .html or .htm file over an encrypted connection.",
-      "Select Render PDF — Chromium renders it on a secure worker that deletes the input when the job finishes.",
-      `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
-    ],
   },
   {
     slug: "webpage-to-pdf",
@@ -401,11 +326,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["webpage to pdf", "url to pdf", "website to pdf", "save page"],
     related: ["html-to-pdf", "markdown-to-pdf", "compress-pdf"],
-    how: [
-      "Paste a public http(s) URL.",
-      "Select Render PDF — Chromium captures the page on a secure worker.",
-      `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
-    ],
   },
   {
     slug: "markdown-to-pdf",
@@ -431,11 +351,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["markdown to pdf", "md to pdf", "readme to pdf", "docs to pdf"],
     related: ["pdf-to-markdown", "html-to-pdf", "text-to-pdf"],
-    how: [
-      "Paste Markdown into the editor, or pick a .md file — it stays on your device.",
-      "Click “Create PDF” — the Markdown is typeset into pages in your browser.",
-      "Click “Download PDF” to save it.",
-    ],
   },
   {
     slug: "text-to-pdf",
@@ -449,11 +364,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["text to pdf", "txt to pdf", "notes to pdf", "plain text pdf"],
     related: ["markdown-to-pdf", "word-to-pdf", "pdf-to-text"],
-    how: [
-      "Paste or type your text, or pick a .txt file — it stays on your device.",
-      "Click “Create PDF” — the text is paginated in your browser.",
-      "Click “Download PDF” to save it.",
-    ],
   },
 
   // ─────────────────────────────── Convert from PDF ───────────────────────
@@ -549,13 +459,6 @@ export const tools: Tool[] = [
     outputs: ["JPG", "ZIP"],
     keywords: ["pdf to jpg", "pdf to image", "pdf to jpeg", "convert pages"],
     related: ["jpg-to-pdf", "pdf-to-png", "extract-images"],
-    how: [
-      "Pick your PDF — it stays on your device.",
-      `Choose a resolution: ${RESOLUTION_CHOICES}.`,
-      "Keep “All pages”, or choose “Select pages” and type a range such as 1-3, 5; pick colour or grayscale under “Colour”.",
-      "Click “Render” — each chosen page becomes a JPG image, in your browser.",
-      `Download the result — several pages arrive together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
-    ],
   },
   {
     slug: "pdf-to-png",
@@ -574,13 +477,6 @@ export const tools: Tool[] = [
     outputs: ["PNG", "ZIP"],
     keywords: ["pdf to png", "pdf to image", "lossless png", "convert pages"],
     related: ["png-to-pdf", "pdf-to-jpg", "extract-images"],
-    how: [
-      "Pick your PDF — it stays on your device.",
-      `Choose a resolution: ${RESOLUTION_CHOICES}.`,
-      "Keep “All pages”, or choose “Select pages” and type a range such as 1-3, 5; pick colour or grayscale under “Colour”.",
-      "Click “Render” — each chosen page becomes a PNG image, in your browser.",
-      `Download the result — several pages arrive together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
-    ],
   },
   {
     slug: "pdf-to-pdfa",
@@ -596,11 +492,6 @@ export const tools: Tool[] = [
     outputs: ["PDF/A"],
     keywords: ["pdf to pdfa", "pdf/a", "archive pdf", "iso 19005"],
     related: ["repair-pdf", "compress-pdf", "flatten-pdf"],
-    how: [
-      "Upload your PDF over an encrypted connection.",
-      `Press “Convert to PDF/A”: Ghostscript converts it to ${PDF_A_STANDARD} on the secure worker, which deletes the input when the job finishes.`,
-      `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Anything the conversion had to remove is listed with the download.`,
-    ],
   },
   {
     slug: "pdf-to-markdown",
@@ -621,12 +512,6 @@ export const tools: Tool[] = [
       "selectable text",
     ],
     related: ["markdown-to-pdf", "ocr-pdf", "extract-tables", "pdf-to-text"],
-    how: [
-      "Pick your PDF — it stays on your device.",
-      "Select Create Markdown to convert its selectable text in your browser.",
-      "Preview the Markdown on the page.",
-      "Download the .md file.",
-    ],
   },
   {
     slug: "pdf-to-text",
@@ -641,12 +526,6 @@ export const tools: Tool[] = [
     outputs: ["TXT"],
     keywords: ["pdf to text", "extract text", "pdf to txt", "copy text"],
     related: ["ocr-pdf", "compare-pdf", "pdf-to-markdown", "pdf-to-word"],
-    how: [
-      "Pick your PDF — it stays on your device.",
-      "Select Extract text.",
-      "Preview the extracted text on the page.",
-      "Download it as a .txt file.",
-    ],
   },
   {
     slug: "extract-tables",
@@ -704,11 +583,6 @@ export const tools: Tool[] = [
       "sign-pdf",
       "watermark-pdf",
     ],
-    how: [
-      "Open your PDF — its pages are preserved exactly.",
-      "Pick a tool and click on the page to place text, images, signatures or shapes.",
-      "Apply & download a PDF with your additions written into the page.",
-    ],
   },
   {
     slug: "annotate-pdf",
@@ -723,11 +597,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["annotate pdf", "highlight pdf", "markup pdf", "draw on pdf"],
     related: ["edit-pdf", "redact-pdf", "sign-pdf"],
-    how: [
-      "Open your PDF — Highlight is ready in the Mark up group.",
-      "Drag or click on the page to highlight, draw, white out or add a note.",
-      "Apply & download the annotated PDF with the markups in the page.",
-    ],
   },
   {
     slug: "page-numbers",
@@ -784,11 +653,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["crop pdf", "trim margins", "cut pdf", "resize pages"],
     related: ["rotate-pdf", "redact-pdf", "organize-pages", "edit-pdf"],
-    how: [
-      "Open the PDF you want to crop.",
-      "Set the crop margins and choose which pages to apply them to.",
-      "Download your cropped PDF.",
-    ],
   },
   {
     slug: "header-footer",
@@ -812,12 +676,6 @@ export const tools: Tool[] = [
       "date stamp",
     ],
     related: ["page-numbers", "overlay-pdf", "watermark-pdf", "edit-pdf"],
-    how: [
-      "Open the PDF you want to label — it stays on your device.",
-      "Type your header text, footer text, or both — {n}, {total} and {date} insert the page number, the page count and today's date.",
-      "Choose Left, Center or Right alignment for each.",
-      "Download your PDF.",
-    ],
   },
   {
     slug: "overlay-pdf",
@@ -856,11 +714,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["sign pdf", "esign", "signature", "e-signature", "self sign"],
     related: ["request-signatures", "fill-forms", "annotate-pdf"],
-    how: [
-      "Open the PDF you need to sign.",
-      "Create a signature by drawing, typing, or picking an image.",
-      "Click on the page to place it, then Apply & download.",
-    ],
   },
   {
     slug: "request-signatures",
@@ -882,12 +735,6 @@ export const tools: Tool[] = [
     outputs: ["PDF", "JSON", "ZIP"],
     keywords: ["request signature", "prepare pdf for signing", "sign request"],
     related: ["sign-pdf", "fill-forms", "create-forms"],
-    how: [
-      "Upload your PDF over an encrypted connection.",
-      `Add up to ${MAX_REQUEST_SIGNERS} signers — a name and an email each — with “Add signer”, then choose the “Signing order”, the “Signature page” their fields go on, and whether each signature gets a date field beside it.`,
-      "Press “Prepare signature request”: the secure worker adds a named, fillable field for each signer and deletes the input when the job finishes.",
-      `Download the ZIP — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes — and send ${REQUEST_PACKAGE_FILES.prepared} to your signers yourself: pdf.xyz does not email it or track who has signed.`,
-    ],
   },
   {
     slug: "fill-forms",
@@ -973,12 +820,6 @@ export const tools: Tool[] = [
       "open pdf",
     ],
     related: ["protect-pdf", "flatten-pdf", "compress-pdf"],
-    how: [
-      "Upload the password-protected PDF over an encrypted connection.",
-      "Type the password that currently opens it.",
-      "The secure worker removes the encryption and deletes the input when the job finishes.",
-      `Download the unlocked copy — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
-    ],
   },
   {
     slug: "redact-pdf",
@@ -994,11 +835,6 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["redact pdf", "black out", "remove sensitive", "hide text"],
     related: ["flatten-pdf", "ocr-pdf", "annotate-pdf", "protect-pdf"],
-    how: [
-      "Add your PDF — everything runs privately in your browser.",
-      "Add redaction boxes by page and position, in PDF points from the bottom-left.",
-      "Download a rasterized PDF whose pages are flattened images with the content erased under each box.",
-    ],
   },
   {
     slug: "flatten-pdf",
@@ -1019,11 +855,6 @@ export const tools: Tool[] = [
       "lock content",
     ],
     related: ["fill-forms", "redact-pdf", "protect-pdf"],
-    how: [
-      "Open a PDF with fillable form fields.",
-      "Select Flatten form fields — each field's current value is drawn into the page.",
-      "Download a PDF whose field values can no longer be edited.",
-    ],
   },
   {
     slug: "compare-pdf",
@@ -1039,13 +870,6 @@ export const tools: Tool[] = [
     outputs: ["TXT"],
     keywords: ["compare pdf", "pdf diff", "text difference", "version compare"],
     related: ["ocr-pdf", "pdf-to-text", "redact-pdf", "annotate-pdf"],
-    // Two files, in an order that matters: compare-pdf.ts reports lines only
-    // in the FIRST as removed and lines only in the SECOND as added.
-    how: [
-      "Pick two PDFs — the first is treated as the original, the second as the revised version. Both stay on your device.",
-      "Select Compare PDFs to compare their page count, file size and selectable text.",
-      "Review the lines marked removed (-) and added (+), then download the comparison report as a .txt file.",
-    ],
   },
 
   // ─────────────────────────────── AI Tools ───────────────────────────────
@@ -1066,11 +890,6 @@ export const tools: Tool[] = [
     outputs: ["MD", "TXT", "ZIP"],
     keywords: ["chat pdf", "ask pdf", "pdf q&a", "ai pdf", "talk to pdf"],
     related: ["summarize-pdf", "extract-tables", "ai-extract"],
-    how: [
-      "Upload your PDF.",
-      "Ask a question in plain language.",
-      "Get a grounded answer with page-level citations, then ask follow-ups.",
-    ],
   },
   {
     slug: "summarize-pdf",

@@ -171,6 +171,16 @@ jobs:
       - name: Worker image PDF to Word pictures proof (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:docx-pictures-proof
 
+      # Worker options (2026-10-24): compress-pdf's Grayscale through the
+      # image's REAL Ghostscript, read back as 1-component images (with a
+      # colour run as the control), and protect-pdf's permission restrictions
+      # through its REAL qpdf at AES-256 and AES-128, read back from the
+      # output's /P and cross-checked against qpdf's own --show-encryption.
+      # Every unit test of these runs without either binary. No user
+      # document, secret, queue or store; content-free output.
+      - name: Worker image options proof — grayscale and permissions (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:options-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)
