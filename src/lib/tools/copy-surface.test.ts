@@ -84,6 +84,9 @@ describe("the copy surface reaches what the guards must read", () => {
       // Added 2026-10-24: Protect PDF's permission labels and the sentences
       // that say why two switches cannot be turned off.
       "src/lib/jobs/pdf-permissions.ts",
+      // Added 2026-10-24: the in-image options proof's verdict lines, walked
+      // because the record outside the walk may not grow.
+      "src/lib/workers/options-proof.ts",
       "src/lib/pdf/crop-disclosure.ts",
       "src/lib/pdf/offered-kinds.ts",
       "src/lib/pdf/overlay.ts",

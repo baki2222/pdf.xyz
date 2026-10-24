@@ -15,6 +15,7 @@ import path from "node:path";
 import { nativeCompressionDeps } from "@/lib/workers/compression/native";
 import { nativePdfSecurityDeps } from "@/lib/workers/pdf-security/native";
 import { runWorkerOptionsProof } from "@/lib/workers/options-proof";
+import { QPDF_EXIT_WARNINGS } from "@/lib/workers/qpdf-exit";
 
 /**
  * qpdf's own `--show-encryption` reading of /P. Its stdout is parsed for the
@@ -29,15 +30,34 @@ async function qpdfShowP(
   try {
     const file = path.join(dir, "in.pdf");
     await writeFile(file, bytes);
-    const stdout = await new Promise<string>((resolve) => {
+    // Resolved with qpdf's exit status, never rejected on it: 3 is "warnings,
+    // and it answered" (`qpdf-exit.ts`); anything else is no answer at all.
+    const run = await new Promise<{
+      code: number;
+      timedOut: boolean;
+      stdout: string;
+    }>((resolve) => {
       execFile(
         "qpdf",
         [`--password=${ownerPassword}`, "--show-encryption", file],
         { timeout: 30_000, windowsHide: true },
-        (_error, out) => resolve(typeof out === "string" ? out : ""),
+        (error: (Error & { code?: unknown; killed?: boolean }) | null, out) =>
+          resolve({
+            code:
+              error === null
+                ? 0
+                : typeof error.code === "number"
+                  ? error.code
+                  : -1,
+            timedOut: error?.killed === true,
+            stdout: typeof out === "string" ? out : "",
+          }),
       );
     });
-    const m = /^\s*P = (-?\d+)\s*$/m.exec(stdout);
+    const answered =
+      !run.timedOut && (run.code === 0 || run.code === QPDF_EXIT_WARNINGS);
+    if (!answered) return null;
+    const m = /^\s*P = (-?\d+)\s*$/m.exec(run.stdout);
     return m ? Number(m[1]) : null;
   } finally {
     await rm(dir, { recursive: true, force: true });
