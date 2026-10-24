@@ -324,6 +324,12 @@ export interface RasterizeOptions {
   /** Convert rendered pixels to grayscale before encoding. */
   grayscale?: boolean;
   /**
+   * The 0-based pages to render, in the order given; omitted means every
+   * page. Indices the document does not have are skipped. Progress counts
+   * (`onProgress`) are out of this many pages, not the document's.
+   */
+  pages?: readonly number[];
+  /**
    * Mutate each page's canvas in place just before it is encoded — after any
    * grayscale pass. Used to paint solid redaction boxes directly over the
    * pixels so the underlying content is destroyed, not merely covered.
@@ -349,23 +355,63 @@ export interface RasterizeOptions {
  */
 export async function rasterizePdf(
   bytes: Uint8Array,
-  { format, quality, onPage, ...rest }: RasterizeOptions,
+  { format, quality, grayscale = false, onPage, ...rest }: RasterizeOptions,
 ): Promise<RasterPage[]> {
+  const toRasterPage = ({ data, ...page }: CapturedPage<Uint8Array>) => ({
+    ...page,
+    bytes: data,
+  });
+  const encode = rasterCapture(format, { quality, grayscale });
+  const pages = await capturePdfPages(bytes, {
+    ...rest,
+    // A grayscale JPEG is encoded from the luminance plane by
+    // `rasterCapture`, which reads the pixels itself; desaturating the canvas
+    // first would be a second full pass over every pixel for nothing.
+    grayscale: grayscale && format !== "jpg",
+    capture: (canvas): Promise<Uint8Array | null> => encode(canvas),
+    onPage: onPage && ((page) => onPage(toRasterPage(page))),
+  });
+  return pages.map(toRasterPage);
+}
+
+/**
+ * The encode step of {@link rasterizePdf}: canvas → image bytes.
+ *
+ * Grayscale JPEG does NOT go through the browser's encoder. `canvas.toBlob`
+ * only writes three-component (YCbCr) JPEGs, so "grayscale" would be neutral
+ * pixels in a colour container — the defect grayscale-output.test.ts was
+ * written for, one tool over. It is encoded from the luminance plane by
+ * `encodeGrayJpeg` instead: a genuine one-component JPEG, which is also
+ * smaller. The encoder is loaded only when this path runs.
+ *
+ * PNG (colour or grayscale) and colour JPEG use the browser's encoder; a
+ * grayscale PNG is the canvas after the grayscale pass, so its pixels are
+ * grey in an RGB(A) PNG.
+ */
+export function rasterCapture(
+  format: RasterFormat,
+  { quality, grayscale = false }: { quality?: number; grayscale?: boolean },
+): (canvas: HTMLCanvasElement) => Promise<Uint8Array | null> {
   const mime = RASTER_MIME[format];
   const encodeQuality =
     format === "jpg"
       ? clampJpegQuality(quality ?? DEFAULT_JPEG_QUALITY)
       : undefined;
-  const toRasterPage = ({ data, ...page }: CapturedPage<Uint8Array>) => ({
-    ...page,
-    bytes: data,
-  });
-  const pages = await capturePdfPages(bytes, {
-    ...rest,
-    capture: (canvas) => canvasToImageBytes(canvas, mime, encodeQuality),
-    onPage: onPage && ((page) => onPage(toRasterPage(page))),
-  });
-  return pages.map(toRasterPage);
+  if (format === "jpg" && grayscale) {
+    return async (canvas) => {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const { encodeGrayJpeg } = await import("./gray-jpeg");
+      return encodeGrayJpeg(
+        luminancePlane(data),
+        canvas.width,
+        canvas.height,
+        encodeQuality,
+      );
+    };
+  }
+  return (canvas) => canvasToImageBytes(canvas, mime, encodeQuality);
 }
 
 /** One rendered page, captured by {@link CapturePagesOptions.capture}. */
@@ -423,6 +469,7 @@ export async function capturePdfPages<T>(
     dpi = 150,
     background = "#ffffff",
     grayscale = false,
+    pages: only,
     onCanvas,
     capture,
     signal,
@@ -444,9 +491,12 @@ export async function capturePdfPages<T>(
     if (onDocument) {
       onDocument({ numPages: doc.numPages, title: await documentTitle(doc) });
     }
-    const total = doc.numPages;
+    const order = only
+      ? only.filter((i) => Number.isInteger(i) && i >= 0 && i < doc.numPages)
+      : Array.from({ length: doc.numPages }, (_, i) => i);
+    const total = order.length;
     onProgress?.(0, total);
-    for (let i = 0; i < total; i++) {
+    for (const i of order) {
       if (signal?.aborted) break;
       const page = await doc.getPage(i + 1);
 

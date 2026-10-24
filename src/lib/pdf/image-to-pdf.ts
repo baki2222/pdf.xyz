@@ -5,15 +5,16 @@ import {
   rasterDisplaySize,
   type RasterImageFormat,
 } from "./pdf-lib";
-import { outputName } from "./files";
+import { baseName, outputName, sanitizeSegment } from "./files";
 import { PdfEngineError } from "./engine";
-import { IMAGE_PAGE_MARGIN_PT, US_LETTER_PT } from "./page-geometry";
+import {
+  DEFAULT_IMAGE_PAGE_OPTIONS,
+  imagePageLayout,
+  type ImagePageOptions,
+} from "./image-page-layout";
+import type { NamedBytes } from "./types";
 
 const PRODUCER = "pdf.xyz";
-// The page geometry the tool pages state — one value, see ./page-geometry.
-const PAGE_WIDTH = US_LETTER_PT.width;
-const PAGE_HEIGHT = US_LETTER_PT.height;
-const MARGIN = IMAGE_PAGE_MARGIN_PT;
 // The cap the tool page advertises, so the gate and the promise are one value.
 import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from "@/lib/tools/limits";
 
@@ -175,58 +176,120 @@ export function imagePdfOutputName(
   return firstName ? outputName(firstName, "pdf", "pdf") : `${kind}-images.pdf`;
 }
 
-function fitRect(width: number, height: number) {
-  const maxWidth = PAGE_WIDTH - MARGIN * 2;
-  const maxHeight = PAGE_HEIGHT - MARGIN * 2;
-  const scale = Math.min(maxWidth / width, maxHeight / height, 1);
-  const drawWidth = width * scale;
-  const drawHeight = height * scale;
-  return {
-    width: drawWidth,
-    height: drawHeight,
-    x: (PAGE_WIDTH - drawWidth) / 2,
-    y: (PAGE_HEIGHT - drawHeight) / 2,
-  };
+/** Download name for the ZIP of one-PDF-per-image output. */
+export function perImageZipName(
+  kind: ImagePdfKind,
+  firstName?: string,
+): string {
+  return firstName
+    ? outputName(firstName, "pdfs", "zip")
+    : `${kind}-images-pdfs.zip`;
 }
 
-/** Convert JPG or PNG images into one paginated PDF, one image per page. */
-export async function imagesToPdf(
-  kind: ImagePdfKind,
-  files: ImagePdfInput[],
-): Promise<Uint8Array> {
-  validateImagePdfInputs(kind, files);
-  const { PDFDocument, rgb } = await loadPdfLib();
-  const doc = await PDFDocument.create();
+/**
+ * One name per image for the per-image PDFs: the image's own name with .pdf,
+ * and a numeric suffix where two images would otherwise collide in the ZIP
+ * (photo.jpg and photo.png both want photo.pdf).
+ */
+function perImageNames(
+  files: readonly Pick<ImagePdfInput, "name">[],
+): string[] {
+  const used = new Set<string>();
+  return files.map((file) => {
+    const base = sanitizeSegment(baseName(file.name));
+    let name = `${base}.pdf`;
+    for (let n = 2; used.has(name.toLowerCase()); n++)
+      name = `${base}-${n}.pdf`;
+    used.add(name.toLowerCase());
+    return name;
+  });
+}
+
+type PdfLib = Awaited<ReturnType<typeof loadPdfLib>>;
+type PdfDoc = Awaited<ReturnType<PdfLib["PDFDocument"]["create"]>>;
+
+async function newImageDoc(lib: PdfLib, kind: ImagePdfKind): Promise<PdfDoc> {
+  const doc = await lib.PDFDocument.create();
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
   doc.setTitle(`${kind.toUpperCase()} images`);
+  return doc;
+}
 
-  for (const file of files) {
-    const format = sniffRasterFormat(file.bytes);
-    if (!format) {
-      throw new PdfEngineError(unsupportedImageMessage(file.name, file.bytes));
-    }
-    let image;
-    try {
-      image = await embedRasterImage(doc, file.bytes, format);
-    } catch {
-      throw new PdfEngineError(
-        `"${file.name}" could not be decoded as a ${format === "jpg" ? "JPG" : "PNG"} image.`,
-      );
-    }
-    const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-    page.drawRectangle({
-      x: 0,
-      y: 0,
-      width: PAGE_WIDTH,
-      height: PAGE_HEIGHT,
-      color: rgb(1, 1, 1),
-    });
-    // Fit the image as the browser SHOWED it: a portrait phone photo is stored
-    // as landscape pixels plus an EXIF turn, and the preview grid is upright.
-    const shown = rasterDisplaySize(image);
-    await drawRasterImage(page, image, fitRect(shown.width, shown.height));
+/** Embed one image and draw it on its own page, laid out by `options`. */
+async function addImagePage(
+  lib: PdfLib,
+  doc: PdfDoc,
+  file: ImagePdfInput,
+  options: ImagePageOptions,
+): Promise<void> {
+  const format = sniffRasterFormat(file.bytes);
+  if (!format) {
+    throw new PdfEngineError(unsupportedImageMessage(file.name, file.bytes));
   }
+  let image;
+  try {
+    image = await embedRasterImage(doc, file.bytes, format);
+  } catch {
+    throw new PdfEngineError(
+      `"${file.name}" could not be decoded as a ${format === "jpg" ? "JPG" : "PNG"} image.`,
+    );
+  }
+  // Lay the image out as the browser SHOWED it: a portrait phone photo is
+  // stored as landscape pixels plus an EXIF turn, and the preview is upright.
+  const shown = rasterDisplaySize(image);
+  const layout = imagePageLayout(shown.width, shown.height, options);
+  const page = doc.addPage([layout.pageWidth, layout.pageHeight]);
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: layout.pageWidth,
+    height: layout.pageHeight,
+    color: lib.rgb(1, 1, 1),
+  });
+  await drawRasterImage(page, image, {
+    x: layout.x,
+    y: layout.y,
+    width: layout.width,
+    height: layout.height,
+  });
+}
 
+/**
+ * Convert JPG or PNG images into one paginated PDF, one image per page.
+ * `options` defaults to the fixed layout the tool had before it had options
+ * (US Letter, portrait, 36pt margin), so a caller that passes none gets the
+ * same PDF as before.
+ */
+export async function imagesToPdf(
+  kind: ImagePdfKind,
+  files: ImagePdfInput[],
+  options: ImagePageOptions = DEFAULT_IMAGE_PAGE_OPTIONS,
+): Promise<Uint8Array> {
+  validateImagePdfInputs(kind, files);
+  const lib = await loadPdfLib();
+  const doc = await newImageDoc(lib, kind);
+  for (const file of files) await addImagePage(lib, doc, file, options);
   return doc.save();
+}
+
+/**
+ * The same pages as {@link imagesToPdf}, one PDF per image, each named after
+ * its image — what the runner zips for "One PDF per image (ZIP)".
+ */
+export async function imagesToPdfs(
+  kind: ImagePdfKind,
+  files: ImagePdfInput[],
+  options: ImagePageOptions = DEFAULT_IMAGE_PAGE_OPTIONS,
+): Promise<NamedBytes[]> {
+  validateImagePdfInputs(kind, files);
+  const lib = await loadPdfLib();
+  const names = perImageNames(files);
+  const out: NamedBytes[] = [];
+  for (const [index, file] of files.entries()) {
+    const doc = await newImageDoc(lib, kind);
+    await addImagePage(lib, doc, file, options);
+    out.push({ name: names[index]!, bytes: await doc.save() });
+  }
+  return out;
 }

@@ -1230,24 +1230,57 @@ describe("a guide targets only searches its tool can answer", () => {
 });
 
 describe("the converters' pages describe the page they produce", () => {
-  it("image to PDF offers no page setup while its runner has none", () => {
+  /*
+   * INVERTED 2026-10-24 (history kept). This was "image to PDF offers no page
+   * setup while its runner has none": a ban on every sentence matching
+   * PAGE_SETUP_CONTROL, behind a precondition that the runner source named no
+   * orientation, margin or page size — "lift the ban by building the
+   * control, not by deleting it". The control was built (Page size,
+   * Orientation and Margin chips) and the precondition went red as designed.
+   *
+   * What it pins now is the relationship: a page may tell the reader to set
+   * a page setting only if the runner the page mounts renders a control for
+   * THAT setting. The shipped corpus must still be caught, so the detector
+   * cannot quietly go blind.
+   */
+  it("image to PDF tells the reader to set only the page settings its runner has", () => {
     for (const s of SHIPPED_PAGE_SETUP)
       expect(PAGE_SETUP_CONTROL.test(s), s).toBe(true);
     const subjects = tools.filter(
       (t) => getRunnerKind(t.slug) === "image-to-pdf",
     );
     expect(subjects.length).toBeGreaterThanOrEqual(2);
+    const SETTING: Record<string, RegExp> = {
+      orientation: /\borientation\b/i,
+      margin: /\bmargins?\b/i,
+      "page size": /\bpage size\b/i,
+    };
+    let claims = 0;
     for (const tool of subjects) {
-      // Precondition: lift the ban by building the control, not by deleting it.
-      expect(
-        withoutComments(runnerSource(tool.slug)),
-        "the image runner now has a page-setup control — update the copy and this ban together",
-      ).not.toMatch(/orientation|margin|pageSize|page size/i);
-      const offenders = copyAbout(tool).filter((t) =>
+      const source = withoutComments(runnerSource(tool.slug));
+      const offered = Object.entries(SETTING)
+        .filter(([, re]) => re.test(source))
+        .map(([name]) => name);
+      for (const sentence of copyAbout(tool).filter((t) =>
         PAGE_SETUP_CONTROL.test(t),
+      )) {
+        claims += 1;
+        const named = Object.entries(SETTING)
+          .filter(([, re]) => re.test(sentence))
+          .map(([name]) => name);
+        expect(
+          named.filter((n) => !offered.includes(n)),
+          `${tool.slug}: "${sentence}" names a setting the runner does not render`,
+        ).toEqual([]);
+      }
+      // Health: the runner really does offer all three today.
+      expect(offered.sort(), tool.slug).toEqual(
+        ["margin", "orientation", "page size"].sort(),
       );
-      expect(offenders, `${tool.slug}`).toEqual([]);
     }
+    // Health: the copy does describe the settings somewhere — a relationship
+    // checked over zero sentences is vacuously true.
+    expect(claims).toBeGreaterThan(0);
   });
 
   it("the stated page is the page the engine draws", async () => {

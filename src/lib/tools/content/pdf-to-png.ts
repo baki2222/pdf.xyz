@@ -42,6 +42,16 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    PDF_NEEDS_PASSWORD_MESSAGE. Until then this said ANY /Encrypt was refused;
  *    encryption-claims.test.ts now holds the page to the runner's reader.
  *    Unlock PDF is processing "server" in the catalogue.
+ *  - pages and colour (ADDED 2026-10-24): a "Pages" section with "All
+ *    pages" (the default) and "Select pages", which shows a text box read by
+ *    rasterPageSelection → parsePageList (ranges.ts, the parser Extract Pages
+ *    uses), and a "Colour" section with Colour (default) and Grayscale. The
+ *    run button counts the CHOSEN pages; file names keep the page's number
+ *    in the document (pageImageName with the document's page count), so a
+ *    single chosen page of a longer PDF downloads as "<name>-page-NN".
+ *    Grayscale PNG is the canvas after the grayscale pass, encoded by the
+ *    browser: grey pixels in its usual RGB(A) PNG, NOT a one-channel PNG, and
+ *    the copy says so.
  *  - undecoded images: UndecodedImagesNotice receives the SUM over all pages,
  *    so it gives a total, not page numbers.
  */
@@ -96,9 +106,9 @@ const content: ToolContent = {
   metaDescription: `Turn every PDF page into a lossless PNG at ${dpiList} DPI. Rendering happens on your device with no upload, and a multi-page PDF downloads as one ZIP.`,
 
   intro: [
-    "PDF to PNG, a page-to-image converter, draws each page of a PDF onto a canvas and saves the result as a PNG: a picture of the whole page, with text, vector graphics and photos flattened into one image. PNG is lossless, so small type and hairline rules keep their edges instead of gaining the ringing JPEG leaves around sharp contrast. As with any page image, the words inside can no longer be selected or searched.",
+    "PDF to PNG, a page-to-image converter, draws each page of a PDF (or only the pages you pick) onto a canvas and saves the result as a PNG: a picture of the whole page, with text, vector graphics and photos flattened into one image. PNG is lossless, so small type and hairline rules keep their edges instead of gaining the ringing JPEG leaves around sharp contrast. As with any page image, the words inside can no longer be selected or searched.",
     `The conversion runs on your own device: a copy of pdf.js bundled with pdf.xyz draws the pages inside your browser tab, and the PDF is not uploaded. When a page holds JBIG2 or JPEG 2000 images, the code that decodes them is fetched from pdf.xyz's own site, never a third-party CDN. Each run converts a single PDF of at most ${ceilingMb} MB. A PDF that needs a password to open stops as it loads, with a message that it is password-protected and must be unlocked first. One that opens without a password and merely restricts printing or copying converts like any other.`,
-    `Pick ${presetSentence}; pages render at that density and keep the rotation stored in the PDF, though an oversized page such as a poster is scaled down to a fixed pixel ceiling. Pages are painted onto white, so the PNGs are opaque. A one-page PDF saves as a single image (logo.pdf gives ${exampleSingle}). A PDF with more than one page is bundled into a ZIP, with leading zeros on the page numbers so they have as many digits as the page count: a ${EXAMPLE_PAGES}-page manual.pdf gives ${exampleZip}, which contains ${exampleFirst} up to ${exampleLast}.`,
+    `Pick ${presetSentence}; pages render at that density and keep the rotation stored in the PDF, though an oversized page such as a poster is scaled down to a fixed pixel ceiling. Pages are painted onto white, so the PNGs are opaque. A one-page PDF saves as a single image (logo.pdf gives ${exampleSingle}). When more than one page is rendered they are bundled into a ZIP, with leading zeros on the page numbers so they have as many digits as the page count: all pages of a ${EXAMPLE_PAGES}-page manual.pdf give ${exampleZip}, which contains ${exampleFirst} up to ${exampleLast}. Grayscale renders the pages in shades of grey.`,
   ],
 
   useCases: [
@@ -130,12 +140,16 @@ const content: ToolContent = {
       body: `The Resolution row has one chip per preset, each captioned with its DPI: ${presetSentence}. ${standard.label} is preselected; choose another before you render if you need smaller or sharper images.`,
     },
     {
+      title: "Choose the pages and colour",
+      body: "Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep Colour or pick Grayscale.",
+    },
+    {
       title: "Render the pages",
       body: "Press the Render button, which states how many pages it will convert. A progress line counts pages as they finish, then a preview grid appears.",
     },
     {
       title: "Download the PNGs",
-      body: `Press "Download PNG" for a single-page file, or "Download ZIP" (followed by the image count) for a file of more than one page. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from the download button on its preview tile. "Change resolution" takes you back to render again at a different setting.`,
+      body: `Press "Download PNG" for a single-page file, or "Download ZIP" (followed by the image count) when more than one page was rendered. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from the download button on its preview tile. "Change resolution" takes you back to render again at a different setting.`,
     },
   ],
 
@@ -149,8 +163,8 @@ const content: ToolContent = {
       a: `PDF pages are sized in points, ${POINTS_PER_INCH} of them per inch, and the renderer turns every inch of page into as many pixels as the chosen DPI, unless the page is big enough to reach the pixel ceiling. Choose ${lowest.label} (${lowest.dpi} DPI) for pages that will only be looked at on a monitor, keep the preselected ${standard.label} (${standard.dpi} DPI) when unsure, and move up to ${highest.label} (${highest.dpi} DPI) for printing or for zooming into small print. Doubling the DPI roughly quadruples the pixels on each page, so files grow and rendering slows.`,
     },
     {
-      q: "Can I convert only one page instead of the whole PDF?",
-      a: "Not directly: pressing Render always converts the whole document. Afterwards a preview tile's own download button saves just that page, but a long file shows previews for a fixed number of leading pages only, and anything past them is reachable only through the ZIP that a file of several pages gets. To end up with PNGs of chosen pages only, cut the PDF down with Extract Pages and convert what it produces.",
+      q: "Can I convert only some pages?",
+      a: `Yes. Click Select pages and type the page, or a list such as 1-3, 5. Only those pages are rendered. One page downloads on its own and keeps its number from the PDF — page 7 of the ${EXAMPLE_PAGES}-page manual.pdf is ${pageImageName("manual.pdf", 6, EXAMPLE_PAGES, "png")} — and several arrive in the ZIP.`,
     },
     {
       q: "Why is a picture missing from one of my PNGs?",

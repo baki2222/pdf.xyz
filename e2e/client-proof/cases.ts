@@ -1,8 +1,18 @@
 import JSZip from "jszip";
 import { expect, type Page } from "@playwright/test";
-import { PDFDocument, degrees } from "pdf-lib";
+import { PDFDocument, degrees, rgb } from "pdf-lib";
 import type { RunnerKind } from "../../src/lib/pdf/registry";
-import { jpegComponentCount } from "../../src/lib/pdf/gray-jpeg";
+import {
+  encodeGrayJpeg,
+  jpegComponentCount,
+} from "../../src/lib/pdf/gray-jpeg";
+import { imagesToPdf, imagesToPdfs } from "../../src/lib/pdf/image-to-pdf";
+import {
+  IMAGE_MARGINS,
+  IMAGE_PAGE_SIZES,
+} from "../../src/lib/pdf/image-page-layout";
+import { boxOf, drawnImages } from "../../src/tests/drawn-images";
+import { drawRasterImage, embedRasterImage } from "../../src/lib/pdf/pdf-lib";
 import {
   createGrayscaleBuilder,
   grayscaleTitle,
@@ -14,6 +24,7 @@ import {
 } from "../../src/tests/fixtures-structured-pdf";
 import {
   DEFAULT_RESOLUTION_ID,
+  pageImageName,
   rasterScaleForDpi,
   resolutionById,
 } from "../../src/lib/pdf/pdf-to-image";
@@ -1564,6 +1575,440 @@ export const CASES: Record<string, ToolCase> = {
  * whole tool — they are input modes inside a tool that a headless run cannot
  * reach — and they are enumerated in `PROOF_LIMITS` below.
  */
+/* ------------------------------------------------------------------ *
+ *  Option variants: a second proof per tool, through a NON-default path
+ * ------------------------------------------------------------------ */
+
+/**
+ * A proof of one tool along a path its default case does not take — an
+ * option the reader must change. Same contract as {@link ToolCase} (a
+ * content assertion over the downloaded bytes, and controls it must reject,
+ * each for its own reason); `name` says which options it drives.
+ *
+ * Added 2026-10-24 with the page-setup options of JPG/PNG to PDF and the
+ * page selection and grayscale of PDF to JPG/PNG. Each default case above
+ * still proves the untouched path, which is the one that must not change.
+ */
+export interface VariantCase extends ToolCase {
+  slug: string;
+  name: string;
+}
+
+/** Pages of three widths, so every image names its page by its pixels. */
+const VARIANT_PAGE_SIZES: [number, number][] = [
+  [320, 240],
+  [360, 240],
+  [400, 240],
+];
+
+/** A colourful PDF whose pages differ in width (red and blue blocks). */
+async function makeSizedColorPdf(sizes: [number, number][]): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  for (const [w, h] of sizes) {
+    const page = doc.addPage([w, h]);
+    page.drawRectangle({
+      x: w * 0.1,
+      y: h * 0.15,
+      width: w * 0.35,
+      height: h * 0.5,
+      color: rgb(1, 0, 0),
+    });
+    page.drawRectangle({
+      x: w * 0.5,
+      y: h * 0.15,
+      width: w * 0.35,
+      height: h * 0.5,
+      color: rgb(0, 0, 1),
+    });
+  }
+  return Buffer.from(await doc.save());
+}
+
+const pxAt = (points: number) => Math.floor(points * rasterScale());
+
+/** A one-component JPEG of `w`×`h`, inked over ~40% unless `blank`. */
+function grayJpegOf(w: number, h: number, blank = false): Buffer {
+  const plane = new Uint8Array(w * h).fill(255);
+  if (!blank)
+    for (let y = Math.floor(h * 0.2); y < h * 0.8; y++)
+      plane.fill(60, y * w + Math.floor(w * 0.1), y * w + Math.floor(w * 0.8));
+  return Buffer.from(encodeGrayJpeg(plane, w, h, 0.92));
+}
+
+async function zipOf(entries: [string, Uint8Array][]): Promise<Buffer> {
+  const zip = new JSZip();
+  for (const [name, bytes] of entries) zip.file(name, bytes);
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+
+/** A PNG drawn by the browser: white, with coloured blocks. */
+async function makePngInPage(
+  page: Page,
+  width: number,
+  height: number,
+  fill: "color" | "gray",
+): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ([w, h, mode]) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w as number;
+      canvas.height = h as number;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("2d context unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w as number, h as number);
+      ctx.fillStyle = mode === "color" ? "#ff0000" : "#4c4c4c";
+      ctx.fillRect(0, 0, (w as number) / 2, h as number);
+      ctx.fillStyle = mode === "color" ? "#0000ff" : "#1d1d1d";
+      ctx.fillRect((w as number) / 2, 0, (w as number) / 2, h as number);
+      return canvas.toDataURL("image/png");
+    },
+    [width, height, fill] as const,
+  );
+  return Buffer.from(dataUrl.split(",")[1]!, "base64");
+}
+
+/** Why the PDF to JPG variant rejects an artifact (shared with controls). */
+const SELECTED_PAGES = "the ZIP holds exactly pages 1 and 3";
+const ONE_COMPONENT = "a grayscale JPEG declares ONE component";
+const RIGHT_PAGE = "each image is its own page's size";
+const PAGE_DRAWN = "each page was really drawn";
+const NO_COLOUR = "no colour survives Grayscale";
+
+/** Why the image-to-PDF variants reject an artifact. */
+const PER_IMAGE_NAMES = "one PDF per image, named after it";
+const PAGE_SETUP = "every page is A4 landscape";
+const RIGHT_IMAGE = "each PDF holds its own image";
+const SMALL_MARGIN = "the image's binding side sits at the Small margin";
+const FIT_PAGES = "each page is its image's own size";
+const NO_MARGIN = "the image fills its page: no margin";
+
+const A4 = IMAGE_PAGE_SIZES.find((s) => s.id === "a4")!.size!;
+const SMALL_MARGIN_PT = IMAGE_MARGINS.find((m) => m.id === "small")!.points;
+
+export const VARIANTS: readonly VariantCase[] = [
+  {
+    slug: "pdf-to-jpg",
+    name: "pages 1 and 3 only, Grayscale",
+    kind: "pdf-to-image",
+    artifact: "zip",
+    run: async (ctx) => {
+      const bytes = await makeSizedColorPdf(VARIANT_PAGE_SIZES);
+      await uploadPayloads(ctx.page, [
+        { name: "deck.pdf", mimeType: "application/pdf", buffer: bytes },
+      ]);
+      await expect(
+        ctx.page.getByText("deck.pdf", { exact: true }),
+      ).toBeVisible();
+      await ctx.page.getByRole("button", { name: "Select pages" }).click();
+      await ctx.page.getByPlaceholder("e.g. 1-3, 5").fill("1, 3");
+      await ctx.page.getByRole("button", { name: "Grayscale" }).click();
+      return runAndDownload(
+        ctx,
+        /render 2 pages/i,
+        /2 jpg images ready/i,
+        /download zip \(2 images\)/i,
+      );
+    },
+    assert: async (buf, ctx) => {
+      const entries = await zipEntries(buf);
+      const want = [0, 2].map((i) => pageImageName("deck.pdf", i, 3, "jpg"));
+      expect([...entries.keys()].sort(), SELECTED_PAGES).toEqual(want.sort());
+      for (const [index, name] of [0, 2].map(
+        (i) => [i, pageImageName("deck.pdf", i, 3, "jpg")] as const,
+      )) {
+        const jpeg = entries.get(name)!;
+        expect(jpegComponentCount(jpeg), `${name}: ${ONE_COMPONENT}`).toBe(1);
+        const stats = await decodeImageInPage(ctx.page, jpeg, "image/jpeg");
+        const [w, h] = VARIANT_PAGE_SIZES[index]!;
+        expect(
+          Math.abs(stats.width - w * rasterScale()),
+          `${name}: ${RIGHT_PAGE}`,
+        ).toBeLessThanOrEqual(1);
+        expect(Math.abs(stats.height - h * rasterScale())).toBeLessThanOrEqual(
+          1,
+        );
+        expect(
+          stats.whitePixels / stats.totalPixels,
+          `${name}: ${PAGE_DRAWN}`,
+        ).toBeLessThan(0.8);
+      }
+    },
+    // Each differs from the true ZIP in one property: which pages it holds;
+    // the container's component count (neutral ink in a 3-component JPEG —
+    // what canvas.toBlob would have written); which page's pixels sit under
+    // page 3's name; whether anything was drawn.
+    control: async (ctx) => {
+      const names = [0, 1, 2].map((i) =>
+        pageImageName("deck.pdf", i, 3, "jpg"),
+      );
+      const gray = VARIANT_PAGE_SIZES.map(([w, h]) =>
+        grayJpegOf(pxAt(w), pxAt(h)),
+      );
+      const neutral = await Promise.all(
+        VARIANT_PAGE_SIZES.map(([w, h]) =>
+          makeNeutralInkJpegInPage(ctx.page, pxAt(w), pxAt(h)),
+        ),
+      );
+      const blank = VARIANT_PAGE_SIZES.map(([w, h]) =>
+        grayJpegOf(pxAt(w), pxAt(h), true),
+      );
+      return [
+        await zipOf(names.map((n, i) => [n, gray[i]!])),
+        await zipOf([
+          [names[0]!, neutral[0]!],
+          [names[2]!, neutral[2]!],
+        ]),
+        await zipOf([
+          [names[0]!, gray[0]!],
+          [names[2]!, gray[1]!],
+        ]),
+        await zipOf([
+          [names[0]!, blank[0]!],
+          [names[2]!, blank[2]!],
+        ]),
+      ];
+    },
+    rejectsBecause: [SELECTED_PAGES, ONE_COMPONENT, RIGHT_PAGE, PAGE_DRAWN],
+  },
+
+  {
+    slug: "pdf-to-png",
+    name: "page 2 only, Grayscale",
+    kind: "pdf-to-image",
+    artifact: "png",
+    run: async (ctx) => {
+      const bytes = await makeSizedColorPdf(VARIANT_PAGE_SIZES);
+      await uploadPayloads(ctx.page, [
+        { name: "plate.pdf", mimeType: "application/pdf", buffer: bytes },
+      ]);
+      await expect(
+        ctx.page.getByText("plate.pdf", { exact: true }),
+      ).toBeVisible();
+      await ctx.page.getByRole("button", { name: "Select pages" }).click();
+      await ctx.page.getByPlaceholder("e.g. 1-3, 5").fill("2");
+      await ctx.page.getByRole("button", { name: "Grayscale" }).click();
+      return runAndDownload(
+        ctx,
+        /render 1 page/i,
+        /1 png image ready/i,
+        /^download png$/i,
+      );
+    },
+    assert: async (buf, ctx) => {
+      expectMagic(buf, "png");
+      const stats = await decodeImageInPage(ctx.page, buf, "image/png");
+      const [w, h] = VARIANT_PAGE_SIZES[1]!;
+      expect(
+        Math.abs(stats.width - w * rasterScale()),
+        RIGHT_PAGE,
+      ).toBeLessThanOrEqual(1);
+      expect(Math.abs(stats.height - h * rasterScale())).toBeLessThanOrEqual(1);
+      expect(stats.whitePixels / stats.totalPixels, PAGE_DRAWN).toBeLessThan(
+        0.8,
+      );
+      expect(stats.redPixels + stats.bluePixels, NO_COLOUR).toBe(0);
+    },
+    // Page 1's size (the wrong page), a blank PNG of page 2's size, and a
+    // colour render of page 2's size (Grayscale ignored).
+    control: async (ctx) => {
+      const [w1, h1] = VARIANT_PAGE_SIZES[0]!;
+      const [w2, h2] = VARIANT_PAGE_SIZES[1]!;
+      return [
+        await makePngInPage(ctx.page, pxAt(w1), pxAt(h1), "gray"),
+        await makeBlankImageInPage(ctx.page, "image/png", pxAt(w2), pxAt(h2)),
+        await makePngInPage(ctx.page, pxAt(w2), pxAt(h2), "color"),
+      ];
+    },
+    rejectsBecause: [RIGHT_PAGE, PAGE_DRAWN, NO_COLOUR],
+  },
+
+  {
+    slug: "jpg-to-pdf",
+    name: "A4, landscape, Small margin, one PDF per image",
+    kind: "image-to-pdf",
+    artifact: "zip",
+    run: async (ctx) => {
+      // Wider than A4 landscape's margin box, so the margin binds and shows.
+      const jpeg = await makeJpegFixtureInPage(
+        ctx.page,
+        "photo.jpg",
+        2000,
+        1000,
+      );
+      const png = makePngFixture("art.png", 240, 160);
+      ctx.data["photo.jpg"] = jpeg.bytes;
+      ctx.data["art.png"] = png.bytes;
+      await uploadPayloads(ctx.page, [
+        { name: "photo.jpg", mimeType: "image/jpeg", buffer: jpeg.bytes },
+        { name: "art.png", mimeType: "image/png", buffer: png.bytes },
+      ]);
+      await expect(
+        ctx.page.getByText("art.png", { exact: true }),
+      ).toBeVisible();
+      await ctx.page.getByRole("button", { name: "A4", exact: true }).click();
+      await ctx.page.getByRole("button", { name: "Landscape" }).click();
+      await ctx.page.getByRole("button", { name: /^Small/ }).click();
+      await ctx.page
+        .getByRole("button", { name: "One PDF per image (ZIP)" })
+        .click();
+      return runAndDownload(
+        ctx,
+        /create pdf/i,
+        /2 jpg pdfs created/i,
+        /download zip \(2 pdfs\)/i,
+      );
+    },
+    assert: async (buf) => {
+      const entries = await zipEntries(buf);
+      expect([...entries.keys()].sort(), PER_IMAGE_NAMES).toEqual([
+        "art.pdf",
+        "photo.pdf",
+      ]);
+      for (const [name, bytes] of entries) {
+        const doc = await PDFDocument.load(bytes);
+        expect(doc.getPageCount(), `${name}: ${PER_IMAGE_NAMES}`).toBe(1);
+        const { width, height } = doc.getPage(0).getSize();
+        expect(
+          Math.abs(width - A4.height),
+          `${name}: ${PAGE_SETUP}`,
+        ).toBeLessThan(0.5);
+        expect(
+          Math.abs(height - A4.width),
+          `${name}: ${PAGE_SETUP}`,
+        ).toBeLessThan(0.5);
+      }
+      const photo = (await pdfPageImages(entries.get("photo.pdf")!))[0]?.[0];
+      const art = (await pdfPageImages(entries.get("art.pdf")!))[0]?.[0];
+      expect(photo?.filter, RIGHT_IMAGE).toContain("DCTDecode");
+      expect([photo?.width, photo?.height], RIGHT_IMAGE).toEqual([2000, 1000]);
+      expect(art?.filter, RIGHT_IMAGE).toContain("FlateDecode");
+      expect([art?.width, art?.height], RIGHT_IMAGE).toEqual([240, 160]);
+      // The wide photo spans the margin box: its left edge IS the margin.
+      const drawn = await drawnImages(
+        new Uint8Array(entries.get("photo.pdf")!),
+      );
+      const box = boxOf(drawn[0]!.ctm);
+      expect(Math.abs(box.x0 - SMALL_MARGIN_PT), SMALL_MARGIN).toBeLessThan(
+        0.1,
+      );
+    },
+    // Built by the engine in Node, each differing in ONE way: the old
+    // default page (US Letter portrait); the images swapped between the two
+    // names; the Large margin; one PDF holding both pages.
+    control: async (ctx) => {
+      const files = [
+        {
+          name: "photo.jpg",
+          type: "image/jpeg",
+          bytes: new Uint8Array(ctx.data["photo.jpg"] as Buffer),
+        },
+        {
+          name: "art.png",
+          type: "image/png",
+          bytes: new Uint8Array(ctx.data["art.png"] as Buffer),
+        },
+      ];
+      const setup = {
+        pageSize: "a4",
+        orientation: "landscape",
+        margin: "small",
+      } as const;
+      const asZip = async (outs: { name: string; bytes: Uint8Array }[]) =>
+        zipOf(outs.map((o) => [o.name, o.bytes]));
+      const right = await imagesToPdfs("jpg", files, setup);
+      return [
+        await asZip(await imagesToPdfs("jpg", files)),
+        await zipOf([
+          ["photo.pdf", right[1]!.bytes],
+          ["art.pdf", right[0]!.bytes],
+        ]),
+        await asZip(
+          await imagesToPdfs("jpg", files, { ...setup, margin: "large" }),
+        ),
+        await zipOf([
+          ["photo.pdf", await imagesToPdf("jpg", files, setup)],
+          ["art.pdf", right[1]!.bytes],
+        ]),
+      ];
+    },
+    rejectsBecause: [PAGE_SETUP, RIGHT_IMAGE, SMALL_MARGIN, PER_IMAGE_NAMES],
+  },
+
+  {
+    slug: "png-to-pdf",
+    name: "Fit to image, no margin",
+    kind: "image-to-pdf",
+    artifact: "pdf",
+    run: async (ctx) => {
+      const art = makePngFixture("art.png", 240, 160);
+      const shot = makePngFixture("shot.png", 300, 500);
+      ctx.data["art.png"] = art.bytes;
+      ctx.data["shot.png"] = shot.bytes;
+      await uploadPayloads(ctx.page, [
+        { name: "art.png", mimeType: "image/png", buffer: art.bytes },
+        { name: "shot.png", mimeType: "image/png", buffer: shot.bytes },
+      ]);
+      await expect(
+        ctx.page.getByText("shot.png", { exact: true }),
+      ).toBeVisible();
+      await ctx.page.getByRole("button", { name: "Fit to image" }).click();
+      await ctx.page.getByRole("button", { name: "None", exact: true }).click();
+      return runAndDownload(
+        ctx,
+        /create pdf/i,
+        /png pdf created/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: async (buf) => {
+      const doc = await PDFDocument.load(buf);
+      expect(
+        doc.getPages().map((p) => p.getSize()),
+        FIT_PAGES,
+      ).toEqual([
+        { width: 240, height: 160 },
+        { width: 300, height: 500 },
+      ]);
+      for (const { page, ctm } of await drawnImages(new Uint8Array(buf))) {
+        const { width, height } = doc.getPage(page).getSize();
+        const box = boxOf(ctm);
+        expect(
+          [box.x0, box.y0, box.x1, box.y1].map(
+            (v) => Math.round(v * 100) / 100,
+          ),
+          `page ${page + 1}: ${NO_MARGIN}`,
+        ).toEqual([0, 0, width, height]);
+      }
+    },
+    // The default layout (US Letter, centred); and a page of the right size
+    // whose image is drawn inside a margin.
+    control: async (ctx) => {
+      const files = ["art.png", "shot.png"].map((name) => ({
+        name,
+        type: "image/png",
+        bytes: new Uint8Array(ctx.data[name] as Buffer),
+      }));
+      const inset = await PDFDocument.create();
+      for (const f of files) {
+        const image = await embedRasterImage(inset, f.bytes, "png");
+        const page = inset.addPage([image.width, image.height]);
+        await drawRasterImage(page, image, {
+          x: 18,
+          y: 18,
+          width: image.width - 36,
+          height: image.height - 36,
+        });
+      }
+      return [
+        Buffer.from(await imagesToPdf("png", files)),
+        Buffer.from(await inset.save()),
+      ];
+    },
+    rejectsBecause: [FIT_PAGES, NO_MARGIN],
+  },
+];
+
 export const UNPROVEN: Record<string, string> = {
   // (empty) — every registered in-browser tool currently has a proof case.
 };
@@ -1605,9 +2050,9 @@ export const PROOF_LIMITS: Record<string, string> = {
   "organize-pages":
     "Only the Reverse bulk action. Drag reordering, duplication and per-page rotation inside the organizer are not exercised.",
   "pdf-to-jpg":
-    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx drives the same runner and the real rasterizePdf at Print in jsdom, but for PNG output only, so the JPEG encoder at those presets is not exercised anywhere.",
+    "Only the default resolution. The default case renders a single page; the option variant (VARIANTS: pages 1 and 3 of 3, Grayscale) renders a two-image ZIP of one-component JPEGs. Other DPI presets, and colour JPEGs in a ZIP, are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx drives the same runner and the real rasterizePdf at Print in jsdom, but for PNG output only, so the JPEG encoder at those presets is not exercised anywhere.",
   "pdf-to-png":
-    "Only the default resolution, single page. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx covers Print in jsdom through the real rasterizePdf: an A2 page and an ARCH D page are capped at 5,000 px and the note names the DPI of the downloaded pixels, while Letter stays at 2550 x 3300 with no note, both as a single PNG and as a ZIP. It uses pdfjs's legacy build, a render that paints nothing, and a stub encoder that writes the canvas size, so it proves pixel dimensions and the note, not pixel content.",
+    "Only the default resolution, single page — the option variant (VARIANTS: page 2 of 3, Grayscale) is a single page too. Other DPI presets and the multi-page ZIP branch are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx covers Print in jsdom through the real rasterizePdf: an A2 page and an ARCH D page are capped at 5,000 px and the note names the DPI of the downloaded pixels, while Letter stays at 2550 x 3300 with no note, both as a single PNG and as a ZIP. It uses pdfjs's legacy build, a render that paints nothing, and a stub encoder that writes the canvas size, so it proves pixel dimensions and the note, not pixel content.",
   "extract-images":
     "Only a single opaque Flate-coded RGB image. This tool never decodes JPEG 2000 or JBIG2 (nor goes through pdfjs at all): it deliberately lists them as skipped, and that skip disclosure is what is unexercised here, not decoding. Transparency (/SMask, /Mask, the PNG's alpha), palette (Indexed) images, inline-image disclosure and the saved-without-transparency caveat are covered only by unit tests — src/lib/pdf/extract-images.test.ts and src/components/tools/runner/extract-images-runner.test.tsx — not by this browser proof.",
   "grayscale-pdf":

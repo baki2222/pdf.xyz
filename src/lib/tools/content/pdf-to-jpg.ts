@@ -26,6 +26,17 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
  *    (ResultPanel default), per-tile download buttons on a preview grid that
  *    is capped (PREVIEW_LIMIT, not exported, so no number is stated), and
  *    UndecodedImagesNotice with the count of images pdfjs failed to decode.
+ *  - pages and colour (ADDED 2026-10-24): a "Pages" section with "All
+ *    pages" (the default) and "Select pages", which shows a text box read by
+ *    rasterPageSelection → parsePageList (ranges.ts, the parser Extract Pages
+ *    uses), and a "Colour" section with Colour (default) and Grayscale. The
+ *    run button counts the CHOSEN pages; file names keep the page's number
+ *    in the document (pageImageName with the document's page count), so a
+ *    single chosen page of a longer PDF downloads as "<name>-page-NN".
+ *    Grayscale JPEG is NOT the browser's encoder (which writes only 3-component
+ *    YCbCr): rasterCapture encodes the luminance plane with encodeGrayJpeg, a
+ *    one-component JPEG — pdf-to-image-options.test.ts and the e2e proof read
+ *    the component count from the bytes.
  *  - quality: the runner passes no quality, so rasterizePdf encodes with
  *    clampJpegQuality(DEFAULT_JPEG_QUALITY) on a "#ffffff" background.
  *  - file names: pageImageName / zipOutputName, called here with the same
@@ -106,8 +117,8 @@ const content: ToolContent = {
   metaDescription: `Convert PDF to JPG in your browser, with no upload. Each page becomes a JPEG at ${presetNameList} resolution; several pages download as one ZIP.`,
 
   intro: [
-    `PDF to JPG paints every page of your PDF onto a canvas with pdf.js and saves each one as a JPEG picture, with the page's built-in rotation applied. The renderer and its decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
-    `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}, with ${standard.label} selected at the start. There is no quality slider; every JPEG is encoded at quality ${quality} out of 100 on a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). A PDF with more than one page arrives as a ZIP: a ${EXAMPLE_PAGES}-page report.pdf becomes ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order.`,
+    `PDF to JPG paints the pages of your PDF — all of them, or only the ones you pick — onto a canvas with pdf.js and saves each one as a JPEG picture, in colour or in grayscale, with the page's built-in rotation applied. The renderer and its decoders for JPEG 2000 and JBIG2 images load from pdf.xyz itself, and all of the drawing and encoding is done by your own browser: the PDF is not uploaded.`,
+    `There are ${RASTER_RESOLUTIONS.length} resolutions to choose from: ${presetList}, with ${standard.label} selected at the start. There is no quality slider; every JPEG is encoded at quality ${quality} out of 100 on a white background, since JPEG cannot store transparency. A one-page PDF downloads as a single file (flyer.pdf becomes ${exampleSingle}). When more than one page is rendered they arrive as a ZIP: all pages of a ${EXAMPLE_PAGES}-page report.pdf become ${exampleZip}, holding ${exampleFirst} through ${exampleLast}, with page numbers zero-padded to the width of the page count so the images sort in reading order. Grayscale saves single-channel JPEGs, which are smaller than colour ones.`,
     `It converts a single PDF per run, up to ${maxMb} MB. One that needs a password to open stops at the loading step, with a message saying it is password-protected. A PDF that opens without a password converts even if its author restricted printing or copying. When pdf.js fails to decode an embedded image, the result panel states how many images could not be decoded rather than leaving you to spot the gap yourself.`,
   ],
 
@@ -140,12 +151,16 @@ const content: ToolContent = {
       body: `Under Resolution, click ${presetList}. A higher DPI gives sharper text and larger files.`,
     },
     {
+      title: "Choose the pages and colour",
+      body: "Under Pages, keep All pages, or click Select pages and type the ones you want, such as 1-3, 5 or 8- for page 8 to the end; a page the PDF does not have is named in a note, and nothing renders until the range is fixed. Under Colour, pick Colour or Grayscale.",
+    },
+    {
       title: "Render the pages",
-      body: `Click the button that reads "Render" followed by the page count, for example "Render ${EXAMPLE_PAGES} pages". While it works, a progress line and bar count the pages as they are drawn.`,
+      body: `Click the button that reads "Render" followed by the number of pages chosen, for example "Render ${EXAMPLE_PAGES} pages". While it works, a progress line and bar count the pages as they are drawn.`,
     },
     {
       title: "Download the images",
-      body: `A one-page PDF gives a "Download JPG" button; a PDF of more than one page, say ${EXAMPLE_PAGES}, gives "Download ZIP (${EXAMPLE_PAGES} images)" instead. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from the download button on its preview tile. "Change resolution" goes back to the resolution choice so you can render again.`,
+      body: `One rendered page gives a "Download JPG" button; more than one, say ${EXAMPLE_PAGES}, gives "Download ZIP (${EXAMPLE_PAGES} images)" instead. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from the download button on its preview tile. "Change resolution" goes back to the resolution choice so you can render again.`,
     },
   ],
 
@@ -156,7 +171,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I convert only some pages?",
-      a: "The tool always renders every page. For a subset, run Extract Pages first and convert the smaller PDF. You can also save single pages from the preview tiles, but on a long document the grid shows only the opening pages; the rest are only in the ZIP that a PDF of several pages gets.",
+      a: `Yes. Click Select pages and type them, for example 1-3, 5. Only those pages are rendered, and each image keeps its page number from the PDF: page 5 of a ${EXAMPLE_PAGES}-page report.pdf is ${pageImageName("report.pdf", 4, EXAMPLE_PAGES, "jpg")}, whether it downloads on its own or, with more than one page chosen, in the ZIP.`,
     },
     {
       q: "Why was my password-protected PDF rejected?",

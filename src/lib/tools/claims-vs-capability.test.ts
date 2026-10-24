@@ -137,6 +137,7 @@ import {
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { rasterFormatForSlug } from "@/lib/pdf/pdf-to-image";
 import { imagesToPdf } from "@/lib/pdf/image-to-pdf";
+import { IMAGE_MARGINS, IMAGE_PAGE_SIZES } from "@/lib/pdf/image-page-layout";
 import { mergePdfs } from "@/lib/pdf/engine";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
 import {
@@ -665,6 +666,82 @@ interface ClaimRule {
 
 const PPTX_EDITABLE_RULE = "PDF to PowerPoint slides are editable";
 
+/**
+ * INVERTED 2026-10-24 (history kept). This rule sat in RULES from the audit
+ * at 67e8d0f — the catalogue promised "control over orientation, margins,
+ * and page size" over an engine that drew one fixed US Letter page — and its
+ * probe asked the runner for any control naming those settings. On
+ * 2026-10-24 the runner gained Page size, Orientation and Margin chips
+ * (pdf/image-page-layout.ts) and the probe went red, as it was written to.
+ *
+ * Its claims are now TRUE, so it no longer bans them: it pins them. The
+ * corpus still has to be caught in both directions (rule 1), the probe must
+ * now find the controls, and the shipped sentences are checked against the
+ * engine's output in "the replacement copy states what the output actually
+ * is" below — a size or margin the copy names must be one the runner offers
+ * and the engine draws.
+ */
+const IMAGE_PAGE_SETUP_RULE: ClaimRule = {
+  id: "image-to-PDF offers page size, orientation or margin controls",
+  subjects: () => slugsOfKind("image-to-pdf"),
+  shapes: {
+    "control over":
+      /\bcontrols?\s+(?:over\s+)?(?:the\s+)?(?:page size|orientation|margins?)\b/i,
+    "set/choose/adjust":
+      /\b(?:set|choose|adjust|pick|change)\s+(?:the\s+|your\s+)?(?:page size|orientation|margins?)\b/i,
+    "a setting that decides":
+      /\b(?:page size|orientation|margins?)\s+(?:sets?|decides?|controls?)\b/i,
+    "the three settings": /\bthree\s+settings\b|\bset all three\b/i,
+  },
+  shipped: [
+    "Combine JPG images into a PDF with control over orientation, margins, and page size.",
+    "Control page size, margins, and orientation.",
+    "The tool combines your JPGs into one tidy PDF and gives you control over page size, orientation, and margins along the way.",
+    "Set the page size for the finished PDF.",
+    "Choose the orientation, so pages run tall or wide to match your photos.",
+    "Adjust the margins to control how much space surrounds each image.",
+    "Three settings shape the finished PDF.",
+    "Page size sets the dimensions of the pages your images are placed on.",
+    "Orientation decides whether those pages run tall or wide — useful when some photos were shot sideways.",
+    "Margins control the breathing room between each image and the edge of the page.",
+    "Set all three before you run the conversion.",
+    "It assembles your JPG images into a single PDF, with control over the page size, orientation, and margins of the result.",
+  ],
+  synonyms: ["Pick your page size before converting."],
+  // Once the honest replacements; the second is now FALSE and is the
+  // corpus of the fixed-layout rule in RULES.
+  honest: [
+    "Every image goes on its own US Letter page in portrait orientation, centred with a half-inch white margin.",
+  ],
+  probe: async () => {
+    const found = imageRunnerPageSetup();
+    return { present: found.length > 0, evidence: found.join("; ") };
+  },
+};
+
+/**
+ * The page-setup controls the image runner offers, read from the module the
+ * page mounts (slug → registry → dispatcher → runner), comments stripped.
+ */
+function imageRunnerPageSetup(): string[] {
+  const kinds = new Set(
+    slugsOfKind("image-to-pdf").map((s) => getRunnerKind(s)!),
+  );
+  const found: string[] = [];
+  for (const kind of kinds) {
+    const file = runnerFileForKind(kind);
+    if (!file) throw new Error(`no runner module for kind ${kind}`);
+    found.push(...pageSetupWords(read(file)).map((w) => `${file}: "${w}"`));
+  }
+  return found;
+}
+
+function pageSetupWords(source: string): string[] {
+  return [
+    ...withoutComments(source).matchAll(/page size|orientation|margin/gi),
+  ].map((m) => m[0]);
+}
+
 const RULES: readonly ClaimRule[] = [
   {
     id: "signature requests are sent, tracked, collected or legally binding",
@@ -707,51 +784,43 @@ const RULES: readonly ClaimRule[] = [
     },
   },
   {
-    id: "image-to-PDF offers page size, orientation or margin controls",
+    // THE INVERSE of the rule this slot held until 2026-10-24 ("image-to-PDF
+    // offers page size, orientation or margin controls", now
+    // IMAGE_PAGE_SETUP_RULE above): the controls arrived, so the claim that
+    // went false is the replacement copy's — "the page is fixed". Its corpus
+    // is what the pages served while that was true.
+    id: "image-to-PDF says its page size, orientation or margin is fixed",
     subjects: () => slugsOfKind("image-to-pdf"),
     shapes: {
-      "control over":
-        /\bcontrols?\s+(?:over\s+)?(?:the\s+)?(?:page size|orientation|margins?)\b/i,
-      "set/choose/adjust":
-        /\b(?:set|choose|adjust|pick|change)\s+(?:the\s+|your\s+)?(?:page size|orientation|margins?)\b/i,
-      "a setting that decides":
-        /\b(?:page size|orientation|margins?)\s+(?:sets?|decides?|controls?)\b/i,
-      "the three settings": /\bthree\s+settings\b|\bset all three\b/i,
+      "no setting":
+        /\bno\s+(?:page[- ]size|orientation|margin)\b[^.]*\bsettings?\b/i,
+      "is fixed":
+        /\b(?:page size|page|layout|orientation|margins?)\b[^.]{0,40}\b(?:are|is)\s+fixed\b/i,
+      "the same for every image":
+        /\b(?:the page is the same for every|every page comes out the same shape)\b/i,
     },
     shipped: [
-      "Combine JPG images into a PDF with control over orientation, margins, and page size.",
-      "Control page size, margins, and orientation.",
-      "The tool combines your JPGs into one tidy PDF and gives you control over page size, orientation, and margins along the way.",
-      "Set the page size for the finished PDF.",
-      "Choose the orientation, so pages run tall or wide to match your photos.",
-      "Adjust the margins to control how much space surrounds each image.",
-      "Three settings shape the finished PDF.",
-      "Page size sets the dimensions of the pages your images are placed on.",
-      "Orientation decides whether those pages run tall or wide — useful when some photos were shot sideways.",
-      "Margins control the breathing room between each image and the edge of the page.",
-      "Set all three before you run the conversion.",
-      "It assembles your JPG images into a single PDF, with control over the page size, orientation, and margins of the result.",
-    ],
-    synonyms: ["Pick your page size before converting."],
-    honest: [
-      "Every image goes on its own US Letter page in portrait orientation, centred with a half-inch white margin.",
+      "There is no page-size, orientation or margin setting.",
+      "The tool has no page-size, orientation or margin settings today.",
+      "Every page comes out the same shape: a white, portrait US Letter page.",
+      "There is no page-size, orientation or margin setting: the page is the same for every photo, which keeps a stack of mismatched pictures reading as one document.",
       "The page size, orientation and margin are fixed — there is no setting to change them.",
     ],
+    synonyms: ["The layout is fixed.", "There are no page size settings."],
+    honest: [
+      "Unless you change the page setup, that page is US Letter (8.5 × 11 in) portrait with a 0.5 in margin.",
+      "Fit to image makes each page the size of its image instead, plus the margin.",
+      "Larger images are scaled down to fit; smaller ones are never enlarged.",
+    ],
     probe: async () => {
-      // The runner is what a user can touch. Reached through the dispatch
-      // the page mounts, then read for any control naming these settings.
-      const kinds = new Set(
-        slugsOfKind("image-to-pdf").map((s) => getRunnerKind(s)!),
-      );
-      const found: string[] = [];
-      for (const kind of kinds) {
-        const file = runnerFileForKind(kind);
-        if (!file) throw new Error(`no runner module for kind ${kind}`);
-        const source = withoutComments(read(file));
-        for (const m of source.matchAll(/page size|orientation|margin/gi))
-          found.push(`${file}: "${m[0]}"`);
-      }
-      return { present: found.length > 0, evidence: found.join("; ") };
+      // "Fixed" is true only while the runner offers none of the settings.
+      const found = imageRunnerPageSetup();
+      return {
+        present: found.length === 0,
+        evidence: found.length
+          ? `the runner offers: ${found.join("; ")}`
+          : "no page-setup control in the runner",
+      };
     },
   },
   {
@@ -1397,15 +1466,28 @@ describe("tool pages do not promise capabilities the tool does not have", () => 
  * ------------------------------------------------------------------ */
 
 describe("the replacement copy states what the output actually is", () => {
+  /**
+   * Published paper sizes in points — an outside table, NOT the runner's
+   * (`IMAGE_PAGE_SIZES`), so a wrong constant there cannot agree with itself.
+   * Wider than what the runner offers on purpose: a page that names Tabloid
+   * must fail, not be skipped.
+   */
   const PAPER: Record<string, [number, number]> = {
     "US Letter": [612, 792],
     A4: [595.28, 841.89],
     "US Legal": [612, 1008],
+    A3: [841.89, 1190.55],
+    A5: [419.53, 595.28],
+    A2: [1190.55, 1683.78],
+    Tabloid: [792, 1224],
   };
   const MARGIN_WORDS: Record<string, number> = {
     "quarter-inch": 18,
     "half-inch": 36,
     "one-inch": 72,
+    "0.25 in": 18,
+    "0.5 in": 36,
+    "1 in margin": 72,
   };
 
   async function served(subject: string): Promise<string> {
@@ -1415,65 +1497,168 @@ describe("the replacement copy states what the output actually is", () => {
     return all.join(" ");
   }
 
-  it("image-to-PDF: every paper size and margin the copy names is the one the engine draws", async () => {
-    const wide = await decodeFirstPage(
-      await imagesToPdf("jpg", [
-        { name: "wide.jpg", type: "image/jpeg", bytes: jpegOfSize(4000, 2000) },
-      ]),
+  const names = (text: string, table: Record<string, unknown>) =>
+    Object.keys(table).filter((k) =>
+      new RegExp(
+        `(?<![\\w-])${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
+      ).test(text),
     );
-    const tall = await decodeFirstPage(
-      await imagesToPdf("jpg", [
-        { name: "tall.jpg", type: "image/jpeg", bytes: jpegOfSize(2000, 4000) },
-      ]),
-    );
-    // Health: the decoder found the one image on each page.
-    expect(wide.images).toHaveLength(1);
-    expect(tall.images).toHaveLength(1);
-    const w = wide.images[0]!;
-    const t = tall.images[0]!;
-    // The binding side of each photo sets the margin.
-    const margin = Math.min(w.x, t.y);
-    expect(Math.abs(w.x - (wide.width - w.x - w.w))).toBeLessThan(0.01);
 
-    for (const subject of slugsOfKind("image-to-pdf")) {
-      const text = await served(subject);
-      for (const [paper, [pw, ph]] of Object.entries(PAPER)) {
-        if (!text.includes(paper)) continue;
-        expect(
-          [wide.width, wide.height],
-          `${subject} says ${paper}, the engine draws ${wide.width}×${wide.height}`,
-        ).toEqual([pw, ph]);
+  /** What the engine draws for one image under `options`: page and box. */
+  async function drawn(
+    w: number,
+    h: number,
+    options?: Parameters<typeof imagesToPdf>[2],
+  ) {
+    const page = await decodeFirstPage(
+      await imagesToPdf(
+        "jpg",
+        [{ name: "p.jpg", type: "image/jpeg", bytes: jpegOfSize(w, h) }],
+        options,
+      ),
+    );
+    expect(page.images, "the decoder found the one image").toHaveLength(1);
+    return { ...page, image: page.images[0]! };
+  }
+
+  /**
+   * Every paper and margin `text` names, held to the runner's offer AND to
+   * the engine's output: a size it names must be a chip the runner shows,
+   * and that chip must draw the published size; likewise a margin.
+   */
+  async function setupProblems(text: string): Promise<string[]> {
+    const problems: string[] = [];
+    for (const paper of names(text, PAPER)) {
+      const offered = IMAGE_PAGE_SIZES.find((s) => s.label === paper);
+      if (!offered) {
+        problems.push(`names ${paper}, which the runner does not offer`);
+        continue;
       }
-      for (const [phrase, points] of Object.entries(MARGIN_WORDS)) {
-        if (!text.includes(phrase)) continue;
-        expect(margin, `${subject} says a ${phrase} margin`).toBeCloseTo(
-          points,
-          1,
-        );
-      }
-      if (/\bportrait\b/i.test(text))
-        expect(wide.height, `${subject} says portrait`).toBeGreaterThan(
-          wide.width,
+      const page = await drawn(800, 1200, {
+        pageSize: offered.id,
+        orientation: "portrait",
+        margin: "none",
+      });
+      const [pw, ph] = PAPER[paper]!;
+      if (Math.abs(page.width - pw) > 0.5 || Math.abs(page.height - ph) > 0.5)
+        problems.push(
+          `names ${paper}; the engine draws ${page.width}×${page.height}`,
         );
     }
-    // The option claims were replaced by the fixed layout: jpg-to-pdf must
-    // SAY which one, or a reader is left to guess at the thing they searched for.
+    for (const phrase of names(text, MARGIN_WORDS)) {
+      const points = MARGIN_WORDS[phrase]!;
+      const offered = IMAGE_MARGINS.find((m) => m.points === points);
+      if (!offered) {
+        problems.push(
+          `names a ${phrase} margin, which the runner does not offer`,
+        );
+        continue;
+      }
+      // A wide photo on A4: the binding side touches the margin.
+      const page = await drawn(4000, 1000, {
+        pageSize: "a4",
+        orientation: "portrait",
+        margin: offered.id,
+      });
+      if (Math.abs(page.image.x - points) > 0.1)
+        problems.push(
+          `names a ${phrase} margin; the engine draws ${page.image.x}`,
+        );
+    }
+    return problems;
+  }
+
+  it("image-to-PDF: every paper size and margin the copy names is offered, and drawn as named", async () => {
+    for (const subject of slugsOfKind("image-to-pdf")) {
+      const text = await served(subject);
+      expect(await setupProblems(text), subject).toEqual([]);
+    }
+    // The copy must still SAY which page a reader gets: the jpg page names
+    // a paper size and a margin (a page that named none would pass above).
     const jpg = await served(
       slugsOfKind("image-to-pdf").find((s) =>
         getToolBySlug(s)!.accept.includes("JPG"),
       )!,
     );
-    expect(Object.keys(PAPER).some((p) => jpg.includes(p))).toBe(true);
-    expect(Object.keys(MARGIN_WORDS).some((p) => jpg.includes(p))).toBe(true);
+    expect(names(jpg, PAPER).length).toBeGreaterThan(0);
+    expect(names(jpg, MARGIN_WORDS).length).toBeGreaterThan(0);
   });
 
-  it("image-to-PDF: the relationship catches a wrong paper name (positive control)", async () => {
-    const page = await decodeFirstPage(
-      await imagesToPdf("jpg", [
-        { name: "a.jpg", type: "image/jpeg", bytes: jpegOfSize(800, 600) },
-      ]),
-    );
+  it("image-to-PDF: the default the copy states is what the engine draws with no options", async () => {
+    // Was the whole test while the layout was fixed: Letter, portrait, 36pt.
+    const wide = await drawn(4000, 2000);
+    const tall = await drawn(2000, 4000);
+    const margin = Math.min(wide.image.x, tall.image.y);
+    expect(
+      Math.abs(wide.image.x - (wide.width - wide.image.x - wide.image.w)),
+    ).toBeLessThan(0.01);
+    for (const subject of slugsOfKind("image-to-pdf")) {
+      const text = await served(subject);
+      const defaults = text
+        .split(/(?<=[.!?])\s+/)
+        .filter((s) => /\bunless you change\b|\bleft alone\b/i.test(s));
+      expect(defaults.length, `${subject} states no default`).toBeGreaterThan(
+        0,
+      );
+      for (const sentence of defaults) {
+        for (const paper of names(sentence, PAPER))
+          expect(
+            [wide.width, wide.height],
+            `${subject}: "${sentence}"`,
+          ).toEqual(PAPER[paper]);
+        for (const phrase of names(sentence, MARGIN_WORDS))
+          expect(margin, `${subject}: "${sentence}"`).toBeCloseTo(
+            MARGIN_WORDS[phrase]!,
+            1,
+          );
+        if (/\bportrait\b/i.test(sentence))
+          expect(wide.height, `${subject} says portrait`).toBeGreaterThan(
+            wide.width,
+          );
+      }
+    }
+  });
+
+  it("image-to-PDF: the relationship catches an unoffered paper and a wrong margin (positive controls)", async () => {
+    expect(await setupProblems("Pick Tabloid pages.")).toHaveLength(1);
+    expect(
+      await setupProblems("Each photo gets a one-inch margin."),
+    ).toHaveLength(1);
+    // And passes what is offered and drawn.
+    expect(
+      await setupProblems("A4 or US Legal, with a 0.25 in margin."),
+    ).toEqual([]);
+    const page = await drawn(800, 600);
     expect([page.width, page.height]).not.toEqual(PAPER.A4);
+  });
+
+  it("image-to-PDF: the page-setup claims are true now — the corpus is caught, and the runner offers every setting", async () => {
+    const rule = IMAGE_PAGE_SETUP_RULE;
+    const claims = [...rule.shipped, ...rule.synonyms];
+    const idle = Object.entries(rule.shapes)
+      .filter(([, re]) => !claims.some((c) => re.test(c)))
+      .map(([name]) => name);
+    expect(idle, "shapes nothing exercises").toEqual([]);
+    expect(
+      claims.filter(
+        (c) => !Object.values(rule.shapes).some((re) => re.test(c)),
+      ),
+      "claims no shape catches",
+    ).toEqual([]);
+    const probe = await rule.probe();
+    expect(probe.present, probe.evidence).toBe(true);
+    // Each of the three settings is offered by name — not just one of them.
+    const found = imageRunnerPageSetup().join(" ").toLowerCase();
+    for (const setting of ["page size", "orientation", "margin"])
+      expect(found, setting).toContain(setting);
+    // Positive control for the probe's reader: a runner with no such
+    // control reads as none, and a comment does not count.
+    expect(
+      pageSetupWords(
+        ["const x = 1;", "/* page size */", "// margin"].join("\n"),
+      ),
+    ).toEqual([]);
+    expect(pageSetupWords('title="Page size"')).toEqual(["Page size"]);
   });
 
   it("PDF to Excel: the description names exactly the separators the engine splits on", async () => {

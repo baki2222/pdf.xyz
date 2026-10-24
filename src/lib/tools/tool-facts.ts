@@ -90,7 +90,6 @@ import {
   SPLIT_MODES,
 } from "@/lib/pdf/offered-kinds";
 import {
-  IMAGE_PAGE_MARGIN_PT,
   MIN_CROP_DIMENSION,
   PT_PER_INCH,
   TEXT_PAGE_MARGIN_PT,
@@ -98,12 +97,22 @@ import {
   inches,
 } from "@/lib/pdf/page-geometry";
 import {
+  RASTER_COLORS,
   RASTER_MAX_DEVICE_PX,
   RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTION_CHOICES,
   pageImageName,
   rasterFormatForSlug,
 } from "@/lib/pdf/pdf-to-image";
+import {
+  DEFAULT_IMAGE_PAGE_OPTIONS,
+  IMAGE_MARGINS,
+  IMAGE_ORIENTATIONS,
+  IMAGE_OUTPUTS,
+  IMAGE_PAGE_SIZES,
+  imageMarginPoints,
+  imagePageSizeById,
+} from "@/lib/pdf/image-page-layout";
 import {
   MARKDOWN_BLOCK_KINDS,
   type MarkdownBlockKind,
@@ -261,8 +270,37 @@ function countedFact<Id extends string>(
  *  the constant the engine draws with (see src/lib/pdf/page-geometry.ts).
  * ------------------------------------------------------------------ */
 
+/** "a, b or c" — a reader's list. */
+function orJoin(items: readonly string[]): string {
+  return items.length <= 1
+    ? items.join("")
+    : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
+}
+
+/** "US Letter (8.5 × 11 in)" for the default size, from the same table. */
+const DEFAULT_IMAGE_SIZE = (() => {
+  const size = imagePageSizeById(DEFAULT_IMAGE_PAGE_OPTIONS.pageSize);
+  return size.size
+    ? `${size.label} (${inches(size.size.width)} × ${inches(size.size.height)} in)`
+    : size.label;
+})();
+const DEFAULT_IMAGE_ORIENTATION = IMAGE_ORIENTATIONS.find(
+  (o) => o.id === DEFAULT_IMAGE_PAGE_OPTIONS.orientation,
+)!.label.toLowerCase();
+
+/**
+ * Image to PDF's page setup: every choice the runner offers (the same
+ * tables its chips iterate, `@/lib/pdf/image-page-layout`) and the default
+ * the engine draws when nothing is changed.
+ *
+ * Until 2026-10-24 this said the page was FIXED, because it was; the
+ * options and this sentence arrived together, and
+ * claims-vs-capability.test.ts runs the engine with every listed size.
+ */
+export const IMAGE_PAGE_OPTIONS_FACT = `Page size: ${orJoin(IMAGE_PAGE_SIZES.map((s) => s.label))}. Orientation: ${orJoin(IMAGE_ORIENTATIONS.map((o) => o.label))} (Auto turns the page for a wide image). Margin: ${orJoin(IMAGE_MARGINS.map((m) => (m.points > 0 ? `${m.label} (${inches(m.points)} in)` : m.label)))}.`;
+
 /** Image to PDF's page, as the engine lays it out. */
-export const IMAGE_PAGE_FACT = `Each image goes on its own ${US_LETTER_LABEL} portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, centred. Larger images are scaled down to fit; smaller ones are never enlarged.`;
+export const IMAGE_PAGE_FACT = `Each image goes on its own page, centred. Unless you change the page setup, that page is ${DEFAULT_IMAGE_SIZE} ${DEFAULT_IMAGE_ORIENTATION} with a ${inches(imageMarginPoints(DEFAULT_IMAGE_PAGE_OPTIONS.margin))} in margin. Larger images are scaled down to fit; smaller ones are never enlarged. Fit to image makes each page the size of its image instead, plus the margin.`;
 
 /** Text and Markdown to PDF's page, as the engines lay it out. */
 export const TEXT_PAGE_FACT = `${US_LETTER_LABEL} portrait pages with ${inches(TEXT_PAGE_MARGIN_PT)} in margins and a page number (1 / N) at the foot of each page.`;
@@ -309,7 +347,7 @@ function rasterFact(slug: string): ToolFact {
   const ext = rasterFormatForSlug(slug).toUpperCase();
   return {
     label: "Resolutions",
-    value: `${RASTER_RESOLUTION_CHOICES} — every page becomes one ${ext} image, rendered in your browser.`,
+    value: `${RASTER_RESOLUTION_CHOICES} — each page you choose becomes one ${ext} image, in ${orJoin(RASTER_COLORS.map((c) => c.label.toLowerCase()))}, rendered in your browser.`,
   };
 }
 
@@ -502,16 +540,18 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   "jpg-to-pdf": [
     {
       label: "Per-image limit",
-      value: `Up to ${MAX_IMAGE_MB} MB per image, assembled into one PDF on your device.`,
+      value: `Up to ${MAX_IMAGE_MB} MB per image, assembled on your device into one PDF, or into one PDF per image (bundled as a ZIP when there is more than one).`,
     },
     { label: "Page", value: IMAGE_PAGE_FACT },
+    { label: "Page setup", value: IMAGE_PAGE_OPTIONS_FACT },
   ],
   "png-to-pdf": [
     {
       label: "Per-image limit",
-      value: `Up to ${MAX_IMAGE_MB} MB per image, assembled into one PDF on your device.`,
+      value: `Up to ${MAX_IMAGE_MB} MB per image, assembled on your device into one PDF, or into one PDF per image (bundled as a ZIP when there is more than one).`,
     },
     { label: "Page", value: IMAGE_PAGE_FACT },
+    { label: "Page setup", value: IMAGE_PAGE_OPTIONS_FACT },
   ],
   "text-to-pdf": [
     {
@@ -985,7 +1025,11 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `What page size does ${tool.name} use?`,
-          answer: `${IMAGE_PAGE_FACT} There is no page-size, orientation or margin setting.`,
+          answer: `${IMAGE_PAGE_FACT} To change it, pick another option before you create the PDF. ${IMAGE_PAGE_OPTIONS_FACT}`,
+        },
+        {
+          question: "Can I get a separate PDF for each image?",
+          answer: `Yes. Under Output, choose ${IMAGE_OUTPUTS.find((o) => o.id === "per-image")!.label}: each image becomes its own one-page PDF, named after the image (holiday.jpg becomes holiday.pdf), and when there is more than one image they download together as one ZIP.`,
         },
         {
           question: `Can I combine several images into one PDF?`,
@@ -1012,7 +1056,18 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: `Do I get one ${ext} or a ZIP?`,
-          answer: `A one-page PDF downloads as a single ${ext} named after your file. With more than one page, every page goes into one ZIP, named in reading order — for example ${pageImageName("report.pdf", 2, 12, format)} — and the first ${RASTER_PREVIEW_LIMIT} pages can also be saved one by one from their previews.`,
+          answer: `A one-page PDF downloads as a single ${ext} named after your file. When you render more than one page, they go into one ZIP, named in reading order — for example ${pageImageName("report.pdf", 2, 12, format)} — and the first ${RASTER_PREVIEW_LIMIT} pages can also be saved one by one from their previews.`,
+        },
+        {
+          question: "Can I convert only some pages?",
+          answer: `Yes. Choose “Select pages” and type the pages you want — for example 1-3, 5 for pages 1 to 3 and page 5. Each image keeps its page number from the PDF, so page 5 of a 12-page file is ${pageImageName("report.pdf", 4, 12, format)}, and a single page you pick downloads on its own.`,
+        },
+        {
+          question: `Can I save the ${ext} images in black and white?`,
+          answer:
+            format === "jpg"
+              ? "Yes. Choose Grayscale and every page is saved as a single-channel grayscale JPEG — genuinely grey in the file, not colour with the saturation turned down — which is also smaller than the colour version."
+              : "Yes. Choose Grayscale and every page is rendered in shades of grey. The PNG keeps the browser's usual colour format, so it holds grey pixels rather than a single grey channel; it is still lossless.",
         },
       ];
     }

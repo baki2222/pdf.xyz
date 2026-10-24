@@ -41,6 +41,8 @@ import {
   REDACT_SEARCH_ANSWER,
   REPAIR_TAKES,
   REPAIR_WARNINGS_ANSWER,
+  IMAGE_PAGE_FACT,
+  IMAGE_PAGE_OPTIONS_FACT,
   TEXT_PAGE_FACT,
   TRANSLATE_LANGUAGES_ANSWER,
   countWord,
@@ -508,11 +510,13 @@ export const guides: Guide[] = [
         id: "what-each-page-looks-like",
         heading: "What each page looks like",
         body: [
-          // This section used to be "Page size, orientation, and margins" —
-          // three settings the tool has never had. The page is fixed, and
-          // these sentences are built from the constants the engine draws with.
-          `Every photo goes on its own ${US_LETTER_LABEL} portrait page, centred with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin of white around it. A photo larger than that space is scaled down to fit, keeping its proportions; a smaller one is placed at its own size and never enlarged.`,
-          "There is no page-size, orientation or margin setting: the page is the same for every photo, which keeps a stack of mismatched pictures reading as one document. Photos are placed as their pixels are stored, so a phone photo that relies on a rotation tag to display upright may come out sideways; Rotate PDF can turn those pages afterward, in your browser too.",
+          // HISTORY: this section was "Page size, orientation, and margins"
+          // over a tool with none of the three, then (from 67e8d0f) "the page
+          // is fixed". The settings arrived 2026-10-24; both sentences are
+          // now the tool-facts ones, built from the runner's chip tables and
+          // held to the engine by claims-vs-capability.test.ts.
+          IMAGE_PAGE_FACT,
+          `${IMAGE_PAGE_OPTIONS_FACT} The same setup applies to every photo, which keeps a stack of mismatched pictures reading as one document. A phone photo stored sideways with a rotation tag is turned upright, the way your browser shows it.`,
         ],
       },
       {
@@ -545,7 +549,8 @@ export const guides: Guide[] = [
       },
       {
         question: "Does JPG to PDF have page size or margin settings?",
-        answer: `No. Every image goes on a ${US_LETTER_LABEL} portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space.`,
+        // Was "No." — true until 2026-10-24.
+        answer: `Yes. ${IMAGE_PAGE_OPTIONS_FACT} If you change nothing, every image goes on a ${US_LETTER_LABEL} portrait page with a ${inches(IMAGE_PAGE_MARGIN_PT)} in margin, scaled down to fit if it is larger than that space.`,
       },
       {
         question: "How large can my JPG files be?",
@@ -562,7 +567,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-10-24",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the

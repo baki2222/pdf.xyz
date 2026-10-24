@@ -7,8 +7,10 @@ import {
   CASES,
   PROOF_LIMITS,
   UNPROVEN,
+  VARIANTS,
   expectControlRejected,
   type CaseContext,
+  type ToolCase,
 } from "./cases";
 
 /**
@@ -196,6 +198,28 @@ test.describe("client tool proof — the derived set", () => {
     expect(mismatched, "cases pinned to the wrong runner kind").toEqual([]);
   });
 
+  test("every option variant names a live slug, its runner, and a reason per control", () => {
+    // Variants are extra proofs along a non-default path (see VARIANTS in
+    // cases.ts); a variant of a slug the registry no longer carries, or one
+    // written against a different runner, proves nothing about what ships.
+    const wrong = VARIANTS.filter(
+      (v) => !DERIVED.includes(v.slug) || getRunnerKind(v.slug) !== v.kind,
+    ).map(
+      (v) =>
+        `${v.slug} (${v.name}): case=${v.kind} registry=${getRunnerKind(v.slug)}`,
+    );
+    expect(wrong).toEqual([]);
+    // Health: the four tools whose options they exist for each have one.
+    expect(new Set(VARIANTS.map((v) => v.slug))).toEqual(
+      new Set(["jpg-to-pdf", "png-to-pdf", "pdf-to-jpg", "pdf-to-png"]),
+    );
+    for (const v of VARIANTS)
+      expect(
+        v.rejectsBecause?.length ?? 0,
+        `${v.slug} (${v.name})`,
+      ).toBeGreaterThan(0);
+  });
+
   test("every gap states a reason", () => {
     const empty = Object.entries(UNPROVEN)
       .filter(([, reason]) => reason.trim().length < 20)
@@ -252,12 +276,21 @@ if (PROVEN.length === 0) {
   });
 }
 
-for (const slug of PROVEN) {
-  const proof = CASES[slug]!;
+const RUNS: { slug: string; title: string; proof: ToolCase }[] = [
+  ...PROVEN.map((slug) => ({
+    slug,
+    title: `${slug} (${CASES[slug]!.kind}) — the downloaded artifact is correct`,
+    proof: CASES[slug]!,
+  })),
+  ...VARIANTS.map((v) => ({
+    slug: v.slug,
+    title: `${v.slug} (${v.kind}) with ${v.name} — the downloaded artifact is correct`,
+    proof: v,
+  })),
+];
 
-  test(`${slug} (${proof.kind}) — the downloaded artifact is correct`, async ({
-    page,
-  }) => {
+for (const { slug, title, proof } of RUNS) {
+  test(title, async ({ page }) => {
     test.setTimeout(CASE_TIMEOUT_MS);
     const guard = attachConsoleGuard(page);
 
