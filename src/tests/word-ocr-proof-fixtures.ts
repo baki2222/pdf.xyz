@@ -27,7 +27,12 @@ export async function scannedTextPdf(): Promise<Uint8Array> {
   const font = await embedDrawingFont(typed, [SCANNED_LINE]);
   typed.addPage(PAGE).drawText(SCANNED_LINE, { x: 40, y: 700, size: 26, font });
   // ~200 DPI on A4's long side: what a desk scanner's default produces.
-  const [page] = await renderPdfPages(await typed.save(), 2339);
+  // With pdf.js's standard font data: without it Helvetica paints in a
+  // fallback outline, and on 2026-10-24 production OCR read that line's
+  // "4718" as "4/71 6" — the proof failed on the fixture, not the product.
+  const [page] = await renderPdfPages(await typed.save(), 2339, {
+    standardFonts: true,
+  });
   if (!page) throw new Error("the typed page did not render");
   const gray = new Uint8Array(page.width * page.height);
   for (let i = 0; i < gray.length; i++) {

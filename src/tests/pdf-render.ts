@@ -16,6 +16,17 @@
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import { nodeAssetOptions } from "./pdf-image-decode";
 import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
+import { createRequire } from "node:module";
+import { dirname, join, sep } from "node:path";
+
+function standardFontDataUrl(): string {
+  const require = createRequire(join(process.cwd(), "package.json"));
+  const dir = dirname(require.resolve("pdfjs-dist/package.json"));
+  // A plain path with forward slashes and a trailing "/": pdf.js's Node
+  // font-data factory reads the filesystem, and a file:// URL loads nothing
+  // (silently — the page then paints in the fallback outline).
+  return `${join(dir, "standard_fonts").split(sep).join("/")}/`;
+}
 
 export interface RenderedPage {
   /** Pixel width of the viewer frame (rotation and crop applied). */
@@ -42,15 +53,23 @@ interface CanvasLike {
 export async function renderPdfPages(
   pdf: Uint8Array,
   longSide = 160,
+  options: { standardFonts?: boolean } = {},
 ): Promise<RenderedPage[]> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = pdfjs.getDocument({
-    data: pdf.slice(),
+    data: new Uint8Array(pdf),
     useWorkerFetch: false,
     isOffscreenCanvasSupported: false,
     disableFontFace: true,
     ...PDFJS_DOCUMENT_DEFAULTS,
     ...nodeAssetOptions(),
+    // Off by default: without pdf.js's standard font data a non-embedded
+    // Helvetica paints in a fallback outline (narrow, odd spacing), and the
+    // tests here compare against renders made that way. A caller whose
+    // pixels must READ as the text — an OCR fixture — asks for the real faces.
+    ...(options.standardFonts
+      ? { standardFontDataUrl: standardFontDataUrl() }
+      : {}),
   });
   const out: RenderedPage[] = [];
   try {
