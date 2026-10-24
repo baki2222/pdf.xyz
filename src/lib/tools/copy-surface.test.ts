@@ -81,7 +81,15 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/jobs/capabilities.ts",
       "src/lib/jobs/ocr.ts",
       "src/lib/jobs/pdf-security.ts",
+      // Added 2026-10-24: Protect PDF's permission labels and the sentences
+      // that say why two switches cannot be turned off.
+      "src/lib/jobs/pdf-permission-labels.ts",
+      // Added 2026-10-24: the in-image options proof's verdict lines, walked
+      // because the record outside the walk may not grow.
+      "src/lib/workers/options-proof.ts",
       "src/lib/pdf/crop-disclosure.ts",
+      // Added 2026-10-24: Compress PDF's Grayscale sentence, in its own leaf.
+      "src/lib/pdf/compress-grayscale.ts",
       "src/lib/pdf/offered-kinds.ts",
       "src/lib/pdf/overlay.ts",
       "src/lib/workers/read-error.ts",

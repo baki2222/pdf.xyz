@@ -31,6 +31,13 @@ import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
 } from "./filenames";
+import {
+  ALL_PERMISSIONS_ALLOWED,
+  hasRestrictions,
+  PDF_PERMISSION_KEYS,
+  type PdfPermissionKey,
+  type PdfPermissions,
+} from "./pdf-permissions";
 
 /** The neutral stem used when nothing safe survives filename sanitization. */
 const FALLBACK_STEM = "document";
@@ -128,7 +135,36 @@ export interface ProtectPdfOptions {
   ownerPassword: string;
   /** Encryption strength (AES key length). */
   keyLength: PdfKeyLength;
+  /**
+   * What a reader may do without the owner password. The parser always sets
+   * it (every key present, default all allowed); optional in the type so a
+   * hand-built options object keeps meaning "no restrictions". Not secret,
+   * so not sealed — the passwords are.
+   */
+  permissions?: ProtectPdfPermissions;
 }
+
+/**
+ * {@link PdfPermissions}, spelled out here so `/privacy`'s options walk (which
+ * reads only same-file types) can see that every permission is a boolean and
+ * no free text. The two are held equal both ways at compile time below.
+ */
+export interface ProtectPdfPermissions {
+  print: boolean;
+  copy: boolean;
+  modify: boolean;
+  annotate: boolean;
+  fillForms: boolean;
+  accessibility: boolean;
+  assemble: boolean;
+}
+type SameShape = [PdfPermissions] extends [ProtectPdfPermissions]
+  ? [ProtectPdfPermissions] extends [PdfPermissions]
+    ? true
+    : false
+  : false;
+/** Fails to compile if the two permission shapes ever differ. */
+export const PROTECT_PERMISSIONS_MATCH: SameShape = true;
 
 /** Validated options for an `unlock-pdf` (decrypt) job. */
 export interface UnlockPdfOptions {
@@ -227,10 +263,82 @@ export function parseProtectPdfOptions(
     keyLength = options.keyLength;
   }
 
+  const permissions = parsePermissions(options.permissions);
+  if (!permissions.ok) return permissions;
+  if (hasRestrictions(permissions.value)) {
+    // With one password for both, opening the file IS owner access in most
+    // readers, and the restriction would bind nobody. Content-free: the rule,
+    // never the value.
+    if (options.ownerPassword === undefined) {
+      return invalid(
+        "Restricting permissions needs an owner password.",
+        "options.ownerPassword",
+      );
+    }
+    if (ownerPassword === password.value) {
+      return invalid(
+        "The owner password must differ from the open password, or the restrictions bind no one.",
+        "options.ownerPassword",
+      );
+    }
+  }
+
   return {
     ok: true,
-    value: { password: password.value, ownerPassword, keyLength },
+    value: {
+      password: password.value,
+      ownerPassword,
+      keyLength,
+      permissions: permissions.value,
+    },
   };
+}
+
+/**
+ * Parse `options.permissions`: absent ⇒ all allowed; otherwise an object of
+ * known keys with boolean values, missing keys allowed. Two combinations are
+ * refused rather than written as flags no reader applies: accessibility off
+ * (qpdf ignores it for AES) and forms off while comments are on (the annotate
+ * bit grants form filling). See `./pdf-permissions`.
+ */
+function parsePermissions(raw: unknown): ParseResult<PdfPermissions> {
+  if (raw === undefined) return { ok: true, value: ALL_PERMISSIONS_ALLOWED };
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return invalid(
+      "`options.permissions` must be an object.",
+      "options.permissions",
+    );
+  }
+  const known: ReadonlySet<string> = new Set(PDF_PERMISSION_KEYS);
+  const out: PdfPermissions = { ...ALL_PERMISSIONS_ALLOWED };
+  for (const [key, value] of Object.entries(raw)) {
+    if (!known.has(key)) {
+      return invalid(
+        `\`options.permissions\` accepts only: ${PDF_PERMISSION_KEYS.join(", ")}.`,
+        "options.permissions",
+      );
+    }
+    if (typeof value !== "boolean") {
+      return invalid(
+        `\`options.permissions.${key}\` must be a boolean.`,
+        `options.permissions.${key}`,
+      );
+    }
+    out[key as PdfPermissionKey] = value;
+  }
+  if (!out.accessibility) {
+    return invalid(
+      "Text extraction for accessibility cannot be blocked with AES encryption.",
+      "options.permissions.accessibility",
+    );
+  }
+  if (!out.fillForms && out.annotate) {
+    return invalid(
+      "Filling in forms cannot be blocked while comments are allowed.",
+      "options.permissions.fillForms",
+    );
+  }
+  return { ok: true, value: out };
 }
 
 /**

@@ -104,6 +104,7 @@ import {
   NEW_FIELD_TYPES,
   OVERLAY_FITS,
 } from "@/lib/pdf/offered-kinds";
+import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import { MIN_CROP_DIMENSION, PT_PER_INCH } from "@/lib/pdf/page-geometry";
 import {
   DEEP_COMPRESSION_TOOLS,
@@ -532,6 +533,21 @@ describe("compress answers what each of its two paths does", () => {
         nativeArgs("ghostscript", "gs", "in", "out", preset.dpi).args,
       ).toContain(`-dColorImageResolution=${preset.dpi}`);
     }
+  });
+
+  it("the Grayscale sentence the answer says is the one the panel draws, and the engine is asked for it", () => {
+    const tool = mounting("compress")[0]!;
+    const served = answer(tool.slug, /reduce the quality/);
+    expect(served).toContain(DEEP_COMPRESSION_GRAYSCALE_HINT);
+    expect(runnerSource(tool.slug)).toMatch(
+      /\{DEEP_COMPRESSION_GRAYSCALE_HINT\}/,
+    );
+    // "every colour … into shades of gray" is what Ghostscript is told.
+    expect(
+      nativeArgs("ghostscript", "gs", "in", "out", 150, { grayscale: true })
+        .args,
+    ).toContain("-sColorConversionStrategy=Gray");
+    expect(parseCompressionOptions({ grayscale: true }).ok).toBe(true);
   });
 
   it("the image-heavy share in the answer is the one the analysis switches on", () => {

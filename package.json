@@ -37,6 +37,7 @@
     "worker:pdfa-proof": "tsx scripts/worker-pdfa-proof.ts",
     "worker:pptx-fidelity-proof": "tsx scripts/worker-pptx-fidelity-proof.ts",
     "worker:docx-pictures-proof": "tsx scripts/worker-docx-pictures-proof.ts",
+    "worker:options-proof": "tsx scripts/worker-options-proof.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",

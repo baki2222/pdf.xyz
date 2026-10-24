@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Eye,
   EyeOff,
@@ -20,6 +20,16 @@ import {
   PDF_ENCRYPTION_LEVELS,
   type PdfKeyLength,
 } from "@/lib/jobs/pdf-security";
+import {
+  ALL_PERMISSIONS_ALLOWED,
+  hasRestrictions,
+  type PdfPermissions,
+} from "@/lib/jobs/pdf-permissions";
+import {
+  FORMS_FOLLOW_ANNOTATE,
+  PDF_PERMISSIONS,
+  PERMISSIONS_ARE_FLAGS,
+} from "@/lib/jobs/pdf-permission-labels";
 import {
   canRunPdfSecurity,
   runWorkerProtect,
@@ -90,6 +100,38 @@ type Mode = "protect" | "unlock";
  */
 export function isPasswordMissing(_mode: Mode, password: string): boolean {
   return password.length === 0;
+}
+
+/**
+ * What the boxes mean once the format's ties are applied: accessibility is
+ * always allowed (AES cannot block it), and form filling is allowed whenever
+ * comments are (the annotate bit grants it). The job validator refuses the
+ * combinations these rules out, so the panel never sends one.
+ */
+export function effectivePermissions(chosen: PdfPermissions): PdfPermissions {
+  return {
+    ...chosen,
+    accessibility: true,
+    fillForms: chosen.annotate ? true : chosen.fillForms,
+  };
+}
+
+/**
+ * Why the owner password cannot be used yet, or `null` when it can. Only
+ * asked while a restriction is set — the open password would lift a
+ * restriction whose owner password is missing or the same.
+ */
+export function ownerPasswordProblem(
+  password: string,
+  ownerPassword: string,
+): string | null {
+  if (ownerPassword.length === 0)
+    return "Restricting permissions needs an owner password.";
+  if (passwordByteLength(ownerPassword) > MAX_PDF_PASSWORD_BYTES)
+    return `Too long: ${passwordByteLength(ownerPassword)}/${MAX_PDF_PASSWORD_BYTES} bytes.`;
+  if (ownerPassword === password)
+    return "Use a different password from the open password, or the restrictions bind no one.";
+  return null;
 }
 
 /** Number of UTF-8 bytes a password occupies (the bound qpdf actually enforces). */
@@ -267,6 +309,15 @@ function SecurityRunArea({
   const [keyLength, setKeyLength] = useState<PdfKeyLength>(
     DEFAULT_PDF_KEY_LENGTH,
   );
+  // Protect only. Every switch on = today's behaviour, and nothing extra is
+  // sent; turning one off asks for an owner password.
+  const [chosen, setChosen] = useState<PdfPermissions>(ALL_PERMISSIONS_ALLOWED);
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const permissions = useMemo(() => effectivePermissions(chosen), [chosen]);
+  const restricting = mode === "protect" && hasRestrictions(permissions);
+  const ownerProblem = restricting
+    ? ownerPasswordProblem(password, ownerPassword)
+    : null;
   const job = useWorkerJob<PdfSecurityWorkerResult>({
     tool: mode === "protect" ? "protect-pdf" : "unlock-pdf",
     resume: (id, controls) =>
@@ -287,10 +338,16 @@ function SecurityRunArea({
   const passwordBytes = passwordByteLength(password);
   const tooLong = passwordBytes > MAX_PDF_PASSWORD_BYTES;
   const passwordMissing = isPasswordMissing(mode, password);
-  const canSubmit = file !== null && !passwordMissing && !tooLong && !busy;
+  const canSubmit =
+    file !== null &&
+    !passwordMissing &&
+    !tooLong &&
+    ownerProblem === null &&
+    !busy;
 
   const start = useCallback(async () => {
-    if (!file || passwordMissing || tooLong || !available) return;
+    if (!file || passwordMissing || tooLong || ownerProblem || !available)
+      return;
     await run(async (controls) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const result =
@@ -301,6 +358,9 @@ function SecurityRunArea({
                 bytes,
                 password,
                 keyLength,
+                // Sent only when restricting: an all-allowed request is
+                // byte-for-byte the one that shipped before permissions.
+                ...(restricting ? { ownerPassword, permissions } : {}),
               },
               controls,
             )
@@ -317,6 +377,10 @@ function SecurityRunArea({
     mode,
     tooLong,
     passwordMissing,
+    ownerProblem,
+    restricting,
+    ownerPassword,
+    permissions,
     run,
     available,
   ]);
@@ -443,6 +507,19 @@ function SecurityRunArea({
         </div>
       )}
 
+      {mode === "protect" && (
+        <PermissionControls
+          chosen={chosen}
+          onChange={setChosen}
+          effective={permissions}
+          busy={busy}
+          restricting={restricting}
+          ownerPassword={ownerPassword}
+          onOwnerPassword={setOwnerPassword}
+          ownerProblem={ownerProblem}
+        />
+      )}
+
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
@@ -503,5 +580,107 @@ function SecurityRunArea({
         </ResultCard>
       )}
     </div>
+  );
+}
+
+/**
+ * Protect's permission switches and, once one is off, the owner password
+ * that lifts them. Every box starts ticked (today's behaviour). Two boxes can
+ * be inert, and say why: accessibility (AES cannot block it) and form
+ * filling while comments are allowed (the format ties them).
+ *
+ * Inert boxes use `aria-disabled` and a guarded change, never `disabled`, so
+ * focus is never ejected mid-edit (the #46 rule).
+ */
+function PermissionControls({
+  chosen,
+  onChange,
+  effective,
+  busy,
+  restricting,
+  ownerPassword,
+  onOwnerPassword,
+  ownerProblem,
+}: {
+  chosen: PdfPermissions;
+  onChange: (next: PdfPermissions) => void;
+  effective: PdfPermissions;
+  busy: boolean;
+  restricting: boolean;
+  ownerPassword: string;
+  onOwnerPassword: (value: string) => void;
+  ownerProblem: string | null;
+}) {
+  return (
+    <fieldset className="border-line rounded-panel flex flex-col gap-2 border p-3">
+      <legend className="text-muted px-1 text-xs font-medium">
+        Permissions
+      </legend>
+      <p className="text-muted text-xs leading-relaxed">
+        Untick what people who open the file may not do. Leave every box ticked
+        to allow everything.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {PDF_PERMISSIONS.map((info) => {
+          const formsTied = info.key === "fillForms" && chosen.annotate;
+          const inert = Boolean(info.alwaysAllowed) || formsTied;
+          const note =
+            info.alwaysAllowed ?? (formsTied ? FORMS_FOLLOW_ANNOTATE : null);
+          return (
+            <label
+              key={info.key}
+              className="text-fg flex items-start gap-2.5 text-sm"
+            >
+              <input
+                type="checkbox"
+                checked={effective[info.key]}
+                aria-disabled={inert || busy || undefined}
+                onChange={(event) => {
+                  if (inert || busy) return;
+                  onChange({ ...chosen, [info.key]: event.target.checked });
+                }}
+                className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4 aria-disabled:opacity-50"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span>{info.label}</span>
+                {note && (
+                  <span className="text-muted text-xs leading-relaxed">
+                    {note}
+                  </span>
+                )}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {restricting && (
+        <div className="flex flex-col gap-1.5 pt-1">
+          <PasswordField
+            id="pdf-security-owner-password"
+            label="Owner password"
+            value={ownerPassword}
+            onChange={onOwnerPassword}
+            busy={busy}
+            autoComplete="new-password"
+          />
+          <p
+            id="pdf-security-owner-password-hint"
+            className={cn(
+              "text-xs leading-relaxed",
+              ownerProblem && ownerPassword.length > 0
+                ? "text-warn"
+                : "text-muted",
+            )}
+          >
+            Needed to lift these restrictions later, and must differ from the
+            open password.
+            {ownerProblem && ownerPassword.length > 0 ? ` ${ownerProblem}` : ""}
+          </p>
+        </div>
+      )}
+      <p className="text-muted text-xs leading-relaxed">
+        {PERMISSIONS_ARE_FLAGS}
+      </p>
+    </fieldset>
   );
 }

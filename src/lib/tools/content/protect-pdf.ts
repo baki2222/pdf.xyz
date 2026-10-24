@@ -8,6 +8,12 @@ import {
   describePdfKeyLength,
   protectedOutputName,
 } from "@/lib/jobs/pdf-security";
+import {
+  ACCESSIBILITY_ALWAYS_ALLOWED,
+  FORMS_FOLLOW_ANNOTATE,
+  PDF_PERMISSIONS,
+  PERMISSIONS_ARE_FLAGS,
+} from "@/lib/jobs/pdf-permission-labels";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 
@@ -19,13 +25,21 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
  *    show/hide toggle and a byte counter once the password is too long, the
  *    "Encryption strength" chips, the "Encrypt on the worker" button, the
  *    "Your PDF is protected and ready." result and a "Download <name>" button.
- *    The panel sends ONLY `password` and `keyLength`; it has no owner-password
- *    or permissions control.
+ *    CHANGED 2026-10-24: until then the panel sent ONLY `password` and
+ *    `keyLength` and had no owner-password or permissions control. It now
+ *    draws a "Permissions" group (PDF_PERMISSIONS, every box ticked), and
+ *    once one is unticked an "Owner password" field that must differ from
+ *    the open password; only then are `ownerPassword` and `permissions` sent.
  *  - src/lib/jobs/pdf-security.ts — the owner password defaults to the open
- *    password; the byte bound; control characters refused; AES-256 default.
+ *    password; the byte bound; control characters refused; AES-256 default;
+ *    a restriction without a distinct owner password is refused, as are
+ *    accessibility off and forms off while comments are on.
  *  - src/lib/workers/pdf-security/native.ts — `qpdf --encrypt <user> <owner>
- *    <bits> --` with no restriction flags (so qpdf's default: every permission
- *    allowed); AES forced for 128-bit, RC4 never offered.
+ *    <bits> [restriction flags] --`, a flag only for each switch turned off
+ *    (none by default, so qpdf's default: every permission allowed); AES
+ *    forced for 128-bit, RC4 never offered.
+ *  - src/lib/workers/pdf-security/engine.ts — on a restricted job the output's
+ *    /P is read back (permission-bits.ts) and the job fails on any mismatch.
  *  - src/lib/workers/pdf-security/engine.ts — an already-encrypted input is
  *    refused ("Unlock it first, then protect it again."), and the output must
  *    re-inspect as encrypted or the run fails.
@@ -72,6 +86,14 @@ const COMPATIBLE = compatibleLevel.label;
 const EXAMPLE_INPUT = "contract.pdf";
 const EXAMPLE_OUTPUT = protectedOutputName(EXAMPLE_INPUT);
 const PW_BYTES = MAX_PDF_PASSWORD_BYTES;
+// The switches the panel lets a reader turn off, read from the list it draws.
+const restrictable = PDF_PERMISSIONS.filter((p) => !p.alwaysAllowed).map((p) =>
+  p.label.toLowerCase(),
+);
+const RESTRICTABLE = `${restrictable.slice(0, -1).join(", ")} or ${restrictable.at(-1)}`;
+const COPY_LABEL = PDF_PERMISSIONS.find((p) => p.key === "copy")?.label;
+if (!COPY_LABEL)
+  throw new Error("protect-pdf content names a copy switch it cannot find");
 
 const content: ToolContent = {
   slug: "protect-pdf",
@@ -83,7 +105,7 @@ const content: ToolContent = {
   intro: [
     `Protect PDF puts an open password on a document. The result is encrypted with AES, so a PDF reader asks for the password before it will show a single page. Use it when a file travels by email, a shared drive or a USB stick. The encryption is applied by qpdf, and the worker re-inspects its own output: a file that does not come back encrypted fails the job instead of being handed over as if it were protected.`,
     `qpdf is a native program, so this tool does not run in your browser. Your PDF is uploaded over TLS to pdf.xyz's secure worker, and the password travels with the job request so the worker can encrypt that one file. The uploaded input is deleted when the job finishes, the link to the protected copy expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that. The panel holds a single PDF at a time, and the upload is refused above ${CEILING_MB} MB.`,
-    `One default matters: the same password becomes the owner password and no printing or copying restrictions are added, so whoever can open the file can also print it and copy its text. A PDF that is already encrypted is refused rather than wrapped twice.`,
+    `By default the same password becomes the owner password and every permission stays allowed, so whoever can open the file can also print it and copy its text. Under Permissions you can untick ${RESTRICTABLE}; the panel then asks for a separate owner password, and the worker reads the finished file's permission flags back and fails the job if one does not match what you chose. Filling in forms can be blocked only once comments are: ${FORMS_FOLLOW_ANNOTATE.charAt(0).toLowerCase()}${FORMS_FOLLOW_ANNOTATE.slice(1)} Text extraction for accessibility is ${ACCESSIBILITY_ALWAYS_ALLOWED.charAt(0).toLowerCase()}${ACCESSIBILITY_ALWAYS_ALLOWED.slice(1)} A PDF that is already encrypted is refused rather than wrapped twice.`,
   ],
 
   useCases: [
@@ -119,6 +141,10 @@ const content: ToolContent = {
       body: `Under Encryption strength, ${STRONG} is preselected. Switch to ${COMPATIBLE} only if the recipient's PDF software is old.`,
     },
     {
+      title: "Optional: restrict permissions",
+      body: `Every box under Permissions starts ticked. Untick what readers may not do, then type an Owner password that differs from the open password; it is the one that lifts the restrictions later.`,
+    },
+    {
       title: "Encrypt and download",
       body: `Press Encrypt on the worker once a file and a password are both in place. When "Your PDF is protected and ready." appears, use the button beneath it; for ${EXAMPLE_INPUT} it reads Download ${EXAMPLE_OUTPUT}. Open the saved file once to confirm it asks for the password.`,
     },
@@ -131,7 +157,10 @@ const content: ToolContent = {
     },
     {
       q: "Can I stop people printing or copying text from the PDF?",
-      a: "Not with this tool. It sets an open password only. The same password is written as the owner password and no permission flags are restricted, so anyone who can open the file can also print, copy and edit it. If a passage must not be readable at all, remove it with Redact PDF before protecting.",
+      // INVERTED 2026-10-24, history kept: this answered "Not with this tool.
+      // It sets an open password only…" while the panel had no permissions
+      // control. It has one now, and this says what it does and does not do.
+      a: `Yes. Untick “Printing” or “${COPY_LABEL}” under Permissions and set an owner password that differs from the open password. ${PERMISSIONS_ARE_FLAGS} If a passage must not be readable at all, remove it with Redact PDF before protecting.`,
     },
     {
       q: "How do I change the password on a PDF that is already protected?",

@@ -1,5 +1,12 @@
 import type { JobError } from "@/lib/jobs";
+import type { JobResults } from "@/lib/jobs/results";
+import { parsePdfToWordOptions } from "@/lib/jobs/ocr";
+import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
+import { OCR_REFUSAL_MESSAGES } from "../ocr-engine-errors";
+
+/** The tool slug the OCR processor serves; PDF to Word asks it by name. */
+const OCR_TOOL_SLUG = "ocr-pdf";
 import {
   MAX_DISPLAY_FILENAME_LENGTH,
   sanitizeDisplayFilename,
@@ -123,8 +130,31 @@ function meta(m: PdfOfficeExportMeta): ProcessorMeta {
   };
 }
 
+/**
+ * What PDF to Word's "Recognise text in scans (OCR)" says when OCR cannot
+ * help, in words for THIS panel. The OCR processor's own copy names OCR PDF's
+ * controls ("Turn on “Redo existing OCR”"), which this panel does not have.
+ */
+export const WORD_OCR_MESSAGES = {
+  unavailable: `Recognising text in scans needs OCR, which isn't available on this worker. Turn off “${WORD_OCR_LABEL}” to convert the selectable text alone. Nothing was converted.`,
+  priorText: `This PDF already has a text layer, and the OCR engine would not add a second one. Turn off “${WORD_OCR_LABEL}” and convert again. Nothing was converted.`,
+  noText:
+    "OCR ran, but found no text in this PDF to put in a Word document. Check the languages you chose match the page. Nothing was converted.",
+} as const;
+
+/** Wiring beyond the export engine: the processors a job may run first. */
+export interface PdfOfficeExportChain {
+  /**
+   * The OCR processor, for PDF to Word's OCR option. The SAME instance the
+   * registry serves `ocr-pdf` with, so its readiness, installed-language check
+   * and refusal handling are OCR PDF's own.
+   */
+  ocr?: Processor;
+}
+
 export function createPdfOfficeExportProcessor(
   deps: PdfOfficeExportDeps,
+  chain: PdfOfficeExportChain = {},
 ): Processor {
   // All three readers, because this processor claims all three tools: Excel
   // reads `extract`, Word reads `extractFlow` and (since 2026-10-17, for its
@@ -161,8 +191,71 @@ export function createPdfOfficeExportProcessor(
       const bad = inputError(input);
       if (bad) return bad;
       const file = input.inputs[0]!;
-      const run = await runPdfOfficeExport(input.tool, file.bytes, deps);
-      if (!run.ok) return processorFail(jobError(run));
+
+      // PDF to Word's one option: OCR first. Validated for Word only — Excel
+      // and PowerPoint take no options and keep ignoring the bag, as before.
+      let bytes = file.bytes;
+      let ocrResults: JobResults | undefined;
+      if (input.tool === PDF_TO_WORD_TOOL) {
+        const parsed = parsePdfToWordOptions(input.options);
+        if (!parsed.ok)
+          return processorFail({
+            code: parsed.error.body.error.code,
+            message: parsed.error.body.error.message,
+            retryable: false,
+          });
+        if (parsed.value.ocr) {
+          const ocr = chain.ocr;
+          if (!ocr || !ocr.capability().ready)
+            return processorFail({
+              code: "not_implemented",
+              message: WORD_OCR_MESSAGES.unavailable,
+              retryable: false,
+            });
+          // The OCR processor itself: option validation, the installed-pack
+          // check and the refusal mapping are OCR PDF's, not a copy of them.
+          const recognised = await ocr.process({
+            ...input,
+            tool: OCR_TOOL_SLUG,
+            options: {
+              languages: parsed.value.languages,
+              outputMode: "searchable-pdf",
+            },
+          });
+          if (!recognised.ok) {
+            // Its refusal copy names OCR PDF's switch; say this panel's.
+            const prior =
+              recognised.error.message === OCR_REFUSAL_MESSAGES["prior-text"];
+            return processorFail(
+              prior
+                ? { ...recognised.error, message: WORD_OCR_MESSAGES.priorText }
+                : recognised.error,
+            );
+          }
+          const pdf = recognised.artifacts.find(
+            (a) => a.contentType === "application/pdf",
+          );
+          if (!pdf)
+            return processorFail({
+              code: "internal_error",
+              message: "The OCR engine produced no searchable PDF.",
+              retryable: true,
+            });
+          bytes = pdf.bytes;
+          ocrResults = recognised.results;
+        }
+      }
+
+      const run = await runPdfOfficeExport(input.tool, bytes, deps);
+      if (!run.ok) {
+        const error = jobError(run);
+        // "Run OCR first" is false advice after OCR has run.
+        return processorFail(
+          ocrResults && run.kind === "no_text"
+            ? { ...error, message: WORD_OCR_MESSAGES.noText }
+            : error,
+        );
+      }
       return processorOk(
         [
           {
@@ -171,10 +264,14 @@ export function createPdfOfficeExportProcessor(
             bytes: run.output,
           },
         ],
-        meta(run.meta),
+        { ...meta(run.meta), ocrFirst: ocrResults !== undefined },
         // Which pages had text. Without it a partly scanned PDF "succeeds"
-        // with its scanned pages silently missing from the file.
-        { officeExport: run.coverage },
+        // with its scanned pages silently missing from the file. With OCR
+        // first, also what OCR did (engine, languages, pages).
+        {
+          ...(ocrResults?.ocr ? { ocr: ocrResults.ocr } : {}),
+          officeExport: run.coverage,
+        },
       );
     },
   };

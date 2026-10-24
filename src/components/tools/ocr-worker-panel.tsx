@@ -1,15 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
-  useCallback,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
-import {
-  Check,
   FileDown,
   FileText,
   FileUp,
@@ -22,11 +15,7 @@ import {
 } from "lucide-react";
 import { DEFAULT_RETENTION, JOB_LIMITS } from "@/lib/jobs/types";
 import {
-  DEFAULT_OCR_LANGUAGE,
   DEFAULT_OCR_OUTPUT_MODE,
-  MAX_OCR_LANGUAGES,
-  OCR_LANGUAGES,
-  OCR_LANGUAGE_CODES,
   OCR_MAX_INPUT_FILES,
   OCR_OUTPUT_MODES,
   describeOcrLanguage,
@@ -34,12 +23,11 @@ import {
   ocrConfidenceLooksLow,
   ocrOutputsForMode,
   parseOcrOptions,
-  type OcrLanguage,
   type OcrOptions,
   type OcrOutputMode,
   type OcrResultMeta,
 } from "@/lib/jobs/ocr";
-import { ocrLanguagesFromBrowser } from "@/lib/jobs/ocr-browser-languages";
+import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
 import {
   resumeWorkerOcr,
   runWorkerOcr,
@@ -182,35 +170,6 @@ export function OcrWorkerPanel({ tool }: { tool: Tool }) {
   );
 }
 
-/** The browser's pick, read once per page — the server has no `navigator`. */
-let browserPick: OcrLanguage[] | null | undefined;
-function readBrowserPick(): OcrLanguage[] | null {
-  if (browserPick !== undefined) return browserPick;
-  let tags: readonly string[] = [];
-  try {
-    tags = navigator.languages?.length
-      ? navigator.languages
-      : [navigator.language];
-  } catch {
-    tags = [];
-  }
-  const langs = ocrLanguagesFromBrowser(tags);
-  // English alone is the default already; there is nothing to explain.
-  browserPick =
-    langs.length > 1 || langs[0] !== DEFAULT_OCR_LANGUAGE ? langs : null;
-  return browserPick;
-}
-const noSubscription = () => () => {};
-
-/**
- * `navigator.languages ∩ OCR_LANGUAGES` (spec D.7) — `null` on the server and
- * through hydration (its snapshot), then the browser's answer, so the HTML
- * and the first client render agree.
- */
-function useBrowserLanguages(): OcrLanguage[] | null {
-  return useSyncExternalStore(noSubscription, readBrowserPick, () => null);
-}
-
 function OcrBody({
   tool,
   outputMode,
@@ -221,57 +180,9 @@ function OcrBody({
   setOutputMode: (mode: OcrOutputMode) => void;
 }) {
   const { status } = useWorkerPanel();
-  // The reader's own picks, once they make one; until then the browser's.
-  const [chosen, setChosen] = useState<OcrLanguage[] | null>(null);
-  const fromBrowser = useBrowserLanguages();
-  const languages = useMemo(
-    () => chosen ?? fromBrowser ?? [DEFAULT_OCR_LANGUAGE],
-    [chosen, fromBrowser],
-  );
-  const setLanguages = setChosen;
+  const languageChoice = useOcrLanguageChoice(status);
+  const { selected, installed } = languageChoice;
   const [redoOcr, setRedoOcr] = useState(false);
-
-  // The packs the worker reports it actually has. Until 2026-09-27 the menu
-  // rendered the static catalogue whatever the status said — the heartbeat's
-  // report reached the status payload and stopped there, while the FAQ told
-  // search results the page reflects it. With no report to read (status still
-  // loading, unreachable, or OCR not available) there is nothing to narrow
-  // by, so the catalogue stands.
-  const installed = useMemo<ReadonlySet<string>>(
-    () =>
-      new Set(
-        status?.ocr.available ? status.ocr.languages : OCR_LANGUAGE_CODES,
-      ),
-    [status],
-  );
-
-  // What is really selected: the user's picks minus any pack the worker lacks.
-  // Derived rather than stored, so the report arriving AFTER a pick still
-  // removes it. If that empties the selection (the default English on a worker
-  // without it), fall back to the first installed language — the request must
-  // never carry a code the worker will refuse.
-  const selected = useMemo<OcrLanguage[]>(() => {
-    const kept = languages.filter((code) => installed.has(code));
-    if (kept.length > 0) return kept;
-    const first = OCR_LANGUAGE_CODES.find((code) => installed.has(code));
-    return first ? [first] : languages;
-  }, [languages, installed]);
-
-  const toggleLanguage = useCallback(
-    (code: OcrLanguage) => {
-      // No check for an uninstalled code here: `selected` drops it on the next
-      // render, so a click on a chip the worker cannot run changes nothing.
-      const prev = selected;
-      if (prev.includes(code)) {
-        if (prev.length === 1) return; // keep at least one language
-        setLanguages(prev.filter((entry) => entry !== code));
-        return;
-      }
-      if (prev.length >= MAX_OCR_LANGUAGES) return; // respect the cap
-      setLanguages([...prev, code]);
-    },
-    [selected, setLanguages],
-  );
 
   // Run the free-form options through the real contract validator, so the "what
   // will happen" summary and any submitted job carry exactly the validated value.
@@ -286,7 +197,6 @@ function OcrBody({
   // submit a job it will refuse.
   const runnable =
     parsed.ok && request.languages.every((code) => installed.has(code));
-  const browserChose = chosen === null && fromBrowser !== null;
 
   // The file comes first, then what to recognise in it, then Run: a
   // visitor meets the drop area at the top of the panel (owner,
@@ -297,70 +207,7 @@ function OcrBody({
       <h3 className="text-faint kicker">Recognition settings</h3>
 
       {/* Languages */}
-      <div className="flex flex-col gap-2">
-        <span className="text-muted inline-flex items-center gap-1.5 text-xs font-medium">
-          <Languages className="size-3.5" aria-hidden />
-          Languages{" "}
-          <span className="text-muted">(up to {MAX_OCR_LANGUAGES})</span>
-        </span>
-        {/*
-            The single most useful sentence on this page. OCR against the wrong
-            language does not fail — it returns confident-looking nonsense — so a
-            user who leaves the default alone gets a successful job and unusable
-            output, with nothing anywhere to tell them why.
-          */}
-        <p className="text-muted text-xs leading-relaxed">
-          Select every language printed on the page — a page that mixes Bengali
-          with English technical terms needs both. The wrong language does not
-          produce an error, it produces plausible-looking gibberish.
-        </p>
-        <div
-          className="flex flex-wrap gap-1.5"
-          role="group"
-          aria-label="OCR languages"
-        >
-          {OCR_LANGUAGES.map((language) => {
-            const active = selected.includes(language.code);
-            const notInstalled = !installed.has(language.code);
-            const atCap = !active && selected.length >= MAX_OCR_LANGUAGES;
-            return (
-              <button
-                key={language.code}
-                type="button"
-                // aria-disabled, never native: the cap flips exactly while the
-                // user is picking languages, and a natively disabled chip would
-                // eject their focus and leave the tab order (the #46 rule).
-                // toggleLanguage respects the cap; `selected` the report.
-                onClick={() => toggleLanguage(language.code)}
-                aria-disabled={notInstalled || atCap || undefined}
-                aria-pressed={active}
-                title={
-                  notInstalled
-                    ? "Not installed on the current worker — it has no recognition pack for this language."
-                    : atCap
-                      ? `Deselect a language first — at most ${MAX_OCR_LANGUAGES} at once.`
-                      : undefined
-                }
-                className={cn(
-                  "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
-                  active
-                    ? "border-accent/40 bg-accent/10 text-accent"
-                    : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",
-                )}
-              >
-                {active && <Check className="size-3" aria-hidden />}
-                {language.label}
-              </button>
-            );
-          })}
-        </div>
-        {browserChose && (
-          <p className="text-muted text-xs leading-relaxed" data-ocr-reason="">
-            Chosen from your browser&apos;s languages. Change them if the page
-            is printed in others.
-          </p>
-        )}
-      </div>
+      <OcrLanguagePicker choice={languageChoice} />
 
       {/* Output mode */}
       <div className="flex flex-col gap-2">

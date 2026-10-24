@@ -184,6 +184,8 @@ export const GRAYSCALE_DPI_PRESETS = [
  * sent as `targetDpi` (the worker's Ghostscript downsamples every image to it).
  */
 export const DEEP_COMPRESSION_PRESETS = [
+  // 72 DPI is also the worker's floor (`MIN_DPI` in compression/engine.ts).
+  { dpi: 72, label: "Extreme" },
   { dpi: 96, label: "Smaller" },
   { dpi: 150, label: "Balanced" },
   { dpi: 300, label: "High quality" },

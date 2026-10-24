@@ -30,6 +30,8 @@ import {
 } from "./worker-panel-shell";
 import { OfficeExportCoverageNotice } from "./office-export-coverage";
 import { OfficeExportNextStep } from "./office-export-notices";
+import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
+import { WORD_OCR_HINT } from "@/lib/jobs/pdf-office-export";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -94,8 +96,10 @@ const EXPORT_COPY: Record<
   "pdf-to-word": {
     badge: "Text and pictures",
     summary:
-      "The worker reads each page's selectable text, in reading order, and its pictures, and packages them into a real DOCX file. A scanned page comes through as a picture; run OCR first to have its words as text too.",
-    note: "Running this uses a private secure-worker job. A PDF with no selectable text at all, such as a scan, needs OCR first.",
+      // CHANGED 2026-10-24: "…; run OCR first to have its words as text
+      // too." — before the OCR switch below ran it in the same job.
+      "The worker reads each page's selectable text, in reading order, and its pictures, and packages them into a real DOCX file. A scanned page comes through as a picture; turn on OCR below to have its words as text too.",
+    note: "Running this uses a private secure-worker job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
     hint: "Selectable PDF",
   },
   "pdf-to-excel": {
@@ -175,20 +179,28 @@ function PdfOfficeRunArea({
     setOutcome(null);
     setFile(files[0] ?? null);
   });
+  // PDF to Word only: OCR first, in the same job, with OCR PDF's languages.
+  const offersOcr = tool === "pdf-to-word";
+  const [ocrOn, setOcrOn] = useState(false);
+  const languageChoice = useOcrLanguageChoice(status);
+  const ocrAvailable = status?.ocr.available === true;
+  const ocrBlocked = offersOcr && ocrOn && !ocrAvailable;
+  const languages = languageChoice.selected;
   const start = useCallback(async () => {
-    if (!file || !available) return;
+    if (!file || !available || ocrBlocked) return;
     await run(async (controls) => {
       const result = await runWorkerPdfOfficeExport(
         {
           tool,
           filename: file.name,
           bytes: new Uint8Array(await file.arrayBuffer()),
+          ...(offersOcr && ocrOn ? { ocr: { languages } } : {}),
         },
         controls,
       );
       return result;
     });
-  }, [file, tool, run, available]);
+  }, [file, tool, run, available, ocrBlocked, offersOcr, ocrOn, languages]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
     status?.daemon.detail ?? "The secure worker is not drainable here.";
@@ -233,6 +245,40 @@ function PdfOfficeRunArea({
           hint={EXPORT_COPY[tool].hint}
         />
       )}
+      {offersOcr && (
+        <div className="border-line rounded-panel flex flex-col gap-3 border p-3">
+          <label className="text-muted flex items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={ocrOn}
+              // Guarded, never `disabled`: focus stays put mid-run (#46).
+              onChange={(event) => {
+                if (!busy) setOcrOn(event.target.checked);
+              }}
+              aria-disabled={busy || undefined}
+              className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-fg font-medium">
+                Recognise text in scans (OCR)
+              </span>
+              <span className="text-muted text-xs leading-relaxed">
+                {WORD_OCR_HINT}
+              </span>
+            </span>
+          </label>
+          {ocrOn &&
+            (ocrAvailable ? (
+              <OcrLanguagePicker choice={languageChoice} />
+            ) : (
+              <p className="text-warn text-xs leading-relaxed">
+                {status?.ocr.detail ??
+                  "OCR isn't available on this worker, so this option can't run here."}{" "}
+                Turn it off to convert the selectable text alone.
+              </p>
+            ))}
+        </div>
+      )}
       <WorkerGate
         reserve={STATUS_SLOT}
         job={job}
@@ -241,7 +287,7 @@ function PdfOfficeRunArea({
           <WorkerRunButton
             onClick={start}
             busy={busy}
-            disabled={!ready || !file}
+            disabled={!ready || !file || ocrBlocked}
             busyLabel={jobBusyLabel(job.phase, `Exporting ${output}…`)}
             icon={FileText}
           >

@@ -114,6 +114,9 @@ function toProcessorMeta(meta: PdfSecurityResultMeta): ProcessorMeta {
     outputBytes: meta.outputBytes,
   };
   if (meta.keyLength !== undefined) flat.keyLength = meta.keyLength;
+  // Switch names only (e.g. "print+copy") — never a password.
+  if (meta.restricted !== undefined)
+    flat.restricted = meta.restricted.join("+") || "none";
   return flat;
 }
 
