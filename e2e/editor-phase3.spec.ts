@@ -353,6 +353,13 @@ test("forms: fill the file's own fields, add new ones, a date and a check mark",
   await expect(name).toHaveValue("Text1");
   await name.fill("full_name");
   await page.getByLabel("Starting text").fill("Ada Lovelace");
+  // Where the overlay drew it (the drag's ends are measured one after the
+  // other, so the box is read back rather than assumed).
+  const drawnField = await boxOf(
+    page,
+    '[data-editor-page="0"] [data-field-kind="text"] > rect',
+  );
+  expect(drawnField.width).toBeGreaterThan(150);
 
   // A dropdown, placed with a click, its second option chosen.
   await page.getByRole("button", { name: "Dropdown", exact: true }).click();
@@ -396,12 +403,7 @@ test("forms: fill the file's own fields, add new ones, a date and a check mark",
   expect(field("agree").fieldValue).not.toBe("Off");
   expect(field("full_name").fieldType).toBe("Tx");
   expect(field("full_name").fieldValue).toBe("Ada Lovelace");
-  expectNear(field("full_name").rect, {
-    x: 300,
-    y: 300,
-    width: 180,
-    height: 24,
-  });
+  expectNear(field("full_name").rect, drawnField);
   expect(field("Dropdown1").fieldType).toBe("Ch");
   expect(field("Dropdown1").fieldValue).toEqual(["Option 2"]);
   expect(field("Checkbox1").checkBox).toBe(true);
@@ -410,3 +412,61 @@ test("forms: fill the file's own fields, add new ones, a date and a check mark",
   expect(guard.pageErrors).toEqual([]);
   expect(guard.cspViolations()).toEqual([]);
 });
+
+/**
+ * Every page's sheet inside the page view's visible width: its right edge
+ * at or left of the scroll container's inner right edge. Measured from the
+ * DOM after layout, so the rail, the panel and the scrollbar are all in it.
+ */
+async function pagesFit(page: Page) {
+  return page.evaluate(() => {
+    const v = document.querySelector<HTMLElement>("[data-editor-viewport]")!;
+    const vb = v.getBoundingClientRect();
+    const left = vb.left + v.clientLeft;
+    const right = left + v.clientWidth;
+    const sheets = [...document.querySelectorAll("[data-editor-page]")].map(
+      (s) => s.getBoundingClientRect(),
+    );
+    return {
+      count: sheets.length,
+      overflow: Math.max(...sheets.map((r) => r.right - right)),
+      underflow: Math.max(...sheets.map((r) => left - r.left)),
+    };
+  });
+}
+
+for (const size of [
+  { width: 1280, height: 720 },
+  { width: 1024, height: 768 },
+]) {
+  test(`Fit width fits every page, a landscape one too, at ${size.width}x${size.height}`, async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.setViewportSize(size);
+    await open(page);
+    // The fixture's page 2 is turned (792 pt wide); turn page 1 as well.
+    await page
+      .locator('[data-page-rail="rail"]')
+      .getByRole("button", { name: "Rotate page 1" })
+      .click();
+    await expect(page.locator("#editor-zoom")).toHaveValue("fit");
+    await expect
+      .poll(async () => (await pagesFit(page)).overflow)
+      .toBeLessThanOrEqual(0.5);
+    const fit = await pagesFit(page);
+    expect(fit.count).toBe(3);
+    expect(fit.underflow).toBeLessThanOrEqual(0.5);
+    // Control: a zoom too large for the view is rejected by the same check.
+    await page.locator("#editor-zoom").selectOption("4");
+    await expect
+      .poll(async () => (await pagesFit(page)).overflow)
+      .toBeGreaterThan(100);
+    // And Fit width brings every page back inside.
+    await page.locator("#editor-zoom").selectOption("fit");
+    await expect
+      .poll(async () => (await pagesFit(page)).overflow)
+      .toBeLessThanOrEqual(0.5);
+    await shot(page, `p3-fit-${size.width}.png`);
+  });
+}

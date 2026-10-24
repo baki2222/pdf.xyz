@@ -111,7 +111,7 @@ function Thumb({
 
   const n = index + 1;
   const iconBtn =
-    "text-muted hover:text-fg hover:bg-wash rounded-ctl inline-flex size-6 items-center justify-center aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
+    "text-muted hover:text-fg hover:bg-wash rounded-ctl inline-flex flex-col items-center justify-center gap-0.5 px-0.5 py-1 text-[10px] leading-none aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
@@ -188,6 +188,7 @@ function Thumb({
           className={iconBtn}
         >
           <RotateCw className="size-3.5" aria-hidden />
+          Rotate
         </button>
         <button
           type="button"
@@ -197,6 +198,7 @@ function Thumb({
           className={iconBtn}
         >
           <FilePlus2 className="size-3.5" aria-hidden />
+          Blank page
         </button>
         <button
           type="button"
@@ -209,6 +211,7 @@ function Thumb({
           className={cn(iconBtn, "hover:text-err")}
         >
           <Trash2 className="size-3.5" aria-hidden />
+          Delete
         </button>
         {layout === "sheet" && (
           <>
@@ -222,6 +225,7 @@ function Thumb({
               className={iconBtn}
             >
               <ArrowLeft className="size-3.5" aria-hidden />
+              Earlier
             </button>
             <button
               type="button"
@@ -233,6 +237,7 @@ function Thumb({
               className={iconBtn}
             >
               <ArrowRight className="size-3.5" aria-hidden />
+              Later
             </button>
           </>
         )}
@@ -248,6 +253,7 @@ function Thumb({
               className={cn(iconBtn, "sr-only focus:not-sr-only")}
             >
               <ArrowUp className="size-3.5" aria-hidden />
+              Up
             </button>
             <button
               type="button"
@@ -259,6 +265,7 @@ function Thumb({
               className={cn(iconBtn, "sr-only focus:not-sr-only")}
             >
               <ArrowDown className="size-3.5" aria-hidden />
+              Down
             </button>
           </>
         )}
@@ -293,7 +300,7 @@ export function ThumbnailRail({
         className={cn(
           layout === "rail"
             ? "flex flex-col gap-1"
-            : "grid grid-cols-3 gap-2 sm:grid-cols-5",
+            : "grid grid-cols-2 gap-2 sm:grid-cols-4",
         )}
       >
         {pages.map((page, index) => (

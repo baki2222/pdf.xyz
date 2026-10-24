@@ -48,14 +48,18 @@ export function fitWidthZoom(available: number, pageWidth: number): number {
 }
 
 /**
- * The width "fit width" fits: the median page width, so one landscape page
- * in a portrait document does not shrink every other page to fit it (that
- * page scrolls sideways instead).
+ * The width "fit width" fits: the WIDEST page, so every page — a landscape
+ * one in a portrait document included — is whole inside the view.
+ *
+ * HISTORY. Until 2026-10-24 (Phase 3 review) this was the median width, so
+ * one landscape page would not shrink the rest; that page scrolled sideways
+ * instead. With pages turnable in the rail, a turned page then sat cut off
+ * at the right edge at "Fit width" (p3-pages.png), which the name promises
+ * not to do.
  */
-export function typicalPageWidth(widths: readonly number[]): number {
+export function fitPageWidth(widths: readonly number[]): number {
   if (widths.length === 0) return 0;
-  const sorted = [...widths].sort((a, b) => a - b);
-  return sorted[Math.floor((sorted.length - 1) / 2)]!;
+  return Math.max(...widths);
 }
 
 /** Screen (overlay CSS px) → viewer points. */

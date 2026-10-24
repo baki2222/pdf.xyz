@@ -26,11 +26,13 @@ import {
   clampZoom,
   contentToViewer,
   fitWidthZoom,
+  MIN_FIT_ZOOM,
+  MIN_ZOOM,
   scaleForZoom,
   screenToViewer,
   snapPoint,
   snapRect,
-  typicalPageWidth,
+  fitPageWidth,
   type ExportFrame,
   type SnapGuide,
 } from "@/lib/pdf/editor/geometry";
@@ -571,8 +573,8 @@ export function WysiwygEditor({
     () => frames?.map((f) => ({ width: f.width, height: f.height })) ?? [],
     [frames],
   );
-  const fitPageWidth = useMemo(
-    () => typicalPageWidth(sizes.map((s) => s.width)),
+  const fitWidth = useMemo(
+    () => fitPageWidth(sizes.map((s) => s.width)),
     [sizes],
   );
   const scale = scaleForZoom(zoom.zoom);
@@ -586,12 +588,17 @@ export function WysiwygEditor({
   // Fit width, measured before paint so the first frame is the final one.
   useLayoutEffect(() => {
     const el = viewport.current;
-    if (!el || fitPageWidth <= 0) return;
+    if (!el || fitWidth <= 0) return;
     const measure = () => {
       const width = el.clientWidth;
       setView((v) => ({ ...v, width, height: el.clientHeight }));
       setZoom((z) =>
-        z.fit ? { zoom: fitWidthZoom(width - 32, fitPageWidth), fit: true } : z,
+        z.fit
+          ? {
+              zoom: fitWidthZoom(width - 2 * COLUMN_PAD - 1, fitWidth),
+              fit: true,
+            }
+          : z,
       );
     };
     measure();
@@ -599,7 +606,7 @@ export function WysiwygEditor({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [fitPageWidth]);
+  }, [fitWidth]);
 
   // Keep the point at the centre of the view where it was across a zoom.
   const anchor = useRef<{ x: number; y: number } | null>(null);
@@ -611,7 +618,11 @@ export function WysiwygEditor({
         y: (el.scrollTop + el.clientHeight / 2) / Math.max(1, el.scrollHeight),
       };
     }
-    setZoom({ zoom: clampZoom(next), fit });
+    // A fit zoom may go below the manual minimum (`MIN_FIT_ZOOM`). Clamped
+    // to 50% here, choosing "Fit width" from the menu left a wide page 18 px
+    // past the view's right edge at 1024 px (the e2e fit check's control
+    // found it); the first, measured fit never went through this clamp.
+    setZoom({ zoom: clampZoom(next, fit ? MIN_FIT_ZOOM : MIN_ZOOM), fit });
   }, []);
   useLayoutEffect(() => {
     const el = viewport.current;
@@ -624,9 +635,12 @@ export function WysiwygEditor({
 
   const fitNow = useCallback(() => {
     const el = viewport.current;
-    if (!el || fitPageWidth <= 0) return;
-    changeZoom(fitWidthZoom(el.clientWidth - 32, fitPageWidth), true);
-  }, [fitPageWidth, changeZoom]);
+    if (!el || fitWidth <= 0) return;
+    changeZoom(
+      fitWidthZoom(el.clientWidth - 2 * COLUMN_PAD - 1, fitWidth),
+      true,
+    );
+  }, [fitWidth, changeZoom]);
 
   // Scroll position → virtualisation and the current page.
   useEffect(() => {
@@ -2297,7 +2311,7 @@ export function WysiwygEditor({
           </p>
         )}
 
-        <div className="grid gap-3 lg:grid-cols-[7.25rem_minmax(0,1fr)_15rem]">
+        <div className="grid gap-3 lg:grid-cols-[9rem_minmax(0,1fr)_15rem]">
           <div className="hidden h-[min(76vh,1100px)] min-h-[420px] lg:block">
             {ready && wide && (
               <ThumbnailRail

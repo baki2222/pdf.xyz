@@ -590,29 +590,29 @@ export function PropertiesPanel({
         <div
           role="group"
           aria-label="Order"
-          className="flex items-center justify-between gap-2 text-xs"
+          className="flex flex-col gap-1.5 text-xs"
         >
           <span className="text-muted" aria-hidden>
             Order
           </span>
-          <span className="flex gap-1">
+          <span className="grid grid-cols-2 gap-1.5">
             {(
               [
-                ["front", "Bring to front", BringToFront],
-                ["forward", "Bring forward", ArrowUp],
-                ["backward", "Send backward", ArrowDown],
-                ["back", "Send to back", SendToBack],
+                ["front", "To front", "Bring to front", BringToFront],
+                ["forward", "Forward", "Bring forward", ArrowUp],
+                ["backward", "Backward", "Send backward", ArrowDown],
+                ["back", "To back", "Send to back", SendToBack],
               ] as const
-            ).map(([move, label, Icon]) => (
+            ).map(([move, text, label, Icon]) => (
               <button
                 key={move}
                 type="button"
                 aria-label={label}
-                title={label}
                 onClick={() => onStack(move)}
-                className="border-line text-muted hover:text-fg rounded-ctl inline-flex size-8 items-center justify-center border"
+                className="border-line text-muted hover:text-fg rounded-ctl inline-flex items-center gap-1.5 border px-2.5 py-1.5 text-xs"
               >
                 <Icon className="size-3.5" aria-hidden />
+                {text}
               </button>
             ))}
           </span>

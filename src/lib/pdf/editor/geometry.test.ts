@@ -13,7 +13,7 @@ import {
   screenToViewer,
   snapPoint,
   snapRect,
-  typicalPageWidth,
+  fitPageWidth,
   viewerToContent,
   viewerToScreen,
   type ExportFrame,
@@ -171,10 +171,13 @@ describe("zoom", () => {
     expect(fitWidthZoom(328, 612)).toBeCloseTo(328 / 816, 9);
     expect(scaleForZoom(0.3)).toBeCloseTo(0.3 * CSS_PX_PER_PT, 9);
     expect(clampZoom(0.3)).toBe(0.5);
-    // The typical width is the median: one landscape page does not shrink the rest.
-    expect(typicalPageWidth([612, 792])).toBe(612);
-    expect(typicalPageWidth([612, 612, 792])).toBe(612);
-    expect(typicalPageWidth([792, 792, 612])).toBe(792);
+    // Fit width fits the WIDEST page. Inverted 2026-10-24: these three once
+    // pinned the median (612, 612, 792), which left one landscape page cut
+    // off at the right at "Fit width".
+    expect(fitPageWidth([612, 792])).toBe(792);
+    expect(fitPageWidth([612, 612, 792])).toBe(792);
+    expect(fitPageWidth([792, 792, 612])).toBe(792);
+    expect(fitPageWidth([])).toBe(0);
   });
 });
 

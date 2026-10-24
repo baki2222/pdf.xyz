@@ -77,6 +77,11 @@ test("Pages sheet: rotate and insert; long-press selects; download", async ({
   await sheet.getByRole("button", { name: "Done" }).tap();
   await expect(sheet).toHaveCount(0);
 
+  // Fit width: the turned (landscape) page is whole inside the page view.
+  await expect
+    .poll(async () => (await pagesFit()).overflow)
+    .toBeLessThanOrEqual(0.5);
+
   // A check mark, tapped onto page 2.
   const check = page.getByRole("button", { name: "Check", exact: true });
   await check.scrollIntoViewIfNeeded();
@@ -85,13 +90,21 @@ test("Pages sheet: rotate and insert; long-press selects; download", async ({
   await two.scrollIntoViewIfNeeded();
   const box = (await two.boundingBox())!;
   const scale = box.width / 612;
-  const x = box.x + 200 * scale;
-  const y = box.y + 200 * scale;
-  await page.touchscreen.tap(x, y);
+  const tx = box.x + 200 * scale;
+  const ty = box.y + 200 * scale;
+  await page.touchscreen.tap(tx, ty);
   const mark = page.locator('[data-editor-page="1"] [data-object-kind="mark"]');
   await expect(mark).toHaveCount(1);
 
   // Long press on it: selected, the tool back to Select, nothing added.
+  // Placing it selected it and opened the properties sheet over the lower
+  // screen: close that, and press where the mark is NOW.
+  await page.getByRole("button", { name: "Done" }).tap();
+  await expect(mark).toHaveAttribute("aria-pressed", "false");
+  await mark.scrollIntoViewIfNeeded();
+  const mb = (await mark.boundingBox())!;
+  const x = mb.x + mb.width / 2;
+  const y = mb.y + mb.height / 2;
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -120,4 +133,35 @@ test("Pages sheet: rotate and insert; long-press selects; download", async ({
   expect(texts[1]).toContain("PAGE TWO");
   expect(texts[2]!.trim()).toBe("");
   expect((await pdfAnnotations(buf)).map((p) => p.rotate)).toEqual([90, 0, 0]);
+
+  // Control for the fit check above: a zoom too large is rejected by it.
+  await page
+    .getByRole("button", { name: /adjust/i })
+    .first()
+    .tap();
+  const zoom = page.locator("#editor-zoom");
+  await zoom.scrollIntoViewIfNeeded();
+  await zoom.selectOption("4");
+  await expect
+    .poll(async () => (await pagesFit()).overflow)
+    .toBeGreaterThan(100);
+  await zoom.selectOption("fit");
+  await expect
+    .poll(async () => (await pagesFit()).overflow)
+    .toBeLessThanOrEqual(0.5);
+
+  async function pagesFit() {
+    return page.evaluate(() => {
+      const v = document.querySelector<HTMLElement>("[data-editor-viewport]")!;
+      const vb = v.getBoundingClientRect();
+      const right = vb.left + v.clientLeft + v.clientWidth;
+      return {
+        overflow: Math.max(
+          ...[...document.querySelectorAll("[data-editor-page]")].map(
+            (s) => s.getBoundingClientRect().right - right,
+          ),
+        ),
+      };
+    });
+  }
 });
