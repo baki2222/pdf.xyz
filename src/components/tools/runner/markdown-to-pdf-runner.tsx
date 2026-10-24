@@ -1,7 +1,8 @@
 "use client";
 
 import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { usePreHydrationText } from "./pre-hydration-text";
 import {
   Download,
   FileText,
@@ -46,10 +47,15 @@ interface MarkdownSource {
 
 export function MarkdownToPdfRunner() {
   const handoff = useToolHandoff("markdown-to-pdf");
+  const boxId = useId();
   const [source, setSource] = useState<MarkdownSource>({
     name: "document.md",
     text: "",
   });
+  // Words typed before hydration survive it (pre-hydration-text.ts).
+  usePreHydrationText(boxId, (text) =>
+    setSource((current) => (current.text ? current : { ...current, text })),
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const seededRef = useRef(false);
 
@@ -99,6 +105,7 @@ export function MarkdownToPdfRunner() {
         />
       )}
       <MarkdownToPdfEditor
+        boxId={boxId}
         source={source}
         onSource={setSource}
         onFile={(files) => files[0] && void readMarkdownFile(files[0])}
@@ -110,12 +117,14 @@ export function MarkdownToPdfRunner() {
 }
 
 function MarkdownToPdfEditor({
+  boxId,
   source,
   onSource,
   onFile,
   loadError,
   onClearError,
 }: {
+  boxId: string;
   source: MarkdownSource;
   onSource: (source: MarkdownSource) => void;
   onFile: (files: File[]) => void;
@@ -180,6 +189,7 @@ function MarkdownToPdfEditor({
         }
       >
         <textarea
+          id={boxId}
           value={source.text}
           onChange={(event) =>
             onSource({ ...source, text: event.target.value })
