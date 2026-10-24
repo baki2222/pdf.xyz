@@ -68,7 +68,11 @@ import { howToSteps, toolFacts, toolFaq } from "./tool-facts";
 import { withoutComments } from "./copy-surface";
 import * as pageCopy from "./page-copy";
 import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
-import { STAMP_POSITIONS, applyTokens } from "@/lib/pdf/stamp";
+import {
+  STAMP_FONT_LABELS,
+  STAMP_POSITIONS,
+  applyTokens,
+} from "@/lib/pdf/stamp";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
 import { OVERLAY_FITS, overlayPdf } from "@/lib/pdf/overlay";
 import { flattenPdf } from "@/lib/pdf/flatten";
@@ -103,6 +107,16 @@ const tool = (slug: string): Tool => {
 };
 
 /** Everything a tool page says in its own voice, as the page renders it. */
+/** Everything the page serves: {@link pageTexts} plus the authored copy. */
+function servedPage(t: Tool): string {
+  return [
+    ...pageTexts(t),
+    ...pageCopy.pageIntro(t),
+    ...pageCopy.pageSteps(t).map(pageCopy.stepText),
+    ...pageCopy.pageFaq(t).flatMap((e) => [e.question, e.answer]),
+  ].join(" ");
+}
+
 function pageTexts(t: Tool): string[] {
   return [
     ...(t.seoTitle ? [t.seoTitle] : []),
@@ -717,6 +731,27 @@ describe("page-numbers: the facts, steps and FAQ are what the tool does", () => 
     }
   });
 
+  it("the options added on 2026-10-24 are named by the runner's own labels", () => {
+    // Each label the page names must be one the runner renders, as a field
+    // label or a segmented option — and must be named on the page at all.
+    const served = servedPage(t);
+    for (const label of [
+      "Leave the cover unnumbered",
+      "Facing pages",
+      "Skip last pages",
+      "Pages, font and color",
+    ]) {
+      expect(runner, `runner has no "${label}" control`).toContain(
+        `label="${label}"`,
+      );
+      expect(served, `the page never names "${label}"`).toContain(label);
+    }
+    // The font buttons are the shared family list, so the page names that.
+    expect(runner).toMatch(/STAMP_FONT_FAMILIES\.map\(/);
+    for (const name of Object.values(STAMP_FONT_LABELS))
+      expect(served, `the page never names the ${name} font`).toContain(name);
+  });
+
   it("a skipped cover gets no number, and the rest count from First number", async () => {
     const doc = await PDFDocument.load(await blankPdf(5));
     doc.getPage(2).setRotation(degrees(90));
@@ -749,6 +784,34 @@ describe("page-numbers: the facts, steps and FAQ are what the tool does", () => 
       ["5"],
       ["6"],
     ]);
+  });
+});
+
+describe("watermark-pdf: the placement, page and layer options are the runner's", () => {
+  const t = tool("watermark-pdf");
+  const served = servedPage(t);
+  const runner = read(runnerFileForKind(getRunnerKind(t.slug)!));
+
+  it("every option the page names is one the runner renders", () => {
+    for (const label of [
+      "Tile across the page",
+      "Pages and layer",
+      "Image size",
+      "Custom",
+    ]) {
+      expect(runner, `runner has no "${label}" control`).toMatch(
+        new RegExp(`label(?:=|: )"${label}"`),
+      );
+      expect(served, `the page never names "${label}"`).toContain(label);
+    }
+    for (const option of ["Image", "Selected pages", "Behind content"]) {
+      expect(runner).toContain(`label: "${option}"`);
+      expect(served, `the page never names "${option}"`).toContain(option);
+    }
+    expect(runner).toMatch(/STAMP_FONT_FAMILIES\.map\(/);
+    for (const name of Object.values(STAMP_FONT_LABELS))
+      expect(served, `the page never names the ${name} font`).toContain(name);
+    expect(served).toContain(`${STAMP_POSITIONS.length} cells`);
   });
 });
 

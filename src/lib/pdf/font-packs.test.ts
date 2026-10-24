@@ -97,7 +97,10 @@ const EVERY_FACE = Object.keys({
   sans: true,
   "sans-bold": true,
   "sans-oblique": true,
+  serif: true,
+  "serif-bold": true,
   mono: true,
+  "mono-bold": true,
   "serif-italic": true,
 } satisfies Record<StandardFace, true>) as StandardFace[];
 

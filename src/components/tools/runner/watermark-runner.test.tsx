@@ -96,3 +96,62 @@ describe("Add Watermark runner — the result says when text was shrunk to fit",
     expect(screen.getByLabelText(/^max font size$/i)).toBeInTheDocument();
   });
 });
+
+describe("Add Watermark runner — the placement and page options reach the engine", () => {
+  function mount(bytes: Uint8Array, pageCount: number) {
+    const file = new File([new Uint8Array(bytes)], "doc.pdf", {
+      type: "application/pdf",
+    });
+    render(
+      <WatermarkEditor
+        pdf={{
+          file,
+          bytes,
+          pageCount,
+          rotations: Array.from({ length: pageCount }, () => 0 as const),
+          digitalSignatures: countDigitalSignatures(bytes),
+        }}
+        onReset={() => {}}
+      />,
+    );
+  }
+
+  it("Selected pages: the summary counts the pages the list picked", async () => {
+    mount(await pdfOf([PageSizes.A4, PageSizes.A4, PageSizes.A4]), 3);
+    fireEvent.click(screen.getByRole("button", { name: /pages and layer/i }));
+    fireEvent.click(screen.getByRole("radio", { name: /selected pages/i }));
+    const run = screen.getByRole("button", { name: /add watermark/i });
+    // An empty list is not "every page": the run waits for one.
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    fireEvent.change(screen.getByLabelText(/^pages \(1–3\)/i), {
+      target: { value: "2-3" },
+    });
+    fireEvent.click(run);
+    const panel = await screen.findByRole("group", {
+      name: /watermark added/i,
+    });
+    expect(panel).toHaveTextContent("Stamped on 2 of 3 pages");
+  });
+
+  it("Tile: the summary counts every mark drawn", async () => {
+    mount(await pdfOf([PageSizes.A4]), 1);
+    fireEvent.click(screen.getByRole("checkbox", { name: /tile across/i }));
+    // The grid is greyed out, not removed from the focus order.
+    expect(
+      screen.getByRole("radiogroup", { name: /watermark position/i }),
+    ).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("button", { name: /add watermark/i }));
+    const panel = await screen.findByRole("group", {
+      name: /watermark added/i,
+    });
+    expect(panel).toHaveTextContent(/Stamped on all 1 page · \d+ marks in all/);
+    // Positive control: without Tile there is no marks count.
+    cleanup();
+    mount(await pdfOf([PageSizes.A4]), 1);
+    fireEvent.click(screen.getByRole("button", { name: /add watermark/i }));
+    const plain = await screen.findByRole("group", {
+      name: /watermark added/i,
+    });
+    expect(plain).not.toHaveTextContent(/marks in all/);
+  });
+});
