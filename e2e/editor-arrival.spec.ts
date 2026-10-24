@@ -66,29 +66,47 @@ const SHIPPED_PULSING_BOXES = [
 /**
  * A runner's source: its module, plus the modules it imports from a
  * SUBDIRECTORY of the runner directory (`./editor/…`) — a runner split into
- * components of its own. Edit PDF became `edit-runner.tsx` →
- * `./editor/wysiwyg-editor` on 2026-10-24, and its placeholder moved with
- * the editor; reading the runner file alone dropped edit-pdf from this list.
- * Shared siblings (`./runner-kit`) are not followed. A broken link is fatal.
+ * components of its own — and, inside that subdirectory, what those import
+ * in turn. Edit PDF became `edit-runner.tsx` → `./editor/…` on 2026-10-24
+ * and its placeholder moved with the editor; the same day Edit, Annotate and
+ * Sign PDF all became `<EditorRunner>` (`./editor/editor-session`, which
+ * loads `./wysiwyg-editor`: two hops). Reading the runner file alone dropped
+ * them from this list. Shared siblings (`./runner-kit`) are not followed,
+ * the walk never leaves the subdirectory, and a broken link is fatal.
  */
 function runnerSource(file: string): string {
-  const src = readFileSync(join(RUNNER_DIR, `${file}.tsx`), "utf8");
-  const specs = new Set(
-    [...src.matchAll(/(?:from |import\(\s*)"\.\/([\w-]+\/[\w/-]+)"/g)].map(
-      ([, spec]) => spec!,
-    ),
-  );
-  const own = [...specs].map((spec) => {
+  const read = (rel: string) => {
     for (const ext of [".tsx", ".ts"]) {
       try {
-        return readFileSync(join(RUNNER_DIR, `${spec}${ext}`), "utf8");
+        return readFileSync(join(RUNNER_DIR, `${rel}${ext}`), "utf8");
       } catch {
         // try the next extension
       }
     }
-    throw new Error(`${file}.tsx imports ./${spec}, which is no file`);
-  });
-  return [src, ...own].join("\n");
+    throw new Error(`${file}.tsx reaches ./${rel}, which is no file`);
+  };
+  const src = read(file);
+  const specs = (text: string, pattern: RegExp) =>
+    [...text.matchAll(pattern)].map(([, spec]) => spec!);
+  const seen = new Set(
+    specs(src, /(?:from |import\(\s*)"\.\/([\w-]+\/[\w/-]+)"/g),
+  );
+  const queue = [...seen];
+  const texts = [src];
+  while (queue.length > 0) {
+    const rel = queue.shift()!;
+    const text = read(rel);
+    texts.push(text);
+    const dir = rel.slice(0, rel.lastIndexOf("/"));
+    for (const spec of specs(text, /(?:from |import\(\s*)"\.\/([\w-]+)"/g)) {
+      const next = `${dir}/${spec}`;
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return texts.join("\n");
 }
 
 function placeholderEditors(): string[] {
@@ -135,6 +153,8 @@ test("the editor list is derived, and plausibly sized", () => {
       "annotate-pdf",
       "redact-pdf",
       "crop-pdf",
+      // Since 2026-10-24: Sign PDF opens the shared editor.
+      "sign-pdf",
     ]),
   );
 });

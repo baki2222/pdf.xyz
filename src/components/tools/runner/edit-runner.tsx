@@ -1,54 +1,17 @@
 "use client";
 
-import { Suspense, lazy, useReducer } from "react";
 import Link from "next/link";
-import {
-  Download,
-  FileDown,
-  Info,
-  Layers,
-  Lock,
-  ShieldCheck,
-} from "lucide-react";
+import { Info, Layers, Lock, ShieldCheck } from "lucide-react";
 import { getToolBySlug } from "@/lib/tools";
-import { downloadBytes } from "@/lib/pdf/browser";
 import { editedOutputName } from "@/lib/pdf/edit";
-import type { EditorExportResult } from "@/lib/pdf/editor-export";
-import { buttonVariants } from "@/components/ui/button";
-import { formatBytes } from "@/lib/utils";
-import {
-  ErrorNote,
-  ResultPanel,
-  RunButton,
-  outputFile,
-  useAsyncRun,
-} from "./runner-kit";
-import { RunBar } from "./run-bar";
-import { SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine } from "./stamp-controls";
-import { useUnsavedGuard } from "./use-unsaved-guard";
-import type { LoadedPdf } from "./use-single-pdf";
-import { INITIAL_STATE, editorReducer } from "./editor/editor-state";
-
-/**
- * The editor itself (page view, overlay, toolbar, panels) is its own chunk,
- * fetched while the first file opens (`prepare`, which `useSinglePdf` awaits
- * before the editor draws) — not with the tool page. Measured 2026-10-24:
- * imported statically it put tools/edit-pdf.html at 873 KB raw / 282.4 KB gz,
- * over the every-tool-page ceiling (851 KB / 276.1 KB).
- */
-const loadEditor = () => import("./editor/wysiwyg-editor");
-const WysiwygEditor = lazy(() =>
-  loadEditor().then((m) => ({ default: m.WysiwygEditor })),
-);
-const prepareEditor = async () => {
-  await loadEditor();
-};
+import { EditorRunner } from "./editor/editor-session";
 
 /**
  * Edit PDF — the WYSIWYG editor (`./editor/`): every page drawn by pdf.js,
  * objects placed by clicking on the page, moved and resized by hand, and
  * written into the file where they were drawn (`@/lib/pdf/editor-export`).
+ * Annotate PDF and Sign PDF mount the same editor (`./editor/editor-session`).
  *
  * HISTORY. Until 2026-10-24 this file was a FORM: X and Y typed in points
  * from the bottom-left, a blank 180 px box for a preview, nothing movable
@@ -60,105 +23,16 @@ const prepareEditor = async () => {
  */
 export function EditRunner() {
   return (
-    <SinglePdfRunner
-      hint="One PDF · edited locally in your browser"
-      handoffSlug="edit-pdf"
+    <EditorRunner
+      slug="edit-pdf"
       toolName="Edit PDF"
-      prepare={prepareEditor}
-    >
-      {(pdf, reset) => <EditEditor pdf={pdf} onReset={reset} />}
-    </SinglePdfRunner>
-  );
-}
-
-/**
- * The run around the editor: its state (kept here, so the objects survive
- * the result panel and "adjust" goes back to them), the Apply row, and the
- * result.
- */
-function EditEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
-  const [state, dispatch] = useReducer(editorReducer, INITIAL_STATE);
-  const { busy, error, result, run, reset, setError } =
-    useAsyncRun<EditorExportResult>();
-  const name = editedOutputName(pdf.file.name);
-  // Placed but not yet applied, the objects are lost by leaving; applied,
-  // they are in the result.
-  useUnsavedGuard(state.objects.length > 0 && !result, "your edits");
-
-  const onApply = () => {
-    // A box still being typed in counts: finish it, and export what that
-    // finishing produces (the reducer is pure, so this IS the next state).
-    const objects = editorReducer(state, { type: "endEdit" }).objects;
-    dispatch({ type: "endEdit" });
-    if (objects.length === 0) {
-      setError("Add something to a page first.");
-      return;
-    }
-    void run(async () => {
-      const { exportEditedPdf } = await import("@/lib/pdf/editor-export");
-      const out = await exportEditedPdf(pdf.bytes, objects);
-      // Downloaded INSIDE the run, before it settles. `downloadBlob` clicks
-      // a hidden anchor, and the runner stage's hold (`./stage-hold`) gives
-      // its band back at the first click after the run settles — measured
-      // 2026-10-24 with the download after the run: that synthetic click
-      // released the band and the About section jumped up, CLS 0.43 at
-      // 1280 x 900 (`continue-chain.spec.ts`). Before the settle, the hold
-      // ignores clicks.
-      downloadBytes(out.bytes, name);
-      return out;
-    });
-  };
-
-  if (result) {
-    return (
-      <ResultPanel
-        title="Edited PDF ready"
-        summary={`${result.objectCount} item${result.objectCount === 1 ? "" : "s"} written into ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${formatBytes(result.bytes.byteLength)}`}
-        onReset={onReset}
-        output={outputFile(result.bytes, name)}
-        onAdjust={reset}
-        expectedPages={pdf.pageCount}
-      >
-        <button
-          type="button"
-          onClick={() => downloadBytes(result.bytes, name)}
-          className={buttonVariants({ variant: "primary", size: "lg" })}
-        >
-          <Download className="size-4" aria-hidden />
-          Download edited PDF
-        </button>
-      </ResultPanel>
-    );
-  }
-
-  const empty = state.objects.length === 0 && !state.editing?.text.trim();
-  return (
-    <Suspense fallback={null}>
-      <WysiwygEditor
-        pdf={pdf}
-        state={state}
-        dispatch={dispatch}
-        footer={<EditorFooter />}
-        runBar={
-          <>
-            {error && <ErrorNote message={error} />}
-            <RunBar>
-              <div className="flex justify-end">
-                <RunButton
-                  onClick={onApply}
-                  busy={busy}
-                  disabled={empty}
-                  busyLabel="Applying…"
-                >
-                  <FileDown className="size-4" aria-hidden />
-                  Apply &amp; download
-                </RunButton>
-              </div>
-            </RunBar>
-          </>
-        }
-      />
-    </Suspense>
+      hint="One PDF · edited locally in your browser"
+      initialTool="select"
+      resultTitle="Edited PDF ready"
+      downloadLabel="Download edited PDF"
+      outputName={editedOutputName}
+      footer={<EditorFooter />}
+    />
   );
 }
 

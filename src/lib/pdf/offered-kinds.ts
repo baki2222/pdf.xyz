@@ -78,21 +78,15 @@ export type EditOpType = (typeof EDIT_OP_TYPES)[number];
 // EDIT_OP_LABEL and EDIT_OP_FACT (the form's button labels and the tool
 // page's phrases for these four) were removed with the form on 2026-10-24.
 
-/** Annotate PDF — the markup shapes the tool can flatten onto a page. */
+/**
+ * The Annotate PDF form's markup kinds, which `annotate.ts` (its engine)
+ * still types. Not what the Annotate PDF page offers since 2026-10-24 — it
+ * opens the shared editor, and its page counts {@link MARKUP_KINDS}. The
+ * form's button labels and the page's phrases for these four
+ * (ANNOTATION_LABEL, ANNOTATION_FACT) were removed with it.
+ */
 export const ANNOTATION_TYPES = ["highlight", "rect", "note", "line"] as const;
 export type AnnotationType = (typeof ANNOTATION_TYPES)[number];
-export const ANNOTATION_LABEL: Record<AnnotationType, string> = {
-  highlight: "Highlight",
-  rect: "Box",
-  note: "Note",
-  line: "Line",
-};
-export const ANNOTATION_FACT: Record<AnnotationType, string> = {
-  highlight: "highlights",
-  rect: "boxes",
-  note: "notes",
-  line: "lines or arrows",
-};
 
 /** Create Forms — the field kinds the builder can create, in the order it offers them. */
 export const NEW_FIELD_TYPES = [

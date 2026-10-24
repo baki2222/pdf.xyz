@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
- * Sign PDF's form, driven the way a person drives it.
+ * Sign PDF's signature panel, driven the way a person drives it.
+ *
+ * SINCE 2026-10-24 Sign PDF opens the shared editor on its Sign tool, and the
+ * signature is made in its panel (`editor/signature-panel.tsx`): the sources
+ * are tabs, not radios, and the panel's "Use signature" hands the signature
+ * to the page, where the form's "Sign PDF" button used to place it. The three
+ * properties below are the form's, kept and driven through the panel.
  *
  * The audit (at 67e8d0f): switching from Draw to another source and back
  * remounted the signature pad empty, while the drawing it had exported stayed
@@ -33,13 +40,22 @@ async function openSignRunner() {
   const input = container.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input, "the dropzone's file input").not.toBeNull();
   fireEvent.change(input!, { target: { files: [file] } });
-  await screen.findByText("Signature", {}, { timeout: 5000 });
+  // The editor opens with the signature panel showing.
+  await screen.findByRole("tab", { name: "Draw" }, { timeout: 8000 });
 }
 
 const source = (name: string) =>
-  fireEvent.click(screen.getByRole("radio", { name }));
+  fireEvent.click(screen.getByRole("tab", { name }));
 
-describe("Sign PDF form", () => {
+/** Press "Use signature": the panel's equivalent of the form's Run. */
+const useSignature = () =>
+  fireEvent.click(screen.getByRole("button", { name: "Use signature" }));
+
+/** The signature is ready to place (the panel closed and says so). */
+const placing = () =>
+  screen.queryByText("Click on a page to place your signature.") !== null;
+
+describe("Sign PDF signature panel", () => {
   it("keeps the drawing pad — and what is drawn on it — across source switches", async () => {
     await openSignRunner();
     source("Draw");
@@ -171,7 +187,7 @@ const encodedAspect = (p: { width: number; height: number }) => {
 
 const uploadSignature = (name: string) => {
   const input = document.querySelector<HTMLInputElement>(
-    'input[type="file"][accept*="image"]',
+    '[aria-label="Create a signature"] input[type="file"]',
   );
   expect(input, "the signature image input").not.toBeNull();
   fireEvent.change(input!, {
@@ -199,15 +215,14 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     const keep = await screen.findByRole("checkbox", {
       name: "Remove paper background",
     });
-    await vi.waitFor(() => expect(encoded.length).toBe(1));
+    await vi.waitFor(() => expect(encoded.length).toBe(1), { timeout: 5000 });
     expect(encoded[0]!.width / encoded[0]!.height).toBeCloseTo(
       encodedAspect(PHOTO),
       1,
     );
-    // RunButton blocks with aria-disabled (it stays focusable), not `disabled`.
-    const signButton = screen.getByRole("button", { name: /Sign PDF/ });
-    const blocked = () => signButton.getAttribute("aria-disabled") === "true";
-    expect(blocked()).toBe(false);
+    // WAS: the form's "Sign PDF" button, blocked by aria-disabled until a
+    // signature existed. Now "Use signature" refuses with a message when there
+    // is no prepared picture — read before pressing it for real, below.
 
     // A different photo, whose decode the test holds open.
     const second = { width: 4000, height: 4000 };
@@ -216,9 +231,14 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     held = [];
     uploadSignature("second.jpg");
 
-    // While it decodes, the FIRST signature must not be the one Run places.
-    await vi.waitFor(() => expect(held!.length).toBe(1));
-    expect(blocked(), "Run would place the previous file").toBe(true);
+    // While it decodes, the FIRST signature must not be the one used.
+    await vi.waitFor(() => expect(held!.length).toBe(1), { timeout: 5000 });
+    useSignature();
+    expect(
+      await screen.findByText("Choose a picture of your signature first."),
+      "the previous file would have been used",
+    ).toBeInTheDocument();
+    expect(placing()).toBe(false);
 
     // The person keeps the paper while the new file is still decoding.
     fireEvent.click(keep);
@@ -227,7 +247,7 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     release.forEach((load) => load());
 
     // The second file lands, honouring the toggle; the first is not re-encoded.
-    await vi.waitFor(() => expect(blocked()).toBe(false));
+    await vi.waitFor(() => expect(encoded.length).toBe(2), { timeout: 5000 });
     expect(
       encoded.slice(1).map((e) => ({
         type: e.type,
@@ -236,6 +256,10 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     ).toEqual([
       { type: "image/jpeg", aspect: Number(encodedAspect(second).toFixed(1)) },
     ]);
+    // Positive control: once its preview shows, it is the one used.
+    await screen.findByAltText("Signature preview");
+    useSignature();
+    await vi.waitFor(() => expect(placing()).toBe(true), { timeout: 5000 });
   });
 
   it("decodes at a bounded size, crops to the ink, and keys out the paper — or keeps it as a JPEG", async () => {
@@ -243,7 +267,7 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     const { decodedAt, encoded } = stubBrowserImaging();
     source("Upload");
     const input = document.querySelector<HTMLInputElement>(
-      'input[type="file"][accept*="image"]',
+      '[aria-label="Create a signature"] input[type="file"]',
     );
     expect(input, "the signature image input").not.toBeNull();
     fireEvent.change(input!, {
@@ -267,7 +291,7 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     // Encoded: the ink (1500 × 225 at that size) plus 3 % of 1500 = 45 px on
     // each side, bounded to 1200 px — as a PNG, because the paper is now
     // transparent. The whole photo would have been 3000 × 2250.
-    await vi.waitFor(() => expect(encoded.length).toBe(1));
+    await vi.waitFor(() => expect(encoded.length).toBe(1), { timeout: 5000 });
     const keyed = encoded[0]!;
     expect(keyed.type).toBe("image/png");
     expect(keyed.width).toBe(1200);
@@ -276,7 +300,7 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     // Paper kept: still cropped and bounded, but a JPEG — not a lossless PNG
     // of a photograph.
     fireEvent.click(keep);
-    await vi.waitFor(() => expect(encoded.length).toBe(2));
+    await vi.waitFor(() => expect(encoded.length).toBe(2), { timeout: 5000 });
     expect(encoded[1]).toEqual({ ...keyed, type: "image/jpeg" });
     expect(screen.getByAltText("Signature preview")).toBeInTheDocument();
   });

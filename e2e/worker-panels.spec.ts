@@ -415,18 +415,29 @@ test("G.7 row 5: DOCX → PDF → signed, Word to PDF continuing to Sign PDF, in
   await expect(
     page.getByText("Loaded your result from Word to PDF."),
   ).toBeVisible();
-  await page.getByLabel("Your signature").fill("Ada Lovelace");
+  // Sign PDF is the shared editor since 2026-10-24: its signature panel
+  // opens on Type; the signature is then placed with a click on the page,
+  // and Apply & download saves the file in the same press.
+  await page.getByLabel("Your name").fill("Ada Lovelace");
   actions++;
-  await page.getByRole("button", { name: /^sign pdf$/i }).click();
+  await page.getByRole("button", { name: "Use signature" }).click();
+  actions++;
+  const sheet = page.locator('[data-editor-page="0"]');
+  await sheet.scrollIntoViewIfNeeded();
+  const box = (await sheet.boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.8);
+  actions++;
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: /apply & download/i }).click();
   actions++;
   await expect(page.getByText(/pdf signed/i).first()).toBeVisible();
-  const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: /download signed pdf/i }).click();
-  actions++;
   expect((await download).suggestedFilename()).toMatch(/\.pdf$/);
-  // WAS 9 (G.7): download the PDF, open Sign PDF, pick it again.
+  // WAS 9 (G.7): download the PDF, open Sign PDF, pick it again. Then 6 with
+  // the form, whose default corner needed no click; 7 since 2026-10-24,
+  // because the editor asks WHERE the signature goes (one click on the
+  // page) and the form's separate Download press is gone.
   expect(actions).toBeLessThanOrEqual(7);
-  expect(actions).toBe(6);
+  expect(actions).toBe(7);
 });
 
 test("G.7 row 4: an encrypted PDF in Rotate → Unlock (the file goes along) → Continue with Rotate", async ({

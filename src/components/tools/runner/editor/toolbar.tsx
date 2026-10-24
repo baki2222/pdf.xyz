@@ -113,8 +113,8 @@ function ToolButton({
       className={cn(
         "rounded-ctl inline-flex shrink-0 items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
         // Phone: icon over a tiny name. Wider: icon beside the name.
-        "min-h-11 min-w-12 flex-col justify-center gap-0.5 px-1.5 py-1 text-[10px] leading-none",
-        "sm:min-h-9 sm:min-w-0 sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs sm:font-medium",
+        "h-11 w-14 flex-col justify-center gap-0.5 px-1.5 py-1 text-[10px] leading-none",
+        "sm:h-9 sm:w-auto sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-xs sm:font-medium",
         pressed
           ? "bg-accent/15 text-accent ring-accent/40 ring-1"
           : "text-muted hover:bg-wash hover:text-fg",
@@ -179,7 +179,7 @@ function Strip({ children }: { children: ReactNode }) {
         ref={ref}
         role="toolbar"
         aria-label="Editor tools"
-        className="flex min-w-0 items-end gap-0.5 overflow-x-auto px-1 py-1 [scrollbar-width:none] sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 [scrollbar-width:none] items-end gap-0.5 overflow-x-auto px-1 py-1 sm:flex-wrap sm:overflow-visible [&::-webkit-scrollbar]:hidden"
       >
         {children}
       </div>

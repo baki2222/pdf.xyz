@@ -705,9 +705,9 @@ export const tools: Tool[] = [
   {
     slug: "annotate-pdf",
     name: "Annotate PDF",
-    tagline: "Highlight, box, note, and draw.",
+    tagline: "Highlight, draw, and add notes.",
     description:
-      "Add highlight boxes, outlines, text notes, and lines or arrows onto a PDF. Markups are flattened into the page as vector content — all in your browser.",
+      "Highlight, draw, white out and add notes by dragging and clicking on your PDF's pages. Markups are flattened into the page — all in your browser.",
     category: "edit",
     icon: "annotate",
     processing: "client",
@@ -716,9 +716,9 @@ export const tools: Tool[] = [
     keywords: ["annotate pdf", "highlight pdf", "markup pdf", "draw on pdf"],
     related: ["edit-pdf", "redact-pdf", "sign-pdf"],
     how: [
-      "Open your PDF and pick a markup: highlight, box, note, or line.",
-      "Place it by page and coordinates (PDF points from the bottom-left).",
-      "Apply to flatten the markups in and download the annotated PDF.",
+      "Open your PDF — Highlight is ready in the Mark up group.",
+      "Drag or click on the page to highlight, draw, white out or add a note.",
+      "Apply & download the annotated PDF with the markups in the page.",
     ],
   },
   {
@@ -838,7 +838,7 @@ export const tools: Tool[] = [
     name: "Sign PDF",
     tagline: "Draw, type, or upload a signature.",
     description:
-      "Sign a PDF by drawing, typing, or picking a signature image, and place it precisely.",
+      "Sign a PDF by drawing, typing, or picking a signature image, then click on the page to place it — on as many pages as you need.",
     category: "sign",
     icon: "sign",
     processing: "client",
@@ -851,7 +851,7 @@ export const tools: Tool[] = [
     how: [
       "Open the PDF you need to sign.",
       "Create a signature by drawing, typing, or picking an image.",
-      "Place it, then export your signed PDF.",
+      "Click on the page to place it, then Apply & download.",
     ],
   },
   {

@@ -18,6 +18,7 @@ import {
   type TextStyle,
 } from "@/lib/pdf/editor/model";
 import type { RasterImageFormat } from "@/lib/pdf/pdf-lib";
+import type { SignatureStyle } from "@/lib/pdf/offered-kinds";
 
 /**
  * The editor's state machine. Pure — the component dispatches; nothing here
@@ -50,6 +51,15 @@ export interface PendingImage {
   width: number;
   height: number;
 }
+
+/** A typed signature: placed as text in its style's face. */
+export interface PendingTyped {
+  kind: "typed";
+  text: string;
+  style: SignatureStyle;
+}
+
+export type Pending = PendingImage | PendingTyped;
 
 export interface TextEdit {
   id: string;
@@ -90,7 +100,7 @@ export interface EditorState {
   editing: TextEdit | null;
   /** Objects drawn in place of their committed selves during a drag. */
   preview: Record<string, EditorObject> | null;
-  pending: PendingImage | null;
+  pending: Pending | null;
   defaults: Defaults;
   /** The last thing done, for the live region. */
   said: { message: string; n: number };
@@ -108,6 +118,11 @@ export const INITIAL_STATE: EditorState = {
   said: { message: "", n: 0 },
 };
 
+/** A fresh editor opened on `tool` (Annotate PDF opens on Highlight, Sign PDF on Sign). */
+export function initialEditorState(tool: Tool): EditorState {
+  return { ...INITIAL_STATE, tool };
+}
+
 export type EditorAction =
   | { type: "commit"; command: Command; select?: string[]; say?: string }
   | { type: "undo" }
@@ -118,7 +133,7 @@ export type EditorAction =
   | { type: "startEdit"; edit: TextEdit }
   | { type: "editText"; text: string }
   | { type: "endEdit" }
-  | { type: "pending"; pending: PendingImage | null }
+  | { type: "pending"; pending: Pending | null }
   | { type: "defaults"; patch: Partial<Defaults> }
   | { type: "seal" }
   | { type: "say"; message: string };
@@ -259,8 +274,11 @@ export function editorReducer(
         ...base,
         tool: action.tool,
         selected: action.tool === "select" ? base.selected : [],
+        // A signature made once is kept for the next press of Sign (another
+        // copy, another page); a picked image is placed once.
         pending:
-          action.tool === "image" || action.tool === "signature"
+          base.pending &&
+          (base.pending.kind !== "image" || action.tool === "image")
             ? base.pending
             : null,
       };

@@ -47,11 +47,9 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
     "bg-slate-500/50": `${ON_PAPER} (the skeleton's text lines)`,
     "bg-slate-400/40": `${ON_PAPER} (the skeleton's text lines)`,
   },
-  "src/components/tools/runner/sign-runner.tsx": {
-    "bg-white": PAPER,
-    "text-slate-900": `${ON_PAPER} (the signature preview)`,
-    "text-slate-600": `${ON_PAPER} (the signature preview's caption)`,
-  },
+  // sign-runner.tsx's signature preview and annotate-runner.tsx's schematic
+  // page left with their forms (2026-10-24); both tools draw the real page in
+  // the shared editor, allowed below.
   "src/components/tools/runner/signature-pad.tsx": {
     "bg-white": `${PAPER} (the pad is signed like the page)`,
     "bg-slate-300": `${ON_PAPER} (the pad's baseline)`,
@@ -69,10 +67,6 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
     "ring-black/10": `${PAPER} (its edge)`,
   },
   "src/components/tools/runner/editor/thumbnail-rail.tsx": {
-    "bg-white": PAPER,
-    "ring-black/10": `${PAPER} (its edge)`,
-  },
-  "src/components/tools/runner/annotate-runner.tsx": {
     "bg-white": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,
   },

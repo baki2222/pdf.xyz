@@ -20,7 +20,12 @@ import {
 import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
 import { addWatermark } from "../../src/lib/pdf/watermark";
 import { addPageNumbers } from "../../src/lib/pdf/page-numbers";
-import { fileInput, waitForHydration } from "../helpers";
+import {
+  fileInput,
+  placeEditorText,
+  placeTypedSignature,
+  waitForHydration,
+} from "../helpers";
 import {
   collapsedStructuredProse,
   inkBlockRect,
@@ -1083,12 +1088,14 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "contract.pdf", { pages: 1 });
-      // The runner defaults to the "Type" source precisely so signing works
-      // without a pointer; the drawn-signature path stays a named gap.
-      await ctx.page.getByLabel("Your signature").fill("Ada Sign-Proof");
+      // A typed signature, so the artifact assertion can extract its text;
+      // the drawn-signature path stays a named gap. Since 2026-10-24 through
+      // the shared editor's signature panel and a click on the page; was the
+      // form's "Your signature" field and its "Sign PDF" button.
+      await placeTypedSignature(ctx.page, "Ada Sign-Proof");
       return runAndDownload(
         ctx,
-        /^sign pdf$/i,
+        /apply & download/i,
         /pdf signed/i,
         /download signed pdf/i,
       );
@@ -1467,13 +1474,13 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "markup.pdf", { pages: 1, size: [612, 792] });
-      // The note type draws TEXT, which the artifact assertion can extract.
-      await ctx.page.getByRole("radio", { name: "Note" }).click();
-      await ctx.page.getByLabel("Note text").fill("E2E-NOTE-MARK");
-      await ctx.page.getByRole("button", { name: /add markup/i }).click();
+      // The note draws TEXT, which the artifact assertion can extract.
+      // Since 2026-10-24 through the shared editor (Note in its Mark up
+      // group); was the form's Note radio, "Note text" and "Add markup".
+      await placeEditorText(ctx.page, "E2E-NOTE-MARK", "Note");
       return runAndDownload(
         ctx,
-        /apply 1 markup/i,
+        /apply & download/i,
         /annotated pdf ready/i,
         /download annotated pdf/i,
       );

@@ -21,7 +21,8 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { PDFDict, PDFDocument, PDFName } from "pdf-lib";
-import { signPdf } from "@/lib/pdf/signature";
+import { exportEditedPdf } from "@/lib/pdf/editor-export";
+import { typedSignatureObject } from "@/lib/pdf/editor/model";
 import {
   SIGNATURE_STYLES,
   SIGNATURE_STYLE_LABEL,
@@ -57,13 +58,14 @@ async function typedFace(
 ): Promise<string> {
   const blank = await PDFDocument.create();
   blank.addPage([400, 300]);
-  const out = await PDFDocument.load(
-    await signPdf(
-      await blank.save(),
-      { kind: "typed", text, style },
-      { pageIndex: 0, position: "bottom-right", width: 160 },
-    ),
-  );
+  // Until 2026-10-24 this ran `signPdf`, the Sign PDF form's engine. The
+  // page now places a typed signature as the editor's text object
+  // (`typedSignatureObject`) and writes it with `exportEditedPdf`, so the
+  // face is read out of THAT file.
+  const { bytes } = await exportEditedPdf(await blank.save(), [
+    typedSignatureObject("t", 0, 20, 200, 360, text, style),
+  ]);
+  const out = await PDFDocument.load(bytes);
   const fonts = out
     .getPage(0)
     .node.Resources()!

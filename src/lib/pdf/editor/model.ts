@@ -11,7 +11,11 @@
  * Kinds are an id array so the toolbar, the export and the tool page's copy
  * all count the same list (`offered-kinds.ts` reads {@link EDITOR_OBJECT_KINDS}).
  */
-import { EDITOR_KINDS, type EditorKind } from "../offered-kinds";
+import {
+  EDITOR_KINDS,
+  type EditorKind,
+  type SignatureStyle,
+} from "../offered-kinds";
 import type { RasterImageFormat } from "../pdf-lib";
 
 export const EDITOR_FONTS = ["helvetica", "times", "courier"] as const;
@@ -418,6 +422,45 @@ export function describeObject(obj: EditorObject): string {
     default:
       return `${EDITOR_OBJECT_LABEL[obj.kind]} on ${page}`;
   }
+}
+
+/** Letter size of a typed signature when it is placed, points. */
+export const TYPED_SIGNATURE_SIZE = 28;
+/** The signature ink colour Sign PDF has always used (slate-900). */
+export const SIGNATURE_INK = "#0f172a";
+
+/**
+ * A typed signature as the editor places it: a one-line text box in the
+ * style's face — Script is Times Italic, Print is Helvetica, the faces Sign
+ * PDF's copy names (`sign-style-copy.test.ts` reads them back out of the
+ * export). Text in another script takes the one upright Noto face, as every
+ * text box does.
+ */
+export function typedSignatureObject(
+  id: string,
+  page: number,
+  x: number,
+  y: number,
+  width: number,
+  text: string,
+  style: SignatureStyle,
+): TextBoxObject {
+  return {
+    id,
+    kind: "text",
+    page,
+    x,
+    y,
+    width,
+    text,
+    font: style === "signature" ? "times" : "helvetica",
+    italic: style === "signature",
+    bold: false,
+    size: TYPED_SIGNATURE_SIZE,
+    color: SIGNATURE_INK,
+    align: "left",
+    lineHeight: 1.2,
+  };
 }
 
 /** Defaults a newly placed object starts from. */

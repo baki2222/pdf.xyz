@@ -145,32 +145,60 @@ function frameNames(source: string): string[] {
 /**
  * The runner's own files: its module, plus every module it imports a value
  * from in a SUBDIRECTORY of the runner directory (`./editor/…`) — a runner
- * split into components of its own. Siblings in the runner directory itself
- * (`./runner-kit`, `./single-pdf-runner`) are shared by every runner and are
- * not followed; neither is anything past this one hop. Added 2026-10-24 when
- * Edit PDF's runner became `edit-runner.tsx` → `./editor/wysiwyg-editor`,
- * which is where its engine import (`@/lib/pdf/editor-export`) now lives:
- * without it, edit-pdf dropped out of the subjects below while its engine
- * still reads the displayed frame.
+ * split into components of its own — and, within that subdirectory, every
+ * module those import in turn (relative `./x` there). Siblings in the runner
+ * directory itself (`./runner-kit`, `./single-pdf-runner`) are shared by
+ * every runner and are not followed, and the walk never leaves the
+ * subdirectory. Static value imports and `import("./…")` both count: the
+ * editor is a lazy chunk of its runner, fetched as the file opens.
+ *
+ * Added 2026-10-24 when Edit PDF's runner became `edit-runner.tsx` →
+ * `./editor/wysiwyg-editor`, where its engine import
+ * (`@/lib/pdf/editor-export`) lives: without it, edit-pdf dropped out of the
+ * subjects below while its engine still reads the displayed frame. Made
+ * transitive within the subdirectory the same day, when Edit, Annotate and
+ * Sign PDF all became `<EditorRunner>` (`./editor/editor-session`), which
+ * loads `./wysiwyg-editor` — two hops.
  */
 function runnerSources(runner: string): string[] {
-  const dir = path.posix.dirname(runner);
-  const source = read(runner);
-  // Static value imports, and `import("./editor/…")` — the editor is a lazy
-  // chunk of its runner, fetched as the file opens, and still the runner's.
-  const dynamic = [
-    ...withoutComments(source).matchAll(/import\(\s*"(\.\/[^"]+)"\s*\)/g),
-  ].map((m) => m[1]!);
-  const own = [...new Set([...valueImports(source), ...dynamic])]
+  const imports = (file: string) => {
+    const source = read(file);
+    const dynamic = [
+      ...withoutComments(source).matchAll(/import\(\s*"(\.\.?\/[^"]+)"\s*\)/g),
+    ].map((m) => m[1]!);
+    return [...new Set([...valueImports(source), ...dynamic])];
+  };
+  const resolve = (from: string, spec: string) => {
+    for (const ext of [".tsx", ".ts"]) {
+      const file = path.posix.join(path.posix.dirname(from), `${spec}${ext}`);
+      if (existsSync(path.join(ROOT, file))) return file;
+    }
+    throw new Error(`${from} imports "${spec}", which resolves to no file`);
+  };
+  const runnerDir = path.posix.dirname(runner);
+  const own = imports(runner)
     .filter((s) => s.startsWith("./") && s.slice(2).includes("/"))
-    .map((s) => {
-      for (const ext of [".tsx", ".ts"]) {
-        const file = path.posix.join(dir, `${s.slice(2)}${ext}`);
-        if (existsSync(path.join(ROOT, file))) return file;
+    .map((s) => resolve(runner, s));
+  const seen = new Set(own);
+  const queue = [...own];
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    const sub = path.posix.dirname(file);
+    for (const spec of imports(file)) {
+      if (!spec.startsWith("./")) continue;
+      const next = resolve(file, spec);
+      if (
+        path.posix.dirname(next) !== sub ||
+        next.startsWith(`${runnerDir}/`) === false
+      )
+        continue;
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
       }
-      throw new Error(`${runner} imports "${s}", which resolves to no file`);
-    });
-  return [runner, ...own];
+    }
+  }
+  return [runner, ...seen];
 }
 
 /**

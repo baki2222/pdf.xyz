@@ -1,5 +1,10 @@
 import { expect, type Page } from "@playwright/test";
-import { fileInput, placeEditorText, waitForHydration } from "./helpers";
+import {
+  fileInput,
+  placeEditorText,
+  placeTypedSignature,
+  waitForHydration,
+} from "./helpers";
 import { makeTextPdf } from "./client-proof/fixtures";
 
 /**
@@ -33,10 +38,12 @@ export interface HeldCase {
 export const SIGN: HeldCase = {
   slug: "sign-pdf",
   file: { name: "contract.pdf" },
+  // Since 2026-10-24 the shared editor's signature panel and a click on the
+  // page; until then the form's "Your signature" field and "Sign PDF".
   prepare: async (page) => {
-    await page.getByLabel("Your signature").fill("Ada Lovelace");
+    await placeTypedSignature(page, "Ada Lovelace");
   },
-  run: /^sign pdf$/i,
+  run: /apply & download/i,
   done: /pdf signed/i,
 };
 

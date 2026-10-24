@@ -43,6 +43,7 @@ import {
   rectsIntersect,
   resizeObject,
   setLineEndpoint,
+  typedSignatureObject,
   NOTE_PADDING,
   NUDGE_BIG_PT,
   NUDGE_PT,
@@ -112,6 +113,8 @@ type Drag = DragBase &
         obj: EditorObject;
         from: Rect;
         handle: Handle;
+        /** Where the press was, against the edge it moves (the frame is outset). */
+        grab: Pt;
       }
     | {
         kind: "end";
@@ -262,6 +265,7 @@ export function WysiwygEditor({
   state,
   dispatch,
   runBar,
+  firstStep,
   footer,
 }: {
   pdf: LoadedPdf;
@@ -272,12 +276,19 @@ export function WysiwygEditor({
    */
   state: EditorState;
   dispatch: Dispatch<EditorAction>;
+  /** One line above the pages: what to do first (Sign PDF says it). */
+  firstStep?: ReactNode;
   /** The runner's Apply row, drawn under the pages. */
   runBar: ReactNode;
   /** Drawn under the editor while it is open (not under the result). */
   footer?: ReactNode;
 }) {
   const kit = useTextKit();
+  // Below `sm` (640 px): docked toolbar and a properties sheet. The editor
+  // first renders after a file opens, on the client, so this is read before
+  // its first paint and nothing moves between the two layouts.
+  const narrow = useMedia(NARROW_QUERY);
+  const sheetRef = useRef<HTMLElement>(null);
   const [pickError, setError] = useState<string | null>(null);
   const { announce, node: liveRegion } = useAnnouncer();
   const [frames, setFrames] = useState<ExportFrame[] | null>(null);
@@ -295,7 +306,10 @@ export function WysiwygEditor({
   const [marquee, setMarquee] = useState<{ page: number; rect: Rect } | null>(
     null,
   );
-  const [signing, setSigning] = useState(false);
+  // Opened on Sign (Sign PDF), the editor starts with the signature panel.
+  const [signing, setSigning] = useState(
+    () => state.tool === "signature" && !state.pending,
+  );
   const viewport = useRef<HTMLDivElement>(null);
   const pageEls = useRef(new Map<number, HTMLDivElement>());
   const drag = useRef<Drag | null>(null);
@@ -311,6 +325,26 @@ export function WysiwygEditor({
   useEffect(() => {
     if (state.said.n > 0) announce(state.said.message);
   }, [state.said, announce]);
+
+  // The phone's properties sheet closes on a tap outside it: on the page's
+  // empty paper (handled by the page itself), or anywhere off the editor.
+  const hasSelection = state.selected.length > 0;
+  useEffect(() => {
+    if (!narrow || !hasSelection) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (
+        !t ||
+        sheetRef.current?.contains(t) ||
+        t.closest("[data-editor-page]") ||
+        t.closest("[data-editor-dock]")
+      )
+        return;
+      dispatch({ type: "select", ids: [] });
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [narrow, hasSelection, dispatch]);
 
   // Page frames (pdf-lib — the export's own reading) and the pdf.js document.
   useEffect(() => {
@@ -630,7 +664,8 @@ export function WysiwygEditor({
   const chooseTool = useCallback(
     (tool: Tool) => {
       dispatch({ type: "tool", tool });
-      setSigning(tool === "signature" && !stateRef.current.pending);
+      const held = stateRef.current.pending;
+      setSigning(tool === "signature" && (!held || held.kind === "image"));
       if (tool === "image") imageInput.current?.click();
       const label = TOOL_BUTTONS.find((b) => b.tool === tool)?.label ?? tool;
       dispatch({ type: "say", message: `${label} tool` });
@@ -672,6 +707,34 @@ export function WysiwygEditor({
       const p = s.pending;
       const f = frames?.[page];
       if (!p || !f) return false;
+      if (p.kind === "typed") {
+        // A typed signature is TEXT in its style's face, one line, as wide
+        // as the name is set (measured as the export will measure it).
+        const probe = typedSignatureObject(
+          "probe",
+          page,
+          0,
+          0,
+          1e6,
+          p.text,
+          p.style,
+        );
+        const natural = kit
+          ? Math.max(...kit.layout(probe).lines.map((l) => l.width))
+          : p.text.length * probe.size * 0.5;
+        const width = Math.min(f.width, Math.ceil(natural) + 2);
+        const height = probe.size * probe.lineHeight;
+        const x = Math.min(Math.max(0, at.x - width / 2), f.width - width);
+        const y = Math.min(Math.max(0, at.y - height / 2), f.height - height);
+        const id = newObjectId();
+        commitAdd(
+          typedSignatureObject(id, page, x, y, width, p.text, p.style),
+          "Signature placed",
+        );
+        dispatch({ type: "tool", tool: "select" });
+        dispatch({ type: "select", ids: [id] });
+        return true;
+      }
       const want = p.kind === "signature" ? 160 : 200;
       const width = Math.min(want, f.width * 0.8, p.width);
       const height = (width * p.height) / p.width;
@@ -706,7 +769,7 @@ export function WysiwygEditor({
       dispatch({ type: "select", ids: [id] });
       return true;
     },
-    [dispatch, commitAdd, frames],
+    [dispatch, commitAdd, frames, kit],
   );
 
   const startText = useCallback(
@@ -820,6 +883,10 @@ export function WysiwygEditor({
                   obj,
                   from: boundsOf(obj),
                   handle: h as Handle,
+                  grab: (() => {
+                    const edge = handlePoint(boundsOf(obj), h as Handle);
+                    return { x: pt.x - edge.x, y: pt.y - edge.y };
+                  })(),
                 };
           return;
         }
@@ -961,7 +1028,7 @@ export function WysiwygEditor({
           return;
         }
         case "resize": {
-          const p = clampPt(pt);
+          const p = clampPt({ x: pt.x - d.grab.x, y: pt.y - d.grab.y });
           const keep =
             d.obj.kind === "image" || d.obj.kind === "signature"
               ? !e.shiftKey
@@ -1272,6 +1339,21 @@ export function WysiwygEditor({
     </p>
   );
 
+  const toolbar = (
+    <EditorToolbar
+      tool={state.tool}
+      onTool={chooseTool}
+      canUndo={state.history.past.length > 0}
+      canRedo={state.history.future.length > 0}
+      onUndo={() => dispatch({ type: "undo" })}
+      onRedo={() => dispatch({ type: "redo" })}
+      zoom={zoom.zoom}
+      fit={zoom.fit}
+      onZoom={(z) => changeZoom(z)}
+      onFit={fitNow}
+    />
+  );
+
   return (
     <div
       ref={editorRoot}
@@ -1279,6 +1361,7 @@ export function WysiwygEditor({
       data-wysiwyg-editor=""
     >
       <FileHeader pdf={pdf} />
+      {firstStep}
       {liveRegion}
       <input
         ref={imageInput}
@@ -1295,39 +1378,47 @@ export function WysiwygEditor({
       />
 
       <div className="flex flex-col gap-2">
-        <div className="border-line bg-panel rounded-panel order-2 border sm:order-1">
-          <EditorToolbar
-            tool={state.tool}
-            onTool={chooseTool}
-            canUndo={state.history.past.length > 0}
-            canRedo={state.history.future.length > 0}
-            onUndo={() => dispatch({ type: "undo" })}
-            onRedo={() => dispatch({ type: "redo" })}
-            zoom={zoom.zoom}
-            fit={zoom.fit}
-            onZoom={(z) => changeZoom(z)}
-            onFit={fitNow}
-          />
-        </div>
-
-        {signing && (
-          <div className="order-1 sm:order-2">
-            <SignaturePanel
-              onClose={() => setSigning(false)}
-              onReady={(pending) => {
-                dispatch({ type: "pending", pending });
-                dispatch({ type: "tool", tool: "signature" });
-                setSigning(false);
-                dispatch({
-                  type: "say",
-                  message: "Signature ready: click on a page to place it",
-                });
-              }}
-            />
+        {!narrow && (
+          <div className="border-line bg-panel rounded-panel border">
+            {toolbar}
           </div>
         )}
 
-        <div className="order-1 grid gap-3 sm:order-3 lg:grid-cols-[7.25rem_minmax(0,1fr)_15rem]">
+        {!signing &&
+          state.tool === "signature" &&
+          state.pending &&
+          state.pending.kind !== "image" && (
+            <p
+              data-signature-ready=""
+              className="border-line bg-panel rounded-panel flex flex-wrap items-center justify-between gap-2 border px-3.5 py-2 text-sm"
+            >
+              <span>Click on a page to place your signature.</span>
+              <button
+                type="button"
+                onClick={() => setSigning(true)}
+                className="text-accent text-xs font-semibold"
+              >
+                New signature
+              </button>
+            </p>
+          )}
+
+        {signing && (
+          <SignaturePanel
+            onClose={() => setSigning(false)}
+            onReady={(pending) => {
+              dispatch({ type: "pending", pending });
+              dispatch({ type: "tool", tool: "signature" });
+              setSigning(false);
+              dispatch({
+                type: "say",
+                message: "Signature ready: click on a page to place it",
+              });
+            }}
+          />
+        )}
+
+        <div className="grid gap-3 lg:grid-cols-[7.25rem_minmax(0,1fr)_15rem]">
           <div className="hidden h-[min(76vh,1100px)] min-h-[420px] lg:block">
             {ready && (
               <ThumbnailRail
@@ -1343,7 +1434,9 @@ export function WysiwygEditor({
             ref={viewport}
             data-editor-viewport=""
             tabIndex={-1}
-            className="bg-wash border-line rounded-panel relative h-[52vh] min-h-[320px] [touch-action:pan-x_pan-y] overflow-auto border outline-none sm:h-[min(76vh,1100px)] sm:min-h-[420px]"
+            // On a phone the page view takes the screen's height less the
+            // header, the docked toolbar and the Apply bar under it.
+            className="bg-wash border-line rounded-panel relative h-[calc(100dvh-13.5rem)] min-h-[300px] [touch-action:pan-x_pan-y] overflow-auto border outline-none sm:h-[min(76vh,1100px)] sm:min-h-[420px]"
           >
             {openError ? (
               <div className="p-6">
@@ -1424,9 +1517,11 @@ export function WysiwygEditor({
           </aside>
         </div>
 
-        <div className="border-line bg-panel rounded-panel order-3 border p-3 sm:order-4 lg:hidden">
-          {panel}
-        </div>
+        {!narrow && (
+          <div className="border-line bg-panel rounded-panel border p-3 lg:hidden">
+            {panel}
+          </div>
+        )}
       </div>
 
       <p className="text-muted text-xs">
@@ -1436,7 +1531,42 @@ export function WysiwygEditor({
       </p>
 
       {pickError && <ErrorNote message={pickError} />}
-      {runBar}
+      {narrow ? (
+        // Phone: the properties sheet (with something selected), the tools
+        // and the Apply bar are ONE bar docked at the bottom of the screen,
+        // so the page view is never scrolled away to pick a tool.
+        <div
+          data-editor-dock=""
+          className="sticky bottom-[calc(env(safe-area-inset-bottom)+var(--sf-bottom-inset,0px))] z-20 -mx-5 flex flex-col"
+        >
+          {selection.length > 0 && (
+            <section
+              ref={sheetRef}
+              role="region"
+              aria-label="Properties"
+              data-properties-sheet=""
+              className="border-line bg-panel rounded-t-panel mx-1 max-h-[45dvh] overflow-y-auto border border-b-0 p-4 shadow-lg"
+            >
+              <div className="mb-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: "select", ids: [] })}
+                  className="text-accent text-xs font-semibold"
+                >
+                  Done
+                </button>
+              </div>
+              {panel}
+            </section>
+          )}
+          <div className="border-line bg-panel border-t px-1">{toolbar}</div>
+          <div className="[&_[data-run-dock]]:mx-0 [&_[data-run-dock]]:shadow-none">
+            {runBar}
+          </div>
+        </div>
+      ) : (
+        runBar
+      )}
       {footer}
     </div>
   );
@@ -1445,21 +1575,44 @@ export function WysiwygEditor({
 /* ------------------------------ one page ------------------------------ */
 
 const HANDLE_PX = 9;
-/** A fingertip needs a bigger target than a cursor. */
-const HANDLE_PX_TOUCH = 18;
+/** A fingertip needs a bigger target than a cursor (WCAG 2.5.8: ≥ 24 px). */
+const HANDLE_PX_TOUCH = 24;
+/** Clear space between an object's own edge and its selection frame. */
+const FRAME_GAP_PX = 4;
 
-const coarseQuery = "(pointer: coarse)";
-function useCoarsePointer(): boolean {
+/**
+ * The selection frame, OUTSIDE the object: its gap plus half a handle, so
+ * neither the dashed outline nor a handle covers what was selected (a
+ * handle once sat on the "A" of a text box's first word).
+ */
+export function selectionFrame(b: Rect, handlePx: number, scale: number): Rect {
+  const off = (FRAME_GAP_PX + handlePx / 2) / scale;
+  return {
+    x: b.x - off,
+    y: b.y - off,
+    width: b.width + off * 2,
+    height: b.height + off * 2,
+  };
+}
+
+const COARSE_QUERY = "(pointer: coarse)";
+const NARROW_QUERY = "(max-width: 639.98px)";
+
+function useMedia(query: string): boolean {
   return useSyncExternalStore(
     (notify) => {
       if (typeof matchMedia === "undefined") return () => {};
-      const mq = matchMedia(coarseQuery);
+      const mq = matchMedia(query);
       mq.addEventListener("change", notify);
       return () => mq.removeEventListener("change", notify);
     },
-    () => typeof matchMedia !== "undefined" && matchMedia(coarseQuery).matches,
+    () => typeof matchMedia !== "undefined" && matchMedia(query).matches,
     () => false,
   );
+}
+
+function useCoarsePointer(): boolean {
+  return useMedia(COARSE_QUERY);
 }
 
 function handlePoint(rect: Rect, h: Handle): Pt {
@@ -1559,7 +1712,8 @@ function PageSheet({
 
   const placing = tool !== "select";
   const coarse = useCoarsePointer();
-  const handleSize = (coarse ? HANDLE_PX_TOUCH : HANDLE_PX) / scale;
+  const handlePx = coarse ? HANDLE_PX_TOUCH : HANDLE_PX;
+  const handleSize = handlePx / scale;
   // Centred in the visible width when it fits; a page wider than the view
   // starts at the gutter and the column scrolls sideways.
   const left =
@@ -1676,13 +1830,14 @@ function PageSheet({
                   </g>
                 );
               }
+              const f = selectionFrame(b, handlePx, scale);
               return (
-                <g key={`sel-${obj.id}`}>
+                <g key={`sel-${obj.id}`} data-selection-frame="">
                   <rect
-                    x={b.x}
-                    y={b.y}
-                    width={b.width}
-                    height={b.height}
+                    x={f.x}
+                    y={f.y}
+                    width={f.width}
+                    height={f.height}
                     fill="none"
                     stroke="#2563eb"
                     strokeWidth={1.25 / scale}
@@ -1691,7 +1846,7 @@ function PageSheet({
                   />
                   {selected.length === 1 &&
                     handlesFor(obj).map((h) => {
-                      const p = handlePoint(b, h);
+                      const p = handlePoint(f, h);
                       return (
                         <rect
                           key={h}

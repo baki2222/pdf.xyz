@@ -61,9 +61,11 @@ import {
   analyzePdf,
   summarizeAnalysis,
 } from "@/lib/pdf/analyze";
-import { signPdf } from "@/lib/pdf/signature";
 import { exportEditedPdf } from "@/lib/pdf/editor-export";
-import { annotatePdf } from "@/lib/pdf/annotate";
+import {
+  DEFAULT_TEXT_STYLE,
+  typedSignatureObject,
+} from "@/lib/pdf/editor/model";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
 import {
@@ -94,11 +96,10 @@ import {
   type PdfToMarkdownInput,
 } from "@/lib/pdf/pdf-to-markdown";
 import {
-  ANNOTATION_FACT,
-  ANNOTATION_TYPES,
   DEEP_COMPRESSION_PRESETS,
   EDITOR_KINDS,
   EDITOR_KIND_FACT,
+  MARKUP_KINDS,
   FIELD_TYPE_FACT,
   GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
@@ -565,11 +566,12 @@ describe("sign, edit and annotate answer what they draw", () => {
       [300, 400],
       [300, 400],
     ]);
-    const signedBytes = await signPdf(
-      bytes,
-      { kind: "typed", text: "Ada Lovelace", style: "print" },
-      { pageIndex: 1, position: "bottom-right", width: 120 },
-    );
+    // Until 2026-10-24 this ran `signPdf`, the Sign PDF form's engine. The
+    // page now mounts the shared editor, so it runs that editor's export with
+    // the object the editor places for a typed signature.
+    const { bytes: signedBytes } = await exportEditedPdf(bytes, [
+      typedSignatureObject("s", 1, 150, 340, 140, "Ada Lovelace", "print"),
+    ]);
     const signed = await PDFDocument.load(signedBytes);
     const original = await PDFDocument.load(bytes);
     const sigLike = dictionaries(signed).filter(
@@ -592,13 +594,16 @@ describe("sign, edit and annotate answer what they draw", () => {
     for (const tool of mounting("sign")) {
       const src = runnerSource(tool.slug);
       expect(src).toContain("is not tamper-evident");
-      expect(src).toMatch(/signPdf\(pdf\.bytes, input, \{ pageIndex,/);
+      // WAS /signPdf\(pdf\.bytes, input, \{ pageIndex,/ — the form's call.
+      expect(src).toMatch(/<EditorRunner\b/);
+      expect(src).toMatch(/initialTool="signature"/);
       const binding = answer(tool.slug, /legally binding/);
       expect(binding).toContain("cannot decide it for you");
       expect(binding).toContain("not a certificate-based digital signature");
-      expect(answer(tool.slug, /more than one page/)).toMatch(
-        /^Each run places one signature/,
-      );
+      // INVERTED 2026-10-24: was /^Each run places one signature/ — true of
+      // the form, which placed one per run. The editor places as many as
+      // you click, on any page, in one pass.
+      expect(answer(tool.slug, /more than one page/)).toMatch(/^Yes\./);
     }
   });
 
@@ -638,17 +643,31 @@ describe("sign, edit and annotate answer what they draw", () => {
 
   it("annotations are drawn into the page, not added as comment objects", async () => {
     const bytes = await pdfWithPages([[300, 400]]);
-    const { bytes: marked } = await annotatePdf(bytes, [
+    // Until 2026-10-24 this ran `annotatePdf`, the Annotate PDF form's
+    // engine; the page now mounts the shared editor, whose export this is.
+    const { bytes: marked } = await exportEditedPdf(bytes, [
       {
-        type: "highlight",
-        page: 1,
+        id: "h",
+        kind: "highlight",
+        page: 0,
         x: 10,
-        y: 340,
+        y: 40,
         width: 100,
         height: 20,
         color: "#ffeb3b",
+        opacity: 0.4,
       },
-      { type: "note", page: 1, x: 20, y: 200, text: "Check", color: "#000000" },
+      {
+        id: "n",
+        kind: "note",
+        page: 0,
+        x: 20,
+        y: 200,
+        width: 120,
+        text: "Check",
+        fill: "#fef08a",
+        ...DEFAULT_TEXT_STYLE,
+      },
     ]);
     const doc = await PDFDocument.load(marked);
     expect(doc.getPage(0).node.Annots()?.size() ?? 0).toBe(0);
@@ -658,11 +677,11 @@ describe("sign, edit and annotate answer what they draw", () => {
     for (const tool of mounting("annotate")) {
       const served = answer(tool.slug, /comments/);
       expect(served).toMatch(/^No\./);
-      for (const t of ANNOTATION_TYPES)
-        expect(served).toContain(ANNOTATION_FACT[t]);
-      expect(answer(tool.slug, /place a highlight/)).toContain(
-        `${PT_PER_INCH} points to an inch`,
-      );
+      for (const k of MARKUP_KINDS)
+        expect(served).toContain(EDITOR_KIND_FACT[k]);
+      // WAS: the answer named typed X/Y points ("72 points to an inch") —
+      // the form's placement. The editor's highlight is dragged out.
+      expect(answer(tool.slug, /place a highlight/)).toMatch(/\bdrag\b/);
     }
   });
 });

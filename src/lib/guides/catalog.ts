@@ -1106,7 +1106,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-10-24",
   },
   {
     slug: "how-to-make-a-scanned-pdf-searchable",
