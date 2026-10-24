@@ -250,6 +250,11 @@ async function runAndDownload(
 ): Promise<Buffer> {
   const run = ctx.page.getByRole("button", { name: runName });
   await expect(run).toBeEnabled();
+  // A server-rendered button is enabled before React claims it, and a press
+  // in that window is dropped: Text to PDF's case filled its box (kept since
+  // #213) and pressed Create before hydration, against production, and
+  // waited 10 s for a result no handler was asked to make.
+  await waitForHydration(run);
   await run.click();
   await expect(
     ctx.page.getByRole("heading", { name: resultHeading }),
