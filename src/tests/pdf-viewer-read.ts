@@ -122,8 +122,11 @@ const nodeAssetOptions = (): { wasmUrl: string; cMapUrl: string } => {
   return { wasmUrl: `${dir}/wasm/`, cMapUrl: `${dir}/cmaps/` };
 };
 
-/** Page 1 as pdfjs presents it: viewer-frame text, path and image positions. */
-export async function readAsViewer(bytes: Uint8Array): Promise<ViewerRead> {
+/** A page (1-based, default 1) as pdfjs presents it: viewer-frame text, path and image positions. */
+export async function readAsViewer(
+  bytes: Uint8Array,
+  pageNumber = 1,
+): Promise<ViewerRead> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = pdfjs.getDocument({
     ...PDFJS_DOCUMENT_DEFAULTS,
@@ -134,7 +137,7 @@ export async function readAsViewer(bytes: Uint8Array): Promise<ViewerRead> {
   });
   try {
     const doc = await awaitPdfjsDocument(task);
-    const page = await doc.getPage(1);
+    const page = await doc.getPage(pageNumber);
     const vp = page.getViewport({ scale: 1 });
     const view = vp.transform as Matrix;
     // pdfjs's viewport is y-down from the top-left; flip to the bottom-left

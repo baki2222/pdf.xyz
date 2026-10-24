@@ -63,6 +63,34 @@ const SHIPPED_PULSING_BOXES = [
   `<div className="bg-wash aspect-[3/4] w-full max-w-[200px] animate-pulse rounded-lg" />`,
 ];
 
+/**
+ * A runner's source: its module, plus the modules it imports from a
+ * SUBDIRECTORY of the runner directory (`./editor/…`) — a runner split into
+ * components of its own. Edit PDF became `edit-runner.tsx` →
+ * `./editor/wysiwyg-editor` on 2026-10-24, and its placeholder moved with
+ * the editor; reading the runner file alone dropped edit-pdf from this list.
+ * Shared siblings (`./runner-kit`) are not followed. A broken link is fatal.
+ */
+function runnerSource(file: string): string {
+  const src = readFileSync(join(RUNNER_DIR, `${file}.tsx`), "utf8");
+  const specs = new Set(
+    [...src.matchAll(/(?:from |import\(\s*)"\.\/([\w-]+\/[\w/-]+)"/g)].map(
+      ([, spec]) => spec!,
+    ),
+  );
+  const own = [...specs].map((spec) => {
+    for (const ext of [".tsx", ".ts"]) {
+      try {
+        return readFileSync(join(RUNNER_DIR, `${spec}${ext}`), "utf8");
+      } catch {
+        // try the next extension
+      }
+    }
+    throw new Error(`${file}.tsx imports ./${spec}, which is no file`);
+  });
+  return [src, ...own].join("\n");
+}
+
 function placeholderEditors(): string[] {
   const dispatcher = readFileSync(join(RUNNER_DIR, "tool-runner.tsx"), "utf8");
   const fileOf = new Map(
@@ -82,7 +110,7 @@ function placeholderEditors(): string[] {
   const drawing = new Set(
     kinds
       .filter(({ file }) => {
-        const src = readFileSync(join(RUNNER_DIR, `${file}.tsx`), "utf8");
+        const src = runnerSource(file!);
         return PLACEHOLDER.some((re) => re.test(src));
       })
       .map(({ kind }) => kind),

@@ -157,6 +157,24 @@ export async function uploadFiles(
  * assert a page loads cleanly under the production CSP (a blocked script,
  * worker, or wasm surfaces here as a "Content Security Policy" console error).
  */
+/**
+ * Edit PDF's editor (since 2026-10-24): choose Text, click on page 1 as
+ * drawn, type, and leave the box — one text box placed, the way a reader
+ * places it. Resolves once the editor has said it was added.
+ */
+export async function placeEditorText(page: Page, words: string) {
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const sheet = page.locator('[data-editor-page="0"]');
+  await sheet.scrollIntoViewIfNeeded();
+  const box = (await sheet.boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.2, box.y + 60);
+  await page.keyboard.type(words);
+  await page.keyboard.press("Escape");
+  await expect(
+    page.locator("[data-wysiwyg-editor] > [role=status]"),
+  ).toContainText("Text box added");
+}
+
 export function attachConsoleGuard(page: Page) {
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];

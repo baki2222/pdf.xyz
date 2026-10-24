@@ -22,23 +22,49 @@
  * drag pdf-lib or a client runner along with the sentence.
  */
 
-/** Edit PDF — the kinds of new content the editor can flatten onto a page. */
+/**
+ * Edit PDF — the kinds of item the WYSIWYG editor places, in toolbar order.
+ * `editor/model.ts` derives its object list from this one and fails to
+ * compile if the two disagree, and the tool page counts this array.
+ *
+ * HISTORY. Until 2026-10-24 the tool page counted {@link EDIT_OP_TYPES}, the
+ * four ops of the coordinate form that was then the editor. The form is gone
+ * from the page; its engine (`edit.ts`, `editPdf`) is still in the tree and
+ * still typed by that list, but it no longer describes what a reader can do.
+ */
+export const EDITOR_KINDS = [
+  "text",
+  "image",
+  "signature",
+  "shape",
+  "line",
+  "whiteout",
+  "highlight",
+  "ink",
+  "note",
+] as const;
+export type EditorKind = (typeof EDITOR_KINDS)[number];
+/** How the tool page names each kind, variants included. */
+export const EDITOR_KIND_FACT: Record<EditorKind, string> = {
+  text: "text boxes",
+  image: "PNG or JPG pictures",
+  signature: "signatures (drawn, typed or from a picture)",
+  shape: "rectangles and ellipses",
+  line: "lines and arrows",
+  whiteout: "whiteout boxes",
+  highlight: "highlights",
+  ink: "freehand drawing",
+  note: "notes",
+};
+
+/**
+ * The coordinate-op engine's kinds (`edit.ts`). Not what the Edit PDF page
+ * offers any more — see {@link EDITOR_KINDS}.
+ */
 export const EDIT_OP_TYPES = ["text", "rect", "line", "image"] as const;
 export type EditOpType = (typeof EDIT_OP_TYPES)[number];
-/** The editor's button labels. */
-export const EDIT_OP_LABEL: Record<EditOpType, string> = {
-  text: "Text",
-  rect: "Box",
-  line: "Line",
-  image: "Image",
-};
-/** How the tool page names each kind, variants included (`filled?`, `arrow?`). */
-export const EDIT_OP_FACT: Record<EditOpType, string> = {
-  text: "text",
-  rect: "boxes (filled or outlined)",
-  line: "lines or arrows",
-  image: "PNG or JPG images",
-};
+// EDIT_OP_LABEL and EDIT_OP_FACT (the form's button labels and the tool
+// page's phrases for these four) were removed with the form on 2026-10-24.
 
 /** Annotate PDF — the markup shapes the tool can flatten onto a page. */
 export const ANNOTATION_TYPES = ["highlight", "rect", "note", "line"] as const;

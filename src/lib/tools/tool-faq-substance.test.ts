@@ -62,7 +62,7 @@ import {
   summarizeAnalysis,
 } from "@/lib/pdf/analyze";
 import { signPdf } from "@/lib/pdf/signature";
-import { editPdf } from "@/lib/pdf/edit";
+import { exportEditedPdf } from "@/lib/pdf/editor-export";
 import { annotatePdf } from "@/lib/pdf/annotate";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
@@ -97,8 +97,8 @@ import {
   ANNOTATION_FACT,
   ANNOTATION_TYPES,
   DEEP_COMPRESSION_PRESETS,
-  EDIT_OP_FACT,
-  EDIT_OP_TYPES,
+  EDITOR_KINDS,
+  EDITOR_KIND_FACT,
   FIELD_TYPE_FACT,
   GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
@@ -602,19 +602,22 @@ describe("sign, edit and annotate answer what they draw", () => {
     }
   });
 
-  it("an edit leaves the original page content in place, even under a filled box", async () => {
+  it("an edit leaves the original page content in place, even under a whiteout", async () => {
+    // Until 2026-10-24 this ran `editPdf` with a filled box — the coordinate
+    // form's engine. The page now mounts the WYSIWYG editor, whose engine is
+    // `exportEditedPdf`, so the answer is checked against THAT output: a
+    // Whiteout over the page's own words (viewer frame, top-left origin).
     const bytes = await pdfWithPages([[300, 400]]);
     const before = await PDFDocument.load(bytes);
-    const { bytes: edited } = await editPdf(bytes, [
+    const { bytes: edited } = await exportEditedPdf(bytes, [
       {
-        type: "rect",
-        page: 1,
+        id: "w",
+        kind: "whiteout",
+        page: 0,
         x: 10,
-        y: 340,
+        y: 20,
         width: 200,
         height: 40,
-        color: "#000000",
-        filled: true,
       },
     ]);
     const after = await PDFDocument.load(edited);
@@ -625,7 +628,8 @@ describe("sign, edit and annotate answer what they draw", () => {
     for (const tool of mounting("edit")) {
       const change = answer(tool.slug, /change the text already/);
       expect(change).toMatch(/^No\./);
-      for (const t of EDIT_OP_TYPES) expect(change).toContain(EDIT_OP_FACT[t]);
+      for (const k of EDITOR_KINDS)
+        expect(change).toContain(EDITOR_KIND_FACT[k]);
       expect(answer(tool.slug, /cover something up/)).toContain(
         "still in the file",
       );

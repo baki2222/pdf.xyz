@@ -31,9 +31,11 @@
  *
  * EXEMPTIONS, each with its reason, and an exemption whose file no longer
  * renders an input fails as stale:
- *  - `edit-runner.tsx`: the editor's "insert an image" picker chooses a
- *    picture to PLACE on a page already open — not a document arriving, so
- *    not a drop target, and a page drop must never land in it;
+ *  - `editor/wysiwyg-editor.tsx` (in `edit-runner.tsx` until 2026-10-24):
+ *    the editor's "insert an image" picker chooses a picture to PLACE on a
+ *    page already open — not a document arriving, so not a drop target, and
+ *    a page drop must never land in it;
+ *  - `editor/signature-panel.tsx`: the same, for a picture of a signature;
  *  - `drop-layer-view.tsx`: the picker behind the header's "Open files"
  *    when the page has no target of its own — made when it is asked for and
  *    appended to the end of `<body>`, never rendered with the page, so
@@ -54,8 +56,10 @@ const DESK = "src/components/upload/drop-desk.tsx";
 /** The primitive's server-drawn shell (see above). */
 const SHELL = "src/components/upload/drop-sheet-shell.tsx";
 const EXEMPT: Record<string, string> = {
-  "src/components/tools/runner/edit-runner.tsx":
+  "src/components/tools/runner/editor/wysiwyg-editor.tsx":
     "the editor's image-insert picker places a picture on an open page; it is not a document arriving",
+  "src/components/tools/runner/editor/signature-panel.tsx":
+    "the editor's signature picker reads a picture of a signature to place on an open page; it is not a document arriving",
   "src/components/intent/drop-layer-view.tsx":
     "the header's Open files picker when a page has no target: made when asked for, at the end of <body>",
 };

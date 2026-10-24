@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { fileInput, waitForHydration } from "./helpers";
+import { fileInput, placeEditorText, waitForHydration } from "./helpers";
 import { makeTextPdf } from "./client-proof/fixtures";
 
 /**
@@ -40,18 +40,18 @@ export const SIGN: HeldCase = {
   done: /pdf signed/i,
 };
 
-/** Edit PDF: a Letter page, one text edit placed — the tallest editor. */
+/**
+ * Edit PDF: a Letter page, one text box placed — the tallest editor. (Until
+ * 2026-10-24 the coordinate form's "Text" field, "Add to page" and "Apply 1
+ * edit".)
+ */
 export const EDIT: HeldCase = {
   slug: "edit-pdf",
   file: { name: "revise.pdf", size: [612, 792] },
   prepare: async (page) => {
-    await page.getByLabel("Text", { exact: true }).fill("MARK");
-    await page.getByRole("button", { name: /add to page/i }).click();
-    await expect(
-      page.getByRole("list", { name: "Placed edits" }),
-    ).toBeVisible();
+    await placeEditorText(page, "MARK");
   },
-  run: /apply 1 edit/i,
+  run: /apply & download/i,
   done: /edited pdf ready/i,
 };
 

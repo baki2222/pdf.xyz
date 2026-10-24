@@ -47,7 +47,23 @@ export type FontPackId =
  * face; anything else is routed to a shipped pack by {@link packsForFace}.
  */
 export type StandardFace =
-  "sans" | "sans-bold" | "sans-oblique" | "mono" | "serif-italic";
+  | "sans"
+  | "sans-bold"
+  | "sans-oblique"
+  | "mono"
+  | "serif-italic"
+  // The WYSIWYG editor's family × weight × slant (2026-10-24): Helvetica,
+  // Times and Courier, each regular, bold, italic and bold italic. Like every
+  // face above, they draw Western text as themselves and route anything else
+  // to the script packs; the editor asks for "sans" for such text itself, so
+  // its preview and its export agree on the Noto face.
+  | "sans-bold-oblique"
+  | "serif"
+  | "serif-bold"
+  | "serif-bold-italic"
+  | "mono-bold"
+  | "mono-oblique"
+  | "mono-bold-oblique";
 
 /** A closed, inclusive Unicode code-point range. */
 export type CodePointRange = readonly [number, number];

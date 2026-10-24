@@ -99,6 +99,13 @@ const EVERY_FACE = Object.keys({
   "sans-oblique": true,
   mono: true,
   "serif-italic": true,
+  "sans-bold-oblique": true,
+  serif: true,
+  "serif-bold": true,
+  "serif-bold-italic": true,
+  "mono-bold": true,
+  "mono-oblique": true,
+  "mono-bold-oblique": true,
 } satisfies Record<StandardFace, true>) as StandardFace[];
 
 const KNOWN_GAPS: Record<string, string> = {

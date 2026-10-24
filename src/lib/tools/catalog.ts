@@ -675,7 +675,7 @@ export const tools: Tool[] = [
     seoTitle: "Edit PDF — Add Text, Images & Shapes",
     tagline: "Add text, images, and shapes.",
     description:
-      "Add new text, images, boxes, and lines to a PDF, then export a flattened copy — placed by coordinates in your browser. It doesn't rewrite the file's existing text.",
+      "Click on the page to add text, images, signatures, shapes, highlights and notes, then move and resize them in your browser. It does not rewrite existing text.",
     category: "edit",
     icon: "edit",
     processing: "client",
@@ -698,8 +698,8 @@ export const tools: Tool[] = [
     ],
     how: [
       "Open your PDF — its pages are preserved exactly.",
-      "Add text, images, boxes, or lines by page and position.",
-      "Export a flattened PDF with your additions baked in.",
+      "Pick a tool and click on the page to place text, images, signatures or shapes.",
+      "Apply & download a PDF with your additions written into the page.",
     ],
   },
   {

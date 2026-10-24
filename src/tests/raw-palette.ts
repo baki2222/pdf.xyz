@@ -62,11 +62,15 @@ export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
     "border-slate-400": `${ON_PAPER} (a pending redaction's outline)`,
     "bg-slate-900": `${ON_PAPER} (the redaction box is black, as it will print)`,
   },
-  "src/components/tools/runner/edit-runner.tsx": {
+  // Was edit-runner.tsx's schematic page until 2026-10-24; the editor that
+  // replaced it draws the real page, here and in its thumbnails.
+  "src/components/tools/runner/editor/wysiwyg-editor.tsx": {
     "bg-white": PAPER,
     "ring-black/10": `${PAPER} (its edge)`,
-    "border-slate-400/70": `${ON_PAPER} (a placed image's frame)`,
-    "bg-slate-200/60": `${ON_PAPER} (a placed image's fill)`,
+  },
+  "src/components/tools/runner/editor/thumbnail-rail.tsx": {
+    "bg-white": PAPER,
+    "ring-black/10": `${PAPER} (its edge)`,
   },
   "src/components/tools/runner/annotate-runner.tsx": {
     "bg-white": PAPER,

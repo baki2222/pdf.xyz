@@ -158,6 +158,9 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
     path.join(ROOT, "src", "lib", "pdf", "crop-disclosure.ts"),
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
+    // The WYSIWYG editor's export refusals (2026-10-24): new phrase code,
+    // so walked rather than recorded outside.
+    path.join(ROOT, "src", "lib", "pdf", "editor-export.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // The fix a known refusal offers, and where its file goes there (WP-08):
