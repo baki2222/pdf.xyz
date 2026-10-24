@@ -220,8 +220,10 @@ export async function openNodePdf(
     );
   const pdfjs = await loadNodePdfjs();
   const loadingTask = pdfjs.getDocument({
-    // pdf.js may detach the buffer it is given; the caller's bytes stay whole.
-    data: bytes.slice(),
+    // pdf.js may detach the buffer it is given, so it gets a COPY, and a plain
+    // Uint8Array one: `slice()` of a Node Buffer is a Buffer VIEW of the
+    // caller's memory, which pdf.js refuses (2026-10-24, fidelity.test.ts).
+    data: new Uint8Array(bytes),
     ...PDFJS_DOCUMENT_DEFAULTS,
     ...nodePdfjsAssetDirs(),
     disableFontFace: true,

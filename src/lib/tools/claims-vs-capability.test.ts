@@ -20,7 +20,8 @@
  *   pdf-to-png          "with a transparent or white background" — the runner
  *                       never passes a background; the rasterizer paints white.
  *   watermark-pdf       "text or image watermark … and tiling" — one text
- *                       string, drawn once per page.
+ *                       string, drawn once per page. (Both built 2026-10-24;
+ *                       the rule is retired into a positive output check.)
  *   html-to-pdf         "HTML files or snippets" + "Choose your options." —
  *                       one file picker, and `{}` as the job's options.
  *   pdf-to-word         "while preserving layout and text flow" — one bare
@@ -31,6 +32,9 @@
  *                       text box per slide, no pictures.
  *   merge-pdf           "Drag pages or files into the order you want." — the
  *                       engine takes whole files, and so does the runner.
+ *                       (Since 2026-10-24 a file may give only SOME of its
+ *                       pages, but always in its own order: the probe asks
+ *                       for a reversed selection and reads the order back.)
  *   word-to-pdf         "DOCX and DOC into pixel-perfect PDF." / "…while
  *                       preserving layout, fonts, and formatting." — LibreOffice
  *                       lays it out, and the worker image installs no
@@ -138,6 +142,7 @@ import { getRunnerKind, supportedToolSlugs } from "@/lib/pdf/registry";
 import { rasterFormatForSlug } from "@/lib/pdf/pdf-to-image";
 import { imagesToPdf } from "@/lib/pdf/image-to-pdf";
 import { mergePdfs } from "@/lib/pdf/engine";
+import { addWatermark } from "@/lib/pdf/watermark";
 import { signatureRequestDeps } from "@/lib/workers/request-signatures/native";
 import {
   PDF_OFFICE_EXPORT_TOOLS,
@@ -814,53 +819,14 @@ const RULES: readonly ClaimRule[] = [
       };
     },
   },
-  {
-    id: "watermarks can be images, logos, or tiled",
-    subjects: () => slugsOfKind("watermark"),
-    shapes: {
-      "image/logo": /\b(?:image|logo|picture)s?\b/i,
-      "tiled/repeated": /\btil(?:e|es|ed|ing)\b|\brepeat(?:s|ed|ing)?\b/i,
-    },
-    shipped: [
-      "Stamp text or image watermarks.",
-      "Overlay a text or image watermark with adjustable opacity, rotation, and tiling.",
-    ],
-    synonyms: [
-      "Add your logo as a watermark.",
-      "The watermark is repeated across each page.",
-    ],
-    honest: [
-      "Stamp a text watermark on every page.",
-      "Stamp a text watermark on every page of a PDF in your browser — set the text, opacity, angle, size and color.",
-    ],
-    probe: async () => {
-      // What the engine can be ASKED to do: its options type and its
-      // signature. A type erases at runtime, so it is read from source.
-      const source = withoutComments(read("src/lib/pdf/watermark.ts"));
-      const body = /export interface WatermarkOptions\s*\{([\s\S]*?)\n\}/.exec(
-        source,
-      )?.[1];
-      const params =
-        /export async function addWatermark\(([\s\S]*?)\)\s*:/.exec(
-          source,
-        )?.[1];
-      if (!body || !params)
-        throw new Error("could not read WatermarkOptions / addWatermark");
-      const keys = [...body.matchAll(/^\s*(\w+)\??\s*:/gm)].map((m) => m[1]!);
-      // Health: the parse must see the options the runner does use.
-      if (!keys.includes("opacity") || !keys.includes("rotation"))
-        throw new Error(
-          `WatermarkOptions parse looks wrong: ${keys.join(",")}`,
-        );
-      const capable = [...keys, params].filter((k) =>
-        /image|logo|picture|tile|repeat|pattern/i.test(k),
-      );
-      return {
-        present: capable.length > 0,
-        evidence: `WatermarkOptions keys: ${keys.join(", ")}; addWatermark(${params.replace(/\s+/g, " ").trim()})`,
-      };
-    },
-  },
+  // RETIRED 2026-10-24, history kept: "watermarks can be images, logos, or
+  // tiled". It held "text or image watermark … and tiling" off every page
+  // while WatermarkOptions had no image or tile key, and its probe read that
+  // type. The engine now takes `image` (PNG or JPEG) and `position: "tile"`,
+  // so the probe went true, as it was built to. Per the rule's own message,
+  // the copy may now claim both, and what it may claim is pinned on a real
+  // output instead — "Add Watermark: the page says image and tiling exactly
+  // when the engine draws them", in the positive section below.
   {
     id: "HTML to PDF takes pasted markup or rendering options",
     subjects: () => panelMounts().get("HtmlRenderWorkerPanel") ?? [],
@@ -1066,11 +1032,21 @@ const RULES: readonly ClaimRule[] = [
         await mergePdfs([await make([101, 102]), await make([201, 202])]),
       );
       const order = merged.getPages().map((p) => p.getSize().width);
+      // Per-file page selection, asked for pages in REVERSE: a selection
+      // picks pages, so the file's own order must come back.
+      const picked = await PDFDocument.load(
+        await mergePdfs([await make([101, 102]), await make([201, 202])], {
+          pages: [[1, 0], [1]],
+        }),
+      );
+      const pickedOrder = picked.getPages().map((p) => p.getSize().width);
       const wholeFiles =
-        mergePdfs.length === 1 && order.join() === "101,102,201,202";
+        mergePdfs.length === 1 &&
+        order.join() === "101,102,201,202" &&
+        pickedOrder.join() === "101,102,202";
       return {
         present: !wholeFiles,
-        evidence: `mergePdfs takes ${mergePdfs.length} argument(s); merged page order ${order.join(",")}`,
+        evidence: `mergePdfs takes ${mergePdfs.length} required argument(s); merged page order ${order.join(",")}; reversed selection gave ${pickedOrder.join(",")}`,
       };
     },
   },
@@ -1414,6 +1390,35 @@ describe("the replacement copy states what the output actually is", () => {
       all.push(...attributedTo(c, subject).map((a) => a.sentence));
     return all.join(" ");
   }
+
+  it("Add Watermark: the page says image and tiling exactly when the engine draws them", async () => {
+    // The shapes the retired rule banned, now required — and the engine must
+    // really paint a picture and really repeat the mark for the copy to keep
+    // saying so.
+    const IMAGE = /\b(?:image|logo|picture)s?\b/i;
+    const TILED = /\btil(?:e|es|ed|ing)\b|\brepeat(?:s|ed|ing)?\b/i;
+    const doc = await PDFDocument.create();
+    doc.addPage([600, 800]);
+    const blank = await doc.save();
+    const pictured = await decodeFirstPage(
+      await addWatermark(blank, "", {
+        image: { bytes: jpegOfSize(40, 20), scale: 20 },
+        position: "tile",
+      }),
+    );
+    const plain = await decodeFirstPage(await addWatermark(blank, "DRAFT"));
+    // Health: the decoder sees images at all, and none on a text mark.
+    expect(plain.images).toEqual([]);
+    expect(pictured.images.length).toBeGreaterThan(1);
+    for (const subject of slugsOfKind("watermark")) {
+      const text = await served(subject);
+      expect(text.length, subject).toBeGreaterThan(500);
+      expect(text, `${subject} no longer says it takes an image`).toMatch(
+        IMAGE,
+      );
+      expect(text, `${subject} no longer says it tiles`).toMatch(TILED);
+    }
+  });
 
   it("image-to-PDF: every paper size and margin the copy names is the one the engine draws", async () => {
     const wide = await decodeFirstPage(

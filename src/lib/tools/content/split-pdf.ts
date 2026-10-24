@@ -74,13 +74,13 @@ const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
 const content: ToolContent = {
   slug: "split-pdf",
 
-  seoTitle: "Split PDF by Range or Every N Pages — No Upload",
+  seoTitle: "Split PDF by Range, Size or Bookmarks — No Upload",
 
   metaDescription:
-    "Split a PDF into separate files by custom page ranges, every N pages, or one file per page. The split runs in your browser, so the file is not uploaded.",
+    "Split a PDF by page ranges, every N pages, each page, a maximum file size or its bookmarks. It runs in your browser, so the file is not uploaded.",
 
   intro: [
-    `Split PDF cuts one document into several smaller PDFs in one of three ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. Before anything runs, a preview lists every file the split will create, with its name and page count.`,
+    `Split PDF cuts one document into several smaller PDFs in one of five ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents, or, with "Merge selected ranges into one file" ticked, one document holding those pages in the order you typed them. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. By file size packs consecutive pages into each file until the next page would take it over the megabytes you set. By bookmarks starts a new file at the page of each top-level bookmark; it is greyed out, with the reason shown, for a PDF that has none. Except for By file size, whose pieces are only known once they are built, a preview lists every file the split will create, with its name and page count, before anything runs.`,
     `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and there is no upload anywhere: reading the pages, building each piece and, when there is more than one, packing them into a ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
     `Every piece is a new PDF built from copies of the original pages, so their text, images, page size and rotation come through unchanged. Each piece also keeps the document's title, author, subject and keywords, its page labels and language, the bookmarks that open one of its pages, and the form fields on its pages, still fillable. Attached files, XMP metadata and the accessibility tags of a tagged PDF are not carried into the pieces. An encrypted file is refused as it loads, even one that opens without a password and only restricts printing or copying.`,
   ],
@@ -104,7 +104,11 @@ const content: ToolContent = {
     },
     {
       title: "Get under an attachment size limit",
-      body: "Fewer pages usually means a smaller file, but a font or image shared across pages is copied into every piece that uses it. The finished panel shows only the combined size, so when the split makes more than one piece, check each file in the ZIP before attaching it.",
+      body: "Choose By file size and enter the limit your mail service or portal sets, in MB. Each piece is built and weighed before the next page is added, so a font or image shared across pages, which is copied into every piece that uses it, is counted rather than guessed. A single page that is bigger than the limit by itself still becomes its own piece, and the finished panel names it.",
+    },
+    {
+      title: "One file per chapter of a bookmarked report",
+      body: "When a report's bookmarks panel lists its chapters, By bookmarks cuts at each top-level bookmark's page, so every chapter becomes its own PDF without typing a single range.",
     },
   ],
 
@@ -115,11 +119,11 @@ const content: ToolContent = {
     },
     {
       title: "Pick a split mode",
-      body: "Under How to split, choose Custom ranges, Every N pages or Each page.",
+      body: "Under How to split, choose Custom ranges, Every N pages, Each page, By file size or By bookmarks.",
     },
     {
       title: "Set the ranges or the chunk size",
-      body: "For Custom ranges, edit the Page ranges field; on a document of two or more pages it starts pre-filled with the file cut in half, the first half taking the extra page when the count is odd. For Every N pages, set Pages per file, which starts at 1. The Preview list below redraws on every keystroke.",
+      body: "For Custom ranges, edit the Page ranges field; on a document of two or more pages it starts pre-filled with the file cut in half, the first half taking the extra page when the count is odd. Tick “Merge selected ranges into one file” to get one PDF instead of one per range. For Every N pages, set Pages per file, which starts at 1. For By file size, set the maximum size per file in MB, which starts at about half the file's size. The Preview list below redraws on every keystroke.",
     },
     {
       title: "Split and download",
@@ -128,6 +132,14 @@ const content: ToolContent = {
   ],
 
   faqs: [
+    {
+      q: "How does splitting by file size work?",
+      a: "Enter a maximum size in MB. Starting from page 1, each file takes as many consecutive pages as fit: candidate files are actually built and their size measured, so the number is the downloaded file's real size, not an estimate. Pages are never reordered. A page that is over the limit by itself cannot be made smaller by splitting, so it becomes a file of its own above the limit, and the finished panel names that page; Compress PDF is the tool that can shrink it.",
+    },
+    {
+      q: "Can I split a PDF into its chapters?",
+      a: "Yes, when its chapters are bookmarked: choose By bookmarks, and a new file starts at the page each top-level bookmark opens; nested bookmarks do not cut, and neither does a bookmark to a web address. Pages before the first bookmark become a file of their own, and two bookmarks on one page start one file. The preview shows which bookmark begins each file. If the PDF has no bookmarks that open a page, the option is greyed out with that reason.",
+    },
     {
       q: "How do I type page ranges for a split?",
       a: "Separate files with commas. A single number such as 8 is a one-page file, 2-5 includes both ends, 10- runs to the last page and -3 starts from page 1. An entry that cannot work stops the preview with a message: a page past the end is named along with the PDF's page count, 5-3 is flagged as backwards, and 0 or a word is refused.",
@@ -138,7 +150,7 @@ const content: ToolContent = {
     },
     {
       q: "What are the split files called?",
-      a: "Each piece takes the original name, a sequence number and its page span, for example report-01-pages-1-3.pdf or report-12-page-40.pdf. With ten or more pieces the number is zero-padded so they sort in order, and the ZIP that holds multiple pieces is named after the original with -split added.",
+      a: "Each piece takes the original name, a sequence number and its page span, for example report-01-pages-1-3.pdf or report-12-page-40.pdf, in every mode. With ten or more pieces the number is zero-padded so they sort in order, and the ZIP that holds multiple pieces is named after the original with -split added. Ranges merged into one file download as that one PDF, named after the original with -split added.",
     },
     {
       q: "Can I split a password-protected PDF?",

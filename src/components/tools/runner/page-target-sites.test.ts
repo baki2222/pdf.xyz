@@ -38,6 +38,8 @@ const SECONDARY: Record<string, string> = {
     "the signature-image zone, shown in the editor when the source is Upload: the page's drops replace the PDF being signed",
   "src/components/tools/runner/overlay-runner.tsx":
     "the overlay-PDF zone, shown in the editor until an overlay is chosen: the page's drops replace the base PDF",
+  "src/components/tools/runner/watermark-runner.tsx":
+    "the watermark-image zone, shown in the editor when the type is Image: the page's drops replace the PDF being watermarked",
 };
 
 function sources(dir: string): string[] {

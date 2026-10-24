@@ -180,6 +180,10 @@ export function copyFiles(): string[] {
     // the page and the download each say about one. Engine-adjacent, so
     // listed singly, like the modules above.
     path.join(ROOT, "src", "lib", "jobs", "ai-extract-null-meaning.ts"),
+    // Split PDF's by-size, merged-ranges and by-bookmarks engines
+    // (2026-10-24): their refusals are the sentences the split runner shows.
+    // A new module beside engine code, so walked, as the ratchet asks.
+    path.join(ROOT, "src", "lib", "pdf", "split-modes.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

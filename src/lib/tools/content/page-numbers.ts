@@ -4,9 +4,15 @@ import { toolFacts } from "@/lib/tools/tool-facts";
 import {
   DEFAULT_PAGE_NUMBER_FORMAT,
   numberedOutputName,
+  numberingPlan,
+  PAGE_NUMBER_MARGINS,
   previewPageNumber,
 } from "@/lib/pdf/page-numbers";
-import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
+import {
+  STAMP_FONT_FAMILIES,
+  STAMP_FONT_LABELS,
+  STAMP_POSITIONS,
+} from "@/lib/pdf/stamp";
 import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
 
 /**
@@ -65,6 +71,19 @@ import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
  *
  * relatedGuides is empty on purpose: no guide in `src/lib/guides/catalog.ts`
  * mentions page numbers, and the merge guide only shares a use case.
+ *
+ * 2026-10-24 (feat/stamp-options): the "fixed margin", the one ink and the
+ * one face above are SUPERSEDED, history kept. The runner adds Margin
+ * (PAGE_NUMBER_MARGINS, read below for the figures), and under "Pages, font
+ * and color": Leave the cover unnumbered (`skipCover`: counted, not
+ * stamped), Facing pages (left and right swapped on even pages of the file),
+ * Skip last pages (`skipLast`: not stamped and not counted, so {total} stays
+ * the last number printed), Font (Helvetica, Times, Courier) and Color. Each
+ * is read back from the saved file by `src/lib/pdf/stamp-options.test.ts`,
+ * and the skipped-tail example below is `numberingPlan`, the arithmetic the
+ * engine and the runner's preview share. With Courier picked, a label in
+ * another script may be set in the shipped monospace face rather than Noto,
+ * so the intro says "a matching typeface", not "Noto".
  */
 const positionCount = STAMP_POSITIONS.length;
 const ceilingMb = Math.round(
@@ -101,6 +120,21 @@ if (presets.length < 2) {
 }
 const presetList = `${presets.slice(0, -1).join(", ")} or ${presets[presets.length - 1]}`;
 
+const fontNames = listOf(
+  STAMP_FONT_FAMILIES.map((family) => STAMP_FONT_LABELS[family]),
+);
+const marginFigures = `${PAGE_NUMBER_MARGINS.small}, ${PAGE_NUMBER_MARGINS.medium} or ${PAGE_NUMBER_MARGINS.large} points`;
+
+/** The skipped-tail example: twelve pages, the last two left unnumbered. */
+const tailPages = 12;
+const tailSkipped = 2;
+const tailPlan = numberingPlan(tailPages, { skipLast: tailSkipped });
+const tailLastLabel = previewPageNumber(
+  DEFAULT_PAGE_NUMBER_FORMAT,
+  tailPlan.total,
+  tailPlan.total,
+);
+
 const sampleName = "report.pdf";
 const sampleOutput = numberedOutputName(sampleName);
 
@@ -128,9 +162,9 @@ const content: ToolContent = {
   metaDescription: `Number PDF pages as ${presets[0]}, ${presets[1]} or your own template, skip a cover page, and pick one of ${positionCount} spots. Numbering happens on your device.`,
 
   intro: [
-    `Add Page Numbers stamps a number onto every page of one PDF, or onto every page from a chosen page onward. The format starts as "${DEFAULT_PAGE_NUMBER_FORMAT}", and a row of presets switches it with one click. You can also type your own template, where {n} becomes the page's number and {total} the last number printed, so "Exhibit A – {n}" works as well as a bare figure. A Preview pill beside the Format heading shows the label the first numbered page will carry.`,
-    `All of the numbering happens inside the open tab: your PDF is loaded from your device into memory, stamped with pdf-lib, and saved back to you, with no upload to pdf.xyz at any point. A file over ${ceilingMb} MB is refused as soon as you pick it, before any numbering starts. Plain Western labels use a built-in font; a label in another script the tool can draw pulls a matching Noto typeface down from the pdf.xyz site, and only the font travels, never your document.`,
-    "Page content, bookmarks, links and filled-in form fields come through; each number is drawn into the page as text in a dark slate ink, at a fixed margin from the edge. Document properties keep their title and author, but the producer and creator fields now read pdf.xyz. Because the pages gain new content and the whole file is written out again, a digital signature already in it will no longer validate. On a page with a rotation flag, the number still lands at the edge you see and reads horizontally. A password-protected PDF is refused when you pick it and has to be unlocked first.",
+    `Add Page Numbers stamps a number onto every page of one PDF, or onto every page from a chosen page onward, and can leave a cover or the last pages without one. The format starts as "${DEFAULT_PAGE_NUMBER_FORMAT}", and a row of presets switches it with one click. You can also type your own template, where {n} becomes the page's number and {total} the last number printed, so "Exhibit A – {n}" works as well as a bare figure. A Preview pill beside the Format heading shows the label the first numbered page will carry. For a document printed as a book, Facing pages swaps left and right on even pages so the number stays on the outer edge.`,
+    `All of the numbering happens inside the open tab: your PDF is loaded from your device into memory, stamped with pdf-lib, and saved back to you, with no upload to pdf.xyz at any point. A file over ${ceilingMb} MB is refused as soon as you pick it, before any numbering starts. Plain Western labels use the font you pick, ${fontNames}, all built into the PDF format; a label in another script the tool can draw pulls a matching typeface down from the pdf.xyz site, and only the font travels, never your document.`,
+    "Page content, bookmarks, links and filled-in form fields come through; each number is drawn into the page as text, in a dark slate ink unless you pick another Color, at a Small, Medium or Large margin from the edge. Document properties keep their title and author, but the producer and creator fields now read pdf.xyz. Because the pages gain new content and the whole file is written out again, a digital signature already in it will no longer validate. On a page with a rotation flag, the number still lands at the edge you see and reads horizontally. A password-protected PDF is refused when you pick it and has to be unlocked first.",
   ],
 
   useCases: [
@@ -159,7 +193,7 @@ const content: ToolContent = {
     },
     {
       title: "Set placement",
-      body: `The number sits at Bottom center unless you click another of the ${positionCount} cells in the position grid. Start on page skips leading pages, First number sets the opening value, and a slider sets Font size.`,
+      body: `The number sits at Bottom center unless you click another of the ${positionCount} cells in the position grid. Start on page skips leading pages, First number sets the opening value, a slider sets Font size, and Margin moves it Small, Medium or Large from the edge. Pages, font and color holds the rest: Leave the cover unnumbered, Facing pages, Skip last pages, a Font choice and a Color picker; left closed, the numbers come out as they always have.`,
     },
     {
       title: "Add page numbers",
@@ -186,7 +220,11 @@ const content: ToolContent = {
     },
     {
       q: "Will the numbers cover text already on the page?",
-      a: `They can. The label is drawn over the page's existing content with no background box, so a page that already has a footer or a scanned image reaching the margin may overlap. Pick another of the ${positionCount} positions or a smaller font size and number the original again, not the numbered copy, or pages will carry two numbers.`,
+      a: `They can. The label is drawn over the page's existing content with no background box, so a page that already has a footer or a scanned image reaching the margin may overlap. Pick another of the ${positionCount} positions, another Margin (Small, Medium and Large are ${marginFigures} from the edge) or a smaller font size and number the original again, not the numbered copy, or pages will carry two numbers.`,
+    },
+    {
+      q: "Can I skip the last pages, or number a document printed as a book?",
+      a: `Both are under Pages, font and color. Skip last pages leaves the end without numbers, and those pages are not counted, so {total} stays the last number printed: a ${tailPages}-page file with the last ${tailSkipped} skipped ends on "${tailLastLabel}". Facing pages mirrors the position left to right on every even-numbered page of the file, the left-hand page of a printed spread, so a number at Bottom right sits bottom left on pages 2, 4, 6 and stays on the outer edge; a centered number does not move.`,
     },
     {
       q: "Which languages can a page-number label use?",

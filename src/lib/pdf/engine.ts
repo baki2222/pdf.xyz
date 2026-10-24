@@ -139,7 +139,7 @@ async function load(bytes: Uint8Array): Promise<PDFDocument> {
 }
 
 /** Stamp our producer/creator so exported files identify their origin. */
-function stamp(doc: PDFDocument): void {
+export function stamp(doc: PDFDocument): void {
   doc.setProducer(PRODUCER);
   doc.setCreator(PRODUCER);
 }
@@ -178,19 +178,51 @@ export async function getPageRotations(bytes: Uint8Array): Promise<Rotation[]> {
     .map((page) => normalizeAngle(toDegrees(page.getRotation())));
 }
 
+/** What a merge does besides concatenating every page of every file. */
+export interface MergeOptions {
+  /**
+   * Per file, the 0-based pages to take; `undefined` (or a missing entry)
+   * takes every page. Pages always come out in the file's own order, once
+   * each: a selection picks pages, it does not reorder them.
+   */
+  pages?: readonly (readonly number[] | undefined)[];
+  /**
+   * Per file, the title of a bookmark written for it, opening its first page
+   * in the merged file with the file's own bookmarks beneath it. Omitted, no
+   * bookmark is invented and each file's own bookmarks follow one another.
+   */
+  fileBookmarks?: readonly string[];
+}
+
 /** Concatenate several PDFs into one, in the order given. */
-export async function mergePdfs(files: Uint8Array[]): Promise<Uint8Array> {
+export async function mergePdfs(
+  files: Uint8Array[],
+  options: MergeOptions = {},
+): Promise<Uint8Array> {
   const lib = await loadPdfLib();
   if (files.length === 0) {
     throw new PdfEngineError("Add at least one PDF to merge.");
   }
+  if (options.fileBookmarks && options.fileBookmarks.length !== files.length) {
+    throw new Error("one bookmark title per file");
+  }
   const sources = [];
-  for (const bytes of files) {
+  for (const [i, bytes] of files.entries()) {
     const doc = await load(bytes);
-    sources.push({ doc, indices: doc.getPageIndices() });
+    const chosen = options.pages?.[i];
+    const indices = chosen
+      ? sanitizeIndices([...chosen], doc.getPageCount())
+      : doc.getPageIndices();
+    if (indices.length === 0) {
+      throw new PdfEngineError(
+        `File ${i + 1} has no pages selected — choose at least one page or remove it.`,
+      );
+    }
+    sources.push({ doc, indices });
   }
   const { out } = await assemblePages(lib, sources, {
     documentState: "merge",
+    ...(options.fileBookmarks ? { fileBookmarks: options.fileBookmarks } : {}),
   });
   stamp(out);
   return out.save();
