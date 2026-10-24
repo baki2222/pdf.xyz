@@ -6,12 +6,15 @@ import {
   ArrowDown,
   ArrowUp,
   Download,
+  FileArchive,
   FileImage,
   GripVertical,
   X,
 } from "lucide-react";
 import {
   imagesToPdf,
+  imagesToPdfs,
+  perImageZipName,
   imagePdfOutputName,
   imagePickerAccept,
   isImageAllowedForKind,
@@ -19,11 +22,24 @@ import {
   unsupportedImageMessage,
   type ImagePdfKind,
 } from "@/lib/pdf/image-to-pdf";
+import {
+  DEFAULT_IMAGE_OUTPUT,
+  DEFAULT_IMAGE_PAGE_OPTIONS,
+  IMAGE_MARGINS,
+  IMAGE_ORIENTATIONS,
+  IMAGE_OUTPUTS,
+  IMAGE_PAGE_SIZES,
+  type ImageOutputId,
+  type ImagePageOptions,
+} from "@/lib/pdf/image-page-layout";
+import { inches } from "@/lib/pdf/page-geometry";
+import type { NamedBytes } from "@/lib/pdf/types";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { naturalOrder, orderNote } from "@/lib/intent/defaults";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import {
+  ChipButton,
   Dropzone,
   ErrorNote,
   ResultPanel,
@@ -41,6 +57,7 @@ import {
   HandoffProblem,
 } from "./handoff-notice";
 import { useToolHandoff } from "./use-tool-handoff";
+import { useZipDownload } from "./use-zip-download";
 
 /** One owner for the per-image cap: the size check and the copy both derive. */
 
@@ -59,6 +76,11 @@ interface Rejection {
   name: string;
   reason: string;
 }
+
+/** What a run made: one PDF, or one PDF per image for the ZIP. */
+type ImagePdfResult =
+  | { kind: "single"; bytes: Uint8Array }
+  | { kind: "per-image"; files: NamedBytes[] };
 
 export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   const slug = kind === "jpg" ? "jpg-to-pdf" : "png-to-pdf";
@@ -187,7 +209,20 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     }
   }, [handoff.status, handoff.files, addFiles]);
 
-  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
+  const { busy, error, result, run, reset } = useAsyncRun<ImagePdfResult>();
+  // Page setup. The defaults are the layout every image PDF had before these
+  // options existed (US Letter, portrait, 36pt margin, one PDF).
+  const [page, setPage] = useState<ImagePageOptions>({
+    ...DEFAULT_IMAGE_PAGE_OPTIONS,
+  });
+  const [outputMode, setOutputMode] =
+    useState<ImageOutputId>(DEFAULT_IMAGE_OUTPUT);
+  const { zipping, zipError, downloadZip } = useZipDownload();
+  const fitToImage = page.pageSize === "fit";
+  const setPageOption = (next: Partial<ImagePageOptions>) => {
+    if (busy) return;
+    setPage((prev) => ({ ...prev, ...next }));
+  };
   const move = (from: number, to: number) => {
     setItems((prev) => reorder(prev, from, to));
     setOrdered(null);
@@ -220,22 +255,65 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
     reset();
   };
   const onRun = () =>
-    run(() =>
-      imagesToPdf(
-        kind,
-        items.map(({ name, type, bytes }) => ({ name, type, bytes })),
-      ),
-    );
+    run(async (): Promise<ImagePdfResult> => {
+      const inputs = items.map(({ name, type, bytes }) => ({
+        name,
+        type,
+        bytes,
+      }));
+      // One image is one PDF either way: a ZIP is built only for more than
+      // one output, as on every in-browser tool (in-browser-claims.test.ts).
+      return outputMode === "per-image" && inputs.length > 1
+        ? { kind: "per-image", files: await imagesToPdfs(kind, inputs, page) }
+        : { kind: "single", bytes: await imagesToPdf(kind, inputs, page) };
+    });
 
   if (handoff.status === "loading") return <HandoffLoading />;
 
+  if (result?.kind === "per-image") {
+    const zipName = perImageZipName(kind, items[0]?.name);
+    const total = result.files.reduce((sum, f) => sum + f.bytes.byteLength, 0);
+    return (
+      <ResultPanel
+        title={`${result.files.length} ${label} PDF${result.files.length === 1 ? "" : "s"} created`}
+        summary={`One PDF per image · ${formatBytes(total)} · bundled as a ZIP`}
+        onReset={clearItems}
+        output={result.files.map((f) => outputFile(f.bytes, f.name))}
+        onAdjust={reset}
+      >
+        <div className="flex w-full flex-col gap-3">
+          {zipError && <ErrorNote message={zipError} />}
+          <button
+            type="button"
+            onClick={() => {
+              if (zipping) return;
+              void downloadZip(result.files, zipName, {
+                compression: "STORE",
+                fallback: "If it keeps failing, choose One PDF instead.",
+              });
+            }}
+            aria-disabled={zipping || undefined}
+            aria-busy={zipping}
+            className={buttonVariants({ variant: "primary", size: "lg" })}
+          >
+            <FileArchive className="size-4" aria-hidden />
+            {zipping
+              ? "Preparing ZIP…"
+              : `Download ZIP (${result.files.length} PDFs)`}
+          </button>
+        </div>
+      </ResultPanel>
+    );
+  }
+
   if (result) {
+    const bytes = result.bytes;
     return (
       <ResultPanel
         title={`${label} PDF created`}
-        summary={`${items.length} image${items.length === 1 ? "" : "s"} · ${formatBytes(result.byteLength)}`}
+        summary={`${items.length} image${items.length === 1 ? "" : "s"} · ${formatBytes(bytes.byteLength)}`}
         onReset={clearItems}
-        output={outputFile(result, imagePdfOutputName(kind, items[0]?.name))}
+        output={outputFile(bytes, imagePdfOutputName(kind, items[0]?.name))}
         onAdjust={reset}
         // One page per image.
         expectedPages={items.length}
@@ -243,7 +321,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         <button
           type="button"
           onClick={() =>
-            downloadBytes(result, imagePdfOutputName(kind, items[0]?.name))
+            downloadBytes(bytes, imagePdfOutputName(kind, items[0]?.name))
           }
           className={buttonVariants({ variant: "primary", size: "lg" })}
         >
@@ -340,6 +418,89 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
             ))}
           </div>
         </RunnerSection>
+      )}
+
+      {items.length > 0 && (
+        <div className="grid gap-5 sm:grid-cols-2">
+          <RunnerSection title="Page size">
+            <div className="flex flex-wrap gap-2">
+              {IMAGE_PAGE_SIZES.map((size) => (
+                <ChipButton
+                  key={size.id}
+                  onClick={() => setPageOption({ pageSize: size.id })}
+                  disabled={busy}
+                  active={size.id === page.pageSize}
+                  title={
+                    size.size
+                      ? `${inches(size.size.width)} × ${inches(size.size.height)} in`
+                      : "Each page takes its image's own size"
+                  }
+                >
+                  {size.label}
+                </ChipButton>
+              ))}
+            </div>
+          </RunnerSection>
+          <RunnerSection title="Orientation">
+            <div className="flex flex-wrap gap-2">
+              {IMAGE_ORIENTATIONS.map((o) => (
+                <ChipButton
+                  key={o.id}
+                  onClick={() => setPageOption({ orientation: o.id })}
+                  disabled={busy || fitToImage}
+                  active={!fitToImage && o.id === page.orientation}
+                  title={
+                    o.id === "auto"
+                      ? "Landscape for a wide image, portrait otherwise"
+                      : undefined
+                  }
+                >
+                  {o.label}
+                </ChipButton>
+              ))}
+            </div>
+            {fitToImage && (
+              <p className="text-muted text-xs">
+                Fit to image gives each page its image&apos;s own shape.
+              </p>
+            )}
+          </RunnerSection>
+          <RunnerSection title="Margin">
+            <div className="flex flex-wrap gap-2">
+              {IMAGE_MARGINS.map((m) => (
+                <ChipButton
+                  key={m.id}
+                  onClick={() => setPageOption({ margin: m.id })}
+                  disabled={busy}
+                  active={m.id === page.margin}
+                >
+                  {m.label}
+                  {m.points > 0 && (
+                    <span className="text-muted text-[10px]">
+                      {inches(m.points)} in
+                    </span>
+                  )}
+                </ChipButton>
+              ))}
+            </div>
+          </RunnerSection>
+          <RunnerSection title="Output">
+            <div className="flex flex-wrap gap-2">
+              {IMAGE_OUTPUTS.map((o) => (
+                <ChipButton
+                  key={o.id}
+                  onClick={() => {
+                    if (!busy) setOutputMode(o.id);
+                  }}
+                  disabled={busy}
+                  active={o.id === outputMode}
+                >
+                  {o.label}
+                </ChipButton>
+              ))}
+            </div>
+          </RunnerSection>
+        </div>
       )}
 
       {loading > 0 && (

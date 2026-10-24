@@ -317,12 +317,14 @@ export const tools: Tool[] = [
     name: "JPG to PDF",
     tagline: "Images into a single tidy PDF.",
     description:
-      // Was "with control over orientation, margins, and page size" — the
-      // engine has none of the three. The layout is FIXED (pdf/image-to-pdf.ts
-      // via pdf/page-geometry.ts): one US Letter portrait page per image and a
-      // 36pt margin. claims-vs-capability.test.ts decodes the output PDF and
-      // checks every paper size and margin this copy names.
-      `Combine JPG images into one PDF — each centered on its own ${US_LETTER_LABEL} portrait page with a half-inch margin. Files stay on your device.`,
+      // HISTORY: shipped as "with control over orientation, margins, and page
+      // size" over an engine with none of the three; then, from 67e8d0f, the
+      // fixed layout ("each centered on its own US Letter portrait page with a
+      // half-inch margin"). The controls arrived 2026-10-24
+      // (pdf/image-page-layout.ts), so the copy may name them again — and
+      // claims-vs-capability.test.ts runs the engine with every page size and
+      // margin this copy names, and fails one the runner does not offer.
+      "Combine JPG photos into one PDF, or one PDF each — pick the page size (A4, US Letter, fit to image and more), orientation and margin. Files stay on your device.",
     category: "convert-to",
     icon: "jpg",
     processing: "client",
@@ -330,7 +332,8 @@ export const tools: Tool[] = [
     // Both image runners take PNG and JPEG alike, and the page's "In:" row
     // reads this list (image-to-pdf-accept.test.ts holds it to the gate).
     accept: ["JPG", "JPEG", "PNG"],
-    outputs: ["PDF"],
+    // ZIP: "One PDF per image" delivers the PDFs as one archive.
+    outputs: ["PDF", "ZIP"],
     keywords: ["jpg to pdf", "jpeg to pdf", "image to pdf", "photos to pdf"],
     related: ["png-to-pdf", "pdf-to-jpg", "merge-pdf"],
     // Authored because the runner takes MANY images, and the default steps
@@ -339,27 +342,30 @@ export const tools: Tool[] = [
     how: [
       "Pick one or more JPG or PNG images — they stay on your device.",
       "Put them in page order with each image's “Move up” and “Move down” buttons.",
-      `Click “Create PDF” — each image is centered on its own ${US_LETTER_LABEL} portrait page, assembled in your browser.`,
-      "Click “Download PDF” to save it.",
+      `Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image is centred on its own ${US_LETTER_LABEL} portrait page in one PDF.`,
+      "Click “Create PDF” — the PDF is assembled in your browser.",
+      "Download the PDF — or, with One PDF per image and more than one image, the ZIP of PDFs.",
     ],
   },
   {
     slug: "png-to-pdf",
     name: "PNG to PDF",
     tagline: "Turn PNGs into a crisp PDF.",
-    description: `Convert PNG images — transparent ones included — into a single PDF, up to ${MAX_IMAGE_MB} MB per image, assembled right in your browser. Files stay on your device.`,
+    description: `Convert PNG images — transparent ones included — into one PDF or one PDF each, up to ${MAX_IMAGE_MB} MB per image, assembled in your browser. Files stay on your device.`,
     category: "convert-to",
     icon: "png",
     processing: "client",
     accept: ["PNG", "JPG", "JPEG"],
-    outputs: ["PDF"],
+    // ZIP: "One PDF per image" delivers the PDFs as one archive.
+    outputs: ["PDF", "ZIP"],
     keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],
     how: [
       "Pick one or more PNG or JPG images — they stay on your device.",
       "Put them in page order with each image's “Move up” and “Move down” buttons.",
-      "Click “Create PDF” — each image goes on its own page, assembled in your browser.",
-      "Click “Download PDF” to save it.",
+      "Set “Page size”, “Orientation”, “Margin” and “Output” if you want to — left alone, each image goes on its own page in one PDF.",
+      "Click “Create PDF” — the PDF is assembled in your browser.",
+      "Download the PDF — or, with One PDF per image and more than one image, the ZIP of PDFs.",
     ],
   },
   {
@@ -534,7 +540,7 @@ export const tools: Tool[] = [
     tagline: "Render pages as JPG images.",
     cardSummary: "Turn each page into a JPG image.",
     description:
-      "Export each PDF page as a high-resolution JPG image — rendered right in your browser.",
+      "Export every PDF page, or just the ones you pick, as a high-resolution JPG image in colour or grayscale — rendered right in your browser.",
     category: "convert-from",
     icon: "jpg",
     processing: "client",
@@ -546,7 +552,8 @@ export const tools: Tool[] = [
     how: [
       "Pick your PDF — it stays on your device.",
       `Choose a resolution: ${RESOLUTION_CHOICES}.`,
-      "Click “Render” — every page becomes a JPG image, in your browser.",
+      "Keep “All pages”, or choose “Select pages” and type a range such as 1-3, 5; pick colour or grayscale under “Colour”.",
+      "Click “Render” — each chosen page becomes a JPG image, in your browser.",
       `Download the result — several pages arrive together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
     ],
   },
@@ -570,7 +577,8 @@ export const tools: Tool[] = [
     how: [
       "Pick your PDF — it stays on your device.",
       `Choose a resolution: ${RESOLUTION_CHOICES}.`,
-      "Click “Render” — every page becomes a PNG image, in your browser.",
+      "Keep “All pages”, or choose “Select pages” and type a range such as 1-3, 5; pick colour or grayscale under “Colour”.",
+      "Click “Render” — each chosen page becomes a PNG image, in your browser.",
       `Download the result — several pages arrive together as one ZIP, and each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
     ],
   },

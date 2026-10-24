@@ -19,6 +19,10 @@ import { withoutComments } from "@/lib/tools/copy-surface";
 import { CompressBatchRunner } from "./compress-batch";
 import { ExtractionResult } from "./extract-images-runner";
 import { ImageResult } from "./pdf-to-image-runner";
+import { ImageToPdfRunner } from "./image-to-pdf-runner";
+import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import { perImageZipName } from "@/lib/pdf/image-to-pdf";
+import { JPEG_30X20 } from "@/tests/jpeg-fixtures";
 import { SplitEditor } from "./split-runner";
 import {
   ZIP_OUT_OF_MEMORY_MESSAGE,
@@ -165,6 +169,8 @@ const SCENARIOS: Record<string, () => Promise<Mounted>> = {
           resolutionId: "high",
           resolutionLabel: "High",
           dpi: 150,
+          grayscale: false,
+          documentPages: pages.length,
         }}
         onReset={() => {}}
         onStartOver={() => {}}
@@ -237,6 +243,49 @@ const SCENARIOS: Record<string, () => Promise<Mounted>> = {
           expect(name).toMatch(/^deck-.*\.pdf$/);
           expect(await pageCountOf(bytes)).toBe(2);
         }
+      },
+    };
+  },
+
+  "src/components/tools/runner/image-to-pdf-runner.tsx": async () => {
+    const router = {
+      back: () => {},
+      forward: () => {},
+      refresh: () => {},
+      push: () => {},
+      replace: () => {},
+      prefetch: () => {},
+      bfcacheId: "test",
+    };
+    const { container } = render(
+      <AppRouterContext.Provider value={router}>
+        <ImageToPdfRunner kind="jpg" />
+      </AppRouterContext.Provider>,
+    );
+    const photos = ["harbour.jpg", "hill.jpg"].map(
+      (name) =>
+        new File([new Uint8Array(JPEG_30X20)], name, { type: "image/jpeg" }),
+    );
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: photos },
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "One PDF per image (ZIP)" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /create pdf/i }));
+    await screen.findByRole(
+      "button",
+      { name: /download zip \(2 pdfs\)/i },
+      { timeout: 10_000 },
+    );
+    return {
+      button: () =>
+        screen.getByRole("button", { name: /download zip \(2 pdfs\)/i }),
+      filename: perImageZipName("jpg", "harbour.jpg"),
+      check: async (entries) => {
+        expect([...entries.keys()]).toEqual(["harbour.pdf", "hill.pdf"]);
+        for (const bytes of entries.values())
+          expect(await pageCountOf(bytes)).toBe(1);
       },
     };
   },

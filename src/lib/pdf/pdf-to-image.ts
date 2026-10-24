@@ -8,8 +8,41 @@
  */
 
 import { baseName, sanitizeSegment } from "./files";
+import { parsePageList } from "./ranges";
 
 export type RasterFormat = "png" | "jpg";
+
+/** Colour modes offered in the UI; the first is the default. */
+export const RASTER_COLORS = [
+  { id: "color", label: "Colour" },
+  { id: "gray", label: "Grayscale" },
+] as const;
+
+export type RasterColorId = (typeof RASTER_COLORS)[number]["id"];
+
+/** Pages render in colour unless the reader picks Grayscale. */
+export const DEFAULT_RASTER_COLOR: RasterColorId = "color";
+
+/** Which pages to render: every page (the default), or a typed range. */
+export interface RasterPageChoice {
+  mode: "all" | "range";
+  /** "1-3, 5" — read only while `mode` is "range". */
+  range: string;
+}
+
+/**
+ * The 0-based page indices to render, in reading order. A range goes through
+ * the same parser Split and Extract Pages use (`parsePageList`), so "1-3,5",
+ * "7-" and "-2" mean the same thing on every tool, and a range the PDF cannot
+ * satisfy throws its `PageRangeError` with the parser's own words.
+ */
+export function rasterPageSelection(
+  choice: RasterPageChoice,
+  pageCount: number,
+): number[] {
+  if (choice.mode === "range") return parsePageList(choice.range, pageCount);
+  return Array.from({ length: pageCount }, (_, i) => i);
+}
 
 /** Canvas / Blob MIME type for each output format. */
 export const RASTER_MIME: Record<RasterFormat, string> = {

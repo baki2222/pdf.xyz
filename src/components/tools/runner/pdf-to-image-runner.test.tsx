@@ -83,6 +83,8 @@ function mount(pages: RasterPage[], presetId: string) {
         resolutionId: preset.id,
         resolutionLabel: preset.label,
         dpi: preset.dpi,
+        grayscale: false,
+        documentPages: pages.length,
       }}
       onReset={() => {}}
       onStartOver={() => {}}
