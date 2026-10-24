@@ -12,18 +12,22 @@ import type { EditorPdf } from "@/lib/pdf/editor/page-render";
 export function PageCanvas({
   doc,
   index,
+  turn = 0,
   scale,
   near,
   onRendered,
 }: {
   doc: EditorPdf | null;
+  /** The SOURCE page to draw. */
   index: number;
+  /** Quarter turn added to its own /Rotate. */
+  turn?: number;
   scale: number;
   near: boolean;
   onRendered?: (index: number) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const drawnAt = useRef<number | null>(null);
+  const drawnAt = useRef<string | null>(null);
 
   useEffect(() => {
     const node = host.current;
@@ -38,32 +42,35 @@ export function PageCanvas({
       }
       return;
     }
-    if (drawnAt.current === scale) return;
+    const key = `${index}:${turn}:${scale}`;
+    if (drawnAt.current === key) return;
     const controller = new AbortController();
     const delay = drawnAt.current === null ? 0 : 140;
     const timer = window.setTimeout(() => {
       const ratio = window.devicePixelRatio || 1;
-      void doc.render(index, scale, ratio, controller.signal).then((canvas) => {
-        if (!canvas || controller.signal.aborted) return;
-        canvas.style.width = "100%";
-        canvas.style.height = "100%";
-        canvas.style.display = "block";
-        canvas.setAttribute("aria-hidden", "true");
-        const old = node.firstChild as HTMLCanvasElement | null;
-        node.replaceChildren(canvas);
-        if (old) {
-          old.width = 0;
-          old.height = 0;
-        }
-        drawnAt.current = scale;
-        onRendered?.(index);
-      });
+      void doc
+        .render(index, scale, ratio, controller.signal, turn)
+        .then((canvas) => {
+          if (!canvas || controller.signal.aborted) return;
+          canvas.style.width = "100%";
+          canvas.style.height = "100%";
+          canvas.style.display = "block";
+          canvas.setAttribute("aria-hidden", "true");
+          const old = node.firstChild as HTMLCanvasElement | null;
+          node.replaceChildren(canvas);
+          if (old) {
+            old.width = 0;
+            old.height = 0;
+          }
+          drawnAt.current = key;
+          onRendered?.(index);
+        });
     }, delay);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [doc, index, scale, near, onRendered]);
+  }, [doc, index, turn, scale, near, onRendered]);
 
   return <div ref={host} className="absolute inset-0" data-page-raster="" />;
 }

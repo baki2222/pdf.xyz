@@ -165,16 +165,20 @@ export interface SnapResult {
 }
 
 /**
- * Snap a moving rect's edges and centre to the page's edges and centre lines.
- * Returns the correction to add and the guides to show. `threshold` is in
- * points (callers pass a screen distance ÷ scale, so it feels the same at
- * every zoom).
+ * Snap a moving rect's edges and centre to the page's edges and centre lines
+ * and to every rect in `others` (the page's other objects: their edges and
+ * centres). Returns the correction to add and the guides to show.
+ * `threshold` is in points (callers pass a screen distance ÷ scale, so it
+ * feels the same at every zoom).
  */
 export function snapRect(
   rect: Rect,
   pageWidth: number,
   pageHeight: number,
   threshold: number,
+  others: readonly Rect[] = [],
+  /** Snap to the page's own edges and centre lines too. */
+  withPage = true,
 ): SnapResult {
   const pick = (
     edges: number[],
@@ -196,16 +200,46 @@ export function snapRect(
   };
   const sx = pick(
     [rect.x, rect.x + rect.width / 2, rect.x + rect.width],
-    [0, pageWidth / 2, pageWidth],
+    [
+      ...(withPage ? [0, pageWidth / 2, pageWidth] : []),
+      ...others.flatMap((o) => [o.x, o.x + o.width / 2, o.x + o.width]),
+    ],
   );
   const sy = pick(
     [rect.y, rect.y + rect.height / 2, rect.y + rect.height],
-    [0, pageHeight / 2, pageHeight],
+    [
+      ...(withPage ? [0, pageHeight / 2, pageHeight] : []),
+      ...others.flatMap((o) => [o.y, o.y + o.height / 2, o.y + o.height]),
+    ],
   );
   const guides: SnapGuide[] = [];
   if (sx) guides.push({ axis: "x", at: sx.at });
   if (sy) guides.push({ axis: "y", at: sy.at });
   return { dx: sx?.delta ?? 0, dy: sy?.delta ?? 0, guides };
+}
+
+/**
+ * Snap one point (a resize handle being dragged) to OTHER OBJECTS' edges and
+ * centres — as a zero-size rect through {@link snapRect}, so a handle lands
+ * on a line exactly as a moved box does. Not to the page's centre lines: a
+ * box being sized is not being centred.
+ */
+export function snapPoint(
+  p: { x: number; y: number },
+  pageWidth: number,
+  pageHeight: number,
+  threshold: number,
+  others: readonly Rect[] = [],
+): { x: number; y: number; guides: SnapGuide[] } {
+  const s = snapRect(
+    { x: p.x, y: p.y, width: 0, height: 0 },
+    pageWidth,
+    pageHeight,
+    threshold,
+    others,
+    false,
+  );
+  return { x: p.x + s.dx, y: p.y + s.dy, guides: s.guides };
 }
 
 /** Keep a rect's top-left inside the page (a moved object may not leave it). */

@@ -4,7 +4,11 @@ import { arrowHeadSegments } from "@/lib/pdf/annotate";
 import {
   NOTE_PADDING,
   arrowHeadSize,
+  markStrokeWidth,
+  markStrokes,
+  radioRows,
   type EditorObject,
+  type FieldObject,
   type NoteObject,
   type TextBoxObject,
   type TextEditObject,
@@ -144,7 +148,10 @@ export function ObjectShape({
     case "text":
       return hideWords ? null : <Words obj={obj} kit={kit} inset={0} />;
     case "note": {
-      const height = kit.height(obj) + NOTE_PADDING * 2;
+      const height = Math.max(
+        kit.height(obj) + NOTE_PADDING * 2,
+        obj.height ?? 0,
+      );
       return (
         <>
           <rect
@@ -268,6 +275,41 @@ export function ObjectShape({
           style={{ mixBlendMode: "multiply" }}
         />
       );
+    case "link":
+      return (
+        <rect
+          data-link-box={obj.target.type}
+          x={obj.x}
+          y={obj.y}
+          width={obj.width}
+          height={obj.height}
+          fill="#2563eb"
+          fillOpacity={0.08}
+          stroke="#2563eb"
+          strokeWidth={1.25}
+          strokeDasharray="4 2"
+          vectorEffect="non-scaling-stroke"
+        />
+      );
+    case "mark":
+      return (
+        <g
+          stroke={obj.color}
+          strokeWidth={markStrokeWidth(obj)}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        >
+          {markStrokes(obj).map((stroke, i) => (
+            <polyline
+              key={i}
+              points={stroke.map((p) => `${p.x},${p.y}`).join(" ")}
+            />
+          ))}
+        </g>
+      );
+    case "field":
+      return <FieldShape obj={obj} />;
     case "ink": {
       const pts =
         obj.points.length === 1 ? [obj.points[0]!, obj.points[0]!] : obj.points;
@@ -282,6 +324,145 @@ export function ObjectShape({
         />
       );
     }
+  }
+}
+
+const FIELD_FILL = "#dbeafe";
+const FIELD_LINE = "#3b82f6";
+
+/**
+ * A new form field as a reader's viewer shows an empty form: a tinted box,
+ * its starting value or its name, and the control's own mark — so what is
+ * on the page reads as "a field goes here", not as page content.
+ */
+function FieldShape({ obj }: { obj: FieldObject }) {
+  const font = CSS_FONT_STACK.helvetica;
+  const size = Math.max(4, Math.min(obj.height * 0.6, 12));
+  const box = (
+    <rect
+      x={obj.x}
+      y={obj.y}
+      width={obj.width}
+      height={obj.height}
+      fill={FIELD_FILL}
+      fillOpacity={0.55}
+      stroke={FIELD_LINE}
+      strokeWidth={1}
+      vectorEffect="non-scaling-stroke"
+      {...(obj.fieldType === "signature" ? { strokeDasharray: "4 3" } : {})}
+    />
+  );
+  const words = (text: string, muted: boolean, inset = 2) => (
+    <text
+      x={obj.x + inset}
+      y={obj.y + obj.height / 2 + size * 0.35}
+      fontFamily={font}
+      fontSize={size}
+      fontStyle={muted ? "italic" : "normal"}
+      fill={muted ? "#64748b" : "#111827"}
+      style={{ whiteSpace: "pre" }}
+    >
+      {text}
+    </text>
+  );
+  switch (obj.fieldType) {
+    case "text":
+      return (
+        <g data-field-kind="text">
+          {box}
+          {obj.value ? words(obj.value, false) : words(obj.name, true)}
+        </g>
+      );
+    case "checkbox":
+      return (
+        <g data-field-kind="checkbox">
+          {box}
+          {obj.checked && (
+            <polyline
+              points={markStrokes({ ...obj, glyph: "check" })[0]!
+                .map((p) => `${p.x},${p.y}`)
+                .join(" ")}
+              fill="none"
+              stroke="#111827"
+              strokeWidth={markStrokeWidth(obj)}
+              strokeLinecap="round"
+            />
+          )}
+        </g>
+      );
+    case "dropdown": {
+      const t = Math.min(obj.height * 0.25, 5);
+      const cx = obj.x + obj.width - t * 2;
+      const cy = obj.y + obj.height / 2;
+      return (
+        <g data-field-kind="dropdown">
+          {box}
+          {obj.value ? words(obj.value, false) : words(obj.name, true)}
+          <path
+            d={`M ${cx - t} ${cy - t / 2} L ${cx + t} ${cy - t / 2} L ${cx} ${cy + t / 2} Z`}
+            fill="#475569"
+          />
+        </g>
+      );
+    }
+    case "radio":
+      return (
+        <g data-field-kind="radio">
+          <rect
+            x={obj.x}
+            y={obj.y}
+            width={obj.width}
+            height={obj.height}
+            fill="none"
+            stroke={FIELD_LINE}
+            strokeOpacity={0.5}
+            strokeWidth={1}
+            strokeDasharray="2 2"
+            vectorEffect="non-scaling-stroke"
+          />
+          {radioRows(obj).map((row, i) => {
+            const r = row.box.width / 2;
+            return (
+              <g key={i}>
+                <circle
+                  cx={row.box.x + r}
+                  cy={row.box.y + r}
+                  r={r}
+                  fill={FIELD_FILL}
+                  stroke={FIELD_LINE}
+                  strokeWidth={1}
+                  vectorEffect="non-scaling-stroke"
+                />
+                {obj.value === obj.options[i] && (
+                  <circle
+                    cx={row.box.x + r}
+                    cy={row.box.y + r}
+                    r={r * 0.45}
+                    fill="#111827"
+                  />
+                )}
+                <text
+                  x={row.labelX}
+                  y={row.baseline}
+                  fontFamily={font}
+                  fontSize={row.size}
+                  fill="#111827"
+                  style={{ whiteSpace: "pre" }}
+                >
+                  {obj.options[i]}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      );
+    case "signature":
+      return (
+        <g data-field-kind="signature">
+          {box}
+          {words("Sign here", true, 4)}
+        </g>
+      );
   }
 }
 

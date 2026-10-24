@@ -49,8 +49,8 @@ function EditorFooter() {
         />
         <InfoTile
           icon={Lock}
-          title="Flattened on export"
-          body="What you add becomes part of the page, not a comment layer. Whiteout covers what is under it and the covered content stays in the file; Redact removes the text and picture pixels under its box."
+          title="Part of the page — links and fields stay live"
+          body="What you add becomes part of the page, not a comment layer; links and form fields are saved as real clickable links and fillable fields. Whiteout covers what is under it and the covered content stays in the file; Redact removes the text and picture pixels under its box."
         />
         <InfoTile
           icon={ShieldCheck}

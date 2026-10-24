@@ -1,25 +1,43 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Bold,
+  BringToFront,
+  Check as CheckIcon,
   Copy,
   Info,
   Italic,
+  SendToBack,
   TextAlignCenter,
   TextAlignEnd,
   TextAlignStart,
   Trash2,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  EDITOR_FIELD_LABEL,
   EDITOR_FONTS,
   EDITOR_FONT_LABEL,
   EDITOR_OBJECT_LABEL,
   type EditorObject,
+  type FieldObject,
+  type LinkObject,
+  type LinkTarget,
+  type MarkGlyph,
   type TextAlign,
   type TextEditObject,
 } from "@/lib/pdf/editor/model";
+import type { StackMove } from "@/lib/pdf/editor/history";
+import { parseLinkInput } from "@/lib/pdf/editor/links";
+import {
+  DATE_FORMATS,
+  formatDate,
+  type DateFormat,
+} from "@/lib/pdf/editor/quick-fields";
 import { ownFontCovers, substituteLabel } from "@/lib/pdf/editor/runs";
 import { needsUnicodeFace } from "@/lib/pdf/editor/text";
 import type { Defaults, Tool } from "./editor-state";
@@ -33,7 +51,13 @@ import type { Defaults, Tool } from "./editor-state";
 
 /** Which defaults bucket an object or tool reads. */
 export type StyleBucket =
-  keyof Defaults | "image" | "signature" | "whiteout" | "textedit";
+  | keyof Defaults
+  | "image"
+  | "signature"
+  | "whiteout"
+  | "textedit"
+  | "link"
+  | "field";
 
 export function bucketOf(obj: EditorObject): StyleBucket {
   switch (obj.kind) {
@@ -74,6 +98,13 @@ export function bucketOfTool(tool: Tool): StyleBucket | null {
       return "whiteout";
     case "redact":
       return "redact";
+    case "date":
+      return "date";
+    case "initials":
+    case "name":
+      return "person";
+    case "check":
+      return "mark";
     default:
       return null;
   }
@@ -93,6 +124,14 @@ export type StylePatch = Partial<{
   strokeWidth: number;
   opacity: number;
   arrow: boolean;
+  glyph: MarkGlyph;
+  format: DateFormat;
+  name: string;
+  target: LinkTarget;
+  options: string[];
+  value: string;
+  checked: boolean;
+  multiline: boolean;
 }>;
 
 /** A row: its name, then its control(s) — each control carries its own name. */
@@ -172,6 +211,8 @@ export function PropertiesPanel({
   onPatch,
   onDelete,
   onDuplicate,
+  onStack,
+  pageIds = [],
   className,
 }: {
   selection: EditorObject[];
@@ -181,6 +222,10 @@ export function PropertiesPanel({
   onPatch: (patch: StylePatch, key: string) => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  /** Z-order: move the selection within its page's stack. */
+  onStack?: (move: StackMove) => void;
+  /** The displayed pages' ids, in order — a link's "go to page" choices. */
+  pageIds?: readonly string[];
   className?: string;
 }) {
   const first = selection[0];
@@ -196,7 +241,8 @@ export function PropertiesPanel({
     ? selection.length > 1
       ? `${selection.length} items selected`
       : EDITOR_OBJECT_LABEL[first.kind]
-    : `New ${kind === "shape" ? "shape" : kind === "line" ? "line" : kind}`;
+    : (NEW_TITLE[kind] ??
+      `New ${kind === "shape" ? "shape" : kind === "line" ? "line" : kind}`);
   const unicode = selection.some(
     (o) => (o.kind === "text" || o.kind === "note") && needsUnicodeFace(o.text),
   );
@@ -460,8 +506,117 @@ export function PropertiesPanel({
         </>
       )}
 
+      {kind === "date" && (
+        <Field label="Format">
+          <select
+            aria-label="Date format"
+            value={shown.format}
+            onChange={(e) =>
+              set({ format: e.target.value as DateFormat }, "format")
+            }
+            className={input}
+          >
+            {DATE_FORMATS.map((f) => (
+              <option key={f} value={f}>
+                {formatDate(new Date(), f)}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      {kind === "person" && (
+        <Field label="Your name">
+          <input
+            type="text"
+            aria-label="Your name"
+            value={shown.name ?? ""}
+            placeholder="Type your name"
+            onChange={(e) => set({ name: e.target.value }, "name")}
+            className={cn(input, "w-36")}
+          />
+        </Field>
+      )}
+
+      {kind === "mark" && (
+        <>
+          <div className="flex items-center gap-1.5">
+            {(
+              [
+                ["check", "Check mark", CheckIcon],
+                ["cross", "Cross", X],
+              ] as const
+            ).map(([glyph, label, Icon]) => (
+              <Toggle
+                key={glyph}
+                label={label}
+                pressed={shown.glyph === glyph}
+                onClick={() => set({ glyph }, "glyph")}
+              >
+                <Icon className="size-3.5" aria-hidden />
+              </Toggle>
+            ))}
+          </div>
+          <Field label="Colour">
+            <input
+              type="color"
+              aria-label="Mark colour"
+              value={shown.color ?? "#111827"}
+              onChange={(e) => set({ color: e.target.value }, "color")}
+              className="h-8 w-10 cursor-pointer"
+            />
+          </Field>
+        </>
+      )}
+
+      {first?.kind === "link" && selection.length === 1 && (
+        <LinkFields
+          key={first.id}
+          obj={first}
+          pageIds={pageIds}
+          onTarget={(target) => set({ target }, "target")}
+        />
+      )}
+
+      {first?.kind === "field" && selection.length === 1 && (
+        <FieldFields key={first.id} obj={first} onPatch={set} />
+      )}
+
       {first?.kind === "textedit" && selection.length === 1 && (
         <TextEditInfo obj={first} />
+      )}
+
+      {onStack && selection.length > 0 && kind !== "textedit" && (
+        <div
+          role="group"
+          aria-label="Order"
+          className="flex items-center justify-between gap-2 text-xs"
+        >
+          <span className="text-muted" aria-hidden>
+            Order
+          </span>
+          <span className="flex gap-1">
+            {(
+              [
+                ["front", "Bring to front", BringToFront],
+                ["forward", "Bring forward", ArrowUp],
+                ["backward", "Send backward", ArrowDown],
+                ["back", "Send to back", SendToBack],
+              ] as const
+            ).map(([move, label, Icon]) => (
+              <button
+                key={move}
+                type="button"
+                aria-label={label}
+                title={label}
+                onClick={() => onStack(move)}
+                className="border-line text-muted hover:text-fg rounded-ctl inline-flex size-8 items-center justify-center border"
+              >
+                <Icon className="size-3.5" aria-hidden />
+              </button>
+            ))}
+          </span>
+        </div>
       )}
 
       {selection.length > 0 && (
@@ -487,6 +642,267 @@ export function PropertiesPanel({
         </div>
       )}
     </section>
+  );
+}
+
+const NEW_TITLE: Partial<Record<StyleBucket, string>> = {
+  date: "Date",
+  person: "Initials and name",
+  mark: "Check mark",
+};
+
+/** Where a link goes: a web address, email or phone number — or a page. */
+function LinkFields({
+  obj,
+  pageIds,
+  onTarget,
+}: {
+  obj: LinkObject;
+  pageIds: readonly string[];
+  onTarget: (target: LinkTarget) => void;
+}) {
+  const id = useId();
+  const [mode, setMode] = useState<"uri" | "page">(
+    obj.target.type === "page" ? "page" : "uri",
+  );
+  const [text, setText] = useState(
+    obj.target.type === "uri" ? obj.target.uri : "",
+  );
+  const [problem, setProblem] = useState<string | null>(null);
+  const field = useRef<HTMLInputElement>(null);
+  // A link just drawn has nowhere to go yet: the address is the next thing.
+  const fresh = obj.target.type === "uri" && !obj.target.uri;
+  useEffect(() => {
+    if (fresh) field.current?.focus({ preventScroll: true });
+    // Once, when this link's fields open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const commitText = () => {
+    if (!text.trim() && fresh) return;
+    const parsed = parseLinkInput(text);
+    if (!parsed.ok) {
+      setProblem(parsed.message);
+      return;
+    }
+    setProblem(null);
+    setText(parsed.uri);
+    onTarget({ type: "uri", uri: parsed.uri });
+  };
+  const pageIndex =
+    obj.target.type === "page" ? pageIds.indexOf(obj.target.pageId) : -1;
+  return (
+    <div className="flex flex-col gap-2 text-xs" data-link-fields="">
+      {obj.target.type === "other" && (
+        <p className="text-muted text-[11px] leading-snug">
+          Goes to {obj.target.label}. Choose a new target below to change it;
+          left as it is, the link is kept exactly as it was.
+        </p>
+      )}
+      <div role="radiogroup" aria-label="Link goes to" className="flex gap-1">
+        {(
+          [
+            ["uri", "Web, email or phone"],
+            ["page", "A page"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={mode === value}
+            onClick={() => setMode(value)}
+            className={cn(
+              "rounded-ctl border px-2 py-1.5",
+              mode === value
+                ? "border-accent/40 bg-accent/10 text-accent"
+                : "border-line text-muted hover:text-fg",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {mode === "uri" ? (
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`${id}-uri`} className="text-muted">
+            Address
+          </label>
+          <div className="flex gap-1">
+            <input
+              ref={field}
+              id={`${id}-uri`}
+              type="text"
+              onBlur={() => {
+                if (text.trim()) commitText();
+              }}
+              inputMode="url"
+              aria-label="Link address"
+              aria-invalid={problem ? true : undefined}
+              aria-describedby={problem ? `${id}-err` : undefined}
+              value={text}
+              placeholder="example.com, name@example.com or +1 555 0100"
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitText();
+                }
+              }}
+              className={cn(input, "min-w-0 flex-1")}
+            />
+            <button
+              type="button"
+              onClick={commitText}
+              className="border-line text-fg rounded-ctl border px-2.5 text-xs font-semibold"
+            >
+              Set
+            </button>
+          </div>
+          {problem && (
+            <p id={`${id}-err`} role="alert" className="text-err text-[11px]">
+              {problem}
+            </p>
+          )}
+        </div>
+      ) : (
+        <Field label="Go to page">
+          <select
+            aria-label="Go to page"
+            value={pageIndex >= 0 ? String(pageIndex) : ""}
+            onChange={(e) => {
+              const page = pageIds[Number(e.target.value)];
+              if (page) onTarget({ type: "page", pageId: page });
+            }}
+            className={input}
+          >
+            {pageIndex < 0 && (
+              <option value="">
+                {obj.target.type === "page" ? "Deleted page" : "Choose"}
+              </option>
+            )}
+            {pageIds.map((pid, i) => (
+              <option key={pid} value={String(i)}>
+                Page {i + 1}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {obj.target.type === "page" && pageIndex < 0 && (
+        <p role="alert" className="text-err text-[11px]">
+          This link goes to a page you deleted. Choose another page.
+        </p>
+      )}
+      <p className="text-muted text-[11px] leading-snug">
+        Saved as a real link: it opens in any PDF reader. Nothing is drawn on
+        the page.
+      </p>
+    </div>
+  );
+}
+
+/** A new form field's name, choices and starting value. */
+function FieldFields({
+  obj,
+  onPatch,
+}: {
+  obj: FieldObject;
+  onPatch: (patch: StylePatch, key: string) => void;
+}) {
+  const id = useId();
+  const [options, setOptions] = useState(obj.options.join("\n"));
+  const choices = obj.fieldType === "dropdown" || obj.fieldType === "radio";
+  return (
+    <div className="flex flex-col gap-2 text-xs" data-field-fields="">
+      <p className="text-fg font-medium">{EDITOR_FIELD_LABEL[obj.fieldType]}</p>
+      <Field label="Name">
+        <input
+          type="text"
+          aria-label="Field name"
+          value={obj.name}
+          onChange={(e) => onPatch({ name: e.target.value }, "name")}
+          className={cn(input, "w-36")}
+        />
+      </Field>
+      {choices && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`${id}-opts`} className="text-muted">
+            Options, one per line
+          </label>
+          <textarea
+            id={`${id}-opts`}
+            aria-label="Options"
+            rows={4}
+            value={options}
+            onChange={(e) => {
+              setOptions(e.target.value);
+              const list = e.target.value
+                .split("\n")
+                .map((o) => o.trim())
+                .filter(Boolean);
+              onPatch(
+                {
+                  options: list,
+                  ...(obj.value && !list.includes(obj.value)
+                    ? { value: "" }
+                    : {}),
+                },
+                "options",
+              );
+            }}
+            className="border-line bg-canvas text-fg rounded-ctl border px-2 py-1 text-xs"
+          />
+        </div>
+      )}
+      {obj.fieldType === "text" && (
+        <>
+          <Field label="Starting text">
+            <input
+              type="text"
+              aria-label="Starting text"
+              value={obj.value}
+              onChange={(e) => onPatch({ value: e.target.value }, "value")}
+              className={cn(input, "w-36")}
+            />
+          </Field>
+          <Check
+            label="Several lines"
+            checked={obj.multiline}
+            onChange={(on) => onPatch({ multiline: on }, "multiline")}
+          />
+        </>
+      )}
+      {choices && (
+        <Field label="Chosen">
+          <select
+            aria-label="Chosen option"
+            value={obj.value}
+            onChange={(e) => onPatch({ value: e.target.value }, "value")}
+            className={input}
+          >
+            <option value="">None</option>
+            {obj.options.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {obj.fieldType === "checkbox" && (
+        <Check
+          label="Starts ticked"
+          checked={obj.checked}
+          onChange={(on) => onPatch({ checked: on }, "checked")}
+        />
+      )}
+      <p className="text-muted text-[11px] leading-snug">
+        {obj.fieldType === "signature"
+          ? "An empty signature field: a reader that signs with a certificate fills it in."
+          : "A real form field: anyone can fill it in in a PDF reader."}{" "}
+        Names and options use the standard PDF alphabet (Latin letters).
+      </p>
+    </div>
   );
 }
 

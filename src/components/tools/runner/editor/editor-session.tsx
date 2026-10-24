@@ -17,7 +17,13 @@ import { RunBar } from "../run-bar";
 import { SinglePdfRunner } from "../single-pdf-runner";
 import { useUnsavedGuard } from "../use-unsaved-guard";
 import type { LoadedPdf } from "../use-single-pdf";
-import { editorReducer, initialEditorState, type Tool } from "./editor-state";
+import {
+  editorReducer,
+  hasEdits,
+  initialEditorState,
+  removedLinks,
+  type Tool,
+} from "./editor-state";
 
 /**
  * The one editor, as a runner: Edit PDF, Annotate PDF and Sign PDF each
@@ -85,28 +91,38 @@ function EditorSession({
 }) {
   const [state, dispatch] = useReducer(
     editorReducer,
-    config.initialTool,
+    {
+      tool: config.initialTool,
+      pageCount: pdf.pageCount,
+      locale: typeof navigator === "undefined" ? undefined : navigator.language,
+    },
     initialEditorState,
   );
   const { busy, error, result, run, reset, setError } =
     useAsyncRun<EditorExportResult>();
   const name = config.outputName(pdf.file.name);
-  // Placed but not yet applied, the objects are lost by leaving; applied,
+  const edited = hasEdits(state, pdf.pageCount);
+  // Placed but not yet applied, the edits are lost by leaving; applied,
   // they are in the result.
-  useUnsavedGuard(state.objects.length > 0 && !result, "your edits");
+  useUnsavedGuard(edited && !result, "your edits");
 
   const onApply = () => {
     // A box still being typed in counts: finish it, and export what that
     // finishing produces (the reducer is pure, so this IS the next state).
-    const objects = editorReducer(state, { type: "endEdit" }).objects;
+    const next = editorReducer(state, { type: "endEdit" });
+    const objects = next.objects;
     dispatch({ type: "endEdit" });
-    if (objects.length === 0) {
+    if (!hasEdits(next, pdf.pageCount)) {
       setError("Add something to a page first.");
       return;
     }
     void run(async () => {
       const { exportEditedPdf } = await import("@/lib/pdf/editor-export");
-      const out = await exportEditedPdf(pdf.bytes, objects);
+      const out = await exportEditedPdf(pdf.bytes, objects, undefined, {
+        pages: next.pages,
+        removedLinks: removedLinks(next),
+        fills: next.fills,
+      });
       // Downloaded INSIDE the run, before it settles. `downloadBlob` clicks
       // a hidden anchor, and the runner stage's hold (`../stage-hold`) gives
       // its band back at the first click after the run settles — measured
@@ -123,11 +139,22 @@ function EditorSession({
     return (
       <ResultPanel
         title={config.resultTitle}
-        summary={`${result.objectCount} item${result.objectCount === 1 ? "" : "s"} written into ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${formatBytes(result.bytes.byteLength)}`}
+        summary={[
+          `${result.objectCount} item${result.objectCount === 1 ? "" : "s"} written`,
+          ...(result.filled > 0
+            ? [
+                `${result.filled} form field${result.filled === 1 ? "" : "s"} filled`,
+              ]
+            : []),
+          `${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`,
+          formatBytes(result.bytes.byteLength),
+        ].join(" · ")}
         onReset={onReset}
         output={outputFile(result.bytes, name)}
         onAdjust={reset}
-        expectedPages={pdf.pageCount}
+        // The pages as arranged in the editor (inserted and deleted ones
+        // counted), not the file's original count.
+        expectedPages={state.pages.length}
       >
         <button
           type="button"
@@ -141,7 +168,7 @@ function EditorSession({
     );
   }
 
-  const empty = state.objects.length === 0 && !state.editing?.text.trim();
+  const empty = !edited && !state.editing?.text.trim();
   return (
     <Suspense fallback={null}>
       <WysiwygEditor

@@ -2,7 +2,18 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  CalendarDays,
+  CaseUpper,
+  ChevronDown,
   Circle,
+  CircleDot,
+  Files,
+  FormInput,
+  Link2,
+  PenLine,
+  SquareCheck,
+  SquareCheckBig,
+  UserRound,
   Eraser,
   Replace,
   Highlighter,
@@ -26,6 +37,7 @@ import {
 import { cn } from "@/lib/utils";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
 import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
+import type { EditorFieldType } from "@/lib/pdf/editor/model";
 import type { Tool } from "./editor-state";
 
 /**
@@ -68,6 +80,41 @@ const SPEC: Record<Tool, ToolButtonSpec> = {
   },
   ink: { tool: "ink", label: "Draw", key: "D", icon: Pencil },
   note: { tool: "note", label: "Note", key: "N", icon: StickyNote },
+  date: { tool: "date", label: "Date", key: "", icon: CalendarDays },
+  initials: { tool: "initials", label: "Initials", key: "", icon: CaseUpper },
+  name: { tool: "name", label: "Name", key: "", icon: UserRound },
+  check: { tool: "check", label: "Check", key: "", icon: SquareCheckBig },
+  link: { tool: "link", label: "Link", key: "K", icon: Link2 },
+  "field-text": {
+    tool: "field-text",
+    label: "Text field",
+    key: "",
+    icon: FormInput,
+  },
+  "field-checkbox": {
+    tool: "field-checkbox",
+    label: "Checkbox",
+    key: "",
+    icon: SquareCheck,
+  },
+  "field-dropdown": {
+    tool: "field-dropdown",
+    label: "Dropdown",
+    key: "",
+    icon: ChevronDown,
+  },
+  "field-radio": {
+    tool: "field-radio",
+    label: "Radio",
+    key: "",
+    icon: CircleDot,
+  },
+  "field-signature": {
+    tool: "field-signature",
+    label: "Signature field",
+    key: "",
+    icon: PenLine,
+  },
 };
 
 /** The Mark-up group is the offered-kinds list Annotate PDF's page counts. */
@@ -81,10 +128,42 @@ const MARKUP_TOOL: Record<(typeof MARKUP_KINDS)[number], Tool> = {
 
 export const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
   { name: "Select", tools: ["select"] },
-  { name: "Add", tools: ["text", "edittext", "image", "signature"] },
+  {
+    name: "Add",
+    tools: [
+      "text",
+      "edittext",
+      "image",
+      "signature",
+      "date",
+      "initials",
+      "name",
+      "check",
+    ],
+  },
+  { name: "Link", tools: ["link"] },
+  {
+    name: "Forms",
+    tools: [
+      "field-text",
+      "field-checkbox",
+      "field-dropdown",
+      "field-radio",
+      "field-signature",
+    ],
+  },
   { name: "Shapes", tools: ["rect", "ellipse", "line", "arrow"] },
   { name: "Mark up", tools: MARKUP_KINDS.map((k) => MARKUP_TOOL[k]) },
 ];
+
+/** The form-field tools, and the field type each places. */
+export const FIELD_TOOL: Partial<Record<Tool, EditorFieldType>> = {
+  "field-text": "text",
+  "field-checkbox": "checkbox",
+  "field-dropdown": "dropdown",
+  "field-radio": "radio",
+  "field-signature": "signature",
+};
 
 /** Every tool's button, in toolbar order. */
 export const TOOL_BUTTONS: ToolButtonSpec[] = TOOL_GROUPS.flatMap((g) =>
@@ -227,9 +306,14 @@ export function EditorToolbar({
   onFit,
   finding,
   onFind,
+  onPages,
+  pagesOpen = false,
 }: {
   finding: boolean;
   onFind: () => void;
+  /** Phones: open the Pages sheet (wider screens have the rail). */
+  onPages?: () => void;
+  pagesOpen?: boolean;
   tool: Tool;
   onTool: (tool: Tool) => void;
   canUndo: boolean;
@@ -261,7 +345,7 @@ export function EditorToolbar({
                   key={t}
                   label={b.label}
                   icon={b.icon}
-                  shortcut={b.key}
+                  shortcut={b.key || undefined}
                   pressed={tool === t}
                   onClick={() => onTool(t)}
                 />
@@ -270,6 +354,19 @@ export function EditorToolbar({
           </Group>
         </div>
       ))}
+      {onPages && (
+        <>
+          <Divider />
+          <Group name="Pages">
+            <ToolButton
+              label="Pages"
+              icon={Files}
+              pressed={pagesOpen}
+              onClick={onPages}
+            />
+          </Group>
+        </>
+      )}
       <Divider />
       <Group name="Find">
         <ToolButton

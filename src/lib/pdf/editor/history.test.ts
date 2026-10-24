@@ -11,8 +11,11 @@ import {
   type History,
 } from "./history";
 import {
+  ALL_HANDLES,
   DEFAULT_TEXT_STYLE,
+  handlesFor,
   moveObject,
+  objectBounds,
   resizeObject,
   type EditorObject,
   type ShapeObject,
@@ -202,6 +205,41 @@ describe("undo / redo over the object list", () => {
       s = update(s.objects, s.history, moveObject(s.objects[0]!, 1, 0));
     }
     expect(s.history.past).toHaveLength(HISTORY_LIMIT);
+  });
+
+  it("a text box resizes in height too, never below its words", () => {
+    const box: TextBoxObject = {
+      id: "t",
+      kind: "text",
+      page: 0,
+      x: 10,
+      y: 10,
+      width: 100,
+      text: "hi",
+      ...DEFAULT_TEXT_STYLE,
+    };
+    const words = () => 19.2;
+    // HISTORY: until Phase 3 a text box offered only "w" and "e".
+    expect(handlesFor(box)).toEqual(ALL_HANDLES);
+    const taller = resizeObject(box, objectBounds(box, words), {
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 60,
+    });
+    expect(objectBounds(taller, words)).toEqual({
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 60,
+    });
+    const squashed = resizeObject(box, objectBounds(box, words), {
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 5,
+    });
+    expect(objectBounds(squashed, words).height).toBe(19.2);
   });
 
   it("never mutates the lists it is given", () => {

@@ -29,7 +29,12 @@ export function SignRunner() {
           <span className="font-semibold">Place signature:</span> create your
           signature — draw it, type it or pick a picture of it — then click on
           the page where it goes. Drag it into place and resize it from a
-          corner.
+          corner. <span className="font-semibold">Date</span>,{" "}
+          <span className="font-semibold">Initials</span>,{" "}
+          <span className="font-semibold">Name</span> and{" "}
+          <span className="font-semibold">Check</span> in the Add group place
+          today&apos;s date, your initials, your name or a check mark the same
+          way.
         </>
       }
       resultTitle="PDF signed"

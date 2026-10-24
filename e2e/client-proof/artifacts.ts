@@ -447,6 +447,84 @@ export async function pdfTextPositions(
   }
 }
 
+/** An annotation as a reader's viewer receives it (pdfjs `getAnnotations`). */
+export interface PdfAnnotation {
+  subtype: string;
+  /** Viewer frame, points from the page's TOP-LEFT, y down. */
+  rect: { x: number; y: number; width: number; height: number };
+  url?: string;
+  /** 0-based page a go-to link lands on. */
+  destPage?: number;
+  fieldName?: string;
+  fieldType?: string;
+  fieldValue?: unknown;
+  checkBox?: boolean;
+  radioButton?: boolean;
+}
+
+/**
+ * Per page: the rotation pdfjs applies and every annotation — links and
+ * form widgets — with its box mapped through the page's own viewport.
+ */
+export async function pdfAnnotations(
+  buf: Buffer,
+): Promise<{ rotate: number; annots: PdfAnnotation[] }[]> {
+  expectMagic(buf, "pdf");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useWorkerFetch: false,
+    disableFontFace: true,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...pdfjsAssetOptions(),
+  });
+  try {
+    const doc = await task.promise;
+    const pages = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const m = page.getViewport({ scale: 1 }).transform as number[];
+      const to = (x: number, y: number) => [
+        m[0]! * x + m[2]! * y + m[4]!,
+        m[1]! * x + m[3]! * y + m[5]!,
+      ];
+      const annots: PdfAnnotation[] = [];
+      for (const a of (await page.getAnnotations()) as Record<
+        string,
+        unknown
+      >[]) {
+        const r = a.rect as number[];
+        const [x0, y0] = to(r[0]!, r[1]!);
+        const [x1, y1] = to(r[2]!, r[3]!);
+        let destPage: number | undefined;
+        if (Array.isArray(a.dest) && a.dest[0]) {
+          destPage = await doc.getPageIndex(a.dest[0]);
+        }
+        annots.push({
+          subtype: a.subtype as string,
+          rect: {
+            x: Math.min(x0!, x1!),
+            y: Math.min(y0!, y1!),
+            width: Math.abs(x1! - x0!),
+            height: Math.abs(y1! - y0!),
+          },
+          url: a.url as string | undefined,
+          destPage,
+          fieldName: a.fieldName as string | undefined,
+          fieldType: a.fieldType as string | undefined,
+          fieldValue: a.fieldValue,
+          checkBox: a.checkBox as boolean | undefined,
+          radioButton: a.radioButton as boolean | undefined,
+        });
+      }
+      pages.push({ rotate: page.rotate, annots });
+    }
+    return pages;
+  } finally {
+    await task.destroy();
+  }
+}
+
 /* ------------------------------------------------------------------ *
  *  ZIP
  * ------------------------------------------------------------------ */

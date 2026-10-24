@@ -28,6 +28,8 @@ export interface EditorPdf {
     scale: number,
     pixelRatio: number,
     signal?: AbortSignal,
+    /** A quarter turn ADDED to the page's own `/Rotate` (the editor's page list). */
+    turn?: number,
   ): Promise<HTMLCanvasElement | null>;
   /**
    * Page `index`'s text items as pdf.js reads them (what a viewer selects
@@ -64,6 +66,7 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
     scale,
     pixelRatio,
     signal,
+    turn = 0,
   ) => {
     if (destroyed || signal?.aborted) return null;
     let page;
@@ -76,11 +79,12 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
     const onAbort = () => running?.cancel();
     signal?.addEventListener("abort", onAbort, { once: true });
     try {
-      const css = page.getViewport({ scale, rotation: page.rotate });
+      const rotation = (page.rotate + turn) % 360;
+      const css = page.getViewport({ scale, rotation });
       const ratio = cappedPixelRatio(css.width, css.height, pixelRatio);
       const viewport = page.getViewport({
         scale: scale * ratio,
-        rotation: page.rotate,
+        rotation,
       });
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.floor(viewport.width));

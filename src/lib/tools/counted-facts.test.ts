@@ -44,6 +44,12 @@ const VALUE: Record<string, number> = {
   ten: 10,
   eleven: 11,
   twelve: 12,
+  // Since 2026-10-24 (editor Phase 3) Edit PDF counts fourteen kinds; a
+  // spelling missing here would leave that count unread by this guard.
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
 };
 const COUNT_WORD = new RegExp(`\\b(${Object.keys(VALUE).join("|")})\\b`, "gi");
 

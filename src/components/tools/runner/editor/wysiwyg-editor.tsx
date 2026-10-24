@@ -19,20 +19,44 @@ import {
   checkEditImage,
   sniffImageFormat,
 } from "@/lib/pdf/edit";
-import { readExportFrames } from "@/lib/pdf/editor-export";
+import { readEditorDocument } from "@/lib/pdf/editor-export";
+import type { FieldFill, FileField } from "@/lib/pdf/editor/fields";
 import {
   clampRectToPage,
   clampZoom,
+  contentToViewer,
   fitWidthZoom,
   scaleForZoom,
   screenToViewer,
+  snapPoint,
   snapRect,
   typicalPageWidth,
   type ExportFrame,
   type SnapGuide,
 } from "@/lib/pdf/editor/geometry";
-import { changeOf, type Change } from "@/lib/pdf/editor/history";
 import {
+  changeOf,
+  stackChanges,
+  type Change,
+  type StackMove,
+} from "@/lib/pdf/editor/history";
+import {
+  deletePage,
+  displayFrames,
+  insertBlankAfter,
+  movePage,
+  rotatePage,
+  type PageOp,
+} from "@/lib/pdf/editor/pages";
+import {
+  formatDate,
+  initialsOf,
+  markObject,
+  quickTextObject,
+} from "@/lib/pdf/editor/quick-fields";
+import { readSavedSignatures } from "@/lib/pdf/editor/saved-signatures";
+import {
+  linkUntouched,
   cloneObject,
   describeObject,
   dragHandle,
@@ -48,6 +72,7 @@ import {
   NOTE_PADDING,
   NUDGE_BIG_PT,
   NUDGE_PT,
+  type EditorFieldType,
   type EditorObject,
   type Handle,
   type LineObject,
@@ -97,8 +122,8 @@ import {
   type StylePatch,
 } from "./properties";
 import { SignaturePanel } from "./signature-panel";
-import { ThumbnailRail } from "./thumbnail-rail";
-import { EditorToolbar, TOOL_BUTTONS } from "./toolbar";
+import { ThumbnailRail, type PageOps, type RailPage } from "./thumbnail-rail";
+import { EditorToolbar, FIELD_TOOL, TOOL_BUTTONS } from "./toolbar";
 
 /**
  * The WYSIWYG editor: every page drawn by pdf.js, an object layer over each
@@ -162,6 +187,19 @@ type Drag = DragBase &
       }
   );
 
+/** What a press handler reads of a pointer event; a held touch is replayed from a copy. */
+type Press = {
+  button: number;
+  target: EventTarget | null;
+  clientX: number;
+  clientY: number;
+  shiftKey: boolean;
+  pointerType: string;
+  preventDefault: () => void;
+  /** A held touch, let go before it became a long press. */
+  replay?: boolean;
+};
+
 const PLACING: ReadonlySet<Tool> = new Set([
   "rect",
   "ellipse",
@@ -170,7 +208,55 @@ const PLACING: ReadonlySet<Tool> = new Set([
   "whiteout",
   "redact",
   "highlight",
+  "link",
+  "field-text",
+  "field-checkbox",
+  "field-dropdown",
+  "field-radio",
+  "field-signature",
 ]);
+
+/** One click places one of these where it lands (and the tool stays on). */
+const QUICK: ReadonlySet<Tool> = new Set(["date", "initials", "name", "check"]);
+
+/** A long press (touch) selects what is under the finger, in any tool. */
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP_PX = 8;
+
+const FIELD_NAME_PREFIX: Record<EditorFieldType, string> = {
+  text: "Text",
+  checkbox: "Checkbox",
+  dropdown: "Dropdown",
+  radio: "Radio",
+  signature: "Signature",
+};
+
+/** The first `Text1`, `Text2`, … not already taken. */
+function freshFieldName(type: EditorFieldType, taken: ReadonlySet<string>) {
+  let n = 1;
+  while (taken.has(`${FIELD_NAME_PREFIX[type]}${n}`)) n += 1;
+  return `${FIELD_NAME_PREFIX[type]}${n}`;
+}
+
+const DEFAULT_OPTIONS = ["Option 1", "Option 2", "Option 3"];
+
+const NO_RUNS: Record<number, TextRun[]> = {};
+
+/** Properties-panel keys that change a form field rather than a style. */
+const FIELD_KEYS: ReadonlySet<string> = new Set([
+  "name",
+  "options",
+  "value",
+  "checked",
+  "multiline",
+]);
+
+const STACK_LABEL: Record<StackMove, string> = {
+  front: "Bring to front",
+  forward: "Bring forward",
+  backward: "Send backward",
+  back: "Send to back",
+};
 
 const PASTE_OFFSET = 12;
 const SNAP_PX = 6;
@@ -259,8 +345,37 @@ function makeObject(
       return { id, kind: "redact", page, ...rect, fill: defaults.redact.fill };
     case "highlight":
       return { id, kind: "highlight", page, ...rect, ...defaults.highlight };
-    default:
-      return null;
+    case "link":
+      return {
+        id,
+        kind: "link",
+        page,
+        ...rect,
+        target: { type: "uri", uri: "" },
+      };
+    default: {
+      const fieldType = FIELD_TOOL[tool];
+      if (!fieldType) return null;
+      const square = fieldType === "checkbox";
+      const side = Math.max(rect.width, rect.height);
+      return {
+        id,
+        kind: "field",
+        page,
+        ...rect,
+        ...(square ? { width: side, height: side } : {}),
+        fieldType,
+        // Named when committed (`nameField`), against every field there is.
+        name: "",
+        options:
+          fieldType === "dropdown" || fieldType === "radio"
+            ? [...DEFAULT_OPTIONS]
+            : [],
+        value: "",
+        checked: false,
+        multiline: false,
+      };
+    }
   }
 }
 
@@ -273,6 +388,12 @@ const CLICK_SIZE: Partial<Record<Tool, { width: number; height: number }>> = {
   highlight: { width: 160, height: 18 },
   line: { width: 120, height: 0 },
   arrow: { width: 120, height: 0 },
+  link: { width: 140, height: 20 },
+  "field-text": { width: 160, height: 22 },
+  "field-checkbox": { width: 14, height: 14 },
+  "field-dropdown": { width: 140, height: 22 },
+  "field-radio": { width: 90, height: 54 },
+  "field-signature": { width: 180, height: 44 },
 };
 
 function applyPatch(obj: EditorObject, patch: StylePatch): EditorObject {
@@ -311,10 +432,18 @@ export function WysiwygEditor({
   // first renders after a file opens, on the client, so this is read before
   // its first paint and nothing moves between the two layouts.
   const narrow = useMedia(NARROW_QUERY);
+  // At `lg` and up the page rail sits beside the pages; below it, the Pages
+  // button opens the same list as a sheet.
+  const wide = useMedia(WIDE_QUERY);
   const sheetRef = useRef<HTMLElement>(null);
   const [pickError, setError] = useState<string | null>(null);
   const { announce, node: liveRegion } = useAnnouncer();
-  const [frames, setFrames] = useState<ExportFrame[] | null>(null);
+  // The file's own page frames; the DISPLAYED frames follow the page list.
+  const [sourceFrames, setSourceFrames] = useState<ExportFrame[] | null>(null);
+  const [fileFields, setFileFields] = useState<FileField[]>([]);
+  const [pagesOpen, setPagesOpen] = useState(false);
+  const [askName, setAskName] = useState("");
+  const askNameId = useId();
   const [doc, setDoc] = useState<EditorPdf | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
   const [zoom, setZoom] = useState<{ zoom: number; fit: boolean }>({
@@ -335,7 +464,14 @@ export function WysiwygEditor({
   );
   // Edit text and Find & replace: pdf.js's text runs per page, read on
   // demand, and the content-stream reading of how each run is drawn.
-  const [runs, setRuns] = useState<Record<number, TextRun[]>>({});
+  // Runs are per DISPLAYED page, so they are kept with the page list they
+  // were read under: a page operation renumbers and turns pages, and what
+  // was read for the old list is dropped, not shown on the wrong page.
+  const [runState, setRunState] = useState<{
+    for: EditorState["pages"];
+    byPage: Record<number, TextRun[]>;
+  }>(() => ({ for: state.pages, byPage: {} }));
+  const runs = runState.for === state.pages ? runState.byPage : NO_RUNS;
   const runsRef = useRef(runs);
   useLayoutEffect(() => {
     runsRef.current = runs;
@@ -349,6 +485,11 @@ export function WysiwygEditor({
   const viewport = useRef<HTMLDivElement>(null);
   const pageEls = useRef(new Map<number, HTMLDivElement>());
   const drag = useRef<Drag | null>(null);
+  const longPress = useRef<{
+    timer: number;
+    press: Press;
+    page: number;
+  } | null>(null);
   const clipboard = useRef<EditorObject[]>([]);
   const imageInput = useRef<HTMLInputElement>(null);
   const editorRoot = useRef<HTMLDivElement>(null);
@@ -382,12 +523,20 @@ export function WysiwygEditor({
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, [narrow, hasSelection, dispatch]);
 
-  // Page frames (pdf-lib — the export's own reading) and the pdf.js document.
+  // Page frames, links and form fields (pdf-lib — the export's own
+  // reading) and the pdf.js document.
   useEffect(() => {
     let alive = true;
     let opened: EditorPdf | null = null;
-    readExportFrames(pdf.bytes)
-      .then((f) => alive && setFrames(f))
+    readEditorDocument(pdf.bytes)
+      .then((read) => {
+        if (!alive) return;
+        setSourceFrames(read.frames);
+        setFileFields(read.fields);
+        // The file's links become objects once (the reducer ignores a
+        // second import after "adjust").
+        dispatch({ type: "import", links: read.links });
+      })
       .catch(
         () => alive && setOpenError("This PDF's pages could not be read."),
       );
@@ -404,7 +553,19 @@ export function WysiwygEditor({
       alive = false;
       void opened?.destroy();
     };
-  }, [pdf.bytes]);
+  }, [pdf.bytes, dispatch]);
+
+  const pages = state.pages;
+  const frames = useMemo(
+    () => (sourceFrames ? displayFrames(pages, sourceFrames) : null),
+    [pages, sourceFrames],
+  );
+  const pageIds = useMemo(() => pages.map((p) => p.id), [pages]);
+  /** The source page a displayed page draws, or null for a blank one. */
+  const sourceOf = useCallback(
+    (index: number) => pages[index]?.source ?? null,
+    [pages],
+  );
 
   const sizes = useMemo(
     () => frames?.map((f) => ({ width: f.width, height: f.height })) ?? [],
@@ -538,6 +699,10 @@ export function WysiwygEditor({
     },
     [layout],
   );
+  const jumpToRef = useRef(jumpTo);
+  useLayoutEffect(() => {
+    jumpToRef.current = jumpTo;
+  }, [jumpTo]);
 
   /* --------------------------- text on the page --------------------------- */
 
@@ -549,33 +714,52 @@ export function WysiwygEditor({
     return stylesPromise.current;
   }, [pdf.bytes]);
 
+  // Which page list the pages asked for so far were asked under.
+  const runsAskedFor = useRef(pages);
   const wantRuns = state.tool === "edittext" || finding;
   useEffect(() => {
     if (!wantRuns || !doc || !frames) return;
+    if (runsAskedFor.current !== pages) {
+      runsAskedFor.current = pages;
+      runsAsked.current.clear();
+    }
     void loadStyles().catch(() =>
       setRunNotice("This PDF's text could not be read for editing."),
     );
     const wanted = finding ? frames.map((_, i) => i) : [...near];
+    const list = pages;
+    const store = (i: number, placed: TextRun[]) =>
+      setRunState((s) => ({
+        for: list,
+        byPage: { ...(s.for === list ? s.byPage : {}), [i]: placed },
+      }));
     for (const i of wanted) {
       if (runsAsked.current.has(i) || !frames[i]) continue;
       runsAsked.current.add(i);
-      void doc.textContent(i).then((items) => {
-        setRuns((r) => ({ ...r, [i]: placeRuns(i, items, frames[i]!) }));
+      const source = list[i]?.source ?? null;
+      // A blank page has no text.
+      const items =
+        source === null ? Promise.resolve([]) : doc.textContent(source);
+      void items.then((read) => {
+        if (runsAskedFor.current !== list) return;
+        store(i, placeRuns(i, read, frames[i]!));
       });
     }
-  }, [wantRuns, finding, doc, frames, near, loadStyles]);
+  }, [wantRuns, finding, doc, frames, near, loadStyles, pages]);
 
   // Runs a person can edit: an invisible OCR layer is not offered.
   const editableRuns = useMemo(() => {
     const out: Record<number, TextRun[]> = {};
     for (const [page, list] of Object.entries(runs)) {
       const index = Number(page);
-      out[index] = styles
-        ? list.filter((run) => !styles.style(index, run).invisible)
-        : list;
+      const source = sourceOf(index);
+      out[index] =
+        styles && source !== null
+          ? list.filter((run) => !styles.style(source, run).invisible)
+          : list;
     }
     return out;
-  }, [runs, styles]);
+  }, [runs, styles, sourceOf]);
 
   /** Each edited run's edit, by run key. */
   const editOfRun = useMemo(() => {
@@ -673,7 +857,7 @@ export function WysiwygEditor({
             ),
           );
         } else {
-          const style = reader.style(page, run);
+          const style = reader.style(sourceOf(page) ?? -1, run);
           if (style.refusal) {
             refused += ms.length;
             continue;
@@ -695,7 +879,7 @@ export function WysiwygEditor({
         say: `${replaced} replaced`,
       });
     },
-    [dispatch, find.query, find.replacement, loadStyles],
+    [dispatch, find.query, find.replacement, loadStyles, sourceOf],
   );
 
   /* ------------------------------ objects ------------------------------ */
@@ -717,8 +901,24 @@ export function WysiwygEditor({
     [kit],
   );
 
+  /** Every form field name in use: the file's and the editor's. */
+  const takenNames = useCallback(
+    (): Set<string> =>
+      new Set([
+        ...fileFields.map((f) => f.name),
+        ...stateRef.current.objects.flatMap((o) =>
+          o.kind === "field" ? [o.name.trim()] : [],
+        ),
+      ]),
+    [fileFields],
+  );
+
   const commitAdd = useCallback(
-    (obj: EditorObject, say: string) => {
+    (added: EditorObject, say: string) => {
+      const obj =
+        added.kind === "field" && !added.name
+          ? { ...added, name: freshFieldName(added.fieldType, takenNames()) }
+          : added;
       dispatch({
         type: "commit",
         command: {
@@ -736,7 +936,7 @@ export function WysiwygEditor({
         say,
       });
     },
-    [dispatch],
+    [dispatch, takenNames],
   );
 
   const deleteSelected = useCallback(() => {
@@ -763,8 +963,15 @@ export function WysiwygEditor({
       const s = stateRef.current;
       const samePage = source.every((o) => o.page === source[0]!.page);
       const target = samePage ? current : null;
+      const taken = takenNames();
       const copies = source.map((o) => {
         let copy = cloneObject(o);
+        if (copy.kind === "field") {
+          // Two fields with one name are one field in a form: a copy gets its own.
+          const name = freshFieldName(copy.fieldType, taken);
+          taken.add(name);
+          copy = { ...copy, name };
+        }
         if (target !== null && target !== o.page)
           copy = { ...copy, page: target };
         copy = moveObject(copy, PASTE_OFFSET, PASTE_OFFSET);
@@ -792,7 +999,7 @@ export function WysiwygEditor({
         say: `${label}: ${copies.length} item${copies.length === 1 ? "" : "s"}`,
       });
     },
-    [dispatch, boundsOf, current, frames],
+    [dispatch, boundsOf, current, frames, takenNames],
   );
 
   const nudge = useCallback(
@@ -849,16 +1056,173 @@ export function WysiwygEditor({
       dispatch({
         type: "commit",
         command: {
-          label: "Change style",
+          label:
+            key === "target"
+              ? "Change link"
+              : FIELD_KEYS.has(key)
+                ? "Change field"
+                : "Change style",
           changes,
           coalesce: `style:${key}:${s.selected.join(",")}`,
         },
+        ...(key === "target" ? { say: "Link updated" } : {}),
       });
     },
     [dispatch],
   );
 
+  /** Z-order: one step, the selection moved within its page's stack. */
+  const stack = useCallback(
+    (move: StackMove) => {
+      const s = stateRef.current;
+      const changes = stackChanges(s.objects, s.selected, move);
+      const label = STACK_LABEL[move];
+      if (changes.length === 0) {
+        dispatch({ type: "say", message: `${label}: already there` });
+        return;
+      }
+      dispatch({ type: "commit", command: { label, changes }, say: label });
+    },
+    [dispatch],
+  );
+
+  /* ------------------------------ pages ------------------------------ */
+
+  const runPageOp = useCallback(
+    (op: PageOp | null, jump?: number) => {
+      if (!op) return;
+      const s = stateRef.current;
+      dispatch({
+        type: "commit",
+        command: {
+          label: op.label,
+          changes: op.changes,
+          pages: { before: s.pages, after: op.pages },
+        },
+        select: [],
+        say: op.label,
+      });
+      if (jump !== undefined) {
+        requestAnimationFrame(() => jumpToRef.current(jump));
+      }
+    },
+    [dispatch],
+  );
+
+  const pageOps = useMemo<PageOps>(
+    () => ({
+      onRotate: (i) => {
+        const s = stateRef.current;
+        if (!frames) return;
+        runPageOp(
+          rotatePage(s.pages, i, s.objects, frames, (o) =>
+            kit ? kit.height(o) : 20,
+          ),
+        );
+      },
+      onInsert: (i) => {
+        const s = stateRef.current;
+        if (!frames) return;
+        runPageOp(
+          insertBlankAfter(s.pages, i, s.objects, frames, `b${newObjectId()}`),
+          i + 1,
+        );
+      },
+      onDelete: (i) => {
+        const s = stateRef.current;
+        runPageOp(deletePage(s.pages, i, s.objects));
+      },
+      onMove: (from, to) => {
+        const s = stateRef.current;
+        runPageOp(movePage(s.pages, from, to, s.objects), to);
+      },
+    }),
+    [frames, runPageOp, kit],
+  );
+
   /* ------------------------------ tools ------------------------------ */
+
+  // A saved typed signature's name, read once (browser storage, opt-in).
+  const [savedName] = useState(() => {
+    const saved = readSavedSignatures().find((x) => x.kind === "typed");
+    return saved && saved.kind === "typed" ? saved.text.trim() : "";
+  });
+  /** The name Initials and Name write: typed here, or a typed signature's. */
+  const personName = useCallback(
+    (s: EditorState): string => {
+      if (s.defaults.person.name.trim()) return s.defaults.person.name.trim();
+      if (s.pending?.kind === "typed" && s.pending.text.trim()) {
+        return s.pending.text.trim();
+      }
+      return savedName;
+    },
+    [savedName],
+  );
+
+  /** Date, Initials, Name or a check mark, where the click landed. */
+  const placeQuick = useCallback(
+    (tool: Tool, page: number, at: Pt) => {
+      const s = stateRef.current;
+      const f = frames?.[page];
+      if (!f) return;
+      const size = { width: f.width, height: f.height };
+      const id = newObjectId();
+      if (tool === "check") {
+        commitAdd(
+          markObject(
+            id,
+            page,
+            at,
+            s.defaults.mark.glyph,
+            s.defaults.mark.color,
+            size,
+          ),
+          s.defaults.mark.glyph === "check"
+            ? "Check mark placed"
+            : "Cross placed",
+        );
+        return;
+      }
+      let text = "";
+      if (tool === "date")
+        text = formatDate(new Date(), s.defaults.date.format);
+      else {
+        const name = personName(s);
+        if (!name) {
+          setError(null);
+          dispatch({ type: "say", message: "Type your name first" });
+          document.getElementById(askNameId)?.focus();
+          return;
+        }
+        text = tool === "initials" ? initialsOf(name) : name;
+      }
+      const style = {
+        ...s.defaults.text,
+        size: Math.min(s.defaults.text.size, 14),
+      };
+      const measure = (t: string) => {
+        if (!kit) return t.length * style.size * 0.55;
+        const probe: TextBoxObject = {
+          id: "probe",
+          kind: "text",
+          page,
+          x: 0,
+          y: 0,
+          width: 1e6,
+          text: t,
+          ...style,
+        };
+        return Math.max(...kit.layout(probe).lines.map((l) => l.width));
+      };
+      const label =
+        tool === "date" ? "Date" : tool === "initials" ? "Initials" : "Name";
+      commitAdd(
+        quickTextObject(id, page, at, text, style, measure, size),
+        `${label} placed`,
+      );
+    },
+    [commitAdd, dispatch, frames, kit, personName, askNameId],
+  );
 
   const chooseTool = useCallback(
     (tool: Tool) => {
@@ -1045,7 +1409,7 @@ export function WysiwygEditor({
         setRunNotice("This PDF's text could not be read for editing.");
         return;
       }
-      const style = reader.style(run.page, run);
+      const style = reader.style(sourceOf(run.page) ?? -1, run);
       if (style.refusal) {
         setRunNotice(style.refusal);
         dispatch({ type: "say", message: style.refusal });
@@ -1063,7 +1427,7 @@ export function WysiwygEditor({
         },
       });
     },
-    [dispatch, editExisting, loadStyles],
+    [dispatch, editExisting, loadStyles, sourceOf],
   );
 
   /* ------------------------------ pointer ------------------------------ */
@@ -1077,7 +1441,7 @@ export function WysiwygEditor({
   );
 
   const onPagePointerDown = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>, page: number) => {
+    (e: Press, page: number) => {
       if (e.button !== 0) return;
       const el = pageEls.current.get(page);
       if (!el || !frames) return;
@@ -1095,6 +1459,42 @@ export function WysiwygEditor({
         if (!(target as HTMLElement).closest("[data-text-editor]")) {
           dispatch({ type: "endEdit" });
         } else return;
+      }
+
+      // Touch, with a placing tool, on something already placed: a long
+      // press selects it; a tap (or a drag) does what the tool does.
+      if (
+        e.pointerType === "touch" &&
+        !e.replay &&
+        s.tool !== "select" &&
+        s.tool !== "edittext" &&
+        hit &&
+        hit.kind !== "textedit" &&
+        !handleEl
+      ) {
+        e.preventDefault();
+        const snapshot: Press = {
+          button: e.button,
+          target: e.target,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          shiftKey: e.shiftKey,
+          pointerType: e.pointerType,
+          preventDefault: () => {},
+          replay: true,
+        };
+        const timer = window.setTimeout(() => {
+          longPress.current = null;
+          dispatch({ type: "tool", tool: "select" });
+          dispatch({ type: "select", ids: [hit.id] });
+          dispatch({
+            type: "say",
+            message: `Selected: ${describeObject(hit)}`,
+          });
+          navigator.vibrate?.(10);
+        }, LONG_PRESS_MS);
+        longPress.current = { timer, press: snapshot, page };
+        return;
       }
 
       if (s.tool === "edittext") {
@@ -1193,6 +1593,16 @@ export function WysiwygEditor({
 
       // A placing tool.
       e.preventDefault();
+      if (QUICK.has(s.tool)) {
+        if (hit && hit.kind !== "textedit" && !e.replay) {
+          // A click on something placed picks it up instead.
+          dispatch({ type: "tool", tool: "select" });
+          dispatch({ type: "select", ids: [hit.id] });
+          return;
+        }
+        placeQuick(s.tool, page, pt);
+        return;
+      }
       if (s.tool === "text" || s.tool === "note") {
         if (hit && (hit.kind === "text" || hit.kind === "note"))
           editExisting(hit);
@@ -1234,6 +1644,7 @@ export function WysiwygEditor({
       editExisting,
       frames,
       placePending,
+      placeQuick,
       pointIn,
       startRetext,
       startText,
@@ -1241,7 +1652,23 @@ export function WysiwygEditor({
   );
 
   useEffect(() => {
+    /** A held touch that was not a long press after all: do what the tool does. */
+    const replayPress = () => {
+      const lp = longPress.current;
+      if (!lp) return;
+      window.clearTimeout(lp.timer);
+      longPress.current = null;
+      onPagePointerDown(lp.press, lp.page);
+    };
     const onMove = (e: PointerEvent) => {
+      const lp = longPress.current;
+      if (
+        lp &&
+        Math.hypot(e.clientX - lp.press.clientX, e.clientY - lp.press.clientY) >
+          LONG_PRESS_SLOP_PX
+      ) {
+        replayPress();
+      }
       const d = drag.current;
       if (!d || !frames) return;
       const f = frames[d.page]!;
@@ -1262,9 +1689,13 @@ export function WysiwygEditor({
           d.moved = true;
           const box = unionRect(d.originals.map((o) => boundsOf(o)));
           const moved = { ...box, x: box.x + dx, y: box.y + dy };
+          const moving = new Set(d.originals.map((o) => o.id));
+          const others = stateRef.current.objects
+            .filter((o) => o.page === d.page && !moving.has(o.id))
+            .map((o) => boundsOf(o));
           const snap = e.altKey
             ? { dx: 0, dy: 0, guides: [] }
-            : snapRect(moved, f.width, f.height, SNAP_PX / scale);
+            : snapRect(moved, f.width, f.height, SNAP_PX / scale, others);
           dx += snap.dx;
           dy += snap.dy;
           const fix = clampRectToPage(
@@ -1285,7 +1716,18 @@ export function WysiwygEditor({
           return;
         }
         case "resize": {
-          const p = clampPt({ x: pt.x - d.grab.x, y: pt.y - d.grab.y });
+          const raw = clampPt({ x: pt.x - d.grab.x, y: pt.y - d.grab.y });
+          const others = stateRef.current.objects
+            .filter((o) => o.page === d.page && o.id !== d.obj.id)
+            .map((o) => boundsOf(o));
+          const sx = d.handle.includes("w") || d.handle.includes("e");
+          const sy = d.handle.includes("n") || d.handle.includes("s");
+          const sn = e.altKey
+            ? { ...raw, guides: [] as SnapGuide[] }
+            : snapPoint(raw, f.width, f.height, SNAP_PX / scale, others);
+          const p = { x: sx ? sn.x : raw.x, y: sy ? sn.y : raw.y };
+          const lines = sn.guides.filter((g) => (g.axis === "x" ? sx : sy));
+          setGuides(lines.length ? { page: d.page, lines } : null);
           const keep =
             d.obj.kind === "image" || d.obj.kind === "signature"
               ? !e.shiftKey
@@ -1338,6 +1780,7 @@ export function WysiwygEditor({
     };
 
     const onUp = () => {
+      replayPress();
       const d = drag.current;
       drag.current = null;
       if (!d || !frames) return;
@@ -1461,7 +1904,15 @@ export function WysiwygEditor({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [dispatch, boundsOf, commitAdd, frames, pointIn, scale]);
+  }, [
+    dispatch,
+    boundsOf,
+    commitAdd,
+    frames,
+    pointIn,
+    scale,
+    onPagePointerDown,
+  ]);
 
   /* ------------------------------ keyboard ------------------------------ */
 
@@ -1603,6 +2054,8 @@ export function WysiwygEditor({
       onPatch={patchSelection}
       onDelete={deleteSelected}
       onDuplicate={() => pasteObjects(selection, "Duplicate")}
+      onStack={stack}
+      pageIds={pageIds}
     />
   ) : state.tool === "edittext" ? (
     <p className="text-muted text-xs leading-relaxed" data-edit-text-help="">
@@ -1616,6 +2069,45 @@ export function WysiwygEditor({
       resize it from its handles, or change its style here.
     </p>
   );
+
+  const railPages: RailPage[] = pages.map((p, i) => ({
+    key: p.id,
+    source: p.source,
+    turn: p.rotate,
+    width: sizes[i]?.width ?? 612,
+    height: sizes[i]?.height ?? 792,
+  }));
+  const placed = state.objects.filter(
+    (o) => !(o.kind === "link" && linkUntouched(o)),
+  ).length;
+  /** The file's own form widgets on a displayed page, in viewer points. */
+  const widgetsOn = (index: number): PlacedWidget[] => {
+    const source = pages[index]?.source;
+    const f = frames?.[index];
+    if (source === null || source === undefined || !f) return [];
+    return fileFields.flatMap((field) =>
+      field.widgets.flatMap((w, k) => {
+        if (w.source !== source) return [];
+        const a = contentToViewer(w.rect.x0, w.rect.y0, f);
+        const b = contentToViewer(w.rect.x1, w.rect.y1, f);
+        return [
+          {
+            key: `${field.name}#${k}`,
+            field,
+            option: w.option,
+            rect: {
+              x: Math.min(a.x, b.x),
+              y: Math.min(a.y, b.y),
+              width: Math.abs(b.x - a.x),
+              height: Math.abs(b.y - a.y),
+            },
+          },
+        ];
+      }),
+    );
+  };
+  const needsName =
+    (state.tool === "initials" || state.tool === "name") && !personName(state);
 
   const toolbar = (
     <EditorToolbar
@@ -1631,8 +2123,49 @@ export function WysiwygEditor({
       onFit={fitNow}
       finding={finding}
       onFind={() => setFinding((f) => !f)}
+      onPages={wide ? undefined : () => setPagesOpen((o) => !o)}
+      pagesOpen={pagesOpen}
     />
   );
+
+  const pagesSheet =
+    !wide && pagesOpen && ready ? (
+      <section
+        role="region"
+        aria-label="Pages"
+        data-pages-sheet=""
+        className={cn(
+          "border-line bg-panel overflow-y-auto border p-3",
+          narrow
+            ? "rounded-t-panel mx-1 max-h-[45dvh] border-b-0 shadow-lg"
+            : "rounded-panel max-h-[45dvh]",
+        )}
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-fg text-sm font-semibold">
+            {pages.length} page{pages.length === 1 ? "" : "s"}
+          </p>
+          <button
+            type="button"
+            onClick={() => setPagesOpen(false)}
+            className="text-accent text-xs font-semibold"
+          >
+            Done
+          </button>
+        </div>
+        <ThumbnailRail
+          doc={doc}
+          pages={railPages}
+          current={current}
+          onJump={(i) => {
+            jumpTo(i);
+            if (narrow) setPagesOpen(false);
+          }}
+          ops={pageOps}
+          layout="sheet"
+        />
+      </section>
+    ) : null;
 
   return (
     <div
@@ -1663,6 +2196,46 @@ export function WysiwygEditor({
             {toolbar}
           </div>
         )}
+
+        {needsName && (
+          <form
+            data-name-prompt=""
+            className="border-line bg-panel rounded-panel flex flex-wrap items-center gap-2 border px-3.5 py-2 text-sm"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = askName.trim();
+              if (!name) return;
+              dispatch({ type: "defaults", patch: { person: { name } } });
+              dispatch({
+                type: "say",
+                message: `${state.tool === "initials" ? `Initials ${initialsOf(name)}` : "Name"} ready: click on a page to place`,
+              });
+            }}
+          >
+            <label htmlFor={askNameId}>
+              {state.tool === "initials"
+                ? "Your name, for your initials:"
+                : "Your name:"}
+            </label>
+            <input
+              id={askNameId}
+              type="text"
+              autoComplete="name"
+              value={askName}
+              onChange={(e) => setAskName(e.target.value)}
+              className="border-line bg-canvas text-fg rounded-ctl min-w-0 flex-1 border px-2 py-1 text-sm"
+            />
+            <button type="submit" className="text-accent text-xs font-semibold">
+              Use this name
+            </button>
+            <span className="text-muted w-full text-[11px]">
+              Used only for what you place in this file. It is not stored in
+              your browser or sent anywhere.
+            </span>
+          </form>
+        )}
+
+        {!narrow && pagesSheet}
 
         {!signing &&
           state.tool === "signature" &&
@@ -1726,12 +2299,13 @@ export function WysiwygEditor({
 
         <div className="grid gap-3 lg:grid-cols-[7.25rem_minmax(0,1fr)_15rem]">
           <div className="hidden h-[min(76vh,1100px)] min-h-[420px] lg:block">
-            {ready && (
+            {ready && wide && (
               <ThumbnailRail
                 doc={doc}
-                sizes={sizes}
+                pages={railPages}
                 current={current}
                 onJump={jumpTo}
+                ops={pageOps}
               />
             )}
           </div>
@@ -1771,6 +2345,13 @@ export function WysiwygEditor({
                     height={slot.height}
                     containerWidth={view.width}
                     index={slot.index}
+                    source={pages[slot.index]?.source ?? null}
+                    turn={pages[slot.index]?.rotate ?? 0}
+                    widgets={widgetsOn(slot.index)}
+                    fills={state.fills}
+                    onFill={(name, value) =>
+                      dispatch({ type: "fill", name, value })
+                    }
                     count={layout.slots.length}
                     frame={frames![slot.index]!}
                     scale={scale}
@@ -1861,11 +2442,13 @@ export function WysiwygEditor({
           </div>
 
           <aside className="border-line bg-panel rounded-panel hidden h-fit border p-3 lg:block">
-            {panel}
+            {/* One panel in the DOM at a time: two copies had two of every
+                control (and two "Link address" fields each taking focus). */}
+            {wide && panel}
           </aside>
         </div>
 
-        {!narrow && (
+        {!narrow && !wide && (
           <div className="border-line bg-panel rounded-panel border p-3 lg:hidden">
             {panel}
           </div>
@@ -1874,7 +2457,7 @@ export function WysiwygEditor({
 
       <p className="text-muted text-xs">
         {ready
-          ? `Page ${current + 1} of ${sizes.length} · ${Math.round(zoom.zoom * 100)}% · ${state.objects.length} item${state.objects.length === 1 ? "" : "s"} placed`
+          ? `Page ${current + 1} of ${sizes.length} · ${Math.round(zoom.zoom * 100)}% · ${placed} item${placed === 1 ? "" : "s"} placed`
           : "Reading pages…"}
       </p>
 
@@ -1887,7 +2470,8 @@ export function WysiwygEditor({
           data-editor-dock=""
           className="sticky bottom-[calc(env(safe-area-inset-bottom)+var(--sf-bottom-inset,0px))] z-20 -mx-5 flex flex-col overflow-x-clip"
         >
-          {selection.length > 0 && (
+          {pagesSheet}
+          {selection.length > 0 && !pagesOpen && (
             <section
               ref={sheetRef}
               role="region"
@@ -1947,6 +2531,7 @@ export function selectionFrame(b: Rect, handlePx: number, scale: number): Rect {
 
 const COARSE_QUERY = "(pointer: coarse)";
 const NARROW_QUERY = "(max-width: 639.98px)";
+const WIDE_QUERY = "(min-width: 64rem)";
 
 function useMedia(query: string): boolean {
   return useSyncExternalStore(
@@ -1991,6 +2576,11 @@ function PageSheet({
   height,
   containerWidth,
   index,
+  source,
+  turn,
+  widgets,
+  fills,
+  onFill,
   count,
   frame,
   scale,
@@ -2022,6 +2612,13 @@ function PageSheet({
   height: number;
   containerWidth: number;
   index: number;
+  /** The source page drawn here, or null for an inserted blank page. */
+  source: number | null;
+  turn: number;
+  /** The file's own form fields on this page, to fill in place. */
+  widgets: PlacedWidget[];
+  fills: Readonly<Record<string, FieldFill>>;
+  onFill: (name: string, value: FieldFill | null) => void;
   count: number;
   frame: ExportFrame;
   scale: number;
@@ -2084,6 +2681,7 @@ function PageSheet({
     <div
       ref={registerEl}
       data-editor-page={index}
+      data-source-page={source ?? "blank"}
       data-page-pt={`${frame.width}x${frame.height}`}
       role="group"
       aria-label={`Page ${index + 1} of ${count}`}
@@ -2104,7 +2702,15 @@ function PageSheet({
       }}
       onPointerDown={(e) => onPointerDown(e, index)}
     >
-      <PageCanvas doc={doc} index={index} scale={scale} near={near} />
+      {source !== null && (
+        <PageCanvas
+          doc={doc}
+          index={source}
+          turn={turn}
+          scale={scale}
+          near={near}
+        />
+      )}
       {/* Far pages are bare sheets: no raster, no object layer (their
           objects are off screen, and a 500-page file would otherwise draw
           every one of them on every scroll frame). */}
@@ -2336,6 +2942,15 @@ function PageSheet({
         </svg>
       )}
 
+      {widgets.length > 0 && (near || editingObj) && (
+        <FormFillLayer
+          widgets={widgets}
+          fills={fills}
+          scale={scale}
+          onFill={onFill}
+        />
+      )}
+
       {runs && runs.length === 0 && (
         <p
           data-no-text=""
@@ -2367,6 +2982,159 @@ function PageSheet({
           onDone={onEndEdit}
         />
       )}
+    </div>
+  );
+}
+
+/** One of the file's own form widgets, placed on a displayed page. */
+interface PlacedWidget {
+  key: string;
+  field: FileField;
+  /** A radio button's option. */
+  option?: string;
+  rect: Rect;
+}
+
+/**
+ * The file's own form fields, filled in place: a real control over each
+ * widget, at its box. What is typed is written into the field itself when
+ * the file is applied (`editor/fields.ts`), with the field's appearance
+ * redrawn; fields this editor cannot fill (signatures, buttons, read-only
+ * ones) are outlined and left alone.
+ */
+function FormFillLayer({
+  widgets,
+  fills,
+  scale,
+  onFill,
+}: {
+  widgets: PlacedWidget[];
+  fills: Readonly<Record<string, FieldFill>>;
+  scale: number;
+  onFill: (name: string, value: FieldFill | null) => void;
+}) {
+  const group = useId();
+  return (
+    <div
+      className="pointer-events-none absolute inset-0"
+      data-form-fill-layer=""
+    >
+      {widgets.map((w) => {
+        const { field, rect } = w;
+        const style = {
+          left: rect.x * scale,
+          top: rect.y * scale,
+          width: Math.max(rect.width * scale, 8),
+          height: Math.max(rect.height * scale, 8),
+          fontSize: Math.max(8, Math.min(rect.height * 0.7, 12) * scale),
+        };
+        const value = fills[field.name] ?? field.value;
+        const set = (next: FieldFill) =>
+          onFill(field.name, next === field.value ? null : next);
+        const common = {
+          "data-file-field": field.name,
+          "aria-label": field.name,
+          onPointerDown: (e: ReactPointerEvent) => e.stopPropagation(),
+          className:
+            "pointer-events-auto absolute border border-info/40 bg-info/10 outline-accent focus:outline-2",
+          // Ink on the page's white paper, in either colour scheme.
+          style: { ...style, color: "#111827", accentColor: "#1d4ed8" },
+        };
+        const fillable =
+          !field.readOnly &&
+          field.type !== "signature" &&
+          field.type !== "button";
+        if (!fillable) {
+          return (
+            <span
+              key={w.key}
+              data-file-field={field.name}
+              title={
+                field.readOnly
+                  ? `${field.name}: read-only`
+                  : `${field.name}: can't be filled here`
+              }
+              className="border-line-strong pointer-events-none absolute border border-dashed"
+              style={style}
+            />
+          );
+        }
+        if (field.type === "checkbox") {
+          const { style: boxStyle, className, ...rest } = common;
+          return (
+            <label
+              key={w.key}
+              className="pointer-events-auto absolute flex items-center justify-center"
+              style={boxStyle}
+              onPointerDown={rest.onPointerDown}
+            >
+              <input
+                type="checkbox"
+                checked={value === true}
+                onChange={(e) => set(e.target.checked)}
+                {...rest}
+                className={cn(className, "relative m-0 size-full")}
+                style={{
+                  color: boxStyle.color,
+                  accentColor: boxStyle.accentColor,
+                }}
+              />
+              <span className="sr-only">{field.name}</span>
+            </label>
+          );
+        }
+        if (field.type === "radio") {
+          return (
+            <input
+              key={w.key}
+              type="radio"
+              name={`${group}-${field.name}`}
+              value={w.option ?? ""}
+              checked={value === w.option}
+              onChange={() => set(w.option ?? "")}
+              {...common}
+              aria-label={`${field.name}: ${w.option ?? ""}`}
+              className={cn(common.className, "m-0")}
+            />
+          );
+        }
+        if (field.type === "dropdown" || field.type === "optionlist") {
+          return (
+            <select
+              key={w.key}
+              value={typeof value === "string" ? value : ""}
+              onChange={(e) => set(e.target.value)}
+              {...common}
+              className={cn(common.className, "rounded-none px-0.5 py-0")}
+            >
+              <option value="">—</option>
+              {field.options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          );
+        }
+        return field.multiline ? (
+          <textarea
+            key={w.key}
+            value={typeof value === "string" ? value : ""}
+            onChange={(e) => set(e.target.value)}
+            {...common}
+            className={cn(common.className, "resize-none p-0.5")}
+          />
+        ) : (
+          <input
+            key={w.key}
+            type="text"
+            value={typeof value === "string" ? value : ""}
+            onChange={(e) => set(e.target.value)}
+            {...common}
+            className={cn(common.className, "px-0.5")}
+          />
+        );
+      })}
     </div>
   );
 }

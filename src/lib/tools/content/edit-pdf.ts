@@ -118,16 +118,24 @@ const content: ToolContent = {
     "Retype the text in a PDF, find and replace words, redact, and add text, pictures, signatures and shapes. Runs in your browser; your PDF is not uploaded.",
 
   intro: [
-    "Edit PDF shows every page of your PDF and lets you add to it by clicking on the page: text boxes you type straight onto the page, PNG or JPG pictures, a signature you draw, type or pick from a picture, rectangles, ellipses, lines and arrows, whiteout boxes, highlights, freehand drawing and notes. Anything you place can be selected, dragged, resized from its handles, restyled, copied or deleted, and every step can be undone.",
+    "Edit PDF shows every page of your PDF and lets you add to it by clicking on the page: text boxes you type straight onto the page, PNG or JPG pictures, a signature you draw, type or pick from a picture, today's date, your initials or name and check marks in one click, links to a web address, an email address, a phone number or another page, fillable form fields, rectangles, ellipses, lines and arrows, whiteout boxes, highlights, freehand drawing and notes. Anything you place can be selected, dragged, resized from its handles, restyled, copied or deleted, and every step can be undone.",
     "Edit text changes the words already in the file: click a line, retype it, and when you apply, the old words are removed from the page and yours are written where they stood, in the line's own font when that font has every letter you typed, otherwise in the closest standard font, which the editor names while you type. Find & replace does the same across every page. Redact removes the text and picture pixels under a box you draw. Whiteout only covers: the words under a whiteout box stay in the file, where search and copy still find them.",
     "Edit text works on real text. A scanned page is a picture of words, so it has nothing to edit until OCR PDF has been run on it; text nested inside embedded objects, and vertical text, is refused with a message rather than half-changed. Each line is retyped as one line: it does not reflow a paragraph.",
-    `Everything runs in your browser tab, so your PDF is not uploaded. Files up to ${MAX_MB} MB open, each picture may be up to ${IMAGE_MB} MB, and a password-protected PDF is turned away until it has been unlocked. Page count, page sizes, the text you did not edit, form fields and the title are kept, and rotated or cropped pages are shown and edited the way your viewer shows them. Your additions are written into the page content itself, not added as comments.`,
+    `Everything runs in your browser tab, so your PDF is not uploaded. Files up to ${MAX_MB} MB open, each picture may be up to ${IMAGE_MB} MB, and a password-protected PDF is turned away until it has been unlocked. Unless you turn, insert, delete or reorder pages in the page list, page count and page sizes are kept; the text you did not edit, form fields and the title are kept too, and rotated or cropped pages are shown and edited the way your viewer shows them. Your additions are written into the page content itself, not added as comments, except links and form fields, which are saved as real links and fillable fields.`,
   ],
 
   useCases: [
     {
       title: "Fill in a form that has no fillable fields",
-      body: "On a scanned or flat form there is nothing to click into, so choose Text, click where the answer goes and type. A form with real fields is better served by Fill Forms.",
+      body: "On a scanned or flat form there is nothing to click into, so choose Text, click where the answer goes and type; Date, Initials, Name and Check put today's date, your initials, your name or a check mark where you click. A PDF that already has fillable fields shows them on the page, ready to type into.",
+    },
+    {
+      title: "Make a form others can fill in",
+      body: "Under Forms, drag out a text field, checkbox, dropdown, radio group or signature field and name it in the panel. They are saved as real form fields, so anyone can fill them in in a PDF reader; only a radio group's option names are written beside its buttons as page text. Field names and choices use the standard PDF alphabet, so Latin letters only.",
+    },
+    {
+      title: "Link to a website or another page",
+      body: "Choose Link and drag a box over the words to link. In the panel, type a web address, an email address or a phone number, or pick a page of the file to jump to. The link is saved as a real link, not drawn; links already in the PDF are outlined, ready to change or delete.",
     },
     {
       title: "Sign a contract or a letter",
@@ -154,11 +162,15 @@ const content: ToolContent = {
     },
     {
       title: "Pick a tool and click on the page",
-      body: "Edit text outlines every line of the PDF's own text: click one and retype it. Text and Note place a box you type into straight away. Rectangle, Ellipse, Line, Arrow, Whiteout, Redact and Highlight draw where you drag, or at a standard size where you click. Draw follows your pointer. Image and Sign ask for a picture or a signature first, then place it where you click. Find & replace, or Ctrl+F, searches every page.",
+      body: "Edit text outlines every line of the PDF's own text: click one and retype it. Text and Note place a box you type into straight away. Rectangle, Ellipse, Line, Arrow, Whiteout, Redact and Highlight draw where you drag, or at a standard size where you click. Draw follows your pointer. Image and Sign ask for a picture or a signature first, then place it where you click. Date, Initials, Name and Check place one where you click. Link and the Forms tools draw where you drag; then the panel sets where the link goes, or the field's name and choices. Find & replace, or Ctrl+F, searches every page.",
     },
     {
       title: "Move, resize and style",
-      body: `With Select, click an item to select it, drag it to move it, or drag a handle to resize it; Shift-click adds to the selection, and items snap to the page's edges and centre lines. The arrow keys nudge by ${NUDGE_PT} pt, or ${NUDGE_BIG_PT} pt with Shift. The panel beside the page sets font (${fonts}), size, colour, bold, italic, alignment and line height for text, and outline, fill and opacity for shapes. Undo and Redo, or Ctrl+Z and Ctrl+Shift+Z, step back and forward.`,
+      body: `With Select, click an item to select it, drag it to move it, or drag a handle to resize it; Shift-click adds to the selection, and items snap to the page's edges and centre lines and to other items' edges and centres; Order in the panel brings an item forward or sends it back. The arrow keys nudge by ${NUDGE_PT} pt, or ${NUDGE_BIG_PT} pt with Shift. The panel beside the page sets font (${fonts}), size, colour, bold, italic, alignment and line height for text, and outline, fill and opacity for shapes. Undo and Redo, or Ctrl+Z and Ctrl+Shift+Z, step back and forward.`,
+    },
+    {
+      title: "Arrange the pages",
+      body: "Beside the pages on a wide screen, or under Pages on a smaller one, each thumbnail can be turned a quarter, followed by a new blank page, or deleted, and dragged (or moved with its arrows) into a new order. What you placed on a page goes with it, and each change can be undone.",
     },
     {
       title: "Apply & download",
