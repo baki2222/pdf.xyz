@@ -32,6 +32,8 @@ export interface CompressWorkerInput {
   profile: CompressionProfile;
   /** Target DPI for the `deep` profile; ignored for `lossless`. */
   targetDpi?: number;
+  /** Convert colour to gray (`deep` only; needs Ghostscript on the worker). */
+  grayscale?: boolean;
 }
 
 export interface CompressWorkerSuccess {
@@ -184,6 +186,10 @@ async function runWorkerCompressionSteps(
   const options_: Record<string, unknown> = { profile: input.profile };
   if (input.profile === "deep" && input.targetDpi !== undefined) {
     options_.targetDpi = input.targetDpi;
+  }
+  // Sent only when on, so a colour run's request is byte-for-byte what it was.
+  if (input.profile === "deep" && input.grayscale === true) {
+    options_.grayscale = true;
   }
   const jobRes = await fetchImpl("/api/jobs", {
     method: "POST",

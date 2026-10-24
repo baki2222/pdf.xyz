@@ -28,7 +28,10 @@ import {
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
-import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
+import {
+  DEEP_COMPRESSION_GRAYSCALE_HINT,
+  DEEP_COMPRESSION_PRESETS,
+} from "@/lib/pdf/offered-kinds";
 import { outputName, partitionPdfFiles } from "@/lib/pdf/files";
 import {
   runWorkerCompression,
@@ -761,8 +764,12 @@ function WorkerDeepPanel({
         ? null
         : shared.status;
   const [dpi, setDpi] = useState<number>(150);
+  const [grayscale, setGrayscale] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<CompressWorkerResult | null>(null);
+  // What the run that drew `outcome` asked for — not the toggle's state now,
+  // which the reader may have changed since.
+  const [ranGrayscale, setRanGrayscale] = useState(false);
 
   const canRunDeep = canRunDeepCompression(status);
   // A run still in flight when the panel unmounts settles its hold then.
@@ -783,9 +790,11 @@ function WorkerDeepPanel({
         bytes,
         profile: "deep",
         targetDpi: dpi,
+        grayscale,
       });
       // Its card draws with its ending (`endingReady`).
       if (res.ok) await endingReady();
+      setRanGrayscale(grayscale);
       setOutcome(res);
     } catch {
       // A rejected fetch — offline, DNS failure, a reset connection, CORS. There
@@ -838,6 +847,9 @@ function WorkerDeepPanel({
           localDevOnly={status?.localDevOnly ?? false}
           dpi={dpi}
           onDpi={setDpi}
+          grayscale={grayscale}
+          onGrayscale={setGrayscale}
+          ranGrayscale={ranGrayscale}
           busy={busy}
           outcome={outcome}
           onRun={run}
@@ -892,6 +904,9 @@ function DeepRunControls({
   localDevOnly,
   dpi,
   onDpi,
+  grayscale,
+  onGrayscale,
+  ranGrayscale,
   busy,
   outcome,
   onRun,
@@ -902,6 +917,10 @@ function DeepRunControls({
   localDevOnly: boolean;
   dpi: number;
   onDpi: (dpi: number) => void;
+  grayscale: boolean;
+  onGrayscale: (on: boolean) => void;
+  /** Whether the run that drew `outcome` asked for grayscale. */
+  ranGrayscale: boolean;
   busy: boolean;
   outcome: CompressWorkerResult | null;
   onRun: () => void;
@@ -922,8 +941,11 @@ function DeepRunControls({
    * Unlike `ResultPanel`, this panel stays mounted across runs, which is why the
    * hook is keyed on a condition rather than on mount.
    */
+  // A grayscale run's file is a different document from the original even
+  // when it is not smaller, so it always gets the card and the download.
+  const showCard = outcome?.ok === true && (savedBytes > 0 || ranGrayscale);
   const noGain = useOutcomeFocus<HTMLParagraphElement>(
-    outcome?.ok === true && savedBytes === 0,
+    outcome?.ok === true && !showCard,
     "Compression finished. The worker could not shrink this file further without losing quality — the original is already efficient.",
   );
 
@@ -953,6 +975,26 @@ function DeepRunControls({
         ))}
       </div>
 
+      <label className="text-muted flex items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={grayscale}
+          // readOnly-style guard rather than `disabled`: a disabled input
+          // drops focus mid-run (the #46 rule).
+          onChange={(event) => {
+            if (!busy) onGrayscale(event.target.checked);
+          }}
+          aria-disabled={busy || undefined}
+          className="border-line-strong bg-wash accent-accent rounded-ctl mt-0.5 size-4"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-fg font-medium">Grayscale</span>
+          <span className="text-muted text-xs leading-relaxed">
+            {DEEP_COMPRESSION_GRAYSCALE_HINT}
+          </span>
+        </span>
+      </label>
+
       <WorkerRunButton
         onClick={onRun}
         busy={busy}
@@ -971,20 +1013,33 @@ function DeepRunControls({
       {outcome?.ok === false && <ErrorNote message={outcome.message} />}
 
       {outcome?.ok === true &&
-        (savedBytes > 0 ? (
+        (showCard ? (
           <ResultCard
-            announce={`Compression finished. The worker shrank this file by ${formatBytes(savedBytes)} — ${formatBytes(outcome.output.byteLength)} final.`}
+            announce={
+              savedBytes > 0
+                ? `Compression finished. The worker shrank this file by ${formatBytes(savedBytes)}${ranGrayscale ? " and converted it to grayscale" : ""} — ${formatBytes(outcome.output.byteLength)} final.`
+                : `Compression finished. The worker converted this file to grayscale — ${formatBytes(outcome.output.byteLength)} final. It did not get smaller.`
+            }
             output={outputFile(
               outcome.output,
               outcome.artifact.filename || outputName(filename, "compressed"),
             )}
             inputBytes={originalBytes}
           >
-            <p className="text-ok text-sm">
-              The worker shrank this file by {formatBytes(savedBytes)} (
-              {pct(savedBytes / Math.max(1, originalBytes))}%) —{" "}
-              {formatBytes(outcome.output.byteLength)} final.
-            </p>
+            {savedBytes > 0 ? (
+              <p className="text-ok text-sm">
+                The worker shrank this file by {formatBytes(savedBytes)} (
+                {pct(savedBytes / Math.max(1, originalBytes))}%)
+                {ranGrayscale ? " and converted it to grayscale" : ""} —{" "}
+                {formatBytes(outcome.output.byteLength)} final.
+              </p>
+            ) : (
+              <p className="text-ok text-sm">
+                The worker converted this file to grayscale —{" "}
+                {formatBytes(outcome.output.byteLength)} final. It did not get
+                smaller.
+              </p>
+            )}
             {/* The percentage above is computed from two byte counts. It is a
                 COMPRESSION figure only when the worker proved the output still
                 holds the input's pages; when the input could not be counted it

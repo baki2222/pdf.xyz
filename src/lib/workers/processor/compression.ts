@@ -74,6 +74,14 @@ export function compressionJobError(run: CompressionFailure): JobError {
         message: `${run.message} (${run.pagesIn} pages in, ${run.pagesOut} out.)`,
         retryable: false,
       };
+    case "colour_kept":
+      // Deterministic: the same engine given the same flag keeps the same
+      // colour, so a retry would fail the same way twice more.
+      return {
+        code: "internal_error",
+        message: run.message,
+        retryable: false,
+      };
     case "failed":
     default:
       return {
@@ -165,6 +173,7 @@ export function createCompressionProcessor(deps: CompressionDeps): Processor {
         {
           engine: run.meta.engine,
           profile: run.meta.profile,
+          grayscale: run.meta.grayscale,
           originalBytes: run.meta.originalBytes,
           outputBytes: run.meta.outputBytes,
           savedBytes: run.meta.savedBytes,

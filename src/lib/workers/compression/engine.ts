@@ -22,6 +22,7 @@
 import { PDFDocument } from "pdf-lib";
 import { countPdfPagesDetailed } from "@/lib/pdf/page-count";
 import { apiError, type ParseResult } from "@/lib/jobs";
+import { hasColourImage } from "./image-colour";
 
 /**
  * How hard to compress:
@@ -53,6 +54,12 @@ export interface CompressionOptions {
   profile: CompressionProfile;
   /** Target DPI for image downsampling (deep only); clamped to 72–600. */
   targetDpi: number;
+  /**
+   * Convert colour to gray (deep only, Ghostscript only). Optional in the type
+   * so a hand-built options object keeps meaning "colour unchanged"; the
+   * parser always sets it.
+   */
+  grayscale?: boolean;
 }
 
 /**
@@ -102,8 +109,48 @@ export function parseCompressionOptions(
     targetDpi = dpi;
   }
 
-  return { ok: true, value: { profile: rawProfile, targetDpi } };
+  let grayscale = false;
+  if (options.grayscale !== undefined) {
+    if (typeof options.grayscale !== "boolean") {
+      return {
+        ok: false,
+        error: apiError(
+          "invalid_request",
+          "`options.grayscale` must be a boolean.",
+          [{ field: "options.grayscale", message: "Expected a boolean." }],
+        ),
+      };
+    }
+    grayscale = options.grayscale;
+  }
+  // The lossless repack re-serialises a parsed document and never touches a
+  // pixel, so it cannot honour this. Refused rather than silently ignored: a
+  // file that came back in colour would be a success nobody asked for.
+  if (grayscale && rawProfile === "lossless") {
+    return {
+      ok: false,
+      error: apiError(
+        "invalid_request",
+        '`options.grayscale` needs the "deep" profile.',
+        [
+          {
+            field: "options.grayscale",
+            message: 'Grayscale needs the "deep" profile.',
+          },
+        ],
+      ),
+    };
+  }
+
+  return { ok: true, value: { profile: rawProfile, targetDpi, grayscale } };
 }
+
+/**
+ * The deep engines that can convert colour to gray. Only Ghostscript re-renders
+ * content through a colour model; qpdf and mutool rewrite structure and streams
+ * and have no colour conversion at all.
+ */
+export const GRAYSCALE_TOOLS: readonly CompressionTool[] = ["ghostscript"];
 
 /** Resolves whether a binary exists on the host. Presence only; never executes. */
 export type BinaryResolver = (binary: string) => boolean;
@@ -142,6 +189,16 @@ export function planCompression(
 ): CompressionPlan {
   if (options.profile === "lossless") {
     return { supported: true, engine: "lossless-js" };
+  }
+  if (options.grayscale) {
+    const gray = GRAYSCALE_TOOLS.find((tool) => tools[tool]);
+    if (gray) return { supported: true, engine: gray };
+    return {
+      supported: false,
+      requires: GRAYSCALE_TOOLS,
+      reason:
+        "Grayscale conversion requires Ghostscript, which is not installed in this environment.",
+    };
   }
   const available = DEEP_COMPRESSION_TOOLS.find((tool) => tools[tool]);
   if (available) return { supported: true, engine: available };
@@ -289,6 +346,12 @@ export interface CompressionDeps {
 export interface CompressionResultMeta {
   engine: CompressionEngineId;
   profile: CompressionProfile;
+  /**
+   * Whether the artifact was converted to gray. When true, the output is the
+   * engine's gray file even if it is not smaller: handing back the colour
+   * original under a grayscale request would be the wrong document.
+   */
+  grayscale: boolean;
   originalBytes: number;
   outputBytes: number;
   /** Bytes saved; never negative (a repack that grows a file reports 0). */
@@ -355,6 +418,11 @@ export type CompressionRun =
       pagesOut: number;
       message: string;
     }
+  /**
+   * A grayscale run whose output still carries a colour image. Not `failed`:
+   * the same engine given the same flag keeps the same colour, so it is final.
+   */
+  | { ok: false; kind: "colour_kept"; message: string }
   | { ok: false; kind: "failed"; message: string };
 
 /**
@@ -455,7 +523,30 @@ export async function runCompression(
         message: "The compression engine produced an unreadable PDF.",
       };
     }
-    if (output.byteLength >= input.byteLength) {
+    if (options.grayscale) {
+      // The one property this request adds, read from the file itself. An
+      // engine that ignored the flag returns a smaller COLOUR file, which
+      // every other gate here would accept. An output pdf-lib cannot parse is
+      // left to the page check below, which fails it.
+      let colour = false;
+      try {
+        colour = await hasColourImage(output);
+      } catch {
+        colour = false;
+      }
+      if (colour) {
+        return {
+          ok: false,
+          kind: "colour_kept",
+          message:
+            "The compression engine did not convert this file to grayscale, so it was rejected. Your original file is unchanged.",
+        };
+      }
+    }
+    // A grayscale run never swaps the original back: the original is in
+    // colour, and the person asked for gray. A larger gray file ships, with
+    // zero savings reported.
+    if (output.byteLength >= input.byteLength && !options.grayscale) {
       // Deep compression did not reduce the file. Return the original rather than
       // a larger artifact — but only if the original is itself a readable PDF, so
       // we never dress up non-PDF bytes as a successful result.
@@ -529,6 +620,7 @@ export async function runCompression(
       pagesOut,
       engine: plan.engine,
       profile: options.profile,
+      grayscale: options.grayscale === true,
       originalBytes,
       outputBytes,
       savedBytes,

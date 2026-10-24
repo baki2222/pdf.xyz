@@ -49,6 +49,7 @@ import { createLocalDevAdapter } from "@/lib/workers/local-dev";
 import type { WorkerStatus } from "@/lib/workers/status";
 import { DevWorkerStore } from "@/lib/workers/store";
 import { encryptPdf } from "@/tests/encrypted-pdf";
+import { colourImagePdf } from "@/tests/colour-image-pdf";
 import { makeSignedPdf } from "@/tests/signed-pdf";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
 import { CompressRunner, UNLOCK_TOOL_HREF } from "./compress-runner";
@@ -665,3 +666,67 @@ describe("Compress batch", { timeout: 30_000 }, () => {
     ).toBeInTheDocument();
   });
 });
+
+describe(
+  "Compress: Extreme and Grayscale on the worker",
+  { timeout: 30_000 },
+  () => {
+    // Through the REAL local-dev adapter (job-option parser, processor,
+    // engine with its grayscale gate) — only the Ghostscript binary is played.
+    async function runGray(engineOutput: Uint8Array) {
+      const seen: { targetDpi?: number; grayscale?: boolean }[] = [];
+      answerWithLocalWorker(async (_input, ctx) => {
+        seen.push({
+          targetDpi: ctx.options.targetDpi,
+          grayscale: ctx.options.grayscale,
+        });
+        return engineOutput;
+      });
+      const input = await colourImagePdf({ components: 3, size: 24 });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(input, "photo.pdf")]);
+      const run = await screen.findByRole(
+        "button",
+        { name: /compress images on the worker/i },
+        { timeout: 10_000 },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Extreme" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: /grayscale/i }));
+      fireEvent.click(run);
+      return { seen, input, container };
+    }
+
+    it("sends 72 DPI and grayscale to the engine, and a gray file that is NOT smaller still downloads", async () => {
+      const gray = await colourImagePdf({ components: 1, size: 24, pad: 8192 });
+      const { seen, input } = await runGray(gray);
+      const card = await screen.findByText(
+        /converted this file to grayscale/i,
+        undefined,
+        { timeout: 10_000 },
+      );
+      expect(gray.byteLength).toBeGreaterThan(input.byteLength);
+      expect(card).toHaveTextContent(/did not get smaller/i);
+      expect(seen).toEqual([{ targetDpi: 72, grayscale: true }]);
+      expect(
+        screen.getByRole("button", { name: /download compressed pdf/i }),
+      ).toBeInTheDocument();
+      // The no-gain note says the ORIGINAL came back; it must not show here.
+      expect(
+        screen.queryByRole("group", { name: /no size reduction/i }),
+      ).toBeNull();
+    });
+
+    it("an engine that kept the colour is refused, with no download", async () => {
+      const colour = await colourImagePdf({ components: 3, size: 8 });
+      await runGray(colour);
+      await screen.findByText(
+        /did not convert this file to grayscale/i,
+        undefined,
+        { timeout: 10_000 },
+      );
+      expect(
+        screen.queryByRole("button", { name: /download compressed pdf/i }),
+      ).toBeNull();
+    });
+  },
+);

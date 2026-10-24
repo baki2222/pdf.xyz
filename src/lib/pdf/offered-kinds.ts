@@ -184,7 +184,19 @@ export const GRAYSCALE_DPI_PRESETS = [
  * sent as `targetDpi` (the worker's Ghostscript downsamples every image to it).
  */
 export const DEEP_COMPRESSION_PRESETS = [
+  // 72 DPI is also the worker's floor (`MIN_DPI` in compression/engine.ts).
+  { dpi: 72, label: "Extreme" },
   { dpi: 96, label: "Smaller" },
   { dpi: 150, label: "Balanced" },
   { dpi: 300, label: "High quality" },
 ] as const;
+
+/**
+ * Compress PDF — what the secure-worker step's Grayscale switch does, said by
+ * the panel and the FAQ from this one sentence. Ghostscript is run with
+ * `-sColorConversionStrategy=Gray`, which converts every colour on the page,
+ * and the engine re-reads the output's images (`compression/image-colour.ts`)
+ * and refuses the run if one still has more than one colour component.
+ */
+export const DEEP_COMPRESSION_GRAYSCALE_HINT =
+  "Turns every colour on the pages — pictures, text and drawings — into shades of gray. The worker checks the result and refuses it if a picture is still in colour.";

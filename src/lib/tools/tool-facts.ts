@@ -77,6 +77,7 @@ import {
 import {
   ANNOTATION_FACT,
   ANNOTATION_TYPES,
+  DEEP_COMPRESSION_GRAYSCALE_HINT,
   DEEP_COMPRESSION_PRESETS,
   EDIT_OP_FACT,
   EDIT_OP_TYPES,
@@ -1084,7 +1085,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Does compressing reduce the quality of my PDF?",
-          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-worker step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}.`,
+          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-worker step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}. Its Grayscale switch is off unless you tick it: ${DEEP_COMPRESSION_GRAYSCALE_HINT}`,
         },
         {
           question: "How much smaller will my PDF get?",
