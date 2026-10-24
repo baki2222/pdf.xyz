@@ -376,7 +376,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Ordering",
       value:
-        "Drag files to reorder before merging, or use each row's move buttons — the output follows top to bottom.",
+        "Drag files to reorder before merging, use each row's move buttons, or sort by name — the output follows top to bottom.",
     },
   ],
   "split-pdf": [

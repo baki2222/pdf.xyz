@@ -113,6 +113,29 @@ export function rangesPerPage(pageCount: number): PageRange[] {
   return Array.from({ length: pageCount }, (_, i) => ({ start: i, end: i }));
 }
 
+/**
+ * Cut a document at the given 0-based start pages — Split PDF's "By
+ * bookmarks" mode, where each top-level bookmark's page starts a file. Starts
+ * are sorted and de-duplicated (two bookmarks on one page start ONE file);
+ * pages before the first start form a file of their own, so no page is lost.
+ */
+export function rangesFromStarts(
+  starts: readonly number[],
+  pageCount: number,
+): PageRange[] {
+  const cuts = [
+    ...new Set(
+      starts.filter((s) => Number.isInteger(s) && s >= 0 && s < pageCount),
+    ),
+  ].sort((a, b) => a - b);
+  if (pageCount < 1) return [];
+  if (cuts[0] !== 0) cuts.unshift(0);
+  return cuts.map((start, i) => ({
+    start,
+    end: (cuts[i + 1] ?? pageCount) - 1,
+  }));
+}
+
 /** Expand an inclusive range into its 0-based indices. */
 export function rangeToIndices({ start, end }: PageRange): number[] {
   return Array.from({ length: end - start + 1 }, (_, i) => start + i);

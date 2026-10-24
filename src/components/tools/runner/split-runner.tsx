@@ -1,12 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Download, Scissors } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { AlertTriangle, Download, Scissors } from "lucide-react";
 import { splitPdf } from "@/lib/pdf/engine";
 import {
+  combineRanges,
+  readTopLevelBookmarks,
+  splitPdfBySize,
+  type TopLevelBookmark,
+} from "@/lib/pdf/split-modes";
+import {
   buildSplitParts,
+  formatPageNumbers,
   parseRanges,
+  rangeToIndices,
   rangesEveryN,
+  rangesFromStarts,
   rangesPerPage,
 } from "@/lib/pdf/ranges";
 import type { NamedBytes, SplitPart } from "@/lib/pdf/types";
@@ -40,6 +49,20 @@ const MODES: { id: SplitMode; label: string }[] = SPLIT_MODES.map((id) => ({
   label: SPLIT_MODE_LABEL[id],
 }));
 
+const MB = 1024 * 1024;
+
+/** What a split produced, and what the receipt has to say about it. */
+interface SplitOutcome {
+  files: NamedBytes[];
+  /** 1-based pages that alone are over a by-size target. */
+  oversized: number[];
+  /** The pages the split meant to write, for the receipt's re-count. */
+  expectedPages: number;
+}
+
+/** A previewed part, with the bookmark that starts it in "By bookmarks". */
+type PreviewPart = SplitPart & { label?: string };
+
 export function SplitRunner() {
   return (
     <SinglePdfRunner
@@ -50,6 +73,11 @@ export function SplitRunner() {
       {(pdf, reset) => <SplitEditor pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
   );
+}
+
+/** A first target near half the file, so the default size split is ~2 parts. */
+function defaultTargetMb(bytes: number): number {
+  return Math.max(0.1, Math.round((bytes / MB / 2) * 10) / 10);
 }
 
 export function SplitEditor({
@@ -64,17 +92,52 @@ export function SplitEditor({
     const half = Math.max(1, Math.ceil(pdf.pageCount / 2));
     return pdf.pageCount > 1 ? `1-${half}, ${half + 1}-${pdf.pageCount}` : "1";
   });
+  const [mergeRanges, setMergeRanges] = useState(false);
   const [size, setSize] = useState(1);
+  const [targetMb, setTargetMb] = useState(() =>
+    String(defaultTargetMb(pdf.file.size)),
+  );
+  // `null` while the outline is read; a PDF that cannot be read for it has
+  // no bookmarks to offer.
+  const [marks, setMarks] = useState<TopLevelBookmark[] | null>(null);
   const { zipping, zipError, downloadZip } = useZipDownload();
-  const { busy, error, result, run, reset } = useAsyncRun<NamedBytes[]>();
+  const { busy, error, result, run, reset } = useAsyncRun<SplitOutcome>();
+  const mergeId = useId();
+  const bookmarksNoteId = useId();
+
+  useEffect(() => {
+    let live = true;
+    readTopLevelBookmarks(pdf.bytes)
+      .then((found) => live && setMarks(found))
+      .catch(() => live && setMarks([]));
+    return () => {
+      live = false;
+    };
+  }, [pdf.bytes]);
+
+  const noBookmarks = marks !== null && marks.length === 0;
+  const targetBytes = Number(targetMb) * MB;
 
   const { parts, previewError } = useMemo((): {
-    parts: SplitPart[];
+    parts: PreviewPart[];
     previewError: string | null;
   } => {
     const base = baseName(pdf.file.name);
     try {
       if (mode === "ranges") {
+        if (mergeRanges) {
+          return {
+            parts: [
+              {
+                name: outputName(pdf.file.name, "split"),
+                indices: parseRanges(rangeInput, pdf.pageCount).flatMap(
+                  rangeToIndices,
+                ),
+              },
+            ],
+            previewError: null,
+          };
+        }
         return {
           parts: buildSplitParts(base, parseRanges(rangeInput, pdf.pageCount)),
           previewError: null,
@@ -86,6 +149,36 @@ export function SplitEditor({
           previewError: null,
         };
       }
+      if (mode === "size") {
+        // The parts are only known once each is built and measured.
+        return {
+          parts: [],
+          previewError:
+            Number.isFinite(targetBytes) && targetBytes > 0
+              ? null
+              : "Enter a maximum size per file greater than zero.",
+        };
+      }
+      if (mode === "bookmarks") {
+        if (!marks || marks.length === 0) {
+          return { parts: [], previewError: null };
+        }
+        const ranges = rangesFromStarts(
+          marks.map((m) => m.pageIndex),
+          pdf.pageCount,
+        );
+        const titleAt = new Map<number, string>();
+        for (const m of marks) {
+          if (!titleAt.has(m.pageIndex)) titleAt.set(m.pageIndex, m.title);
+        }
+        return {
+          parts: buildSplitParts(base, ranges).map((part, i) => ({
+            ...part,
+            label: titleAt.get(ranges[i]!.start) ?? "Before the first bookmark",
+          })),
+          previewError: null,
+        };
+      }
       return {
         parts: buildSplitParts(base, rangesPerPage(pdf.pageCount)),
         previewError: null,
@@ -93,9 +186,40 @@ export function SplitEditor({
     } catch (err) {
       return { parts: [], previewError: errorMessage(err) };
     }
-  }, [pdf, mode, rangeInput, size]);
+  }, [pdf, mode, rangeInput, mergeRanges, size, marks, targetBytes]);
 
-  const onSplit = () => run(() => splitPdf(pdf.bytes, parts));
+  const onSplit = () =>
+    run(async (): Promise<SplitOutcome> => {
+      if (mode === "size") {
+        const { files, oversized } = await splitPdfBySize(
+          pdf.bytes,
+          targetBytes,
+          baseName(pdf.file.name),
+        );
+        return {
+          files: files.map(({ name, bytes }) => ({ name, bytes })),
+          oversized: oversized.map((i) => i + 1),
+          expectedPages: pdf.pageCount,
+        };
+      }
+      if (mode === "ranges" && mergeRanges) {
+        const part = parts[0]!;
+        const bytes = await combineRanges(
+          pdf.bytes,
+          parseRanges(rangeInput, pdf.pageCount),
+        );
+        return {
+          files: [{ name: part.name, bytes }],
+          oversized: [],
+          expectedPages: part.indices.length,
+        };
+      }
+      return {
+        files: await splitPdf(pdf.bytes, parts),
+        oversized: [],
+        expectedPages: parts.reduce((n, part) => n + part.indices.length, 0),
+      };
+    });
 
   const downloadResult = async (files: NamedBytes[]) => {
     if (files.length === 1) {
@@ -106,21 +230,39 @@ export function SplitEditor({
   };
 
   if (result) {
+    const { files, oversized } = result;
     return (
       <ResultPanel
         title="PDF split"
-        summary={`${result.length} file${result.length === 1 ? "" : "s"} created · ${formatBytes(totalBytes(result))} total`}
+        summary={`${files.length} file${files.length === 1 ? "" : "s"} created · ${formatBytes(totalBytes(files))} total`}
         onReset={onReset}
         // Each part, as the PDF it is (several download as one ZIP).
-        output={result.map((part) => outputFile(part.bytes, part.name))}
+        output={files.map((part) => outputFile(part.bytes, part.name))}
         onAdjust={reset}
-        expectedPages={parts.reduce((n, part) => n + part.indices.length, 0)}
+        expectedPages={result.expectedPages}
       >
+        {oversized.length > 0 && (
+          <p
+            role="status"
+            className="border-warn/40 bg-warn/10 text-warn rounded-panel flex items-start gap-2 border px-4 py-3 text-sm"
+          >
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>
+              {oversized.length === 1 ? "Page" : "Pages"}{" "}
+              {formatPageNumbers(oversized)}{" "}
+              {oversized.length === 1 ? "is" : "are"} bigger than {targetMb} MB
+              on {oversized.length === 1 ? "its" : "their"} own, so{" "}
+              {oversized.length === 1 ? "it is" : "each is"} a file of{" "}
+              {oversized.length === 1 ? "its" : "their"} own over that size.
+              Splitting cannot make one page smaller; Compress PDF can.
+            </span>
+          </p>
+        )}
         {zipError && <ErrorNote message={zipError} />}
         <button
           type="button"
           onClick={() => {
-            if (!zipping) void downloadResult(result);
+            if (!zipping) void downloadResult(files);
           }}
           aria-disabled={zipping || undefined}
           aria-busy={zipping}
@@ -134,9 +276,9 @@ export function SplitEditor({
           ) : (
             <>
               <Download className="size-4" aria-hidden />
-              {result.length === 1
+              {files.length === 1
                 ? "Download PDF"
-                : `Download ZIP (${result.length} files)`}
+                : `Download ZIP (${files.length} files)`}
             </>
           )}
         </button>
@@ -144,48 +286,92 @@ export function SplitEditor({
     );
   }
 
+  const runLabel =
+    mode === "size"
+      ? `Split by size`
+      : `Split into ${parts.length} file${parts.length === 1 ? "" : "s"}`;
+  const cannotRun =
+    Boolean(previewError) || (mode === "size" ? false : parts.length === 0);
+
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
 
       <RunnerSection title="How to split">
         <div className="border-line bg-wash rounded-ctl inline-flex flex-wrap gap-1 border p-1">
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setMode(m.id)}
-              className={cn(
-                "rounded-tag px-3.5 py-1.5 text-xs font-medium transition",
-                mode === m.id
-                  ? "bg-invert text-fg-invert"
-                  : "text-muted hover:text-fg",
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
+          {MODES.map((m) => {
+            const off = m.id === "bookmarks" && noBookmarks;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => {
+                  if (!off) setMode(m.id);
+                }}
+                aria-pressed={mode === m.id}
+                aria-disabled={off || undefined}
+                aria-describedby={off ? bookmarksNoteId : undefined}
+                className={cn(
+                  "rounded-tag px-3.5 py-1.5 text-xs font-medium transition",
+                  mode === m.id
+                    ? "bg-invert text-fg-invert"
+                    : "text-muted hover:text-fg",
+                  off && "cursor-not-allowed opacity-50 hover:text-current",
+                )}
+              >
+                {m.label}
+              </button>
+            );
+          })}
         </div>
+        {noBookmarks && (
+          <p id={bookmarksNoteId} className="text-muted mt-2 text-xs">
+            By bookmarks is unavailable: this PDF has no top-level bookmarks
+            that open one of its pages.
+          </p>
+        )}
       </RunnerSection>
 
       {mode === "ranges" && (
-        <label className="flex flex-col gap-2">
-          <span className="text-muted text-sm">
-            Page ranges — one file per range
-          </span>
-          <input
-            type="text"
-            value={rangeInput}
-            onChange={(e) => setRangeInput(e.target.value)}
-            placeholder="e.g. 1-3, 4-6, 7-"
-            spellCheck={false}
-            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
-          />
-          <span className="text-muted text-xs">
-            Use commas to separate files. Ranges are inclusive, e.g.{" "}
-            <code className="text-muted">1-3, 8, 10-</code>.
-          </span>
-        </label>
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-2">
+            <span className="text-muted text-sm">
+              {mergeRanges
+                ? "Page ranges — all in one file"
+                : "Page ranges — one file per range"}
+            </span>
+            <input
+              type="text"
+              value={rangeInput}
+              onChange={(e) => setRangeInput(e.target.value)}
+              placeholder="e.g. 1-3, 4-6, 7-"
+              spellCheck={false}
+              className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            />
+            <span className="text-muted text-xs">
+              Use commas to separate ranges. Ranges are inclusive, e.g.{" "}
+              <code className="text-muted">1-3, 8, 10-</code>.
+            </span>
+          </label>
+          <label
+            htmlFor={mergeId}
+            className="text-fg flex items-start gap-2 text-sm"
+          >
+            <input
+              id={mergeId}
+              type="checkbox"
+              checked={mergeRanges}
+              onChange={(e) => setMergeRanges(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Merge selected ranges into one file
+              <span className="text-muted block text-xs">
+                The ranges&apos; pages, in the order you typed them.
+              </span>
+            </span>
+          </label>
+        </div>
       )}
 
       {mode === "everyN" && (
@@ -210,6 +396,39 @@ export function SplitEditor({
         </p>
       )}
 
+      {mode === "size" && (
+        <label className="flex flex-col gap-2">
+          <span className="text-muted text-sm">Maximum size per file (MB)</span>
+          <input
+            type="number"
+            min={0.1}
+            step={0.1}
+            inputMode="decimal"
+            value={targetMb}
+            onChange={(e) => setTargetMb(e.target.value)}
+            className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl w-32 border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+          />
+          <span className="text-muted text-xs">
+            Pages stay in order. Each file gets as many pages as fit, measured
+            by building the file, not estimated. A page bigger than the limit on
+            its own becomes a file of its own, and the result says so.
+          </span>
+        </label>
+      )}
+
+      {mode === "bookmarks" && marks === null && (
+        <p className="text-muted inline-flex items-center gap-2 text-sm">
+          <Spinner />
+          Reading bookmarks…
+        </p>
+      )}
+      {mode === "bookmarks" && marks !== null && marks.length > 0 && (
+        <p className="text-muted text-sm">
+          A new file starts at each top-level bookmark&apos;s page. Pages before
+          the first bookmark become a file of their own.
+        </p>
+      )}
+
       {previewError ? (
         <ErrorNote message={previewError} />
       ) : (
@@ -226,8 +445,15 @@ export function SplitEditor({
                   <span className="bg-wash text-muted rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold tabular-nums">
                     {i + 1}
                   </span>
-                  <span className="text-muted min-w-0 flex-1 truncate">
-                    {part.name}
+                  <span className="min-w-0 flex-1">
+                    <span className="text-muted block truncate">
+                      {part.name}
+                    </span>
+                    {part.label !== undefined && (
+                      <span className="text-muted block truncate text-xs">
+                        {part.label || "Untitled bookmark"}
+                      </span>
+                    )}
                   </span>
                   <span className="text-muted shrink-0 text-xs">
                     {part.indices.length} page
@@ -247,11 +473,11 @@ export function SplitEditor({
           <RunButton
             onClick={onSplit}
             busy={busy}
-            disabled={parts.length === 0 || Boolean(previewError)}
+            disabled={cannotRun}
             busyLabel="Splitting…"
           >
             <Scissors className="size-4" aria-hidden />
-            Split into {parts.length} file{parts.length === 1 ? "" : "s"}
+            {runLabel}
           </RunButton>
         </div>
       </RunBar>

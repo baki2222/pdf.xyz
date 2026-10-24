@@ -277,9 +277,14 @@ describe("no two tool pages say the same thing", () => {
       .replaceAll("merge", "split");
     const pair = jaccard(shingles(text), shingles(clone));
     expect(pair).toBeGreaterThanOrEqual(BUDGET.maxPairOverlap);
-    // ...and half a page copied is caught too, not only a full clone.
+    // ...and half a page copied is caught too, not only a full clone: a page
+    // as long as this one, its first half another page's own prose and its
+    // second half copied from this one. CHANGED 2026-10-24: the other half
+    // was all of split-pdf's prose, so the "half" shrank as that page grew —
+    // its by-size and by-bookmarks copy took the measure to 0.242 without a
+    // word of either page being copied. The sibling is now cut to length.
     const half =
-      proseOf(getToolContent("split-pdf")!) +
+      proseOf(getToolContent("split-pdf")!).slice(0, text.length / 2) +
       " " +
       text.slice(0, text.length / 2);
     expect(jaccard(shingles(text), shingles(half))).toBeGreaterThanOrEqual(

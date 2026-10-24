@@ -3,7 +3,14 @@
 // Cover thumbnails are pre-rendered PNG blobs (object URLs); see page-tile.tsx.
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -18,7 +25,14 @@ import {
 } from "lucide-react";
 import { getPageCount, mergePdfs } from "@/lib/pdf/engine";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
-import { mergedOutputName, partitionPdfFiles } from "@/lib/pdf/files";
+import { baseName, mergedOutputName, partitionPdfFiles } from "@/lib/pdf/files";
+import {
+  MERGE_SORT_LABEL,
+  MERGE_SORTS,
+  sortMergeItems,
+  type MergeSort,
+} from "@/lib/pdf/merge-order";
+import { parsePageList } from "@/lib/pdf/ranges";
 import { causeOf, remedyFor, type RemedyInput } from "@/lib/pdf/remedies";
 import { naturalOrder, orderNote } from "@/lib/intent/defaults";
 import { renderFirstPage } from "@/lib/pdf/render";
@@ -58,6 +72,22 @@ interface MergeItem {
   cover: Thumbnail | null;
   /** Where it came in the drop: "Keep drop order" sorts by this. */
   seq: number;
+  /** The pages to take, as typed ("1-3, 5"); empty takes every page. */
+  range: string;
+}
+
+/** An item's page selection, read: the 0-based pages, or why it can't be. */
+function selectionOf(
+  item: MergeItem,
+):
+  | { pages: number[] | undefined; error: null }
+  | { pages: null; error: string } {
+  if (item.range.trim() === "") return { pages: undefined, error: null };
+  try {
+    return { pages: parsePageList(item.range, item.pageCount), error: null };
+  } catch (err) {
+    return { pages: null, error: errorMessage(err) };
+  }
 }
 
 /** A file we couldn't add, with the specific reason (validation or parse). */
@@ -88,6 +118,9 @@ export function MergeRunner() {
   const coverUrls = useRef<Set<string>>(new Set());
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
   const { announce, node: announcer } = useAnnouncer();
+  const [fileBookmarks, setFileBookmarks] = useState(false);
+  const bookmarksId = useId();
+  const rangeIdBase = useId();
   // Files handed off from the workspace (merge collects many into one).
   const handoff = useToolHandoff("merge-pdf");
 
@@ -159,6 +192,7 @@ export function MergeRunner() {
               pageCount,
               cover: null,
               seq: seqOf.get(file) ?? 0,
+              range: "",
             },
           ]);
           attachCover(id, bytes);
@@ -216,6 +250,7 @@ export function MergeRunner() {
     setDragIndex(null);
     setOverIndex(null);
     setOrdered(null);
+    setFileBookmarks(false);
   };
 
   const keepDropOrder = () => {
@@ -224,9 +259,41 @@ export function MergeRunner() {
     announce("Kept the order the files were dropped in.");
   };
 
-  const onMerge = () => run(() => mergePdfs(items.map((i) => i.bytes)));
+  const sortBy = (sort: MergeSort) => {
+    setItems((prev) => sortMergeItems(prev, sort));
+    setOrdered(null);
+    announce(`Sorted ${MERGE_SORT_LABEL[sort]}.`);
+  };
 
-  const totalPages = items.reduce((sum, i) => sum + i.pageCount, 0);
+  const setRange = (id: string, range: string) =>
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, range } : item)),
+    );
+
+  const selections = useMemo(() => items.map(selectionOf), [items]);
+  const selectionError = selections.some((s) => s.error !== null);
+
+  const onMerge = () =>
+    run(() =>
+      mergePdfs(
+        items.map((i) => i.bytes),
+        {
+          // The defaults are passed as nothing at all, so a merge with no
+          // option changed is the merge it always was.
+          ...(selections.some((s) => s.pages)
+            ? { pages: selections.map((s) => s.pages ?? undefined) }
+            : {}),
+          ...(fileBookmarks
+            ? { fileBookmarks: items.map((i) => baseName(i.name)) }
+            : {}),
+        },
+      ),
+    );
+
+  const totalPages = items.reduce(
+    (sum, item, i) => sum + (selections[i]?.pages?.length ?? item.pageCount),
+    0,
+  );
 
   if (result) {
     return (
@@ -299,6 +366,25 @@ export function MergeRunner() {
           skipped={handoff.skipped}
         />
       )}
+      <div
+        role="group"
+        aria-label="Sort files"
+        className="flex flex-wrap items-center gap-2 text-xs"
+      >
+        <span className="text-muted">Sort</span>
+        <span className="border-line bg-wash rounded-ctl inline-flex flex-wrap gap-1 border p-1">
+          {MERGE_SORTS.map((sort) => (
+            <button
+              key={sort}
+              type="button"
+              onClick={() => sortBy(sort)}
+              className="text-muted hover:text-fg hover:bg-panel rounded-tag px-3 py-1 font-medium transition"
+            >
+              {MERGE_SORT_LABEL[sort]}
+            </button>
+          ))}
+        </span>
+      </div>
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
         aside={
@@ -336,7 +422,7 @@ export function MergeRunner() {
                 setOverIndex(null);
               }}
               className={cn(
-                "bg-panel rounded-panel flex items-center gap-3 border px-3 py-2.5 transition",
+                "bg-panel rounded-panel flex flex-wrap items-center gap-x-3 gap-y-2 border px-3 py-2.5 transition",
                 overIndex === index && dragIndex !== null && dragIndex !== index
                   ? "border-accent/40 ring-accent/50 ring-1"
                   : "border-line",
@@ -399,6 +485,12 @@ export function MergeRunner() {
                   <X className="size-4" aria-hidden />
                 </button>
               </span>
+              <PageSelection
+                id={`${rangeIdBase}-${item.id}`}
+                item={item}
+                error={selections[index]?.error ?? null}
+                onChange={(range) => setRange(item.id, range)}
+              />
             </li>
           ))}
           {/* The row a file is read into, at a file row's height: a 36 px
@@ -429,6 +521,27 @@ export function MergeRunner() {
         hint="Drop files or click to browse"
       />
 
+      <label
+        htmlFor={bookmarksId}
+        className="text-fg flex items-start gap-2 text-sm"
+      >
+        <input
+          id={bookmarksId}
+          type="checkbox"
+          checked={fileBookmarks}
+          onChange={(e) => setFileBookmarks(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Add a bookmark for each file
+          <span className="text-muted block text-xs">
+            Named after the file, opening its first page. Bookmarks already in
+            your files are kept either way; with this on, they sit under their
+            file&apos;s bookmark.
+          </span>
+        </span>
+      </label>
+
       {rejectionsPanel}
       {error && <ErrorNote message={error} />}
 
@@ -441,7 +554,7 @@ export function MergeRunner() {
           <RunButton
             onClick={onMerge}
             busy={busy}
-            disabled={items.length < 2}
+            disabled={items.length < 2 || selectionError}
             busyLabel="Merging…"
           >
             <Plus className="size-4" aria-hidden />
@@ -449,6 +562,57 @@ export function MergeRunner() {
           </RunButton>
         </div>
       </RunBar>
+    </div>
+  );
+}
+
+/**
+ * One file's page selection, under its row: empty takes every page. The row
+ * wraps it onto its own line, so a 375 px screen keeps the name readable.
+ */
+function PageSelection({
+  id,
+  item,
+  error,
+  onChange,
+}: {
+  id: string;
+  item: MergeItem;
+  error: string | null;
+  onChange: (range: string) => void;
+}) {
+  return (
+    <div className="flex w-full flex-col gap-1 pl-7 sm:pl-28">
+      <span className="flex items-center gap-2">
+        <label htmlFor={id} className="text-muted shrink-0 text-xs">
+          Pages
+        </label>
+        <input
+          id={id}
+          type="text"
+          value={item.range}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`All (1-${item.pageCount})`}
+          spellCheck={false}
+          aria-label={`Pages of ${item.name} to merge, e.g. 1-3, 5 — empty for all`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
+          draggable={false}
+          onDragStart={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          className={cn(
+            "bg-canvas/60 text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl min-w-0 flex-1 border px-2.5 py-1 text-xs transition outline-none focus:ring-2 sm:max-w-56",
+            error ? "border-err/60" : "border-line",
+          )}
+        />
+      </span>
+      {error && (
+        <span id={`${id}-error`} className="text-err text-xs">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

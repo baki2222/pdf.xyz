@@ -8236,8 +8236,8 @@
       ]
     },
     "tools/split-pdf.html": {
-      "title": "Split PDF by Range or Every N Pages — No Upload — pdf.xyz",
-      "description": "Split a PDF into separate files by custom page ranges, every N pages, or one file per page. The split runs in your browser, so the file is not uploaded.",
+      "title": "Split PDF by Range, Size or Bookmarks — No Upload — pdf.xyz",
+      "description": "Split a PDF by page ranges, every N pages, each page, a maximum file size or its bookmarks. It runs in your browser, so the file is not uploaded.",
       "canonical": "https://pdf.xyz/tools/split-pdf",
       "robots": "index, follow",
       "h1": ["Split PDF"],
