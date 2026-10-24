@@ -21,6 +21,33 @@ export interface OrganizeItem {
   sourceIndex: number;
   /** Absolute rotation applied on export. */
   rotation: Rotation;
+  /**
+   * An inserted empty page of this upright size (points) rather than a source
+   * page; `sourceIndex` is then -1 and means nothing.
+   */
+  blank?: { width: number; height: number };
+}
+
+/** A page's size in points, upright (before any rotation the plan applies). */
+export interface PageSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * The size a new blank page takes to match `neighbour` AS SHOWN: the
+ * neighbour's upright size (`sizes[sourceIndex]`, or its own if it is a
+ * blank) turned by the neighbour's rotation. The blank itself is upright.
+ */
+export function blankSizeLike(
+  neighbour: OrganizeItem,
+  sizes: readonly PageSize[],
+): PageSize | null {
+  const base = neighbour.blank ?? sizes[neighbour.sourceIndex];
+  if (!base) return null;
+  return neighbour.rotation % 180 === 90
+    ? { width: base.height, height: base.width }
+    : { width: base.width, height: base.height };
 }
 
 export interface OrganizeHistory {
@@ -41,6 +68,15 @@ export type OrganizeAction =
   | { type: "rotate"; index: number; delta: number }
   | { type: "duplicate"; index: number; uid: string }
   | { type: "delete"; index: number }
+  // `sizes`: every source page's upright size, so the blank can match the
+  // tile it is inserted beside (see `blankSizeLike`).
+  | {
+      type: "insertBlank";
+      index: number;
+      side: "before" | "after";
+      uid: string;
+      sizes: readonly PageSize[];
+    }
   | { type: "reverse" }
   | { type: "reset"; items: OrganizeItem[] }
   | { type: "undo" }
@@ -104,10 +140,27 @@ function applyEdit(
       next.splice(action.index + 1, 0, { ...source, uid: action.uid });
       return next;
     }
-    case "delete":
-      // Never delete the last page — an empty document can't be exported.
-      if (items.length <= 1) return items;
+    case "delete": {
+      // Never delete the last page OF THE DOCUMENT — an output of only
+      // inserted blanks has nothing of the PDF left, and the engine refuses it.
+      const target = items[action.index];
+      if (!target) return items;
+      if (!target.blank && sourcePageCount(items) <= 1) return items;
       return items.filter((_, i) => i !== action.index);
+    }
+    case "insertBlank": {
+      const neighbour = items[action.index];
+      const size = neighbour && blankSizeLike(neighbour, action.sizes);
+      if (!size) return items;
+      const next = items.slice();
+      next.splice(action.index + (action.side === "after" ? 1 : 0), 0, {
+        uid: action.uid,
+        sourceIndex: -1,
+        rotation: 0,
+        blank: size,
+      });
+      return next;
+    }
     case "reverse":
       return items.slice().reverse();
     case "reset":
@@ -115,6 +168,11 @@ function applyEdit(
     default:
       return null;
   }
+}
+
+/** How many entries are pages of the document (not inserted blanks). */
+export function sourcePageCount(items: readonly OrganizeItem[]): number {
+  return items.reduce((n, item) => (item.blank ? n : n + 1), 0);
 }
 
 /** Push a new present onto the history, trimming `past` to `MAX_HISTORY`. */

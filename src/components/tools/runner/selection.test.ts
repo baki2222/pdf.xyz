@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   allIndices,
+  evenPages,
   invertSelection,
   isAllSelected,
+  oddPages,
   rangeInclusive,
   selectRange,
   toggleIndex,
@@ -72,5 +74,22 @@ describe("isAllSelected", () => {
 
   it("is false for an empty document", () => {
     expect(isAllSelected(set(), 0)).toBe(false);
+  });
+});
+
+describe("oddPages / evenPages", () => {
+  it("selects pages 1, 3, 5… and 2, 4, 6… as a reader numbers them", () => {
+    // 0-based indices: page 1 is index 0, so "odd pages" are EVEN indices.
+    expect([...oddPages(5)]).toEqual([0, 2, 4]);
+    expect([...evenPages(5)]).toEqual([1, 3]);
+  });
+
+  it("together they are every page, and they never overlap", () => {
+    for (const count of [0, 1, 2, 7]) {
+      const odd = oddPages(count);
+      const even = evenPages(count);
+      expect([...odd].filter((i) => even.has(i))).toEqual([]);
+      expect(new Set([...odd, ...even])).toEqual(allIndices(count));
+    }
   });
 });

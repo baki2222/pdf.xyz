@@ -4,6 +4,8 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  BetweenVerticalEnd,
+  BetweenVerticalStart,
   Copy,
   Download,
   FlipVertical2,
@@ -14,6 +16,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { organizePages } from "@/lib/pdf/engine";
+import { getUprightPageSizes } from "@/lib/pdf/crop";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
@@ -40,14 +43,22 @@ import {
   initHistory,
   isDirty,
   organizeReducer,
+  sourcePageCount,
   type OrganizeItem,
+  type PageSize,
 } from "./organize-history";
 import type { LoadedPdf } from "./use-single-pdf";
+
+/** How a tile and its announcements name an entry: "Page 3", "Blank page". */
+function nameOf(item: OrganizeItem, capital = true): string {
+  if (item.blank) return capital ? "Blank page" : "blank page";
+  return `${capital ? "Page" : "page"} ${item.sourceIndex + 1}`;
+}
 
 export function OrganizeRunner() {
   return (
     <SinglePdfRunner
-      hint="One PDF · reorder, rotate, duplicate, or delete pages"
+      hint="One PDF · reorder, rotate, duplicate, delete, or add blank pages"
       handoffSlug="organize-pages"
       toolName="Organize Pages"
     >
@@ -83,6 +94,24 @@ function OrganizeEditor({
   const { announce, node: announcer } = useAnnouncer();
   const { thumbs, rendered, status, capped, eagerCount, requestPage } =
     usePdfThumbnails(pdf.bytes, pdf.pageCount);
+
+  // Every source page's upright size, so an inserted blank can match the tile
+  // it goes beside. Read once per file (the editor is keyed by file); the
+  // insert buttons wait for it rather than guess a size.
+  const [sizes, setSizes] = useState<PageSize[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getUprightPageSizes(pdf.bytes)
+      .then((read) => {
+        if (alive) setSizes(read);
+      })
+      .catch(() => {
+        // Without sizes there is nothing to match, so insert stays disabled.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [pdf.bytes]);
 
   const dirty = isDirty(items, initial);
   useUnsavedGuard(dirty && !result, "your new page order");
@@ -137,39 +166,59 @@ function OrganizeEditor({
 
   const move = (from: number, to: number) => {
     if (to < 0 || to >= items.length || to === from) return;
-    const src = items[from]?.sourceIndex ?? 0;
+    const item = items[from];
+    if (!item) return;
     dispatch({ type: "move", from, to });
-    announce(`Moved page ${src + 1} to position ${to + 1} of ${items.length}.`);
+    announce(
+      `Moved ${nameOf(item, false)} to position ${to + 1} of ${items.length}.`,
+    );
   };
 
   const rotateItem = (index: number) =>
     dispatch({ type: "rotate", index, delta: 90 });
 
   const duplicateItem = (index: number) => {
+    const item = items[index];
+    if (!item) return;
     dispatch({ type: "duplicate", index, uid: `d${uidRef.current++}` });
-    announce(`Duplicated page ${(items[index]?.sourceIndex ?? 0) + 1}.`);
+    announce(`Duplicated ${nameOf(item, false)}.`);
   };
 
   const deleteItem = (index: number) => {
-    if (items.length <= 1) return;
+    const item = items[index];
+    if (!item || !canDelete(item)) return;
     dispatch({ type: "delete", index });
-    announce(`Deleted page ${(items[index]?.sourceIndex ?? 0) + 1}.`);
+    announce(`Deleted ${nameOf(item, false)}.`);
+  };
+
+  const canDelete = (item: OrganizeItem) =>
+    Boolean(item.blank) || sourcePageCount(items) > 1;
+
+  const insertBlank = (index: number, side: "before" | "after") => {
+    const item = items[index];
+    if (!item || !sizes) return;
+    dispatch({
+      type: "insertBlank",
+      index,
+      side,
+      uid: `b${uidRef.current++}`,
+      sizes,
+    });
+    announce(`Inserted a blank page ${side} ${nameOf(item, false)}.`);
   };
 
   const onHandleKeyDown =
     (item: OrganizeItem, i: number) => (e: React.KeyboardEvent) => {
       const n = items.length;
-      const src = item.sourceIndex + 1;
+      const src = nameOf(item, false);
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         if (grabbedUid === item.uid) {
           setGrabbedUid(null);
-          announce(`Dropped page ${src} at position ${i + 1} of ${n}.`);
+          announce(`Dropped ${src} at position ${i + 1} of ${n}.`);
         } else {
           setGrabbedUid(item.uid);
-          announce(
-            `Grabbed page ${src}. Use arrow keys to move, Enter to drop.`,
-          );
+          announce(`Grabbed ${src}. Use arrow keys to move, Enter to drop.`);
         }
         return;
       }
@@ -207,13 +256,13 @@ function OrganizeEditor({
       if (target >= 0) {
         if (target !== i) {
           dispatch({ type: "moveUidTo", uid: item.uid, index: target });
-          announce(`Moved page ${src} to position ${target + 1} of ${n}.`);
+          announce(`Moved ${src} to position ${target + 1} of ${n}.`);
         }
       } else {
         const to = i + delta;
         if (to >= 0 && to < n) {
           dispatch({ type: "moveUidBy", uid: item.uid, delta });
-          announce(`Moved page ${src} to position ${to + 1} of ${n}.`);
+          announce(`Moved ${src} to position ${to + 1} of ${n}.`);
         }
       }
     };
@@ -222,7 +271,9 @@ function OrganizeEditor({
     run(() =>
       organizePages(
         pdf.bytes,
-        items.map(({ sourceIndex, rotation }) => ({ sourceIndex, rotation })),
+        items.map(({ sourceIndex, rotation, blank }) =>
+          blank ? { sourceIndex, rotation, blank } : { sourceIndex, rotation },
+        ),
       ),
     );
 
@@ -320,13 +371,16 @@ function OrganizeEditor({
         {items.map((item, i) => (
           <PageTile
             key={item.uid}
-            label={`Page ${item.sourceIndex + 1}`}
-            ariaLabel={`Page ${item.sourceIndex + 1}, position ${i + 1} of ${items.length}`}
+            label={nameOf(item)}
+            ariaLabel={`${nameOf(item)}, position ${i + 1} of ${items.length}`}
             rotation={item.rotation}
-            thumbnail={thumbs[item.sourceIndex]}
+            thumbnail={item.blank ? undefined : thumbs[item.sourceIndex]}
+            blankSheet={item.blank}
             loading={status === "rendering"}
             onEnterView={
-              capped ? () => requestPage(item.sourceIndex) : undefined
+              capped && !item.blank
+                ? () => requestPage(item.sourceIndex)
+                : undefined
             }
             cornerBadge={i + 1}
             draggable
@@ -352,8 +406,8 @@ function OrganizeEditor({
               grabbed: grabbedUid === item.uid,
               label:
                 grabbedUid === item.uid
-                  ? `Page ${item.sourceIndex + 1}, position ${i + 1} of ${items.length}. Grabbed — arrow keys move, Enter drops, Escape cancels.`
-                  : `Reorder page ${item.sourceIndex + 1}, position ${i + 1} of ${items.length}. Press Enter or Space to grab.`,
+                  ? `${nameOf(item)}, position ${i + 1} of ${items.length}. Grabbed — arrow keys move, Enter drops, Escape cancels.`
+                  : `Reorder ${nameOf(item, false)}, position ${i + 1} of ${items.length}. Press Enter or Space to grab.`,
               onToggle: () =>
                 setGrabbedUid((g) => (g === item.uid ? null : item.uid)),
               onKeyDown: onHandleKeyDown(item, i),
@@ -361,34 +415,48 @@ function OrganizeEditor({
             actions={
               <>
                 <TileAction
-                  title={`Move page ${item.sourceIndex + 1} left`}
+                  title={`Move ${nameOf(item, false)} left`}
                   onClick={() => move(i, i - 1)}
                   disabled={i === 0}
                 >
                   <ArrowLeft className="size-3.5" aria-hidden />
                 </TileAction>
                 <TileAction
-                  title={`Rotate page ${item.sourceIndex + 1} right`}
+                  title={`Rotate ${nameOf(item, false)} right`}
                   onClick={() => rotateItem(i)}
                 >
                   <RotateCw className="size-3.5" aria-hidden />
                 </TileAction>
                 <TileAction
-                  title={`Duplicate page ${item.sourceIndex + 1}`}
+                  title={`Duplicate ${nameOf(item, false)}`}
                   onClick={() => duplicateItem(i)}
                 >
                   <Copy className="size-3.5" aria-hidden />
                 </TileAction>
                 <TileAction
-                  title={`Delete page ${item.sourceIndex + 1}`}
+                  title={`Delete ${nameOf(item, false)}`}
                   onClick={() => deleteItem(i)}
-                  disabled={items.length === 1}
+                  disabled={!canDelete(item)}
                   danger
                 >
                   <Trash2 className="size-3.5" aria-hidden />
                 </TileAction>
                 <TileAction
-                  title={`Move page ${item.sourceIndex + 1} right`}
+                  title={`Insert blank page before ${nameOf(item, false)}`}
+                  onClick={() => insertBlank(i, "before")}
+                  disabled={!sizes}
+                >
+                  <BetweenVerticalStart className="size-3.5" aria-hidden />
+                </TileAction>
+                <TileAction
+                  title={`Insert blank page after ${nameOf(item, false)}`}
+                  onClick={() => insertBlank(i, "after")}
+                  disabled={!sizes}
+                >
+                  <BetweenVerticalEnd className="size-3.5" aria-hidden />
+                </TileAction>
+                <TileAction
+                  title={`Move ${nameOf(item, false)} right`}
                   onClick={() => move(i, i + 1)}
                   disabled={i === items.length - 1}
                 >

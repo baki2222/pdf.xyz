@@ -31,6 +31,7 @@ import {
 import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
 import { addWatermark } from "../../src/lib/pdf/watermark";
 import { addPageNumbers } from "../../src/lib/pdf/page-numbers";
+import { NO_CROP, cropPdf } from "../../src/lib/pdf/crop";
 import {
   fileInput,
   placeEditorText,
@@ -1758,6 +1759,20 @@ const SMALL_MARGIN = "the image's binding side sits at the Small margin";
 const FIT_PAGES = "each page is its image's own size";
 const NO_MARGIN = "the image fills its page: no margin";
 
+/** Why the page-tool variants reject an artifact (added 2026-10-24). */
+const ODD_TURNED = "pages 1 and 3 took the quarter turn, pages 2 and 4 did not";
+const ALL_FLIPPED = "Rotate all 180° reached the unselected pages";
+const INK_KEPT = "auto-crop keeps every edge outside the ink";
+const WHITE_REMOVED = "auto-crop removes most of each white margin";
+const BLANK_KEPT = "the blank page is left uncropped";
+const THREE_PAGES = "one page was inserted";
+const BLANK_SECOND = "the empty page sits between pages 1 and 2";
+const SAME_SIZE = "the blank page is page 1's size";
+
+/** Auto-crop's fixture: a 400×600 page with ink from (80,150) to (280,450). */
+const AUTO_PAGE: [number, number] = [400, 600];
+const AUTO_INK: [number, number, number, number] = [80, 150, 280, 450];
+
 const A4 = IMAGE_PAGE_SIZES.find((s) => s.id === "a4")!.size!;
 const SMALL_MARGIN_PT = IMAGE_MARGINS.find((m) => m.id === "small")!.points;
 
@@ -2082,6 +2097,203 @@ export const VARIANTS: readonly VariantCase[] = [
     },
     rejectsBecause: [FIT_PAGES, NO_MARGIN],
   },
+
+  {
+    slug: "rotate-pdf",
+    name: "Odd pages, Right, then Rotate all 180°",
+    kind: "rotate",
+    artifact: "pdf",
+    run: async (ctx) => {
+      await uploadTextPdf(ctx, "duplex.pdf", { pages: 4 });
+      await ctx.page.getByRole("button", { name: "Odd pages" }).click();
+      await ctx.page.getByRole("button", { name: /^right$/i }).click();
+      await ctx.page.getByRole("button", { name: "Rotate all 180°" }).click();
+      return runAndDownload(
+        ctx,
+        /apply rotation/i,
+        /pdf rotated/i,
+        /download rotated pdf/i,
+      );
+    },
+    assert: async (buf) => {
+      const r = await pdfRotations(buf);
+      expect(r.length).toBe(4);
+      // Pages 1 and 3 took the quarter turn, pages 2 and 4 did not…
+      expect(
+        [0, 2].map((i) => (r[i]! - r[i + 1]! + 360) % 360),
+        ODD_TURNED,
+      ).toEqual([90, 90]);
+      // …and the 180° reached every page, selected or not.
+      expect([r[1], r[3]], ALL_FLIPPED).toEqual([180, 180]);
+    },
+    // Each differs in one property: the 180° obeyed the selection (pages 2
+    // and 4 never flipped); "Odd pages" selected pages 2 and 4 instead.
+    control: async (ctx) => {
+      const turned = async (angles: number[]) => {
+        const doc = await PDFDocument.load(input(ctx, "duplex.pdf"));
+        doc.getPages().forEach((p, i) => p.setRotation(degrees(angles[i]!)));
+        return Buffer.from(await doc.save());
+      };
+      return [await turned([90, 0, 90, 0]), await turned([180, 270, 180, 270])];
+    },
+    rejectsBecause: [ALL_FLIPPED, ODD_TURNED],
+  },
+
+  {
+    slug: "crop-pdf",
+    name: "Auto, each page its own box, with a blank page",
+    kind: "crop",
+    artifact: "pdf",
+    run: async (ctx) => {
+      const doc = await PDFDocument.create();
+      const [w, h] = AUTO_PAGE;
+      const [x0, y0, x1, y1] = AUTO_INK;
+      doc.addPage([w, h]).drawRectangle({
+        x: x0,
+        y: y0,
+        width: x1 - x0,
+        height: y1 - y0,
+        color: rgb(0, 0, 0),
+      });
+      doc.addPage([w, h]);
+      const bytes = Buffer.from(await doc.save());
+      ctx.data["margins.pdf"] = bytes;
+      await uploadPayloads(ctx.page, [
+        { name: "margins.pdf", mimeType: "application/pdf", buffer: bytes },
+      ]);
+      await expect(
+        ctx.page.getByText("margins.pdf", { exact: true }),
+      ).toBeVisible();
+      const auto = ctx.page.getByRole("radio", { name: "Auto" });
+      await waitForHydration(auto);
+      await auto.click();
+      await ctx.page
+        .getByRole("button", { name: /find white margins/i })
+        .click();
+      await expect(
+        ctx.page.getByText(/found the content on 1 of 2 pages/i),
+      ).toBeVisible();
+      await expect(
+        ctx.page.getByText(/page 2 looks blank and is left uncropped/i),
+      ).toBeVisible();
+      return runAndDownload(
+        ctx,
+        /^crop pdf$/i,
+        /pdf cropped/i,
+        /download cropped pdf/i,
+      );
+    },
+    assert: async (buf) => {
+      const doc = await PDFDocument.load(buf);
+      const [w, h] = AUTO_PAGE;
+      const [x0, y0, x1, y1] = AUTO_INK;
+      const boxes = doc.getPages().map((p) => p.getCropBox());
+      expect(boxes.length).toBe(2);
+      const b = boxes[0]!;
+      const kept = [b.x, b.y, b.x + b.width, b.y + b.height];
+      // Every edge stays outside the ink…
+      expect(
+        kept[0]! <= x0 && kept[1]! <= y0 && kept[2]! >= x1 && kept[3]! >= y1,
+        `${INK_KEPT}: ${kept.join(", ")}`,
+      ).toBe(true);
+      // …and takes at least 80% of the white on that side.
+      const removed = [kept[0]!, kept[1]!, w - kept[2]!, h - kept[3]!];
+      const white = [x0, y0, w - x1, h - y1];
+      expect(
+        removed.every((r, i) => r >= white[i]! * 0.8),
+        `${WHITE_REMOVED}: removed ${removed.join(", ")} of ${white.join(", ")}`,
+      ).toBe(true);
+      const blank = boxes[1]!;
+      expect([blank.x, blank.y, blank.width, blank.height], BLANK_KEPT).toEqual(
+        [0, 0, w, h],
+      );
+    },
+    // Each differs in one property: the default 24 pt crop (keeps the ink,
+    // takes too little white); a crop 10 pt into the ink; the right box on
+    // page 1 applied to the blank page 2 as well.
+    control: async (ctx) => {
+      const original = input(ctx, "margins.pdf");
+      const [w, h] = AUTO_PAGE;
+      const [x0, y0, x1, y1] = AUTO_INK;
+      const around = (into: number) => ({
+        left: x0 + into,
+        bottom: y0 + into,
+        right: w - x1 + into,
+        top: h - y1 + into,
+      });
+      const fair = { left: 74, bottom: 144, right: 114, top: 144 };
+      return [
+        Buffer.from(
+          await cropPdf(original, {
+            margins: { top: 24, right: 24, bottom: 24, left: 24 },
+          }),
+        ),
+        Buffer.from(
+          await cropPdf(original, {
+            margins: NO_CROP,
+            perPage: [around(10), null],
+          }),
+        ),
+        Buffer.from(
+          await cropPdf(original, { margins: NO_CROP, perPage: [fair, fair] }),
+        ),
+      ];
+    },
+    rejectsBecause: [WHITE_REMOVED, INK_KEPT, BLANK_KEPT],
+  },
+
+  {
+    slug: "organize-pages",
+    name: "Insert blank page after page 1",
+    kind: "organize",
+    artifact: "pdf",
+    run: async (ctx) => {
+      await uploadTextPdf(ctx, "gaps.pdf", { pages: 2 });
+      const insert = ctx.page.getByRole("button", {
+        name: "Insert blank page after page 1",
+      });
+      // The button waits for the page sizes it copies.
+      await expect(insert).not.toHaveAttribute("aria-disabled", "true");
+      await waitForHydration(insert);
+      await insert.click();
+      await expect(
+        ctx.page.getByText("Blank page", { exact: true }),
+      ).toBeVisible();
+      return runAndDownload(
+        ctx,
+        /apply.*export/i,
+        /pages organized/i,
+        /download organized pdf/i,
+      );
+    },
+    assert: async (buf) => {
+      expect(await pdfPageCount(buf), THREE_PAGES).toBe(3);
+      const texts = await pdfPageTexts(buf);
+      expect(
+        [
+          texts[0]!.includes(marker("gaps.pdf", 1)),
+          texts[1]!.trim() === "",
+          texts[2]!.includes(marker("gaps.pdf", 2)),
+        ],
+        BLANK_SECOND,
+      ).toEqual([true, true, true]);
+      const sizes = (await pdfCropBoxes(buf)).map((b) => [b.width, b.height]);
+      expect(sizes[1], SAME_SIZE).toEqual(sizes[0]);
+    },
+    // Each differs in one property: no page inserted; the blank at the end
+    // instead of after page 1; a blank of the wrong (turned) size.
+    control: async (ctx) => {
+      const original = input(ctx, "gaps.pdf");
+      const withBlank = async (at: number, size?: [number, number]) => {
+        const doc = await PDFDocument.load(original);
+        const { width, height } = doc.getPage(0).getSize();
+        doc.insertPage(at, size ?? [width, height]);
+        return Buffer.from(await doc.save());
+      };
+      return [original, await withBlank(2), await withBlank(1, [240, 320])];
+    },
+    rejectsBecause: [THREE_PAGES, BLANK_SECOND, SAME_SIZE],
+  },
 ];
 
 export const UNPROVEN: Record<string, string> = {
@@ -2114,8 +2326,10 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Only a text field is written. Checkboxes, radio groups, dropdowns and the appearance-stream regeneration those need are not exercised.",
   "create-forms":
     "Only the default single text-field draft. Adding several fields, other field types, and dragged placement are not exercised.",
+  "rotate-pdf":
+    "Every page turned Right (the default case), and the option variant (VARIANTS: Odd pages, Right, then Rotate all 180°). Even pages, Invert, Clear, shift-click ranges and the per-tile arrows are not exercised in a real browser; Even pages with Left is downloaded through the runner in src/components/tools/runner/rotate-runner.test.tsx, in jsdom.",
   "crop-pdf":
-    "Only the default uniform margins applied to every page of an unrotated PDF. Per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
+    "The default uniform margins applied to every page of an unrotated PDF, and the option variant (VARIANTS: Auto, each page its own box, on a two-page file whose second page is blank). Auto's Same box on every page, millimetre and inch units, per-side margins, pages carrying /Rotate, page selection and the schematic preview are not exercised end to end; Same box and units are proved through the runner in src/components/tools/runner/crop-runner.test.tsx and src/lib/pdf/auto-crop.test.ts, in jsdom and Node with pdfjs's legacy build. Per-side margins on every /Rotate are proved by pdfjs reading the saved file in src/lib/pdf/crop.test.ts, and the Uniform/Per side switch and the rotated preview by src/components/tools/runner/crop-runner.test.tsx; neither runs in a real browser.",
   "compare-pdf":
     "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text.",
   "compress-pdf":
@@ -2123,7 +2337,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "split-pdf":
     "This case proves only the default even split into two ranges. e2e/merge-tool.spec.ts adds By bookmarks, By file size (every part under the target) and custom ranges merged into one file (the single-output, no-ZIP branch), each read from the downloaded bytes. Every N pages, Each page, and By file size's oversized-single-page notice are not exercised in a browser; that notice's engine half is pinned in src/lib/pdf/merge-split-options.test.ts.",
   "organize-pages":
-    "Only the Reverse bulk action. Drag reordering, duplication and per-page rotation inside the organizer are not exercised.",
+    "The Reverse bulk action, and the option variant (VARIANTS: Insert blank page after page 1). Insert blank page before, a blank beside a turned page, drag reordering, duplication and per-page rotation inside the organizer are not exercised; a blank beside a turned page is downloaded through the runner in src/components/tools/runner/runner-flows.test.tsx, in jsdom.",
   "pdf-to-jpg":
     "Only the default resolution. The default case renders a single page; the option variant (VARIANTS: pages 1 and 3 of 3, Grayscale) renders a two-image ZIP of one-component JPEGs. Other DPI presets, and colour JPEGs in a ZIP, are not exercised in a real browser. src/components/tools/runner/pdf-to-image-chain.test.tsx drives the same runner and the real rasterizePdf at Print in jsdom, but for PNG output only, so the JPEG encoder at those presets is not exercised anywhere.",
   "pdf-to-png":

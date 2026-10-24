@@ -4485,7 +4485,7 @@
     },
     "tools/crop-pdf.html": {
       "title": "Crop PDF Online – Trim Margins in Your Browser — pdf.xyz",
-      "description": "Crop PDF pages by trimming margins with sliders, evenly or edge by edge, on every page or only the ones you list. The file stays in your browser tab.",
+      "description": "Crop PDF margins evenly, edge by edge, or to the white space found around each page's content, on every page or the ones you list. Stays in your browser.",
       "canonical": "https://pdf.xyz/tools/crop-pdf",
       "robots": "index, follow",
       "h1": ["Crop PDF"],

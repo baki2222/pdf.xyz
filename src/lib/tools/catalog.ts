@@ -59,7 +59,7 @@ export const tools: Tool[] = [
     seoTitle: "Organize PDF Pages — Reorder, Rotate & Delete",
     tagline: "Reorder, rotate, and delete pages visually.",
     description:
-      "Rearrange, rotate, duplicate, and delete pages on a visual page board, then export a clean PDF.",
+      "Rearrange, rotate, duplicate, and delete pages, or insert blank ones, on a visual page board, then export a clean PDF.",
     category: "organize",
     icon: "organize",
     processing: "client",
@@ -646,7 +646,7 @@ export const tools: Tool[] = [
     name: "Crop PDF",
     tagline: "Trim margins and crop pages.",
     description:
-      "Crop PDF pages right in your browser — uniform margins or per-side control, applied to every page or only the ones you select. The file stays on your device.",
+      "Crop PDF pages in your browser — even margins, per side, or the white margins found for you, on every page or the ones you pick. The file stays on your device.",
     category: "edit",
     icon: "crop",
     processing: "client",

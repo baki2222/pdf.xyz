@@ -25,7 +25,7 @@ import { HandoffLoadedBadge } from "./handoff-notice";
 import { RotateRunner } from "./rotate-runner";
 import { OrganizeRunner } from "./organize-runner";
 import { documentLevelState, wholeDocumentPdf } from "@/tests/whole-document";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 
 /**
  * Whole runners, driven the way a person drives them: pick a file, press the
@@ -482,6 +482,75 @@ describe("Organize PDF downloads the whole document when it removes no page", ()
       // Health check: the input really carried each of them.
       expect(Object.keys(input.attachments)).toHaveLength(1);
       expect(input.xmpTitle).not.toBeNull();
+    } finally {
+      URL.createObjectURL = previous;
+    }
+  }, 30_000);
+});
+
+describe("Organize PDF inserts a blank page where the tile says", () => {
+  // The reducer test proves the plan; this reads the file the Download button
+  // hands over, so a runner that dropped `blank` on the way to the engine (or
+  // sized it from the wrong page) could not pass.
+  it("Insert blank page after page 1 → page 2 of the download is empty and page 1's size as shown", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    // Page 1 is stored 400×250 and turned a quarter, so a reader sees it
+    // 250 wide and 400 tall; page 2 is a different size again.
+    const first = doc.addPage([400, 250]);
+    first.setRotation(degrees(90));
+    first.drawText("ONE", { x: 20, y: 40, size: 12, font });
+    doc.addPage([300, 300]).drawText("TWO", { x: 20, y: 40, size: 12, font });
+    const bytes = await doc.save();
+    const downloads: Blob[] = [];
+    const previous = URL.createObjectURL;
+    URL.createObjectURL = (blob: Blob | MediaSource) => {
+      if (blob instanceof Blob && blob.type === "application/pdf") {
+        downloads.push(blob);
+      }
+      return "blob:download";
+    };
+    try {
+      const { container } = renderRunner(<OrganizeRunner />);
+      pick(container, [
+        new File([bytes.slice()], "gaps.pdf", { type: "application/pdf" }),
+      ]);
+      const insert = await screen.findByRole(
+        "button",
+        { name: "Insert blank page after page 1" },
+        { timeout: 10_000 },
+      );
+      // The sizes arrive after the board; the button waits for them.
+      await waitFor(() => expect(insert).not.toHaveAttribute("aria-disabled"));
+      fireEvent.click(insert);
+      expect(screen.getByText("Blank page", { exact: true })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /apply & export/i }));
+      await screen.findByText("Pages organized", undefined, {
+        timeout: 10_000,
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: /download organized pdf/i }),
+      );
+      expect(downloads).toHaveLength(1);
+      const out = await PDFDocument.load(
+        new Uint8Array(await downloads[0]!.arrayBuffer()),
+      );
+      const pages = out.getPages();
+      expect(pages).toHaveLength(3);
+      const shown = pages.map((p) => {
+        const { width, height } = p.getSize();
+        return p.getRotation().angle % 180 === 90
+          ? [height, width]
+          : [width, height];
+      });
+      expect(shown).toEqual([
+        [250, 400],
+        [250, 400],
+        [300, 300],
+      ]);
+      // The inserted page carries no content stream at all.
+      expect(pages[1]!.node.Contents()).toBeUndefined();
+      expect(pages[0]!.node.Contents()).toBeDefined();
     } finally {
       URL.createObjectURL = previous;
     }
