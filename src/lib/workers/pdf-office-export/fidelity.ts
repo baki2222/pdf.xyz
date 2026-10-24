@@ -225,7 +225,9 @@ export async function openForComparison(
 ): Promise<{ doc: NodePdfDocument; close(): Promise<void> }> {
   const pdfjs = await loadNodePdfjs();
   const task = pdfjs.getDocument({
-    data: pdf.slice(),
+    // A COPY into a plain Uint8Array: `slice()` of a Node Buffer is another
+    // Buffer (and a view), which pdf.js refuses.
+    data: new Uint8Array(pdf),
     ...PDFJS_DOCUMENT_DEFAULTS,
     ...nodePdfjsAssetDirs(),
     disableFontFace: true,
