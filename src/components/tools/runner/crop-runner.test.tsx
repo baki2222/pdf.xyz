@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @native-canvas
 /**
  * The Crop PDF runner, driven the way a person drives it, and judged on the
  * file it hands them.
@@ -217,5 +218,119 @@ describe("CropRunner mode switch", () => {
     // The Top inset is a share of the DISPLAYED height: 100 of 400 pt.
     const inset = frame.querySelector<HTMLElement>("span")!;
     expect(parseFloat(inset.style.top)).toBeCloseTo(25, 6);
+  });
+});
+
+/** Two pages: ink with known margins on page 1, nothing at all on page 2. */
+async function inkedAndBlankPdf(): Promise<File> {
+  const doc = await PDFDocument.create();
+  doc
+    .addPage([PAGE.width, PAGE.height])
+    .drawRectangle({ x: 80, y: 150, width: 200, height: 300 });
+  doc.addPage([PAGE.width, PAGE.height]);
+  const bytes = await doc.save();
+  return new File([bytes.slice().buffer as ArrayBuffer], "inked.pdf", {
+    type: "application/pdf",
+  });
+}
+
+/** Read every page's crop box back as the margins it lost. */
+async function lostPerPage(blob: Blob): Promise<CropMargins[]> {
+  const out = await PDFDocument.load(new Uint8Array(await blob.arrayBuffer()));
+  return out.getPages().map((page) => {
+    const box = page.getCropBox();
+    return {
+      left: box.x,
+      bottom: box.y,
+      right: PAGE.width - (box.x + box.width),
+      top: PAGE.height - (box.y + box.height),
+    };
+  });
+}
+
+describe("CropRunner Auto: the whole chain, pdf.js render to downloaded file", () => {
+  it("finds the white around the ink, names the blank page, and leaves it uncropped", async () => {
+    const view = render(withRouter(<CropRunner />));
+    await dropSheetsLive(view.container);
+    const input = view.container.querySelector('input[type="file"]');
+    fireEvent.drop(input!.closest("label")!, {
+      dataTransfer: { files: [await inkedAndBlankPdf()] },
+    });
+    await screen.findByRole("radiogroup", { name: "Crop mode" });
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Crop mode" })).getByRole(
+        "radio",
+        { name: "Auto" },
+      ),
+    );
+    // Nothing found yet, so nothing to crop.
+    expect(screen.getByRole("button", { name: /^crop pdf$/i })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /find white margins/i }),
+    );
+    await screen.findByText(/found the content on 1 of 2 pages/i, undefined, {
+      timeout: 15_000,
+    });
+    expect(
+      screen.getByText(/page 2 looks blank and is left uncropped/i),
+    ).toBeTruthy();
+
+    const blobs: Blob[] = [];
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: (blob: Blob) => {
+        if (blob.type === "application/pdf") blobs.push(blob);
+        return "blob:crop-runner-test";
+      },
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: () => {},
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fireEvent.click(screen.getByRole("button", { name: /^crop pdf$/i }));
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        { name: /download cropped pdf/i },
+        { timeout: 5000 },
+      ),
+    );
+    expect(screen.getByText(/cropped 1 page ·/i)).toBeTruthy();
+    await waitFor(() => expect(blobs).toHaveLength(1));
+    const [first, second] = await lostPerPage(blobs[0]!);
+    // The ink sits 80 pt from the left, 120 from the right, 150 from the
+    // top and bottom. The crop stays outside it and takes most of the white.
+    const known = { left: 80, right: 120, top: 150, bottom: 150 };
+    for (const edge of EDGES) {
+      expect(first![edge], edge).toBeLessThan(known[edge]);
+      expect(first![edge], edge).toBeGreaterThan(known[edge] * 0.8);
+    }
+    expect(second, "the blank page keeps its whole area").toEqual(NO_CROP);
+  }, 30_000);
+});
+
+describe("CropRunner units", () => {
+  it("a margin typed in mm reaches the file in points; pt stays the default", async () => {
+    await openRunner();
+    const units = () => screen.getByRole("radiogroup", { name: "Units" });
+    // The default is unchanged: points, and 24 on every side.
+    expect(within(units()).getByRole("radio", { name: "pt" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(sliderValue("All sides")).toBe(24);
+    fireEvent.click(within(units()).getByRole("radio", { name: "mm" }));
+    fireEvent.change(screen.getByLabelText("All sides in mm"), {
+      target: { value: "25.4" },
+    });
+    expect(screen.getByText("25.4 mm")).toBeTruthy();
+    const lost = await cropAndDownload();
+    for (const edge of EDGES) expect(lost[edge], edge).toBeCloseTo(72, 6);
   });
 });

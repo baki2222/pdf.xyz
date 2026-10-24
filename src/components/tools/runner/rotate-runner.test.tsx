@@ -87,8 +87,15 @@ async function blobBytes(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-/** Upload `bytes`, rotate every page right once, apply, and download. */
-async function rotateThroughTheUi(bytes: Uint8Array): Promise<Uint8Array> {
+/**
+ * Upload `bytes`, press each named button in order (default: one "Right",
+ * which turns every page because every page starts selected), apply, and
+ * download.
+ */
+async function rotateThroughTheUi(
+  bytes: Uint8Array,
+  presses: RegExp[] = [/^right$/i],
+): Promise<Uint8Array> {
   const kind = getRunnerKind(SLUG);
   expect(kind, `the registry no longer maps ${SLUG} to a runner`).toBe(
     "rotate",
@@ -106,8 +113,10 @@ async function rotateThroughTheUi(bytes: Uint8Array): Promise<Uint8Array> {
   });
   fireEvent.change(input!, { target: { files: [file] } });
 
-  // Every page starts selected; one "Right" turns them all 90°.
-  fireEvent.click(await screen.findByRole("button", { name: /^right$/i }));
+  await screen.findByRole("button", { name: /^right$/i });
+  for (const name of presses) {
+    fireEvent.click(screen.getByRole("button", { name }));
+  }
   const apply = screen.getByRole("button", { name: /apply rotation/i });
   await waitFor(() => expect(apply).toBeEnabled());
   fireEvent.click(apply);
@@ -167,6 +176,36 @@ describe("rotate-pdf: what the downloaded file still carries", () => {
 
     expect(after.rotations).toEqual([90, 90, 90]);
     expect(lostStructure(before, after)).toEqual([]);
+  }, 30_000);
+
+  it("Odd pages + Right turns pages 1 and 3 only, and Even pages + Left pages 2 and 4 only", async () => {
+    const input = await makeStructuredPdf(4);
+    const before = await readDocumentStructure(input);
+    // Health check: the fixture starts upright, so any turn is the tool's.
+    expect(before.rotations).toEqual([0, 0, 0, 0]);
+
+    const odd = await readDocumentStructure(
+      await rotateThroughTheUi(input, [/^odd pages$/i, /^right$/i]),
+    );
+    expect(odd.rotations).toEqual([90, 0, 90, 0]);
+    cleanup();
+    downloads = [];
+
+    const even = await readDocumentStructure(
+      await rotateThroughTheUi(input, [/^even pages$/i, /^left$/i]),
+    );
+    expect(even.rotations).toEqual([0, 270, 0, 270]);
+    expect(lostStructure(before, even)).toEqual([]);
+  }, 30_000);
+
+  it("Rotate all 180° turns every page whatever is selected", async () => {
+    const input = await makeStructuredPdf(4);
+    // "Odd pages" first, so a 180° that obeyed the selection would leave
+    // pages 2 and 4 upright — the press must ignore it, as its name says.
+    const after = await readDocumentStructure(
+      await rotateThroughTheUi(input, [/^odd pages$/i, /^rotate all 180°$/i]),
+    );
+    expect(after.rotations).toEqual([180, 180, 180, 180]);
   }, 30_000);
 
   it("POSITIVE CONTROL: the rebuild the tool used to ship fails the same predicate", async () => {

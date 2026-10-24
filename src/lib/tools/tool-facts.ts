@@ -409,7 +409,8 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     },
     {
       label: "Scope",
-      value: "Rotate every page, or only the pages you select.",
+      value:
+        "Rotate every page, only the pages you select, or every odd or even page.",
     },
   ],
   "merge-pdf": [
@@ -432,7 +433,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Operations",
       value:
-        "Reorder, rotate, duplicate, or delete pages in one pass — drag pages or use keyboard moves.",
+        "Reorder, rotate, duplicate, or delete pages and insert blank ones in one pass — drag pages or use keyboard moves.",
     },
   ],
   "watermark-pdf": [
@@ -509,7 +510,7 @@ const FACTS: Record<string, readonly ToolFact[]> = {
     {
       label: "Crop modes",
       value:
-        "Uniform margins or per-side control, applied to all pages or only the ones you select.",
+        "Uniform margins, per-side control in pt, mm or in, or auto-detected white margins, applied to all pages or only the ones you select.",
     },
     {
       label: "Hidden, not deleted",
@@ -767,7 +768,8 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   "page-numbers": ["drawing-font"],
   watermark: ["drawing-font"],
   "header-footer": ["drawing-font"],
-  crop: [],
+  // Auto renders every page through pdf.js to find its margins (2026-10-24).
+  crop: ["image-decoder", "character-map"],
   sign: ["image-decoder", "character-map", "drawing-font"],
   flatten: [],
   overlay: [],

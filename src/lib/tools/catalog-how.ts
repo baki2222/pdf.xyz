@@ -33,7 +33,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "organize-pages": [
     "Pick your PDF — every page opens as a tile on a page board, and the file stays on your device.",
-    "Drag tiles into a new order, or use each tile's move buttons; rotate, duplicate or delete any page from its tile.",
+    "Drag tiles into a new order, or use each tile's move buttons; rotate, duplicate or delete any page from its tile, or insert a blank page before or after it.",
     "Change your mind with “Undo” and “Redo” (Ctrl/⌘+Z and Ctrl/⌘+Shift+Z), or start over with “Reset”.",
     "Click “Apply & export”, then “Download organized PDF”.",
   ],
@@ -45,8 +45,8 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "rotate-pdf": [
     "Pick your PDF — every page appears as a thumbnail, and the file stays on your device.",
-    "Select the pages to turn, or select none to turn them all; Shift-click selects a run.",
-    "Turn them with “Left”, “Right” or “180°”, or with the arrows on a single page.",
+    "Select the pages to turn, or select none to turn them all; Shift-click selects a run, and “Odd pages” or “Even pages” selects every other page.",
+    "Turn them with “Left”, “Right” or “180°”, or with the arrows on a single page; “Rotate all 180°” flips every page at once.",
     "Click “Apply rotation”, then “Download rotated PDF”.",
   ],
   "extract-images": [
@@ -144,7 +144,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "crop-pdf": [
     "Open the PDF you want to crop.",
-    "Set the crop margins and choose which pages to apply them to.",
+    "Set the crop margins in pt, mm or in, or let Auto find the white margins, and choose which pages to apply them to.",
     "Download your cropped PDF.",
   ],
   "header-footer": [
