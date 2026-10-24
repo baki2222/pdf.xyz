@@ -66,3 +66,35 @@ test("the home desk adopts files picked before hydration", async ({ page }) => {
   });
   await expect(ticket).toContainText(/1 PDF\s·\s2 pages/);
 });
+
+/**
+ * The same window for TYPED text (2026-10-24): Text to PDF and Markdown to PDF
+ * render their textarea on the server, so a reader on a slow phone can type
+ * before hydration. The words stay in the box, React's state stays empty, and
+ * "Create PDF" does nothing — found by the client proof flaking against
+ * production, where hydration is slower than locally.
+ */
+for (const { slug, box } of [
+  { slug: "text-to-pdf", box: /Paste or type plain text here/ },
+  { slug: "markdown-to-pdf", box: /Write or paste Markdown here/ },
+]) {
+  test(`${slug} keeps text typed before hydration`, async ({ page }) => {
+    await stallScripts(page);
+    await page.goto(`/tools/${slug}`, { waitUntil: "commit" });
+    await page.getByPlaceholder(box).fill("typed-before-hydration");
+    const create = page.getByRole("button", { name: /create pdf/i });
+    await expect(create).toBeEnabled({ timeout: 20_000 });
+    // Hydrated now: the press must act on the typed words.
+    await expect
+      .poll(() =>
+        create.evaluate((el) =>
+          Object.keys(el).some((k) => k.startsWith("__reactFiber$")),
+        ),
+      )
+      .toBe(true);
+    await create.click();
+    await expect(
+      page.getByRole("heading", { name: /pdf created/i }),
+    ).toBeVisible({ timeout: 20_000 });
+  });
+}

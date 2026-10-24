@@ -1,7 +1,8 @@
 "use client";
 
 import { MAX_SOURCE_BYTES, MAX_SOURCE_MB } from "@/lib/tools/limits";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { usePreHydrationText } from "./pre-hydration-text";
 import { Download, FileText, Keyboard, ShieldCheck, Type } from "lucide-react";
 import { textPdfOutputName, textToPdf } from "@/lib/pdf/text-to-pdf";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -52,10 +53,15 @@ interface TextSource {
 
 export function TextToPdfRunner() {
   const handoff = useToolHandoff("text-to-pdf");
+  const boxId = useId();
   const [source, setSource] = useState<TextSource>({
     name: "text.txt",
     text: "",
   });
+  // Words typed before hydration survive it (pre-hydration-text.ts).
+  usePreHydrationText(boxId, (text) =>
+    setSource((current) => (current.text ? current : { ...current, text })),
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const seededRef = useRef(false);
 
@@ -108,6 +114,7 @@ export function TextToPdfRunner() {
         />
       )}
       <TextToPdfEditor
+        boxId={boxId}
         source={source}
         onSource={setSource}
         onFile={(files) => files[0] && void readTextFile(files[0])}
@@ -119,12 +126,14 @@ export function TextToPdfRunner() {
 }
 
 function TextToPdfEditor({
+  boxId,
   source,
   onSource,
   onFile,
   loadError,
   onClearError,
 }: {
+  boxId: string;
   source: TextSource;
   onSource: (source: TextSource) => void;
   onFile: (files: File[]) => void;
@@ -189,6 +198,7 @@ function TextToPdfEditor({
         }
       >
         <textarea
+          id={boxId}
           value={source.text}
           onChange={(event) =>
             onSource({ ...source, text: event.target.value })
