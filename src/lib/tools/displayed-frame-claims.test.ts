@@ -275,13 +275,16 @@ describe("pages whose engine reads the displayed frame do not describe the store
     // the defect, and every placing tool page-frame.ts's docblock names
     // (Edit, Sign, Annotate, Create forms, the three stamps, Crop) plus
     // Redact. The first, transitive version also returned Flatten and
-    // Overlay — see readsDisplayedFrame.
+    // Overlay — see readsDisplayedFrame. Organize Pages joined 2026-10-24: it
+    // sizes an inserted blank page from the neighbour's visible frame
+    // (`getUprightPageSizes`), and its page says "as you see it".
     expect(slugs).toEqual([
       "annotate-pdf",
       "create-forms",
       "crop-pdf",
       "edit-pdf",
       "header-footer",
+      "organize-pages",
       "page-numbers",
       "redact-pdf",
       "sign-pdf",

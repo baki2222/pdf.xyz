@@ -62,6 +62,64 @@ describe("organizeReducer — edits", () => {
     expect(canUndo(stillOne)).toBe(canUndo(one)); // history unchanged by the no-op
   });
 
+  it("inserts a blank page before or after a tile, sized like that tile as shown", () => {
+    // Page 0 is 200×300 upright; page 1 is 400×250 and turned a quarter in
+    // the plan, so a reader sees it 250 wide and 400 tall.
+    const sizes = [
+      { width: 200, height: 300 },
+      { width: 400, height: 250 },
+    ];
+    let h = initHistory(items(2));
+    h = organizeReducer(h, { type: "rotate", index: 1, delta: 90 });
+    h = organizeReducer(h, {
+      type: "insertBlank",
+      index: 1,
+      side: "after",
+      uid: "b1",
+      sizes,
+    });
+    h = organizeReducer(h, {
+      type: "insertBlank",
+      index: 0,
+      side: "before",
+      uid: "b2",
+      sizes,
+    });
+    expect(h.present.map((i) => i.uid)).toEqual(["b2", "s0", "s1", "b1"]);
+    expect(h.present[0]!.blank).toEqual({ width: 200, height: 300 });
+    expect(h.present[3]!.blank).toEqual({ width: 250, height: 400 });
+    expect(h.present[3]!.rotation).toBe(0);
+    // A blank next to a blank is sized like it, and undo takes it out.
+    const next = organizeReducer(h, {
+      type: "insertBlank",
+      index: 3,
+      side: "after",
+      uid: "b3",
+      sizes,
+    });
+    expect(next.present[4]!.blank).toEqual({ width: 250, height: 400 });
+    expect(organizeReducer(next, { type: "undo" }).present).toEqual(h.present);
+  });
+
+  it("never deletes the document's last page, even with blanks beside it", () => {
+    let h = initHistory(items(1));
+    h = organizeReducer(h, {
+      type: "insertBlank",
+      index: 0,
+      side: "after",
+      uid: "b1",
+      sizes: [{ width: 100, height: 100 }],
+    });
+    const same = organizeReducer(h, { type: "delete", index: 0 });
+    expect(same).toBe(h);
+    // The blank itself can go.
+    expect(
+      organizeReducer(h, { type: "delete", index: 1 }).present.map(
+        (i) => i.uid,
+      ),
+    ).toEqual(["s0"]);
+  });
+
   it("reverses the whole list", () => {
     const start = initHistory(items(3));
     const rev = organizeReducer(start, { type: "reverse" });

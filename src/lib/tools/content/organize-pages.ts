@@ -19,6 +19,14 @@ import { MAX_HISTORY } from "@/components/tools/runner/organize-history";
  * become pdf.xyz and ModDate the save time (probed 2026-10-08); the intro
  * said "with everything in it" until then, and the same test now runs the
  * in-place plan and holds every in-place sentence to the entries it rewrote.
+ *
+ * Blank pages (2026-10-24): a `blank` plan item is appended to the parsed
+ * source and planned like a kept page, with an unlabelled page-label range,
+ * so the pages around it keep their labels (organize-blank.test.ts reads
+ * the page count, the blank's size, its empty content and the labels back
+ * through pdf.js). Its size is the neighbour tile's as displayed
+ * (organize-history.ts `blankSizeLike`; runner-flows.test.tsx downloads it).
+ * A plan with a blank always takes the rebuild path.
  */
 const MAX_MB = Math.round(RUNNER_FILE_CEILINGS.organize / (1024 * 1024));
 
@@ -30,7 +38,7 @@ const content: ToolContent = {
   metaDescription: `Drag PDF page thumbnails into a new order, turn, copy or remove pages, and undo up to ${MAX_HISTORY} edits. The rebuild runs in this browser tab, with no upload.`,
 
   intro: [
-    "Organize Pages opens one PDF and lays every page out as a thumbnail tile on a board. Drag a tile to a new slot or nudge it one place with its arrow buttons; other buttons on the tile turn the page a quarter turn clockwise, drop a copy right after it, or remove it. Above the board, Reverse flips the whole order and Reset restores the order and rotation the file arrived with.",
+    "Organize Pages opens one PDF and lays every page out as a thumbnail tile on a board. Drag a tile to a new slot or nudge it one place with its arrow buttons; other buttons on the tile turn the page a quarter turn clockwise, drop a copy right after it, remove it, or insert an empty page just before or after it, the same size as that page as you see it. Above the board, Reverse flips the whole order and Reset restores the order and rotation the file arrived with.",
     `The work happens in your browser tab: the file is read and rebuilt there with pdf-lib and is not uploaded, which suits contracts and statements you would rather keep on your own machine. It opens one PDF at a time, up to ${MAX_MB} MB. Each tile carries two numbers, a corner badge for its new position and a label for its original page, so you can see at a glance what moved. Undo walks back up to ${MAX_HISTORY} edits.`,
     "Export writes a new PDF from the pages in board order. Each page is copied across rather than re-rendered, so its content is untouched and selectable text stays selectable. Bookmarks that open a kept page, the kept pages' form fields and the document's title, author, page labels and language come along. Attached files and a tagged PDF's accessibility tags are left out of a rebuilt export; if you only turned pages, the file is saved in place with everything in it, except that its Producer and Creator entries now name pdf.xyz and its modification date is updated.",
   ],
@@ -53,6 +61,10 @@ const content: ToolContent = {
       body: "Duplicate a divider, a blank notes page or a signature page and drag each copy to the section that needs it.",
     },
     {
+      title: "Add a blank page for notes or two-sided printing",
+      body: "Insert a blank page after a section so it can be written on, or so the next chapter starts on a right-hand page when printed on both sides. The blank takes the size and orientation of the tile you insert it beside.",
+    },
+    {
       title: "Trim pages before you send",
       body: "Remove blank pages and internal notes while you reorder. If deleting is all you need, Delete Pages lets you type a range such as 1-3, 5 instead of clicking tiles.",
     },
@@ -68,8 +80,8 @@ const content: ToolContent = {
       body: "Drag a tile to its new place or use its left and right arrow buttons. By keyboard, focus a tile's handle, press Enter or Space to grab it, move it with the arrow keys, Home or End, then press Enter or Space again to drop it. Escape also lets go, but each step already taken stays in place; Undo takes those back one at a time.",
     },
     {
-      title: "Rotate, duplicate or delete",
-      body: "Use the buttons on each tile; the bin is disabled on the last remaining page, since a PDF needs at least one. Undo and Redo (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z) step through your edits.",
+      title: "Rotate, duplicate, delete or add blank pages",
+      body: "Use the buttons on each tile, including Insert blank page before and Insert blank page after; an inserted page shows as a plain white tile labelled Blank page. The bin is disabled on the last page left from your PDF, since the export needs at least one; inserted blank pages do not count towards that. Undo and Redo (Ctrl/⌘+Z, Ctrl/⌘+Shift+Z) step through your edits.",
     },
     {
       title: "Apply & export, then download",

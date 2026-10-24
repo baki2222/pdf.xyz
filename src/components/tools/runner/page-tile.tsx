@@ -70,9 +70,16 @@ export function PageTile({
   dropTarget = false,
   dragHandle,
   onEnterView,
+  blankSheet,
   className,
 }: {
   label: ReactNode;
+  /**
+   * Draw an empty sheet of this upright size instead of a preview — a page
+   * the tool inserts, which has no source page to render and no text to fake
+   * with placeholder lines.
+   */
+  blankSheet?: { width: number; height: number };
   rotation?: Rotation;
   /** Rendered page preview; when absent, a placeholder sheet is shown. */
   thumbnail?: Thumbnail | null;
@@ -203,7 +210,18 @@ export function PageTile({
       )}
 
       <div className="grid aspect-square w-full place-items-center overflow-hidden">
-        {thumbnail ? (
+        {blankSheet ? (
+          <div
+            data-blank-sheet=""
+            className="rounded-sheet max-h-[78%] max-w-[78%] bg-white shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300"
+            style={{
+              aspectRatio: `${blankSheet.width} / ${blankSheet.height}`,
+              [blankSheet.width >= blankSheet.height ? "width" : "height"]:
+                "78%",
+              transform: `rotate(${drawn}deg)`,
+            }}
+          />
+        ) : thumbnail ? (
           <img
             src={thumbnail.url}
             alt=""

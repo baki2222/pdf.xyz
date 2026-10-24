@@ -54,7 +54,11 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    one is told it has editing restrictions. The FAQ quoted the retired
  *    "Unlock it first" sentence for both until then;
  *    encryption-claims.test.ts now catches a quotation no surface says;
- *  - the size cap is the rotate runner's own gate, read via toolFileCeilingMb.
+ *  - the size cap is the rotate runner's own gate, read via toolFileCeilingMb;
+ *  - 2026-10-24: Odd pages / Even pages select reader-numbered pages 1, 3, 5…
+ *    and 2, 4, 6… (selection.ts oddPages/evenPages), and Rotate all 180° turns
+ *    every page regardless of the selection — rotate-runner.test.tsx reads
+ *    both back from the downloaded file.
  */
 const rotateTool = getToolBySlug("rotate-pdf");
 const ceilingMb = rotateTool ? toolFileCeilingMb(rotateTool) : null;
@@ -72,7 +76,7 @@ const content: ToolContent = {
     "Turn sideways or upside-down PDF pages the right way up: one page, a selection or all of them. The new angle is saved in the file; the PDF is not uploaded.",
 
   intro: [
-    "Rotate PDF fixes pages that open sideways or upside down: a scan fed through the wrong way, a wide spreadsheet inside a portrait report, a receipt photographed at a quarter turn. Open one PDF and each page appears as a tile previewing its current angle, with the angle printed on any tile not at 0°. Every page starts selected, so Left, Right or 180° turn the whole document at once, while a tile's own arrows fix just that page.",
+    "Rotate PDF fixes pages that open sideways or upside down: a scan fed through the wrong way, a wide spreadsheet inside a portrait report, a receipt photographed at a quarter turn. Open one PDF and each page appears as a tile previewing its current angle, with the angle printed on any tile not at 0°. Every page starts selected, so Left, Right or 180° turn the whole document at once, while a tile's own arrows fix just that page. Odd pages and Even pages select every other page in one press, and Rotate all 180° flips every page whatever is selected.",
     `The new angle is saved permanently in each page's /Rotate entry rather than into its drawing, so text stays selectable, images are not recompressed, and any standards-following viewer opens the page the right way up. Page count and order stay exactly as they were. Your browser does the work locally and the document is not uploaded; it takes one file of up to ${ceilingMb} MB.`,
     "Only the angle changes on the pages. Rotate PDF writes the new angle into each page of your original file instead of rebuilding it, so bookmarks, the title and author, page labels, the fillable form and anything typed into it, attached files and a tagged PDF's accessibility tags all stay as they were, and links keep pointing where they did. The file's Producer and Creator entries are rewritten to read pdf.xyz and its modification date is updated. Because the whole PDF is saved again, a digital (certificate) signature it already carries will no longer verify, and the tool warns you about this before you apply the rotation.",
   ],
@@ -84,7 +88,7 @@ const content: ToolContent = {
     },
     {
       title: "Every other page upside down after duplex scanning",
-      body: "Every page starts selected, so click each page that already reads correctly to take it out of the selection, then press 180° to flip all the rest in one move.",
+      body: "Press Even pages, or Odd pages if it was the fronts that came out inverted, to select every other page, then press 180° to flip just those.",
     },
     {
       title: "A landscape table inside a portrait document",
@@ -103,11 +107,11 @@ const content: ToolContent = {
     },
     {
       title: "Pick the pages to turn",
-      body: "Every page starts selected, and the Rotate bar shows what it applies to. Click a tile (or focus it and press Enter or Space) to toggle it, use Select all, Clear or Invert, or shift-click to add every page between the tile you last clicked and this one. With nothing selected, Left, Right and 180° act on every page.",
+      body: "Every page starts selected, and the Rotate bar shows what it applies to. Click a tile (or focus it and press Enter or Space) to toggle it, use Select all, Odd pages, Even pages, Clear or Invert, or shift-click to add every page between the tile you last clicked and this one. With nothing selected, Left, Right and 180° act on every page.",
     },
     {
       title: "Rotate",
-      body: "Press Left or Right to turn the selected pages a quarter turn, or 180° to flip them; each press adds to the angle the page already has. The arrows on a single tile turn only that page, and Reset puts every page back the way it arrived.",
+      body: "Press Left or Right to turn the selected pages a quarter turn, or 180° to flip them; each press adds to the angle the page already has. Rotate all 180° flips every page, whatever is selected. The arrows on a single tile turn only that page, and Reset puts every page back the way it arrived.",
     },
     {
       title: "Apply and download",

@@ -5,7 +5,7 @@ import {
   type EncryptionVerdict,
 } from "./encryption";
 import { assemblePages } from "./page-copy";
-import { loadPdfLib } from "./pdf-lib";
+import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import type {
   NamedBytes,
   OrganizePlanItem,
@@ -359,11 +359,36 @@ export async function splitPdf(
 }
 
 /**
+ * Give the source's pages from `start` on (the appended blanks) a page-label
+ * range with no style and no prefix — an empty label — so the label carrier
+ * starts a fresh range after each blank instead of numbering it into the run
+ * before. A source without page labels is left without them.
+ */
+function unlabelFrom(lib: PdfLibModule, src: PDFDocument, start: number) {
+  const { PDFArray, PDFDict, PDFName, PDFNumber } = lib;
+  const tree = src.catalog.lookupMaybe(PDFName.of("PageLabels"), PDFDict);
+  if (!tree) return;
+  let nums = tree.lookupMaybe(PDFName.of("Nums"), PDFArray);
+  if (!nums) {
+    nums = src.context.obj([]);
+    tree.set(PDFName.of("Nums"), nums);
+  }
+  nums.push(PDFNumber.of(start));
+  nums.push(src.context.obj({}));
+}
+
+/**
  * Rebuild a PDF from an ordered plan. Supports reordering, deleting (omit an
  * item), duplicating (repeat a sourceIndex), and per-page absolute rotation.
  * A plan that keeps every page once, in order, is applied in place; any other
  * goes through the page assembler, which carries a subset's document state
  * (`document-structure.ts`) but not attachments, XMP or the tag tree.
+ *
+ * A `blank` item becomes a new empty page. It is appended to the parsed
+ * SOURCE (never the caller's bytes) and then planned like any other page, so
+ * the assembler places it with no path of its own; it is given an unlabelled
+ * page-label range there, so the pages after it keep the labels they had
+ * (organize-blank.test.ts reads them back through pdf.js).
  */
 export async function organizePages(
   bytes: Uint8Array,
@@ -372,15 +397,24 @@ export async function organizePages(
   const lib = await loadPdfLib();
   const src = await load(bytes);
   const count = src.getPageCount();
-  const valid = plan.filter(
+  const fromSource = plan.filter(
     (item) =>
+      !item.blank &&
       Number.isInteger(item.sourceIndex) &&
       item.sourceIndex >= 0 &&
       item.sourceIndex < count,
   );
-  if (valid.length === 0) {
+  if (fromSource.length === 0) {
     throw new PdfEngineError("Keep at least one page.");
   }
+  const valid = plan.flatMap((item): OrganizePlanItem[] => {
+    if (!item.blank) return fromSource.includes(item) ? [item] : [];
+    const width = Math.max(1, Math.min(14400, item.blank.width || 0));
+    const height = Math.max(1, Math.min(14400, item.blank.height || 0));
+    src.addPage([width, height]);
+    return [{ sourceIndex: src.getPageCount() - 1, rotation: item.rotation }];
+  });
+  if (valid.length > fromSource.length) unlabelFrom(lib, src, count);
   // Every page, once, in its own order — what Rotate PDF always sends, and
   // Organize when only rotations changed. Nothing leaves the document, so
   // nothing can leak from it, and it is rotated in place: the assembler below

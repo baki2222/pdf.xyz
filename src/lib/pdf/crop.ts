@@ -128,6 +128,21 @@ export async function getPageSizes(
   });
 }
 
+/**
+ * Read each page's visible size UPRIGHT — the effective crop before
+ * `/Rotate` turns it — in document order (points). Organize Pages sizes an
+ * inserted blank from this and the rotation its plan gives the neighbour.
+ */
+export async function getUprightPageSizes(
+  bytes: Uint8Array,
+): Promise<{ width: number; height: number }[]> {
+  const doc = await loadPdf(bytes);
+  return doc.getPages().map((page) => {
+    const { width, height } = visiblePageFrame(page).box;
+    return { width, height };
+  });
+}
+
 /** De-duplicate, drop out-of-range values, and sort ascending. */
 function sanitizeIndices(indices: number[], count: number): number[] {
   const set = new Set<number>();
@@ -141,7 +156,20 @@ export interface CropOptions {
   margins: CropMargins;
   /** 0-based indices to crop; when omitted, every page is cropped. */
   pages?: number[];
+  /**
+   * Margins per page (index = 0-based page), replacing `margins`: a page
+   * whose entry is null, missing or all zero is left as it was. Auto-crop
+   * sends this (see `auto-crop.ts`); `pages` still limits which may change.
+   */
+  perPage?: readonly (CropMargins | null | undefined)[];
 }
+
+const clampMargins = (m: CropMargins): CropMargins => ({
+  top: clamp(m.top, 0, 100000),
+  right: clamp(m.right, 0, 100000),
+  bottom: clamp(m.bottom, 0, 100000),
+  left: clamp(m.left, 0, 100000),
+});
 
 /**
  * Crop pages of a PDF by insetting each target page's visible region by margins
@@ -153,31 +181,37 @@ export async function cropPdf(
   bytes: Uint8Array,
   options: CropOptions,
 ): Promise<Uint8Array> {
-  const margins: CropMargins = {
-    top: clamp(options.margins.top, 0, 100000),
-    right: clamp(options.margins.right, 0, 100000),
-    bottom: clamp(options.margins.bottom, 0, 100000),
-    left: clamp(options.margins.left, 0, 100000),
-  };
-  if (isEmptyMargins(margins)) {
+  const margins = clampMargins(options.margins);
+  const perPage = options.perPage;
+  if (!perPage && isEmptyMargins(margins)) {
     throw new PdfEngineError("Set a crop margin on at least one edge.");
   }
 
   const doc = await loadPdf(bytes);
   const pages = doc.getPages();
-  const target =
+  const scoped =
     options.pages === undefined
       ? pages.map((_, i) => i)
       : sanitizeIndices(options.pages, pages.length);
-  if (target.length === 0) {
+  if (scoped.length === 0) {
     throw new PdfEngineError("Select at least one page to crop.");
+  }
+  const marginsOf = (index: number): CropMargins | null => {
+    if (!perPage) return margins;
+    const own = perPage[index];
+    return own && !isEmptyMargins(own) ? clampMargins(own) : null;
+  };
+  const target = scoped.filter((index) => marginsOf(index) !== null);
+  if (target.length === 0) {
+    throw new PdfEngineError("None of these pages has a white margin to crop.");
   }
 
   for (const index of target) {
     const page = pages[index];
-    if (!page) continue;
+    const own = marginsOf(index);
+    if (!page || !own) continue;
     const frame = visiblePageFrame(page);
-    const next = insetBox(frame.box, toContentMargins(margins, frame.rotation));
+    const next = insetBox(frame.box, toContentMargins(own, frame.rotation));
     if (!next) {
       throw new PdfEngineError(
         `The crop margins are larger than page ${index + 1}. Reduce them and try again.`,

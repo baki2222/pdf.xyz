@@ -23,6 +23,23 @@ export function allIndices(count: number): Set<number> {
   return next;
 }
 
+/**
+ * Pages 1, 3, 5… as a reader numbers them — the EVEN 0-based indices. Named
+ * for what the "Odd pages" button says, so the off-by-one lives here once.
+ */
+export function oddPages(count: number): Set<number> {
+  const next = new Set<number>();
+  for (let i = 0; i < Math.max(0, count); i += 2) next.add(i);
+  return next;
+}
+
+/** Pages 2, 4, 6… as a reader numbers them — the ODD 0-based indices. */
+export function evenPages(count: number): Set<number> {
+  const next = new Set<number>();
+  for (let i = 1; i < Math.max(0, count); i += 2) next.add(i);
+  return next;
+}
+
 /** Every page that is *not* currently selected, within [0, count). */
 export function invertSelection(
   selected: ReadonlySet<number>,

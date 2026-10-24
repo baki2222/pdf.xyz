@@ -1,6 +1,7 @@
 import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { MIN_CROP_DIMENSION } from "@/lib/pdf/crop";
+import { AUTO_CROP_PAD_PT } from "@/lib/pdf/auto-crop";
 
 /**
  * The Crop runner's own input gate (`useSinglePdf` -> `validatePdfFile` ->
@@ -33,11 +34,24 @@ import { MIN_CROP_DIMENSION } from "@/lib/pdf/crop";
  *    Unlock it first, then try again." AES was not exercised;
  *  - output size went both ways: a one-page file grew, a 200-page
  *    pypdf-written file shrank to a fraction of its size.
+ *
+ * Added 2026-10-24: units (length-units.ts; values stay points, a unit only
+ * shows and reads them — crop-runner.test.tsx types 25.4 mm and reads 72 pt
+ * off the download) and Auto (auto-crop.ts + auto-crop-render.ts). Auto is
+ * proved by auto-crop.test.ts on a fixture with known margins, re-rendering
+ * the SAVED file to see every mark survive, and by crop-runner.test.tsx
+ * through the runner (the blank page named and left uncropped). Visible
+ * labels: "Auto", "Find white margins", "Each page its own box", "Same box
+ * on every page", "Previous page" / "Next page"; "Units" and "Apply
+ * auto-crop" are aria-labels only.
  */
 const ceilingMb = Math.round(RUNNER_FILE_CEILINGS.crop / (1024 * 1024));
 
 /** The smallest a cropped page may become, as the engine enforces it. */
 const minPt = MIN_CROP_DIMENSION;
+
+/** The white Auto keeps outside the content, as `marginsForInk` pads it. */
+const autoPadPt = AUTO_CROP_PAD_PT;
 
 const content: ToolContent = {
   slug: "crop-pdf",
@@ -45,10 +59,10 @@ const content: ToolContent = {
   seoTitle: "Crop PDF Online – Trim Margins in Your Browser",
 
   metaDescription:
-    "Crop PDF pages by trimming margins with sliders, evenly or edge by edge, on every page or only the ones you list. The file stays in your browser tab.",
+    "Crop PDF margins evenly, edge by edge, or to the white space found around each page's content, on every page or the ones you list. Stays in your browser.",
 
   intro: [
-    "Crop PDF trims the edges of a page so readers see less of it: wide white margins, a scanner's dark border, printer's marks around a proof. You set how much to cut in points, the unit PDF page sizes are measured in, either as one value for all four sides or separately for Top, Right, Bottom and Left. The crop can go on every page or only on the pages you type, such as 1-3, 5.",
+    "Crop PDF trims the edges of a page so readers see less of it: wide white margins, a scanner's dark border, printer's marks around a proof. You set how much to cut in points (the unit PDF page sizes are measured in), millimetres or inches, either as one value for all four sides or separately for Top, Right, Bottom and Left. Or choose Auto: the tool looks at every page for marks and proposes a crop that keeps them with a small white border, page by page or as one box for every page, for you to check before anything is cropped. The crop can go on every page or only on the pages you type, such as 1-3, 5.",
     `It runs online, inside your browser tab: your browser reads the PDF from your device, rewrites the crop box in memory, and sends nothing to pdf.xyz. The size check comes first, so anything larger than ${ceilingMb} MB, the most this in-browser runner accepts, is refused without being read. Encrypted PDFs are refused when they are opened, including a file that shows its pages without any password but restricts printing or editing, so remove the protection first.`,
     `Under the hood the tool shrinks each page's crop box, the region a PDF viewer shows. The page content itself is left as it was: any text you could select before is still selectable, nothing is redrawn, and whatever sits outside the new edges is still in the file, just out of view. Margins are measured from the page's current visible area, so cropping an already-cropped file trims further, and no page is allowed to end up narrower or shorter than ${minPt} points.`,
   ],
@@ -79,7 +93,7 @@ const content: ToolContent = {
     },
     {
       title: "Set the crop margins",
-      body: "In the Crop margins section, Uniform gives a single All sides slider, while Per side gives separate Top, Right, Bottom and Left sliders. Each shows its value in pt as you drag.",
+      body: "In the Crop margins section, Uniform gives a single All sides slider, while Per side gives separate Top, Right, Bottom and Left sliders. Pick pt, mm or in to set the unit; each slider shows its value in that unit as you drag, and the box beside it takes a typed value. Auto has a Find white margins button instead: it reads every page, then says how many pages it found content on and names any page that looks blank, which is left uncropped. With content on more than one page you can keep Each page its own box or choose Same box on every page.",
     },
     {
       title: "Choose the pages",
@@ -87,7 +101,7 @@ const content: ToolContent = {
     },
     {
       title: "Check the preview and crop",
-      body: "Crop preview is a blank outline in page 1's proportions with a dashed box marking what your margins keep; it does not show the page's content. Press Crop PDF, then Download cropped PDF, or Start over to go back to an empty picker.",
+      body: "In Uniform and Per side, Crop preview is a blank outline in page 1's proportions with a dashed box marking what your margins keep; it does not show the page's content. In Auto it shows the page itself under the proposed box, with Previous page and Next page to check each one. Press Crop PDF, then Download cropped PDF, or Start over to go back to an empty picker.",
     },
   ],
 
@@ -98,7 +112,11 @@ const content: ToolContent = {
     },
     {
       q: "Why is the Crop PDF button greyed out, or why did it refuse my margins?",
-      a: `The button stays disabled while every slider sits at 0, because there is nothing to crop. If the margins you set would leave a page narrower or shorter than ${minPt} points, the run stops and names the first page that failed so you can reduce them. A Pages entry that is empty, backwards or past the last page is also rejected with a message. Each slider stops at a fixed maximum; for a deeper cut, crop the downloaded copy again, since margins are measured from the visible area that is left.`,
+      a: `The button stays disabled while every slider sits at 0, because there is nothing to crop, and in Auto until Find white margins has found content on at least one page. If the margins you set would leave a page narrower or shorter than ${minPt} points, the run stops and names the first page that failed so you can reduce them. A Pages entry that is empty, backwards or past the last page is also rejected with a message. Each slider stops at a fixed maximum; for a deeper cut, crop the downloaded copy again, since margins are measured from the visible area that is left.`,
+    },
+    {
+      q: "Can Crop PDF find the margins for me?",
+      a: `Yes, with Auto. Your browser renders each page at a low resolution, finds the area that holds anything darker than near-white (text, lines, images, a scanner's grey edge), and proposes margins that keep it with ${autoPadPt} points of white on every side. A page with nothing on it is named and left uncropped. Same box on every page uses, for each edge, the smallest margin any page needs, so no page loses content. A scan with a grey or speckled background has no white to find, so Auto may crop little or nothing there; set the margins yourself instead.`,
     },
     {
       q: "Does Crop PDF work on rotated pages?",

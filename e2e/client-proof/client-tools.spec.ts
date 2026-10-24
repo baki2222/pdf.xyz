@@ -209,9 +209,18 @@ test.describe("client tool proof — the derived set", () => {
         `${v.slug} (${v.name}): case=${v.kind} registry=${getRunnerKind(v.slug)}`,
     );
     expect(wrong).toEqual([]);
-    // Health: the four tools whose options they exist for each have one.
+    // Health: the tools whose options they exist for each have one (the
+    // three page tools joined 2026-10-24 with their new options).
     expect(new Set(VARIANTS.map((v) => v.slug))).toEqual(
-      new Set(["jpg-to-pdf", "png-to-pdf", "pdf-to-jpg", "pdf-to-png"]),
+      new Set([
+        "jpg-to-pdf",
+        "png-to-pdf",
+        "pdf-to-jpg",
+        "pdf-to-png",
+        "rotate-pdf",
+        "crop-pdf",
+        "organize-pages",
+      ]),
     );
     for (const v of VARIANTS)
       expect(

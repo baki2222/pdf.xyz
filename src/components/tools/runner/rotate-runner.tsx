@@ -27,7 +27,9 @@ import {
 import { RunBar } from "./run-bar";
 import {
   allIndices,
+  evenPages,
   invertSelection,
+  oddPages,
   selectRange,
   toggleIndex,
 } from "./selection";
@@ -82,13 +84,15 @@ function RotateEditor({
     anchorRef.current = index;
   };
 
-  const rotateBy = (delta: number, only?: number) => {
+  const rotateBy = (delta: number, only?: number | "all") => {
     const targets =
-      only !== undefined
-        ? new Set([only])
-        : selected.size > 0
-          ? selected
-          : allIndices(pdf.pageCount);
+      only === "all"
+        ? allIndices(pdf.pageCount)
+        : only !== undefined
+          ? new Set([only])
+          : selected.size > 0
+            ? selected
+            : allIndices(pdf.pageCount);
     setRotations((prev) =>
       prev.map((rot, i) =>
         targets.has(i) ? normalizeAngle(rot + delta) : rot,
@@ -147,9 +151,25 @@ function RotateEditor({
             <FlipHorizontal2 className="size-3.5" aria-hidden />
             180°
           </ChipButton>
+          <ChipButton
+            onClick={() => rotateBy(180, "all")}
+            title="Turn every page upside down, whatever is selected"
+          >
+            <FlipHorizontal2 className="size-3.5" aria-hidden />
+            Rotate all 180°
+          </ChipButton>
           <span className="bg-wash mx-1 h-4 w-px" aria-hidden />
           <ChipButton onClick={() => setSelected(allIndices(pdf.pageCount))}>
             Select all
+          </ChipButton>
+          <ChipButton onClick={() => setSelected(oddPages(pdf.pageCount))}>
+            Odd pages
+          </ChipButton>
+          <ChipButton
+            onClick={() => setSelected(evenPages(pdf.pageCount))}
+            disabled={pdf.pageCount < 2}
+          >
+            Even pages
           </ChipButton>
           <ChipButton
             onClick={() => setSelected(new Set())}
