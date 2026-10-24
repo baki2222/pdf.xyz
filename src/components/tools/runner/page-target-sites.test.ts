@@ -34,8 +34,10 @@ const ROOT = process.cwd();
 
 /** Zones inside an open editor, which take only drops made ON them. */
 const SECONDARY: Record<string, string> = {
-  "src/components/tools/runner/sign-runner.tsx":
-    "the signature-image zone, shown in the editor when the source is Upload: the page's drops replace the PDF being signed",
+  // In sign-runner.tsx until 2026-10-24, when Sign PDF moved onto the
+  // shared editor and its signature panel.
+  "src/components/tools/runner/editor/signature-panel.tsx":
+    "the signature-image zone, shown in the signature panel when the source is Upload: the page's drops replace the PDF being signed",
   "src/components/tools/runner/overlay-runner.tsx":
     "the overlay-PDF zone, shown in the editor until an overlay is chosen: the page's drops replace the base PDF",
   "src/components/tools/runner/watermark-runner.tsx":

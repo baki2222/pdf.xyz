@@ -54,7 +54,16 @@ export type StandardFace =
   | "serif-bold"
   | "mono"
   | "mono-bold"
-  | "serif-italic";
+  | "serif-italic"
+  // The rest of the WYSIWYG editor's family × weight × slant (2026-10-24):
+  // Helvetica, Times and Courier, each regular, bold, italic and bold italic,
+  // with the five above. Like every face here, they draw Western text as
+  // themselves and route anything else to the script packs; the editor asks
+  // for "sans" for such text itself, so its preview and export agree.
+  | "sans-bold-oblique"
+  | "serif-bold-italic"
+  | "mono-oblique"
+  | "mono-bold-oblique";
 
 /** A closed, inclusive Unicode code-point range. */
 export type CodePointRange = readonly [number, number];

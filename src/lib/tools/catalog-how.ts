@@ -134,13 +134,13 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "edit-pdf": [
     "Open your PDF — its pages are preserved exactly.",
-    "Add text, images, boxes, or lines by page and position.",
-    "Export a flattened PDF with your additions baked in.",
+    "Pick a tool and click on the page to place text, images, signatures or shapes.",
+    "Apply & download a PDF with your additions written into the page.",
   ],
   "annotate-pdf": [
-    "Open your PDF and pick a markup: highlight, box, note, or line.",
-    "Place it by page and coordinates (PDF points from the bottom-left).",
-    "Apply to flatten the markups in and download the annotated PDF.",
+    "Open your PDF — Highlight is ready in the Mark up group.",
+    "Drag or click on the page to highlight, draw, white out or add a note.",
+    "Apply & download the annotated PDF with the markups in the page.",
   ],
   "crop-pdf": [
     "Open the PDF you want to crop.",
@@ -156,7 +156,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   "sign-pdf": [
     "Open the PDF you need to sign.",
     "Create a signature by drawing, typing, or picking an image.",
-    "Place it, then export your signed PDF.",
+    "Click on the page to place it, then Apply & download.",
   ],
   "request-signatures": [
     "Upload your PDF over an encrypted connection.",

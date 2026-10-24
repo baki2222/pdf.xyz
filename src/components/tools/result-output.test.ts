@@ -145,10 +145,13 @@ describe("every result says what it produced and how to go back", () => {
   const panels = census("ResultPanel");
 
   it("health check: the call sites are discovered, and they are the runners", () => {
-    // 26 on 2026-10-10, one per in-browser runner file (addendum WP-08 #1).
-    expect(panels.length).toBeGreaterThanOrEqual(26);
+    // 26 on 2026-10-10, one per in-browser runner; 24 since 2026-10-24, when
+    // Edit, Annotate and Sign PDF began sharing editor/editor-session.tsx.file (addendum WP-08 #1);
+    // 24 since 2026-10-24, when Edit, Annotate and Sign PDF began sharing one
+    // (editor/editor-session.tsx): three call sites became one.
+    expect(panels.length).toBeGreaterThanOrEqual(24);
     expect(panels.length).toBeLessThanOrEqual(60);
-    expect(new Set(panels.map((p) => p.file)).size).toBeGreaterThanOrEqual(26);
+    expect(new Set(panels.map((p) => p.file)).size).toBeGreaterThanOrEqual(24);
   });
 
   it("each passes `output` and `onAdjust`, written out — never through a spread", () => {
@@ -180,8 +183,9 @@ describe("every run trigger docks on a phone", () => {
   const buttons = census("RunButton");
 
   it("health check: the triggers are discovered", () => {
-    // 26 on 2026-10-10, one per in-browser runner.
-    expect(buttons.length).toBeGreaterThanOrEqual(26);
+    // 26 on 2026-10-10, one per in-browser runner; 24 since 2026-10-24, when
+    // Edit, Annotate and Sign PDF began sharing editor/editor-session.tsx.
+    expect(buttons.length).toBeGreaterThanOrEqual(24);
     expect(buttons.length).toBeLessThanOrEqual(60);
   });
 

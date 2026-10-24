@@ -157,6 +157,48 @@ export async function uploadFiles(
  * assert a page loads cleanly under the production CSP (a blocked script,
  * worker, or wasm surfaces here as a "Content Security Policy" console error).
  */
+/**
+ * Edit PDF's editor (since 2026-10-24): choose Text, click on page 1 as
+ * drawn, type, and leave the box — one text box placed, the way a reader
+ * places it. Resolves once the editor has said it was added.
+ */
+export async function placeEditorText(
+  page: Page,
+  words: string,
+  tool: "Text" | "Note" = "Text",
+) {
+  await page.getByRole("button", { name: tool, exact: true }).click();
+  await page.mouse.click(...(await editorPagePoint(page)));
+  await page.keyboard.type(words);
+  await page.keyboard.press("Escape");
+  await expect(
+    page.locator("[data-wysiwyg-editor] > [role=status]"),
+  ).toContainText(tool === "Note" ? "Note added" : "Text box added");
+}
+
+/** A point on page 1 as drawn, a fifth of the way across and 60 px down. */
+async function editorPagePoint(page: Page): Promise<[number, number]> {
+  const sheet = page.locator('[data-editor-page="0"]');
+  await sheet.scrollIntoViewIfNeeded();
+  const box = (await sheet.boundingBox())!;
+  return [box.x + box.width * 0.2, box.y + 60];
+}
+
+/**
+ * Sign PDF (since 2026-10-24, the shared editor opened on Sign): type a
+ * signature in the panel the editor opens with, use it, and click page 1.
+ */
+export async function placeTypedSignature(page: Page, name: string) {
+  await page.getByRole("tab", { name: "Type" }).click();
+  await page.getByLabel("Your name").fill(name);
+  await page.getByRole("button", { name: "Use signature" }).click();
+  await expect(page.locator("[data-signature-ready]")).toBeVisible();
+  await page.mouse.click(...(await editorPagePoint(page)));
+  await expect(
+    page.locator("[data-wysiwyg-editor] > [role=status]"),
+  ).toContainText("Signature placed");
+}
+
 export function attachConsoleGuard(page: Page) {
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];

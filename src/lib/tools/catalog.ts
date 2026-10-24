@@ -562,7 +562,7 @@ export const tools: Tool[] = [
     seoTitle: "Edit PDF — Add Text, Images & Shapes",
     tagline: "Add text, images, and shapes.",
     description:
-      "Add new text, images, boxes, and lines to a PDF, then export a flattened copy — placed by coordinates in your browser. It doesn't rewrite the file's existing text.",
+      "Click on the page to add text, images, signatures, shapes, highlights and notes, then move and resize them in your browser. It does not rewrite existing text.",
     category: "edit",
     icon: "edit",
     processing: "client",
@@ -587,9 +587,9 @@ export const tools: Tool[] = [
   {
     slug: "annotate-pdf",
     name: "Annotate PDF",
-    tagline: "Highlight, box, note, and draw.",
+    tagline: "Highlight, draw, and add notes.",
     description:
-      "Add highlight boxes, outlines, text notes, and lines or arrows onto a PDF. Markups are flattened into the page as vector content — all in your browser.",
+      "Highlight, draw, white out and add notes by dragging and clicking on your PDF's pages. Markups are flattened into the page — all in your browser.",
     category: "edit",
     icon: "annotate",
     processing: "client",
@@ -704,7 +704,7 @@ export const tools: Tool[] = [
     name: "Sign PDF",
     tagline: "Draw, type, or upload a signature.",
     description:
-      "Sign a PDF by drawing, typing, or picking a signature image, and place it precisely.",
+      "Sign a PDF by drawing, typing, or picking a signature image, then click on the page to place it — on as many pages as you need.",
     category: "sign",
     icon: "sign",
     processing: "client",

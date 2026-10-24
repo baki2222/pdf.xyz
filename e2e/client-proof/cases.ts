@@ -31,7 +31,12 @@ import {
 import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
 import { addWatermark } from "../../src/lib/pdf/watermark";
 import { addPageNumbers } from "../../src/lib/pdf/page-numbers";
-import { fileInput, waitForHydration } from "../helpers";
+import {
+  fileInput,
+  placeEditorText,
+  placeTypedSignature,
+  waitForHydration,
+} from "../helpers";
 import {
   collapsedStructuredProse,
   inkBlockRect,
@@ -1094,12 +1099,14 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "contract.pdf", { pages: 1 });
-      // The runner defaults to the "Type" source precisely so signing works
-      // without a pointer; the drawn-signature path stays a named gap.
-      await ctx.page.getByLabel("Your signature").fill("Ada Sign-Proof");
+      // A typed signature, so the artifact assertion can extract its text;
+      // the drawn-signature path stays a named gap. Since 2026-10-24 through
+      // the shared editor's signature panel and a click on the page; was the
+      // form's "Your signature" field and its "Sign PDF" button.
+      await placeTypedSignature(ctx.page, "Ada Sign-Proof");
       return runAndDownload(
         ctx,
-        /^sign pdf$/i,
+        /apply & download/i,
         /pdf signed/i,
         /download signed pdf/i,
       );
@@ -1478,13 +1485,13 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "markup.pdf", { pages: 1, size: [612, 792] });
-      // The note type draws TEXT, which the artifact assertion can extract.
-      await ctx.page.getByRole("radio", { name: "Note" }).click();
-      await ctx.page.getByLabel("Note text").fill("E2E-NOTE-MARK");
-      await ctx.page.getByRole("button", { name: /add markup/i }).click();
+      // The note draws TEXT, which the artifact assertion can extract.
+      // Since 2026-10-24 through the shared editor (Note in its Mark up
+      // group); was the form's Note radio, "Note text" and "Add markup".
+      await placeEditorText(ctx.page, "E2E-NOTE-MARK", "Note");
       return runAndDownload(
         ctx,
-        /apply 1 markup/i,
+        /apply & download/i,
         /annotated pdf ready/i,
         /download annotated pdf/i,
       );
@@ -1500,12 +1507,19 @@ export const CASES: Record<string, ToolCase> = {
     artifact: "pdf",
     run: async (ctx) => {
       await uploadTextPdf(ctx, "revise.pdf", { pages: 1, size: [612, 792] });
-      // Default content type is "text" at an in-bounds position.
-      await ctx.page.getByLabel("Text", { exact: true }).fill("E2E-EDIT-MARK");
-      await ctx.page.getByRole("button", { name: /add to page/i }).click();
+      // The WYSIWYG editor (since 2026-10-24): choose Text, click on the
+      // drawn page, type, leave the box. Was the coordinate form's "Text"
+      // field and "Add to page".
+      await ctx.page.getByRole("button", { name: "Text", exact: true }).click();
+      const sheet = ctx.page.locator('[data-editor-page="0"]');
+      await sheet.scrollIntoViewIfNeeded();
+      const box = (await sheet.boundingBox())!;
+      await ctx.page.mouse.click(box.x + box.width * 0.2, box.y + 60);
+      await ctx.page.keyboard.type("E2E-EDIT-MARK");
+      await ctx.page.keyboard.press("Escape");
       return runAndDownload(
         ctx,
-        /apply 1 edit/i,
+        /apply & download/i,
         /edited pdf ready/i,
         /download edited pdf/i,
       );
@@ -2088,7 +2102,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "annotate-pdf":
     "Only the Note markup type, added through the form controls. The Highlight, Box and Line/arrow types are not exercised, and neither is placement accuracy. (There is no freehand or drag-to-place canvas: markups are placed by numeric coordinates.)",
   "edit-pdf":
-    "Only a text insertion at the default position through the form controls. The Box, Line/arrow and Image elements are not exercised, and neither is placement accuracy. (There is no drag-to-place canvas: elements are placed by numeric coordinates.)",
+    "Only one text box, placed by clicking on page 1 of an unrotated PDF and typed into. Shapes, images, signatures, highlights, drawing, notes, drag, resize, undo/redo and placement accuracy are not exercised here; e2e/editor-wysiwyg.spec.ts proves text placement (±1 pt, on a /Rotate 90 page too), drag, rectangle resize and undo/redo through the page, and src/lib/pdf/editor-export.test.ts proves every object kind's position through pdf.js in Node.",
   "redact-pdf":
     "Proves, on the decoded page images, that the default area added via the Add area button is painted with the WHITE fill over the fixture's ink on page 1, that the same spot on page 2 (no box) keeps its ink, and that fixture ink outside the box survives — sampled only in the fixture block's band ABOVE the box, so white paint spilling left of or below the box is not seen here (the unit test's outside-the-box tally covers that). Only the White fill is proven here: the fixture's black block sits under the default box, so a Black fill cannot be told from an unpainted one in this browser proof, and its paint is pinned only by the unit test src/lib/pdf/redact-paint.test.ts. Areas drawn by dragging on the page are not exercised, so the mapping from a dragged rectangle to page coordinates is unproven, and rotated (/Rotate 90) pages are not exercised.",
   "fill-forms":

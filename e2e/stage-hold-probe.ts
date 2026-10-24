@@ -1,5 +1,10 @@
 import { expect, type Page } from "@playwright/test";
-import { fileInput, waitForHydration } from "./helpers";
+import {
+  fileInput,
+  placeEditorText,
+  placeTypedSignature,
+  waitForHydration,
+} from "./helpers";
 import { makeTextPdf } from "./client-proof/fixtures";
 
 /**
@@ -33,27 +38,71 @@ export interface HeldCase {
 export const SIGN: HeldCase = {
   slug: "sign-pdf",
   file: { name: "contract.pdf" },
+  // Since 2026-10-24 the shared editor's signature panel and a click on the
+  // page; until then the form's "Your signature" field and "Sign PDF".
   prepare: async (page) => {
-    await page.getByLabel("Your signature").fill("Ada Lovelace");
+    await placeTypedSignature(page, "Ada Lovelace");
   },
-  run: /^sign pdf$/i,
+  run: /apply & download/i,
   done: /pdf signed/i,
 };
 
-/** Edit PDF: a Letter page, one text edit placed — the tallest editor. */
+/**
+ * Edit PDF: a Letter page, one text box placed — the tallest editor. (Until
+ * 2026-10-24 the coordinate form's "Text" field, "Add to page" and "Apply 1
+ * edit".)
+ */
 export const EDIT: HeldCase = {
   slug: "edit-pdf",
   file: { name: "revise.pdf", size: [612, 792] },
   prepare: async (page) => {
-    await page.getByLabel("Text", { exact: true }).fill("MARK");
-    await page.getByRole("button", { name: /add to page/i }).click();
-    await expect(
-      page.getByRole("list", { name: "Placed edits" }),
-    ).toBeVisible();
+    await placeEditorText(page, "MARK");
   },
-  run: /apply 1 edit/i,
+  run: /apply & download/i,
   done: /edited pdf ready/i,
 };
+
+/*
+ * Runners whose defaults run as they open — no step before Run — offered as
+ * further subjects to the touch specs, which pick theirs by what a released
+ * hold has to move (`HELD_CASES`, `stage-hold.mobile.spec.ts`).
+ */
+
+/** Crop PDF: the default uniform margins on every page. */
+export const CROP: HeldCase = {
+  slug: "crop-pdf",
+  file: { name: "trimmed.pdf" },
+  prepare: async () => {},
+  run: /^crop pdf$/i,
+  done: /pdf cropped/i,
+};
+
+/** Add Page Numbers: the default format and position. */
+export const PAGE_NUMBERS: HeldCase = {
+  slug: "page-numbers",
+  file: { name: "numbered.pdf" },
+  prepare: async () => {},
+  run: /add page numbers/i,
+  done: /page numbers added/i,
+};
+
+/** Watermark PDF: the default text, size and tilt. */
+export const WATERMARK: HeldCase = {
+  slug: "watermark-pdf",
+  file: { name: "marked.pdf" },
+  prepare: async () => {},
+  run: /add watermark/i,
+  done: /watermark added/i,
+};
+
+/** Every case above, in the order a tie is broken. */
+export const HELD_CASES: readonly HeldCase[] = [
+  SIGN,
+  EDIT,
+  CROP,
+  PAGE_NUMBERS,
+  WATERMARK,
+];
 
 /**
  * The tool open, its file picked, the case's edits made, and the page

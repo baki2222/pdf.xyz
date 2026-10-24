@@ -82,10 +82,11 @@ const WHITE = { r: 255, g: 255, b: 255 };
  * check resolves colours instead of banning a token.
  */
 const LIGHT_SURFACES: { file: string; steps: number[] }[] = [
-  {
-    file: path.join("src", "components", "tools", "runner", "sign-runner.tsx"),
-    steps: [600, 900],
-  },
+  // EMPTY since 2026-10-24. The one entry was sign-runner.tsx, steps 600 and
+  // 900: the Sign PDF form's signature preview on white paper. The form left
+  // when Sign PDF moved onto the shared editor, whose signature panel shows
+  // its preview in the token role `text-fg` on the panel itself, so no slate
+  // text remains anywhere. A new light surface is added here with its steps.
 ];
 
 function isLightSurface(file: string, step: number): boolean {
@@ -165,9 +166,13 @@ describe("muted text meets WCAG AA on the app's own background", () => {
       unexpected.map((u) => `${u.file}:${u.line} text-slate-${u.step}`),
       "slate is the legacy idiom; new muted text uses the token roles (text-muted / text-faint)",
     ).toEqual([]);
-    // The positive control: the walk still sees the enumerated members, so a
-    // broken walker cannot report this suite green by finding nothing.
-    expect(usages.length).toBeGreaterThanOrEqual(2);
+    // The positive control. Until 2026-10-24 it was "the walk still sees the
+    // enumerated members" (at least 2); with none left to see, a broken
+    // walker would report this green by finding nothing — so it must have
+    // walked the tree, and the pattern must still match a slate class.
+    expect(sourceFiles().length).toBeGreaterThan(100);
+    expect("x text-slate-600 y".match(TEXT_SLATE)).toHaveLength(1);
+    expect(usages).toEqual([]);
   });
 
   it("resolves every slate step that the tree uses", () => {

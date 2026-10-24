@@ -143,6 +143,65 @@ function frameNames(source: string): string[] {
 }
 
 /**
+ * The runner's own files: its module, plus every module it imports a value
+ * from in a SUBDIRECTORY of the runner directory (`./editor/…`) — a runner
+ * split into components of its own — and, within that subdirectory, every
+ * module those import in turn (relative `./x` there). Siblings in the runner
+ * directory itself (`./runner-kit`, `./single-pdf-runner`) are shared by
+ * every runner and are not followed, and the walk never leaves the
+ * subdirectory. Static value imports and `import("./…")` both count: the
+ * editor is a lazy chunk of its runner, fetched as the file opens.
+ *
+ * Added 2026-10-24 when Edit PDF's runner became `edit-runner.tsx` →
+ * `./editor/wysiwyg-editor`, where its engine import
+ * (`@/lib/pdf/editor-export`) lives: without it, edit-pdf dropped out of the
+ * subjects below while its engine still reads the displayed frame. Made
+ * transitive within the subdirectory the same day, when Edit, Annotate and
+ * Sign PDF all became `<EditorRunner>` (`./editor/editor-session`), which
+ * loads `./wysiwyg-editor` — two hops.
+ */
+function runnerSources(runner: string): string[] {
+  const imports = (file: string) => {
+    const source = read(file);
+    const dynamic = [
+      ...withoutComments(source).matchAll(/import\(\s*"(\.\.?\/[^"]+)"\s*\)/g),
+    ].map((m) => m[1]!);
+    return [...new Set([...valueImports(source), ...dynamic])];
+  };
+  const resolve = (from: string, spec: string) => {
+    for (const ext of [".tsx", ".ts"]) {
+      const file = path.posix.join(path.posix.dirname(from), `${spec}${ext}`);
+      if (existsSync(path.join(ROOT, file))) return file;
+    }
+    throw new Error(`${from} imports "${spec}", which resolves to no file`);
+  };
+  const runnerDir = path.posix.dirname(runner);
+  const own = imports(runner)
+    .filter((s) => s.startsWith("./") && s.slice(2).includes("/"))
+    .map((s) => resolve(runner, s));
+  const seen = new Set(own);
+  const queue = [...own];
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    const sub = path.posix.dirname(file);
+    for (const spec of imports(file)) {
+      if (!spec.startsWith("./")) continue;
+      const next = resolve(file, spec);
+      if (
+        path.posix.dirname(next) !== sub ||
+        next.startsWith(`${runnerDir}/`) === false
+      )
+        continue;
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return [runner, ...seen];
+}
+
+/**
  * Does a `@/lib/pdf` module the runner imports a value from CALL the frame?
  * One hop, and a call, not an import: the first version walked the module
  * graph to the end and found Flatten and Overlay, whose engines reach
@@ -151,7 +210,8 @@ function frameNames(source: string): string[] {
  * (CLAUDE.md rule 4) — the walk was answering "is page-frame reachable?".
  */
 function readsDisplayedFrame(runner: string): boolean {
-  return valueImports(read(runner))
+  return runnerSources(runner)
+    .flatMap((file) => valueImports(read(file)))
     .map((s) => pdfModule(s, false))
     .filter((f): f is string => f !== null && f !== FRAME)
     .some((file) => {
@@ -228,6 +288,12 @@ describe("pages whose engine reads the displayed frame do not describe the store
       "watermark-pdf",
     ]);
     expect(FRAME_FUNCTIONS.has("visiblePageFrame")).toBe(true);
+    // Edit PDF reaches the frame through its lazily loaded editor (whose
+    // engine is editor-export.ts), not only through the old edit.ts engine
+    // it still imports a file-name helper from.
+    expect(runnerSources(runnerFile("edit-pdf")!)).toContain(
+      "src/components/tools/runner/editor/wysiwyg-editor.tsx",
+    );
     expect(FRAME_FUNCTIONS.has("normalizeRotation")).toBe(false);
     const withRunner = tools.filter((t) => runnerFile(t.slug) !== null);
     expect(withRunner.length).toBeGreaterThan(20);

@@ -77,11 +77,10 @@ import {
   REDACT_IMAGE_FORMAT,
 } from "@/lib/pdf/redact-output";
 import {
-  ANNOTATION_FACT,
-  ANNOTATION_TYPES,
   DEEP_COMPRESSION_PRESETS,
-  EDIT_OP_FACT,
-  EDIT_OP_TYPES,
+  EDITOR_KINDS,
+  EDITOR_KIND_FACT,
+  MARKUP_KINDS,
   FIELD_TYPE_FACT,
   GRAYSCALE_DPI_PRESETS,
   NEW_FIELD_TYPES,
@@ -519,12 +518,14 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   ],
   // Was "Eight element types, including text, boxes, lines, images, and filled
   // shapes" over an editor with four — a filled box is an option on the box.
+  // Then, correctly, the coordinate form's four; since 2026-10-24 the
+  // WYSIWYG editor's nine (EDITOR_KINDS).
   "edit-pdf": [
     countedFact(
       "Elements",
-      "element types",
-      EDIT_OP_TYPES,
-      EDIT_OP_FACT,
+      "kinds of item",
+      EDITOR_KINDS,
+      EDITOR_KIND_FACT,
       "and",
     ),
   ],
@@ -539,12 +540,14 @@ const FACTS: Record<string, readonly ToolFact[]> = {
   ],
   // Was "Six annotation kinds, including highlights, boxes, notes, and lines"
   // over a tool with four.
+  // Was the coordinate form's four (highlight, box, note, line) until
+  // 2026-10-24; the page now opens the editor on its Mark-up group.
   "annotate-pdf": [
     countedFact(
-      "Annotation kinds",
-      "annotation kinds",
-      ANNOTATION_TYPES,
-      ANNOTATION_FACT,
+      "Mark-up tools",
+      "mark-up tools",
+      MARKUP_KINDS,
+      EDITOR_KIND_FACT,
       "and",
     ),
   ],
@@ -765,15 +768,15 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   watermark: ["drawing-font"],
   "header-footer": ["drawing-font"],
   crop: [],
-  sign: ["drawing-font"],
+  sign: ["image-decoder", "character-map", "drawing-font"],
   flatten: [],
   overlay: [],
   grayscale: ["image-decoder", "character-map"],
   redact: ["image-decoder", "character-map"],
   "fill-forms": [],
   "create-forms": [],
-  annotate: ["drawing-font"],
-  edit: ["drawing-font"],
+  annotate: ["image-decoder", "character-map", "drawing-font"],
+  edit: ["image-decoder", "character-map", "drawing-font"],
   "extract-images": [],
   compare: ["character-map"],
 };
@@ -1160,7 +1163,7 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         },
         {
           question: "Can I sign more than one page?",
-          answer: `Each run places one signature, on the page you choose. To sign another page, open the signed PDF in ${tool.name} again and place the next one.`,
+          answer: `Yes. Once a signature is made, click on every page where it goes: each click places another copy, and each can be dragged and resized on its own. All of them are written into the file in one pass when you press Apply & download.`,
         },
       ];
     case "edit":
@@ -1168,12 +1171,12 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `Can ${tool.name} change the text already in my PDF?`,
           answer: `No. ${tool.name} adds new content on top of the page — ${listed(
-            EDIT_OP_TYPES.map((t) => EDIT_OP_FACT[t]),
+            EDITOR_KINDS.map((k) => EDITOR_KIND_FACT[k]),
           )} — and the text and objects already there are kept exactly as they were. It cannot retype, move or delete the existing text. To rework the existing text, convert the file with ${toolName("pdf-to-word")}.`,
         },
         {
           question: "How do I cover something up?",
-          answer: `Draw a filled box over it. That hides it on the page, but the text underneath is still in the file, where it can be selected, copied or searched. To remove something for good, use ${toolName("redact-pdf")}.`,
+          answer: `Draw a Whiteout box over it. That hides it on the page, but the text underneath is still in the file, where it can be selected, copied or searched. To remove something for good, use ${toolName("redact-pdf")}.`,
         },
       ];
     case "annotate":
@@ -1181,12 +1184,12 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: "Will my markup show up as comments in other PDF readers?",
           answer: `No. ${tool.name} draws its ${listed(
-            ANNOTATION_TYPES.map((t) => ANNOTATION_FACT[t]),
+            MARKUP_KINDS.map((k) => EDITOR_KIND_FACT[k]),
           )} into the page itself rather than adding comment objects, so a reader shows them as part of the page: they are not listed as comments, and they cannot be replied to, hidden or edited there.`,
         },
         {
           question: "How do I place a highlight?",
-          answer: `By position and size, in points measured from the page's bottom-left corner (${PT_PER_INCH} points to an inch): set “X (pt)”, “Y (pt)”, “Width (pt)” and “Height (pt)”. A highlight is a see-through box, so it covers whatever lies under it rather than following the words.`,
+          answer: `Highlight is the tool the editor opens on: drag across the page where it goes, then drag its handles to fit. A highlight is a see-through box, so it tints whatever lies under it rather than following the words.`,
         },
       ];
     case "watermark":
