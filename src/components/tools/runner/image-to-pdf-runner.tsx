@@ -1,6 +1,6 @@
 "use client";
 
-import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from "@/lib/tools/tool-facts";
+import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from "@/lib/tools/limits";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDown,

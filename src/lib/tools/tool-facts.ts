@@ -19,6 +19,7 @@
  *    the mode-true default flow. A client tool's steps NEVER claim an
  *    upload; the structured-data guard pins that relationship.
  */
+import { TOOL_HOW } from "./catalog-how";
 import { AI_INPUT_LIMITS, DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { TRANSLATE_MAX_INPUT_CHARS } from "@/lib/jobs/translate-limits";
 import { CHAT_TOOL_SLUG } from "@/lib/jobs/chat-with-pdf";
@@ -2102,8 +2103,15 @@ function defaultSteps(tool: Tool): readonly string[] {
   ];
 }
 
-export function howToSteps(tool: Tool): readonly string[] {
-  if (tool.how && tool.how.length > 0) return tool.how;
+/**
+ * `authored` defaults to the tool's own steps in `catalog-how.ts`; a test
+ * passes `null` to ask what the page would show without them.
+ */
+export function howToSteps(
+  tool: Tool,
+  authored: readonly string[] | null = TOOL_HOW[tool.slug] ?? null,
+): readonly string[] {
+  if (authored && authored.length > 0) return authored;
   return DERIVED_STEPS[tool.slug] ?? defaultSteps(tool);
 }
 

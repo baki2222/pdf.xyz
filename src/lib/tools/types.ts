@@ -77,6 +77,6 @@ export interface Tool {
    * `next-steps.test.ts` fails one that is not.
    */
   next?: string[];
-  /** Optional "how it works" steps for the tool page. */
-  how?: string[];
+  // `how` WAS here (authored steps); they moved to `catalog-how.ts`, which
+  // only the server reads, so the client catalogue stops carrying them.
 }
