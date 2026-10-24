@@ -2431,7 +2431,7 @@ function RunEditor({
       <span
         id={noteId}
         data-font-note={!text.trim() ? "deleted" : own ? "own" : "substituted"}
-        className="border-line bg-panel text-fg pointer-events-none absolute left-0 rounded-tag border px-1.5 py-0.5 text-[11px] whitespace-nowrap shadow"
+        className="border-line bg-panel text-fg rounded-tag pointer-events-none absolute left-0 border px-1.5 py-0.5 text-[11px] whitespace-nowrap shadow"
         style={{ bottom: "calc(100% + 4px)" }}
       >
         {note}
