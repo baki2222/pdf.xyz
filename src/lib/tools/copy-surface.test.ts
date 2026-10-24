@@ -81,6 +81,9 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/jobs/capabilities.ts",
       "src/lib/jobs/ocr.ts",
       "src/lib/jobs/pdf-security.ts",
+      // Added 2026-10-24: Protect PDF's permission labels and the sentences
+      // that say why two switches cannot be turned off.
+      "src/lib/jobs/pdf-permissions.ts",
       "src/lib/pdf/crop-disclosure.ts",
       "src/lib/pdf/offered-kinds.ts",
       "src/lib/pdf/overlay.ts",

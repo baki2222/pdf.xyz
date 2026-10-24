@@ -2012,6 +2012,25 @@ function workerPanelSources(): Map<string, string> {
         continue;
       }
       parts.push(text);
+      // A list the panel maps into controls (`LIST.map(…)`, imported from
+      // `@/lib/…`) is where those controls' labels are written — Protect's
+      // permission switches since 2026-10-24. Its module is read too; it is
+      // not walked further, so this adds the lists a panel draws and nothing
+      // they import.
+      for (const use of text.matchAll(/\b([A-Z][A-Z0-9_]*)\.map\(/g)) {
+        const spec = new RegExp(
+          `import\\s*\\{[^}]*\\b${use[1]}\\b[^}]*\\}\\s*from\\s*"@/(lib/[^"]+)"`,
+        ).exec(text)?.[1];
+        if (!spec) continue;
+        const next = path.join("src", `${spec}.ts`);
+        if (seen.has(next)) continue;
+        seen.add(next);
+        try {
+          parts.push(read(next));
+        } catch {
+          // A `.tsx` or a folder index is not a label list; nothing to add.
+        }
+      }
       for (const m of text.matchAll(/from\s+"\.\/([\w-]+)"/g)) {
         for (const ext of [".tsx", ".ts"]) {
           const next = path.join("src/components/tools", `${m[1]}${ext}`);
@@ -2095,6 +2114,11 @@ describe("every label a worker page quotes exists in the panel it mounts", () =>
     const panels = workerPanelSources();
     expect(panels.size).toBeGreaterThanOrEqual(15);
     expect(panels.get("request-signatures")).toContain("Add signer");
+    // Reached only through the list the panel maps (PDF_PERMISSIONS).
+    expect(panels.get("protect-pdf")).toContain("Copying text and images");
+    // Control: Unlock mounts the same panel file, and the walk does not
+    // invent a label nobody writes.
+    expect(panels.get("protect-pdf")).not.toContain("Faxing the document");
   });
 
   it("each quoted label is in the panel's source, or is a name the engine writes", () => {

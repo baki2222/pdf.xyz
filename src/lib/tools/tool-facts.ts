@@ -1975,6 +1975,7 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
     "Upload your PDF over an encrypted connection.",
     "Type the password that will be needed to open it.",
     `Choose the encryption strength: ${encryptionLabels}. ${describePdfKeyLength(DEFAULT_PDF_KEY_LENGTH)} is the default.`,
+    "Optionally, under Permissions, untick what readers may not do and set an owner password that differs from the open password.",
     "The secure worker encrypts the file and deletes the input when the job finishes.",
     `Download the protected PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ],

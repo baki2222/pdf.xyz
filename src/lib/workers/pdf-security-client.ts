@@ -26,6 +26,7 @@
 // the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
 import type { PdfKeyLength } from "@/lib/jobs/pdf-security";
+import type { PdfPermissions } from "@/lib/jobs/pdf-permissions";
 import type { WorkerStatus } from "./status";
 import { pollJobToTerminal, type WorkerJobPhase } from "./job-polling";
 import { forwardStatus } from "./phases";
@@ -56,6 +57,8 @@ export interface ProtectWorkerInput {
   ownerPassword?: string;
   /** Encryption strength; defaults to AES-256 server-side. */
   keyLength?: PdfKeyLength;
+  /** What readers may do without the owner password; default all allowed. */
+  permissions?: Partial<PdfPermissions>;
 }
 
 /** What the caller wants unlocked. */
@@ -442,6 +445,14 @@ export async function runWorkerProtect(
     jobOptions.ownerPassword = input.ownerPassword;
   }
   if (input.keyLength !== undefined) jobOptions.keyLength = input.keyLength;
+  // Only the switches turned OFF travel, so a request with no restrictions
+  // carries exactly the options it did before permissions existed.
+  if (input.permissions) {
+    const off = Object.fromEntries(
+      Object.entries(input.permissions).filter(([, allowed]) => !allowed),
+    );
+    if (Object.keys(off).length > 0) jobOptions.permissions = off;
+  }
   return runSecurityJob(
     PROTECT_TOOL,
     input.filename,

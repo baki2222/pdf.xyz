@@ -156,6 +156,9 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "jobs", "capabilities.ts"),
     path.join(ROOT, "src", "lib", "jobs", "ocr.ts"),
     path.join(ROOT, "src", "lib", "jobs", "pdf-security.ts"),
+    // Protect PDF's permission switch labels and their two "why it cannot
+    // be turned off" sentences (2026-10-24), drawn by the panel and the page.
+    path.join(ROOT, "src", "lib", "jobs", "pdf-permissions.ts"),
     path.join(ROOT, "src", "lib", "pdf", "crop-disclosure.ts"),
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
