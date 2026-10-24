@@ -144,7 +144,7 @@ const content: ToolContent = {
     },
     {
       q: "Does annotating change anything else in my PDF?",
-      a: "Pages keep their count, size, rotation, text and images, and the file keeps its bookmarks, form fields, existing annotations, title and author. What does change: Creator and Producer both become this site's name, and an existing digital signature will no longer validate, because pdf-lib writes out a whole new file rather than appending to the signed one. Markups sit on top of the page's own content, later ones over earlier ones.",
+      a: "Unless you turn, insert, delete or reorder pages in the page list, pages keep their count, size and rotation, and their text and images; the file keeps its bookmarks, form fields, existing annotations, title and author. What does change: Creator and Producer both become this site's name, and an existing digital signature will no longer validate, because pdf-lib writes out a whole new file rather than appending to the signed one. Markups sit on top of the page's own content, later ones over earlier ones.",
     },
     {
       q: "Is my document uploaded?",

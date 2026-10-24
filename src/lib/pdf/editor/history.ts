@@ -1,4 +1,5 @@
 import type { EditorObject } from "./model";
+import type { PageRef } from "./pages";
 
 /**
  * Undo/redo for the editor, as commands over the ordered object list.
@@ -30,6 +31,12 @@ export interface Command {
   changes: Change[];
   /** Merge with the previous command when both carry the same key. */
   coalesce?: string;
+  /**
+   * A page operation (`pages.ts`): the page list before and after. The
+   * reducer writes `after` on do and `before` on undo, in the same step as
+   * the object changes that keep everything on its page.
+   */
+  pages?: { before: PageRef[]; after: PageRef[] };
 }
 
 export interface History {
@@ -93,6 +100,69 @@ export function changeOf(
   return { id, before, after, at: index < 0 ? objects.length : index };
 }
 
+export type StackMove = "forward" | "backward" | "front" | "back";
+
+/**
+ * Z-order: move the objects `ids` within their page's stack. The list's
+ * order IS the drawing order (overlay and export), so a move is the object
+ * taken out and put back at another index — two changes for the same id,
+ * which `runCommand` replays in order and unwinds in reverse. "Forward" and
+ * "backward" step past the next object ON THE SAME PAGE; objects on other
+ * pages never draw over each other.
+ */
+export function stackChanges(
+  objects: readonly EditorObject[],
+  ids: readonly string[],
+  move: StackMove,
+): Change[] {
+  const picked = new Set(ids);
+  let order = objects.slice();
+  const pages = new Set(
+    objects.filter((o) => picked.has(o.id)).map((o) => o.page),
+  );
+  for (const page of pages) {
+    const mine = order.filter((o) => o.page === page);
+    const slots = mine.map((o) => order.indexOf(o));
+    let stack = mine.slice();
+    const isPicked = (o: EditorObject) => picked.has(o.id);
+    if (move === "front") {
+      stack = [...stack.filter((o) => !isPicked(o)), ...stack.filter(isPicked)];
+    } else if (move === "back") {
+      stack = [...stack.filter(isPicked), ...stack.filter((o) => !isPicked(o))];
+    } else if (move === "forward") {
+      for (let i = stack.length - 2; i >= 0; i -= 1) {
+        if (isPicked(stack[i]!) && !isPicked(stack[i + 1]!)) {
+          [stack[i], stack[i + 1]] = [stack[i + 1]!, stack[i]!];
+        }
+      }
+    } else {
+      for (let i = 1; i < stack.length; i += 1) {
+        if (isPicked(stack[i]!) && !isPicked(stack[i - 1]!)) {
+          [stack[i], stack[i - 1]] = [stack[i - 1]!, stack[i]!];
+        }
+      }
+    }
+    // The page's objects keep the list slots they had, in their new order.
+    const next = order.slice();
+    slots.forEach((slot, i) => {
+      next[slot] = stack[i]!;
+    });
+    order = next;
+  }
+  // Out of the old list highest index first, into the new one lowest first:
+  // each `at` is right at the moment it is applied, in both directions.
+  const moved = order.filter((o, i) => objects[i] !== o);
+  const removals = moved
+    .map((o) => ({ o, at: objects.indexOf(o) }))
+    .sort((a, b) => b.at - a.at)
+    .map(({ o, at }) => ({ id: o.id, before: o, after: null, at }));
+  const inserts = moved
+    .map((o) => ({ o, at: order.indexOf(o) }))
+    .sort((a, b) => a.at - b.at)
+    .map(({ o, at }) => ({ id: o.id, before: null, after: o, at }));
+  return [...removals, ...inserts];
+}
+
 function merge(previous: Command, next: Command): Command {
   const changes = previous.changes.map((c) => ({ ...c }));
   for (const change of next.changes) {
@@ -112,7 +182,9 @@ export function commit(
   history: History,
   command: Command,
 ): { objects: EditorObject[]; history: History } {
-  if (command.changes.length === 0) return { objects, history };
+  if (command.changes.length === 0 && !command.pages) {
+    return { objects, history };
+  }
   const next = runCommand(objects, command, "do");
   const last = history.past[history.past.length - 1];
   const past =

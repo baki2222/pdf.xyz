@@ -27,6 +27,9 @@
  * `editor/model.ts` derives its object list from this one and fails to
  * compile if the two disagree, and the tool page counts this array.
  *
+ * Phase 3 (2026-10-24) added check marks, links and form fields. Links and
+ * fields are written as interactive annotations, not page content.
+ *
  * HISTORY. Until 2026-10-24 the tool page counted {@link EDIT_OP_TYPES}, the
  * four ops of the coordinate form that was then the editor. The form is gone
  * from the page; its engine (`edit.ts`, `editPdf`) is still in the tree and
@@ -37,6 +40,9 @@ export const EDITOR_KINDS = [
   "textedit",
   "image",
   "signature",
+  "mark",
+  "link",
+  "field",
   "shape",
   "line",
   "whiteout",
@@ -52,6 +58,10 @@ export const EDITOR_KIND_FACT: Record<EditorKind, string> = {
   textedit: "changes to the PDF's own text",
   image: "PNG or JPG pictures",
   signature: "signatures (drawn, typed or from a picture)",
+  mark: "check marks and crosses",
+  link: "links to a web address, an email address, a phone number or another page",
+  field:
+    "fillable form fields (text, checkbox, dropdown, radio group and signature)",
   shape: "rectangles and ellipses",
   line: "lines and arrows",
   whiteout: "whiteout boxes",

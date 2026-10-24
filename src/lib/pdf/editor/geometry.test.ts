@@ -11,8 +11,9 @@ import {
   rectAnchor,
   scaleForZoom,
   screenToViewer,
+  snapPoint,
   snapRect,
-  typicalPageWidth,
+  fitPageWidth,
   viewerToContent,
   viewerToScreen,
   type ExportFrame,
@@ -170,10 +171,13 @@ describe("zoom", () => {
     expect(fitWidthZoom(328, 612)).toBeCloseTo(328 / 816, 9);
     expect(scaleForZoom(0.3)).toBeCloseTo(0.3 * CSS_PX_PER_PT, 9);
     expect(clampZoom(0.3)).toBe(0.5);
-    // The typical width is the median: one landscape page does not shrink the rest.
-    expect(typicalPageWidth([612, 792])).toBe(612);
-    expect(typicalPageWidth([612, 612, 792])).toBe(612);
-    expect(typicalPageWidth([792, 792, 612])).toBe(792);
+    // Fit width fits the WIDEST page. Inverted 2026-10-24: these three once
+    // pinned the median (612, 612, 792), which left one landscape page cut
+    // off at the right at "Fit width".
+    expect(fitPageWidth([612, 792])).toBe(792);
+    expect(fitPageWidth([612, 612, 792])).toBe(792);
+    expect(fitPageWidth([792, 792, 612])).toBe(792);
+    expect(fitPageWidth([])).toBe(0);
   });
 });
 
@@ -200,5 +204,40 @@ describe("snapping", () => {
       4,
     );
     expect(none).toEqual({ dx: 0, dy: 0, guides: [] });
+  });
+
+  it("snaps to another object's edges and centre, with a guide on its line", () => {
+    // Far from the page's own lines (0, 306, 612 across; 0, 396, 792 down).
+    const other = { x: 200, y: 500, width: 80, height: 40 };
+    // Left edge 2 pt right of the other's left edge.
+    const left = snapRect(
+      { x: 202, y: 100, width: 30, height: 20 },
+      612,
+      792,
+      4,
+      [other],
+    );
+    expect(left.dx).toBeCloseTo(-2, 9);
+    expect(left.guides).toContainEqual({ axis: "x", at: 200 });
+    // Vertical centre 3 pt above the other's centre line (520).
+    const mid = snapRect(
+      { x: 10, y: 507, width: 30, height: 20 },
+      612,
+      792,
+      4,
+      [other],
+    );
+    expect(mid.dy).toBeCloseTo(3, 9);
+    expect(mid.guides).toContainEqual({ axis: "y", at: 520 });
+    // The same rect with no other objects does not snap there (control).
+    expect(
+      snapRect({ x: 202, y: 100, width: 30, height: 20 }, 612, 792, 4).dx,
+    ).toBe(0);
+    // A handle (a point) snaps to another object's edge...
+    const p = snapPoint({ x: 278, y: 10 }, 612, 792, 4, [other]);
+    expect(p.x).toBe(280);
+    expect(p.guides).toContainEqual({ axis: "x", at: 280 });
+    // ...but not to the page's centre line (a box being sized is not centred).
+    expect(snapPoint({ x: 304, y: 10 }, 612, 792, 4, [other]).x).toBe(304);
   });
 });

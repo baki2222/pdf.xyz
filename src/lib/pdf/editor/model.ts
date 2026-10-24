@@ -60,8 +60,14 @@ export interface TextBoxObject extends Base, TextStyle {
   kind: "text";
   x: number;
   y: number;
-  /** Wrap width, points. Height follows from the laid-out lines. */
+  /** Wrap width, points. */
   width: number;
+  /**
+   * The box's height when it was resized taller than its words, points.
+   * The box is never shorter than its laid-out lines; absent, it is exactly
+   * as tall as they are.
+   */
+  height?: number;
   text: string;
 }
 
@@ -70,6 +76,8 @@ export interface NoteObject extends Base, TextStyle {
   x: number;
   y: number;
   width: number;
+  /** As {@link TextBoxObject.height}: a minimum, never shorter than the words. */
+  height?: number;
   text: string;
   /** The note's paper colour. */
   fill: string;
@@ -182,6 +190,79 @@ export interface InkObject extends Base {
   opacity: number;
 }
 
+/** Where a link goes. `page` names a page by its id, so it follows a reorder. */
+export type LinkTarget =
+  | { type: "uri"; uri: string }
+  | { type: "page"; pageId: string }
+  /** A target read from the file that the editor does not rewrite (a named destination, a script). */
+  | { type: "other"; label: string };
+
+/** A link that was already in the file: which annotation, and how it read. */
+export interface LinkOrigin {
+  /** The annotation's object number and generation, `"12 0"`. */
+  ref: string;
+  /** Its box and target as read, so an untouched link is left exactly as it was. */
+  rect: Rect;
+  target: LinkTarget;
+}
+
+/**
+ * A clickable area. Exported as a real `/Link` annotation (not drawn on the
+ * page): `/URI` for a web address, email or phone number, `/GoTo` to a page.
+ */
+export interface LinkObject extends Base, Boxed {
+  kind: "link";
+  target: LinkTarget;
+  /** Present for a link read from the file. */
+  origin?: LinkOrigin;
+}
+
+export type MarkGlyph = "check" | "cross";
+
+/** A check mark or a cross, drawn as two or three strokes in its box. */
+export interface MarkObject extends Base, Boxed {
+  kind: "mark";
+  glyph: MarkGlyph;
+  color: string;
+}
+
+/** The form fields the editor creates, in toolbar order. */
+export const EDITOR_FIELD_TYPES = [
+  "text",
+  "checkbox",
+  "dropdown",
+  "radio",
+  "signature",
+] as const;
+export type EditorFieldType = (typeof EDITOR_FIELD_TYPES)[number];
+export const EDITOR_FIELD_LABEL: Record<EditorFieldType, string> = {
+  text: "Text field",
+  checkbox: "Checkbox",
+  dropdown: "Dropdown",
+  radio: "Radio group",
+  signature: "Signature field",
+};
+
+/**
+ * A new fillable form field, exported as a real AcroForm field (pdf-lib's
+ * form API; a signature field as an unsigned `/Sig` widget). A radio group's
+ * box holds its buttons stacked one per option ({@link radioRows}).
+ */
+export interface FieldObject extends Base, Boxed {
+  kind: "field";
+  fieldType: EditorFieldType;
+  /** The field's name in the form — what a filled form is read back by. */
+  name: string;
+  /** Dropdown and radio choices. */
+  options: string[];
+  /** Starting text (text field) or the chosen option (dropdown, radio); "" for none. */
+  value: string;
+  /** Checkbox only: starts ticked. */
+  checked: boolean;
+  /** Text field only: more than one line. */
+  multiline: boolean;
+}
+
 export type EditorObject =
   | TextBoxObject
   | NoteObject
@@ -193,7 +274,10 @@ export type EditorObject =
   | RedactObject
   | TextEditObject
   | HighlightObject
-  | InkObject;
+  | InkObject
+  | LinkObject
+  | MarkObject
+  | FieldObject;
 
 export type EditorObjectKind = EditorObject["kind"];
 
@@ -221,6 +305,9 @@ export const EDITOR_OBJECT_LABEL: Record<EditorObjectKind, string> = {
   whiteout: "Whiteout",
   highlight: "Highlight",
   ink: "Drawing",
+  mark: "Check mark",
+  link: "Link",
+  field: "Form field",
 };
 
 /** A rectangle in viewer points (top-left origin). */
@@ -252,13 +339,18 @@ export function arrowHeadSize(strokeWidth: number): number {
 export function objectBounds(obj: EditorObject, textHeight: TextHeight): Rect {
   switch (obj.kind) {
     case "text":
-      return { x: obj.x, y: obj.y, width: obj.width, height: textHeight(obj) };
+      return {
+        x: obj.x,
+        y: obj.y,
+        width: obj.width,
+        height: Math.max(textHeight(obj), obj.height ?? 0),
+      };
     case "note":
       return {
         x: obj.x,
         y: obj.y,
         width: obj.width,
-        height: textHeight(obj) + NOTE_PADDING * 2,
+        height: Math.max(textHeight(obj) + NOTE_PADDING * 2, obj.height ?? 0),
       };
     case "line": {
       const x = Math.min(obj.x1, obj.x2);
@@ -315,8 +407,9 @@ export function moveObject<T extends EditorObject>(
 }
 
 /**
- * The same object fitted to `next` bounds. Text and notes take only the new
- * x, y and width — their height is their words. Ink is scaled about its box.
+ * The same object fitted to `next` bounds. Text and notes take the new box
+ * too, but are never drawn shorter than their words (`objectBounds`). Ink is
+ * scaled about its box.
  * Lines are resized by their endpoints instead ({@link setLineEndpoint}).
  */
 export function resizeObject<T extends EditorObject>(
@@ -329,7 +422,7 @@ export function resizeObject<T extends EditorObject>(
   switch (obj.kind) {
     case "text":
     case "note":
-      return { ...obj, x: next.x, y: next.y, width };
+      return { ...obj, x: next.x, y: next.y, width, height };
     case "line": {
       const sx = from.width === 0 ? 1 : next.width / from.width;
       const sy = from.height === 0 ? 1 : next.height / from.height;
@@ -367,7 +460,13 @@ export function setLineEndpoint(
     : { ...obj, x2: point.x, y2: point.y };
 }
 
-/** Handles a selection frame offers: 8 for boxes, east/west for text, ends for lines. */
+/**
+ * Handles a selection frame offers: 8 for boxes and text, ends for lines.
+ *
+ * HISTORY. Until 2026-10-24 (Phase 3) text boxes and notes offered only the
+ * east and west handles — their height was their words. They resize in
+ * height too now, never below their words.
+ */
 export type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 export const ALL_HANDLES: readonly Handle[] = [
   "nw",
@@ -382,7 +481,6 @@ export const ALL_HANDLES: readonly Handle[] = [
 
 export function handlesFor(obj: EditorObject): readonly Handle[] {
   if (obj.kind === "textedit") return [];
-  if (obj.kind === "text" || obj.kind === "note") return ["w", "e"];
   if (obj.kind === "line") return [];
   return ALL_HANDLES;
 }
@@ -457,7 +555,108 @@ export function cloneObject<T extends EditorObject>(obj: T): T {
   if (copy.kind === "ink") {
     return { ...copy, points: copy.points.map((p) => ({ ...p })) } as T;
   }
+  if (copy.kind === "link") {
+    // A copy is a new link: it no longer stands for the one in the file.
+    const rest: LinkObject = { ...copy };
+    delete rest.origin;
+    return rest as T;
+  }
+  if (copy.kind === "field") {
+    return { ...copy, options: [...copy.options] } as T;
+  }
   return copy;
+}
+
+export function sameTarget(a: LinkTarget, b: LinkTarget): boolean {
+  if (a.type === "uri") return b.type === "uri" && a.uri === b.uri;
+  if (a.type === "page") return b.type === "page" && a.pageId === b.pageId;
+  return b.type === "other" && a.label === b.label;
+}
+
+function sameRect(a: Rect, b: Rect): boolean {
+  return (
+    Math.abs(a.x - b.x) < 0.01 &&
+    Math.abs(a.y - b.y) < 0.01 &&
+    Math.abs(a.width - b.width) < 0.01 &&
+    Math.abs(a.height - b.height) < 0.01
+  );
+}
+
+/** A link read from the file that nobody has moved, resized or re-aimed. */
+export function linkUntouched(obj: LinkObject): boolean {
+  return (
+    !!obj.origin &&
+    sameRect(obj, obj.origin.rect) &&
+    sameTarget(obj.target, obj.origin.target)
+  );
+}
+
+/** A short label for where a link goes. */
+export function describeLinkTarget(
+  target: LinkTarget,
+  pageNumber: (pageId: string) => number | null,
+): string {
+  switch (target.type) {
+    case "uri":
+      return target.uri.replace(/^(https?:[/][/]|mailto:|tel:)/i, "");
+    case "page": {
+      const n = pageNumber(target.pageId);
+      return n === null ? "a deleted page" : `page ${n}`;
+    }
+    default:
+      return target.label;
+  }
+}
+
+/** One radio button's square and its label's baseline, per option. */
+export function radioRows(
+  obj: Pick<FieldObject, "x" | "y" | "width" | "height" | "options">,
+): { box: Rect; labelX: number; baseline: number; size: number }[] {
+  const n = Math.max(1, obj.options.length);
+  const row = obj.height / n;
+  const side = Math.max(4, Math.min(row * 0.8, obj.width, 18));
+  return obj.options.map((_, i) => {
+    const top = obj.y + i * row + (row - side) / 2;
+    return {
+      box: { x: obj.x, y: top, width: side, height: side },
+      labelX: obj.x + side * 1.4,
+      baseline: top + side * 0.8,
+      size: side * 0.8,
+    };
+  });
+}
+
+/** The strokes of a check mark or cross in its box, as polylines (viewer points). */
+export function markStrokes(
+  obj: Pick<MarkObject, "x" | "y" | "width" | "height" | "glyph">,
+): { x: number; y: number }[][] {
+  const { x, y, width: w, height: h } = obj;
+  if (obj.glyph === "check") {
+    return [
+      [
+        { x: x + w * 0.12, y: y + h * 0.55 },
+        { x: x + w * 0.4, y: y + h * 0.82 },
+        { x: x + w * 0.88, y: y + h * 0.18 },
+      ],
+    ];
+  }
+  return [
+    [
+      { x: x + w * 0.18, y: y + h * 0.18 },
+      { x: x + w * 0.82, y: y + h * 0.82 },
+    ],
+    [
+      { x: x + w * 0.82, y: y + h * 0.18 },
+      { x: x + w * 0.18, y: y + h * 0.82 },
+    ],
+  ];
+}
+
+/** Stroke width of a mark: scales with its box. */
+export function markStrokeWidth(
+  obj: Pick<MarkObject, "width" | "height">,
+): number {
+  return Math.max(1, Math.min(obj.width, obj.height) * 0.12);
 }
 
 /** A short, human description for aria labels and announcements. */
@@ -479,6 +678,16 @@ export function describeObject(obj: EditorObject): string {
       return `${obj.shape === "ellipse" ? "Ellipse" : "Rectangle"} on ${page}`;
     case "line":
       return `${obj.arrow ? "Arrow" : "Line"} on ${page}`;
+    case "mark":
+      return `${obj.glyph === "check" ? "Check mark" : "Cross"} on ${page}`;
+    case "link":
+      return obj.target.type === "uri"
+        ? `Link to ${describeLinkTarget(obj.target, () => null)} on ${page}`
+        : `Link on ${page}`;
+    case "field":
+      return obj.name
+        ? `${EDITOR_FIELD_LABEL[obj.fieldType]} “${obj.name}” on ${page}`
+        : `${EDITOR_FIELD_LABEL[obj.fieldType]} on ${page}`;
     default:
       return `${EDITOR_OBJECT_LABEL[obj.kind]} on ${page}`;
   }

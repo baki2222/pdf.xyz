@@ -9,10 +9,14 @@ import {
   EDITOR_OBJECT_KINDS,
   NOTE_PADDING,
   arrowHeadSize,
+  markStrokeWidth,
+  markStrokes,
   objectBounds,
   rectsIntersect,
   type EditorObject,
   type EditorObjectKind,
+  type FieldObject,
+  type LinkObject,
   type NoteObject,
   type RedactObject,
   type TextBoxObject,
@@ -31,6 +35,15 @@ import {
   type RetextOutcome,
 } from "./editor/content-edit";
 import { browserJpegDecoder } from "./editor/jpeg-pixels";
+import { linkUntouched, readFileLinks, writeLinks } from "./editor/links";
+import {
+  fillFileFields,
+  readFileFields,
+  writeNewFields,
+  type FieldFill,
+  type FileField,
+} from "./editor/fields";
+import { isIdentity, sourcePages, type PageRef } from "./editor/pages";
 import {
   layoutText,
   lineBaseline,
@@ -55,8 +68,15 @@ import {
  * And every font is embedded BEFORE anything is drawn, so a script no shipped
  * face can draw is refused with nothing half-written.
  *
+ * Phase 3 adds what is NOT drawn: links are written as `/Link`
+ * annotations, form fields as AcroForm fields, the file's own fields are
+ * filled, and the page list (reordered, turned, inserted, deleted pages) is
+ * replayed on the file FIRST — so every object lands in the frame of the
+ * page it was displayed on, and moves with it.
+ *
  * `editor-export.test.ts` reads the output back through pdf.js (positions
- * ±1 pt on rotated and cropped pages, extractable text, Bengali glyphs).
+ * ±1 pt on rotated and cropped pages, extractable text, Bengali glyphs);
+ * `editor-export-phase3.test.ts` reads links, fields and pages back.
  */
 
 export interface EditorExportResult {
@@ -66,6 +86,84 @@ export interface EditorExportResult {
   counts: Record<EditorObjectKind, number>;
   /** Per edited run: drawn in its own font, or the face substituted. */
   retext: RetextOutcome[];
+  /** The file's own form fields filled. */
+  filled: number;
+}
+
+/** What changes besides the objects: the page list, deleted links, filled fields. */
+export interface DocumentEdits {
+  /** The page list as displayed (`editor/pages.ts`); absent = the file's own. */
+  pages?: readonly PageRef[];
+  /** File links (by `LinkOrigin.ref`) that were deleted. */
+  removedLinks?: readonly string[];
+  /** Values typed into the file's own fields, by field name. */
+  fills?: Readonly<Record<string, FieldFill>>;
+}
+
+/** Everything the editor reads from the file before it opens. */
+export interface EditorDocument {
+  frames: ExportFrame[];
+  links: LinkObject[];
+  fields: FileField[];
+}
+
+/** The page frames, links and form fields of a file, for the editor to open on. */
+export async function readEditorDocument(
+  bytes: Uint8Array,
+): Promise<EditorDocument> {
+  const lib = await loadPdfLib();
+  const doc = await loadPdf(bytes);
+  const frames = doc.getPages().map((page) => viewerFrame(page));
+  let links: LinkObject[] = [];
+  let fields: FileField[] = [];
+  try {
+    links = readFileLinks(lib, doc, frames);
+  } catch {
+    links = [];
+  }
+  try {
+    fields = readFileFields(lib, doc);
+  } catch {
+    fields = [];
+  }
+  return { frames, links, fields };
+}
+
+/**
+ * Replay the page list on the file: turn pages, add blank ones, and put
+ * every kept page in its new place; a page left out is deleted. Returns
+ * whether any page was deleted (its content is then pruned from the file).
+ */
+function applyPageList(
+  lib: Awaited<ReturnType<typeof loadPdfLib>>,
+  doc: Awaited<ReturnType<typeof loadPdf>>,
+  list: readonly PageRef[],
+): boolean {
+  const original = doc.getPages();
+  if (isIdentity(list, original.length)) return false;
+  const used = new Set<number>();
+  const final = list.map((ref) => {
+    if (ref.source === null) {
+      const size = ref.size ?? { width: 612, height: 792 };
+      return doc.addPage([size.width, size.height]);
+    }
+    const page = original[ref.source];
+    if (!page || used.has(ref.source)) {
+      throw new PdfEngineError("The page list doesn't match this PDF.");
+    }
+    used.add(ref.source);
+    if (ref.rotate) {
+      const own = viewerFrame(page).rotation;
+      page.setRotation(lib.degrees((own + ref.rotate) % 360));
+    }
+    return page;
+  });
+  if (final.length === 0) {
+    throw new PdfEngineError("A PDF needs at least one page.");
+  }
+  for (let i = doc.getPageCount() - 1; i >= 0; i -= 1) doc.removePage(i);
+  final.forEach((page, i) => doc.insertPage(i, page));
+  return used.size < original.length;
 }
 
 /** One problem with the object list, before anything is drawn. */
@@ -206,17 +304,33 @@ export async function exportEditedPdf(
   bytes: Uint8Array,
   objects: readonly EditorObject[],
   options: ContentEditOptions = { decodeJpeg: browserJpegDecoder() },
+  edits: DocumentEdits = {},
 ): Promise<EditorExportResult> {
   const lib = await loadPdfLib();
   const { rgb, degrees, BlendMode, LineCapStyle } = lib;
   const list = objects.filter(
-    (obj) => !(obj.kind === "text" || obj.kind === "note") || hasWords(obj),
+    (obj) =>
+      (!(obj.kind === "text" || obj.kind === "note") || hasWords(obj)) &&
+      !(obj.kind === "link" && linkUntouched(obj)),
   );
-  if (list.length === 0) {
-    throw new PdfEngineError("Add at least one item before applying.");
-  }
+  const removedLinks = edits.removedLinks ?? [];
+  const fills = edits.fills ?? {};
 
   const doc = await loadPdf(bytes);
+  const pageList = edits.pages ?? sourcePages(doc.getPageCount());
+  const pagesChanged = !isIdentity(pageList, doc.getPageCount());
+  if (
+    list.length === 0 &&
+    !pagesChanged &&
+    removedLinks.length === 0 &&
+    Object.keys(fills).length === 0
+  ) {
+    throw new PdfEngineError("Add at least one item before applying.");
+  }
+  // Pages first: reordered, turned, inserted and deleted as displayed, so
+  // every object below is drawn in the frame of the page it was placed on.
+  if (applyPageList(lib, doc, pageList)) pruneUnreachable(lib, doc);
+  const pageIds = pageList.map((p) => p.id);
   const pages = doc.getPages();
   const frames: ExportFrame[] = pages.map((page) => viewerFrame(page));
 
@@ -370,6 +484,31 @@ export async function exportEditedPdf(
       case "textedit":
         // Removed and redrawn by applyTextAndRedactions.
         break;
+      case "link":
+      case "field":
+        // Not drawn: written as annotations and fields below.
+        break;
+      case "mark": {
+        // Viewer-frame strokes as an SVG path (y down), anchored and turned
+        // like ink.
+        const origin = viewerToContent(0, 0, frame);
+        const path = markStrokes(obj)
+          .map((stroke) =>
+            stroke
+              .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+              .join(" "),
+          )
+          .join(" ");
+        page.drawSvgPath(path, {
+          x: origin.x,
+          y: origin.y,
+          rotate,
+          borderColor: color(rgb, obj.color),
+          borderWidth: markStrokeWidth(obj),
+          borderLineCap: LineCapStyle.Round,
+        });
+        break;
+      }
       case "redact": {
         const at = rectAnchor(obj, frame);
         page.drawRectangle({
@@ -500,12 +639,38 @@ export async function exportEditedPdf(
     counts[obj.kind] += 1;
   }
 
+  // Links: real annotations with a target, not drawn.
+  writeLinks(
+    lib,
+    doc,
+    frames,
+    list.filter((o): o is LinkObject => o.kind === "link"),
+    removedLinks,
+    pageIds,
+  );
+
+  // Form fields: the file's own filled, the new ones created — both with
+  // their appearances drawn here, in Helvetica (the AcroForm alphabet).
+  const newFields = list.filter((o): o is FieldObject => o.kind === "field");
+  let filled = 0;
+  if (newFields.length > 0 || Object.keys(fills).length > 0) {
+    // Through the one chooser: field text is WinAnsi (checked in
+    // `editor/fields.ts`), so this is the standard sans face.
+    const helvetica = await embedDrawingFont(doc, [""], "sans");
+    filled = fillFileFields(lib, doc, fills, helvetica);
+    writeNewFields(lib, doc, pages, frames, newFields, helvetica);
+  }
+
   stampProducer(doc);
   return {
-    bytes: await doc.save(),
+    // `updateFieldAppearances: false`: every field written or filled above
+    // has drawn its own appearance; pdf-lib's default would also redraw the
+    // file's OTHER fields that lack one (`editor/fields.ts`).
+    bytes: await doc.save({ updateFieldAppearances: false }),
     pageCount: pages.length,
     objectCount: list.length,
     counts,
     retext: retextOutcomes,
+    filled,
   };
 }

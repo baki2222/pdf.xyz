@@ -12,7 +12,9 @@ import {
   DEFAULT_NOTE_FILL,
   DEFAULT_STROKE,
   DEFAULT_TEXT_STYLE,
+  linkUntouched,
   type EditorObject,
+  type MarkGlyph,
   type NoteObject,
   type RedactFill,
   type TextBoxObject,
@@ -21,6 +23,12 @@ import {
 } from "@/lib/pdf/editor/model";
 import type { RasterImageFormat } from "@/lib/pdf/pdf-lib";
 import type { SignatureStyle } from "@/lib/pdf/offered-kinds";
+import type { FieldFill } from "@/lib/pdf/editor/fields";
+import { isIdentity, sourcePages, type PageRef } from "@/lib/pdf/editor/pages";
+import {
+  defaultDateFormat,
+  type DateFormat,
+} from "@/lib/pdf/editor/quick-fields";
 
 /**
  * The editor's state machine. Pure — the component dispatches; nothing here
@@ -35,6 +43,16 @@ export const TOOLS = [
   "edittext",
   "image",
   "signature",
+  "date",
+  "initials",
+  "name",
+  "check",
+  "link",
+  "field-text",
+  "field-checkbox",
+  "field-dropdown",
+  "field-radio",
+  "field-signature",
   "rect",
   "ellipse",
   "line",
@@ -86,6 +104,14 @@ export interface Defaults {
   highlight: { color: string; opacity: number };
   ink: { stroke: string; strokeWidth: number; opacity: number };
   redact: { fill: RedactFill };
+  mark: { glyph: MarkGlyph; color: string };
+  /** How Date writes today. */
+  date: { format: DateFormat };
+  /**
+   * The name Initials and Name write: a typed signature's, or typed for
+   * them. Kept for this session only — never stored.
+   */
+  person: { name: string };
 }
 
 export const INITIAL_DEFAULTS: Defaults = {
@@ -96,6 +122,9 @@ export const INITIAL_DEFAULTS: Defaults = {
   highlight: { color: DEFAULT_HIGHLIGHT, opacity: 0.4 },
   ink: { stroke: "#1d4ed8", strokeWidth: 2.5, opacity: 1 },
   redact: { fill: "black" },
+  mark: { glyph: "check", color: "#111827" },
+  date: { format: "dmy" },
+  person: { name: "" },
 };
 
 export interface EditorState {
@@ -110,6 +139,12 @@ export interface EditorState {
   defaults: Defaults;
   /** The last thing done, for the live region. */
   said: { message: string; n: number };
+  /** The pages as displayed: order, turns, blank and deleted pages (`pages.ts`). */
+  pages: PageRef[];
+  /** Values typed into the file's own form fields, by name. Not undoable. */
+  fills: Record<string, FieldFill>;
+  /** The file's own links, by origin ref, as they were read (once). */
+  importedLinks: string[] | null;
 }
 
 export const INITIAL_STATE: EditorState = {
@@ -122,11 +157,61 @@ export const INITIAL_STATE: EditorState = {
   pending: null,
   defaults: INITIAL_DEFAULTS,
   said: { message: "", n: 0 },
+  pages: [],
+  fills: {},
+  importedLinks: null,
 };
 
-/** A fresh editor opened on `tool` (Annotate PDF opens on Highlight, Sign PDF on Sign). */
-export function initialEditorState(tool: Tool): EditorState {
-  return { ...INITIAL_STATE, tool };
+/**
+ * A fresh editor on a file of `pageCount` pages, opened on `tool` (Annotate
+ * PDF opens on Highlight, Sign PDF on Sign).
+ */
+export function initialEditorState({
+  tool,
+  pageCount,
+  locale,
+}: {
+  tool: Tool;
+  pageCount: number;
+  locale?: string;
+}): EditorState {
+  return {
+    ...INITIAL_STATE,
+    tool,
+    pages: sourcePages(pageCount),
+    defaults: {
+      ...INITIAL_DEFAULTS,
+      date: { format: defaultDateFormat(locale) },
+    },
+  };
+}
+
+/** The file's links that were deleted (they are absent from the objects now). */
+export function removedLinks(state: EditorState): string[] {
+  const present = new Set(
+    state.objects.flatMap((o) =>
+      o.kind === "link" && o.origin ? [o.origin.ref] : [],
+    ),
+  );
+  return (state.importedLinks ?? []).filter((ref) => !present.has(ref));
+}
+
+/**
+ * Is there anything to apply? An object placed or changed, a file link
+ * deleted, a page operation, or a field filled. The file's own links, as
+ * read, do not count.
+ */
+export function hasEdits(state: EditorState, pageCount: number): boolean {
+  return (
+    state.objects.some(
+      (o) =>
+        !(o.kind === "link" && linkUntouched(o)) &&
+        !((o.kind === "text" || o.kind === "note") && !o.text.trim()),
+    ) ||
+    removedLinks(state).length > 0 ||
+    !isIdentity(state.pages, pageCount) ||
+    Object.keys(state.fills).length > 0
+  );
 }
 
 export type EditorAction =
@@ -142,7 +227,10 @@ export type EditorAction =
   | { type: "pending"; pending: Pending | null }
   | { type: "defaults"; patch: Partial<Defaults> }
   | { type: "seal" }
-  | { type: "say"; message: string };
+  | { type: "say"; message: string }
+  /** The file's own links, read once when it opens: not an undo step. */
+  | { type: "import"; links: EditorObject[] }
+  | { type: "fill"; name: string; value: FieldFill | null };
 
 function say(state: EditorState, message: string): EditorState["said"] {
   return { message, n: state.said.n + 1 };
@@ -301,6 +389,7 @@ export function editorReducer(
       return {
         ...base,
         ...done,
+        pages: action.command.pages?.after ?? base.pages,
         preview: null,
         selected: (action.select ?? base.selected).filter((id) =>
           alive.has(id),
@@ -328,10 +417,16 @@ export function editorReducer(
       const touched = step.command.changes
         .map((c) => c.id)
         .filter((id) => alive.has(id));
+      const pages = step.command.pages
+        ? action.type === "undo"
+          ? step.command.pages.before
+          : step.command.pages.after
+        : base.pages;
       return {
         ...base,
         objects: step.objects,
         history: step.history,
+        pages,
         preview: null,
         selected: touched,
         said: say(
@@ -385,5 +480,24 @@ export function editorReducer(
       return { ...state, history: sealHistory(state.history) };
     case "say":
       return { ...state, said: say(state, action.message) };
+    case "import": {
+      // Once per session: the editor remounts after "adjust", and must not
+      // read the file's links in a second time.
+      if (state.importedLinks !== null) return state;
+      const refs = action.links.flatMap((o) =>
+        o.kind === "link" && o.origin ? [o.origin.ref] : [],
+      );
+      return {
+        ...state,
+        objects: [...action.links, ...state.objects],
+        importedLinks: refs,
+      };
+    }
+    case "fill": {
+      const fills = { ...state.fills };
+      if (action.value === null) delete fills[action.name];
+      else fills[action.name] = action.value;
+      return { ...state, fills };
+    }
   }
 }

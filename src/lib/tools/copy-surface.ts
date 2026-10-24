@@ -174,6 +174,10 @@ export function copyFiles(): string[] {
     // the editor shows when a run or a box cannot be rewritten.
     path.join(ROOT, "src", "lib", "pdf", "editor", "content-edit.ts"),
     path.join(ROOT, "src", "lib", "pdf", "editor", "run-styles.ts"),
+    // Phase 3 (2026-10-24): what a typed link address and a form field are
+    // refused with.
+    path.join(ROOT, "src", "lib", "pdf", "editor", "links.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "editor", "fields.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // The fix a known refusal offers, and where its file goes there (WP-08):

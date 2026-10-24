@@ -74,7 +74,7 @@ const content: ToolContent = {
 
   intro: [
     `Sign PDF puts your signature on a document you already have, such as an offer letter, a lease or a consent form. Draw it with a mouse, pen or fingertip, type your name in the Script (serif italic) or Print style, or pick a PNG or JPEG of the signature you already use under Upload; the image is read on your device. Then click on the page where it goes, drag it onto the line and resize it, and click again wherever else it is needed.`,
-    `Everything runs online in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. The pages, fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. A name with letters beyond the Western European alphabet (a Polish Ł counts) is drawn in a Noto font the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
+    `Everything runs online in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. The pages (unless you change them in the page list), fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. A name with letters beyond the Western European alphabet (a Polish Ł counts) is drawn in a Noto font the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
     "The result is a visual electronic signature: no certificate, no PKI, no tamper evidence. The FAQ below says what that means if someone asks how you signed.",
   ],
 
@@ -89,7 +89,11 @@ const content: ToolContent = {
     },
     {
       title: "Initials on every page",
-      body: "Type your initials, then click on each page that needs them: every click places another copy, and they are all written in one pass.",
+      body: "Choose Initials, then click on each page that needs them: every click places another set, and they are all written in one pass. They come from the name in your typed signature, or from a name you type once.",
+    },
+    {
+      title: "Date it and tick the boxes",
+      body: "Date writes today's date where you click, in the format you pick; Name writes your name, and Check places a check mark or a cross. Each is placed like the signature and can be dragged into place.",
     },
     {
       title: "A name that is not written in Latin letters",

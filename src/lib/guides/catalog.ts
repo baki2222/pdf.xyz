@@ -771,7 +771,7 @@ export const guides: Guide[] = [
     intro: [
       "To add text to a PDF, open the Edit PDF tool, add your file, choose Text, click on the page where the words should go and type. Pictures, signatures, rectangles, ellipses, lines, arrows, whiteout, highlights, freehand drawing and notes go on the same way: pick the tool, click or drag on the page. When everything is in place, press Apply & download.",
       "Edit PDF runs entirely in your browser, so your PDF stays on your device and no account is needed. New content is written into the page as real text, shapes, and images, and the original pages are kept as they are rather than turned into pictures, so their own text stays selectable.",
-      `One thing to know before you start: Edit PDF adds new content on top of the page. It does not change, move, restyle, or delete the text that is already in the file. Each PDF can be up to ${ceilingMb("edit-pdf")} MB.`,
+      `One thing to know before you start: Edit PDF adds new content on top of the page, and its Edit text tool retypes the file's own text one line at a time. It does not reflow whole paragraphs. Each PDF can be up to ${ceilingMb("edit-pdf")} MB.`,
     ],
     steps: [
       "Open the Edit PDF tool.",
@@ -786,17 +786,18 @@ export const guides: Guide[] = [
         id: "placing-content",
         heading: "Placing text, images, and shapes",
         body: [
-          "Every page of the PDF is shown as it looks in a viewer, and you place things by clicking on it. A text box opens for typing where you click; long lines wrap inside the box, and dragging its side handles makes it wider or narrower. Font (Helvetica, Times or Courier), size, colour, bold, italic, alignment and line height are set in the panel beside the page.",
+          "Every page of the PDF is shown as it looks in a viewer, and you place things by clicking on it. A text box opens for typing where you click; long lines wrap inside the box, and dragging its handles makes it wider, narrower or taller (never shorter than its words). Font (Helvetica, Times or Courier), size, colour, bold, italic, alignment and line height are set in the panel beside the page.",
           `Rectangles and ellipses can have an outline, a fill, or both, with an adjustable opacity; lines can end in an arrowhead. Images must be PNG or JPG files of up to ${EDIT_IMAGE_MB} MB each; they keep their proportions when you resize them from a corner. A signature can be drawn, typed, or taken from a picture of one.`,
-          "Selected items can be dragged, nudged with the arrow keys, copied, pasted, duplicated and deleted, and they snap to the page's edges and centre lines as you move them. You can place items on as many pages as you like before you apply.",
+          "Selected items can be dragged, nudged with the arrow keys, copied, pasted, duplicated and deleted, and they snap to the page's edges and centre lines, and to other items' edges and centres, as you move them. You can place items on as many pages as you like before you apply.",
         ],
       },
       {
         id: "what-it-changes",
         heading: "What Edit PDF changes, and what it leaves alone",
         body: [
-          "Edit PDF adds; it does not rewrite. The text, images, and drawings already in your PDF stay exactly where they are, and the tool cannot retype a word, change a font, move a paragraph, or delete anything that was already there. The pages are kept, not redrawn, so the original text stays selectable just as it was.",
-          "When you apply your edits, the new content is written into the page itself. In the downloaded file it is part of the page, not a comment or a separate object that someone can move or delete in their PDF viewer.",
+          "Edit PDF adds, and with Edit text it retypes the PDF's own text a line at a time: a line you retype is removed from the page and written anew, and everything you did not touch stays exactly where it is. It does not reflow a paragraph. The pages are kept, not redrawn, so the original text stays selectable just as it was.",
+          "When you apply your edits, text, pictures, shapes and marks are written into the page itself. In the downloaded file they are part of the page, not a comment or a separate object that someone can move or delete in their PDF viewer. Links and form fields are the exception: they are saved as real links and fillable fields, so a reader can click and fill them.",
+          "The page list beside the pages turns, inserts, deletes and reorders pages; everything placed on a page moves with it. Pages you do not change there keep their order, size and rotation.",
           "Pages are shown the way your viewer shows them, after any rotation setting and with only their visible area, and what you place lands exactly there in the downloaded file, reading upright.",
         ],
       },

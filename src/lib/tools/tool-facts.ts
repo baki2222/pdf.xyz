@@ -233,9 +233,13 @@ const COUNT_WORDS = [
   "ten",
   "eleven",
   "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
 ] as const;
 
-/** A count as a word, for prose ("three ways"); throws past twelve. */
+/** A count as a word, for prose ("three ways"); throws past sixteen. */
 export function countWord(n: number): string {
   const word = COUNT_WORDS[n];
   if (word === undefined) throw new Error(`no count word for ${n}`);
