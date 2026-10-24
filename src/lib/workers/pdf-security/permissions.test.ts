@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_PERMISSIONS_ALLOWED,
-  PDF_PERMISSIONS,
+  PDF_PERMISSION_BITS,
+  PDF_PERMISSION_KEYS,
   type PdfPermissions,
 } from "@/lib/jobs/pdf-permissions";
 import type { ProtectPdfOptions } from "@/lib/jobs/pdf-security";
@@ -20,8 +21,9 @@ function encryptedWithP(p: number): Uint8Array {
 /** The /P qpdf would write for these permissions (bits 1-2 clear, rest set). */
 function pFor(perms: PdfPermissions): number {
   let p = -4;
-  for (const info of PDF_PERMISSIONS)
-    if (!perms[info.key]) for (const bit of info.bits) p &= ~(1 << (bit - 1));
+  for (const key of PDF_PERMISSION_KEYS)
+    if (!perms[key])
+      for (const bit of PDF_PERMISSION_BITS[key]) p &= ~(1 << (bit - 1));
   return p;
 }
 

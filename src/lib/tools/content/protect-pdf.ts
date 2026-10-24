@@ -13,7 +13,7 @@ import {
   FORMS_FOLLOW_ANNOTATE,
   PDF_PERMISSIONS,
   PERMISSIONS_ARE_FLAGS,
-} from "@/lib/jobs/pdf-permissions";
+} from "@/lib/jobs/pdf-permission-labels";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 

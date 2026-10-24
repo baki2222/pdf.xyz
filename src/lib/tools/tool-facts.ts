@@ -78,7 +78,6 @@ import {
 import {
   ANNOTATION_FACT,
   ANNOTATION_TYPES,
-  DEEP_COMPRESSION_GRAYSCALE_HINT,
   DEEP_COMPRESSION_PRESETS,
   EDIT_OP_FACT,
   EDIT_OP_TYPES,
@@ -91,6 +90,7 @@ import {
   SPLIT_MODE_FACT,
   SPLIT_MODES,
 } from "@/lib/pdf/offered-kinds";
+import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import {
   IMAGE_PAGE_MARGIN_PT,
   MIN_CROP_DIMENSION,

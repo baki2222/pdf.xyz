@@ -96,7 +96,6 @@ import {
 import {
   ANNOTATION_FACT,
   ANNOTATION_TYPES,
-  DEEP_COMPRESSION_GRAYSCALE_HINT,
   DEEP_COMPRESSION_PRESETS,
   EDIT_OP_FACT,
   EDIT_OP_TYPES,
@@ -105,6 +104,7 @@ import {
   NEW_FIELD_TYPES,
   OVERLAY_FITS,
 } from "@/lib/pdf/offered-kinds";
+import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import { MIN_CROP_DIMENSION, PT_PER_INCH } from "@/lib/pdf/page-geometry";
 import {
   DEEP_COMPRESSION_TOOLS,

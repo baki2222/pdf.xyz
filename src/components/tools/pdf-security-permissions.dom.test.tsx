@@ -25,10 +25,12 @@ import type {
 } from "@/lib/workers/pdf-security/engine";
 import {
   ALL_PERMISSIONS_ALLOWED,
-  PDF_PERMISSIONS,
+  PDF_PERMISSION_BITS,
+  PDF_PERMISSION_KEYS,
   type PdfPermissions,
 } from "@/lib/jobs/pdf-permissions";
 import { dropSheetsLive } from "@/tests/drop-sheets-live";
+import { PDF_PERMISSIONS } from "@/lib/jobs/pdf-permission-labels";
 import { PdfSecurityWorkerPanel } from "./pdf-security-worker-panel";
 
 afterEach(() => {
@@ -43,8 +45,9 @@ const PLAIN = enc(
 
 function pFor(perms: PdfPermissions): number {
   let p = -4;
-  for (const info of PDF_PERMISSIONS)
-    if (!perms[info.key]) for (const bit of info.bits) p &= ~(1 << (bit - 1));
+  for (const key of PDF_PERMISSION_KEYS)
+    if (!perms[key])
+      for (const bit of PDF_PERMISSION_BITS[key]) p &= ~(1 << (bit - 1));
   return p;
 }
 

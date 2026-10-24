@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import {
   ALL_PERMISSIONS_ALLOWED,
-  PDF_PERMISSIONS,
+  PDF_PERMISSION_BITS,
   PDF_PERMISSION_KEYS,
   permissionMismatches,
   permissionsFromP,
@@ -62,7 +62,8 @@ describe("permissionsFromP — the switches a /P grants", () => {
   });
 
   it("each switch's bits, cleared alone, deny that switch and only that one", () => {
-    for (const info of PDF_PERMISSIONS) {
+    for (const infoKey of PDF_PERMISSION_KEYS) {
+      const info = { key: infoKey, bits: PDF_PERMISSION_BITS[infoKey] };
       let p = -4;
       for (const bit of info.bits) p &= ~(1 << (bit - 1));
       const got = permissionsFromP(p);

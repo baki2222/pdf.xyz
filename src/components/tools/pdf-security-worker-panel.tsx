@@ -22,12 +22,14 @@ import {
 } from "@/lib/jobs/pdf-security";
 import {
   ALL_PERMISSIONS_ALLOWED,
-  FORMS_FOLLOW_ANNOTATE,
-  PDF_PERMISSIONS,
-  PERMISSIONS_ARE_FLAGS,
   hasRestrictions,
   type PdfPermissions,
 } from "@/lib/jobs/pdf-permissions";
+import {
+  FORMS_FOLLOW_ANNOTATE,
+  PDF_PERMISSIONS,
+  PERMISSIONS_ARE_FLAGS,
+} from "@/lib/jobs/pdf-permission-labels";
 import {
   canRunPdfSecurity,
   runWorkerProtect,

@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  PDF_PERMISSIONS,
+  PDF_PERMISSION_BITS,
+  PDF_PERMISSION_KEYS,
   type PdfPermissions,
 } from "@/lib/jobs/pdf-permissions";
 import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
@@ -19,8 +20,9 @@ const enc = (s: string) => new TextEncoder().encode(s);
 
 function pFor(perms: PdfPermissions): number {
   let p = -4;
-  for (const info of PDF_PERMISSIONS)
-    if (!perms[info.key]) for (const bit of info.bits) p &= ~(1 << (bit - 1));
+  for (const key of PDF_PERMISSION_KEYS)
+    if (!perms[key])
+      for (const bit of PDF_PERMISSION_BITS[key]) p &= ~(1 << (bit - 1));
   return p;
 }
 

@@ -28,10 +28,8 @@ import {
 } from "@/lib/pdf/analyze";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
-import {
-  DEEP_COMPRESSION_GRAYSCALE_HINT,
-  DEEP_COMPRESSION_PRESETS,
-} from "@/lib/pdf/offered-kinds";
+import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
+import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
 import { outputName, partitionPdfFiles } from "@/lib/pdf/files";
 import {
   runWorkerCompression,
