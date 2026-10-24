@@ -49,7 +49,7 @@ export type EditorKind = (typeof EDITOR_KINDS)[number];
 /** How the tool page names each kind, variants included. */
 export const EDITOR_KIND_FACT: Record<EditorKind, string> = {
   text: "text boxes",
-  textedit: "edits to the text already on the page",
+  textedit: "changes to the PDF's own text",
   image: "PNG or JPG pictures",
   signature: "signatures (drawn, typed or from a picture)",
   shape: "rectangles and ellipses",

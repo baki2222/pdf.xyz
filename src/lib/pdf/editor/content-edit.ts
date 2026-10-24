@@ -36,7 +36,13 @@ import {
   type StreamAnalysis,
   type TextShow,
 } from "./page-content";
-import { streamBytes, substituteFor, type FontInfo, type SubstituteStyle } from "./pdf-fonts";
+import {
+  streamBytes,
+  substituteFor,
+  type FontInfo,
+  type SubstituteStyle,
+} from "./pdf-fonts";
+import { ownFontCovers, substituteLabel } from "./runs";
 import { needsUnicodeFace, standardFontKey } from "./text";
 
 /**
@@ -103,6 +109,8 @@ export interface PageEditOutcome {
 export interface RunDescription {
   glyphCount: number;
   visible: boolean;
+  /** Painted with an invisible render mode (an OCR text layer). */
+  invisible: boolean;
   font: FontInfo | null;
   /** The font's name, for the "font substituted" note. */
   fontName: string;
@@ -118,7 +126,9 @@ export interface RunDescription {
 }
 
 /** Codes known to have a glyph in each font: every one drawn on the page. */
-function observedCodes(page: StreamAnalysis): Map<FontInfo, Set<number>> {
+export function observedCodes(
+  page: StreamAnalysis,
+): Map<FontInfo, Set<number>> {
   const seen = new Map<FontInfo, Set<number>>();
   for (const g of allGlyphs(page)) {
     const font = g.show.font;
@@ -162,12 +172,17 @@ export function describeRun(
   run: RunGeometry,
   observed: Map<FontInfo, Set<number>> = observedCodes(page),
 ): RunDescription {
-  const glyphs = glyphsInRun(page, run).filter((g) => isVisibleShow(g.show));
+  const all = glyphsInRun(page, run);
+  const glyphs = all.filter((g) => isVisibleShow(g.show));
   const first = glyphs[0];
   const font = first?.show.font ?? null;
   const inForm = glyphs.some((g) => g.form !== null);
+  const invisible = all.length > 0 && glyphs.length === 0;
   let refusal: string | null = null;
-  if (glyphs.length === 0) {
+  if (invisible) {
+    refusal =
+      "This text is an invisible layer (a scanned page's OCR text). The words you see are part of the page's picture, so they can't be edited as text.";
+  } else if (glyphs.length === 0) {
     refusal =
       "This text is inside an embedded object this editor can't rewrite, so it can't be edited here.";
   } else if (glyphs.some((g) => g.show.font?.vertical)) {
@@ -176,6 +191,7 @@ export function describeRun(
   return {
     glyphCount: glyphs.length,
     visible: glyphs.length > 0,
+    invisible,
     font,
     fontName: fontLabel(font),
     ownChars:
@@ -189,28 +205,14 @@ export function describeRun(
   };
 }
 
-/** Does the run's own font have every character of `text`? */
-export function ownFontCovers(ownChars: string, text: string): boolean {
-  if (ownChars.length === 0) return false;
-  const have = new Set([...ownChars]);
-  return [...text].every((ch) => have.has(ch));
-}
-
-/** The face a substituted run is drawn in, by name (for the note). */
-export function substituteLabel(style: SubstituteStyle, text: string): string {
-  if (needsUnicodeFace(text)) return "Noto Sans";
-  const base =
-    style.font === "times" ? "Times" : style.font === "courier" ? "Courier" : "Helvetica";
-  const variant = [style.bold ? "Bold" : "", style.italic ? "Italic" : ""]
-    .filter(Boolean)
-    .join(" ");
-  return variant ? `${base} ${variant}` : base;
-}
-
 /* ------------------------------ rewriting ------------------------------ */
 
 /** A show rewritten as a TJ without the removed glyphs. */
-function rewriteShow(show: TextShow, removed: Set<number>, source: string): string {
+function rewriteShow(
+  show: TextShow,
+  removed: Set<number>,
+  source: string,
+): string {
   const parts: string[] = [];
   const scale = show.fs * show.th;
   let pending = 0;
@@ -256,7 +258,10 @@ interface StreamEdit {
   renames: Map<number, string>;
 }
 
-const emptyEdit = (): StreamEdit => ({ removed: new Map(), renames: new Map() });
+const emptyEdit = (): StreamEdit => ({
+  removed: new Map(),
+  renames: new Map(),
+});
 
 function markRemoved(edits: Map<StreamAnalysis, StreamEdit>, g: GlyphRef) {
   let e = edits.get(g.stream);
@@ -292,7 +297,12 @@ interface PixelRect {
   y1: number;
 }
 
-function imagePixelRects(ctm: Mat, width: number, height: number, boxes: Box[]): PixelRect[] {
+function imagePixelRects(
+  ctm: Mat,
+  width: number,
+  height: number,
+  boxes: Box[],
+): PixelRect[] {
   const inv = invert(ctm);
   if (!inv) return [];
   const out: PixelRect[] = [];
@@ -316,7 +326,12 @@ function imagePixelRects(ctm: Mat, width: number, height: number, boxes: Box[]):
 }
 
 function imageBox(ctm: Mat): Box {
-  return boxOf([apply(ctm, 0, 0), apply(ctm, 1, 0), apply(ctm, 0, 1), apply(ctm, 1, 1)]);
+  return boxOf([
+    apply(ctm, 0, 0),
+    apply(ctm, 1, 0),
+    apply(ctm, 0, 1),
+    apply(ctm, 1, 1),
+  ]);
 }
 
 const RAW_FILTERS = new Set([
@@ -332,7 +347,11 @@ const RAW_FILTERS = new Set([
   "RL",
 ]);
 
-function unpredictPng(data: Uint8Array, rowBytes: number, bpp: number): Uint8Array {
+function unpredictPng(
+  data: Uint8Array,
+  rowBytes: number,
+  bpp: number,
+): Uint8Array {
   const rows = Math.floor(data.length / (rowBytes + 1));
   const out = new Uint8Array(rows * rowBytes);
   for (let y = 0; y < rows; y++) {
@@ -405,8 +424,10 @@ function componentsOf(
   const o = doc.context.lookup(cs);
   if (o instanceof PDFName) {
     const n = o.decodeText();
-    if (n === "DeviceGray" || n === "CalGray" || n === "G") return { comps: 1, space: "gray" };
-    if (n === "DeviceRGB" || n === "CalRGB" || n === "RGB") return { comps: 3, space: "rgb" };
+    if (n === "DeviceGray" || n === "CalGray" || n === "G")
+      return { comps: 1, space: "gray" };
+    if (n === "DeviceRGB" || n === "CalRGB" || n === "RGB")
+      return { comps: 3, space: "rgb" };
     if (n === "DeviceCMYK" || n === "CMYK") return { comps: 4, space: "cmyk" };
     return null;
   }
@@ -415,7 +436,10 @@ function componentsOf(
     const k = kind instanceof PDFName ? kind.decodeText() : "";
     if (k === "ICCBased") {
       const s = doc.context.lookup(o.get(1));
-      const n = s instanceof PDFStream ? doc.context.lookup(s.dict.get(PDFName.of("N"))) : undefined;
+      const n =
+        s instanceof PDFStream
+          ? doc.context.lookup(s.dict.get(PDFName.of("N")))
+          : undefined;
       const comps = n instanceof PDFNumber ? n.asNumber() : 0;
       if (comps === 1) return { comps, space: "gray" };
       if (comps === 3) return { comps, space: "rgb" };
@@ -423,12 +447,15 @@ function componentsOf(
       return null;
     }
     if (k === "CalGray") return { comps: 1, space: "gray" };
-    if (k === "CalRGB" || k === "Lab") return { comps: 3, space: k === "Lab" ? "lab" : "rgb" };
+    if (k === "CalRGB" || k === "Lab")
+      return { comps: 3, space: k === "Lab" ? "lab" : "rgb" };
     if (k === "Indexed" || k === "I") return { comps: 1, space: "indexed" };
     if (k === "Separation") return { comps: 1, space: "ink" };
     if (k === "DeviceN") {
       const names = doc.context.lookup(o.get(1));
-      return names instanceof PDFArray ? { comps: names.size(), space: "ink" } : null;
+      return names instanceof PDFArray
+        ? { comps: names.size(), space: "ink" }
+        : null;
     }
   }
   return null;
@@ -436,7 +463,8 @@ function componentsOf(
 
 function fillValues(layout: ImageLayout, fill: RedactFill): number[] {
   const max = (1 << layout.bpc) - 1;
-  if (layout.mask) return [max]; // a stencil sample of 1 paints nothing
+  // A stencil mask: a sample of 1 paints nothing.
+  if (layout.mask) return [max];
   const black = fill === "black";
   switch (layout.space) {
     case "gray":
@@ -451,7 +479,11 @@ function fillValues(layout: ImageLayout, fill: RedactFill): number[] {
   }
 }
 
-function filterNames(lib: PdfLibModule, doc: PDFDocument, stream: PDFStream): string[] {
+function filterNames(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+  stream: PDFStream,
+): string[] {
   const { PDFName, PDFArray } = lib;
   const f = doc.context.lookup(stream.dict.get(PDFName.of("Filter")));
   if (f instanceof PDFName) return [f.decodeText()];
@@ -484,7 +516,8 @@ async function redactImageStream(
   const ctx = doc.context;
   const dict = stream.dict;
   const get = (k: string) => ctx.lookup(dict.get(PDFName.of(k)));
-  const numOf = (o: PDFObject | undefined) => (o instanceof PDFNumber ? o.asNumber() : 0);
+  const numOf = (o: PDFObject | undefined) =>
+    o instanceof PDFNumber ? o.asNumber() : 0;
   const width = numOf(get("Width"));
   const height = numOf(get("Height"));
   const filters = filterNames(lib, doc, stream);
@@ -496,9 +529,16 @@ async function redactImageStream(
   const dropped = new Set(["Filter", "DecodeParms", "Length", "DL", "SMask"]);
 
   if (filters.every((f) => RAW_FILTERS.has(f))) {
-    const cs = mask ? { comps: 1, space: "gray" } : componentsOf(lib, doc, get("ColorSpace"));
+    const cs = mask
+      ? { comps: 1, space: "gray" }
+      : componentsOf(lib, doc, get("ColorSpace"));
     const bpc = mask ? 1 : numOf(get("BitsPerComponent"));
-    if (!cs || ![1, 2, 4, 8, 16].includes(bpc) || !(width > 0) || !(height > 0)) {
+    if (
+      !cs ||
+      ![1, 2, 4, 8, 16].includes(bpc) ||
+      !(width > 0) ||
+      !(height > 0)
+    ) {
       throw new PdfEngineError(`${UNEDITABLE} (page ${page + 1}).`);
     }
     layout = { width, height, comps: cs.comps, bpc, mask, space: cs.space };
@@ -507,10 +547,17 @@ async function redactImageStream(
         ? (stream as unknown as { getContents(): Uint8Array }).getContents()
         : streamBytes(lib, stream);
     const parms = ctx.lookup(dict.get(PDFName.of("DecodeParms")));
-    const pred = parms instanceof PDFDict ? numOf(ctx.lookup(parms.get(PDFName.of("Predictor")))) : 0;
+    const pred =
+      parms instanceof PDFDict
+        ? numOf(ctx.lookup(parms.get(PDFName.of("Predictor"))))
+        : 0;
     const rowBytes = Math.ceil((width * cs.comps * bpc) / 8);
     if (pred >= 10) {
-      data = unpredictPng(data, rowBytes, Math.max(1, Math.ceil((cs.comps * bpc) / 8)));
+      data = unpredictPng(
+        data,
+        rowBytes,
+        Math.max(1, Math.ceil((cs.comps * bpc) / 8)),
+      );
     } else if (pred > 1) {
       throw new PdfEngineError(`${UNEDITABLE} (page ${page + 1}).`);
     }
@@ -523,7 +570,13 @@ async function redactImageStream(
       for (let y = r.y0; y < r.y1; y++) {
         for (let x = r.x0; x < r.x1; x++) {
           for (let c = 0; c < cs.comps; c++) {
-            setSample(pixels, y * rowBytes, (x * cs.comps + c) * bpc, bpc, values[c] ?? 0);
+            setSample(
+              pixels,
+              y * rowBytes,
+              (x * cs.comps + c) * bpc,
+              bpc,
+              values[c] ?? 0,
+            );
           }
         }
       }
@@ -543,7 +596,14 @@ async function redactImageStream(
       throw new PdfEngineError(`${UNEDITABLE} (page ${page + 1}).`);
     }
     const img = await decode(jpeg);
-    layout = { width: img.width, height: img.height, comps: 3, bpc: 8, mask: false, space: "rgb" };
+    layout = {
+      width: img.width,
+      height: img.height,
+      comps: 3,
+      bpc: 8,
+      mask: false,
+      space: "rgb",
+    };
     pixels = new Uint8Array(img.width * img.height * 3);
     for (let i = 0, j = 0; i < img.width * img.height; i++) {
       pixels[j++] = img.data[i * 4]!;
@@ -578,7 +638,16 @@ async function redactImageStream(
   for (const [k, v] of Object.entries(extra)) copy.dict.set(PDFName.of(k), v);
   const smask = get("SMask");
   if (smask instanceof PDFStream) {
-    const smRef = await redactImageStream(lib, doc, smask, rectsFor, fill, page, options, true);
+    const smRef = await redactImageStream(
+      lib,
+      doc,
+      smask,
+      rectsFor,
+      fill,
+      page,
+      options,
+      true,
+    );
     copy.dict.set(PDFName.of("SMask"), smRef);
   }
   void layout;
@@ -598,12 +667,20 @@ function ownResources(
   const copy = res ? (res.clone(ctx) as PDFDict) : ctx.obj({});
   for (const key of ["XObject", "Font"]) {
     const sub = ctx.lookup(copy.get(PDFName.of(key)));
-    copy.set(PDFName.of(key), sub instanceof PDFDict ? sub.clone(ctx) : ctx.obj({}));
+    copy.set(
+      PDFName.of(key),
+      sub instanceof PDFDict ? sub.clone(ctx) : ctx.obj({}),
+    );
   }
   return copy;
 }
 
-function uniqueXObjectName(lib: PdfLibModule, doc: PDFDocument, res: PDFDict, tag: string): PDFName {
+function uniqueXObjectName(
+  lib: PdfLibModule,
+  doc: PDFDocument,
+  res: PDFDict,
+  tag: string,
+): PDFName {
   const { PDFDict, PDFName } = lib;
   const xo = doc.context.lookup(res.get(PDFName.of("XObject")));
   const dict = xo instanceof PDFDict ? xo : undefined;
@@ -639,15 +716,25 @@ export async function applyContentEdits(
   let removedGlyphs = 0;
 
   // 1. Edit text: the glyphs each run painted.
-  const anchors = new Map<string, { g: GlyphRef; glyph: ShownGlyph; desc: RunDescription }>();
+  const anchors = new Map<
+    string,
+    { g: GlyphRef; glyph: ShownGlyph; desc: RunDescription }
+  >();
   for (const r of retext) {
     const desc = describeRun(analysis, r.run, observed);
-    if (desc.refusal) throw new PdfEngineError(`Text on ${where}: ${desc.refusal}`);
-    const glyphs = glyphsInRun(analysis, r.run).filter((g) => isVisibleShow(g.show));
+    if (desc.refusal)
+      throw new PdfEngineError(`Text on ${where}: ${desc.refusal}`);
+    const glyphs = glyphsInRun(analysis, r.run).filter((g) =>
+      isVisibleShow(g.show),
+    );
     for (const g of glyphs) markRemoved(edits, g);
     removedGlyphs += glyphs.length;
     const first = glyphs[0]!;
-    anchors.set(r.id, { g: first, glyph: first.show.glyphs[first.index]!, desc });
+    anchors.set(r.id, {
+      g: first,
+      glyph: first.show.glyphs[first.index]!,
+      desc,
+    });
   }
 
   // 2. Redact: glyphs, images and annotations under each box.
@@ -658,12 +745,17 @@ export async function applyContentEdits(
       const glyph = g.show.glyphs[g.index]!;
       if (!boxes.some((b) => boxesOverlap(b, glyph.box))) continue;
       if (g.show.font?.vertical) {
-        throw new PdfEngineError(`Vertical text under a redaction box on ${where} can't be removed yet.`);
+        throw new PdfEngineError(
+          `Vertical text under a redaction box on ${where} can't be removed yet.`,
+        );
       }
       markRemoved(edits, g);
       removedGlyphs++;
     }
-    const streams: StreamAnalysis[] = [analysis, ...analysis.forms.flatMap((f) => (f.analysis ? [f.analysis] : []))];
+    const streams: StreamAnalysis[] = [
+      analysis,
+      ...analysis.forms.flatMap((f) => (f.analysis ? [f.analysis] : [])),
+    ];
     for (const s of streams) {
       for (const inline of s.inlineImages) {
         if (boxes.some((b) => boxesOverlap(b, imageBox(inline.ctm)))) {
@@ -677,7 +769,9 @@ export async function applyContentEdits(
         // Nested past the depth limit: refuse when it may be under a box.
         const x = ctx.lookup(f.ref ?? undefined);
         const bbox =
-          x instanceof PDFStream ? ctx.lookup(x.dict.get(PDFName.of("BBox"))) : undefined;
+          x instanceof PDFStream
+            ? ctx.lookup(x.dict.get(PDFName.of("BBox")))
+            : undefined;
         let extent: Box | null = null;
         if (bbox instanceof PDFArray && bbox.size() === 4) {
           const v = bbox.asArray().map((n) => {
@@ -701,9 +795,13 @@ export async function applyContentEdits(
   }
 
   // Images to redact: per stream, per Do.
-  const imageJobs: { stream: StreamAnalysis; use: ImageUse; boxes: Box[] }[] = [];
+  const imageJobs: { stream: StreamAnalysis; use: ImageUse; boxes: Box[] }[] =
+    [];
   if (boxes.length > 0) {
-    const streams: StreamAnalysis[] = [analysis, ...analysis.forms.flatMap((f) => (f.analysis ? [f.analysis] : []))];
+    const streams: StreamAnalysis[] = [
+      analysis,
+      ...analysis.forms.flatMap((f) => (f.analysis ? [f.analysis] : [])),
+    ];
     for (const s of streams) {
       for (const use of s.images) {
         const under = boxes.filter((b) => boxesOverlap(b, imageBox(use.ctm)));
@@ -726,7 +824,12 @@ export async function applyContentEdits(
         const n = ctx.lookup(x);
         return n instanceof PDFNumber ? n.asNumber() : 0;
       });
-      const box = { x0: Math.min(v[0]!, v[2]!), y0: Math.min(v[1]!, v[3]!), x1: Math.max(v[0]!, v[2]!), y1: Math.max(v[1]!, v[3]!) };
+      const box = {
+        x0: Math.min(v[0]!, v[2]!),
+        y0: Math.min(v[1]!, v[3]!),
+        x1: Math.max(v[0]!, v[2]!),
+        y1: Math.max(v[1]!, v[3]!),
+      };
       if (!boxes.some((b) => boxesOverlap(b, box))) continue;
       const sub = ctx.lookup(a.get(PDFName.of("Subtype")));
       if (sub instanceof PDFName && sub.decodeText() === "Widget") {
@@ -744,7 +847,8 @@ export async function applyContentEdits(
   let pageRes: PDFDict | undefined;
   const formRes = new Map<StreamAnalysis, PDFDict>();
   const resFor = (s: StreamAnalysis): PDFDict => {
-    if (s === analysis) return (pageRes ??= ownResources(lib, doc, analysis.resources));
+    if (s === analysis)
+      return (pageRes ??= ownResources(lib, doc, analysis.resources));
     let r = formRes.get(s);
     if (!r) formRes.set(s, (r = ownResources(lib, doc, s.resources)));
     return r;
@@ -830,8 +934,11 @@ export async function applyContentEdits(
     const keep = annots.asArray().filter((a) => {
       if (doomedAnnots.has(a)) return false;
       const d = ctx.lookup(a);
-      const parent = d instanceof PDFDict ? d.get(PDFName.of("Parent")) : undefined;
-      return !(parent instanceof PDFRef && [...doomedAnnots].some((x) => x === parent));
+      const parent =
+        d instanceof PDFDict ? d.get(PDFName.of("Parent")) : undefined;
+      return !(
+        parent instanceof PDFRef && [...doomedAnnots].some((x) => x === parent)
+      );
     });
     page.node.set(PDFName.of("Annots"), ctx.obj(keep));
   }
@@ -841,9 +948,15 @@ export async function applyContentEdits(
   const lines: string[] = [];
   for (const r of retext) {
     const anchor = anchors.get(r.id)!;
-    const text = r.text.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f]/g, "");
+    const text = r.text
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/[\u0000-\u001f]/g, "");
     if (text.trim().length === 0) {
-      outcomes.push({ id: r.id, font: "own", removedGlyphs: anchor.desc.glyphCount });
+      outcomes.push({
+        id: r.id,
+        font: "own",
+        removedGlyphs: anchor.desc.glyphCount,
+      });
       continue;
     }
     const show = anchor.g.show;
@@ -854,12 +967,15 @@ export async function applyContentEdits(
     if (font && font.ref && ownFontCovers(anchor.desc.ownChars, text)) {
       key = page.node.newFontDictionary("EditF", font.ref);
       const codes: number[] = [];
-      for (const ch of text) codes.push(...font.codeBytes(font.encodeChar(ch)!));
+      for (const ch of text)
+        codes.push(...font.codeBytes(font.encodeChar(ch)!));
       hex = hexString(codes);
       used = "own";
     } else {
       const sub = anchor.desc.substitute;
-      const face = needsUnicodeFace(text) ? "sans" : standardFontKey(sub.font, sub.bold, sub.italic);
+      const face = needsUnicodeFace(text)
+        ? "sans"
+        : standardFontKey(sub.font, sub.bold, sub.italic);
       const embedded = await embedDrawingFont(doc, [text], face);
       key = page.node.newFontDictionary(embedded.name, embedded.ref);
       hex = embedded.encodeText(text).toString();
@@ -871,7 +987,9 @@ export async function applyContentEdits(
         : show.fill.hex
           ? (() => {
               const h = show.fill.hex!;
-              const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+              const c = [1, 3, 5].map(
+                (i) => parseInt(h.slice(i, i + 2), 16) / 255,
+              );
               return `${num(c[0]!)} ${num(c[1]!)} ${num(c[2]!)} rg`;
             })()
           : "0 g";
@@ -880,10 +998,16 @@ export async function applyContentEdits(
     lines.push(
       `q ${m(show.ctm)} cm ${fill} BT ${key.toString()} ${num(show.fs)} Tf ${num(show.th * 100)} Tz ${num(show.tc)} Tc ${num(show.tw)} Tw ${num(show.ts)} Ts ${tr} Tr ${m(anchor.glyph.tm)} Tm ${hex} Tj ET Q`,
     );
-    outcomes.push({ id: r.id, font: used, removedGlyphs: anchor.desc.glyphCount });
+    outcomes.push({
+      id: r.id,
+      font: used,
+      removedGlyphs: anchor.desc.glyphCount,
+    });
   }
   if (lines.length > 0) {
-    const ref = ctx.register(ctx.flateStream(asciiBytes(`${lines.join("\n")}\n`)));
+    const ref = ctx.register(
+      ctx.flateStream(asciiBytes(`${lines.join("\n")}\n`)),
+    );
     page.node.addContentStream(ref);
   }
 

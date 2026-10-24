@@ -1,5 +1,6 @@
 import { awaitPdfjsDocument, loadPdfjs } from "../pdfjs";
 import { PDFJS_DOCUMENT_DEFAULTS } from "../wasm-assets";
+import type { PdfjsTextItem } from "./runs";
 
 /**
  * pdf.js, held open for the editor's page view: one parse, then any page
@@ -28,6 +29,12 @@ export interface EditorPdf {
     pixelRatio: number,
     signal?: AbortSignal,
   ): Promise<HTMLCanvasElement | null>;
+  /**
+   * Page `index`'s text items as pdf.js reads them (what a viewer selects
+   * and searches): text, text-space matrix in user space, advance. Empty on
+   * failure (a scan has none either).
+   */
+  textContent(index: number): Promise<PdfjsTextItem[]>;
   destroy(): Promise<void>;
 }
 
@@ -94,9 +101,30 @@ export async function openEditorPdf(bytes: Uint8Array): Promise<EditorPdf> {
     }
   };
 
+  const textContent: EditorPdf["textContent"] = async (index) => {
+    if (destroyed) return [];
+    try {
+      const page = await doc.getPage(index + 1);
+      const content = await page.getTextContent();
+      const out: PdfjsTextItem[] = [];
+      for (const item of content.items) {
+        if (!("str" in item)) continue;
+        out.push({
+          str: item.str,
+          transform: Array.from(item.transform as number[]),
+          width: item.width,
+        });
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  };
+
   return {
     numPages: doc.numPages,
     render,
+    textContent,
     destroy: async () => {
       if (destroyed) return;
       destroyed = true;

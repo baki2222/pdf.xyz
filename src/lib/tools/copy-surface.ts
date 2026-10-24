@@ -170,6 +170,10 @@ export function copyFiles(): string[] {
     // The WYSIWYG editor's export refusals (2026-10-24): new phrase code,
     // so walked rather than recorded outside.
     path.join(ROOT, "src", "lib", "pdf", "editor-export.ts"),
+    // Edit text and Redact's refusals (2026-10-24, Phase 2): the sentences
+    // the editor shows when a run or a box cannot be rewritten.
+    path.join(ROOT, "src", "lib", "pdf", "editor", "content-edit.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "editor", "run-styles.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // The fix a known refusal offers, and where its file goes there (WP-08):

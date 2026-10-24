@@ -4589,7 +4589,7 @@
     },
     "tools/edit-pdf.html": {
       "title": "Edit PDF — Add Text, Images, Signatures and Shapes — pdf.xyz",
-      "description": "Click on a PDF page to add text, pictures, signatures, shapes, highlights and notes, then move and resize them. Runs in your browser; your PDF is not uploaded.",
+      "description": "Retype the text in a PDF, find and replace words, redact, and add text, pictures, signatures and shapes. Runs in your browser; your PDF is not uploaded.",
       "canonical": "https://pdf.xyz/tools/edit-pdf",
       "robots": "index, follow",
       "h1": ["Edit PDF"],

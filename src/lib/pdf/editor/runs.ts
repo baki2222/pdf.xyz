@@ -1,5 +1,6 @@
 import { contentToViewer, type ExportFrame } from "./geometry";
 import type { EditorFont, Rect, TextEditObject } from "./model";
+import { needsUnicodeFace } from "./text";
 
 /**
  * Text runs as the editor offers them: pdf.js's text items (what a viewer
@@ -27,6 +28,8 @@ export interface RunStyle {
   fontName: string;
   /** Why it cannot be edited, or null. */
   refusal: string | null;
+  /** An invisible text layer (OCR): not offered for editing. */
+  invisible: boolean;
 }
 
 export interface TextRun {
@@ -59,13 +62,25 @@ export function placeRuns(
     if (item.str.trim().length === 0) return;
     const t = item.transform;
     if (t.length < 6 || !t.every(Number.isFinite)) return;
-    const [a, b, c, d, e, f] = t as [number, number, number, number, number, number];
+    const [a, b, c, d, e, f] = t as [
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+    ];
     const along = Math.hypot(a, b);
     if (!(along > 0) || !(item.width > 0)) return;
     const s = item.width / along;
     const at = (u: number, v: number) =>
       contentToViewer(e + u * a + v * c, f + u * b + v * d, frame);
-    const corners = [at(0, DESCENT), at(s, DESCENT), at(0, ASCENT), at(s, ASCENT)];
+    const corners = [
+      at(0, DESCENT),
+      at(s, DESCENT),
+      at(0, ASCENT),
+      at(s, ASCENT),
+    ];
     const xs = corners.map((p) => p.x);
     const ys = corners.map((p) => p.y);
     const base = at(0, 0);
@@ -176,4 +191,29 @@ export function replaceAt(
     at = s + length;
   }
   return out + text.slice(at);
+}
+
+/** Does the run's own font have every character of `text`? */
+export function ownFontCovers(ownChars: string, text: string): boolean {
+  if (ownChars.length === 0) return false;
+  const have = new Set([...ownChars]);
+  return [...text].every((ch) => have.has(ch));
+}
+
+/** The face a substituted run is drawn in, by name (for the note). */
+export function substituteLabel(
+  style: Pick<RunStyle, "font" | "bold" | "italic">,
+  text: string,
+): string {
+  if (needsUnicodeFace(text)) return "Noto Sans";
+  const base =
+    style.font === "times"
+      ? "Times"
+      : style.font === "courier"
+        ? "Courier"
+        : "Helvetica";
+  const variant = [style.bold ? "Bold" : "", style.italic ? "Italic" : ""]
+    .filter(Boolean)
+    .join(" ");
+  return variant ? `${base} ${variant}` : base;
 }

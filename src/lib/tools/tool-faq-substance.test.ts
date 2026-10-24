@@ -646,11 +646,53 @@ describe("sign, edit and annotate answer what they draw", () => {
     expect(original).toMatch(/Tj/);
     expect(contentOf(after, 0)).toContain(original);
     expect(drawnText(after, 0)).toContain("Page 1");
+    // INVERTED 2026-10-24 (Phase 2). The answer to "can it change the text
+    // already in my PDF?" was "No. … It cannot retype, move or delete the
+    // existing text", pinned here by `toMatch(/^No\./)` — true until Edit
+    // text began removing a run's glyphs from the content stream. It now says
+    // "Yes, a line at a time", and that is held to the ENGINE: an Edit-text
+    // export of this very page drops the old words from what the page draws
+    // and draws the new ones.
+    const font = await (
+      await PDFDocument.create()
+    ).embedFont(StandardFonts.Helvetica);
+    const { bytes: retyped } = await exportEditedPdf(bytes, [
+      {
+        id: "e",
+        kind: "textedit",
+        page: 0,
+        x: 20,
+        y: 30,
+        width: 60,
+        height: 16,
+        run: {
+          transform: [14, 0, 0, 14, 20, 360],
+          width: font.widthOfTextAtSize("Page 1", 14),
+        },
+        original: "Page 1",
+        text: "Retyped",
+        size: 14,
+        color: "#000000",
+        font: "helvetica",
+        bold: false,
+        italic: false,
+        ownChars: "",
+        fontName: "Helvetica",
+        baseX: 20,
+        baseY: 40,
+        angle: 0,
+      },
+    ]);
+    const words = drawnText(await PDFDocument.load(retyped), 0);
+    expect(words).not.toContain("Page 1");
+    expect(words).toContain("Retyped");
     for (const tool of mounting("edit")) {
       const change = answer(tool.slug, /change the text already/);
-      expect(change).toMatch(/^No\./);
-      for (const k of EDITOR_KINDS)
-        expect(change).toContain(EDITOR_KIND_FACT[k]);
+      expect(change).toMatch(/^Yes, a line at a time/);
+      expect(change).toMatch(/removed from the file/);
+      for (const k of EDITOR_KINDS) {
+        if (k !== "textedit") expect(change).toContain(EDITOR_KIND_FACT[k]);
+      }
       expect(answer(tool.slug, /cover something up/)).toContain(
         "still in the file",
       );

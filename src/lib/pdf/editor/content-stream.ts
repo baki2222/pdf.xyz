@@ -14,13 +14,7 @@
  */
 
 export type PdfValue =
-  | number
-  | boolean
-  | null
-  | PdfName
-  | PdfString
-  | PdfValue[]
-  | PdfDictValue;
+  number | boolean | null | PdfName | PdfString | PdfValue[] | PdfDictValue;
 
 export interface PdfName {
   t: "name";

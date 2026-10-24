@@ -76,7 +76,10 @@ export function boxOf(points: { x: number; y: number }[]): Box {
 /** Do two boxes overlap by more than a hair (touching does not count)? */
 export function boxesOverlap(a: Box, b: Box, eps = 0.01): boolean {
   return (
-    a.x0 < b.x1 - eps && b.x0 < a.x1 - eps && a.y0 < b.y1 - eps && b.y0 < a.y1 - eps
+    a.x0 < b.x1 - eps &&
+    b.x0 < a.x1 - eps &&
+    a.y0 < b.y1 - eps &&
+    b.y0 < a.y1 - eps
   );
 }
 
@@ -106,8 +109,7 @@ export interface ShownGlyph {
 }
 
 export type ShowItem =
-  | { kind: "num"; value: number }
-  | { kind: "glyphs"; from: number; to: number };
+  { kind: "num"; value: number } | { kind: "glyphs"; from: number; to: number };
 
 export interface TextShow {
   opIndex: number;
@@ -264,15 +266,26 @@ export function analyzeStream(
     if (name === "G") return "DeviceGray";
     if (name === "RGB") return "DeviceRGB";
     if (name === "CMYK") return "DeviceCMYK";
-    const cs = colorSpaces ? lookup(colorSpaces.get(PDFName.of(name))) : undefined;
+    const cs = colorSpaces
+      ? lookup(colorSpaces.get(PDFName.of(name)))
+      : undefined;
     if (cs instanceof PDFName) return csName(cs.decodeText());
     if (cs instanceof PDFArray) {
       const kind = lookup(cs.get(0));
       if (kind instanceof PDFName && kind.decodeText() === "ICCBased") {
         const s = lookup(cs.get(1));
-        const n = s instanceof PDFStream ? lookup(s.dict.get(PDFName.of("N"))) : undefined;
+        const n =
+          s instanceof PDFStream
+            ? lookup(s.dict.get(PDFName.of("N")))
+            : undefined;
         const comps = n instanceof PDFNumber ? n.asNumber() : 0;
-        return comps === 1 ? "DeviceGray" : comps === 3 ? "DeviceRGB" : comps === 4 ? "DeviceCMYK" : name;
+        return comps === 1
+          ? "DeviceGray"
+          : comps === 3
+            ? "DeviceRGB"
+            : comps === 4
+              ? "DeviceCMYK"
+              : name;
       }
     }
     return name;
@@ -283,7 +296,12 @@ export function analyzeStream(
     tm = tlm;
   };
 
-  const show = (opIndex: number, op: string, elements: PdfValue[], quoteArgs?: [number, number]) => {
+  const show = (
+    opIndex: number,
+    op: string,
+    elements: PdfValue[],
+    quoteArgs?: [number, number],
+  ) => {
     const font = gs.font;
     const glyphs: ShownGlyph[] = [];
     const items: ShowItem[] = [];
@@ -300,7 +318,7 @@ export function analyzeStream(
       if (!isStr(el)) continue;
       const from = glyphs.length;
       const b = el.bytes;
-      for (let i = 0; i < b.length; ) {
+      for (let i = 0; i < b.length;) {
         const len = font ? Math.max(1, font.codeLength(b, i)) : 1;
         const codeBytes = Array.from(b.subarray(i, i + len));
         const code = codeBytes.reduce((v, x) => v * 256 + x, 0);
@@ -445,7 +463,13 @@ export function analyzeStream(
         if (isNum(a[0])) {
           fillSpace = "DeviceGray";
           fillSpaceOps = "";
-          gs = { ...gs, fill: { hex: deviceHex("DeviceGray", [a[0]]), ops: latin1(bytes, o.start, o.end) } };
+          gs = {
+            ...gs,
+            fill: {
+              hex: deviceHex("DeviceGray", [a[0]]),
+              ops: latin1(bytes, o.start, o.end),
+            },
+          };
         }
         break;
       case "rg": {
@@ -453,7 +477,13 @@ export function analyzeStream(
         if (m) {
           fillSpace = "DeviceRGB";
           fillSpaceOps = "";
-          gs = { ...gs, fill: { hex: deviceHex("DeviceRGB", m), ops: latin1(bytes, o.start, o.end) } };
+          gs = {
+            ...gs,
+            fill: {
+              hex: deviceHex("DeviceRGB", m),
+              ops: latin1(bytes, o.start, o.end),
+            },
+          };
         }
         break;
       }
@@ -462,7 +492,13 @@ export function analyzeStream(
         if (m) {
           fillSpace = "DeviceCMYK";
           fillSpaceOps = "";
-          gs = { ...gs, fill: { hex: deviceHex("DeviceCMYK", m), ops: latin1(bytes, o.start, o.end) } };
+          gs = {
+            ...gs,
+            fill: {
+              hex: deviceHex("DeviceCMYK", m),
+              ops: latin1(bytes, o.start, o.end),
+            },
+          };
         }
         break;
       }
@@ -472,7 +508,10 @@ export function analyzeStream(
           fillSpace = csName(n.v);
           fillSpaceOps = latin1(bytes, o.start, o.end);
           const initial = fillSpace === "DeviceCMYK" ? [0, 0, 0, 1] : [0, 0, 0];
-          gs = { ...gs, fill: { hex: deviceHex(fillSpace, initial), ops: fillSpaceOps } };
+          gs = {
+            ...gs,
+            fill: { hex: deviceHex(fillSpace, initial), ops: fillSpaceOps },
+          };
         }
         break;
       }
@@ -522,7 +561,13 @@ export function analyzeStream(
               depth + 1,
             );
           }
-          out.forms.push({ opIndex: i, name: n.v, ref, ctm: formCtm, analysis });
+          out.forms.push({
+            opIndex: i,
+            name: n.v,
+            ref,
+            ctm: formCtm,
+            analysis,
+          });
         }
         break;
       }

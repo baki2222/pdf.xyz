@@ -1,6 +1,6 @@
 import { loadPdf } from "../engine";
 import { loadPdfLib } from "../pdf-lib";
-import { describeRun } from "./content-edit";
+import { describeRun, observedCodes } from "./content-edit";
 import { analyzePage, type StreamAnalysis } from "./page-content";
 import type { RunStyle } from "./runs";
 
@@ -24,7 +24,9 @@ const UNREADABLE: RunStyle = {
   italic: false,
   ownChars: "",
   fontName: "an unknown font",
-  refusal: "This page's content could not be read, so its text can't be edited.",
+  refusal:
+    "This page's content could not be read, so its text can't be edited.",
+  invisible: false,
 };
 
 export async function openRunStyles(
@@ -33,30 +35,45 @@ export async function openRunStyles(
   const lib = await loadPdfLib();
   const doc = await loadPdf(bytes);
   const pages = doc.getPages();
-  const cache = new Map<number, StreamAnalysis | null>();
-  const analysis = (index: number): StreamAnalysis | null => {
+  type Read = {
+    page: StreamAnalysis;
+    observed: ReturnType<typeof observedCodes>;
+  } | null;
+  const cache = new Map<number, Read>();
+  const styles = new Map<string, RunStyle>();
+  const analysis = (index: number): Read => {
     if (!cache.has(index)) {
       const page = pages[index];
-      let a: StreamAnalysis | null = null;
+      let read: Read = null;
       try {
-        a = page ? analyzePage(lib, page) : null;
+        if (page) {
+          const a = analyzePage(lib, page);
+          read = { page: a, observed: observedCodes(a) };
+        }
       } catch {
-        a = null;
+        read = null;
       }
-      cache.set(index, a);
+      cache.set(index, read);
     }
     return cache.get(index)!;
   };
   return {
     style(page, run) {
+      const key = `${page}:${run.transform.join(",")}:${run.width}`;
+      const known = styles.get(key);
+      if (known) return known;
       const a = analysis(page);
       if (!a) return UNREADABLE;
       const t = run.transform;
-      const d = describeRun(a, {
-        transform: [t[0]!, t[1]!, t[2]!, t[3]!, t[4]!, t[5]!],
-        width: run.width,
-      });
-      return {
+      const d = describeRun(
+        a.page,
+        {
+          transform: [t[0]!, t[1]!, t[2]!, t[3]!, t[4]!, t[5]!],
+          width: run.width,
+        },
+        a.observed,
+      );
+      const style: RunStyle = {
         color: d.color,
         font: d.substitute.font,
         bold: d.substitute.bold,
@@ -64,7 +81,10 @@ export async function openRunStyles(
         ownChars: d.ownChars,
         fontName: d.fontName,
         refusal: d.refusal,
+        invisible: d.invisible,
       };
+      styles.set(key, style);
+      return style;
     },
   };
 }

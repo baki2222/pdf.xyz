@@ -128,12 +128,12 @@ function utf16be(bytes: Uint8Array): string {
   for (let i = 0; i + 1 < bytes.length; i += 2) {
     s += String.fromCharCode((bytes[i]! << 8) | bytes[i + 1]!);
   }
-  if (bytes.length % 2 === 1) s += String.fromCharCode(bytes[bytes.length - 1]!);
+  if (bytes.length % 2 === 1)
+    s += String.fromCharCode(bytes[bytes.length - 1]!);
   return s;
 }
 
-const codeOf = (bytes: Uint8Array) =>
-  bytes.reduce((v, b) => v * 256 + b, 0);
+const codeOf = (bytes: Uint8Array) => bytes.reduce((v, b) => v * 256 + b, 0);
 
 interface CMapData {
   /** Code byte lengths, from the codespace ranges. */
@@ -252,7 +252,8 @@ export function loadFontFrom(
     o instanceof PDFNumber ? o.asNumber() : fallback;
 
   const subtype = nameOf(get(dict, "Subtype")) ?? "Type1";
-  const rawBase = nameOf(get(dict, "BaseFont")) ?? nameOf(get(dict, "Name")) ?? "";
+  const rawBase =
+    nameOf(get(dict, "BaseFont")) ?? nameOf(get(dict, "Name")) ?? "";
   const subset = /^[A-Z]{6}\+/.test(rawBase);
   const baseFont = rawBase.replace(/^[A-Z]{6}\+/, "");
   const type0 = subtype === "Type0";
@@ -277,7 +278,9 @@ export function loadFontFrom(
       ));
   const flags = descriptor ? numOf(get(descriptor, "Flags"), 0) : 0;
   const italicAngle = descriptor ? numOf(get(descriptor, "ItalicAngle"), 0) : 0;
-  const fontWeight = descriptor ? numOf(get(descriptor, "FontWeight"), 400) : 400;
+  const fontWeight = descriptor
+    ? numOf(get(descriptor, "FontWeight"), 400)
+    : 400;
   let ascent = descriptor ? numOf(get(descriptor, "Ascent"), 0) / 1000 : 0;
   let descent = descriptor ? numOf(get(descriptor, "Descent"), 0) / 1000 : 0;
   if (!(ascent > 0.2 && ascent < 2)) ascent = 0.8;
@@ -327,7 +330,8 @@ export function loadFontFrom(
     const lenOfCode = byLen[byLen.length - 1] ?? 2;
     codeBytes = (code) => {
       const out: number[] = [];
-      for (let k = lenOfCode - 1; k >= 0; k--) out.push((code >> (8 * k)) & 0xff);
+      for (let k = lenOfCode - 1; k >= 0; k--)
+        out.push((code >> (8 * k)) & 0xff);
       return out;
     };
     const dw = descendant ? numOf(get(descendant, "DW"), 1000) : 1000;
@@ -335,7 +339,7 @@ export function loadFontFrom(
     const w = descendant ? get(descendant, "W") : undefined;
     if (w instanceof PDFArray) {
       const items = w.asArray().map((o) => toValue(lib, context.lookup(o)));
-      for (let i = 0; i < items.length; ) {
+      for (let i = 0; i < items.length;) {
         const first = items[i];
         const second = items[i + 1];
         if (!isNum(first)) break;
@@ -364,7 +368,8 @@ export function loadFontFrom(
     let fontMatrixX = 0.001;
     if (type3) {
       const fm = get(dict, "FontMatrix");
-      if (fm instanceof PDFArray) fontMatrixX = numOf(context.lookup(fm.get(0)), 0.001);
+      if (fm instanceof PDFArray)
+        fontMatrixX = numOf(context.lookup(fm.get(0)), 0.001);
     }
     // Glyph names: base encoding, then /Differences.
     const names = new Map<number, string>();
@@ -468,6 +473,9 @@ export function substituteFor(font: FontInfo | null): SubstituteStyle {
     /italic|oblique/.test(n) ||
     Math.abs(font.italicAngle) > 0.5 ||
     (font.flags & 64) !== 0;
-  return { font: mono ? "courier" : serif ? "times" : "helvetica", bold, italic };
+  return {
+    font: mono ? "courier" : serif ? "times" : "helvetica",
+    bold,
+    italic,
+  };
 }
-

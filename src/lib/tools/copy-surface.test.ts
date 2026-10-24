@@ -182,9 +182,12 @@ describe("the copy surface reaches what the guards must read", () => {
     // 239 files on 2026-10-08, 245 with src/lib/workspace. The floor catches
     // a walk that quietly lost a root; the ceiling one that swallowed a
     // worktree or node_modules. Plausibility bounds, not measurements.
+    // 401 on 2026-10-24 (the editor's Phase 2 added a panel and two listed
+    // modules), so the ceiling moved from 400 to 550: a second checkout
+    // would still double the walk past it.
     const n = copyFiles().length;
     expect(n).toBeGreaterThanOrEqual(120);
-    expect(n).toBeLessThanOrEqual(400);
+    expect(n).toBeLessThanOrEqual(550);
   });
 
   it("a pending root is one that does not exist YET — stale entries fail", () => {

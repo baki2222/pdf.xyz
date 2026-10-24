@@ -24,9 +24,7 @@ export function browserJpegDecoder(): JpegDecoder | null {
           ? new OffscreenCanvas(width, height)
           : Object.assign(document.createElement("canvas"), { width, height });
       const ctx = canvas.getContext("2d") as
-        | CanvasRenderingContext2D
-        | OffscreenCanvasRenderingContext2D
-        | null;
+        CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
       if (!ctx) throw new Error("no 2d context");
       ctx.drawImage(bitmap, 0, 0);
       const data = ctx.getImageData(0, 0, width, height).data;

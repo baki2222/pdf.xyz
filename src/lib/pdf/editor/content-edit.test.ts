@@ -18,6 +18,8 @@ import {
 import { readAsViewer } from "@/tests/pdf-viewer-read";
 import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
 import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
+import { drawRasterImage, embedRasterImage } from "../pdf-lib";
+import { embedDrawingFont } from "../unicode-font";
 import { exportEditedPdf, readExportFrames } from "../editor-export";
 import type { EditorObject } from "./model";
 import { openRunStyles } from "./run-styles";
@@ -68,7 +70,11 @@ async function pdfjsItems(
     const out: PdfjsTextItem[] = [];
     for (const i of content.items) {
       if (!("str" in i)) continue;
-      out.push({ str: i.str, transform: i.transform as number[], width: i.width });
+      out.push({
+        str: i.str,
+        transform: i.transform as number[],
+        width: i.width,
+      });
     }
     return out;
   } finally {
@@ -78,7 +84,11 @@ async function pdfjsItems(
 
 async function runsOf(bytes: Uint8Array, pageIndex = 0): Promise<TextRun[]> {
   const frames = await readExportFrames(bytes);
-  return placeRuns(pageIndex, await pdfjsItems(bytes, pageIndex), frames[pageIndex]!);
+  return placeRuns(
+    pageIndex,
+    await pdfjsItems(bytes, pageIndex),
+    frames[pageIndex]!,
+  );
 }
 
 async function editOf(
@@ -89,7 +99,10 @@ async function editOf(
 ): Promise<EditorObject> {
   const runs = await runsOf(bytes, pageIndex);
   const run = runs.find((r) => r.str.includes(match));
-  if (!run) throw new Error(`no run "${match}" in ${runs.map((r) => r.str).join(" | ")}`);
+  if (!run)
+    throw new Error(
+      `no run "${match}" in ${runs.map((r) => r.str).join(" | ")}`,
+    );
   const styles = await openRunStyles(bytes);
   return textEditFromRun(`e-${match}`, run, styles.style(pageIndex, run), text);
 }
@@ -116,7 +129,13 @@ async function helvetica(opts: { rotate?: number } = {}): Promise<Uint8Array> {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   page.drawText("Hello World", { x: 72, y: 700, size: 12, font });
   page.drawText("Keep this line", { x: 72, y: 650, size: 12, font });
-  page.drawText("Total due 120", { x: 72, y: 600, size: 14, font, color: rgb(0.8, 0, 0) });
+  page.drawText("Total due 120", {
+    x: 72,
+    y: 600,
+    size: 14,
+    font,
+    color: rgb(0.8, 0, 0),
+  });
   if (opts.rotate) page.setRotation(degrees(opts.rotate));
   return doc.save();
 }
@@ -144,7 +163,9 @@ describe("Edit text removes the original glyphs from the content stream", () => 
     const keep = /<4B6565702074686973206C696E65> Tj/i.exec(before)?.[0];
     expect(keep, "positive control: the untouched run's operator").toBeTruthy();
 
-    const out = await exportEditedPdf(base, [await editOf(base, "Hello", "Goodbye World")]);
+    const out = await exportEditedPdf(base, [
+      await editOf(base, "Hello", "Goodbye World"),
+    ]);
     const texts = await textsOf(out.bytes);
     const all = texts.map((t) => t.str).join(" ");
     expect(all).not.toContain("Hello");
@@ -185,7 +206,10 @@ describe("Edit text removes the original glyphs from the content stream", () => 
     expect(all).toContain("Hello there");
     expect(all).not.toContain("Hello World");
     const doc = await PDFDocument.load(out.bytes);
-    const fonts = doc.getPage(0).node.Resources()!.lookup(PDFName.of("Font"), PDFDict);
+    const fonts = doc
+      .getPage(0)
+      .node.Resources()!
+      .lookup(PDFName.of("Font"), PDFDict);
     // Same font object under a second key, no new font embedded.
     const refs = new Set(fonts.entries().map(([, v]) => v.toString()));
     expect(refs.size).toBe(1);
@@ -206,7 +230,9 @@ describe("Edit text removes the original glyphs from the content stream", () => 
     );
     const items = (await runsOf(base)).map((r) => r.str);
     expect(items.join("|")).toContain("Kerned");
-    const out = await exportEditedPdf(base, [await editOf(base, "Kerned", "Changed")]);
+    const out = await exportEditedPdf(base, [
+      await editOf(base, "Kerned", "Changed"),
+    ]);
     const all = await joined(out.bytes);
     expect(all).not.toContain("Kerned");
     expect(all).not.toContain("Words");
@@ -216,14 +242,21 @@ describe("Edit text removes the original glyphs from the content stream", () => 
 
   it("two runs in one operator: only the edited run's glyphs go, the other stays put", async () => {
     // One TJ paints two runs pdf.js reports apart (a wide gap between them).
-    const base = await rawPage("BT /F1 12 Tf 72 500 Td [(Alpha) -12000 (Beta)] TJ ET");
+    const base = await rawPage(
+      "BT /F1 12 Tf 72 500 Td [(Alpha) -12000 (Beta)] TJ ET",
+    );
     const runs = await runsOf(base);
     const beta = runs.find((r) => r.str.includes("Beta"));
     const alpha = runs.find((r) => r.str.includes("Alpha"));
-    expect(beta && alpha && beta !== alpha, runs.map((r) => r.str).join("|")).toBe(true);
+    expect(
+      beta && alpha && beta !== alpha,
+      runs.map((r) => r.str).join("|"),
+    ).toBe(true);
     const betaX = (await textsOf(base)).find((t) => t.str.includes("Beta"))!.x;
 
-    const out = await exportEditedPdf(base, [await editOf(base, "Alpha", "Omega")]);
+    const out = await exportEditedPdf(base, [
+      await editOf(base, "Alpha", "Omega"),
+    ]);
     const texts = await textsOf(out.bytes);
     const all = texts.map((t) => t.str).join(" ");
     expect(all).not.toContain("Alpha");
@@ -237,7 +270,9 @@ describe("Edit text removes the original glyphs from the content stream", () => 
   it("a rotated page: the replacement lands where the run was, as the viewer shows it", async () => {
     const base = await helvetica({ rotate: 90 });
     const before = (await textsOf(base)).find((t) => t.str.includes("Hello"))!;
-    const out = await exportEditedPdf(base, [await editOf(base, "Hello", "Rotated edit")]);
+    const out = await exportEditedPdf(base, [
+      await editOf(base, "Hello", "Rotated edit"),
+    ]);
     const texts = await textsOf(out.bytes);
     expect(texts.map((t) => t.str).join(" ")).not.toContain("Hello");
     const placed = texts.find((t) => t.str.includes("Rotated edit"))!;
@@ -255,13 +290,106 @@ describe("Edit text removes the original glyphs from the content stream", () => 
 
   it("the old content stream is not left in the file as an orphan", async () => {
     const base = await helvetica();
-    const out = await exportEditedPdf(base, [await editOf(base, "Hello", "Changed")]);
+    const out = await exportEditedPdf(base, [
+      await editOf(base, "Hello", "Changed"),
+    ]);
     const doc = await PDFDocument.load(out.bytes);
     for (const [, obj] of doc.context.enumerateIndirectObjects()) {
       if (!(obj instanceof PDFRawStream)) continue;
-      const text = Buffer.from(decodePDFRawStream(obj).decode()).toString("latin1");
+      const text = Buffer.from(decodePDFRawStream(obj).decode()).toString(
+        "latin1",
+      );
       expect(text).not.toMatch(/48656C6C6F20576F726C64/i);
     }
+  });
+});
+
+describe("fonts: the run's own font when it has the glyphs, a named substitute when not", () => {
+  /** A line drawn in an EMBEDDED SUBSET (Noto, via the site's own chooser). */
+  async function subsetPage(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    // "ő" is outside WinAnsi, so the chooser embeds a Noto subset.
+    const words = "Hello Wörld ő";
+    const font = await embedDrawingFont(doc, [words], "sans");
+    page.drawText(words, { x: 72, y: 700, size: 14, font });
+    return doc.save();
+  }
+
+  it("a subset that has every letter typed: drawn in the run's own font", async () => {
+    const base = await subsetPage();
+    const edit = await editOf(base, "Hello", "Wörld Hello");
+    expect(edit.kind === "textedit" && edit.ownChars.length).toBeGreaterThan(0);
+    const out = await exportEditedPdf(base, [edit]);
+    expect(out.retext.map((r) => r.font)).toEqual(["own"]);
+    const all = await joined(out.bytes);
+    expect(all).toContain("Wörld Hello");
+    expect(all).not.toContain("Hello Wörld");
+  });
+
+  it("a subset missing a letter typed: substituted, and the export names the face", async () => {
+    const base = await subsetPage();
+    // "p" and "z" were never drawn, so the subset has no glyph for them.
+    const out = await exportEditedPdf(base, [
+      await editOf(base, "Hello", "Puzzle"),
+    ]);
+    expect(out.retext.map((r) => r.font)).toEqual(["Helvetica"]);
+    const all = await joined(out.bytes);
+    expect(all).toContain("Puzzle");
+    expect(all).not.toContain("Hello");
+  });
+});
+
+describe("text inside a Form XObject (one level)", () => {
+  async function formPage(): Promise<Uint8Array> {
+    const src = await PDFDocument.create();
+    const font = await src.embedFont(StandardFonts.Helvetica);
+    src
+      .addPage([612, 792])
+      .drawText("Inside the form", { x: 72, y: 700, size: 12, font });
+    const doc = await PDFDocument.create();
+    const [embedded] = await doc.embedPdf(await src.save());
+    doc.addPage([612, 792]).drawPage(embedded!);
+    return doc.save();
+  }
+
+  it("is edited: old words gone, new words drawn", async () => {
+    const base = await formPage();
+    const out = await exportEditedPdf(base, [
+      await editOf(base, "Inside", "Rewritten line"),
+    ]);
+    const all = await joined(out.bytes);
+    expect(all).not.toContain("Inside the form");
+    expect(all).toContain("Rewritten line");
+  });
+
+  it("is redacted", async () => {
+    const base = await formPage();
+    const run = (await runsOf(base)).find((r) => r.str.includes("Inside"))!;
+    const out = await exportEditedPdf(base, [
+      { id: "r", kind: "redact", page: 0, ...run.rect, fill: "white" },
+    ]);
+    expect(await joined(out.bytes)).not.toContain("Inside");
+  });
+});
+
+describe("what Edit text refuses", () => {
+  it("an invisible OCR layer is not offered, and says why", async () => {
+    const base = await rawPage(
+      "BT 3 Tr /F1 12 Tf 72 600 Td (Scanned words) Tj ET",
+    );
+    const run = (await runsOf(base)).find((r) => r.str.includes("Scanned"))!;
+    const style = (await openRunStyles(base)).style(0, run);
+    expect(style.invisible).toBe(true);
+    expect(style.refusal).toMatch(/invisible layer/);
+  });
+
+  it("control: the same line painted visibly is offered", async () => {
+    const base = await rawPage("BT /F1 12 Tf 72 600 Td (Scanned words) Tj ET");
+    const run = (await runsOf(base)).find((r) => r.str.includes("Scanned"))!;
+    const style = (await openRunStyles(base)).style(0, run);
+    expect(style.invisible).toBe(false);
+    expect(style.refusal).toBeNull();
   });
 });
 
@@ -274,7 +402,9 @@ describe("Find & replace", () => {
     expect(findMatches(runs, "total", false)).toHaveLength(3);
     expect(findMatches(runs, "total", true)).toHaveLength(2);
     expect(findMatches(runs, "", false)).toHaveLength(0);
-    expect(replaceAt("Invoice total: total", [8, 15], 5, "sum")).toBe("Invoice sum: sum");
+    expect(replaceAt("Invoice total: total", [8, 15], 5, "sum")).toBe(
+      "Invoice sum: sum",
+    );
   });
 
   it("replace all, exported: every occurrence gone from the file", async () => {
@@ -288,10 +418,16 @@ describe("Find & replace", () => {
     );
     expect(matches.length).toBe(5); // Hello(2) World(1) line(1) Total(1)
     const byRun = new Map<string, number[]>();
-    for (const m of matches) byRun.set(m.run, [...(byRun.get(m.run) ?? []), m.start]);
+    for (const m of matches)
+      byRun.set(m.run, [...(byRun.get(m.run) ?? []), m.start]);
     const edits = [...byRun].map(([key, starts]) => {
       const run = runs.find((r) => r.key === key)!;
-      return textEditFromRun(key, run, styles.style(0, run), replaceAt(run.str, starts, 1, "L"));
+      return textEditFromRun(
+        key,
+        run,
+        styles.style(0, run),
+        replaceAt(run.str, starts, 1, "L"),
+      );
     });
     const out = await exportEditedPdf(base, edits);
     const all = await joined(out.bytes);
@@ -312,8 +448,13 @@ describe("Redact removes what is under the box", () => {
     page.drawText("Public line", { x: 72, y: 650, size: 12, font });
     // A 20 x 20 red PNG, drawn 100 pt square at (300, 300).
     const png = await solidPng(20, 20, [255, 0, 0]);
-    const img = await doc.embedPng(png);
-    page.drawImage(img, { x: 300, y: 300, width: 100, height: 100 });
+    const img = await embedRasterImage(doc, png, "png");
+    await drawRasterImage(page, img, {
+      x: 300,
+      y: 300,
+      width: 100,
+      height: 100,
+    });
     return { bytes: await doc.save() };
   }
 
@@ -359,10 +500,22 @@ describe("Redact removes what is under the box", () => {
     const frames = await readExportFrames(bytes);
     const h = frames[0]!.height;
     const out = await exportEditedPdf(bytes, [
-      { id: "r", kind: "redact", page: 0, x: 300, y: h - 400, width: 50, height: 100, fill: "black" },
+      {
+        id: "r",
+        kind: "redact",
+        page: 0,
+        x: 300,
+        y: h - 400,
+        width: 50,
+        height: 100,
+        fill: "black",
+      },
     ]);
     const doc = await PDFDocument.load(out.bytes);
-    const xo = doc.getPage(0).node.Resources()!.lookup(PDFName.of("XObject"), PDFDict);
+    const xo = doc
+      .getPage(0)
+      .node.Resources()!
+      .lookup(PDFName.of("XObject"), PDFDict);
     const images = xo
       .entries()
       .map(([k, v]) => [k.decodeText(), doc.context.lookup(v)] as const)
@@ -371,7 +524,8 @@ describe("Redact removes what is under the box", () => {
     expect(redacted, images.map(([k]) => k).join(",")).toBeDefined();
     const stream = redacted![1] as PDFRawStream;
     const px = inflateSync(Buffer.from(stream.getContents()));
-    const at = (x: number, y: number) => Array.from(px.subarray((y * 20 + x) * 3, (y * 20 + x) * 3 + 3));
+    const at = (x: number, y: number) =>
+      Array.from(px.subarray((y * 20 + x) * 3, (y * 20 + x) * 3 + 3));
     expect(at(2, 10)).toEqual([0, 0, 0]); // covered
     expect(at(17, 10)).toEqual([255, 0, 0]); // not covered
     // And the original red image is not left in the file.
@@ -388,7 +542,11 @@ describe("Redact removes what is under the box", () => {
 });
 
 /** A solid-colour RGB PNG, built by hand (no image library). */
-async function solidPng(w: number, h: number, [r, g, b]: number[]): Promise<Uint8Array> {
+async function solidPng(
+  w: number,
+  h: number,
+  [r, g, b]: number[],
+): Promise<Uint8Array> {
   const { deflateSync } = await import("node:zlib");
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;

@@ -44,13 +44,13 @@ function EditorFooter() {
       <div className="grid gap-3 sm:grid-cols-3">
         <InfoTile
           icon={Layers}
-          title="Adds to the page"
-          body="Text, pictures, signatures, shapes, highlights, drawings and notes are written into the page as real text, vector and image content — the page itself is kept, not turned into a picture."
+          title="Edits the page itself"
+          body="Retyped lines replace the old words in the page content. Text, pictures, signatures, shapes, highlights, drawings and notes are written in as real text, vector and image content — the page is kept, not turned into a picture."
         />
         <InfoTile
           icon={Lock}
           title="Flattened on export"
-          body="What you add becomes part of the page, not a comment layer. Whiteout covers what is under it; the covered content stays in the file — use Redact PDF when it must be removed."
+          body="What you add becomes part of the page, not a comment layer. Whiteout covers what is under it and the covered content stays in the file; Redact removes the text and picture pixels under its box."
         />
         <InfoTile
           icon={ShieldCheck}
@@ -81,23 +81,27 @@ function ToolLink({ slug }: { slug: string }) {
 }
 
 /**
- * The load-bearing honesty of this tool: new content, placed by hand — not
- * editing of the text already there. Exported so `tool-page-content.test.ts`
- * can render it and read the links a reader actually receives.
+ * The load-bearing honesty of this tool: what Edit text can and cannot
+ * change, and that Whiteout covers while Redact removes. Exported so
+ * `tool-page-content.test.ts` can render it and read the links a reader
+ * actually receives.
+ *
+ * HISTORY. Until 2026-10-24 (Phase 2) this note said the editor does "not"
+ * change, move or delete the words already in the PDF — true then, false
+ * once Edit text removed the original glyphs from the content stream
+ * (`editor/content-edit.ts`).
  */
 export function HonestScopeNote() {
   return (
     <div className="border-info/40 bg-info/10 text-info rounded-panel flex items-start gap-3 border px-4 py-3.5 text-sm">
       <Info className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
       <p className="leading-relaxed">
-        <span className="font-semibold">This adds new content.</span> Click on a
-        page to place text, pictures, signatures, shapes, highlights, drawings
-        and notes, then move and resize them. It does{" "}
-        <span className="font-semibold">not</span> change, move or delete the
-        words and pictures already in your PDF. To rework the existing text,
-        convert the file with <ToolLink slug="pdf-to-word" />. Whiteout covers
-        content but doesn&apos;t remove it — use <ToolLink slug="redact-pdf" />{" "}
-        to delete data.
+        <span className="font-semibold">Edit text</span> retypes a line of the
+        PDF&apos;s own text in place: the old words are removed from the file. A
+        scanned page has no text to edit — run <ToolLink slug="ocr-pdf" /> first
+        — and text inside some embedded objects is refused. To rework whole
+        paragraphs, convert the file with <ToolLink slug="pdf-to-word" />.
+        Whiteout only covers what is under it; Redact removes it.
       </p>
     </div>
   );
