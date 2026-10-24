@@ -249,7 +249,9 @@ describe(
   () => {
     it("Sign PDF with Upload chosen: the signature zone is shown, the page's drop still replaces the PDF", async () => {
       const { container } = await openTool("sign", "sign-pdf", "Sign PDF");
-      fireEvent.click(screen.getByRole("radio", { name: "Upload" }));
+      // The signature panel opens with the editor (Sign PDF opens on Sign);
+      // Upload is its tab. WAS a radio in the form, until 2026-10-24.
+      fireEvent.click(await screen.findByRole("tab", { name: "Upload" }));
       const zone = await screen.findByText(/drop a signature image, or/i);
       // The zone is there (positive control for the condition being tested)…
       expect(zone).toBeTruthy();
@@ -269,7 +271,9 @@ describe(
 
     it("control: a drop made ON the signature zone is the zone's, not a replace", async () => {
       const { container } = await openTool("sign", "sign-pdf", "Sign PDF");
-      fireEvent.click(screen.getByRole("radio", { name: "Upload" }));
+      // The signature panel opens with the editor (Sign PDF opens on Sign);
+      // Upload is its tab. WAS a radio in the form, until 2026-10-24.
+      fireEvent.click(await screen.findByRole("tab", { name: "Upload" }));
       const zone = (
         await screen.findByText(/drop a signature image, or/i)
       ).closest("[data-drop-sheet]")!;

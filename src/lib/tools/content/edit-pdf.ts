@@ -1,7 +1,13 @@
 import type { ToolContent } from "./types";
 import { MAX_PDF_BYTES } from "@/lib/pdf/files";
 import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
-import { rasterScaleForDpi } from "@/lib/pdf/pdf-to-image";
+import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
+import {
+  EDITOR_FONTS,
+  EDITOR_FONT_LABEL,
+  NUDGE_BIG_PT,
+  NUDGE_PT,
+} from "@/lib/pdf/editor/model";
 import {
   FONT_PACKS,
   SUPPORTED_SCRIPTS,
@@ -13,75 +19,54 @@ import {
  *
  *  - The PDF cap is MAX_PDF_BYTES: `EditRunner` loads through
  *    `SinglePdfRunner` → `useSinglePdf` → `validatePdfFile(file)` with its
- *    default, and `RUNNER_FILE_CEILINGS.edit` names the same constant. Imported
- *    from the leaf module rather than through the `@/lib/tools` barrel, so this
- *    file cannot become a module cycle if the barrel ever imports content.
- *  - The image cap is MAX_EDIT_IMAGE_BYTES, the constant both `checkEditImage`
- *    and the runner's "Choose a PNG or JPG image (max N MB)" label read.
- *  - Points per inch is derived the way create-forms and pdf-to-png derive it,
- *    from `rasterScaleForDpi`, rather than typed.
- *  - The scripts named are SUPPORTED_SCRIPTS, the list `embedDrawingFont`
- *    quotes in its own refusal; the right-to-left names are the
- *    UNSUPPORTED_SCRIPTS rows whose stated reason is direction.
- *  - A password-protected PDF is refused when it OPENS: `useSinglePdf` calls
- *    `getPageRotations` → `engine.load` → `loadPdf`, which maps /encrypt/ to
- *    "This PDF is password-protected. Unlock it first, then try again."
- *  - Text fit. `validateEditOps` still checks only a text item's anchor, but
- *    since c25f9c80 the runner's Add to page also awaits `checkEditTextFit`
- *    over the whole queue, which measures every wrapped line in the font the
- *    export will embed (`textOverflow`: right edge, last baseline below 0,
- *    first ascent above the top, EDGE_EPSILON 0.5), and `editPdf` repeats it
- *    before drawing. The right-edge message names `floor(width - X)` as the
- *    Wrap width, and the Wrap field's max is `maxW - X`. WAS, until
- *    2026-10-07 on this page: "Text is checked only at its starting point, so
- *    a long line can run past the right edge" — true when this bullet was
- *    written, and the bullet is what kept it on the page.
- *  - `PagePreview` is a white box at the page's aspect ratio with markers for
- *    queued items; it renders none of the document, so the copy calls it an
- *    outline, not a preview of the page.
- *  - `onPickImage` seeds Width/Height from the picture's natural size, scaled
- *    to fit, so "start at the picture's own proportions" is the runner's.
+ *    default, and `RUNNER_FILE_CEILINGS.edit` names the same constant.
+ *  - The picture cap is MAX_EDIT_IMAGE_BYTES: the editor's `onPickImage`
+ *    refuses through `checkEditImage`, and its picker's label names it.
+ *  - Pages are drawn by pdf.js (`editor/page-render.ts`) in the frame a
+ *    reader sees — the page's own /Rotate applied, its visible box only —
+ *    and every object is stored and exported in that frame
+ *    (`editor-export.ts`: y-flip, then `viewToContent`; pinned against
+ *    pdf.js's own viewport by `editor/geometry.test.ts` and by
+ *    `editor-export.test.ts` on rotated and cropped pages).
+ *  - Zoom is MIN_ZOOM–MAX_ZOOM by the buttons, menu, Ctrl+wheel and pinch;
+ *    "Fit width" may go lower (`MIN_FIT_ZOOM`), which the copy does not
+ *    promise either way.
+ *  - Arrow keys nudge by NUDGE_PT, with Shift by NUDGE_BIG_PT
+ *    (`wysiwyg-editor.tsx`'s keyboard handler).
+ *  - The fonts offered are EDITOR_FONTS. Text a standard face cannot encode
+ *    is drawn in the Noto face `embedDrawingFont` picks, PER BOX (one call per
+ *    object in `exportEditedPdf`), in its regular weight — the properties
+ *    panel says bold/italic apply to Latin-only text. WAS, until 2026-10-24
+ *    on this page: "One font is chosen for every text item in the queue",
+ *    true of `editPdf`'s batch font and false of the editor, where a Bengali
+ *    box and a Chinese box on one page each get their face
+ *    (`editor-export.test.ts`). A single box mixing two such scripts is still
+ *    refused by `embedDrawingFont` ("This text mixes …").
+ *  - Whiteout is a white filled rectangle; the covered text stays
+ *    extractable (`editor-export.test.ts`, "covers but does not remove").
+ *  - Existing text and the original content stream survive
+ *    (`tool-page-content.test.ts`); a form field's value and the document
+ *    title survive (`editor-export.test.ts`).
  *  - Non-WinAnsi text loads the coverage chunk and fontkit as code, then the
- *    face from `fontPackUrl`; none of those requests carries document data.
- *  - Sizes come from `getEditPageSizes` → `editPageFrame` → `visiblePageFrame`:
- *    the visible CropBox clipped to the MediaBox, turned by /Rotate. Every op
- *    is mapped with `viewToContent` and drawn with `rotate: frame.rotation`, so
- *    it reads upright. WAS (until c25f9c80 in code, 2026-10-07 on this page):
- *    sizes from pdf-lib `getSize()`, the MediaBox, positions on the unrotated
- *    page, "so new content turns with it".
+ *    face from `fontPackUrl` (`loadPreviewFace` for the on-screen preview,
+ *    the same cached bytes for the export); none of those requests carries
+ *    document data.
+ *  - Control names are the toolbar's (`TOOL_BUTTONS` in `editor/toolbar.tsx`:
+ *    Select, Text, Image, Sign, Rectangle, Ellipse, Line, Arrow, Whiteout,
+ *    Highlight, Draw, Note, Undo, Redo, Zoom in/out, Fit width) and the run
+ *    button "Apply & download"; the result is "Edited PDF ready" with
+ *    "Download edited PDF", and the file name gains "-edited"
+ *    (`editedOutputName`).
  *
- * Probed 2026-09-27 against the real engine (`editPdf` in Node, the shipped
- * Noto TTFs as the font source):
- *  - a Bengali box on page 1 plus a Chinese box on page 2 in one run is
- *    refused ("This text mixes Bengali and Chinese…") — by editPdf, which is
- *    where this probe ran. Through the page the refusal now comes earlier: Add
- *    to page runs `checkEditTextFit` over the queue plus the new item, which
- *    embeds the batch font, so the second script is never queued and Apply
- *    is never reached (the FAQ said "stop Apply" until 2026-10-07); Hebrew
- *    is refused by
- *    name; Bengali, Chinese, Japanese and Korean EACH succeed alongside an
- *    English text item in the same run;
- *  - a text field's value and the document title survive an edit;
- *  - a white filled box drawn over "SECRET 12345" leaves that string in the
- *    output's text content as pdf.js extracts it (the hide-not-remove claim);
- *  - a 30 pt line anchored at x=600 on a 612 pt page was accepted, i.e. text
- *    could run past the edge without a refusal. INVERTED by c25f9c80: the
- *    same line is now refused by `textOverflow` ("runs past the right edge
- *    … Set a Wrap width of 12 pt or less").
- *
- * Control labels ("Text", "Box", "Line", "Image", "Page", "X (pt)", "Y (pt)",
- * "Wrap (pt)", "Font size", "Width (pt)", "Height (pt)", "Filled"/"Outline",
- * "Fill opacity", "Outline width", "Opacity", "Start X"…"End Y", "Thickness",
- * "Line"/"Arrow", the swatch names, "Add content", "Add to page",
- * "Apply N edits", "Edited PDF ready", "Download edited PDF") are quoted from
- * `edit-runner.tsx`; the drop box caption is `EditRunner`'s `hint` prop,
- * rendered under `Dropzone`'s title in `runner-kit.tsx`, and "Reading page
- * sizes…" is the runner's placeholder until `getEditPageSizes` resolves. The "-edited" file name suffix is `editedOutputName`.
+ * HISTORY. Until 2026-10-24 this page described the coordinate form: items
+ * placed by page number and X/Y in points from the lower-left, a blank
+ * outline for a preview, "Add to page", "Apply N edits". Every one of those
+ * sentences was true of the form and is false of the editor that replaced it.
  */
 
 const MAX_MB = Math.round(MAX_PDF_BYTES / (1024 * 1024));
 const IMAGE_MB = Math.round(MAX_EDIT_IMAGE_BYTES / (1024 * 1024));
-const POINTS_PER_INCH = Math.round(1 / rasterScaleForDpi(1));
+const pct = (z: number) => `${Math.round(z * 100)}%`;
 
 function listOf(items: readonly string[], conjunction = "and"): string {
   if (items.length <= 1) return items.join("");
@@ -89,13 +74,11 @@ function listOf(items: readonly string[], conjunction = "and"): string {
 }
 
 const scripts = listOf(SUPPORTED_SCRIPTS);
-/**
- * The non-Latin faces shipped, by the label a refusal would use. SCRIPT packs
- * only: until 2026-10-07 this listed every pack but Latin, so the use case
- * read "A Bengali, monospace, Japanese, … caption is drawn with a matching Noto
- * font". The monospace pack is Geist Mono, offered only to a caller asking for
- * "mono", and Edit PDF's `embedStampFont` never does.
- */
+const fonts = listOf(
+  EDITOR_FONTS.map((f) => EDITOR_FONT_LABEL[f]),
+  "or",
+);
+/** The non-Latin SCRIPT faces shipped, by the label a refusal would use. */
 const otherAlphabets = listOf(
   FONT_PACKS.filter(
     (pack) => pack.role === "script" && pack.id !== "latin",
@@ -114,75 +97,79 @@ const rtlSentence = rtlScripts
 const content: ToolContent = {
   slug: "edit-pdf",
 
-  seoTitle: "Edit PDF — Add Text, Images, Boxes and Lines",
+  seoTitle: "Edit PDF — Add Text, Images, Signatures and Shapes",
 
   metaDescription:
-    "Add text, PNG or JPG pictures, boxes, lines and arrows to PDF pages at exact coordinates. The editing happens in your browser tab; your PDF is not uploaded.",
+    "Click on a PDF page to add text, pictures, signatures, shapes, highlights and notes, then move and resize them. Runs in your browser; your PDF is not uploaded.",
 
   intro: [
-    `Edit PDF lays new content over the pages you already have: text, filled or outlined boxes, lines and arrows, or a PNG or JPG picture. Each item is placed by page number and by X and Y values in points (${POINTS_PER_INCH} to the inch), measured from the lower-left corner. A blank outline of the chosen page, drawn to its proportions, marks roughly where each queued item will land; it does not show the page's own content.`,
-    "It cannot retype, move or delete words that are already in the file. A white filled box can cover an old phrase so new text sits on top, but the covered words stay in the file, where search and copy still find them. Redact PDF is the tool that removes them, by turning each page into a picture.",
-    `Everything runs in your browser tab with pdf-lib, so your PDF is not uploaded. Files up to ${MAX_MB} MB open, each inserted picture may be up to ${IMAGE_MB} MB, and a password-protected PDF is turned away until it has been unlocked. Page count, page sizes, existing text, form fields and the title are kept. Your additions are written into the page content itself, not added as comments or annotations.`,
+    "Edit PDF shows every page of your PDF and lets you add to it by clicking on the page: text boxes you type straight onto the page, PNG or JPG pictures, a signature you draw, type or pick from a picture, rectangles, ellipses, lines and arrows, whiteout boxes, highlights, freehand drawing and notes. Anything you place can be selected, dragged, resized from its handles, restyled, copied or deleted, and every step can be undone.",
+    "It cannot change, move or delete the words that are already in the file. A whiteout box covers an old phrase so new text can sit on top, but the covered words stay in the file, where search and copy still find them. Redact PDF is the tool that removes them.",
+    `Everything runs in your browser tab, so your PDF is not uploaded. Files up to ${MAX_MB} MB open, each picture may be up to ${IMAGE_MB} MB, and a password-protected PDF is turned away until it has been unlocked. Page count, page sizes, existing text, form fields and the title are kept, and rotated or cropped pages are shown and edited the way your viewer shows them. Your additions are written into the page content itself, not added as comments.`,
   ],
 
   useCases: [
     {
-      title: "Complete a form that has no fillable fields",
-      body: "On a scanned or flat form there is nothing to click into, so type the name, date and answers as text items at the right spots. A form with real fields is better served by Fill Forms.",
+      title: "Fill in a form that has no fillable fields",
+      body: "On a scanned or flat form there is nothing to click into, so choose Text, click where the answer goes and type. A form with real fields is better served by Fill Forms.",
+    },
+    {
+      title: "Sign a contract or a letter",
+      body: "Choose Sign, then draw your signature, type your name, or pick a picture of your signature, and click where it goes. Drag it into place and resize it from a corner; it is a picture of a signature, not a certificate-based digital signature.",
     },
     {
       title: "Patch a wrong figure on a finished document",
-      body: "Draw a Filled box with the White swatch over the old number, then type the corrected figure on top. Fine for a typo; not for hiding anything confidential, since the old figure is still in the file beneath the box.",
+      body: "Draw a Whiteout box over the old number, then type the corrected figure on top. Fine for a typo; not for hiding anything confidential, since the old figure is still in the file beneath the box.",
     },
     {
-      title: "Put a logo, stamp or photo on a page",
-      body: `Choose a PNG or JPG of up to ${IMAGE_MB} MB; Width (pt) and Height (pt) start at the picture's own proportions, and lowering Opacity lets the page show through. GIF and WebP pictures are not accepted.`,
-    },
-    {
-      title: "Write a caption in another script",
-      body: `A ${otherAlphabets} caption is drawn with a matching Noto font, and an English label elsewhere in the same batch is drawn with that font too instead of being refused.`,
+      title: "Write in another script",
+      body: `A ${otherAlphabets} text box is drawn with a matching Noto font, which the page downloads from pdf.xyz the first time it is needed; each box gets its own, so two scripts can sit on one page in separate boxes.`,
     },
   ],
 
   steps: [
     {
       title: "Open your PDF",
-      body: `Drag one PDF onto the box captioned “One PDF · edited locally in your browser”, or click it to choose one. An empty file, a non-PDF or anything over ${MAX_MB} MB is refused before it is read. Then the Add content panel appears, showing “Reading page sizes…” until it can take edits.`,
+      body: `Drag one PDF onto the box captioned “One PDF · edited locally in your browser”, or click it to choose one. An empty file, a non-PDF or anything over ${MAX_MB} MB is refused before it is read. Every page then appears in a scrolling view, with page thumbnails beside it on a wide screen.`,
     },
     {
-      title: "Pick Text, Box, Line or Image",
-      body: "Set Page, then X (pt) and Y (pt), or Start X, Start Y, End X and End Y for a line. Text adds Wrap (pt), a Text box and Font size. Box adds Width (pt) and Height (pt), then Filled with a Fill opacity slider or Outline with an Outline width slider. Image adds a PNG or JPG picker, Width (pt), Height (pt) and Opacity. Line adds Thickness and, under Arrowhead, Line or Arrow. The swatches, Black through Violet, colour everything except pictures.",
+      title: "Pick a tool and click on the page",
+      body: "Text and Note place a box you type into straight away. Rectangle, Ellipse, Line, Arrow, Whiteout and Highlight draw where you drag, or at a standard size where you click. Draw follows your pointer. Image and Sign ask for a picture or a signature first, then place it where you click.",
     },
     {
-      title: "Press Add to page",
-      body: "The item joins a list, with a bin button to remove it, and shows on that page's outline. When you press Add to page, anything that would not fit is refused with a message: a box, picture or line end off the page, or text that would run past the right edge, below the bottom or above the top, measured in the font it will be drawn with. For a line that runs past the right edge, the message names the Wrap (pt) width to set, which is the space between X and the right edge.",
+      title: "Move, resize and style",
+      body: `With Select, click an item to select it, drag it to move it, or drag a handle to resize it; Shift-click adds to the selection, and items snap to the page's edges and centre lines. The arrow keys nudge by ${NUDGE_PT} pt, or ${NUDGE_BIG_PT} pt with Shift. The panel beside the page sets font (${fonts}), size, colour, bold, italic, alignment and line height for text, and outline, fill and opacity for shapes. Undo and Redo, or Ctrl+Z and Ctrl+Shift+Z, step back and forward.`,
     },
     {
-      title: "Apply the edits and download",
-      body: "The Apply button counts the queued edits. When “Edited PDF ready” appears, Download edited PDF saves a copy named after yours, with -edited before the .pdf.",
+      title: "Apply & download",
+      body: "Apply & download writes your additions into the PDF and downloads it; “Edited PDF ready” then offers Download edited PDF again. The copy is named after yours, with -edited before the .pdf.",
     },
   ],
 
   faqs: [
     {
       q: "Can I change the existing text in my PDF?",
-      a: "No. It adds content on top and leaves the existing words alone; a white box with new text over it handles a small visible fix. To rewrite text, PDF to Word gives an editable document, though that tool uploads the file to pdf.xyz's secure worker.",
+      a: "No. It adds content on top and leaves the existing words alone; a whiteout box with new text over it handles a small visible fix. To rewrite text, PDF to Word gives an editable document, though that tool uploads the file to pdf.xyz's secure worker.",
     },
     {
       q: "Does my PDF leave my computer while I edit it?",
-      a: "No. The PDF and any picture you add are combined inside your browser tab. Only when a text item uses characters outside the basic Western set does the page download a Noto font from pdf.xyz's own /fonts/ path, plus the code that embeds it; those requests ask for files by name and carry nothing from your document.",
+      a: "No. The pages are drawn and the PDF is written inside your browser tab, with any picture or signature you add. Only when a text box uses characters outside the basic Western set does the page download a Noto font from pdf.xyz's own /fonts/ path, plus the code that embeds it; those requests ask for files by name and carry nothing from your document.",
     },
     {
       q: "Which languages can I type onto a page?",
-      a: `Text can be written in the ${scripts} scripts.${rtlSentence} One font is chosen for every text item in the queue. So once a Bengali item is queued, pressing Add to page on a Chinese one, even on another page, is refused with a message naming both scripts, although each works on its own. Put one of them on in a first pass, then open the downloaded file here again for the second.`,
+      a: `Text can be written in the ${scripts} scripts.${rtlSentence} Each text box is drawn with one font, so a box can hold one of these scripts; put a second one in a box of its own. Text in those scripts uses the regular weight of its Noto font, so bold and italic apply to Latin text only.`,
     },
     {
-      q: "Does a white box remove what is underneath?",
-      a: "No. It paints over the area; the text or image below stays in the file, where search, copy and paste or an image extractor can still reach it. When an account number or a name must be gone, use Redact PDF.",
+      q: "Does whiteout remove what is underneath?",
+      a: "No. It paints a white box over the area; the text or image below stays in the file, where search, copy and paste or an image extractor can still reach it. When an account number or a name must be gone, use Redact PDF.",
     },
     {
-      q: "How do I find the right X and Y values?",
-      a: "Larger Y values sit higher. A line above the fields gives the chosen page's width and height in points (W × H) as a viewer shows it, meaning the visible area after any crop, turned by any rotation setting. So X = 0, Y = 0 is the visible bottom-left corner and Y = H is the visible top edge. For text, Y is the baseline of the first line. On a rotated page, new text, boxes and pictures are turned so they read upright on screen.",
+      q: "Does it work on rotated or cropped pages?",
+      a: "Yes. Each page is shown the way a PDF viewer shows it, after any rotation setting and with only its visible area, and what you add lands exactly where you placed it and reads upright.",
+    },
+    {
+      q: "How far can I zoom?",
+      a: `From ${pct(MIN_ZOOM)} to ${pct(MAX_ZOOM)}, with the zoom buttons, the zoom menu, Ctrl and the mouse wheel, or a two-finger pinch on a touch screen. Fit width sizes the pages to the view.`,
     },
   ],
 

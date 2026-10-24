@@ -404,6 +404,10 @@ const STANDARD_FACE_NAMES: Record<StandardFace, string> = {
   mono: "Courier",
   "mono-bold": "CourierBold",
   "serif-italic": "TimesRomanItalic",
+  "sans-bold-oblique": "HelveticaBoldOblique",
+  "serif-bold-italic": "TimesRomanBoldItalic",
+  "mono-oblique": "CourierOblique",
+  "mono-bold-oblique": "CourierBoldOblique",
 };
 
 /**
@@ -633,4 +637,28 @@ export function warmDrawingFont(
   })().catch(() => {
     // Swallowed: the operation's own await is the surface that reports errors.
   });
+}
+
+/**
+ * The face {@link embedDrawingFont} would pick for `rawText`, as bytes — for
+ * an on-screen preview that must draw with the SAME outlines the export
+ * embeds (the editor loads it as a `FontFace`). Shares the byte cache with
+ * the embed, so previewing and then exporting downloads the face once. Null
+ * for WinAnsi text (a standard face needs no download) and for text no single
+ * shipped face covers — the export's refusal is the surface that explains it.
+ */
+export async function loadPreviewFace(
+  rawText: string,
+): Promise<{ pack: FontPack; bytes: Uint8Array } | null> {
+  const text = rawText.replace(/[\r\n\t]+/g, " ");
+  if (allWinAnsi([text])) return null;
+  const coverage = await downloaded(
+    loadCoverage(),
+    "The table of which fonts can draw this text",
+  );
+  if (uncoveredCodePoints(coverage, text, "sans").length > 0) return null;
+  const [pack] = candidatePacks(coverage, text, "sans");
+  if (!pack) return null;
+  const bytes = await downloaded(loadPackBytes(pack), `The ${pack.label} font`);
+  return { pack, bytes };
 }

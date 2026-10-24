@@ -378,6 +378,75 @@ export async function pdfPageTexts(buf: Buffer): Promise<string[]> {
   }
 }
 
+/** A text run as a reader sees it: viewer points from the page's TOP-LEFT. */
+export interface PdfTextRun {
+  str: string;
+  /** Baseline-left, viewer frame (after /Rotate and the CropBox), y down. */
+  x: number;
+  y: number;
+  width: number;
+  /** Glyphs read left to right, upright on screen. */
+  upright: boolean;
+}
+
+/**
+ * Per page: every text run's position in the frame a reader sees, through
+ * pdfjs's own viewport transform — where `/Rotate` and the CropBox are
+ * applied. The test-side twin of `src/tests/pdf-viewer-read.ts`, which cannot
+ * be imported here (it reaches `import.meta` through `src/lib/pdf/pdfjs`).
+ */
+export async function pdfTextPositions(
+  buf: Buffer,
+): Promise<{ width: number; height: number; runs: PdfTextRun[] }[]> {
+  expectMagic(buf, "pdf");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useWorkerFetch: false,
+    disableFontFace: true,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...pdfjsAssetOptions(),
+  });
+  type M = [number, number, number, number, number, number];
+  const mul = (m: M, n: M): M => [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+  try {
+    const doc = await task.promise;
+    const pages = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const vp = page.getViewport({ scale: 1 });
+      const content = await page.getTextContent();
+      const runs: PdfTextRun[] = [];
+      for (const item of content.items) {
+        if (!("str" in item) || item.str.trim() === "") continue;
+        const m = mul(vp.transform as M, item.transform as M);
+        runs.push({
+          str: item.str,
+          x: m[4],
+          y: m[5],
+          width: item.width,
+          upright:
+            m[0] > 0 &&
+            Math.abs(m[1]) < 1e-6 &&
+            Math.abs(m[2]) < 1e-6 &&
+            m[3] < 0,
+        });
+      }
+      pages.push({ width: vp.width, height: vp.height, runs });
+    }
+    return pages;
+  } finally {
+    await task.destroy();
+  }
+}
+
 /* ------------------------------------------------------------------ *
  *  ZIP
  * ------------------------------------------------------------------ */

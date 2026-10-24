@@ -2,66 +2,46 @@ import type { ToolContent } from "./types";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
-import {
-  DEFAULT_SIGNATURE_WIDTH,
-  MAX_SIGNATURE_WIDTH,
-  MIN_SIGNATURE_WIDTH,
-} from "@/lib/pdf/signature";
-import { STAMP_POSITIONS } from "@/lib/pdf/stamp";
 import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
+import { MAX_SAVED_SIGNATURES } from "@/lib/pdf/editor/saved-signatures";
 
 /*
- * Every behavioral claim below was read from, or probed against, the code:
- *  - runner: src/components/tools/runner/sign-runner.tsx — the "Signature"
- *    section with Draw / Type / Upload (Type is the default), the "Your
- *    signature" text box, Style Script / Print, a preview drawn with the
- *    browser's own serif-italic / sans fonts (not the embedded face), the
- *    Placement section (Position grid, Page, Size, Margin), the "Sign PDF"
- *    button disabled until a signature exists, "PDF signed" result with
- *    "Download signed PDF" and "Start over"; the upload dropzone accepts
- *    image/png and image/jpeg and converts through a canvas, locally.
- *  - signature-pad.tsx: pointer events with touch-none (mouse, pen, finger),
- *    transparent canvas, a "Clear" chip.
- *  - engine: signPdf() in src/lib/pdf/signature.ts draws onto ONE page of the
- *    loaded document and saves it with pdf-lib, which rewrites the whole file.
- *    Probed 2026-09-27 (scratch make.mts / probe.mts, pdf-lib fixture, pypdf
- *    for encryption): the input bytes are NOT a prefix of the output, so an
- *    existing certificate signature's byte range no longer matches (no
- *    signature-validating viewer was run, hence "expect" in the FAQ). Typed
- *    signature on page 2 of a three-page file kept 3 pages, the text field,
- *    /Outlines, title and author, but Producer became pdf-lib's and Creator
- *    "pdf.xyz" (stampProducer + save's updateMetadata), so NOT "only the chosen
- *    page changes". Hebrew AND Arabic typed names refused by name, reason
- *    "written right to left". Permissions-only RC4 encryption (opens with an
- *    empty password) and open-password encryption were BOTH refused at open by
- *    getPageRotations (use-single-pdf) with "Unlock it first".
- *  - Unlock PDF requires a password (unlock-pdf content: "The field cannot be
- *    left empty"), so a permissions-only file needs its owner password.
- *  - drawn signatures: signature-pad.tsx crops each drawing to its ink after
- *    every stroke (signatureFromPixels, removeBackground false), so Size
- *    measures the signature, not the pad.
- *  - uploads: decodeImageFile -> signatureFromPixels -> prepareSignatureBitmap
- *    (signature-image.ts) crops to the ink and, for an opaque source (every
- *    JPEG, an opaque PNG), keys out the paper unless "Remove paper
- *    background" is unticked — the checkbox shows only for such a file and
- *    starts ticked (removeBackground = true in both the runner and the
- *    function). A keyed result is embedded as a PNG with alpha. No ink found
- *    gives "We couldn't find a signature in that image…" instead.
- *  - placement: signPdf anchors the box in viewerFrame (the visible CropBox
- *    turned by /Rotate), maps it through viewToContent and draws it
- *    counter-rotated, so it lands in the chosen corner and reads upright
- *    (signature-placement.test.ts reads it through pdfjs).
- *    Until 2026-10-07 these bullets said the pad exported the whole canvas
- *    and placement ignored /Rotate, both true before those fixes; the FAQ
- *    and the upload use case repeated them.
- *  - typed size: fontSizeForWidth clamps the letter size, so a short name
- *    can come out narrower than the Size value.
- *  - fonts: embedDrawingFont uses Times-Italic / Helvetica for WinAnsi text
- *    (nothing downloaded) and ONE upright Noto Regular for anything else,
- *    whatever the style, fetched from fontPackUrl() — /fonts/<version>/<file>
- *    on our own origin; the URL carries no typed text.
- *  - encrypted input: loadPdf() refuses with "Unlock it first", at file open.
- *  - size cap: the sign runner's own gate, read through toolFileCeilingMb.
+ * Every behavioral claim below was read from, or probed against, the code.
+ *
+ * SINCE 2026-10-24 Sign PDF mounts the shared WYSIWYG editor
+ * (`sign-runner.tsx` → `editor/editor-session.tsx`), opened on its Sign tool
+ * with the signature panel showing and a "Place signature" first step. Until
+ * then it was a form of its own — nine anchor points, Size and Margin
+ * sliders, one signature on one page per run — and this page described that
+ * form; every such sentence was rewritten with it.
+ *
+ *  - panel: editor/signature-panel.tsx — Draw / Type / Upload
+ *    (SIGNATURE_SOURCES), opening on Type; Type has "Your name" and Style Script /
+ *    Print; Upload shows "Remove paper background", ticked, only for a file
+ *    with no transparency (`isOpaque`); "Save for next time" (opt-in) and the
+ *    "Saved on this device" list with a delete button each; "Use signature".
+ *  - drawn: signature-pad.tsx crops each drawing to its ink
+ *    (signatureFromPixels, removeBackground false).
+ *  - uploaded: decodeImageFile -> signatureFromPixels ->
+ *    prepareSignatureBitmap crops to the ink and keys out the paper of an
+ *    opaque source unless unticked; a keyed result is a PNG with alpha.
+ *  - typed: placed as TEXT (`typedSignatureObject`): Script in Times Italic,
+ *    Print in Helvetica, for Western European letters; any other script in
+ *    one upright Noto face whichever style (`faceFor` asks for "sans");
+ *    right-to-left scripts are refused by `embedDrawingFont` at Apply.
+ *    `sign-style-copy.test.ts` reads the faces back out of the export.
+ *  - placing: a click places it centred on the point; a picture resizes from
+ *    its corners keeping its proportions, a typed one is a text box (its
+ *    Size in the properties). Every further click places another copy, on
+ *    any page. Rotated and cropped pages: the displayed frame
+ *    (`editor-export.test.ts`).
+ *  - saved: `editor/saved-signatures.ts` — localStorage only, opt-in, at
+ *    most MAX_SAVED_SIGNATURES, try/catch around every access.
+ *  - export: `exportEditedPdf` rewrites the whole file with pdf-lib
+ *    (`stampProducer` sets Producer/Creator), so an existing certificate
+ *    signature's byte range no longer matches; encrypted input is refused at
+ *    open ("Unlock it first").
+ *  - result: "PDF signed", "Download signed PDF", `signatureOutputName`.
  */
 const signTool = getToolBySlug("sign-pdf");
 const ceilingMb = signTool ? toolFileCeilingMb(signTool) : null;
@@ -69,7 +49,6 @@ if (ceilingMb === null) {
   throw new Error("sign-pdf content states a file ceiling it cannot find");
 }
 
-const anchorCount = STAMP_POSITIONS.length;
 const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 
 const list = (items: readonly string[]) =>
@@ -91,26 +70,26 @@ const content: ToolContent = {
   seoTitle: "Sign PDF Online: Draw, Type or Add a Signature",
 
   metaDescription:
-    "Sign a PDF in your browser: draw or type your signature, or add an image of it, then pin it to a page's corner, edge or center. Nothing is uploaded to pdf.xyz.",
+    "Sign a PDF in your browser: draw or type your signature, or add an image of it, then click on the page to place it. Nothing is uploaded to pdf.xyz.",
 
   intro: [
-    `Sign PDF puts your signature on a document you already have, such as an offer letter, a lease or a consent form. Draw it with a mouse, pen or fingertip, type your name in the Script (serif italic) or Print style, or pick a PNG or JPEG of the signature you already use under Upload; the image is read on your device. Then pick the page and one of ${anchorCount} anchor points (corners, edge midpoints or center) and tune Size and Margin until it sits on the line.`,
-    `Everything runs online in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. Ink is added to the chosen page only; the other pages, fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. A name with letters beyond the Western European alphabet (a Polish Ł counts) is drawn in a Noto font the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
+    `Sign PDF puts your signature on a document you already have, such as an offer letter, a lease or a consent form. Draw it with a mouse, pen or fingertip, type your name in the Script (serif italic) or Print style, or pick a PNG or JPEG of the signature you already use under Upload; the image is read on your device. Then click on the page where it goes, drag it onto the line and resize it, and click again wherever else it is needed.`,
+    `Everything runs online in this browser tab: the PDF, up to ${ceilingMb} MB, and your signature are processed on your device, and neither is uploaded. The pages, fillable fields, bookmarks, title and author carry over, while the file's Producer and Creator entries are rewritten. A name with letters beyond the Western European alphabet (a Polish Ł counts) is drawn in a Noto font the browser fetches from pdf.xyz by file name, a request that carries none of your text.`,
     "The result is a visual electronic signature: no certificate, no PKI, no tamper evidence. The FAQ below says what that means if someone asks how you signed.",
   ],
 
   useCases: [
     {
       title: "An emailed contract with one signature line",
-      body: "Set Page to the one with the line, pick a bottom corner, and raise Margin until the signature clears the footer. No printer or scanner needed.",
+      body: "Make your signature, click on the line, then drag and resize it until it sits there. No printer or scanner needed.",
     },
     {
       title: "Reusing the signature you keep on file",
       body: "Under Upload, choose the PNG or JPEG scan or photo of the signature you already use. It is cropped to the ink and, with Remove paper background left ticked, the paper around it is made transparent, so the page shows through around your signature instead of a rectangle of paper; a PNG that already has a transparent background goes on as it is.",
     },
     {
-      title: "A form that also needs your signature",
-      body: "Fill the fields in Fill Forms with Flatten after filling unticked, then sign that copy here. The fields stay editable, so a typo does not mean starting over.",
+      title: "Initials on every page",
+      body: "Type your initials, then click on each page that needs them: every click places another copy, and they are all written in one pass.",
     },
     {
       title: "A name that is not written in Latin letters",
@@ -121,19 +100,19 @@ const content: ToolContent = {
   steps: [
     {
       title: "Open the document",
-      body: "Drop one PDF in the box or browse for it; each run signs a single file. A password-protected PDF is refused as soon as it is read, before any signing controls appear.",
+      body: "Drop one PDF in the box or browse for it; each run signs a single file. A password-protected PDF is refused as soon as it is read. The pages then appear with the signature panel open above them.",
     },
     {
       title: "Create the signature",
-      body: "The Signature section opens on Type: write your name in the Your signature box and pick Script or Print. The preview uses your browser's fonts, so it only approximates the final lettering. Draw gives a pad with a Clear chip, and the third tab takes a PNG or JPEG of your signature from your device.",
+      body: "The panel opens on Type: write your name under Your name and pick Script or Print; the preview uses your browser's fonts, so it only approximates the final lettering. Draw gives a pad with a Clear chip, and the third tab takes a PNG or JPEG from your device. Tick Save for next time to keep it in this browser for later, then press Use signature.",
     },
     {
       title: "Place it",
-      body: `Under Placement, click one of the ${anchorCount} squares in the Position grid, set Page, then drag Size (${MIN_SIGNATURE_WIDTH}–${MAX_SIGNATURE_WIDTH} pt wide, starting at ${DEFAULT_SIGNATURE_WIDTH}) and Margin, the gap from the page edges.`,
+      body: "Click on the page where it goes. Drag it to move it and drag a corner to resize it; a picture keeps its proportions. Click Sign again to place another copy, on this page or any other.",
     },
     {
       title: "Sign and save",
-      body: "Sign PDF stays disabled until a signature exists. The PDF signed panel then names the signed page and the new file size, and Download signed PDF saves it with -signed added to your file name.",
+      body: "Apply & download writes every signature into the PDF and downloads it. The PDF signed panel then gives the file size, and Download signed PDF saves it again, with -signed added to your file name.",
     },
   ],
 
@@ -143,16 +122,16 @@ const content: ToolContent = {
       a: "No. Reading the PDF, preparing your signature and writing the signed copy all happen in this browser tab, and neither the document nor the signature is sent to pdf.xyz. The only things signing itself downloads are code and fonts: the tool, its PDF library, and, only for a name that needs one, a Noto font file.",
     },
     {
-      q: "Can I drag the signature to an exact spot?",
-      a: `No. It snaps to one of ${anchorCount} anchor points, Margin pushes it in from the edges, and Size sets its width with the height in proportion. A drawn or uploaded signature is cropped to its ink first, so Size measures the signature rather than the blank space around it, and a short typed name stops growing at the largest letter size the tool draws. Lines near an edge or corner are easy to reach, one mid-page may not be. Positions are measured on the page as a viewer displays it, so on a rotated or cropped page the signature still lands in the corner you picked and reads upright.`,
-    },
-    {
-      q: "Can I sign several pages, or add initials and a date?",
-      a: "Each run signs one page. To add another, download the signed PDF, press Start over, open that copy and sign the next page. Type mode is not limited to a name, so initials or a date go on the same way, one pass each.",
+      q: "Where does a saved signature go?",
+      a: `Only into this browser's own storage on this device, and only when you tick Save for next time. It is never uploaded. The signature panel lists up to ${MAX_SAVED_SIGNATURES} saved signatures, each with a button to use it and one to delete it; clearing this site's data in your browser removes them too.`,
     },
     {
       q: "Will there be a box around my signature image?",
       a: "Not by default. A photo or scan of your signature, JPEG or PNG, is cropped to the ink, and Remove paper background, ticked by default for any image with no transparency, makes the white or grey paper around it transparent, so only the ink lands on the page. Untick it to keep the paper as photographed, and it lands as a box around the ink. A PNG that already has a transparent background, and a signature drawn on the pad, need no cleanup: both are only ink, cropped the same way. Keying works best with dark ink on light paper; if it cannot find any ink, the tool says so instead of placing a blank image.",
+    },
+    {
+      q: "Does it work on a rotated or cropped page?",
+      a: "Yes. Each page is shown the way a PDF viewer shows it, after any rotation setting and with only its visible area, and the signature lands exactly where you placed it, reading upright.",
     },
     {
       q: "Can I sign a password-protected or already certified PDF?",

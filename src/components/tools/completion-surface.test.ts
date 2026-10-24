@@ -70,7 +70,21 @@ const NO_OUTCOME_OF_ITS_OWN: Record<string, string> = {
     "a dispatcher: maps a RunnerKind to the runner that owns the outcome",
   "single-pdf-runner.tsx":
     "the shared load-one-PDF lifecycle (dropzone, reading, errors); the editor it renders owns the outcome",
+  // Since 2026-10-24 these three mount the one WYSIWYG editor, whose run and
+  // ResultPanel live in `editor/editor-session.tsx` — held, not just said, by
+  // "the shared editor's runners report through it" below.
+  ...Object.fromEntries(
+    ["edit-runner.tsx", "annotate-runner.tsx", "sign-runner.tsx"].map(
+      (name) => [
+        name,
+        "renders <EditorRunner>; its outcome is editor/editor-session.tsx's ResultPanel",
+      ],
+    ),
+  ),
 };
+
+/** The runners that hand their outcome to the shared editor session. */
+const EDITOR_SESSION = path.join("runner", "editor", "editor-session.tsx");
 
 const EXEMPT = { ...ANNOUNCES_DIFFERENTLY, ...NO_OUTCOME_OF_ITS_OWN };
 
@@ -122,6 +136,20 @@ describe("completion surfaces", () => {
       ).toBe(true);
     },
   );
+
+  it("the shared editor's runners report through it", () => {
+    const session = toolSourceFiles().find((f) => f.endsWith(EDITOR_SESSION));
+    expect(session, "editor-session.tsx was not found").toBeDefined();
+    expect(USES_PRIMITIVE.test(readFileSync(session!, "utf8"))).toBe(true);
+    const onEditor = Object.entries(NO_OUTCOME_OF_ITS_OWN).filter(([, why]) =>
+      why.startsWith("renders <EditorRunner>"),
+    );
+    expect(onEditor.length).toBe(3);
+    for (const [name] of onEditor) {
+      const entry = completionSurfaceFiles().find((f) => f.name === name)!;
+      expect(readFileSync(entry.file, "utf8"), name).toMatch(/<EditorRunner\b/);
+    }
+  });
 
   it("has no stale exemptions", () => {
     // An exemption for a file that no longer exists is a claim nobody is

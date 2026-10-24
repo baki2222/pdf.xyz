@@ -17,6 +17,7 @@ import {
   attachConsoleGuard,
   fileInput,
   makePdfBytes,
+  placeEditorText,
   uploadFiles,
   waitForHydration,
   writeTempPdf,
@@ -1483,9 +1484,11 @@ test("unapplied edits are asked about before a header link leaves the page", asy
     mimeType: "application/pdf",
     buffer: Buffer.from(await doc.save()),
   });
-  await page.getByLabel("Text", { exact: true }).fill("E2E-EDIT-MARK");
-  await page.getByRole("button", { name: /add to page/i }).click();
-  await expect(page.getByRole("list", { name: "Placed edits" })).toBeVisible();
+  await placeEditorText(page, "E2E-EDIT-MARK");
+  const placed = page
+    .locator('[data-object-kind="text"] text')
+    .filter({ hasText: "E2E-EDIT-MARK" });
+  await expect(placed).toBeAttached();
 
   const header = page.getByRole("navigation", { name: "Primary" }).first();
   const messages: string[] = [];
@@ -1501,7 +1504,7 @@ test("unapplied edits are asked about before a header link leaves the page", asy
     ]);
   // "Cancel": the page and the edit stay.
   await expect(page).toHaveURL(/\/tools\/edit-pdf$/);
-  await expect(page.getByRole("list", { name: "Placed edits" })).toBeVisible();
+  await expect(placed).toBeAttached();
 
   // "OK": the link goes where it goes.
   page.once("dialog", (dialog) => void dialog.accept());

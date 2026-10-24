@@ -262,7 +262,7 @@ const DEFAULT_STEPS_BASELINE = new Set<string>([]);
 const TEMPLATE_SLUG = "⟦template⟧";
 const rendersDefaultSteps = (tool: Tool) =>
   JSON.stringify(page(tool.slug).howTo) ===
-  JSON.stringify(howToSteps({ ...tool, slug: TEMPLATE_SLUG, how: undefined }));
+  JSON.stringify(howToSteps({ ...tool, slug: TEMPLATE_SLUG }, null));
 
 describe("How it works says what the runner does", () => {
   it("the generic options step is caught by its detector, and served on no page", () => {
@@ -280,7 +280,7 @@ describe("How it works says what the runner does", () => {
     // Positive control THROUGH the detector: a tool with authored steps,
     // stripped of them, must read as default.
     const rotate = tools.find((t) => t.slug === "rotate-pdf")!;
-    expect(JSON.stringify(howToSteps({ ...rotate, how: undefined }))).not.toBe(
+    expect(JSON.stringify(howToSteps(rotate, null))).not.toBe(
       JSON.stringify(page("rotate-pdf").howTo),
     );
     const joined = now

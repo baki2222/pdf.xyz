@@ -35,6 +35,7 @@
  * checked by RUNNING the engine the page describes and decoding what a user
  * would download — the facts are only as true as that output.
  */
+import { TOOL_HOW } from "./catalog-how";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { createElement } from "react";
@@ -77,7 +78,8 @@ import { addPageNumbers } from "@/lib/pdf/page-numbers";
 import { OVERLAY_FITS, overlayPdf } from "@/lib/pdf/overlay";
 import { flattenPdf } from "@/lib/pdf/flatten";
 import { compareExtractedPdfText } from "@/lib/pdf/compare-pdf";
-import { editPdf } from "@/lib/pdf/edit";
+import { exportEditedPdf } from "@/lib/pdf/editor-export";
+import { DEFAULT_TEXT_STYLE } from "@/lib/pdf/editor/model";
 import type { ExtractedPdfText } from "@/lib/pdf/text";
 import {
   PDF_ENCRYPTION_LEVELS,
@@ -350,7 +352,7 @@ function fileInputs(source: string): { inputs: number; many: boolean } {
 
 /** The steps the page would fall back to for this tool — the blind template. */
 function templateSteps(t: Tool): readonly string[] {
-  return howToSteps({ ...t, slug: "\u27e6template\u27e7", how: undefined });
+  return howToSteps({ ...t, slug: "\u27e6template\u27e7" }, null);
 }
 
 describe("a tool that takes several files describes them in its own steps", () => {
@@ -400,7 +402,7 @@ describe("a tool that takes several files describes them in its own steps", () =
     // gain its own steps cannot turn the control into a crash.
     const defaulted = tools.filter(
       (t) =>
-        !t.how &&
+        !TOOL_HOW[t.slug] &&
         JSON.stringify(howToSteps(t)) === JSON.stringify(templateSteps(t)),
     );
     expect(
@@ -1093,8 +1095,19 @@ describe("edit-pdf: the text already on the page is kept exactly", () => {
     doc.addPage([600, 800]).drawText("Original line", { x: 50, y: 700, font });
     const input = await doc.save();
     const before = await drawnText(input);
-    const out = await editPdf(input, [
-      { type: "text", page: 1, x: 50, y: 600, text: "Added", color: "#000" },
+    // Was `editPdf` (the coordinate form's engine) until 2026-10-24; the page
+    // now mounts the WYSIWYG editor, so its engine is the one read here.
+    const out = await exportEditedPdf(input, [
+      {
+        id: "t",
+        kind: "text",
+        page: 0,
+        x: 50,
+        y: 200,
+        width: 200,
+        text: "Added",
+        ...DEFAULT_TEXT_STYLE,
+      },
     ]);
     const after = await drawnText(out.bytes);
     expect(after[0]!.map((d) => d.text)).toEqual(

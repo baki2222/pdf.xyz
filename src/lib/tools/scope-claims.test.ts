@@ -135,7 +135,10 @@ const PENDING_DELIVERY: Record<string, number> = {
   // "pdf.xyz does not email it or track who has signed" and the FAQ question
   // "Can I collect signatures from other people?" — which the shapes cannot
   // tell from a claim, so they stay counted rather than exempted.
-  "src/lib/tools/catalog.ts": 1,
+  //
+  // MOVED 2026-10-24, same count: the denial is a How-it-works step, and the
+  // steps left the client catalogue for `tools/catalog-how.ts`.
+  "src/lib/tools/catalog-how.ts": 1,
   "src/lib/guides/catalog.ts": 1,
 };
 

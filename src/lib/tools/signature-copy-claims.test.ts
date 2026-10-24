@@ -39,7 +39,7 @@ import {
 import { guides } from "@/lib/guides/catalog";
 import { readAsViewer } from "@/tests/pdf-viewer-read";
 import { encodePng } from "@/lib/pdf/extract-images";
-import { signPdf } from "@/lib/pdf/signature";
+import { exportEditedPdf } from "@/lib/pdf/editor-export";
 import {
   prepareSignatureBitmap,
   type RgbaImage,
@@ -82,14 +82,20 @@ function rgba(
   return { width, height, data };
 }
 
-/** Sign PDF on a /Rotate 90 page: bottom-right as the viewer sees it, upright. */
+/**
+ * Sign PDF on a /Rotate 90 page: where the editor placed it, as the viewer
+ * sees it, upright. Until 2026-10-24 this ran `signPdf` with the form's
+ * bottom-right anchor and a 24 pt margin; the page now places a signature by
+ * click in the shared editor, so it is that editor's export, with the box a
+ * click near the bottom-right would leave (viewer frame, top-left origin).
+ */
 async function signPlacesInTheDisplayedFrame() {
   const png = encodePng(4, 2, "rgb8", new Uint8Array(4 * 2 * 3).fill(40));
-  const out = await signPdf(
-    await rotatedPage(90),
-    { kind: "image", bytes: png, format: "png" },
-    { pageIndex: 0, position: "bottom-right", width: 200, margin: 24 },
-  );
+  // Letter turned 90: displayed 792 x 612.
+  const box = { x: 792 - 24 - 200, y: 612 - 24 - 100, width: 200, height: 100 };
+  const { bytes: out } = await exportEditedPdf(await rotatedPage(90), [
+    { id: "s", kind: "signature", page: 0, ...box, format: "png", bytes: png },
+  ]);
   const read = await readAsViewer(out);
   // Health: the page is displayed turned, and the reader found the image.
   expect(read.width).toBeGreaterThan(read.height);

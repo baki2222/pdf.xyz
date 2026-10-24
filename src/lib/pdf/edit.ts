@@ -24,6 +24,14 @@ import type { EditOpType } from "./offered-kinds";
 /**
  * In-browser basic PDF editing built on pdf-lib only — no uploads, no worker.
  *
+ * STATUS (2026-10-24): the Edit PDF page no longer mounts this engine. Its
+ * runner is the WYSIWYG editor (`components/tools/runner/editor/`), whose
+ * engine is `./editor-export.ts`. What the page still reads from here is
+ * `MAX_EDIT_IMAGE_BYTES`, `sniffImageFormat`, `checkEditImage` and
+ * `editedOutputName`. `editPdf` and its coordinate ops are kept, with their
+ * tests, but nothing a reader does reaches them — the paragraphs below
+ * describe the coordinate form that used it, not the tool page.
+ *
  * HONEST SCOPE: this *adds new, flattened content* on top of the existing pages —
  * free text, filled/outlined rectangles, lines and arrows, and inserted PNG/JPG
  * images — drawn as real content in each page's content stream. The original

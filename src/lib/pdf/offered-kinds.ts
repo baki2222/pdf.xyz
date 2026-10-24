@@ -22,39 +22,71 @@
  * drag pdf-lib or a client runner along with the sentence.
  */
 
-/** Edit PDF — the kinds of new content the editor can flatten onto a page. */
-export const EDIT_OP_TYPES = ["text", "rect", "line", "image"] as const;
-export type EditOpType = (typeof EDIT_OP_TYPES)[number];
-/** The editor's button labels. */
-export const EDIT_OP_LABEL: Record<EditOpType, string> = {
-  text: "Text",
-  rect: "Box",
-  line: "Line",
-  image: "Image",
-};
-/** How the tool page names each kind, variants included (`filled?`, `arrow?`). */
-export const EDIT_OP_FACT: Record<EditOpType, string> = {
-  text: "text",
-  rect: "boxes (filled or outlined)",
-  line: "lines or arrows",
-  image: "PNG or JPG images",
+/**
+ * Edit PDF — the kinds of item the WYSIWYG editor places, in toolbar order.
+ * `editor/model.ts` derives its object list from this one and fails to
+ * compile if the two disagree, and the tool page counts this array.
+ *
+ * HISTORY. Until 2026-10-24 the tool page counted {@link EDIT_OP_TYPES}, the
+ * four ops of the coordinate form that was then the editor. The form is gone
+ * from the page; its engine (`edit.ts`, `editPdf`) is still in the tree and
+ * still typed by that list, but it no longer describes what a reader can do.
+ */
+export const EDITOR_KINDS = [
+  "text",
+  "image",
+  "signature",
+  "shape",
+  "line",
+  "whiteout",
+  "highlight",
+  "ink",
+  "note",
+] as const;
+export type EditorKind = (typeof EDITOR_KINDS)[number];
+/** How the tool page names each kind, variants included. */
+export const EDITOR_KIND_FACT: Record<EditorKind, string> = {
+  text: "text boxes",
+  image: "PNG or JPG pictures",
+  signature: "signatures (drawn, typed or from a picture)",
+  shape: "rectangles and ellipses",
+  line: "lines and arrows",
+  whiteout: "whiteout boxes",
+  highlight: "highlights",
+  ink: "freehand drawing",
+  note: "notes",
 };
 
-/** Annotate PDF — the markup shapes the tool can flatten onto a page. */
+/**
+ * The editor's Mark-up group, in toolbar order — what Annotate PDF opens on
+ * (since 2026-10-24 that page mounts the same editor, Highlight active) and
+ * the list its page counts.
+ */
+export const MARKUP_KINDS = [
+  "whiteout",
+  "highlight",
+  "ink",
+  "note",
+] as const satisfies readonly EditorKind[];
+
+/**
+ * The coordinate-op engine's kinds (`edit.ts`). Not what the Edit PDF page
+ * offers any more — see {@link EDITOR_KINDS}.
+ */
+export const EDIT_OP_TYPES = ["text", "rect", "line", "image"] as const;
+export type EditOpType = (typeof EDIT_OP_TYPES)[number];
+// EDIT_OP_LABEL and EDIT_OP_FACT (the form's button labels and the tool
+// page's phrases for these four) were removed with the form on 2026-10-24.
+
+/**
+ * The Annotate PDF form's markup kinds, which `annotate.ts` (its engine)
+ * still types. Not what the Annotate PDF page offers since 2026-10-24 — it
+ * opens the shared editor, and its page counts {@link MARKUP_KINDS}. The
+ * form's button labels and the page's phrases for these four
+ * (ANNOTATION_LABEL, ANNOTATION_FACT) were removed with it.
+ */
 export const ANNOTATION_TYPES = ["highlight", "rect", "note", "line"] as const;
 export type AnnotationType = (typeof ANNOTATION_TYPES)[number];
-export const ANNOTATION_LABEL: Record<AnnotationType, string> = {
-  highlight: "Highlight",
-  rect: "Box",
-  note: "Note",
-  line: "Line",
-};
-export const ANNOTATION_FACT: Record<AnnotationType, string> = {
-  highlight: "highlights",
-  rect: "boxes",
-  note: "notes",
-  line: "lines or arrows",
-};
 
 /** Create Forms — the field kinds the builder can create, in the order it offers them. */
 export const NEW_FIELD_TYPES = [

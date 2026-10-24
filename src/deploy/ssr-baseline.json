@@ -334,7 +334,7 @@
     },
     "guides/how-to-add-text-to-a-pdf.html": {
       "title": "How to add text, images, and shapes to a PDF — pdf.xyz",
-      "description": "Add text, images, boxes, and lines to a PDF right in your browser, so the file stays on your device — and what Edit PDF can and cannot change.",
+      "description": "Click on a PDF page to add text, images, signatures, shapes and notes in your browser, so the file stays on your device, and see what Edit PDF can and cannot change.",
       "canonical": "https://pdf.xyz/guides/how-to-add-text-to-a-pdf",
       "robots": "index, follow",
       "h1": ["How to add text, images, and shapes to a PDF"],
@@ -343,7 +343,7 @@
         "Common questions",
         "Covering something is not the same as removing it",
         "More guides",
-        "Placing text, boxes, lines, and images",
+        "Placing text, images, and shapes",
         "Related guides",
         "Step by step",
         "Tools used in this guide",
@@ -3201,7 +3201,7 @@
     },
     "tools/annotate-pdf.html": {
       "title": "Annotate PDF — Highlight, Add Notes, No Upload — pdf.xyz",
-      "description": "Add highlight bars, outlined boxes, text notes and arrows to a PDF at typed page positions, flattened into the page by your own browser. Nothing is uploaded.",
+      "description": "Highlight, draw, add notes and white out parts of a PDF by dragging and clicking on its pages, flattened into the page by your own browser. Nothing is uploaded.",
       "canonical": "https://pdf.xyz/tools/annotate-pdf",
       "robots": "index, follow",
       "h1": ["Annotate PDF"],
@@ -4588,8 +4588,8 @@
       ]
     },
     "tools/edit-pdf.html": {
-      "title": "Edit PDF — Add Text, Images, Boxes and Lines — pdf.xyz",
-      "description": "Add text, PNG or JPG pictures, boxes, lines and arrows to PDF pages at exact coordinates. The editing happens in your browser tab; your PDF is not uploaded.",
+      "title": "Edit PDF — Add Text, Images, Signatures and Shapes — pdf.xyz",
+      "description": "Click on a PDF page to add text, pictures, signatures, shapes, highlights and notes, then move and resize them. Runs in your browser; your PDF is not uploaded.",
       "canonical": "https://pdf.xyz/tools/edit-pdf",
       "robots": "index, follow",
       "h1": ["Edit PDF"],
@@ -8131,7 +8131,7 @@
     },
     "tools/sign-pdf.html": {
       "title": "Sign PDF Online: Draw, Type or Add a Signature — pdf.xyz",
-      "description": "Sign a PDF in your browser: draw or type your signature, or add an image of it, then pin it to a page's corner, edge or center. Nothing is uploaded to pdf.xyz.",
+      "description": "Sign a PDF in your browser: draw or type your signature, or add an image of it, then click on the page to place it. Nothing is uploaded to pdf.xyz.",
       "canonical": "https://pdf.xyz/tools/sign-pdf",
       "robots": "index, follow",
       "h1": ["Sign PDF"],

@@ -79,7 +79,7 @@ function authoredStrings(tool: Tool): string[] {
     ...toolFaq(tool).flatMap((e) => [e.question, e.answer]),
     ...howToSteps(tool),
     // The default flow, which a hybrid tool without authored steps would get.
-    ...howToSteps({ ...tool, how: undefined }),
+    ...howToSteps(tool, null),
   ];
 }
 
