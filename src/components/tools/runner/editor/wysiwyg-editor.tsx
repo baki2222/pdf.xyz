@@ -1537,7 +1537,7 @@ export function WysiwygEditor({
         // so the page view is never scrolled away to pick a tool.
         <div
           data-editor-dock=""
-          className="sticky bottom-[calc(env(safe-area-inset-bottom)+var(--sf-bottom-inset,0px))] z-20 -mx-5 flex flex-col"
+          className="sticky bottom-[calc(env(safe-area-inset-bottom)+var(--sf-bottom-inset,0px))] z-20 -mx-5 flex flex-col overflow-x-clip"
         >
           {selection.length > 0 && (
             <section
@@ -1559,7 +1559,9 @@ export function WysiwygEditor({
               {panel}
             </section>
           )}
-          <div className="border-line bg-panel border-t px-1">{toolbar}</div>
+          <div className="border-line bg-panel min-w-0 overflow-x-clip border-t px-1">
+            {toolbar}
+          </div>
           <div className="[&_[data-run-dock]]:mx-0 [&_[data-run-dock]]:shadow-none">
             {runBar}
           </div>
@@ -1847,20 +1849,33 @@ function PageSheet({
                   {selected.length === 1 &&
                     handlesFor(obj).map((h) => {
                       const p = handlePoint(f, h);
+                      // What is drawn is small; what takes the press is the
+                      // full target (24 px on a touch screen), transparent,
+                      // so neither hides the page around the frame.
+                      const seen = (coarse ? 12 : HANDLE_PX) / scale;
                       return (
-                        <rect
-                          key={h}
-                          data-handle={h}
-                          data-handle-for={obj.id}
-                          x={p.x - handleSize / 2}
-                          y={p.y - handleSize / 2}
-                          width={handleSize}
-                          height={handleSize}
-                          fill="#ffffff"
-                          stroke="#2563eb"
-                          strokeWidth={1.5 / scale}
-                          style={{ cursor: CURSOR[h], touchAction: "none" }}
-                        />
+                        <g key={h}>
+                          <rect
+                            x={p.x - seen / 2}
+                            y={p.y - seen / 2}
+                            width={seen}
+                            height={seen}
+                            fill="#ffffff"
+                            stroke="#2563eb"
+                            strokeWidth={1.5 / scale}
+                            pointerEvents="none"
+                          />
+                          <rect
+                            data-handle={h}
+                            data-handle-for={obj.id}
+                            x={p.x - handleSize / 2}
+                            y={p.y - handleSize / 2}
+                            width={handleSize}
+                            height={handleSize}
+                            fill="transparent"
+                            style={{ cursor: CURSOR[h], touchAction: "none" }}
+                          />
+                        </g>
                       );
                     })}
                 </g>

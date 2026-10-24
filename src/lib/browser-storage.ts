@@ -23,6 +23,7 @@ import { RECENTS_STORAGE_KEY } from "@/lib/intent/recents-key";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { WORKER_JOB_STORAGE_PREFIX } from "@/lib/workers/job-resume-key";
 import { WORKSPACE_STORAGE_KEY } from "@/lib/workspace/storage";
+import { SAVED_SIGNATURES_KEY } from "@/lib/pdf/editor/saved-signatures";
 
 export type StorageArea = "localStorage" | "sessionStorage" | "IndexedDB";
 
@@ -74,6 +75,15 @@ export const BROWSER_STORAGE: readonly BrowserStore[] = [
     holds:
       "The settings you last chose for where page numbers or a header go, a watermark's opacity and angle, and an image resolution — so the next file opens set the same way. Only choices from fixed lists and numbers: never a file, a file name, or any words you typed, such as a watermark's text.",
     lasts: "Until you clear this site's data.",
+  },
+  {
+    key: SAVED_SIGNATURES_KEY,
+    perTool: false,
+    area: "localStorage",
+    holds:
+      "Signatures you chose to keep with “Save for next time” in Sign PDF, Edit PDF or Annotate PDF: a typed name and its style, or a picture of a signature you drew or picked. It is written only when you tick that box, and it is never uploaded.",
+    lasts:
+      "Until you delete it in the signature panel or clear this site's data. Only the most recent few are kept.",
   },
   {
     key: HANDOFF_DB_NAME,

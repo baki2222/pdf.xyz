@@ -174,7 +174,7 @@ function Strip({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <div className="relative min-w-0">
+    <div className="relative min-w-0 overflow-x-clip">
       <div
         ref={ref}
         role="toolbar"

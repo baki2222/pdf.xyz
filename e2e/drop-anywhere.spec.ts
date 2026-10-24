@@ -566,7 +566,8 @@ test("Sign PDF: with the signature-image zone shown, a drop on the page replaces
   await dropOn(heading(page), [await pdf("contract.pdf")]);
   const editor = page.locator('[data-single-pdf-runner="loaded"]');
   await expect(editor).toContainText("contract.pdf");
-  await page.getByRole("radio", { name: "Upload" }).click();
+  // The signature panel's tab since 2026-10-24 (was the form's radio).
+  await page.getByRole("tab", { name: "Upload" }).click();
   const zone = page
     .locator("[data-drop-sheet]")
     .filter({ hasText: "Drop a signature image, or" });
@@ -577,7 +578,8 @@ test("Sign PDF: with the signature-image zone shown, a drop on the page replaces
   await dropOn(heading(page), [await pdf("countersigned.pdf")]);
   await expect(editor).toContainText("countersigned.pdf");
   // Control: a drop ON the zone is a signature image, and the PDF stays.
-  await page.getByRole("radio", { name: "Upload" }).click();
+  // The signature panel's tab since 2026-10-24 (was the form's radio).
+  await page.getByRole("tab", { name: "Upload" }).click();
   await dropOn(zone, [PNG]);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(editor).toContainText("countersigned.pdf");

@@ -39,6 +39,17 @@ test("tap to place text on a rotated page, then download it", async ({
     timeout: 20_000,
   });
 
+  // Nothing is wider than the phone. Measured 2026-10-24: the docked
+  // toolbar's strip, though it scrolls and clips, still widened the document
+  // to 890 px, Chrome zoomed the page out to fit, and a tap on a tool missed
+  // (`overflow-x: clip` on the dock now holds it).
+  expect(
+    await page.evaluate(() => [
+      document.documentElement.scrollWidth,
+      document.documentElement.clientWidth,
+    ]),
+  ).toEqual([390, 390]);
+
   // Fit width: the whole page width is on screen.
   const viewport = page.viewportSize()!;
   await sheet.scrollIntoViewIfNeeded();
@@ -58,6 +69,15 @@ test("tap to place text on a rotated page, then download it", async ({
   await expect(editor).toBeFocused();
   await page.keyboard.type("PHONE-E2E");
   await page.keyboard.press("Escape");
+
+  // The box is selected: its properties open as a sheet in the dock at the
+  // bottom of the screen, and Done closes it.
+  const props = page.locator("[data-properties-sheet]");
+  await expect(props).toBeVisible();
+  const dock = (await page.locator("[data-editor-dock]").boundingBox())!;
+  expect(dock.y + dock.height).toBeLessThanOrEqual(viewport.height + 1);
+  await page.getByRole("button", { name: "Done" }).tap();
+  await expect(props).toHaveCount(0);
 
   const t = page
     .locator('[data-object-kind="text"] text')
