@@ -23,8 +23,14 @@ import {
   type PageSize,
   type RedactionFill,
   type RedactionRect,
-  type RedactResult,
 } from "@/lib/pdf/redact";
+import {
+  DEFAULT_REDACT_METHOD,
+  REDACT_METHODS,
+  type RedactMethod,
+} from "@/lib/pdf/redact-output";
+import type { FoundText } from "@/lib/pdf/redact-find";
+import { RedactFindPanel } from "./redact-find-panel";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -49,6 +55,22 @@ interface Box extends RedactionRect {
   id: number;
 }
 
+/** What a run produced, by either method. */
+interface RedactOutcome {
+  bytes: Uint8Array;
+  pageCount: number;
+  redactionCount: number;
+  method: RedactMethod;
+  /** Flatten: images pdf.js could not decode (absent from the output). */
+  undecodedImages: number;
+  /** Remove: chosen matches searched for again in the output, not found. */
+  verified: number;
+}
+
+const METHOD_LABEL = Object.fromEntries(
+  REDACT_METHODS.map((m) => [m.id, m.label]),
+) as Record<RedactMethod, string>;
+
 export function RedactRunner() {
   return (
     <SinglePdfRunner
@@ -68,7 +90,7 @@ function RedactEditor({
   pdf: LoadedPdf;
   onReset: () => void;
 }) {
-  const { busy, error, result, run, reset } = useAsyncRun<RedactResult>();
+  const { busy, error, result, run, reset } = useAsyncRun<RedactOutcome>();
   const [pageSizes, setPageSizes] = useState<PageSize[] | null>(null);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [draft, setDraft] = useState<RedactionRect>({
@@ -76,7 +98,20 @@ function RedactEditor({
   });
   const [fill, setFill] = useState<RedactionFill>("black");
   const [presetId, setPresetId] = useState<string>(DEFAULT_REDACT_PRESET_ID);
-  useUnsavedGuard(boxes.length > 0 && !result, "your redaction areas");
+  const [method, setMethod] = useState<RedactMethod>(DEFAULT_REDACT_METHOD);
+  // Find text / Detect personal data: the review list, and what is ticked.
+  const [found, setFound] = useState<FoundText[]>([]);
+  const [chosen, setChosen] = useState<Set<string>>(() => new Set());
+  const chosenFound = useMemo(
+    () => found.filter((f) => chosen.has(f.key)),
+    [found, chosen],
+  );
+  const textRects = useMemo(
+    () => chosenFound.flatMap((f) => f.rects),
+    [chosenFound],
+  );
+  const areaCount = boxes.length + textRects.length;
+  useUnsavedGuard(areaCount > 0 && !result, "your redaction areas");
   const [formError, setFormError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{
     done: number;
@@ -109,9 +144,33 @@ function RedactEditor({
   const maxH = activePage ? Math.max(1, Math.floor(activePage.height)) : 100000;
 
   const pageBoxes = useMemo(
-    () => boxes.filter((box) => box.page === draft.page),
-    [boxes, draft.page],
+    () => [
+      ...boxes.filter((box) => box.page === draft.page),
+      ...textRects
+        .filter((r) => r.page === draft.page)
+        .map((r, i) => ({ ...r, id: -1 - i })),
+    ],
+    [boxes, textRects, draft.page],
   );
+
+  const addFound = (matches: FoundText[]) => {
+    setFound((prev) => {
+      const have = new Set(prev.map((f) => f.key));
+      return [...prev, ...matches.filter((m) => !have.has(m.key))];
+    });
+    setChosen((prev) => {
+      const next = new Set(prev);
+      for (const m of matches) next.add(m.key);
+      return next;
+    });
+  };
+  const toggleFound = (key: string) =>
+    setChosen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const setDraftField = (field: keyof RedactionRect, value: number) =>
     setDraft((prev) => ({ ...prev, [field]: value }));
@@ -131,7 +190,7 @@ function RedactEditor({
     setBoxes((prev) => prev.filter((box) => box.id !== id));
 
   const onRun = () => {
-    if (boxes.length === 0 || !pageSizes) return;
+    if (areaCount === 0 || !pageSizes) return;
     const issues = validateRedactions(boxes, pageSizes);
     if (issues.length > 0) {
       setFormError(issues[0]!.message);
@@ -142,10 +201,29 @@ function RedactEditor({
     const controller = new AbortController();
     abortRef.current = controller;
     const preset = redactPresetById(presetId);
+    const manual: RedactionRect[] = boxes.map(
+      ({ page, x, y, width, height }) => ({ page, x, y, width, height }),
+    );
+    if (method === "remove") {
+      setProgress(null);
+      void run(async (): Promise<RedactOutcome> => {
+        const { redactPdfByRemoval } = await import("@/lib/pdf/redact-remove");
+        const done = await redactPdfByRemoval(pdf.bytes, {
+          rects: [
+            ...manual,
+            ...textRects.map((r) => ({ ...r, fromText: true })),
+          ],
+          fill,
+          verify: chosenFound,
+        });
+        return { ...done, method, undecodedImages: 0 };
+      });
+      return;
+    }
     setProgress({ done: 0, total: pdf.pageCount });
-    void run(async () => {
+    void run(async (): Promise<RedactOutcome> => {
       const redacted = await redactPdf(pdf.bytes, {
-        rects: boxes,
+        rects: [...manual, ...textRects],
         fill,
         dpi: preset.dpi,
         signal: controller.signal,
@@ -153,7 +231,7 @@ function RedactEditor({
       });
       if (controller.signal.aborted)
         throw new Error("Redaction was cancelled.");
-      return redacted;
+      return { ...redacted, method, verified: 0 };
     });
   };
 
@@ -161,7 +239,7 @@ function RedactEditor({
     return (
       <ResultPanel
         title="Redacted PDF ready"
-        summary={`${result.redactionCount} area${result.redactionCount === 1 ? "" : "s"} redacted across ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${formatBytes(result.bytes.byteLength)}`}
+        summary={`${result.redactionCount} area${result.redactionCount === 1 ? "" : "s"} redacted across ${result.pageCount} page${result.pageCount === 1 ? "" : "s"} · ${METHOD_LABEL[result.method]} · ${formatBytes(result.bytes.byteLength)}`}
         onReset={onReset}
         output={outputFile(result.bytes, redactedOutputName(pdf.file.name))}
         onAdjust={reset}
@@ -169,6 +247,14 @@ function RedactEditor({
       >
         {result.undecodedImages > 0 && (
           <UndecodedImagesNotice count={result.undecodedImages} redaction />
+        )}
+        {result.verified > 0 && (
+          <p className="text-muted text-sm" role="status">
+            Checked: {result.verified === 1 ? "the" : `all ${result.verified}`}{" "}
+            chosen text {result.verified === 1 ? "match was" : "matches were"}{" "}
+            searched for again in the redacted file and{" "}
+            {result.verified === 1 ? "is" : "are"} not in its text.
+          </p>
         )}
         <button
           type="button"
@@ -187,6 +273,21 @@ function RedactEditor({
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
+
+      <RedactFindPanel
+        bytes={pdf.bytes}
+        found={found}
+        chosen={chosen}
+        onFound={addFound}
+        onToggle={toggleFound}
+        onToggleAll={(on) =>
+          setChosen(on ? new Set(found.map((f) => f.key)) : new Set())
+        }
+        onClear={() => {
+          setFound([]);
+          setChosen(new Set());
+        }}
+      />
 
       <RunnerSection
         title="Redaction areas"
@@ -270,6 +371,15 @@ function RedactEditor({
         </div>
       </RunnerSection>
 
+      <RunnerSection title="Method">
+        <SegmentedControl<RedactMethod>
+          label="Redaction method"
+          value={method}
+          onChange={setMethod}
+          options={REDACT_METHODS.map((m) => ({ value: m.id, label: m.label }))}
+        />
+      </RunnerSection>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <RunnerSection title="Fill">
           <SegmentedControl<RedactionFill>
@@ -280,32 +390,51 @@ function RedactEditor({
           />
         </RunnerSection>
 
-        <RunnerSection title="Output quality">
-          <SegmentedControl
-            label="Rasterization quality"
-            value={presetId}
-            onChange={setPresetId}
-            options={REDACT_DPI_PRESETS.map((preset) => ({
-              value: preset.id,
-              label: `${preset.label} (${preset.dpi} DPI)`,
-            }))}
-          />
-        </RunnerSection>
+        {method === "flatten" && (
+          <RunnerSection title="Output quality">
+            <SegmentedControl
+              label="Rasterization quality"
+              value={presetId}
+              onChange={setPresetId}
+              options={REDACT_DPI_PRESETS.map((preset) => ({
+                value: preset.id,
+                label: `${preset.label} (${preset.dpi} DPI)`,
+              }))}
+            />
+          </RunnerSection>
+        )}
       </div>
 
-      <RasterWarning />
+      {method === "flatten" ? <RasterWarning /> : <RemoveNote />}
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <InfoTile
-          icon={EyeOff}
-          title="Content is destroyed"
-          body="Covered pixels are painted over before the image is saved — there is no text or vector layer hiding underneath."
-        />
-        <InfoTile
-          icon={Lock}
-          title="Permanent"
-          body="The output is rebuilt from flattened page images, so redactions can't be selected, copied, or removed."
-        />
+        {method === "flatten" ? (
+          <>
+            <InfoTile
+              icon={EyeOff}
+              title="Content is destroyed"
+              body="Covered pixels are painted over before the image is saved — there is no text or vector layer hiding underneath."
+            />
+            <InfoTile
+              icon={Lock}
+              title="Permanent"
+              body="The output is rebuilt from flattened page images, so redactions can't be selected, copied, or removed."
+            />
+          </>
+        ) : (
+          <>
+            <InfoTile
+              icon={EyeOff}
+              title="Text is removed"
+              body="The letters under each box are taken out of the page, and the pixels of a picture under it are overwritten, before the box is filled."
+            />
+            <InfoTile
+              icon={Lock}
+              title="Checked"
+              body="Every match you chose from the list is searched for again in the redacted file; if one is still there, nothing is saved."
+            />
+          </>
+        )}
         <InfoTile
           icon={ShieldCheck}
           title="Private"
@@ -324,9 +453,15 @@ function RedactEditor({
           <RunButton
             onClick={onRun}
             busy={busy}
-            disabled={boxes.length === 0 || !pageSizes}
-            busyLabel="Redacting pages…"
-            progress={progress && { ...progress, unit: "pages" }}
+            disabled={areaCount === 0 || !pageSizes}
+            busyLabel={
+              method === "flatten" ? "Redacting pages…" : "Removing text…"
+            }
+            progress={
+              method === "flatten" && progress
+                ? { ...progress, unit: "pages" }
+                : undefined
+            }
           >
             <EyeOff className="size-4" aria-hidden />
             Redact PDF
@@ -457,6 +592,25 @@ function RasterWarning() {
         selectable text, form fields, and vectors are converted to pixels on all
         of them. That flattening is exactly what makes the redaction permanent —
         nothing stays hidden underneath the boxes.
+      </p>
+    </div>
+  );
+}
+
+/** What "Remove text under boxes" keeps — as plainly as the raster warning. */
+function RemoveNote() {
+  return (
+    <div className="border-line bg-wash text-fg rounded-panel flex items-start gap-3 border px-4 py-3.5 text-sm">
+      <ShieldCheck className="text-accent mt-0.5 size-4 shrink-0" aria-hidden />
+      <p className="leading-relaxed">
+        <span className="font-semibold">
+          Only what is under a box is removed.
+        </span>{" "}
+        The rest of every page stays as it was — its text can still be selected
+        and searched — and so do bookmarks, links outside the boxes and the
+        document&apos;s properties. Some content can&apos;t be removed this way
+        (vertical text, a form field or certain images under a box); the
+        redaction then stops and says so, and Flatten every page handles it.
       </p>
     </div>
   );

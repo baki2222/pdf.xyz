@@ -19,6 +19,7 @@ import {
   rangesPerPage,
 } from "@/lib/pdf/ranges";
 import type { NamedBytes, SplitPart } from "@/lib/pdf/types";
+import { planTextSplit } from "@/lib/pdf/split-text";
 import {
   SPLIT_MODE_LABEL,
   SPLIT_MODES,
@@ -42,6 +43,7 @@ import { RunBar } from "./run-bar";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import type { LoadedPdf } from "./use-single-pdf";
 import { useZipDownload } from "./use-zip-download";
+import { NoSelectableTextNote } from "./no-text-note";
 
 /** The modes offered — the same list the tool page counts (`offered-kinds`). */
 const MODES: { id: SplitMode; label: string }[] = SPLIT_MODES.map((id) => ({
@@ -104,6 +106,37 @@ export function SplitEditor({
   const { busy, error, result, run, reset } = useAsyncRun<SplitOutcome>();
   const mergeId = useId();
   const bookmarksNoteId = useId();
+  const textCaseId = useId();
+  const [textQuery, setTextQuery] = useState("");
+  const [textCase, setTextCase] = useState(false);
+  // Each page's selectable text, read the first time "By text" is chosen.
+  const [pageTexts, setPageTexts] = useState<
+    { pageNumber: number; text: string }[] | null
+  >(null);
+  const [textError, setTextError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (mode !== "text" || pageTexts !== null || textError !== null) return;
+    let live = true;
+    const read = async () => {
+      const { extractPdfText } = await import("@/lib/pdf/text");
+      return extractPdfText(pdf.bytes);
+    };
+    read()
+      .then((done) => live && setPageTexts(done.pages))
+      .catch((err: unknown) => live && setTextError(errorMessage(err)));
+    return () => {
+      live = false;
+    };
+  }, [mode, pageTexts, textError, pdf.bytes]);
+
+  const textPlan = useMemo(
+    () =>
+      pageTexts && mode === "text"
+        ? planTextSplit(pageTexts, textQuery, textCase)
+        : null,
+    [pageTexts, mode, textQuery, textCase],
+  );
 
   useEffect(() => {
     let live = true;
@@ -179,6 +212,24 @@ export function SplitEditor({
           previewError: null,
         };
       }
+      if (mode === "text") {
+        if (!textPlan || textPlan.ranges.length === 0) {
+          return { parts: [], previewError: null };
+        }
+        const matched = new Set(textPlan.matched);
+        return {
+          parts: buildSplitParts(base, textPlan.ranges).map((part, i) => {
+            const start = textPlan.ranges[i]!.start;
+            return {
+              ...part,
+              label: matched.has(start)
+                ? `Starts at page ${start + 1}, which contains the text`
+                : "Before the first page with the text",
+            };
+          }),
+          previewError: null,
+        };
+      }
       return {
         parts: buildSplitParts(base, rangesPerPage(pdf.pageCount)),
         previewError: null,
@@ -186,7 +237,7 @@ export function SplitEditor({
     } catch (err) {
       return { parts: [], previewError: errorMessage(err) };
     }
-  }, [pdf, mode, rangeInput, mergeRanges, size, marks, targetBytes]);
+  }, [pdf, mode, rangeInput, mergeRanges, size, marks, targetBytes, textPlan]);
 
   const onSplit = () =>
     run(async (): Promise<SplitOutcome> => {
@@ -427,6 +478,68 @@ export function SplitEditor({
           A new file starts at each top-level bookmark&apos;s page. Pages before
           the first bookmark become a file of their own.
         </p>
+      )}
+
+      {mode === "text" && (
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-2">
+            <span className="text-muted text-sm">
+              Start a new file at every page containing
+            </span>
+            <input
+              type="text"
+              value={textQuery}
+              onChange={(e) => setTextQuery(e.target.value)}
+              placeholder="e.g. Invoice number"
+              spellCheck={false}
+              className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+            />
+          </label>
+          <label
+            htmlFor={textCaseId}
+            className="text-fg flex items-start gap-2 text-sm"
+          >
+            <input
+              id={textCaseId}
+              type="checkbox"
+              checked={textCase}
+              onChange={(e) => setTextCase(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>Match case</span>
+          </label>
+          {pageTexts === null && textError === null && (
+            <p className="text-muted inline-flex items-center gap-2 text-sm">
+              <Spinner />
+              Reading the PDF&apos;s text…
+            </p>
+          )}
+          {textError && <ErrorNote message={textError} />}
+          {textPlan && textPlan.noText.length === pdf.pageCount && (
+            <NoSelectableTextNote extra="Then split the recognized copy here." />
+          )}
+          {textPlan &&
+            textPlan.noText.length > 0 &&
+            textPlan.noText.length < pdf.pageCount && (
+              <p className="text-muted text-xs">
+                {textPlan.noText.length === 1 ? "Page" : "Pages"}{" "}
+                {formatPageNumbers(textPlan.noText)}{" "}
+                {textPlan.noText.length === 1 ? "has" : "have"} no selectable
+                text, so {textPlan.noText.length === 1 ? "it" : "they"}{" "}
+                can&apos;t start a file and{" "}
+                {textPlan.noText.length === 1 ? "stays" : "stay"} with the pages
+                before {textPlan.noText.length === 1 ? "it" : "them"}.
+              </p>
+            )}
+          {textPlan &&
+            textQuery.trim().length > 0 &&
+            textPlan.matched.length === 0 &&
+            textPlan.noText.length < pdf.pageCount && (
+              <p className="text-muted text-sm" role="status">
+                No page contains “{textQuery.trim()}”.
+              </p>
+            )}
+        </div>
       )}
 
       {previewError ? (

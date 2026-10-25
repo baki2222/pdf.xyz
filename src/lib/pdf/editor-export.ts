@@ -278,7 +278,10 @@ async function applyTextAndRedactions(
       i,
       retext,
       redact,
-      options,
+      {
+        ...options,
+        embedFont: options.embedFont ?? embedDrawingFont,
+      },
     );
     outcomes.push(...done.retext);
   }

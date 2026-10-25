@@ -116,10 +116,22 @@ export function MergeRunner() {
   const mounted = useRef(true);
   // Every cover object URL we create, so we can revoke them on unmount.
   const coverUrls = useRef<Set<string>>(new Set());
-  const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
+  const {
+    busy,
+    error,
+    result: merged,
+    run,
+    reset,
+  } = useAsyncRun<{
+    bytes: Uint8Array;
+    contentsPages: number;
+  }>();
+  const result = merged?.bytes ?? null;
   const { announce, node: announcer } = useAnnouncer();
   const [fileBookmarks, setFileBookmarks] = useState(false);
   const bookmarksId = useId();
+  const [contentsPage, setContentsPage] = useState(false);
+  const contentsId = useId();
   const rangeIdBase = useId();
   // Files handed off from the workspace (merge collects many into one).
   const handoff = useToolHandoff("merge-pdf");
@@ -251,6 +263,7 @@ export function MergeRunner() {
     setOverIndex(null);
     setOrdered(null);
     setFileBookmarks(false);
+    setContentsPage(false);
   };
 
   const keepDropOrder = () => {
@@ -274,8 +287,9 @@ export function MergeRunner() {
   const selectionError = selections.some((s) => s.error !== null);
 
   const onMerge = () =>
-    run(() =>
-      mergePdfs(
+    run(async () => {
+      let contentsPages = 0;
+      const bytes = await mergePdfs(
         items.map((i) => i.bytes),
         {
           // The defaults are passed as nothing at all, so a merge with no
@@ -286,9 +300,18 @@ export function MergeRunner() {
           ...(fileBookmarks
             ? { fileBookmarks: items.map((i) => baseName(i.name)) }
             : {}),
+          ...(contentsPage
+            ? {
+                contentsPage: items.map((i) => baseName(i.name)),
+                onContentsPages: (n: number) => {
+                  contentsPages = n;
+                },
+              }
+            : {}),
         },
-      ),
-    );
+      );
+      return { bytes, contentsPages };
+    });
 
   const totalPages = items.reduce(
     (sum, item, i) => sum + (selections[i]?.pages?.length ?? item.pageCount),
@@ -299,14 +322,14 @@ export function MergeRunner() {
     return (
       <ResultPanel
         title="PDFs merged"
-        summary={`${items.length} files combined into one PDF · ${totalPages} pages · ${formatBytes(result.byteLength)}`}
+        summary={`${items.length} files combined into one PDF · ${totalPages + (merged?.contentsPages ?? 0)} pages${merged?.contentsPages ? ` (${merged.contentsPages} contents)` : ""} · ${formatBytes(result.byteLength)}`}
         onReset={startOver}
         output={outputFile(result, mergedOutputName(items.map((i) => i.name)))}
         // The list and its order stay: clearing the result shows them again.
         onAdjust={reset}
         // Every page of every file, in one document — a re-count that
         // differs is said on the receipt.
-        expectedPages={totalPages}
+        expectedPages={totalPages + (merged?.contentsPages ?? 0)}
       >
         <button
           type="button"
@@ -499,12 +522,22 @@ export function MergeRunner() {
               replaces it pushed "Add more PDFs" down — 60 px at 360 wide,
               where the size line wrapped to four — counted after a drop
               (`e2e/editor-arrival.spec.ts`). */}
+          {/* It also holds the Pages line every file row ends with (2026-10-25):
+              without it the file row arrived 34 px taller and moved both
+              option checkboxes below — 0.0115 at 390 x 844, over the 0.01
+              bound, once "Add a contents page" doubled the area it moved. */}
           {loading > 0 && (
-            <li className="bg-panel border-line text-muted rounded-panel flex items-center gap-3 border px-3 py-2.5 text-sm">
+            <li className="bg-panel border-line text-muted rounded-panel flex flex-wrap items-center gap-x-3 gap-y-2 border px-3 py-2.5 text-sm">
               <span className="grid size-9 shrink-0 place-items-center">
                 <Spinner />
               </span>
               Reading {loading} file{loading === 1 ? "" : "s"}…
+              <span
+                aria-hidden
+                className="invisible flex w-full pl-7 text-xs sm:pl-28"
+              >
+                <span className="rounded-ctl border px-2.5 py-1">Pages</span>
+              </span>
             </li>
           )}
         </ul>
@@ -538,6 +571,27 @@ export function MergeRunner() {
             Named after the file, opening its first page. Bookmarks already in
             your files are kept either way; with this on, they sit under their
             file&apos;s bookmark.
+          </span>
+        </span>
+      </label>
+
+      <label
+        htmlFor={contentsId}
+        className="text-fg flex items-start gap-2 text-sm"
+      >
+        <input
+          id={contentsId}
+          type="checkbox"
+          checked={contentsPage}
+          onChange={(e) => setContentsPage(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Add a contents page
+          <span className="text-muted block text-xs">
+            A first page listing each file by name with the page it starts on;
+            click a line to go there. It follows the order and pages chosen
+            above.
           </span>
         </span>
       </label>

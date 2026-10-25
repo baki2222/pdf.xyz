@@ -7,6 +7,7 @@ import {
   PDFName,
   PDFRef,
   PDFString,
+  StandardFonts,
 } from "pdf-lib";
 import {
   attachConsoleGuard,
@@ -307,4 +308,122 @@ test("split options: by file size keeps every part under the target", async ({
   expect((await partsOf(zip)).flat()).toEqual(
     Array.from({ length: 8 }, (_, i) => `big.pdf::page-${i + 1}`),
   );
+});
+
+/** Each Link annotation on page `index`: the 0-based page its /Dest opens. */
+async function linkTargets(buf: Buffer, index: number): Promise<number[]> {
+  const doc = await PDFDocument.load(buf);
+  const pageIndex = new Map(
+    doc.getPages().map((p, i) => [p.ref.toString(), i]),
+  );
+  const annots = doc
+    .getPage(index)
+    .node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+  return (annots?.asArray() ?? []).map((ref) => {
+    const annot = doc.context.lookup(ref) as PDFDict;
+    const dest = annot.lookupMaybe(PDFName.of("Dest"), PDFArray);
+    const head = dest?.get(0);
+    return head instanceof PDFRef ? (pageIndex.get(head.toString()) ?? -1) : -1;
+  });
+}
+
+test("merge options: a contents page lists each file at its start page, linked, at 375 px", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/tools/merge-pdf");
+  await stage(page, [
+    pdfPayload("beta.pdf", await makeTextPdf("beta.pdf", { pages: 2 })),
+    pdfPayload("alpha.pdf", await makeTextPdf("alpha.pdf", { pages: 3 })),
+  ]);
+  await expect(page.getByText("alpha.pdf", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Name A–Z" }).click();
+  await page.getByLabel(/pages of alpha\.pdf to merge/i).fill("1, 3");
+  await page.getByLabel(/add a bookmark for each file/i).check();
+  await page.getByLabel(/add a contents page/i).check();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+
+  await page.getByRole("button", { name: /merge 2 pdfs/i }).click();
+  await expect(
+    page.getByRole("heading", { name: /pdfs merged/i }),
+  ).toBeVisible();
+  // The receipt counts the contents page with the merged ones.
+  await expect(page.getByText(/5 pages \(1 contents\)/)).toBeVisible();
+  const buf = await captureDownload(
+    page,
+    page.getByRole("button", { name: /download merged pdf/i }),
+  );
+  const texts = await pdfPageTexts(buf);
+  const toc = texts[0]!.replace(/[ .]{3,}/g, " … ");
+  expect(toc).toContain("Contents");
+  expect(toc).toMatch(/alpha … 2/);
+  expect(toc).toMatch(/beta … 4/);
+  expect(await markers(buf)).toEqual([
+    "?",
+    "alpha.pdf::page-1",
+    "alpha.pdf::page-3",
+    "beta.pdf::page-1",
+    "beta.pdf::page-2",
+  ]);
+  expect(await linkTargets(buf, 0)).toEqual([1, 3]);
+  expect(await topOutline(buf)).toEqual([
+    ["alpha", 1],
+    ["beta", 3],
+  ]);
+});
+
+/** A PDF whose pages carry their marker and, on `flagged` pages, "Invoice". */
+async function invoicePdf(
+  label: string,
+  pages: number,
+  flagged: number[],
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < pages; i++) {
+    const p = doc.addPage([320, 240]);
+    p.drawText(`${label}::page-${i + 1}`, { x: 20, y: 200, size: 14, font });
+    if (flagged.includes(i)) {
+      p.drawText("Invoice number 1000", { x: 20, y: 170, size: 12, font });
+    }
+  }
+  return doc.save();
+}
+
+test("split options: by text starts a file at every page containing the phrase", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/tools/split-pdf");
+  await stage(page, [
+    pdfPayload("batch.pdf", await invoicePdf("batch.pdf", 5, [1, 3])),
+  ]);
+  await expect(page.getByText("batch.pdf", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "By text" }).click();
+  await page.getByPlaceholder("e.g. Invoice number").fill("invoice NUMBER");
+  await expect(
+    page.getByRole("button", { name: /split into 3 files/i }),
+  ).toBeEnabled();
+  // Match case: the typed capitals no longer match the page.
+  await page.getByLabel("Match case").check();
+  await expect(page.getByText(/no page contains/i)).toBeVisible();
+  await page.getByLabel("Match case").uncheck();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+  await page.getByRole("button", { name: /split into 3 files/i }).click();
+  await expect(page.getByRole("heading", { name: /pdf split/i })).toBeVisible();
+  const zip = await captureDownload(
+    page,
+    page.getByRole("button", { name: /download zip \(3 files\)/i }),
+  );
+  expect(await partsOf(zip)).toEqual([
+    ["batch.pdf::page-1"],
+    ["batch.pdf::page-2", "batch.pdf::page-3"],
+    ["batch.pdf::page-4", "batch.pdf::page-5"],
+  ]);
 });

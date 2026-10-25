@@ -178,6 +178,10 @@ export function copyFiles(): string[] {
     // refused with.
     path.join(ROOT, "src", "lib", "pdf", "editor", "links.ts"),
     path.join(ROOT, "src", "lib", "pdf", "editor", "fields.ts"),
+    // Redact PDF's Find text / Detect personal data labels and the removal
+    // method's refusals (2026-10-25): new phrase code, so walked.
+    path.join(ROOT, "src", "lib", "pdf", "redact-categories.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "redact-remove.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // The fix a known refusal offers, and where its file goes there (WP-08):

@@ -584,7 +584,11 @@ describe("an offline promise in a guide agrees with what its tool's run fetches"
     const promise =
       "After that, the work runs entirely on your device, so a dropped connection does not interrupt work already in progress.";
     expect(falsePromises(fixture("edit-pdf", promise))).toEqual([promise]);
-    expect(falsePromises(fixture("merge-pdf", promise))).toEqual([]);
+    // The negative control was merge-pdf until 2026-10-25, when its contents
+    // page began drawing file names — a Bengali name downloads a font mid-run
+    // — so the detector rightly caught it there. Flatten is pdf-lib alone.
+    expect(falsePromises(fixture("merge-pdf", promise))).toEqual([promise]);
+    expect(falsePromises(fixture("flatten-pdf", promise))).toEqual([]);
   });
 
   /*

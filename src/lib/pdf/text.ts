@@ -848,6 +848,19 @@ export async function extractPdfText(
 }
 
 /**
+ * Every page's raw pdf.js text items, positions included — what Redact PDF's
+ * search and detection place their boxes from. The same `getDocument` call
+ * as the extractors above, so the items are the ones they read.
+ */
+export async function extractPdfTextItems(
+  bytes: Uint8Array,
+  /** See {@link PdfTextReader}; tests pass pdfjs's legacy build. */
+  loadReader: PdfTextReader = loadPdfjs,
+): Promise<{ pageCount: number; pages: TextItemLike[][] }> {
+  return readPageTextItems(bytes, (items) => items, loadReader);
+}
+
+/**
  * `extractPdfText`, plus each page's visual lines with their geometry.
  *
  * A separate function rather than a new field on `extractPdfText`, because

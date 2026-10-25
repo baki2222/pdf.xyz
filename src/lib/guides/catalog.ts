@@ -34,10 +34,12 @@ import {
   PDF_TO_WORD_KEEPS,
   pageToolKeeps,
   pageToolKeepsAnswer,
+  REDACT_FIND_FACT,
   REDACT_MECHANISM,
   REDACT_OUTPUT_FACT,
   REDACT_PRESET_CHOICES,
   REDACT_RECOVERY_ANSWER,
+  REDACT_REMOVE_FACT,
   REDACT_SEARCH_ANSWER,
   REPAIR_TAKES,
   REPAIR_WARNINGS_ANSWER,
@@ -165,6 +167,14 @@ export const guides: Guide[] = [
         ],
       },
       {
+        id: "add-a-contents-page",
+        heading: "Start the merged PDF with a contents page",
+        body: [
+          "Tick “Add a contents page” before you merge and the combined PDF opens with a page headed Contents: one line per file, its name and the page it starts on, and clicking a line jumps to that page. The numbers count the contents page itself, so they match the page numbers your PDF reader shows.",
+          "The contents follow your list from top to bottom and the pages you picked for each file, so a file you took only three pages of starts where those three pages are. A long list continues onto a second contents page. Bookmarks, including the ones “Add a bookmark for each file” writes, still open the right pages.",
+        ],
+      },
+      {
         id: "where-the-merge-runs",
         heading: "Where the merge actually runs",
         body: [
@@ -207,13 +217,13 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-10-25",
   },
   {
     slug: "how-to-split-a-pdf",
     title: "How to split a PDF into separate files",
     description:
-      "Split a PDF by page range, fixed intervals, or one file per page — right in your browser, so the file never leaves your device. No account needed.",
+      "Split a PDF by page range, fixed intervals, one file per page, file size, bookmarks or a word on the page — right in your browser. No account needed.",
     tools: ["split-pdf", "extract-pages", "merge-pdf"],
     keywords: [
       "how to split a pdf",
@@ -223,15 +233,15 @@ export const guides: Guide[] = [
       "separate pdf pages",
     ],
     intro: [
-      "To split a PDF into separate files, open the Split PDF tool, pick your document, and choose how to divide it: custom page ranges, every N pages, or one file per page. The split runs immediately; a single piece saves as a PDF, and several pieces download together as one ZIP.",
+      "To split a PDF into separate files, open the Split PDF tool, pick your document, and choose how to divide it: custom page ranges, every N pages, one file per page, a maximum file size, its bookmarks, or every page that contains a word you type. The split runs immediately; a single piece saves as a PDF, and several pieces download together as one ZIP.",
       "What sets this approach apart is where the work happens. Split PDF runs entirely in your browser, so the file stays on your device from start to finish — nothing is sent anywhere to be processed. There is no account to create and nothing to install; you pick a file, split it, and save the results.",
       "This guide walks through each split mode, what the output looks like, and the limits worth knowing before you start — including when a neighboring tool like Extract Pages is the better fit for the job.",
     ],
     steps: [
       "Open the Split PDF tool.",
       "Pick the PDF you want to split — it stays on your device the whole time.",
-      "Choose a split mode: custom page ranges, every N pages, or one file per page.",
-      "Define the split: for ranges, list the page spans that should become separate files; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF.",
+      "Choose a split mode: custom page ranges, every N pages, one file per page, by file size, by bookmarks or by text.",
+      "Define the split: for ranges, list the page spans that should become separate files; for the every-N-pages rule, set how many pages each piece should hold. One file per page splits at every page boundary — each page of the document becomes its own PDF. For by text, type the word or phrase that marks where each new file should start.",
       "Run the split — the processing happens in your browser, not on a server.",
       "Download the result. When there is more than one piece they arrive together as a ZIP, and a single piece saves as a plain PDF. Every piece is a complete, standard PDF.",
     ],
@@ -240,7 +250,8 @@ export const guides: Guide[] = [
         id: "choose-a-split-mode",
         heading: "Choose the right split mode",
         body: [
-          "Split PDF offers three ways to divide a document, and picking the right one saves rework. Custom page ranges fit documents with a known structure: give each chapter, exhibit, or section its own range and each becomes its own file. The every-N-pages rule fits uniform documents — batch scans, multi-page statements, anything that repeats at a fixed length — because you set the interval once and the tool cuts at every boundary. One file per page is the blunt instrument: every single page becomes its own PDF, useful when each page must stand alone.",
+          "Split PDF offers six ways to divide a document, and picking the right one saves rework. Custom page ranges fit documents with a known structure: give each chapter, exhibit, or section its own range and each becomes its own file. The every-N-pages rule fits uniform documents — batch scans, multi-page statements, anything that repeats at a fixed length — because you set the interval once and the tool cuts at every boundary. One file per page is the blunt instrument: every single page becomes its own PDF, useful when each page must stand alone. By file size packs pages into each file until the next one would take it over the limit you set, and by bookmarks starts a file at each top-level bookmark.",
+          "By text is for documents that announce their own boundaries: a batch of invoices where each begins with “Invoice number”, or statements that each open with “Account summary”. Every page whose text contains the phrase starts a new file, and pages before the first one form a file of their own. Line breaks inside the phrase do not matter, and capitals only count when Match case is ticked. It reads the PDF's own text, so a scanned page without a text layer cannot start a file; the tool names any such pages, and OCR PDF can add the missing text first.",
           "If what you actually want is a handful of specific pages combined into one new document — rather than the whole file divided into pieces — the Extract Pages tool is the closer fit. It lets you pick pages by clicking thumbnails or typing a range like 1-3, 5, then exports them as a brand-new PDF, also right in your browser.",
         ],
       },
@@ -293,7 +304,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-09-27",
+    updated: "2026-10-25",
   },
   {
     slug: "how-to-compress-a-pdf",
@@ -1529,7 +1540,7 @@ export const guides: Guide[] = [
     slug: "how-to-redact-a-pdf",
     title: "How to redact a PDF permanently",
     description:
-      "Redact a PDF so the text under each box is gone, not hidden: every page is rebuilt as an image, right in your browser. No account needed.",
+      "Redact a PDF so the text under each box is gone, not hidden: find words, detect personal data, then flatten or remove — in your browser. No account needed.",
     tools: ["redact-pdf", "ocr-pdf", "protect-pdf"],
     keywords: [
       "redact pdf",
@@ -1540,15 +1551,16 @@ export const guides: Guide[] = [
       "redact pdf in browser",
     ],
     intro: [
-      "To redact a PDF, open the Redact PDF tool, add a box over each area that has to go, and download the result. The box is not drawn on top of the text: the page is turned into an image and the box is painted into its pixels, so what was underneath no longer exists in the file.",
+      "To redact a PDF, open the Redact PDF tool, find the words that have to go — or let it detect email addresses, phone numbers, card numbers, IBANs and dates of birth — tick the matches in the review list, and download the result. The box is not drawn on top of the text: what was underneath no longer exists in the file.",
       `That is the whole difference between redacting and covering, and it has a cost worth knowing before you start. ${REDACT_OUTPUT_FACT}`,
       "Redact PDF runs in your browser, so the document you are redacting stays on your device. No account is needed.",
     ],
     steps: [
       "Open the Redact PDF tool.",
       "Pick the PDF you need to redact — it stays on your device the entire time.",
-      "For each area to remove, enter its “Page” and its position and size in PDF points, measured from the bottom-left corner of the page, then press “Add area”. The preview shows where each box lands.",
-      `Choose the “Redaction fill” — “Black” or “White” — and the output quality: ${REDACT_PRESET_CHOICES}.`,
+      "Under “Find text to redact”, type a name or number and press “Find”, or tick the kinds of personal data under “Detect personal data” and press “Detect”. Untick any match in the review list that should stay.",
+      "For anything the text search cannot reach, such as a signature or a photo, enter its “Page” and its position and size in PDF points, measured from the bottom-left corner of the page, then press “Add area”.",
+      `Choose the “Method” — “Flatten every page” or “Remove text under boxes” — and the “Redaction fill”, “Black” or “White”. When flattening, choose the output quality too: ${REDACT_PRESET_CHOICES}.`,
       "Press “Redact PDF” and save the new file to your device. Your original file is not changed.",
     ],
     sections: [
@@ -1562,11 +1574,20 @@ export const guides: Guide[] = [
       },
       {
         id: "every-page-becomes-an-image",
-        heading: "The trade-off: every page becomes an image",
+        heading: "Flatten every page, or remove only the text",
         body: [
           REDACT_OUTPUT_FACT,
-          "If the rest of the document needs to stay searchable, run the redacted file through OCR PDF afterwards. OCR recognizes the text that is still visible on the pages; the text under a box is gone, so there is nothing there for it to find.",
-          `Choose the resolution before you run: ${REDACT_PRESET_CHOICES}. A higher resolution keeps small print legible and makes a larger file.`,
+          REDACT_REMOVE_FACT,
+          "If you flattened and the rest of the document needs to be searchable again, run the redacted file through OCR PDF afterwards. OCR recognizes the text that is still visible on the pages; the text under a box is gone, so there is nothing there for it to find.",
+          `When flattening, choose the resolution before you run: ${REDACT_PRESET_CHOICES}. A higher resolution keeps small print legible and makes a larger file.`,
+        ],
+      },
+      {
+        id: "find-every-instance",
+        heading: "Find every instance before you redact",
+        body: [
+          REDACT_FIND_FACT,
+          "Detection matches patterns and checksums, not meaning: it does not know a name from any other word, and it can miss a number written in a format it does not expect. Treat the list as a starting point, search for the names yourself, and read the list before you redact.",
         ],
       },
       {
@@ -1581,7 +1602,7 @@ export const guides: Guide[] = [
         id: "before-you-share-it",
         heading: "Before you share it",
         body: [
-          "Open the downloaded PDF and check that each box sits where you meant it to before you send the file anywhere: a box placed a little off leaves the edge of a word readable.",
+          "Open the downloaded PDF and check that each box sits where you meant it to before you send the file anywhere: an area typed in by position that sits a little off leaves the edge of a word readable.",
           "Redaction removes content; it does not lock the file. If the redacted PDF should also need a password to open, run it through Protect PDF afterwards.",
         ],
       },
@@ -1610,7 +1631,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-10-25",
   },
   {
     slug: "how-to-repair-a-damaged-pdf",

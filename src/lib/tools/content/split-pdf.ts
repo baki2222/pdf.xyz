@@ -70,18 +70,25 @@ const LINK_MINUTES = DEFAULT_RETENTION.outputTtlMinutes;
  *     (owner-only and user-password files both probe-verified by the writer).
  *   - Unlock PDF's password field cannot be empty, so an owner-only file needs
  *     its owner password — the same statement unlock-pdf.ts makes.
+ * ADDED 2026-10-25 (split-runner.tsx, split-text.ts, merge-contents-split-
+ * text.test.ts): "By text" reads every page's text with pdf.js
+ * (extractPdfText) the first time it is chosen; a page whose squashed text
+ * contains the phrase (white space compared loosely, case only with Match
+ * case) starts a file; pages before the first match are a file of their own;
+ * a page with no selectable text is named under the field and cannot start a
+ * file; the preview labels each file with the page that starts it.
  */
 const content: ToolContent = {
   slug: "split-pdf",
 
-  seoTitle: "Split PDF by Range, Size or Bookmarks — No Upload",
+  seoTitle: "Split PDF by Pages, Bookmarks or Text — No Upload",
 
   metaDescription:
-    "Split a PDF by page ranges, every N pages, each page, a maximum file size or its bookmarks. It runs in your browser, so the file is not uploaded.",
+    "Split a PDF by page ranges, every N pages, each page, a maximum file size, its bookmarks or a word on the page. It runs in your browser; no upload.",
 
   intro: [
-    `Split PDF cuts one document into several smaller PDFs in one of five ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents, or, with "Merge selected ranges into one file" ticked, one document holding those pages in the order you typed them. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. By file size packs consecutive pages into each file until the next page would take it over the megabytes you set. By bookmarks starts a new file at the page of each top-level bookmark; it is greyed out, with the reason shown, for a PDF that has none. Except for By file size, whose pieces are only known once they are built, a preview lists every file the split will create, with its name and page count, before anything runs.`,
-    `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and there is no upload anywhere: reading the pages, building each piece and, when there is more than one, packing them into a ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
+    `Split PDF cuts one document into several smaller PDFs in one of six ways. Custom ranges turns each comma-separated range you type into its own file, so "1-3, 4-9, 10-" gives you three documents, or, with "Merge selected ranges into one file" ticked, one document holding those pages in the order you typed them. Every N pages chops the file into equal chunks of the size you set, and any pages left over form a shorter final file. Each page makes every page its own PDF. By file size packs consecutive pages into each file until the next page would take it over the megabytes you set. By bookmarks starts a new file at the page of each top-level bookmark; it is greyed out, with the reason shown, for a PDF that has none. By text starts a new file at every page that contains a word or phrase you type, such as "Invoice number", with Match case when capitals matter. Except for By file size, whose pieces are only known once they are built, a preview lists every file the split will create, with its name and page count, before anything runs.`,
+    `The cutting is done by pdf-lib, a JavaScript PDF library your browser fetches the moment you add a file, and By text reads each page's text with pdf.js, shipped with the page. There is no upload anywhere: reading the pages, building each piece and, when there is more than one, packing them into a ZIP all happen on your device. A PDF can be up to ${CEILING_MB} MB; a bigger one is refused on its file size alone, before any of its bytes are read.`,
     `Every piece is a new PDF built from copies of the original pages, so their text, images, page size and rotation come through unchanged. Each piece also keeps the document's title, author, subject and keywords, its page labels and language, the bookmarks that open one of its pages, and the form fields on its pages, still fillable. Attached files, XMP metadata and the accessibility tags of a tagged PDF are not carried into the pieces. An encrypted file is refused as it loads, even one that opens without a password and only restricts printing or copying.`,
   ],
 
@@ -119,11 +126,11 @@ const content: ToolContent = {
     },
     {
       title: "Pick a split mode",
-      body: "Under How to split, choose Custom ranges, Every N pages, Each page, By file size or By bookmarks.",
+      body: "Under How to split, choose Custom ranges, Every N pages, Each page, By file size, By bookmarks or By text.",
     },
     {
       title: "Set the ranges or the chunk size",
-      body: "For Custom ranges, edit the Page ranges field; on a document of two or more pages it starts pre-filled with the file cut in half, the first half taking the extra page when the count is odd. Tick “Merge selected ranges into one file” to get one PDF instead of one per range. For Every N pages, set Pages per file, which starts at 1. For By file size, set the maximum size per file in MB, which starts at about half the file's size. The Preview list below redraws on every keystroke.",
+      body: "For Custom ranges, edit the Page ranges field; on a document of two or more pages it starts pre-filled with the file cut in half, the first half taking the extra page when the count is odd. Tick “Merge selected ranges into one file” to get one PDF instead of one per range. For Every N pages, set Pages per file, which starts at 1. For By file size, set the maximum size per file in MB, which starts at about half the file's size. For By text, type the words in “Start a new file at every page containing”. The Preview list below redraws on every keystroke.",
     },
     {
       title: "Split and download",
@@ -141,12 +148,12 @@ const content: ToolContent = {
       a: "Yes, when its chapters are bookmarked: choose By bookmarks, and a new file starts at the page each top-level bookmark opens; nested bookmarks do not cut, and neither does a bookmark to a web address. Pages before the first bookmark become a file of their own, and two bookmarks on one page start one file. The preview shows which bookmark begins each file. If the PDF has no bookmarks that open a page, the option is greyed out with that reason.",
     },
     {
-      q: "How do I type page ranges for a split?",
-      a: "Separate files with commas. A single number such as 8 is a one-page file, 2-5 includes both ends, 10- runs to the last page and -3 starts from page 1. An entry that cannot work stops the preview with a message: a page past the end is named along with the PDF's page count, 5-3 is flagged as backwards, and 0 or a word is refused.",
+      q: "Can I start a new file at every page with a certain word on it?",
+      a: "Yes: choose By text and type the word or phrase. Every page whose text contains it starts a new file, and pages before the first one become a file of their own; the preview names the page that starts each file. Spaces and line breaks are compared loosely, so a phrase that wraps onto a second line still matches, and capitals are ignored unless Match case is ticked. It reads the PDF's own text, so a scanned page with no text layer cannot start a file — it is named under the field and stays with the pages before it. OCR PDF adds a text layer first.",
     },
     {
-      q: "What happens to pages I leave out of my ranges?",
-      a: `They are skipped: a page that appears in no range is in none of the outputs. If you want to keep most of a document and drop a few pages, ${DELETE_PAGES} does that in one file; if you want a hand-picked set of pages combined into one new PDF, ${EXTRACT_PAGES} is the closer fit.`,
+      q: "How do I type page ranges for a split?",
+      a: `Separate files with commas. A single number such as 8 is a one-page file, 2-5 includes both ends, 10- runs to the last page and -3 starts from page 1. An entry that cannot work stops the preview with a message: a page past the end is named along with the PDF's page count, 5-3 is flagged as backwards, and 0 or a word is refused. A page you leave out of every range is in none of the outputs. To keep most of a document and drop a few pages, ${DELETE_PAGES} does that in one file; for a hand-picked set of pages combined into one new PDF, ${EXTRACT_PAGES} is the closer fit.`,
     },
     {
       q: "What are the split files called?",

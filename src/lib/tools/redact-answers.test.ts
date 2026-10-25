@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @native-canvas
 /**
  * Redact PDF's page and guide, held to the file the engine writes.
  *
@@ -36,10 +37,15 @@ import {
 import { assembleRedactedPdf } from "@/lib/pdf/redact";
 import type { RasterizeOptions } from "@/lib/pdf/render";
 import {
+  DEFAULT_REDACT_METHOD,
   DEFAULT_REDACT_PRESET_ID,
   REDACTED_PDF_TITLE,
   REDACT_DPI_PRESETS,
+  REDACT_METHODS,
 } from "@/lib/pdf/redact-output";
+import { redactPdfByRemoval } from "@/lib/pdf/redact-remove";
+import { extractPdfText, type PdfTextReader } from "@/lib/pdf/text";
+import { REDACT_REMOVE_FACT } from "./tool-facts";
 import { guides } from "@/lib/guides/catalog";
 import { withoutComments } from "./copy-surface";
 import {
@@ -233,11 +239,40 @@ describe("the served answers are what the assembler writes", () => {
     }
   });
 
-  it("the page says the result is not searchable, on every page, and names OCR for the rest", () => {
+  /*
+   * INVERTED 2026-10-25, history kept. This held the answer to `/^No\b/`:
+   * true while flattening was the only method. "Remove text under boxes"
+   * keeps the rest of the text, so an unqualified "No" became false for one
+   * of the two methods the runner offers. The answer now names each method
+   * with its own outcome; the removal half is held to a real removal below.
+   */
+  it("the page says, per method, whether the result is searchable, and names OCR for the flattened one", () => {
     const text = answer(/searchable/i);
-    expect(text).toMatch(/^No\b/);
-    expect(text).toMatch(/every page/);
-    expect(text).toContain("OCR PDF");
+    expect(text).not.toMatch(/^No\b/);
+    const [flatten, remove] = REDACT_METHODS.map((m) => m.label);
+    const flatAt = text.indexOf(`With “${flatten}”, no`);
+    const removeAt = text.indexOf(`With “${remove}”, yes`);
+    expect(flatAt, text).toBeGreaterThanOrEqual(0);
+    expect(removeAt, text).toBeGreaterThan(flatAt);
+    expect(text.slice(flatAt, removeAt)).toMatch(/every page/);
+    expect(text.slice(flatAt, removeAt)).toContain("OCR PDF");
+  });
+
+  it("the method the page says is selected is the one the runner opens with", () => {
+    const initial = REDACT_METHODS.find((m) => m.id === DEFAULT_REDACT_METHOD)!;
+    expect(served().text).toContain(
+      `“${initial.label}” is selected when the tool opens`,
+    );
+    const runner = withoutComments(
+      readFileSync(
+        path.join(
+          process.cwd(),
+          "src/components/tools/runner/redact-runner.tsx",
+        ),
+        "utf8",
+      ),
+    );
+    expect(runner).toMatch(/useState<RedactMethod>\(DEFAULT_REDACT_METHOD\)/);
   });
 
   it("the resolutions are the runner's presets, and the default is the one it opens with", () => {
@@ -273,6 +308,46 @@ describe("the served answers are what the assembler writes", () => {
       expect(served().text).toContain(guide.title);
     }
     expect(servedFaq.size).toBeGreaterThan(3);
+  });
+});
+
+describe("the removal method's sentences are what a real removal writes", () => {
+  const legacy: PdfTextReader = async () =>
+    (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as Awaited<
+      ReturnType<PdfTextReader>
+    >;
+
+  it("the text under the box is gone, the rest is still text, and the bookmarks and properties stay", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([300, 400]);
+    page.drawText("Account 12345678", { x: 20, y: 350, size: 14, font });
+    page.drawText("Kept line of text", { x: 20, y: 300, size: 14, font });
+    doc.catalog.set(
+      PDFName.of("Outlines"),
+      doc.context.register(doc.context.obj({ Type: "Outlines", Count: 0 })),
+    );
+    doc.setAuthor("Jane Doe");
+    const source = await doc.save();
+    // "Account " is ~58 pt wide at 14 pt; the box covers the number only.
+    const { bytes } = await redactPdfByRemoval(
+      source,
+      { rects: [{ page: 1, x: 85, y: 344, width: 80, height: 18 }] },
+      { decodeJpeg: null },
+    );
+    const text = (await extractPdfText(bytes, legacy)).text;
+    // Positive control: the number was text before.
+    expect((await extractPdfText(source, legacy)).text).toContain("12345678");
+    expect(text).not.toContain("12345678");
+    expect(text).toContain("Account");
+    expect(text).toContain("Kept line of text");
+    const out = await PDFDocument.load(bytes, { updateMetadata: false });
+    expect(out.catalog.get(PDFName.of("Outlines"))).toBeDefined();
+    expect(infoString(out, "Author")).toBe("Jane Doe");
+    // And that is what the page says of this method.
+    expect(REDACT_REMOVE_FACT).toMatch(/still selectable and searchable/);
+    expect(REDACT_REMOVE_FACT).toMatch(/bookmarks and properties/);
+    expect(served().text).toContain(REDACT_REMOVE_FACT);
   });
 });
 
