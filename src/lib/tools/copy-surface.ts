@@ -162,6 +162,12 @@ export function copyFiles(): string[] {
     // The in-image options proof's verdict lines (2026-10-24): operator
     // output, walked because the record outside the walk may not grow.
     path.join(ROOT, "src", "lib", "workers", "options-proof.ts"),
+    // HTML and Webpage to PDF's layout option labels and refusals
+    // (2026-10-25), drawn by the panel; and the two proof modules' verdict
+    // lines and fixture pages, walked for the reason options-proof.ts is.
+    path.join(ROOT, "src", "lib", "jobs", "html-render-options.ts"),
+    path.join(ROOT, "src", "lib", "workers", "html-render", "layout-proof.ts"),
+    path.join(ROOT, "src", "lib", "workers", "ocr-languages-proof.ts"),
     path.join(ROOT, "src", "lib", "pdf", "crop-disclosure.ts"),
     // Compress PDF's Grayscale sentence (2026-10-24), its own leaf so it is
     // not bundled with every runner that reads offered-kinds.

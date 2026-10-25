@@ -23,6 +23,15 @@ import {
   resolveNativeHtmlRenderConfig,
   type NativeHtmlRenderConfig,
 } from "./native-config";
+import {
+  planPrint,
+  PRINT_TO_PDF_OPTIONS,
+  type PrintPlan,
+} from "./print-params";
+import {
+  DEFAULT_HTML_RENDER_OPTIONS,
+  type HtmlRenderOptions,
+} from "@/lib/jobs/html-render-options";
 
 /**
  * Chromium, driven over a CDP pipe, with every request it makes decided by
@@ -307,21 +316,9 @@ export function mainDocumentVerdict(
   return null;
 }
 
-/**
- * What every render asks `Page.printToPDF` for — stated, not inherited. The
- * CLI this replaced printed the date and <title> atop every page and the
- * document's address (the worker's temp path, for an upload) along the
- * bottom. The PDF must carry the page and nothing else:
- * `native.chromium.test.ts` reads that back from a real Chromium,
- * `native.test.ts` holds the call to this object, and
- * `src/lib/tools/worker-tool-answers.test.ts` holds both Chromium tool pages
- * to it (no stamp claimed; backgrounds and the @page size named).
- */
-export const PRINT_TO_PDF_OPTIONS = {
-  displayHeaderFooter: false,
-  printBackground: true,
-  preferCSSPageSize: true,
-} as const;
+// The print arguments, and the layout options that change them, live in
+// `./print-params`; re-exported here, where the tests and tool pages read it.
+export { PRINT_TO_PDF_OPTIONS };
 
 const INTERCEPT_ALL = { patterns: [{ urlPattern: "*" }] };
 
@@ -340,6 +337,7 @@ export function createNativeChromiumPdfRunner(
   async function drive(
     cdp: CdpConnection,
     target: RenderTarget,
+    plan: PrintPlan,
   ): Promise<Uint8Array> {
     const network = createRenderNetwork(seams.network);
     let documentServed = false;
@@ -467,6 +465,14 @@ export function createNativeChromiumPdfRunner(
       pageSession,
     );
     mainFrameId = tree.frameTree.frame.id;
+    // The screen the page loads into, when one was chosen: before the first
+    // request, so scripts and media queries see it from the start.
+    if (plan.viewport)
+      await cdp.send(
+        "Emulation.setDeviceMetricsOverride",
+        { ...plan.viewport, deviceScaleFactor: 1, mobile: false },
+        pageSession,
+      );
 
     const url = target.kind === "html" ? HTML_DOCUMENT_URL : target.url;
     const nav = await cdp.send<{ errorText?: string }>(
@@ -502,9 +508,39 @@ export function createNativeChromiumPdfRunner(
     if (target.kind === "url" && pageVerdict)
       throw new WebpageFetchError(pageVerdict);
 
+    // One long page: lay the PRINT styles out at the printed width, and read
+    // the content's height from the layout — not from page script, which
+    // could report anything.
+    let contentHeight: number | undefined;
+    if (plan.measure) {
+      await cdp.send(
+        "Emulation.setEmulatedMedia",
+        { media: "print" },
+        pageSession,
+      );
+      await cdp.send(
+        "Emulation.setDeviceMetricsOverride",
+        {
+          width: plan.measure.widthPx,
+          height: plan.viewport?.height ?? 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        },
+        pageSession,
+      );
+      const metrics = await cdp.send<{
+        cssContentSize?: { height?: number };
+        contentSize?: { height?: number };
+      }>("Page.getLayoutMetrics", {}, pageSession);
+      contentHeight =
+        metrics.cssContentSize?.height ?? metrics.contentSize?.height;
+      if (typeof contentHeight !== "number" || !Number.isFinite(contentHeight))
+        throw new Error("the page's content height could not be measured");
+    }
+
     const { stream } = await cdp.send<{ stream: string }>(
       "Page.printToPDF",
-      { ...PRINT_TO_PDF_OPTIONS, transferMode: "ReturnAsStream" },
+      { ...plan.printParams(contentHeight), transferMode: "ReturnAsStream" },
       pageSession,
     );
     const chunks: Buffer[] = [];
@@ -529,7 +565,11 @@ export function createNativeChromiumPdfRunner(
     return new Uint8Array(Buffer.concat(chunks));
   }
 
-  async function render(target: RenderTarget): Promise<Uint8Array> {
+  async function render(
+    target: RenderTarget,
+    options: HtmlRenderOptions,
+  ): Promise<Uint8Array> {
+    const plan = planPrint(options);
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-html-"));
     const proc = launch(binary, chromiumArgs(path.join(dir, "profile")), {
       env: chromiumEnv(dir, seams.parentEnv, seams.platform),
@@ -551,7 +591,7 @@ export function createNativeChromiumPdfRunner(
     try {
       let bytes: Uint8Array;
       try {
-        bytes = await Promise.race([drive(cdp, target), deadline, died]);
+        bytes = await Promise.race([drive(cdp, target, plan), deadline, died]);
       } catch (error) {
         // What the site did travels to the user intact.
         if (error instanceof WebpageFetchError) throw error;
@@ -580,13 +620,13 @@ export function createNativeChromiumPdfRunner(
   }
 
   return {
-    renderHtml(input) {
+    renderHtml(input, options = DEFAULT_HTML_RENDER_OPTIONS) {
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");
-      return render({ kind: "html", bytes: input });
+      return render({ kind: "html", bytes: input }, options);
     },
-    renderUrl(url) {
-      return render({ kind: "url", url });
+    renderUrl(url, options = DEFAULT_HTML_RENDER_OPTIONS) {
+      return render({ kind: "url", url }, options);
     },
   };
 }

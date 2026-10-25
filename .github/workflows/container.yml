@@ -176,10 +176,25 @@ jobs:
       # colour run as the control), and protect-pdf's permission restrictions
       # through its REAL qpdf at AES-256 and AES-128, read back from the
       # output's /P and cross-checked against qpdf's own --show-encryption.
-      # Every unit test of these runs without either binary. No user
-      # document, secret, queue or store; content-free output.
-      - name: Worker image options proof — grayscale and permissions (inside the built worker image)
+      # Every unit test of these runs without either binary. Since
+      # 2026-10-25 also HTML to PDF's page layout through the image's REAL
+      # Chromium: A4 landscape page boxes, one long page, desktop and phone
+      # screen widths, each read back from the PDF, with the default render
+      # as the control. No user document, secret, queue or store;
+      # content-free output.
+      - name: Worker image options proof — grayscale, permissions and page layout (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:options-proof
+
+      # OCR languages (2026-10-25): the image's own `tesseract --list-langs`
+      # must name every language the product offers (derived from
+      # OCR_LANGUAGES, not typed), and a page in each sample script — typed
+      # by the image's Chromium, then scanned to pixels — must come back
+      # word for word, in reading order (right-to-left scripts included),
+      # through the REAL OCR PDF processor's sidecar and text layer and the
+      # REAL PDF to Word processor's DOCX. A Greek scan read as English must
+      # fail the same verdict. No user document, secret, queue or store.
+      - name: Worker image OCR languages proof — packs, recognition, reading order (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-languages-proof
 
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.

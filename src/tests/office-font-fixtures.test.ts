@@ -62,6 +62,10 @@ const FIXED_IMAGE_FACES = [
   "NotoSansCJKkr-Regular",
   "NotoSansDevanagari-Regular",
   "NotoSansThai-Regular",
+  "NotoSansGujarati-Regular",
+  "NotoSansGurmukhi-Regular",
+  "NotoSansTamil-Regular",
+  "NotoSansTelugu-Regular",
 ];
 
 /** What LibreOffice fell back to on the image with no font packages. */

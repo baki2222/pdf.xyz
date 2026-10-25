@@ -1,7 +1,7 @@
 /**
  * `pnpm worker:options-proof` — compress-pdf's Grayscale and protect-pdf's
- * permission restrictions through the REAL Ghostscript and qpdf, inside the
- * built worker image. See `src/lib/workers/options-proof.ts` for what it
+ * permission restrictions through the REAL Ghostscript and qpdf, and HTML to
+ * PDF's page layout through the REAL Chromium, inside the built worker image. See `src/lib/workers/options-proof.ts` for what it
  * proves and why.
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is not available
@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { nativeCompressionDeps } from "@/lib/workers/compression/native";
 import { nativePdfSecurityDeps } from "@/lib/workers/pdf-security/native";
+import { nativeHtmlRenderDeps } from "@/lib/workers/html-render/native";
 import { runWorkerOptionsProof } from "@/lib/workers/options-proof";
 import { QPDF_EXIT_WARNINGS } from "@/lib/workers/qpdf-exit";
 
@@ -67,6 +68,7 @@ async function qpdfShowP(
 runWorkerOptionsProof({
   compression: nativeCompressionDeps(process.env),
   pdfSecurity: nativePdfSecurityDeps(process.env),
+  htmlRender: nativeHtmlRenderDeps(process.env),
   qpdfShowP,
 })
   .then((code) => process.exit(code))

@@ -90,6 +90,8 @@ describe("the in-image options proof runs, from the workflow to the call", () =>
     // make the proof pass without either binary.
     expect(callee("compression")).toBe("nativeCompressionDeps");
     expect(callee("pdfSecurity")).toBe("nativePdfSecurityDeps");
+    // The image's Chromium, for the page layout checks (2026-10-25).
+    expect(callee("htmlRender")).toBe("nativeHtmlRenderDeps");
     expect(props.has("qpdfShowP")).toBe(true);
   });
 });

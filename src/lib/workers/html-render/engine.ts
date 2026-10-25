@@ -1,6 +1,10 @@
 import { looksLikePdf } from "../compression/engine";
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
 import { describeByteCeiling } from "../engine-file-ceilings";
+import {
+  DEFAULT_HTML_RENDER_OPTIONS,
+  type HtmlRenderOptions,
+} from "@/lib/jobs/html-render-options";
 
 export {
   HTML_RENDER_TOOLS,
@@ -88,8 +92,12 @@ export function isRetryableWebpageFetch(failure: WebpageFetchFailure): boolean {
 }
 
 export interface ChromiumPdfRunner {
-  renderHtml(input: Uint8Array): Promise<Uint8Array>;
-  renderUrl(url: string): Promise<Uint8Array>;
+  /** `options` absent = every default: the render as it always ran. */
+  renderHtml(
+    input: Uint8Array,
+    options?: HtmlRenderOptions,
+  ): Promise<Uint8Array>;
+  renderUrl(url: string, options?: HtmlRenderOptions): Promise<Uint8Array>;
 }
 
 export interface HtmlRenderDeps {
@@ -144,6 +152,7 @@ function validateOutput(
 export async function runHtmlToPdf(
   input: Uint8Array,
   deps: HtmlRenderDeps,
+  options: HtmlRenderOptions = DEFAULT_HTML_RENDER_OPTIONS,
 ): Promise<HtmlRenderRun> {
   if (!deps.chromium) return unsupported();
   const limit = deps.limits?.maxInputBytes;
@@ -157,7 +166,7 @@ export async function runHtmlToPdf(
   }
   let output: Uint8Array;
   try {
-    output = await deps.chromium.renderHtml(input);
+    output = await deps.chromium.renderHtml(input, options);
   } catch {
     return {
       ok: false,
@@ -190,6 +199,7 @@ export async function runHtmlToPdf(
 export async function runWebpageToPdf(
   url: string,
   deps: HtmlRenderDeps,
+  options: HtmlRenderOptions = DEFAULT_HTML_RENDER_OPTIONS,
 ): Promise<HtmlRenderRun> {
   if (!isSafePublicHttpUrl(url)) {
     return {
@@ -202,7 +212,7 @@ export async function runWebpageToPdf(
   if (!deps.chromium) return unsupported();
   let output: Uint8Array;
   try {
-    output = await deps.chromium.renderUrl(url);
+    output = await deps.chromium.renderUrl(url, options);
   } catch (error) {
     // What the SITE did reaches the user; until 2026-09 every error here,
     // a 404 included, became the generic sentence below — and a 404 was not

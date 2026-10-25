@@ -76,6 +76,23 @@ export const OCR_LANGUAGES = [
   { code: "ara", label: "Arabic" },
   { code: "hin", label: "Hindi" },
   { code: "ben", label: "Bengali" },
+  // Added 2026-10-25, each with its `tesseract-ocr-<code>` pack in the same
+  // change (src/deploy/ocr-languages.test.ts holds the two together, and
+  // `pnpm worker:ocr-languages-proof` asks the built image's own Tesseract).
+  { code: "chi_tra", label: "Chinese (Traditional)" },
+  { code: "ell", label: "Greek" },
+  { code: "heb", label: "Hebrew" },
+  { code: "fas", label: "Persian" },
+  { code: "urd", label: "Urdu" },
+  { code: "mar", label: "Marathi" },
+  { code: "nep", label: "Nepali" },
+  { code: "guj", label: "Gujarati" },
+  { code: "pan", label: "Punjabi (Gurmukhi)" },
+  { code: "tam", label: "Tamil" },
+  { code: "tel", label: "Telugu" },
+  { code: "msa", label: "Malay" },
+  { code: "fil", label: "Filipino" },
+  { code: "swa", label: "Swahili" },
   // `satisfies` (not an annotation) keeps each `code` a literal type so `OcrLanguage`
   // can be derived from it, while still checking the shape of every entry.
 ] as const satisfies readonly {
@@ -321,6 +338,18 @@ export interface PdfToWordOptions {
    */
   languages: OcrLanguage[];
 }
+
+/**
+ * The OCR languages PDF to Word's OCR option accepts: today every OCR PDF
+ * language. Named separately because the Word path adds a reader OCR PDF
+ * does not have (poppler's reading order, then a DOCX), so a script whose
+ * words come back out of order there would be withdrawn HERE, not from OCR
+ * PDF. `pnpm worker:ocr-languages-proof` reads every sample of this list
+ * back out of a DOCX the image's own engines produced, right-to-left
+ * scripts included.
+ */
+export const PDF_TO_WORD_OCR_LANGUAGE_CODES: readonly OcrLanguage[] =
+  OCR_LANGUAGE_CODES;
 
 /**
  * Parse the `options` bag of a `pdf-to-word` job. `{}` is today's job: no

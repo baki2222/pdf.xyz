@@ -102,7 +102,20 @@ import { mixedScanPdf, mixedSidecarVerdict } from "@/tests/ocr-proof-fixtures";
 import {
   scannedDocxVerdict,
   scannedTextPdf,
+  scanOfFirstPage,
 } from "@/tests/word-ocr-proof-fixtures";
+import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import {
+  OCR_LANGUAGE_SAMPLES,
+  sampleVerdict,
+  samplePageHtml,
+} from "@/lib/workers/ocr-languages-proof";
+import {
+  layoutProofHtml,
+  onePageVerdict,
+  pageSizeVerdict,
+  viewportVerdict,
+} from "@/lib/workers/html-render/layout-proof";
 import { grayscaleVerdict } from "@/lib/workers/compression/image-colour";
 import { readEncryptPermissions } from "@/lib/workers/pdf-security/permission-bits";
 import {
@@ -410,6 +423,17 @@ function rasterJpg(): Buffer {
 const HTML_PROOF_TITLE = "pdf.xyz proof";
 /** The page Webpage to PDF is proven on — ours, see `@/lib/probes/webpage-proof`. */
 const WEBPAGE_PROOF = webpageProofPage();
+
+/**
+ * The OCR samples proved on a live deployment: two scripts added 2026-10-25
+ * (Greek, Tamil) and a right-to-left one (Hebrew). The in-image proof runs
+ * every sample; these three keep a deploy run short.
+ */
+const LIVE_OCR_SAMPLES = (["ell", "tam", "heb"] as const).map((code) => {
+  const sample = OCR_LANGUAGE_SAMPLES.find((s) => s.code === code);
+  if (!sample) throw new Error(`no OCR sample for ${code}`);
+  return sample;
+});
 const HTML_PROOF_VISIBLE = "HTML to PDF";
 function htmlFile(): Buffer {
   return Buffer.from(
@@ -560,6 +584,12 @@ interface ProofSpec {
   make?: () => Promise<Uint8Array> | Uint8Array;
   /** Reuse a previous spec's artifact as this one's input (protect → unlock). */
   from?: string;
+  /**
+   * Turn the carried `from` artifact into this spec's input first — an OCR
+   * proof scans the page another spec had the worker's Chromium type, so its
+   * script is drawn in the image's own fonts (2026-10-25).
+   */
+  fromTransform?: (bytes: Buffer) => Promise<Uint8Array>;
   name?: string;
   type?: string;
   /** URL-input tools carry no file; the source goes in `options.url`. */
@@ -955,6 +985,115 @@ const SPECS: ProofSpec[] = [
     expect: () => false,
     want: "the job refused with the site's 404, not a PDF of the error page",
   },
+  // Page layout (2026-10-25), read from the PDF the user downloads: every
+  // page box A4 landscape; one long page holding the guide from its h1 to
+  // its last FAQ question; and the proof page laid out at the phone and
+  // desktop screen widths (its width-dependent heading read back). The
+  // plain webpage spec above is the control: Letter pages, narrow.
+  {
+    tool: "webpage-to-pdf",
+    label: "webpage-to-pdf (A4 landscape)",
+    url: WEBPAGE_PROOF.url,
+    options: { pageSize: "A4", orientation: "landscape" },
+    expect: isPdf,
+    want: "every page A4 landscape",
+    verify: (bytes) =>
+      pageSizeVerdict(new Uint8Array(bytes), "A4", "landscape"),
+  },
+  {
+    tool: "webpage-to-pdf",
+    label: "webpage-to-pdf (one long page)",
+    url: WEBPAGE_PROOF.url,
+    options: { onePage: true },
+    expect: isPdf,
+    want: "one page holding the whole guide",
+    verify: async (bytes) =>
+      onePageVerdict(
+        new Uint8Array(bytes),
+        await pdfPlainText(bytes),
+        WEBPAGE_PROOF.landmarks,
+      ),
+  },
+  ...(
+    [
+      ["phone", "narrow"],
+      ["desktop", "wide"],
+    ] as const
+  ).map(([viewport, want]): ProofSpec => ({
+    tool: "html-to-pdf",
+    label: `html-to-pdf (${viewport} screen)`,
+    make: () => layoutProofHtml(),
+    name: "layout.html",
+    type: "text/html",
+    options: { pageSize: "A4", viewport },
+    expect: isPdf,
+    want: `the page laid out ${want}`,
+    verify: async (bytes) => viewportVerdict(await pdfPlainText(bytes), want),
+  })),
+  // OCR in scripts added 2026-10-25 (and a right-to-left one): each page is
+  // typed by the WORKER's Chromium in the image's fonts (and must carry its
+  // words as text), scanned to pixels here, then sent to OCR PDF in that
+  // language — whose .txt must hold every word in reading order. Hebrew
+  // also goes through PDF to Word's OCR option, where right-to-left words
+  // could come back reversed. Same samples and verdict as the in-image
+  // proof (`@/lib/workers/ocr-languages-proof`).
+  ...LIVE_OCR_SAMPLES.flatMap((sample): ProofSpec[] => [
+    {
+      tool: "html-to-pdf",
+      label: `html-to-pdf (${sample.code} sample page)`,
+      make: () => samplePageHtml(sample),
+      name: `${sample.code}.html`,
+      type: "text/html",
+      expect: isPdf,
+      want: `a typed ${sample.code} page`,
+      // A text layer, not the sample's words: Chromium's ToUnicode for a
+      // shaped script does not read back as its input (see the in-image
+      // proof). The OCR spec below is the evidence about the words.
+      verify: async (bytes) => {
+        const text = (await pdfPlainText(bytes)).trim();
+        return {
+          ok: text.length > 0,
+          detail: `${text.length} characters of text`,
+        };
+      },
+      keepArtifactAs: `ocr-sample-${sample.code}`,
+    },
+    {
+      tool: "ocr-pdf",
+      label: `ocr-pdf (${sample.code}${sample.rtl ? ", rtl" : ""})`,
+      from: `ocr-sample-${sample.code}`,
+      fromTransform: (typed) => scanOfFirstPage(new Uint8Array(typed), 2200),
+      name: "scan.pdf",
+      type: PDF_MIME,
+      options: { languages: [sample.code], outputMode: "text" },
+      artifact: (filename) => filename.endsWith(".txt"),
+      expect: (bytes) => bytes.length > 0,
+      want: `the ${sample.code} words, in reading order`,
+      verify: async (bytes) =>
+        sampleVerdict(sample, new TextDecoder().decode(bytes)),
+    },
+    ...(sample.rtl
+      ? [
+          {
+            tool: "pdf-to-word",
+            label: `pdf-to-word (ocr, ${sample.code}, rtl)`,
+            from: `ocr-sample-${sample.code}`,
+            fromTransform: (typed: Buffer) =>
+              scanOfFirstPage(new Uint8Array(typed), 2200),
+            name: "scan.pdf",
+            type: PDF_MIME,
+            options: { ocr: true, languages: [sample.code] },
+            expect: isZipContainer,
+            want: `a DOCX with the ${sample.code} words in reading order`,
+            verify: async (bytes: Buffer) =>
+              sampleVerdict(
+                sample,
+                (await readDocxParagraphs(new Uint8Array(bytes))).join("\n"),
+              ),
+          },
+        ]
+      : []),
+  ]),
   // Until 2026-09-27 this sent one unstyled English line and accepted any
   // `%PDF-`, which the worker passed while its image had no fonts at all:
   // Calibri and Cambria came out in a face with other metrics, and CJK,
@@ -1326,11 +1465,24 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
   let aiDeclaration: AiJobDeclaration = {};
 
   if (!spec.url) {
-    const bytes = spec.from
+    let bytes = spec.from
       ? carried.get(spec.from)
       : Buffer.from(await spec.make!());
     if (!bytes) {
       return missingDependency(label, spec.from!, "input", seconds());
+    }
+    if (spec.fromTransform) {
+      try {
+        bytes = Buffer.from(await spec.fromTransform(bytes));
+      } catch (error) {
+        return {
+          label,
+          outcome: "failed",
+          stage: "input",
+          seconds: seconds(),
+          detail: `the carried artifact could not be made into this proof's input: ${(error as Error).message}`,
+        };
+      }
     }
     // Declare the characters (and, for translate, the text PAGES) the BROWSER
     // declares for this file, counted by its panel's own function
@@ -1416,7 +1568,10 @@ async function runSpec(spec: ProofSpec): Promise<ProofResult> {
     ...(inputNames ? { inputNames } : {}),
     ...aiDeclaration,
   };
-  if (spec.url) request.options = { url: spec.url };
+  // A URL spec's own options ride with the address — the address last, as
+  // the panel's client sends it (`runWorkerWebpageToPdf`). Until 2026-10-25
+  // a URL spec's `options` were dropped here, which no spec had needed.
+  if (spec.url) request.options = { ...spec.options, url: spec.url };
   else if (spec.optionsFrom) {
     const prior = carried.get(spec.optionsFrom.artifact);
     if (!prior) {

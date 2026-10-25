@@ -22,6 +22,12 @@ import {
 } from "./capabilities";
 import { apiError, type ParseResult } from "./responses";
 import { sanitizeDisplayFilename } from "./filenames";
+import { parseHtmlRenderOptions } from "./html-render-options";
+import { HTML_RENDER_TOOLS } from "@/lib/workers/html-render/tools";
+
+const HTML_RENDER_OPTION_TOOLS: ReadonlySet<string> = new Set(
+  HTML_RENDER_TOOLS,
+);
 // The intake gate's normalizer, not a copy: both layers must read a content type the
 // same way. Imported from the import-free leaf, not the intake barrel.
 import { normalizeContentType } from "@/lib/uploads/intake/families";
@@ -377,6 +383,14 @@ export function parseCreateJobRequest(
   const optionsResult = parseOptions(input.options);
   if (!optionsResult.ok) return optionsResult;
   const options = optionsResult.value;
+
+  // HTML and Webpage to PDF layout options: refused here, at job creation,
+  // with the field named — not after a queue wait, by the worker (which runs
+  // the same parser again before it renders).
+  if (HTML_RENDER_OPTION_TOOLS.has(tool.slug)) {
+    const layout = parseHtmlRenderOptions(options);
+    if (!layout.ok) return layout;
+  }
 
   const keyResult = parseIdempotencyKey(input.idempotencyKey);
   if (!keyResult.ok) return keyResult;

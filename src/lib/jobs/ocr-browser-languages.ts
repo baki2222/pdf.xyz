@@ -15,9 +15,11 @@ import {
 
 /**
  * BCP-47 primary language subtag → recognition pack. Every OCR language is
- * reached exactly by this map (`ocr-browser-languages.test.ts` holds it both
- * ways). Chinese is special-cased below: only the Simplified script has a
- * pack, so `zh-TW` and `zh-Hant` map to nothing rather than to the wrong one.
+ * reached by this map or by {@link TRADITIONAL_CHINESE_PACK}
+ * (`ocr-browser-languages.test.ts` holds it both ways). Chinese is
+ * special-cased below by script: until 2026-10-25 only the Simplified pack
+ * existed, so `zh-TW` and `zh-Hant` mapped to nothing rather than to the
+ * wrong one; they now map to the Traditional pack.
  */
 export const OCR_LANGUAGE_BY_BCP47: Readonly<Record<string, OcrLanguage>> = {
   en: "eng",
@@ -41,14 +43,36 @@ export const OCR_LANGUAGE_BY_BCP47: Readonly<Record<string, OcrLanguage>> = {
   ar: "ara",
   hi: "hin",
   bn: "ben",
+  el: "ell",
+  he: "heb",
+  // The deprecated tag for Hebrew, which older browsers still send.
+  iw: "heb",
+  fa: "fas",
+  ur: "urd",
+  mr: "mar",
+  ne: "nep",
+  gu: "guj",
+  pa: "pan",
+  ta: "tam",
+  te: "tel",
+  ms: "msa",
+  fil: "fil",
+  // Tagalog is the language Filipino is standardised from; Tesseract's
+  // Filipino model is the one that reads it.
+  tl: "fil",
+  sw: "swa",
 };
+
+/** The pack for a Traditional-script Chinese tag. */
+export const TRADITIONAL_CHINESE_PACK: OcrLanguage = "chi_tra";
 
 /** Traditional-script Chinese tags: a script or a region that writes it. */
 const TRADITIONAL_ZH = /^zh-(?:hant|tw|hk|mo)\b/i;
 
 function packFor(tag: string): OcrLanguage | null {
   const primary = tag.split("-")[0]?.toLowerCase() ?? "";
-  if (primary === "zh" && TRADITIONAL_ZH.test(tag)) return null;
+  if (primary === "zh" && TRADITIONAL_ZH.test(tag))
+    return TRADITIONAL_CHINESE_PACK;
   return OCR_LANGUAGE_BY_BCP47[primary] ?? null;
 }
 

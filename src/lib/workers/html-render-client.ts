@@ -19,6 +19,12 @@ export type HtmlRenderWorkerResult = PdfSecurityWorkerResult;
 export interface HtmlRenderWorkerInput {
   filename: string;
   bytes: Uint8Array;
+  /**
+   * Page layout (`@/lib/jobs/html-render-options`), as the bag
+   * `htmlRenderOptionsBag` builds: only what differs from the defaults, so
+   * an unchanged layout sends the request this tool always sent.
+   */
+  layout?: Record<string, unknown>;
 }
 
 export async function runWorkerHtmlToPdf(
@@ -29,7 +35,7 @@ export async function runWorkerHtmlToPdf(
     HTML_TO_PDF_TOOL,
     input.filename,
     input.bytes,
-    {},
+    { ...input.layout },
     options,
   );
 }
@@ -54,24 +60,31 @@ const defaultFetch: FetchLike = (input, init) =>
 export async function runWorkerWebpageToPdf(
   url: string,
   options: PdfSecurityWorkerOptions = {},
+  layout: Record<string, unknown> = {},
 ): Promise<HtmlRenderWorkerResult> {
   // This lifecycle has no upload, so it does not pass through `runSecurityJob`
   // and must report its own outcome — see `@/lib/telemetry/tool-outcome`.
   return withToolOutcome(WEBPAGE_TO_PDF_TOOL, () =>
-    runWorkerWebpageToPdfSteps(url, options),
+    runWorkerWebpageToPdfSteps(url, options, layout),
   );
 }
 
 async function runWorkerWebpageToPdfSteps(
   url: string,
   options: PdfSecurityWorkerOptions,
+  layout: Record<string, unknown>,
 ): Promise<HtmlRenderWorkerResult> {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
 
   const jobRes = await fetchImpl("/api/jobs", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: jsonBody({ tool: WEBPAGE_TO_PDF_TOOL, inputs: [], options: { url } }),
+    // The address last, so no layout key can ever replace it.
+    body: jsonBody({
+      tool: WEBPAGE_TO_PDF_TOOL,
+      inputs: [],
+      options: { ...layout, url },
+    }),
     signal: options.signal,
   });
   if (!jobRes.ok)
