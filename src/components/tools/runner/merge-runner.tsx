@@ -522,12 +522,22 @@ export function MergeRunner() {
               replaces it pushed "Add more PDFs" down — 60 px at 360 wide,
               where the size line wrapped to four — counted after a drop
               (`e2e/editor-arrival.spec.ts`). */}
+          {/* It also holds the Pages line every file row ends with (2026-10-25):
+              without it the file row arrived 34 px taller and moved both
+              option checkboxes below — 0.0115 at 390 x 844, over the 0.01
+              bound, once "Add a contents page" doubled the area it moved. */}
           {loading > 0 && (
-            <li className="bg-panel border-line text-muted rounded-panel flex items-center gap-3 border px-3 py-2.5 text-sm">
+            <li className="bg-panel border-line text-muted rounded-panel flex flex-wrap items-center gap-x-3 gap-y-2 border px-3 py-2.5 text-sm">
               <span className="grid size-9 shrink-0 place-items-center">
                 <Spinner />
               </span>
               Reading {loading} file{loading === 1 ? "" : "s"}…
+              <span
+                aria-hidden
+                className="invisible flex w-full pl-7 text-xs sm:pl-28"
+              >
+                <span className="rounded-ctl border px-2.5 py-1">Pages</span>
+              </span>
             </li>
           )}
         </ul>

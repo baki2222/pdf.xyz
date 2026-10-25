@@ -58,7 +58,9 @@ export function RedactFindPanel({
   const [categories, setCategories] = useState<Set<PiiCategory>>(
     () => new Set(PII_CATEGORIES),
   );
-  const [busy, setBusy] = useState<"search" | "detect" | null>(null);
+  // Not a tool run: Find and Detect write no file and report no outcome —
+  // the run is "Redact PDF" (useAsyncRun in redact-runner.tsx).
+  const [searching, setSearching] = useState<"search" | "detect" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [index, setIndex] = useState<RedactTextIndex | null>(null);
@@ -84,7 +86,7 @@ export function RedactFindPanel({
   const runFind = async (kind: "search" | "detect") => {
     setError(null);
     setStatus(null);
-    setBusy(kind);
+    setSearching(kind);
     try {
       const read = await readIndex();
       const m = await import("@/lib/pdf/redact-find");
@@ -111,7 +113,7 @@ export function RedactFindPanel({
     } catch (err) {
       setError(errorMessage(err));
     } finally {
-      setBusy(null);
+      setSearching(null);
     }
   };
 
@@ -137,7 +139,7 @@ export function RedactFindPanel({
           className="border-line bg-wash rounded-panel flex flex-col gap-3 border p-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (query.trim() && !busy) void runFind("search");
+            if (query.trim() && !searching) void runFind("search");
           }}
         >
           <label htmlFor={ids.query} className="text-fg text-sm font-medium">
@@ -155,10 +157,10 @@ export function RedactFindPanel({
             />
             <button
               type="submit"
-              aria-disabled={!query.trim() || busy !== null || undefined}
+              aria-disabled={!query.trim() || searching !== null || undefined}
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
-              {busy === "search" ? (
+              {searching === "search" ? (
                 <Spinner />
               ) : (
                 <Search className="size-4" aria-hidden />
@@ -226,14 +228,14 @@ export function RedactFindPanel({
             <button
               type="button"
               onClick={() => {
-                if (categories.size > 0 && !busy) void runFind("detect");
+                if (categories.size > 0 && !searching) void runFind("detect");
               }}
               aria-disabled={
-                categories.size === 0 || busy !== null || undefined
+                categories.size === 0 || searching !== null || undefined
               }
               className={buttonVariants({ variant: "secondary", size: "sm" })}
             >
-              {busy === "detect" ? (
+              {searching === "detect" ? (
                 <Spinner />
               ) : (
                 <ScanSearch className="size-4" aria-hidden />
@@ -243,7 +245,7 @@ export function RedactFindPanel({
           </div>
         </fieldset>
 
-        {busy && !index && (
+        {searching && !index && (
           <p
             className="text-muted inline-flex items-center gap-2 text-sm"
             role="status"
