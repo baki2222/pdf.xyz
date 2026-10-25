@@ -4,6 +4,7 @@ import {
   sanitizeDisplayFilename,
 } from "@/lib/jobs";
 import { isSafePublicHttpUrl } from "@/lib/jobs/validation";
+import { parseHtmlRenderOptions } from "@/lib/jobs/html-render-options";
 import {
   HTML_TO_PDF_TOOL,
   WEBPAGE_TO_PDF_TOOL,
@@ -150,11 +151,21 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
       };
     },
     async process(input): Promise<ProcessorResult> {
+      // Page size, orientation, margins, one long page, screen width — the
+      // same parser the job API refused a bad value with, run again here
+      // because a job record is not proof of what the API accepted.
+      const layout = parseHtmlRenderOptions(input.options);
+      if (!layout.ok)
+        return processorFail({
+          code: layout.error.body.error.code,
+          message: layout.error.body.error.message,
+          retryable: false,
+        });
       if (input.tool === HTML_TO_PDF_TOOL) {
         const inputError = requireSingleHtmlInput(input);
         if (inputError) return inputError;
         const file = input.inputs[0]!;
-        const run = await runHtmlToPdf(file.bytes, deps);
+        const run = await runHtmlToPdf(file.bytes, deps, layout.value);
         if (!run.ok) return processorFail(jobError(run));
         return processorOk(
           [
@@ -177,7 +188,7 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
             retryable: false,
           });
         }
-        const run = await runWebpageToPdf(url, deps);
+        const run = await runWebpageToPdf(url, deps, layout.value);
         if (!run.ok) return processorFail(jobError(run));
         return processorOk(
           [

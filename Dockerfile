@@ -177,6 +177,19 @@ RUN apt-get update \
       tesseract-ocr-ara \
       tesseract-ocr-hin \
       tesseract-ocr-ben \
+      tesseract-ocr-chi-tra \
+      tesseract-ocr-ell \
+      tesseract-ocr-heb \
+      tesseract-ocr-fas \
+      tesseract-ocr-urd \
+      tesseract-ocr-mar \
+      tesseract-ocr-nep \
+      tesseract-ocr-guj \
+      tesseract-ocr-tam \
+      tesseract-ocr-tel \
+      tesseract-ocr-msa \
+      tesseract-ocr-fil \
+      tesseract-ocr-swa \
       poppler-utils \
       fontconfig \
       fonts-crosextra-carlito \

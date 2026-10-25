@@ -1,5 +1,9 @@
 import type { ToolContent } from "./types";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
+import {
+  HTML_LAYOUT_STEP,
+  htmlLayoutAnswer,
+} from "@/lib/tools/html-layout-copy";
 
 /*
  * Behaviour claims below were read from the implementation on 2026-09-27:
@@ -8,10 +12,12 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    "https://example.com"), the "Render PDF" button (busy label
  *    "Rendering PDF…", disabled until the trimmed field is longer than
  *    "https://"), errors in an ErrorNote under the button, and on success
- *    "Your PDF is ready." with a "Download <filename>" button. No other
- *    options (no page size, orientation, margins, header or delay setting);
+ *    "Your PDF is ready." with a "Download <filename>" button. Since
+ *    2026-10-25 a Page layout group (src/lib/tools/html-layout-copy.ts); no header or
+ *    delay setting;
  *  - src/lib/workers/html-render-client.ts — the job body is
- *    { tool, inputs: [], options: { url } } and the client fetches the
+ *    { tool, inputs: [], options: { ...layout, url } } (layout empty unless
+ *    a setting was changed) and the client fetches the
  *    artifact bytes BEFORE reporting success, so the Download button saves
  *    bytes already in the page;
  *  - src/lib/jobs/validation.ts `isSafePublicHttpUrl` — the address as the
@@ -102,6 +108,7 @@ const content: ToolContent = {
       title: "Paste the full address",
       body: 'The field starts with "https://". Select it all and paste the complete link from your address bar over it: pasting after the prefix gives https://https://…, which is refused before any job starts. Only http and https links are accepted. If the secure worker is unavailable, the Render PDF button stays off and a status note and a "Notify me when this ships" button appear under it.',
     },
+    HTML_LAYOUT_STEP,
     {
       title: "Press Render PDF",
       body: "The button activates once the field holds more than its starting https://. Your address goes to the secure worker, where Chromium opens and prints the page.",
@@ -131,7 +138,10 @@ const content: ToolContent = {
     },
     {
       q: "Can I set the page size, margins or orientation, or remove ads?",
-      a: "Not here. The tool has one field and one button, so the PDF uses Chromium's print layout, with backgrounds, plus whatever print styles the site defines, and cookie notices or adverts shown to a new visitor can appear. To tidy the result, drop pages with Delete Pages or trim edges with Crop PDF.",
+      // Until 2026-10-25 the answer began "Not here. The tool has one field
+      // and one button" — true until the Page layout group shipped
+      // (src/lib/tools/html-layout-copy.ts).
+      a: `${htmlLayoutAnswer("site")} Ads cannot be removed: the page prints as a new, signed-out visitor sees it, so cookie notices or adverts shown to a new visitor can appear. To tidy the result, drop pages with Delete Pages or trim edges with Crop PDF.`,
     },
     {
       q: "Will the text be selectable, or is it a screenshot?",

@@ -63,6 +63,24 @@ describe("the page the proof renders", () => {
     expect(pageShowsText(doc.body.textContent ?? "", page.visible)).toBe(true);
   });
 
+  it("its landmarks run from the top of the body to the end, and the rendered body shows each", async () => {
+    // Three: the h1, a last section heading and a last FAQ question. Fewer
+    // and "one long page holds the whole page" checks only its top.
+    expect(page.landmarks).toHaveLength(3);
+    expect(page.landmarks[0]).toBe(page.visible);
+    const body = (await rendered()).body.textContent ?? "";
+    for (const landmark of page.landmarks)
+      expect(pageShowsText(body, landmark), landmark).toBe(true);
+    // In page order, each one's LAST appearance (a heading is also listed in
+    // the contents near the top): the last landmark really is furthest down.
+    const flat = body.replace(/\s+/g, "");
+    const at = page.landmarks.map((l) =>
+      flat.lastIndexOf(l.replace(/\s+/g, "")),
+    );
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(at.at(-1)! / flat.length).toBeGreaterThan(0.5);
+  });
+
   it("never prints its own URL, so a URL in the PDF can only be the print footer", async () => {
     const body = (await rendered()).body.textContent ?? "";
     expect(body.length, "health: the page rendered no text").toBeGreaterThan(
@@ -119,7 +137,12 @@ describe("the harness", () => {
     const specs = harness
       .split(/\n  \{\n/)
       .filter((block) => block.includes('tool: "webpage-to-pdf"'));
-    expect(specs, "health: the webpage-to-pdf specs are gone").toHaveLength(2);
+    // 2 until 2026-10-25; then the A4-landscape and one-long-page layout
+    // proofs joined, on the same page of ours.
+    expect(specs, "health: the webpage-to-pdf specs are gone").toHaveLength(4);
+    expect(
+      specs.filter((s) => s.includes("url: WEBPAGE_PROOF.url")),
+    ).toHaveLength(3);
     expect(specs.join("\n")).toContain("url: WEBPAGE_PROOF.url");
     expect(specs.join("\n")).toContain(
       "verifyPageOnly(WEBPAGE_PROOF.visible, {",

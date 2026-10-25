@@ -3,6 +3,10 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { getToolBySlug } from "@/lib/tools";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import { formatBytes } from "@/lib/utils";
+import {
+  HTML_LAYOUT_STEP,
+  htmlLayoutAnswer,
+} from "@/lib/tools/html-layout-copy";
 
 /**
  * Every claim below was read off the implementation, not the marketing:
@@ -16,8 +20,9 @@ import { formatBytes } from "@/lib/utils";
  *    the step said the button read "Rendering PDF…" for the whole round
  *    trip, which was the panel before useWorkerJob; "Your PDF is ready.", "Download <name>",
  *    ErrorNote showing the run's message, a "Limit" spec row reading
- *    formatBytes(ceiling)/file); no page size, margin or orientation option
- *    exists on the panel;
+ *    formatBytes(ceiling)/file); since 2026-10-25 a Page layout group (page
+ *    size, orientation, margins, screen width, one long page), described
+ *    from src/lib/tools/html-layout-copy.ts — until then no layout option existed;
  *  - the render (re-read 2026-10-08): src/lib/workers/html-render/native.ts
  *    drives headless Chromium over a CDP pipe. The upload is never read from
  *    disk by Chromium: it is served as the document at HTML_DOCUMENT_URL
@@ -151,6 +156,7 @@ const content: ToolContent = {
       title: "Add your HTML file",
       body: "Drag one .html or .htm file onto the dashed drop zone, or click it to pick one. The name then appears with a Remove button. The drop zone works before the page has heard from the worker; the file is sent only when you press Render PDF, and that button stays off until a secure worker is ready. When none is, the panel says why and offers a “Notify me when this ships” button.",
     },
+    HTML_LAYOUT_STEP,
     {
       title: "Click Render PDF",
       body: "It stays disabled until a file is added. Once clicked, its label follows the job: “Uploading your file…”, then “Waiting for the worker…” if the queue is busy, “Rendering PDF…” while Chromium prints, and “Downloading the result…”. A Cancel button below it stops the job at any point.",
@@ -176,7 +182,10 @@ const content: ToolContent = {
     },
     {
       q: "Can I choose the page size, margins or orientation?",
-      a: "There are no layout settings on this page, but the HTML itself can set them, because Chromium follows CSS @page rules when it prints. @page { size: A4 landscape } changes the paper and orientation, and @page { margin: 15mm } changes the margins. Without an @page size, the PDF comes out on US Letter.",
+      // Until 2026-10-25: "There are no layout settings on this page, but
+      // the HTML itself can set them …" — true until the Page layout group
+      // shipped; see src/lib/tools/html-layout-copy.ts for what the answer is read from.
+      a: htmlLayoutAnswer("file"),
     },
     {
       q: "Does the PDF get a date, a title or a file path on every page?",

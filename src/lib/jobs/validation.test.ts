@@ -150,6 +150,42 @@ describe("worker job validation", () => {
       expect(publicUrl.value.options?.url).toBe("https://example.com/report");
     }
   });
+
+  it("refuses an HTML/Webpage layout value at job creation, naming the field", () => {
+    const bad = parseCreateJobRequest({
+      tool: "webpage-to-pdf",
+      options: { url: "https://example.com/report", pageSize: "B5" },
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok)
+      expect(bad.error.body.error.details?.[0]?.field).toBe("options.pageSize");
+    const badHtml = parseCreateJobRequest({
+      tool: "html-to-pdf",
+      inputs: ["f_1234567890"],
+      options: { onePage: "yes" },
+    });
+    expect(badHtml.ok).toBe(false);
+    const good = parseCreateJobRequest({
+      tool: "webpage-to-pdf",
+      options: {
+        url: "https://example.com/report",
+        pageSize: "A4",
+        orientation: "landscape",
+        margin: "small",
+        viewport: "phone",
+        onePage: true,
+      },
+    });
+    expect(good.ok).toBe(true);
+    // Another tool's options are not this parser's to judge.
+    expect(
+      parseCreateJobRequest({
+        tool: "ocr-pdf",
+        inputs: ["f_1234567890"],
+        options: { pageSize: "B5" },
+      }).ok,
+    ).toBe(true);
+  });
 });
 
 describe("public URL SSRF guard", () => {

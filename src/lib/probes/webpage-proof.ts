@@ -36,6 +36,12 @@ export interface WebpageProofPage {
   readonly url: string;
   /** Text the page's BODY shows — its `<h1>` — and so the rendered PDF must. */
   readonly visible: string;
+  /**
+   * Text from the top of the body to its end — the h1, the last section's
+   * heading, the last FAQ question — read from the guide's source. "One long
+   * page" must put every one of them on its single page (2026-10-25).
+   */
+  readonly landmarks: readonly string[];
 }
 
 /** The guide the proof renders: the first in the catalogue. */
@@ -47,9 +53,16 @@ export function webpageProofPage(): WebpageProofPage {
       "the guides catalogue is empty, so Webpage to PDF has no page of ours to prove on",
     );
   }
+  const lastSection = guide.sections.at(-1)?.heading;
+  const lastQuestion = guide.faq.at(-1)?.question;
   return {
     url: new URL(`/guides/${guide.slug}`, siteConfig.url).href,
     visible: guide.title,
+    landmarks: [
+      guide.title,
+      ...(lastSection ? [lastSection] : []),
+      ...(lastQuestion ? [lastQuestion] : []),
+    ],
   };
 }
 

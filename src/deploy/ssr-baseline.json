@@ -5942,7 +5942,7 @@
     },
     "tools/ocr-pdf.html": {
       "title": "OCR PDF Online: Make Scanned PDFs Searchable — pdf.xyz",
-      "description": "OCR a scanned PDF, JPG or PNG in 21 languages including Bengali and Arabic. Download a searchable PDF, a plain TXT file, or both. No account.",
+      "description": "OCR a scanned PDF, JPG or PNG in 34 languages including Bengali and Arabic. Download a searchable PDF, a plain TXT file, or both. No account.",
       "canonical": "https://pdf.xyz/tools/ocr-pdf",
       "robots": "index, follow",
       "h1": ["OCR PDF"],

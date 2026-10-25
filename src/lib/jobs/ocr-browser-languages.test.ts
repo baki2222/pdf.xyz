@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_OCR_LANGUAGES, OCR_LANGUAGE_CODES } from "./ocr";
 import {
   OCR_LANGUAGE_BY_BCP47,
+  TRADITIONAL_CHINESE_PACK,
   ocrLanguagesFromBrowser,
 } from "./ocr-browser-languages";
 
@@ -14,8 +15,32 @@ import {
  */
 describe("ocrLanguagesFromBrowser", () => {
   it("the map reaches every OCR language, and only OCR languages (both ways)", () => {
-    const reached = new Set(Object.values(OCR_LANGUAGE_BY_BCP47));
+    const reached = new Set([
+      ...Object.values(OCR_LANGUAGE_BY_BCP47),
+      TRADITIONAL_CHINESE_PACK,
+    ]);
     expect(reached).toEqual(new Set(OCR_LANGUAGE_CODES));
+  });
+
+  it("reads the languages added 2026-10-25 from their browser tags", () => {
+    const cases: [string, string][] = [
+      ["el-GR", "ell"],
+      ["he-IL", "heb"],
+      ["iw", "heb"],
+      ["fa-IR", "fas"],
+      ["ur-PK", "urd"],
+      ["mr-IN", "mar"],
+      ["ne-NP", "nep"],
+      ["gu-IN", "guj"],
+      ["ta-IN", "tam"],
+      ["te-IN", "tel"],
+      ["ms-MY", "msa"],
+      ["fil-PH", "fil"],
+      ["tl", "fil"],
+      ["sw-KE", "swa"],
+    ];
+    for (const [tag, pack] of cases)
+      expect(ocrLanguagesFromBrowser([tag]), tag).toEqual([pack, "eng"]);
   });
 
   it("keeps English and adds the reader's languages, in their order", () => {
@@ -51,9 +76,18 @@ describe("ocrLanguagesFromBrowser", () => {
     ]);
   });
 
-  it("reads Simplified Chinese and not Traditional", () => {
+  // INVERTED 2026-10-25. Until then only the Simplified pack shipped, and this
+  // test pinned `["zh-TW", "zh-Hant"] → ["eng"]`: a Traditional reader got no
+  // Chinese preselected rather than the wrong script. With `chi_tra` in the
+  // image, the same tags must now pick the Traditional pack — and must still
+  // never fall through to the Simplified one.
+  it("reads Simplified Chinese as Simplified and Traditional as Traditional", () => {
     expect(ocrLanguagesFromBrowser(["zh-CN"])).toEqual(["chi_sim", "eng"]);
     expect(ocrLanguagesFromBrowser(["zh-Hans-SG"])).toEqual(["chi_sim", "eng"]);
-    expect(ocrLanguagesFromBrowser(["zh-TW", "zh-Hant"])).toEqual(["eng"]);
+    expect(ocrLanguagesFromBrowser(["zh-TW", "zh-Hant"])).toEqual([
+      "chi_tra",
+      "eng",
+    ]);
+    expect(ocrLanguagesFromBrowser(["zh-HK"])).not.toContain("chi_sim");
   });
 });

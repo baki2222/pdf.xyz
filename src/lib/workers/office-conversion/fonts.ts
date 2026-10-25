@@ -76,9 +76,14 @@ export const OFFICE_METRIC_CLONES: readonly MetricClone[] = [
 export type WorkerScript =
   | "Latin"
   | "Cyrillic"
+  | "Greek"
   | "Arabic"
+  | "Hebrew"
   | "Devanagari"
   | "Bengali"
+  | "Gujarati"
+  | "Tamil"
+  | "Telugu"
   | "Thai"
   | "Han"
   | "Kana"
@@ -113,6 +118,20 @@ export const OCR_LANGUAGE_SCRIPT: Record<OcrLanguage, WorkerScript> = {
   chi_sim: "Han",
   jpn: "Kana",
   kor: "Hangul",
+  // 2026-10-25.
+  chi_tra: "Han",
+  ell: "Greek",
+  heb: "Hebrew",
+  fas: "Arabic",
+  urd: "Arabic",
+  mar: "Devanagari",
+  nep: "Devanagari",
+  guj: "Gujarati",
+  tam: "Tamil",
+  tel: "Telugu",
+  msa: "Latin",
+  fil: "Latin",
+  swa: "Latin",
 };
 
 export interface ScriptFont {
@@ -154,11 +173,28 @@ export const SCRIPT_FONTS: Record<WorkerScript, ScriptFont> = {
     lang: "ru-RU",
     slot: "ascii",
   },
+  // Liberation draws Greek, like Cyrillic, so the metric clones' names say it.
+  Greek: {
+    debianPackage: "fonts-liberation2",
+    faceToken: null,
+    sample: "Ελληνικό κείμενο",
+    lang: "el-GR",
+    slot: "ascii",
+  },
   Arabic: {
     debianPackage: "fonts-noto-core",
     faceToken: null,
     sample: "النص العربي",
     lang: "ar-SA",
+    slot: "cs",
+  },
+  // Null for the reason Arabic is: DejaVu, which fontconfig always brings,
+  // draws Hebrew too, so a face name would not say which package drew it.
+  Hebrew: {
+    debianPackage: "fonts-noto-core",
+    faceToken: null,
+    sample: "טקסט בעברית",
+    lang: "he-IL",
     slot: "cs",
   },
   Devanagari: {
@@ -173,6 +209,27 @@ export const SCRIPT_FONTS: Record<WorkerScript, ScriptFont> = {
     faceToken: "bengali",
     sample: "বাংলা লেখা",
     lang: "bn-BD",
+    slot: "cs",
+  },
+  Gujarati: {
+    debianPackage: "fonts-noto-core",
+    faceToken: "gujarati",
+    sample: "ગુજરાતી લખાણ",
+    lang: "gu-IN",
+    slot: "cs",
+  },
+  Tamil: {
+    debianPackage: "fonts-noto-core",
+    faceToken: "tamil",
+    sample: "தமிழ் உரை",
+    lang: "ta-IN",
+    slot: "cs",
+  },
+  Telugu: {
+    debianPackage: "fonts-noto-core",
+    faceToken: "telugu",
+    sample: "తెలుగు వచనం",
+    lang: "te-IN",
     slot: "cs",
   },
   Thai: {

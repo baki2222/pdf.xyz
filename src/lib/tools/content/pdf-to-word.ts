@@ -3,6 +3,7 @@ import { getToolBySlug } from "@/lib/tools";
 import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { MAX_LISTED_PAGES } from "@/lib/jobs/office-export-results";
 import { WORD_OCR_LABEL } from "@/lib/jobs/pdf-office-export";
+import { describeOcrLanguage, RTL_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { toolFileCeiling } from "@/lib/tools/file-ceilings";
 import {
   MAX_BILEVEL_PICTURE_SIDE,
@@ -121,6 +122,12 @@ if (ceiling.tier !== "worker") {
 /** The per-file cap this tool's upload is refused above, in whole MB. */
 const CEILING_MB = Math.round(ceiling.bytes / (1024 * 1024));
 const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
+/**
+ * The right-to-left languages the OCR option withholds (2026-10-25; the
+ * in-image proof read their words back out of a DOCX and found them out of
+ * order — `PDF_TO_WORD_OCR_LANGUAGE_CODES` in jobs/ocr.ts).
+ */
+const RTL_WORD_SENTENCE = `${new Intl.ListFormat("en", { type: "conjunction" }).format(RTL_OCR_LANGUAGES.map(describeOcrLanguage))} are not offered for it: written right to left, their recognised words come out of the conversion out of order. OCR PDF reads them in order.`;
 const PICTURE_PX = MAX_PICTURE_SIDE.toLocaleString("en-US");
 const BILEVEL_PX = MAX_BILEVEL_PICTURE_SIDE.toLocaleString("en-US");
 const MAX_PICTURES = MAX_DOCX_PICTURES.toLocaleString("en-US");
@@ -192,7 +199,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to pages that are scans?",
-      a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Tick “${WORD_OCR_LABEL}” to have the words as text: the worker runs OCR first, keeping pages that already have text as they are, and converts its result. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page.`,
+      a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Tick “${WORD_OCR_LABEL}” to have the words as text: the worker runs OCR first, keeping pages that already have text as they are, and converts its result. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page. ${RTL_WORD_SENTENCE}`,
     },
     {
       q: "How are tables and multi-column pages handled?",

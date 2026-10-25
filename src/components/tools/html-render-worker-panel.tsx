@@ -36,6 +36,12 @@ import { jobBusyLabel, useWorkerJob, WorkerJobStatus } from "./worker-job";
 import { resumeSecurityJob } from "@/lib/workers/pdf-security-client";
 import { decodeTextFile } from "@/lib/text/decode-text-file";
 import { useStagedHandoff } from "./use-staged-handoff";
+import { HtmlRenderLayoutOptions } from "./html-render-layout-options";
+import {
+  DEFAULT_HTML_RENDER_OPTIONS,
+  htmlRenderOptionsBag,
+  type HtmlRenderOptions,
+} from "@/lib/jobs/html-render-options";
 import {
   useWorkerPanel,
   WorkerGate,
@@ -188,24 +194,32 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
     setFile(files[0] ?? null);
   });
 
+  const [layout, setLayout] = useState<HtmlRenderOptions>(
+    DEFAULT_HTML_RENDER_OPTIONS,
+  );
+
   const start = useCallback(async () => {
     if (!available) return;
+    // Only what differs from the defaults travels, so an untouched layout
+    // sends the request these tools always sent.
+    const bag = htmlRenderOptionsBag(layout);
     await run(async (controls) => {
       const result =
         mode === "url"
-          ? await runWorkerWebpageToPdf(url.trim(), controls)
+          ? await runWorkerWebpageToPdf(url.trim(), controls, bag)
           : file
             ? await runWorkerHtmlToPdf(
                 {
                   filename: file.name,
                   bytes: new Uint8Array(await file.arrayBuffer()),
+                  layout: bag,
                 },
                 controls,
               )
             : { ok: false as const, message: "Choose an HTML file first." };
       return result;
     });
-  }, [file, mode, url, run, available]);
+  }, [file, mode, url, run, available, layout]);
 
   const missing =
     mode === "html" ? !file : url.trim().length <= "https://".length;
@@ -293,6 +307,15 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
           hint="HTML"
         />
       )}
+
+      <HtmlRenderLayoutOptions
+        value={layout}
+        disabled={busy}
+        onChange={(next) => {
+          setLayout(next);
+          setOutcome(null);
+        }}
+      />
 
       <WorkerGate
         reserve={STATUS_SLOT}

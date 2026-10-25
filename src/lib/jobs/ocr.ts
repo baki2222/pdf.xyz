@@ -76,6 +76,26 @@ export const OCR_LANGUAGES = [
   { code: "ara", label: "Arabic" },
   { code: "hin", label: "Hindi" },
   { code: "ben", label: "Bengali" },
+  // Added 2026-10-25, each with its `tesseract-ocr-<code>` pack in the same
+  // change (src/deploy/ocr-languages.test.ts holds the two together, and
+  // `pnpm worker:ocr-languages-proof` asks the built image's own Tesseract).
+  { code: "chi_tra", label: "Chinese (Traditional)" },
+  { code: "ell", label: "Greek" },
+  { code: "heb", label: "Hebrew" },
+  { code: "fas", label: "Persian" },
+  { code: "urd", label: "Urdu" },
+  { code: "mar", label: "Marathi" },
+  { code: "nep", label: "Nepali" },
+  { code: "guj", label: "Gujarati" },
+  // Punjabi (`pan`) was added with these and withdrawn the same day: in the
+  // built image OCR PDF failed on it ("The OCR engine could not process this
+  // file", container run 40154227317), while every sibling Indic pack read
+  // its sample back. Re-add it with the pack once the in-image proof passes.
+  { code: "tam", label: "Tamil" },
+  { code: "tel", label: "Telugu" },
+  { code: "msa", label: "Malay" },
+  { code: "fil", label: "Filipino" },
+  { code: "swa", label: "Swahili" },
   // `satisfies` (not an annotation) keeps each `code` a literal type so `OcrLanguage`
   // can be derived from it, while still checking the shape of every entry.
 ] as const satisfies readonly {
@@ -323,6 +343,38 @@ export interface PdfToWordOptions {
 }
 
 /**
+ * The right-to-left scripts among the OCR languages. OCR PDF reads them in
+ * order — its .txt and its searchable PDF's text layer both (the layer
+ * comes back from poppler wrapped in bidi marks, which a first reading
+ * mistook for disorder). PDF to Word does NOT: a DOCX made from that same
+ * PDF carried each word's letters reversed and one per word, e.g.
+ * «م و ی ل ا م ل ا ع ل ا ب ا ب ح ر م» for «مرحبا بالعالم اليوم»
+ * (in-image proof, container run 40157223722).
+ */
+export const RTL_OCR_LANGUAGES: readonly OcrLanguage[] = [
+  "ara",
+  "heb",
+  "fas",
+  "urd",
+];
+
+/**
+ * The OCR languages PDF to Word's OCR option accepts: every OCR PDF language
+ * except the right-to-left ones. Until 2026-10-25 it was all of them, and
+ * Arabic was offered here — the first in-image proof that read a DOCX back
+ * found its words missing, so it was withdrawn, not left for a reader to
+ * find. `pnpm worker:ocr-languages-proof` still runs each withdrawn sample
+ * through the same export and FAILS the day its words come back in order,
+ * so the withdrawal cannot outlive the defect unnoticed.
+ */
+export const PDF_TO_WORD_OCR_LANGUAGE_CODES: readonly OcrLanguage[] =
+  OCR_LANGUAGE_CODES.filter((code) => !RTL_OCR_LANGUAGES.includes(code));
+
+/** Why a right-to-left language is refused by PDF to Word's OCR option. */
+export const PDF_TO_WORD_RTL_REFUSAL =
+  "Right-to-left languages (Arabic, Hebrew, Persian, Urdu) are not available for PDF to Word's OCR: their words come out of the conversion out of order. OCR PDF reads them in order.";
+
+/**
  * Parse the `options` bag of a `pdf-to-word` job. `{}` is today's job: no
  * OCR. `languages` without `ocr: true` is refused rather than ignored — a
  * caller who sent languages expected recognition to happen.
@@ -346,6 +398,12 @@ export function parsePdfToWordOptions(
   }
   const parsed = parseOcrOptions({ languages: options.languages });
   if (!parsed.ok) return parsed;
+  if (
+    parsed.value.languages.some(
+      (code) => !PDF_TO_WORD_OCR_LANGUAGE_CODES.includes(code),
+    )
+  )
+    return unprocessable(PDF_TO_WORD_RTL_REFUSAL, "options.languages");
   return { ok: true, value: { ocr: true, languages: parsed.value.languages } };
 }
 

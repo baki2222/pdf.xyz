@@ -10,6 +10,7 @@ import {
   type ChromiumPdfRunner,
   type WebpageFetchFailure,
 } from "./engine";
+import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -50,7 +51,28 @@ describe("html-render engine", () => {
       ok: true,
       meta: { engine: "chromium", source: "html", outputBytes: PDF.byteLength },
     });
-    expect(chromium.renderHtml).toHaveBeenCalledWith(HTML);
+    // No layout asked for: the defaults, which render exactly as before.
+    expect(chromium.renderHtml).toHaveBeenCalledWith(
+      HTML,
+      DEFAULT_HTML_RENDER_OPTIONS,
+    );
+  });
+
+  it("hands the validated layout to Chromium for both tools", async () => {
+    const chromium = runner();
+    const layout = {
+      ...DEFAULT_HTML_RENDER_OPTIONS,
+      pageSize: "A4" as const,
+      orientation: "landscape" as const,
+      onePage: true,
+    };
+    await runHtmlToPdf(HTML, { chromium }, layout);
+    expect(chromium.renderHtml).toHaveBeenCalledWith(HTML, layout);
+    await runWebpageToPdf("https://example.com/report", { chromium }, layout);
+    expect(chromium.renderUrl).toHaveBeenCalledWith(
+      "https://example.com/report",
+      layout,
+    );
   });
 
   it("renders safe public webpage URLs with Chromium", async () => {
@@ -64,6 +86,7 @@ describe("html-render engine", () => {
     });
     expect(chromium.renderUrl).toHaveBeenCalledWith(
       "https://example.com/report",
+      DEFAULT_HTML_RENDER_OPTIONS,
     );
   });
 

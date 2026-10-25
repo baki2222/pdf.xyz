@@ -32,6 +32,7 @@ import { OfficeExportCoverageNotice } from "./office-export-coverage";
 import { OfficeExportNextStep } from "./office-export-notices";
 import { OcrLanguagePicker, useOcrLanguageChoice } from "./ocr-language-picker";
 import { WORD_OCR_HINT } from "@/lib/jobs/pdf-office-export";
+import { PDF_TO_WORD_OCR_LANGUAGE_CODES } from "@/lib/jobs/ocr";
 
 /**
  * The status slot's reserved height (see `WorkerStatusSlot` and
@@ -182,7 +183,12 @@ function PdfOfficeRunArea({
   // PDF to Word only: OCR first, in the same job, with OCR PDF's languages.
   const offersOcr = tool === "pdf-to-word";
   const [ocrOn, setOcrOn] = useState(false);
-  const languageChoice = useOcrLanguageChoice(status);
+  // Right-to-left scripts are left out: their words come out of the
+  // conversion out of order (`PDF_TO_WORD_OCR_LANGUAGE_CODES`).
+  const languageChoice = useOcrLanguageChoice(
+    status,
+    PDF_TO_WORD_OCR_LANGUAGE_CODES,
+  );
   const ocrAvailable = status?.ocr.available === true;
   const ocrBlocked = offersOcr && ocrOn && !ocrAvailable;
   const languages = languageChoice.selected;

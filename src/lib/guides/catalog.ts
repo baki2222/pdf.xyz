@@ -1209,7 +1209,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-10",
+    updated: "2026-10-25",
   },
   {
     slug: "how-to-password-protect-a-pdf",
@@ -1390,7 +1390,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-10",
+    updated: "2026-10-25",
   },
   {
     slug: "how-to-delete-pages-from-a-pdf",

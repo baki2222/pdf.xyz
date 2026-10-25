@@ -18,7 +18,14 @@
  *     (`readEncryptPermissions`), withholds exactly the switches asked for at
  *     both key lengths; qpdf's OWN `--show-encryption` reports the same /P (a
  *     second, independent reader); and an unrestricted run still grants
- *     everything (default unchanged).
+ *     everything (default unchanged);
+ *   - page layout (2026-10-25, HTML and Webpage to PDF): the image's
+ *     Chromium, through `runHtmlToPdf`, prints the proof page A4 landscape
+ *     (every page box read back), as ONE page holding its first and last
+ *     line, and at a desktop and a phone screen width (the page's own
+ *     width-dependent text read back); the default render of the same page
+ *     — several Letter pages, laid out narrow — fails each of those verdicts
+ *     (the control).
  *
  * Exit codes: 0 = proven; 1 = a check failed; 2 = an engine is missing from
  * this image. No user document, secret, queue or store is touched; output is
@@ -35,10 +42,26 @@ import { grayscaleVerdict, hasColourImage } from "./compression/image-colour";
 import { runProtect, type PdfSecurityDeps } from "./pdf-security/engine";
 import { readEncryptPermissions } from "./pdf-security/permission-bits";
 import type { PdfKeyLength } from "@/lib/jobs/pdf-security";
+import {
+  DEFAULT_HTML_RENDER_OPTIONS,
+  type HtmlRenderOptions,
+} from "@/lib/jobs/html-render-options";
+import { runHtmlToPdf, type HtmlRenderDeps } from "./html-render/engine";
+import {
+  LAYOUT_PROOF_ENDS,
+  layoutPdfText,
+  layoutProofHtml,
+  onePageVerdict,
+  pageSizeVerdict,
+  pdfPageSizes,
+  viewportVerdict,
+} from "./html-render/layout-proof";
 
 export interface OptionsProofDeps {
   compression: CompressionDeps;
   pdfSecurity: PdfSecurityDeps;
+  /** HTML/Webpage to PDF's renderer — the image's Chromium (2026-10-25). */
+  htmlRender: HtmlRenderDeps;
   /**
    * qpdf's own reading of an encrypted file's /P (`--show-encryption`), the
    * independent bound on {@link readEncryptPermissions}. `null` = it printed
@@ -83,6 +106,77 @@ export async function runWorkerOptionsProof(
   if (!deps.pdfSecurity.qpdf) {
     log("MISSING qpdf: the permissions proof cannot run in this image.");
     return 2;
+  }
+  if (!deps.htmlRender.chromium) {
+    log("MISSING Chromium: the page layout proof cannot run in this image.");
+    return 2;
+  }
+
+  // ── HTML page layout (2026-10-25) ───────────────────────────────────────
+  // Through the engine the processor calls, on the image's Chromium and
+  // fonts; each verdict reads the returned PDF's page boxes and text.
+  const layoutRun = async (
+    name: string,
+    options: Partial<HtmlRenderOptions>,
+  ): Promise<{ pdf: Uint8Array; text: string } | null> => {
+    const run = await runHtmlToPdf(layoutProofHtml(), deps.htmlRender, {
+      ...DEFAULT_HTML_RENDER_OPTIONS,
+      ...options,
+    });
+    if (!run.ok) {
+      check(false, name, `${run.kind}: ${run.message}`);
+      return null;
+    }
+    return { pdf: run.output, text: await layoutPdfText(run.output) };
+  };
+  const plainRun = await layoutRun("layout default", {});
+  if (plainRun) {
+    // CONTROL: without options the page is several Letter pages, narrow —
+    // so each verdict below is seen to fail on a render that ignored it.
+    const pages = (await pdfPageSizes(plainRun.pdf)).length;
+    const letter = await pageSizeVerdict(plainRun.pdf, "Letter", "portrait");
+    const notA4 = await pageSizeVerdict(plainRun.pdf, "A4", "landscape");
+    const notOne = await onePageVerdict(
+      plainRun.pdf,
+      plainRun.text,
+      LAYOUT_PROOF_ENDS,
+    );
+    check(
+      pages > 1 && letter.ok && !notA4.ok && !notOne.ok,
+      "layout control",
+      `default: ${letter.detail}; A4 landscape verdict ${notA4.ok ? "PASSED (blind)" : "fails"}; one-page verdict ${notOne.ok ? "PASSED (blind)" : "fails"}`,
+    );
+    const narrow = viewportVerdict(plainRun.text, "narrow");
+    check(narrow.ok, "layout control width", narrow.detail);
+  }
+  const a4 = await layoutRun("layout A4 landscape", {
+    pageSize: "A4",
+    orientation: "landscape",
+  });
+  if (a4) {
+    const v = await pageSizeVerdict(a4.pdf, "A4", "landscape");
+    check(v.ok, "layout A4 landscape", v.detail);
+  }
+  const long = await layoutRun("layout one long page", {
+    onePage: true,
+    pageSize: "A4",
+  });
+  if (long) {
+    const v = await onePageVerdict(long.pdf, long.text, LAYOUT_PROOF_ENDS);
+    check(v.ok, "layout one long page", v.detail);
+  }
+  for (const [viewport, want] of [
+    ["desktop", "wide"],
+    ["phone", "narrow"],
+  ] as const) {
+    const r = await layoutRun(`layout ${viewport}`, {
+      pageSize: "A4",
+      viewport,
+    });
+    if (r) {
+      const v = viewportVerdict(r.text, want);
+      check(v.ok, `layout ${viewport} screen`, v.detail);
+    }
   }
 
   // ── grayscale ────────────────────────────────────────────────────────────

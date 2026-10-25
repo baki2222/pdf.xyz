@@ -75,6 +75,20 @@ const SAMPLE: Record<string, string> = {
   ara: "وثيقة سرية",
   hin: "गोपनीय दस्तावेज़",
   ben: "গোপনীয় নথি",
+  // The OCR languages added 2026-10-25.
+  chi_tra: "機密文件",
+  ell: "Εμπιστευτικό έγγραφο",
+  heb: "מסמך סודי",
+  fas: "سند محرمانه",
+  urd: "خفیہ دستاویز",
+  mar: "गोपनीय दस्तऐवज",
+  nep: "गोप्य कागजात",
+  guj: "ગોપનીય દસ્તાવેજ",
+  tam: "ரகசிய ஆவணம்",
+  tel: "రహస్య పత్రం",
+  msa: "Dokumen sulit",
+  fil: "Kumpidensyal na dokumento",
+  swa: "Hati ya siri",
 };
 
 /**
@@ -111,6 +125,14 @@ const EVERY_FACE = Object.keys({
 const KNOWN_GAPS: Record<string, string> = {
   tha: "no Thai face is shipped",
   ara: "right-to-left layout is not implemented, so an Arabic line would render reversed",
+  // 2026-10-25: OCR can READ these now; the text tools still cannot WRITE
+  // them, for the same two reasons.
+  heb: "right-to-left layout is not implemented, so a Hebrew line would render reversed",
+  fas: "Persian is written in Arabic script, right to left, which is not implemented",
+  urd: "Urdu is written in Arabic script, right to left, which is not implemented",
+  tam: "no Tamil face is shipped",
+  tel: "no Telugu face is shipped",
+  guj: "no Gujarati face is shipped",
 };
 
 describe("what we read and what we can draw", () => {

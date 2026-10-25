@@ -30,10 +30,27 @@ export async function scannedTextPdf(): Promise<Uint8Array> {
   // With pdf.js's standard font data: without it Helvetica paints in a
   // fallback outline, and on 2026-10-24 production OCR read that line's
   // "4718" as "4/71 6" — the proof failed on the fixture, not the product.
-  const [page] = await renderPdfPages(await typed.save(), 2339, {
+  return scanOfFirstPage(await typed.save(), 2339);
+}
+
+/**
+ * The first page of `typed` as a SCAN: rasterised by pdf.js at `longSide`
+ * pixels on its longer side, composited over white, and placed back as the
+ * only content of a page the same size — so it carries no text layer and only
+ * OCR can read its words. Shared with the in-image language proof
+ * (`@/lib/workers/ocr-languages-proof`), whose typed pages come from Chromium.
+ */
+export async function scanOfFirstPage(
+  typed: Uint8Array,
+  longSide: number,
+): Promise<Uint8Array> {
+  const [page] = await renderPdfPages(typed, longSide, {
     standardFonts: true,
   });
   if (!page) throw new Error("the typed page did not render");
+  const source = await PDFDocument.load(typed);
+  const first = source.getPage(0);
+  const size: [number, number] = [first.getWidth(), first.getHeight()];
   const gray = new Uint8Array(page.width * page.height);
   for (let i = 0; i < gray.length; i++) {
     const r = page.data[i * 4]!;
@@ -51,11 +68,11 @@ export async function scannedTextPdf(): Promise<Uint8Array> {
     encodePng(page.width, page.height, "gray8", gray),
     "png",
   );
-  await drawRasterImage(scan.addPage(PAGE), img, {
+  await drawRasterImage(scan.addPage(size), img, {
     x: 0,
     y: 0,
-    width: PAGE[0],
-    height: PAGE[1],
+    width: size[0],
+    height: size[1],
   });
   return scan.save();
 }

@@ -13,6 +13,7 @@ import {
 import type { NativeHtmlRenderConfig } from "./native-config";
 import type { RenderNetworkSeams } from "./network";
 import { WebpageFetchError, type WebpageFetchFailure } from "./engine";
+import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
 
 const PDF = new TextEncoder().encode(
   "%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
@@ -141,6 +142,8 @@ function fakeChromium(
         }
         case "Page.printToPDF":
           return reply(msg, { stream: "H" });
+        case "Page.getLayoutMetrics":
+          return reply(msg, { cssContentSize: { height: 2400 } });
         case "IO.read":
           return reply(msg, {
             data: Buffer.from(opts.pdf ?? PDF).toString("base64"),
@@ -310,6 +313,53 @@ describe("native Chromium HTML renderer", () => {
       // second copy of it that could drift.
       expect(prints[0]!.params).toMatchObject(PRINT_TO_PDF_OPTIONS);
     }
+  });
+
+  it("with no layout asked for, it emulates nothing and measures nothing", async () => {
+    const fake = fakeChromium();
+    await runner(fake).renderHtml(HTML);
+    const methods = fake.sent.map((m) => m.method);
+    expect(methods).not.toContain("Emulation.setDeviceMetricsOverride");
+    expect(methods).not.toContain("Emulation.setEmulatedMedia");
+    expect(methods).not.toContain("Page.getLayoutMetrics");
+    const print = fake.sent.find((m) => m.method === "Page.printToPDF")!;
+    const { transferMode, ...params } = print.params;
+    expect(transferMode).toBe("ReturnAsStream");
+    expect(params).toEqual(PRINT_TO_PDF_OPTIONS);
+  });
+
+  it("a screen width is emulated BEFORE the page loads; one long page is measured in print layout BEFORE printing", async () => {
+    const fake = fakeChromium();
+    await runner(fake).renderUrl("https://public.example/", {
+      ...DEFAULT_HTML_RENDER_OPTIONS,
+      pageSize: "A4",
+      viewport: "desktop",
+      onePage: true,
+    });
+    const methods = fake.sent.map((m) => m.method);
+    const at = (m: string) => methods.indexOf(m);
+    const firstOverride = fake.sent.find(
+      (m) => m.method === "Emulation.setDeviceMetricsOverride",
+    )!;
+    expect(firstOverride.params).toMatchObject({ width: 1280, height: 800 });
+    expect(at("Emulation.setDeviceMetricsOverride")).toBeLessThan(
+      at("Page.navigate"),
+    );
+    expect(
+      fake.sent.find((m) => m.method === "Emulation.setEmulatedMedia")!.params,
+    ).toEqual({ media: "print" });
+    expect(at("Emulation.setVirtualTimePolicy")).toBeLessThan(
+      at("Page.getLayoutMetrics"),
+    );
+    expect(at("Page.getLayoutMetrics")).toBeLessThan(at("Page.printToPDF"));
+    // The page height is the MEASURED one (2400px from the fake's layout).
+    const print = fake.sent.find((m) => m.method === "Page.printToPDF")!;
+    const scale = print.params.scale as number;
+    expect(print.params.paperHeight as number).toBeCloseTo(
+      ((2400 + 16) * scale) / 96 + 0.8,
+      9,
+    );
+    expect(print.params.displayHeaderFooter).toBe(false);
   });
 
   it("every other request goes through the network policy", async () => {

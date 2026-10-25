@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_HTML_RENDER_OPTIONS } from "@/lib/jobs/html-render-options";
 import {
   createHtmlRenderProcessor,
   htmlPdfOutputName,
@@ -72,9 +73,77 @@ describe("html-render processor", () => {
       options: { url: "https://example.com/report" },
     });
     expect(result.ok).toBe(true);
-    expect(renderUrl).toHaveBeenCalledWith("https://example.com/report");
+    expect(renderUrl).toHaveBeenCalledWith(
+      "https://example.com/report",
+      DEFAULT_HTML_RENDER_OPTIONS,
+    );
     if (result.ok)
       expect(result.artifacts[0]?.filename).toBe("example.com-report.pdf");
+  });
+
+  it("parses the layout from the job's options and renders with it", async () => {
+    const renderUrl = vi.fn(async () => PDF);
+    const renderHtml = vi.fn(async () => PDF);
+    const processor = createHtmlRenderProcessor({
+      chromium: { renderHtml, renderUrl },
+    });
+    await processor.process({
+      tool: "webpage-to-pdf",
+      inputs: [],
+      options: {
+        url: "https://example.com/report",
+        pageSize: "A4",
+        orientation: "landscape",
+        onePage: true,
+      },
+    });
+    expect(renderUrl).toHaveBeenCalledWith("https://example.com/report", {
+      ...DEFAULT_HTML_RENDER_OPTIONS,
+      pageSize: "A4",
+      orientation: "landscape",
+      onePage: true,
+    });
+    await processor.process({
+      tool: "html-to-pdf",
+      options: { margin: "none", viewport: "phone" },
+      inputs: [
+        {
+          fileId: "f",
+          filename: "page.html",
+          contentType: "text/html",
+          bytes: new TextEncoder().encode("<p>x</p>"),
+        },
+      ],
+    });
+    expect(renderHtml).toHaveBeenCalledWith(expect.any(Uint8Array), {
+      ...DEFAULT_HTML_RENDER_OPTIONS,
+      margin: "none",
+      viewport: "phone",
+    });
+  });
+
+  it("refuses a layout value it does not offer, finally, before rendering", async () => {
+    const renderHtml = vi.fn(async () => PDF);
+    const processor = createHtmlRenderProcessor({
+      chromium: { renderHtml, renderUrl: vi.fn() },
+    });
+    const result = await processor.process({
+      tool: "html-to-pdf",
+      options: { pageSize: "B5" },
+      inputs: [
+        {
+          fileId: "f",
+          filename: "page.html",
+          contentType: "text/html",
+          bytes: new TextEncoder().encode("<p>x</p>"),
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request", retryable: false },
+    });
+    expect(renderHtml).not.toHaveBeenCalled();
   });
 
   it("rejects malformed inputs and unsafe webpage URLs", async () => {
