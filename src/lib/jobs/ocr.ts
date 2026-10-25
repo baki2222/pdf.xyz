@@ -343,11 +343,13 @@ export interface PdfToWordOptions {
 }
 
 /**
- * The right-to-left scripts among the OCR languages. OCR PDF's text sidecar
- * reads them in order; the text LAYER the searchable PDF carries does not
- * come back in order through poppler, and so neither does a DOCX made from
- * it (in-image proof, container run 40154227317: Arabic and Persian sidecars
- * passed, their text layers and DOCX lost the words).
+ * The right-to-left scripts among the OCR languages. OCR PDF reads them in
+ * order — its .txt and its searchable PDF's text layer both (the layer
+ * comes back from poppler wrapped in bidi marks, which a first reading
+ * mistook for disorder). PDF to Word does NOT: a DOCX made from that same
+ * PDF carried each word's letters reversed and one per word, e.g.
+ * «م و ی ل ا م ل ا ع ل ا ب ا ب ح ر م» for «مرحبا بالعالم اليوم»
+ * (in-image proof, container run 40157223722).
  */
 export const RTL_OCR_LANGUAGES: readonly OcrLanguage[] = [
   "ara",
@@ -370,7 +372,7 @@ export const PDF_TO_WORD_OCR_LANGUAGE_CODES: readonly OcrLanguage[] =
 
 /** Why a right-to-left language is refused by PDF to Word's OCR option. */
 export const PDF_TO_WORD_RTL_REFUSAL =
-  "Right-to-left languages (Arabic, Hebrew, Persian, Urdu) are not available for PDF to Word's OCR: their words come out of the conversion out of order. OCR PDF's text output reads them in order.";
+  "Right-to-left languages (Arabic, Hebrew, Persian, Urdu) are not available for PDF to Word's OCR: their words come out of the conversion out of order. OCR PDF reads them in order.";
 
 /**
  * Parse the `options` bag of a `pdf-to-word` job. `{}` is today's job: no

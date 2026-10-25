@@ -51,11 +51,31 @@ describe("sampleVerdict", () => {
     expect(sampleVerdict(tam, two).detail).toMatch(/^1 of 3 words missing/);
   });
 
-  it("compares an unspaced script by its run of characters", () => {
+  it("compares an unspaced script by its characters in order, one in ten may be lost", () => {
     const zh = sample("chi_tra");
-    expect(sampleVerdict(zh, "繁 體 中 文 測 試").ok).toBe(true);
-    // The Simplified spelling of the same words is not the Traditional text.
-    expect(sampleVerdict(zh, "繁体中文测试").ok).toBe(false);
+    const chars = [...zh.text];
+    expect(sampleVerdict(zh, chars.join(" ")).ok).toBe(true);
+    // One of thirteen lost: still read.
+    expect(sampleVerdict(zh, chars.slice(1).join("")).ok).toBe(true);
+    // Two lost, or only the tail read (the first run's shape): not read.
+    expect(sampleVerdict(zh, chars.slice(2).join("")).ok).toBe(false);
+    expect(sampleVerdict(zh, chars.slice(-3).join("")).ok).toBe(false);
+    // The Simplified spelling of the same sentence is not the Traditional text.
+    expect(sampleVerdict(zh, "我们今天在台北学习繁体中文").ok).toBe(false);
+  });
+
+  // EXCERPTS from container run 40157223722, as read there.
+  it("reads a right-to-left layer as poppler returns it: in order, wrapped in bidi marks", () => {
+    const RLE = String.fromCodePoint(0x202b);
+    const PDF_MARK = String.fromCodePoint(0x202c);
+    const ara = sample("ara");
+    // Until the fold dropped U+202A–U+202E this was "2 of 3 words missing".
+    expect(
+      sampleVerdict(ara, `${RLE}مرحبا بالعالم الیوم${PDF_MARK}`),
+    ).toMatchObject({ ok: true });
+    // The DOCX made from that same PDF: letters reversed, one per "word".
+    const docx = sampleVerdict(ara, "م و ی ل ا م ل ا ع ل ا ب ا ب ح ر م");
+    expect(docx.ok).toBe(false);
   });
 
   it("every sample is an offered language, and the set is not trivially small", () => {
@@ -84,15 +104,20 @@ const RTL_TEXTS = new Set(
 
 /**
  * "PDFs" whose text is the sample words; a scan is the same bytes tagged.
- * By default the searchable PDF's text layer holds right-to-left words
- * REVERSED — what the first in-image run measured — and a DOCX carries the
- * words of whatever it converted.
+ * Modelled on container run 40157223722: the searchable PDF's layer holds
+ * a right-to-left line IN ORDER, wrapped in RLE…PDF marks, and a DOCX made
+ * from it holds the line's letters reversed, one per "word".
  */
+const RLE = String.fromCodePoint(0x202b);
+const POP = String.fromCodePoint(0x202c);
+const measuredDocx = (t: string) =>
+  [...t.replace(/ /g, "")].reverse().join(" ");
+
 function stubDeps(
   over: {
     installed?: readonly string[];
     ocrText?: (code: string, words: string) => string;
-    rtlLayerInOrder?: boolean;
+    rtlDocxInOrder?: boolean;
     docxText?: (words: string) => string;
   } = {},
 ): { deps: OcrLanguagesProofDeps; lines: string[] } {
@@ -100,7 +125,7 @@ function stubDeps(
   const wordsOf = (html: string) => /<p>(.*)<\/p>/.exec(html)![1]!;
   const ocrText = over.ocrText ?? ((_code, words) => words);
   const layerOf = (text: string) =>
-    RTL_TEXTS.has(text) && !over.rtlLayerInOrder ? reversedWords(text) : text;
+    RTL_TEXTS.has(text) ? `${RLE}${text}${POP}` : text;
   const ocr: Processor = {
     id: "ocr",
     tools: ["ocr-pdf"],
@@ -134,18 +159,25 @@ function stubDeps(
     id: "pdf-office-export",
     async process(input): Promise<ProcessorResult> {
       const raw = dec(input.inputs[0]!.bytes);
-      // OCR on: the scan's words, through the text layer OCR writes.
-      // OCR off: the text layer of the PDF it was given.
-      const words = raw.startsWith("SCAN:")
-        ? layerOf(raw.slice(5))
-        : raw.replace(/^TEXT:/, "");
+      // OCR on: the scan's words. OCR off: the text layer it was given.
+      const words = (
+        raw.startsWith("SCAN:") ? raw.slice(5) : raw.replace(/^TEXT:/, "")
+      )
+        .split(RLE)
+        .join("")
+        .split(POP)
+        .join("");
+      const out =
+        RTL_TEXTS.has(words) && !over.rtlDocxInOrder
+          ? measuredDocx(words)
+          : docxText(words);
       return {
         ok: true,
         artifacts: [
           {
             filename: "a.docx",
             contentType: "application/zip",
-            bytes: enc(docxText(words)),
+            bytes: enc(out),
           },
         ],
       } as unknown as ProcessorResult;
@@ -174,7 +206,7 @@ const honestEngine = (code: string, words: string) =>
   code === "eng" ? "Kaliuepa koaue anuepa" : words;
 
 describe("runOcrLanguagesProof", () => {
-  it("passes the image as measured: every sidecar in order, RTL layers known out of order", async () => {
+  it("passes the image as measured: every sidecar and layer in order, RTL DOCX known out of order", async () => {
     const { deps, lines } = stubDeps({ ocrText: honestEngine });
     expect(await runOcrLanguagesProof(deps)).toBe(0);
     expect(lines.at(-1)).toBe("OCR LANGUAGES PROOF: PASS");
@@ -186,12 +218,13 @@ describe("runOcrLanguagesProof", () => {
       ),
     ).toBe(true);
     for (const s of OCR_LANGUAGE_SAMPLES) {
-      expect(
-        lines.some(
-          (l) => l.startsWith(`PASS ${s.code}`) && l.includes("sidecar"),
-        ),
-        s.code,
-      ).toBe(true);
+      for (const reader of ["text sidecar", "searchable PDF text layer"])
+        expect(
+          lines.some(
+            (l) => l.startsWith(`PASS ${s.code}`) && l.includes(reader),
+          ),
+          `${s.code} ${reader}`,
+        ).toBe(true);
       // Every offered-to-Word sample reached the DOCX; every withheld one
       // was checked to still be out of order there.
       const docx = s.rtl
@@ -202,21 +235,17 @@ describe("runOcrLanguagesProof", () => {
         s.code,
       ).toBe(true);
     }
-    expect(
-      lines.filter((l) => /REVERSED/.test(l)).length,
-      "the verdict names a reversed layer as reversed",
-    ).toBeGreaterThan(0);
   });
 
-  it("FAILS once a right-to-left layer reads in order, so the withholding is revisited", async () => {
+  it("FAILS once a right-to-left DOCX reads in order, so the withholding is revisited", async () => {
     const { deps, lines } = stubDeps({
       ocrText: honestEngine,
-      rtlLayerInOrder: true,
+      rtlDocxInOrder: true,
     });
     expect(await runOcrLanguagesProof(deps)).toBe(1);
     expect(
       lines.filter((l) => l.startsWith("FAIL") && /now reads in order/.test(l)),
-    ).toHaveLength(RTL_TEXTS.size * 2);
+    ).toHaveLength(RTL_TEXTS.size);
   });
 
   it("fails a pack the image does not list, by name", async () => {

@@ -127,7 +127,7 @@ const OUTPUT_TTL = DEFAULT_RETENTION.outputTtlMinutes;
  * in-image proof read their words back out of a DOCX and found them out of
  * order — `PDF_TO_WORD_OCR_LANGUAGE_CODES` in jobs/ocr.ts).
  */
-const RTL_WORD_SENTENCE = `${new Intl.ListFormat("en", { type: "conjunction" }).format(RTL_OCR_LANGUAGES.map(describeOcrLanguage))} are not offered for it: written right to left, their recognised words come out of the conversion out of order. OCR PDF's text output reads them in order.`;
+const RTL_WORD_SENTENCE = `${new Intl.ListFormat("en", { type: "conjunction" }).format(RTL_OCR_LANGUAGES.map(describeOcrLanguage))} are not offered for it: written right to left, their recognised words come out of the conversion out of order. OCR PDF reads them in order.`;
 const PICTURE_PX = MAX_PICTURE_SIDE.toLocaleString("en-US");
 const BILEVEL_PX = MAX_BILEVEL_PICTURE_SIDE.toLocaleString("en-US");
 const MAX_PICTURES = MAX_DOCX_PICTURES.toLocaleString("en-US");
