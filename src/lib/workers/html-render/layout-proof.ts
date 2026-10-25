@@ -7,6 +7,8 @@
  * (`pnpm worker:prove-tools`).
  */
 import { PDFDocument } from "pdf-lib";
+import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
+import { PDFJS_DOCUMENT_DEFAULTS } from "@/lib/pdf/wasm-assets";
 import {
   HTML_PAGE_SIZES,
   type HtmlPageSize,
@@ -40,12 +42,11 @@ body{font:16px/1.5 sans-serif;margin:0}p{margin:0 0 12px}
 export async function layoutPdfText(pdf: Uint8Array): Promise<string> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = pdfjs.getDocument({
+    ...PDFJS_DOCUMENT_DEFAULTS,
     data: new Uint8Array(pdf),
-    useWorkerFetch: false,
-    isOffscreenCanvasSupported: false,
   });
   try {
-    const doc = await task.promise;
+    const doc = await awaitPdfjsDocument(task);
     let text = "";
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);

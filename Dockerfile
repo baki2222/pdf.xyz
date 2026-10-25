@@ -185,7 +185,6 @@ RUN apt-get update \
       tesseract-ocr-mar \
       tesseract-ocr-nep \
       tesseract-ocr-guj \
-      tesseract-ocr-pan \
       tesseract-ocr-tam \
       tesseract-ocr-tel \
       tesseract-ocr-msa \

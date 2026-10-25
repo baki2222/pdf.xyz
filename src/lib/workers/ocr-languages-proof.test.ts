@@ -78,18 +78,29 @@ describe("parseListLangs", () => {
 
 const enc = (t: string) => new TextEncoder().encode(t);
 const dec = (b: Uint8Array) => new TextDecoder().decode(b);
+const RTL_TEXTS = new Set(
+  OCR_LANGUAGE_SAMPLES.filter((s) => s.rtl).map((s) => s.text),
+);
 
-/** A "PDF" whose text is the sample words; a scan is the same bytes tagged. */
+/**
+ * "PDFs" whose text is the sample words; a scan is the same bytes tagged.
+ * By default the searchable PDF's text layer holds right-to-left words
+ * REVERSED — what the first in-image run measured — and a DOCX carries the
+ * words of whatever it converted.
+ */
 function stubDeps(
   over: {
     installed?: readonly string[];
     ocrText?: (code: string, words: string) => string;
+    rtlLayerInOrder?: boolean;
     docxText?: (words: string) => string;
   } = {},
 ): { deps: OcrLanguagesProofDeps; lines: string[] } {
   const lines: string[] = [];
   const wordsOf = (html: string) => /<p>(.*)<\/p>/.exec(html)![1]!;
-  const ocrText = over.ocrText ?? ((code, words) => words);
+  const ocrText = over.ocrText ?? ((_code, words) => words);
+  const layerOf = (text: string) =>
+    RTL_TEXTS.has(text) && !over.rtlLayerInOrder ? reversedWords(text) : text;
   const ocr: Processor = {
     id: "ocr",
     tools: ["ocr-pdf"],
@@ -110,11 +121,10 @@ function stubDeps(
           {
             filename: "a.pdf",
             contentType: "application/pdf",
-            bytes: enc(`TEXT:${text}`),
+            bytes: enc(`TEXT:${layerOf(text)}`),
           },
           { filename: "a.txt", contentType: "text/plain", bytes: enc(text) },
         ],
-        results: undefined,
       } as unknown as ProcessorResult;
     },
   };
@@ -123,7 +133,12 @@ function stubDeps(
     ...ocr,
     id: "pdf-office-export",
     async process(input): Promise<ProcessorResult> {
-      const words = dec(input.inputs[0]!.bytes).replace(/^SCAN:/, "");
+      const raw = dec(input.inputs[0]!.bytes);
+      // OCR on: the scan's words, through the text layer OCR writes.
+      // OCR off: the text layer of the PDF it was given.
+      const words = raw.startsWith("SCAN:")
+        ? layerOf(raw.slice(5))
+        : raw.replace(/^TEXT:/, "");
       return {
         ok: true,
         artifacts: [
@@ -159,19 +174,49 @@ const honestEngine = (code: string, words: string) =>
   code === "eng" ? "Kaliuepa koaue anuepa" : words;
 
 describe("runOcrLanguagesProof", () => {
-  it("passes when every pack is listed and every sample reads back in order", async () => {
+  it("passes the image as measured: every sidecar in order, RTL layers known out of order", async () => {
     const { deps, lines } = stubDeps({ ocrText: honestEngine });
     expect(await runOcrLanguagesProof(deps)).toBe(0);
     expect(lines.at(-1)).toBe("OCR LANGUAGES PROOF: PASS");
-    expect(lines).toContain(
-      "PASS POSITIVE CONTROL: Greek read as English fails the verdict: 3 of 3 words missing (καλημερα κοσμε σημερα); 3 words read",
-    );
-    // Each sample reached all three readers.
-    for (const s of OCR_LANGUAGE_SAMPLES)
+    expect(
+      lines.some((l) =>
+        l.startsWith(
+          "PASS POSITIVE CONTROL: Greek read as English fails the verdict: 3 of 3 words missing (καλημερα κοσμε σημερα)",
+        ),
+      ),
+    ).toBe(true);
+    for (const s of OCR_LANGUAGE_SAMPLES) {
       expect(
-        lines.some((l) => l.startsWith(`PASS ${s.code}`) && l.includes("DOCX")),
+        lines.some(
+          (l) => l.startsWith(`PASS ${s.code}`) && l.includes("sidecar"),
+        ),
         s.code,
       ).toBe(true);
+      // Every offered-to-Word sample reached the DOCX; every withheld one
+      // was checked to still be out of order there.
+      const docx = s.rtl
+        ? (l: string) => l.includes("pdf-to-word is still out of order")
+        : (l: string) => l.includes("pdf-to-word (ocr) DOCX");
+      expect(
+        lines.some((l) => l.startsWith(`PASS ${s.code}`) && docx(l)),
+        s.code,
+      ).toBe(true);
+    }
+    expect(
+      lines.filter((l) => /REVERSED/.test(l)).length,
+      "the verdict names a reversed layer as reversed",
+    ).toBeGreaterThan(0);
+  });
+
+  it("FAILS once a right-to-left layer reads in order, so the withholding is revisited", async () => {
+    const { deps, lines } = stubDeps({
+      ocrText: honestEngine,
+      rtlLayerInOrder: true,
+    });
+    expect(await runOcrLanguagesProof(deps)).toBe(1);
+    expect(
+      lines.filter((l) => l.startsWith("FAIL") && /now reads in order/.test(l)),
+    ).toHaveLength(RTL_TEXTS.size * 2);
   });
 
   it("fails a pack the image does not list, by name", async () => {
@@ -185,18 +230,16 @@ describe("runOcrLanguagesProof", () => {
     );
   });
 
-  it("fails a DOCX whose right-to-left words came back reversed", async () => {
-    const rtl = new Set(
-      OCR_LANGUAGE_SAMPLES.filter((s) => s.rtl).map((s) => s.text),
-    );
+  it("fails a DOCX whose words came back reversed", async () => {
+    const greek = sample("ell").text;
     const { deps, lines } = stubDeps({
       ocrText: honestEngine,
-      docxText: (w) => (rtl.has(w) ? reversedWords(w) : w),
+      docxText: (w) => (w === greek ? reversedWords(w) : w),
     });
     expect(await runOcrLanguagesProof(deps)).toBe(1);
     expect(
-      lines.filter((l) => /^FAIL .*\(rtl\) pdf-to-word \(ocr\) DOCX/.test(l)),
-    ).toHaveLength(rtl.size);
+      lines.filter((l) => l.startsWith("FAIL ell pdf-to-word (ocr) DOCX")),
+    ).toHaveLength(1);
   });
 
   it("fails when the wrong-language control READS the words — the verdict is then blind", async () => {

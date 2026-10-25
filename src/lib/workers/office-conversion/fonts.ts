@@ -82,7 +82,6 @@ export type WorkerScript =
   | "Devanagari"
   | "Bengali"
   | "Gujarati"
-  | "Gurmukhi"
   | "Tamil"
   | "Telugu"
   | "Thai"
@@ -128,7 +127,6 @@ export const OCR_LANGUAGE_SCRIPT: Record<OcrLanguage, WorkerScript> = {
   mar: "Devanagari",
   nep: "Devanagari",
   guj: "Gujarati",
-  pan: "Gurmukhi",
   tam: "Tamil",
   tel: "Telugu",
   msa: "Latin",
@@ -218,13 +216,6 @@ export const SCRIPT_FONTS: Record<WorkerScript, ScriptFont> = {
     faceToken: "gujarati",
     sample: "ગુજરાતી લખાણ",
     lang: "gu-IN",
-    slot: "cs",
-  },
-  Gurmukhi: {
-    debianPackage: "fonts-noto-core",
-    faceToken: "gurmukhi",
-    sample: "ਪੰਜਾਬੀ ਲਿਖਤ",
-    lang: "pa-IN",
     slot: "cs",
   },
   Tamil: {

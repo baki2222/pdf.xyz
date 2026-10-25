@@ -52,7 +52,6 @@ export const OCR_LANGUAGE_BY_BCP47: Readonly<Record<string, OcrLanguage>> = {
   mr: "mar",
   ne: "nep",
   gu: "guj",
-  pa: "pan",
   ta: "tam",
   te: "tel",
   ms: "msa",

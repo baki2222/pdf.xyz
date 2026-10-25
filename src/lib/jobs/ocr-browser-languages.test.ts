@@ -32,7 +32,6 @@ describe("ocrLanguagesFromBrowser", () => {
       ["mr-IN", "mar"],
       ["ne-NP", "nep"],
       ["gu-IN", "guj"],
-      ["pa-IN", "pan"],
       ["ta-IN", "tam"],
       ["te-IN", "tel"],
       ["ms-MY", "msa"],

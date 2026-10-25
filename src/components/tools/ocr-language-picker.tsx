@@ -57,10 +57,19 @@ export interface OcrLanguageChoice {
   /** True while the picks are the browser's, not the reader's. */
   browserChose: boolean;
   toggle: (code: OcrLanguage) => void;
+  /** The languages this tool offers — the chips drawn; OCR PDF's all. */
+  offered: readonly OcrLanguage[];
 }
 
+/**
+ * `offered` narrows the catalogue for a tool that cannot use all of it —
+ * PDF to Word's OCR option leaves out right-to-left scripts
+ * (`PDF_TO_WORD_OCR_LANGUAGE_CODES`). A browser pick outside it is dropped
+ * exactly as an uninstalled pack is.
+ */
 export function useOcrLanguageChoice(
   status: WorkerStatus | null | undefined,
+  offered: readonly OcrLanguage[] = OCR_LANGUAGE_CODES,
 ): OcrLanguageChoice {
   // The reader's own picks, once they make one; until then the browser's.
   const [chosen, setChosen] = useState<OcrLanguage[] | null>(null);
@@ -79,9 +88,12 @@ export function useOcrLanguageChoice(
   const installed = useMemo<ReadonlySet<string>>(
     () =>
       new Set(
-        status?.ocr.available ? status.ocr.languages : OCR_LANGUAGE_CODES,
+        (status?.ocr.available
+          ? status.ocr.languages
+          : OCR_LANGUAGE_CODES
+        ).filter((code) => (offered as readonly string[]).includes(code)),
       ),
-    [status],
+    [status, offered],
   );
 
   // What is really selected: the user's picks minus any pack the worker lacks.
@@ -117,12 +129,13 @@ export function useOcrLanguageChoice(
     installed,
     browserChose: chosen === null && fromBrowser !== null,
     toggle,
+    offered,
   };
 }
 
 /** The "Languages" block: heading, the wrong-language warning, the chips. */
 export function OcrLanguagePicker({ choice }: { choice: OcrLanguageChoice }) {
-  const { selected, installed, browserChose, toggle } = choice;
+  const { selected, installed, browserChose, toggle, offered } = choice;
   return (
     <div className="flex flex-col gap-2">
       <span className="text-muted inline-flex items-center gap-1.5 text-xs font-medium">
@@ -146,7 +159,9 @@ export function OcrLanguagePicker({ choice }: { choice: OcrLanguageChoice }) {
         role="group"
         aria-label="OCR languages"
       >
-        {OCR_LANGUAGES.map((language) => {
+        {OCR_LANGUAGES.filter((language) =>
+          offered.includes(language.code),
+        ).map((language) => {
           const active = selected.includes(language.code);
           const notInstalled = !installed.has(language.code);
           const atCap = !active && selected.length >= MAX_OCR_LANGUAGES;

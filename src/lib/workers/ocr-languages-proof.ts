@@ -61,7 +61,6 @@ export const OCR_LANGUAGE_SAMPLES: readonly OcrLanguageSample[] = [
   { code: "hin", text: "नमस्ते दुनिया आज" },
   { code: "mar", text: "नमस्कार जग आज" },
   { code: "guj", text: "નમસ્તે દુનિયા આજે" },
-  { code: "pan", text: "ਪੰਜਾਬੀ ਭਾਸ਼ਾ ਅੱਜ" },
   { code: "tam", text: "வணக்கம் உலகம் இன்று" },
   { code: "tel", text: "నమస్కారం ప్రపంచం ఈరోజు" },
   { code: "chi_tra", text: "繁體中文測試", unspaced: true },
@@ -94,13 +93,17 @@ const tokens = (text: string) => text.split(/[\s\p{P}\p{S}]+/u).filter(Boolean);
 /**
  * Whether `read` carries the sample's words, in its reading order. For an
  * unspaced script, its characters with whitespace removed must appear as one
- * run. The detail names what was missing, never the recognised text.
+ * run. On a failure the detail quotes what was read (at most 80
+ * characters): every page this verdict judges is a fixed sample of ours, so
+ * the read text is ours too, and it is the only way to tell a misread glyph
+ * from words written backwards.
  */
 export function sampleVerdict(
   sample: OcrLanguageSample,
   read: string,
 ): { ok: boolean; detail: string } {
   const have = fold(read, sample.code);
+  const quoted = `read «${have.replace(/\s+/g, " ").trim().slice(0, 80)}»`;
   if (sample.unspaced) {
     const want = fold(sample.text, sample.code).replace(/\s+/g, "");
     const ok = have.replace(/\s+/g, "").includes(want);
@@ -108,17 +111,23 @@ export function sampleVerdict(
       ok,
       detail: ok
         ? `all ${[...want].length} characters, in order`
-        : `the ${[...want].length} characters were not read as one run (${have.length} characters of text)`,
+        : `the ${[...want].length} characters were not read as one run; ${quoted}`,
     };
   }
   const want = tokens(fold(sample.text, sample.code));
   const got = tokens(have);
   const missing = want.filter((w) => !got.includes(w));
-  if (missing.length > 0)
+  if (missing.length > 0) {
+    // Words whose characters came back in reverse: visual order stored as
+    // text, the defect right-to-left text layers are prone to.
+    const reversed = missing.filter((w) =>
+      got.includes([...w].reverse().join("")),
+    );
     return {
       ok: false,
-      detail: `${missing.length} of ${want.length} words missing (${missing.join(" ")}); ${got.length} words read`,
+      detail: `${missing.length} of ${want.length} words missing (${missing.join(" ")})${reversed.length > 0 ? `, ${reversed.length} of them present REVERSED` : ""}; ${got.length} words read; ${quoted}`,
     };
+  }
   // In order: each word found after the previous one.
   let at = -1;
   for (const w of want) {
@@ -208,7 +217,7 @@ export async function runOcrLanguagesProof(
     `${installed.size} languages listed`,
   );
   check(
-    OCR_LANGUAGE_CODES.length >= 35,
+    OCR_LANGUAGE_CODES.length >= 34,
     "declared set",
     `${OCR_LANGUAGE_CODES.length} languages offered`,
   );
@@ -289,10 +298,44 @@ export async function runOcrLanguagesProof(
     );
     check(sidecar.ok, `${name} ocr-pdf text sidecar`, sidecar.detail);
     const layer = sampleVerdict(sample, pdf ? await deps.pdfText(pdf) : "");
-    check(layer.ok, `${name} ocr-pdf searchable PDF text layer`, layer.detail);
+    if (sample.rtl) {
+      // KNOWN, and inverted rather than skipped: a right-to-left text layer
+      // does not read back in order (first run, 2026-10-25). The OCR PDF
+      // page says so and PDF to Word withholds these languages; the day the
+      // layer reads in order this FAILS, so both get revisited.
+      check(
+        !layer.ok,
+        `${name} ocr-pdf searchable PDF text layer is still out of order (known; RTL withheld from PDF to Word)`,
+        layer.ok
+          ? "it now reads in order: update the OCR PDF copy and offer RTL to PDF to Word again"
+          : layer.detail,
+      );
+    } else
+      check(
+        layer.ok,
+        `${name} ocr-pdf searchable PDF text layer`,
+        layer.detail,
+      );
 
     if (!wordCodes.has(sample.code)) {
-      log(`SKIP ${name} pdf-to-word: not offered by PDF to Word's OCR option`);
+      // Withheld from PDF to Word's OCR option, so the processor refuses it;
+      // its export is run on OCR PDF's own searchable PDF instead — the
+      // same file PDF to Word would convert — to keep the withholding honest.
+      const plain = pdf
+        ? await deps.pdfToWord.process(input("pdf-to-word", pdf, {}))
+        : null;
+      const docx = plain ? artifact(plain, (f) => f.endsWith(".docx")) : null;
+      const inDocx = sampleVerdict(
+        sample,
+        docx ? await deps.docxText(docx) : "",
+      );
+      check(
+        !inDocx.ok,
+        `${name} pdf-to-word is still out of order (known; withheld)`,
+        inDocx.ok
+          ? "the DOCX now reads in order: offer this language to PDF to Word again"
+          : inDocx.detail,
+      );
       continue;
     }
     const word = await deps.pdfToWord.process(

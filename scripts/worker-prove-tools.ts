@@ -104,7 +104,7 @@ import {
   scannedTextPdf,
   scanOfFirstPage,
 } from "@/tests/word-ocr-proof-fixtures";
-import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import { PDF_TO_WORD_RTL_REFUSAL } from "@/lib/jobs/ocr";
 import {
   OCR_LANGUAGE_SAMPLES,
   sampleVerdict,
@@ -1083,13 +1083,12 @@ const SPECS: ProofSpec[] = [
             name: "scan.pdf",
             type: PDF_MIME,
             options: { ocr: true, languages: [sample.code] },
-            expect: isZipContainer,
-            want: `a DOCX with the ${sample.code} words in reading order`,
-            verify: async (bytes: Buffer) =>
-              sampleVerdict(
-                sample,
-                (await readDocxParagraphs(new Uint8Array(bytes))).join("\n"),
-              ),
+            // Withheld from PDF to Word's OCR option (its words came back
+            // out of order in the image proof): the job must be REFUSED,
+            // by name, not converted into a DOCX of scrambled words.
+            refuses: PDF_TO_WORD_RTL_REFUSAL,
+            expect: () => false,
+            want: "a refusal naming the right-to-left languages",
           },
         ]
       : []),

@@ -63,7 +63,6 @@ const FIXED_IMAGE_FACES = [
   "NotoSansDevanagari-Regular",
   "NotoSansThai-Regular",
   "NotoSansGujarati-Regular",
-  "NotoSansGurmukhi-Regular",
   "NotoSansTamil-Regular",
   "NotoSansTelugu-Regular",
 ];

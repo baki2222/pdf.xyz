@@ -127,6 +127,16 @@ const REQUESTED_2026_10_25 = [
   "swa",
 ];
 
+/**
+ * Requested languages taken back out, each with the evidence. `pan`: in the
+ * built image (container run 40154227317) OCR PDF failed on the Punjabi
+ * sample — "The OCR engine could not process this file" — while every other
+ * Indic pack read its sample back word for word.
+ */
+const WITHDRAWN_2026_10_25: Record<string, string> = {
+  pan: "the OCR engine failed on it in the built image",
+};
+
 describe("OCR language packs match the languages the product offers", () => {
   it("HEALTH: the parse reads the worker stage's whole install list", () => {
     const all = workerAptPackages(DOCKERFILE);
@@ -134,17 +144,29 @@ describe("OCR language packs match the languages the product offers", () => {
     expect(all).toContain("ocrmypdf");
     // Bounded on both sides: a parse that lost the continuation lines reads
     // a handful of packages, one that read the whole file reads comments.
-    expect(installedLanguagePackages().size).toBeGreaterThanOrEqual(35);
+    expect(installedLanguagePackages().size).toBeGreaterThanOrEqual(34);
     expect(installedLanguagePackages().size).toBeLessThan(130);
   });
 
   it("offers a meaningful number of languages", () => {
-    expect(OCR_LANGUAGES.length).toBeGreaterThanOrEqual(35);
+    expect(OCR_LANGUAGES.length).toBeGreaterThanOrEqual(34);
   });
 
-  it("offers every language requested on 2026-10-25", () => {
+  it("offers every language requested on 2026-10-25, except the ones the image proof withdrew", () => {
     const offered = new Set<string>(OCR_LANGUAGES.map((l) => l.code));
-    expect(REQUESTED_2026_10_25.filter((c) => !offered.has(c))).toEqual([]);
+    expect(
+      REQUESTED_2026_10_25.filter(
+        (c) => !offered.has(c) && !(c in WITHDRAWN_2026_10_25),
+      ),
+    ).toEqual([]);
+    // A withdrawn language is really withdrawn — menu AND image — so
+    // re-adding it is a change to this record, not a silent drift.
+    for (const code of Object.keys(WITHDRAWN_2026_10_25)) {
+      expect(offered.has(code), code).toBe(false);
+      expect(installedLanguagePackages().has(packageFor(code)), code).toBe(
+        false,
+      );
+    }
   });
 
   it("installs a Tesseract pack for every advertised language", () => {

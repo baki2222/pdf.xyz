@@ -5,6 +5,9 @@ import {
   OCR_LANGUAGE_CODES,
   parseOcrOptions,
   parsePdfToWordOptions,
+  PDF_TO_WORD_OCR_LANGUAGE_CODES,
+  PDF_TO_WORD_RTL_REFUSAL,
+  RTL_OCR_LANGUAGES,
 } from "./ocr";
 
 const field = (r: ReturnType<typeof parsePdfToWordOptions>) =>
@@ -37,6 +40,24 @@ describe("parsePdfToWordOptions", () => {
           ocr.error.body.error.message,
         );
     }
+  });
+
+  // Arabic was accepted here until 2026-10-25, when the first in-image proof
+  // that read the DOCX back found its words missing. Withheld, by name.
+  it("refuses a right-to-left language, and offers every other OCR language", () => {
+    for (const code of RTL_OCR_LANGUAGES) {
+      const r = parsePdfToWordOptions({ ocr: true, languages: ["eng", code] });
+      expect(r.ok, code).toBe(false);
+      if (!r.ok)
+        expect(r.error.body.error.message).toBe(PDF_TO_WORD_RTL_REFUSAL);
+    }
+    expect(PDF_TO_WORD_OCR_LANGUAGE_CODES.length).toBe(
+      OCR_LANGUAGE_CODES.length - RTL_OCR_LANGUAGES.length,
+    );
+    for (const code of PDF_TO_WORD_OCR_LANGUAGE_CODES)
+      expect(parsePdfToWordOptions({ ocr: true, languages: [code] }).ok).toBe(
+        true,
+      );
   });
 
   it("refuses a non-boolean ocr, and languages sent without ocr", () => {
