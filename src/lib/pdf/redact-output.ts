@@ -25,3 +25,18 @@ export const REDACT_IMAGE_FORMAT = "jpg" as const;
 
 /** The only title a redacted PDF carries; nothing of the original's info survives. */
 export const REDACTED_PDF_TITLE = "Redacted PDF";
+
+/**
+ * How the boxes are applied. "flatten" rebuilds every page as an image
+ * (`redact.ts`); "remove" takes out only what is under each box and keeps
+ * the rest of the file as it was (`redact-remove.ts`, Edit PDF's engine).
+ */
+export const REDACT_METHODS = [
+  { id: "flatten", label: "Flatten every page" },
+  { id: "remove", label: "Remove text under boxes" },
+] as const;
+
+export type RedactMethod = (typeof REDACT_METHODS)[number]["id"];
+
+/** The method selected when the tool opens. */
+export const DEFAULT_REDACT_METHOD: RedactMethod = "flatten";

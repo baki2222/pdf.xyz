@@ -9,7 +9,7 @@ import type {
 } from "pdf-lib";
 import { PdfEngineError } from "../engine";
 import type { PdfLibModule } from "../pdf-lib";
-import { embedDrawingFont } from "../unicode-font";
+import type { embedDrawingFont } from "../unicode-font";
 import {
   asciiBytes,
   hexString,
@@ -86,6 +86,14 @@ export type JpegDecoder = (
 
 export interface ContentEditOptions {
   decodeJpeg?: JpegDecoder | null;
+  /**
+   * Embeds the face a replacement run is drawn in when its own font lacks a
+   * character. Edit PDF passes `embedDrawingFont`; a caller that only
+   * redacts passes nothing, because a redaction draws no text — and so its
+   * tool page does not claim the mid-run font download that drawing text in
+   * another script needs (`offline-answer.test.ts` follows the reference).
+   */
+  embedFont?: typeof embedDrawingFont;
 }
 
 /** What the replacement for one run was drawn with. */
@@ -976,7 +984,10 @@ export async function applyContentEdits(
       const face = needsUnicodeFace(text)
         ? "sans"
         : standardFontKey(sub.font, sub.bold, sub.italic);
-      const embedded = await embedDrawingFont(doc, [text], face);
+      if (!options.embedFont) {
+        throw new Error("a replacement run needs a font embedder");
+      }
+      const embedded = await options.embedFont(doc, [text], face);
       key = page.node.newFontDictionary(embedded.name, embedded.ref);
       hex = embedded.encodeText(text).toString();
       used = substituteLabel(sub, text);

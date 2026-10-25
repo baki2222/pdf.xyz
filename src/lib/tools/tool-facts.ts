@@ -71,11 +71,14 @@ import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation"
 import { IMAGE_HEAVY_SHARE } from "@/lib/pdf/analyze";
 import { buildSplitParts } from "@/lib/pdf/ranges";
 import {
+  DEFAULT_REDACT_METHOD,
   DEFAULT_REDACT_PRESET_ID,
   REDACTED_PDF_TITLE,
   REDACT_DPI_PRESETS,
   REDACT_IMAGE_FORMAT,
+  REDACT_METHODS,
 } from "@/lib/pdf/redact-output";
+import { PII_CATEGORIES, PII_NOUN } from "@/lib/pdf/redact-categories";
 import {
   DEEP_COMPRESSION_PRESETS,
   EDITOR_KINDS,
@@ -387,15 +390,42 @@ const REDACT_DEFAULT_PRESET = REDACT_DPI_PRESETS.find(
  * so nothing on any page stays selectable, searchable or clickable. A reader
  * choosing a redaction tool needs that before they run it, not after.
  */
-export const REDACT_OUTPUT_FACT = `Every page — not only the ones with a box — is rebuilt as a flat ${REDACT_IMAGE_NAME} image, so the result has no selectable or searchable text, links, form fields, annotations or bookmarks on any page.`;
+/*
+ * AMENDED 2026-10-25: Redact PDF gained a second method, "Remove text under
+ * boxes" (Edit PDF's removal engine, `redact-remove.ts`), and Find text /
+ * Detect personal data. The flattening sentences below were true of the only
+ * method there was; each now names the method it is true of, and the one
+ * selected when the tool opens is still Flatten. `redact-answers.test.ts`
+ * holds the flatten sentences to the assembler's bytes and the removal
+ * sentences to a real removal's text.
+ */
+const REDACT_FLATTEN = REDACT_METHODS.find((m) => m.id === "flatten")!.label;
+const REDACT_REMOVE = REDACT_METHODS.find((m) => m.id === "remove")!.label;
+const REDACT_DEFAULT_METHOD = REDACT_METHODS.find(
+  (m) => m.id === DEFAULT_REDACT_METHOD,
+)!.label;
+
+export const REDACT_OUTPUT_FACT = `With “${REDACT_FLATTEN}”, the method selected when the tool opens, every page — not only the ones with a box — is rebuilt as a flat ${REDACT_IMAGE_NAME} image, so the result has no selectable or searchable text, links, form fields, annotations or bookmarks on any page.`;
+
+/** What the removal method keeps and takes, as `redact-remove.ts` does it. */
+export const REDACT_REMOVE_FACT = `With “${REDACT_REMOVE}”, only what lies under each box is taken out of the file — its text, the covered pixels of any picture and any annotation there — and the rest of every page stays as it was, still selectable and searchable, along with the file's bookmarks and properties. Vertical text, a form field or certain images under a box cannot be removed this way, and the redaction then stops with a message instead of saving.`;
 
 /** Why a redaction cannot be undone, as the assembler makes it. */
-export const REDACT_MECHANISM = `The box is not laid over the text: each page is rendered to a ${REDACT_IMAGE_NAME} image, the box is painted into that image's pixels, and a new PDF is built from the images alone. None of the original's text, drawings, form fields or annotations is copied into it, and neither is its document information — the new file's only title is “${REDACTED_PDF_TITLE}”.`;
+export const REDACT_MECHANISM = `The box is not laid over the text. With “${REDACT_FLATTEN}”, each page is rendered to a ${REDACT_IMAGE_NAME} image, the box is painted into that image's pixels, and a new PDF is built from the images alone. None of the original's text, drawings, form fields or annotations is copied into it, and neither is its document information — the new file's only title is “${REDACTED_PDF_TITLE}”.`;
 
-export const REDACT_RECOVERY_ANSWER = `No. ${REDACT_MECHANISM}`;
+/** Why the removal method's result cannot be undone either. */
+const REDACT_REMOVE_MECHANISM = `With “${REDACT_REMOVE}”, the text under each box is deleted from the page's own content and the old content is not kept in the file; then every match you ticked in the review list is searched for again in the redacted file, and nothing is saved if one is still there.`;
 
-/** The searchability trade-off, and the one tool that recovers part of it. */
-export const REDACT_SEARCH_ANSWER = `No — and that is true of every page, including the ones you did not redact, because every page is now an image. To make the text you left visible searchable again, run the redacted file through ${toolName("ocr-pdf")}. The text under a box is gone, so OCR cannot bring it back.`;
+export const REDACT_RECOVERY_ANSWER = `No. ${REDACT_MECHANISM} ${REDACT_REMOVE_MECHANISM}`;
+
+/** The searchability trade-off, per method, and the tool that recovers part of it. */
+export const REDACT_SEARCH_ANSWER = `It depends on the method. With “${REDACT_FLATTEN}”, no — and that is true of every page, including the ones you did not redact, because every page is now an image. To make the text you left visible searchable again, run the redacted file through ${toolName("ocr-pdf")}. The text under a box is gone, so OCR cannot bring it back. With “${REDACT_REMOVE}”, yes: only the text under the boxes is gone, and the rest of every page can still be selected and searched.`;
+
+/** What Find text and Detect personal data look for, from the runner's lists. */
+export const REDACT_FIND_FACT = `Search the PDF's text, with Match case and Whole word, or detect ${listed(
+  PII_CATEGORIES.map((c) => PII_NOUN[c]),
+  "and",
+)} — card numbers only when they pass the card checksum, IBANs only when they pass the IBAN checksum, and dates of birth only after a “Date of birth” or “DOB” label. Every match is listed with the words around it to tick or untick before anything is redacted. A page with no selectable text, such as a scan, has nothing to find.`;
 
 const FACTS: Record<string, readonly ToolFact[]> = {
   "redact-pdf": [
@@ -403,7 +433,13 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       label: "Resolution",
       value: `${REDACT_PRESET_CHOICES} — ${REDACT_DEFAULT_PRESET.label} is selected when the tool opens.`,
     },
+    {
+      label: "Methods",
+      value: `${REDACT_METHODS.map((m) => `“${m.label}”`).join(" or ")} — “${REDACT_DEFAULT_METHOD}” is selected when the tool opens.`,
+    },
     { label: "What you get", value: REDACT_OUTPUT_FACT },
+    { label: "Removing instead", value: REDACT_REMOVE_FACT },
+    { label: "Find and detect", value: REDACT_FIND_FACT },
   ],
   "rotate-pdf": [
     {
@@ -422,6 +458,13 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       label: "Ordering",
       value:
         "Drag files to reorder before merging, use each row's move buttons, or sort by name — the output follows top to bottom.",
+    },
+    {
+      // merge-contents.ts; merge-contents-split-text.test.ts reads the page's
+      // text and each link's /Dest back from a merged file.
+      label: "Contents page",
+      value:
+        "Optional: a first page listing each file by name with the page it starts on, each line a link to that page. It follows the order and the pages you chose, and runs onto more pages when the list is long.",
     },
   ],
   "split-pdf": [
@@ -756,8 +799,10 @@ export const MID_RUN_FETCH_SENTENCE: Readonly<Record<MidRunFetch, string>> = {
 export const RUNNER_MID_RUN_FETCHES: Readonly<
   Record<RunnerKind, readonly MidRunFetch[]>
 > = {
-  merge: ["image-decoder", "character-map"],
-  split: [],
+  // The contents page draws each file's name (2026-10-25).
+  merge: ["image-decoder", "character-map", "drawing-font"],
+  // "By text" reads each page's text through pdf.js (2026-10-25).
+  split: ["character-map"],
   rotate: ["image-decoder", "character-map"],
   "delete-pages": ["image-decoder", "character-map"],
   "extract-pages": ["image-decoder", "character-map"],

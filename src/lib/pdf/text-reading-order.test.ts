@@ -1261,11 +1261,17 @@ describe("a page too dense to order keeps stream order", () => {
  *    normalizes, names the file), keeping its order;
  *  - `seam`: what the routes are built from, exported for tests. Production
  *    importing one would read a page around the routes, so none may.
+ *  - `positions`: hands each pdf.js item with its geometry, in the page's
+ *    content order, for a tool that places boxes ON the text rather than
+ *    showing a reading of it (Redact PDF's Find text, `redact-find.ts`, whose
+ *    own tests hold its matches and boxes). Added 2026-10-25; a consumer that
+ *    wants the page's text in reading order must take a route instead.
  */
 const EXPORT_ROLES: Record<
   string,
-  "route" | "yes-no" | "after-reading" | "seam"
+  "route" | "yes-no" | "after-reading" | "seam" | "positions"
 > = {
+  extractPdfTextItems: "positions",
   extractPdfText: "route",
   extractPdfLines: "route",
   pdfHasSelectableText: "yes-no",

@@ -143,6 +143,7 @@ export const SPLIT_MODES = [
   "perPage",
   "size",
   "bookmarks",
+  "text",
 ] as const;
 export type SplitMode = (typeof SPLIT_MODES)[number];
 export const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
@@ -151,6 +152,7 @@ export const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
   perPage: "Each page",
   size: "By file size",
   bookmarks: "By bookmarks",
+  text: "By text",
 };
 export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
   ranges: "custom page ranges",
@@ -158,6 +160,7 @@ export const SPLIT_MODE_FACT: Record<SplitMode, string> = {
   perPage: "one file per page",
   size: "a maximum file size per part",
   bookmarks: "top-level bookmarks",
+  text: "every page that contains a word or phrase you type",
 };
 
 /** Sign PDF — the typed signature's font styles. */

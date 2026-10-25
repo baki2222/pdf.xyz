@@ -172,8 +172,8 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "redact-pdf": [
     "Add your PDF — everything runs privately in your browser.",
-    "Add redaction boxes by page and position, in PDF points from the bottom-left.",
-    "Download a rasterized PDF whose pages are flattened images with the content erased under each box.",
+    "Find a word or detect emails, phone and card numbers, then tick the matches to remove — or add boxes by page and position.",
+    "Download a PDF flattened to images with the content erased under each box, or one with only the text under each box removed.",
   ],
   "flatten-pdf": [
     "Open a PDF with fillable form fields.",

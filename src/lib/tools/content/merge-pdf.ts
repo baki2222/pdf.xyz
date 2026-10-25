@@ -54,6 +54,17 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
  * offer that pass as the remedy for a large merge; only the deep, uploading
  * step can shrink images. Removing a row drops that file's bytes from state
  * (`removeAt`), so memory is freed by remove as well as by "Start over".
+ *
+ * ADDED 2026-10-25 (merge-contents.ts; merge-contents-split-text.test.ts
+ * reads the merged file back): "Add a contents page" puts pages in FRONT of
+ * the merged pages, headed "Contents", one line per file — its name without
+ * the extension, dot leaders, and the merged file's page number it starts
+ * on (contents pages counted) — and each line is a Link whose /Dest is that
+ * page. It follows the list order and each file's Pages selection; bookmarks
+ * point at page objects, so they still open the right page. A long list runs
+ * onto more contents pages. A name in another script is drawn in a
+ * downloaded face (embedDrawingFont); one no shipped face can draw is
+ * written with "?" for the characters it cannot draw.
  */
 const content: ToolContent = {
   slug: "merge-pdf",
@@ -99,7 +110,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick pages and bookmarks (optional)",
-      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result.",
+      body: "Leave a file's Pages box empty to take all of it, or type pages such as 1-3, 5 to take only those. Tick “Add a bookmark for each file” for a bookmark per file in the result, and “Add a contents page” for a first page that lists every file with the page it starts on.",
     },
     {
       title: "Add anything you missed",
@@ -123,6 +134,10 @@ const content: ToolContent = {
     {
       q: "Can I merge only some pages of a file, or reorder single pages?",
       a: "Yes to the first: type the pages you want in that file's Pages box, such as 1-3, 5 or 10-, and only those are merged; an empty box takes every page, and the page total above the list counts your selection. The chosen pages keep the file's own order, so typing 5, 1 still gives page 1 before page 5. To rearrange, rotate, duplicate or delete individual pages after merging, open the combined file in Organize Pages.",
+    },
+    {
+      q: "Can the merged PDF start with a table of contents?",
+      a: "Yes: tick “Add a contents page”. The merged PDF then opens with a page headed Contents that lists each file by name, without its .pdf ending, with the page it starts on, and clicking a line jumps to that page. The page numbers count the contents page itself, so they match what your PDF reader shows, and they follow the order of the list and the pages you picked for each file. A long list continues onto more contents pages. Bookmarks still open the right pages.",
     },
     {
       q: "Will merging change the quality or size of my pages?",

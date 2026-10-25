@@ -827,14 +827,20 @@ export const tools: Tool[] = [
     name: "Redact PDF",
     tagline: "Permanently black out sensitive data.",
     description:
-      "Cover sensitive areas with solid boxes, then rebuild each page as a flattened image so the text and vectors underneath are permanently removed — not just hidden.",
+      "Find text or detect personal data and black it out so it is permanently removed: flatten each page to an image, or take out only the text under each box.",
     category: "security",
     icon: "redact",
     processing: "client",
     badge: "new",
     accept: ["PDF"],
     outputs: ["PDF"],
-    keywords: ["redact pdf", "black out", "remove sensitive", "hide text"],
+    keywords: [
+      "redact pdf",
+      "black out",
+      "remove sensitive",
+      "hide text",
+      "find and redact",
+    ],
     related: ["flatten-pdf", "ocr-pdf", "annotate-pdf", "protect-pdf"],
   },
   {

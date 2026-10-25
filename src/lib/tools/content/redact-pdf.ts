@@ -14,6 +14,8 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    "Output quality" (the two presets below, Print selected by default); a
  *    "Redact PDF" button disabled until one area exists; a "Redacting pages…
  *    done/total" counter; "Redacted PDF ready" + "Download redacted PDF".
+ *    AMENDED 2026-10-25: the button is enabled by an area OR a ticked match;
+ *    "Output quality" is shown only for Flatten every page.
  *  - loading: SinglePdfRunner → useSinglePdf → validatePdfFile (default
  *    MAX_PDF_BYTES, which is RUNNER_FILE_CEILINGS.redact) and getPageRotations
  *    → loadPdf, which refuses ANY file with an /Encrypt entry (pdf-lib's
@@ -35,6 +37,19 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    document properties do not survive as data.
  *  - there is no text search, no automatic detection and no click-and-drag
  *    drawing: areas are entered as numbers.
+ *    SUPERSEDED 2026-10-25 (kept as history): "Find text to redact" searches
+ *    the text (Match case, Whole word) and "Detect personal data" finds
+ *    email addresses, phone numbers, Luhn-checked card numbers, mod-97-
+ *    checked IBANs and dates after a date-of-birth label (redact-find.ts);
+ *    every match goes into a review list, ticked, and each ticked match is
+ *    boxed over its own glyphs when the PDF is redacted. A "Method" control
+ *    offers "Flatten every page" (the default, unchanged) and "Remove text
+ *    under boxes" (redact-remove.ts: Edit PDF's content-edit removal, which
+ *    keeps everything outside the boxes and refuses vertical text, inline
+ *    or unrewritable images, nested content and form fields under a box);
+ *    the removal re-reads the output and refuses to save if a ticked match
+ *    is still in its text (redact-find.test.ts). Areas by position are
+ *    still typed as numbers; there is no click-and-drag drawing here.
  *  - images pdf.js cannot decode come out blank and the result says so
  *    (UndecodedImagesNotice with `redaction`, which states the count).
  *  - OCR PDF, Unlock PDF and Protect PDF are all processing "server" in
@@ -58,15 +73,15 @@ const PRESET_LABELS = REDACT_DPI_PRESETS.map(
 const content: ToolContent = {
   slug: "redact-pdf",
 
-  seoTitle: "Redact PDF — Permanent Black-Out Boxes, No Upload",
+  seoTitle: "Redact PDF — Find and Remove Text, No Upload",
 
   metaDescription:
-    "Black out names, account numbers or signatures in a PDF. Pages are rebuilt as images, so nothing survives under the boxes. Done in your browser tab.",
+    "Find words, detect emails, phone and card numbers, then black them out for good: pages flattened, or the text under each box removed. In your browser.",
 
   intro: [
     "Redact PDF removes the parts of a document you mark instead of hiding them. A black rectangle drawn with an annotation tool is a separate object on top of the page, and the words beneath it can still be copied out of the file. Here each black-out area is painted into the pixels of a rendered page image, and the output is built from those images alone, so under a box there is no text, vector or form layer left to recover.",
-    `The whole job runs in your browser tab: pdf.js, shipped with the page, draws each page and the new file is assembled there, so the PDF is not uploaded. You place each area by typing its page, its position from the bottom-left corner and its size in PDF points, then pick a black or white fill and a resolution, ${PRESET_LABELS}. One PDF at a time, up to ${MAX_MB} MB.`,
-    "Every page is rebuilt as a picture, including pages you did not mark, so the result cannot be selected, searched or filled in, and links, bookmarks and the original title and author are not carried over. There is no word search: a name that appears on several pages needs a box on each.",
+    `The whole job runs in your browser tab: pdf.js, shipped with the page, reads and draws each page and the new file is assembled there, so the PDF is not uploaded. Find text searches the PDF's own text for a name or a number on every page at once, with Match case and Whole word, and Detect personal data finds email addresses, phone numbers, payment card numbers that pass the card checksum, IBANs that pass the IBAN checksum and dates that follow a “Date of birth” or “DOB” label. Every match lands in a review list, ticked, so you untick anything that should stay. You can also place an area by typing its page, its position from the bottom-left corner and its size in PDF points. One PDF at a time, up to ${MAX_MB} MB.`,
+    `Under Method, “Flatten every page”, selected when the tool opens, rebuilds every page as a picture, including pages you did not mark, at ${PRESET_LABELS}: the result cannot be selected, searched or filled in, and links, bookmarks and the original title and author are not carried over. “Remove text under boxes” takes out only what lies under each box — its text, the covered pixels of a picture and any annotation there — and keeps the rest of the file as it was, still searchable. Before it saves, it searches the result for every ticked match again and stops if one is still there.`,
   ],
 
   useCases: [
@@ -88,7 +103,7 @@ const content: ToolContent = {
     },
     {
       title: "Dropping hidden document data",
-      body: 'The output is a new file made only of page images, so the original\'s author, keywords and earlier saved revisions are not copied in. Its own properties read "Redacted PDF", with pdf.xyz as creator.',
+      body: 'With Flatten every page, the output is a new file made only of page images, so the original\'s author, keywords and earlier saved revisions are not copied in. Its own properties read "Redacted PDF", with pdf.xyz as creator.',
     },
   ],
 
@@ -98,31 +113,35 @@ const content: ToolContent = {
       body: `Drag one PDF onto "Drop your PDF here, or", or use its browse link. Files over ${MAX_MB} MB are turned away before loading, and an encrypted PDF stops with a note asking you to unlock it first.`,
     },
     {
+      title: "Find or detect what to remove",
+      body: 'Under "Find text to redact", type a word or number and press Find, or tick the kinds of personal data to look for and press Detect. Each match appears in the review list with the words around it and its page; untick any that should stay. A scanned page has no text to search, and the panel names such pages.',
+    },
+    {
       title: "Enter each redaction area",
       body: 'Under "Redaction areas", fill in Page, X (pt), Y (pt), Width (pt) and Height (pt), then press "Add area". X and Y place the box\'s lower-left corner, measured from the page\'s bottom-left at 72 points to the inch (the note beside the heading says the same), and the line above the fields gives that page\'s size in points. A box that runs past the page edge is refused with a message naming the page size. Each accepted area gets its own trash button.',
     },
     {
-      title: "Choose fill and quality",
-      body: `Under "Fill", pick Black or White. Under "Output quality", keep ${PRINT.label} (${PRINT.dpi} DPI), the default, for sharper pages, or choose ${SCREEN.label} (${SCREEN.dpi} DPI) for a lighter file meant for on-screen reading.`,
+      title: "Choose method, fill and quality",
+      body: `Under "Method", keep “Flatten every page” or choose “Remove text under boxes” to keep the rest of the file searchable. Under "Fill", pick Black or White. When flattening, "Output quality" offers ${PRINT.label} (${PRINT.dpi} DPI), the default, for sharper pages, or ${SCREEN.label} (${SCREEN.dpi} DPI) for a lighter file meant for on-screen reading.`,
     },
     {
       title: "Redact and download",
-      body: 'Press "Redact PDF" (it stays disabled until one area exists) and watch the "Redacting pages…" counter. When "Redacted PDF ready" appears, "Download redacted PDF" saves it with -redacted added to the original name.',
+      body: 'Press "Redact PDF" (it stays disabled until there is an area or a ticked match) and, when flattening, watch the "Redacting pages…" counter. When "Redacted PDF ready" appears, "Download redacted PDF" saves it with -redacted added to the original name.',
     },
   ],
 
   faqs: [
     {
       q: "Can someone remove the black boxes or copy the text underneath?",
-      a: "Not inside the boxed areas. The fill is painted into the page image before it is saved, and the download holds only those images, so there is nothing under a box to select or uncover. Anything a box misses stays readable, so a box placed slightly off can leave the edge of a word showing.",
+      a: "Not inside the boxed areas. When flattening, the fill is painted into the page image before it is saved, and the download holds only those images, so there is nothing under a box to select or uncover. When removing, the text under a box is deleted from the page itself, so there is nothing left to copy there either. Anything a box misses stays readable, so an area placed slightly off by position can leave the edge of a word showing; boxes from Find text and Detect are placed over the matched letters themselves.",
     },
     {
       q: "Can it find and redact every instance of a word automatically?",
-      a: "No. There is no text search or automatic detection; you enter every area yourself. The preview draws your boxes on a blank outline of the page, not on its content, so open the downloaded file and confirm each box landed where you meant.",
+      a: "Yes. Type it under Find text to redact and press Find: every place it appears on every page is listed, ticked, and each ticked one is boxed when you redact. Detect personal data does the same for email addresses, phone numbers, card numbers, IBANs and labelled dates of birth. Detection matches patterns and checksums, so it can miss a format it does not know — read the list before you redact. It reads the PDF's own text, so a scan with no text layer has nothing to find. The preview draws boxes on a blank outline of the page, not on its content, so open the downloaded file and check it.",
     },
     {
       q: "Why can't I select or search text in the redacted PDF?",
-      a: `Every page is rebuilt as an image, which is what makes the removal permanent. OCR PDF can add a searchable text layer back, and the boxed areas give it nothing to read. OCR PDF does not run in the browser: the file goes over TLS to pdf.xyz's secure worker, the upload is deleted when the job finishes, the result's link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `Because Flatten every page, the method the tool opens with, rebuilds every page as an image, which is what makes the removal permanent; nothing of the original's text, form fields, links or document information survives on any page. Choose Remove text under boxes when the rest must stay searchable: only what is under each box is taken out, and bookmarks, links and properties elsewhere stay. If it meets something it cannot take out safely, such as vertical text or a form field under a box, it stops and says so, and flattening handles it. After flattening, OCR PDF can add a searchable text layer back, and the boxed areas give it nothing to read. OCR PDF does not run in the browser: the file goes over TLS to pdf.xyz's secure worker, the upload is deleted when the job finishes, the result's link expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
       q: "Is my file uploaded when I redact it here?",

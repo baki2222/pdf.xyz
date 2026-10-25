@@ -596,8 +596,11 @@ describe("the fetch-site graph is healthy", () => {
     expect(has("pdf-to-jpg")).toEqual(["character-map", "image-decoder"]);
     expect(has("pdf-to-text")).toEqual(["character-map"]);
     expect(has("text-to-pdf")).toEqual(["drawing-font"]);
-    // Negative control: Split is pdf-lib + JSZip, with no thumbnail grid.
-    expect(has("split-pdf")).toEqual([]);
+    // Negative control: Flatten is pdf-lib alone. (It was Split until
+    // 2026-10-25, when "By text" began reading pages through pdf.js — which
+    // this walk saw at once, so Split now reaches the character map.)
+    expect(has("flatten-pdf")).toEqual([]);
+    expect(has("split-pdf")).toEqual(["character-map"]);
     // Every class is reached by some tool, and none by every tool.
     for (const c of CLASSES) {
       const n = inBrowser().filter((t) => reachedBy(t.slug).classes.has(c));

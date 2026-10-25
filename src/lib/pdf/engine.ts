@@ -192,6 +192,17 @@ export interface MergeOptions {
    * bookmark is invented and each file's own bookmarks follow one another.
    */
   fileBookmarks?: readonly string[];
+  /**
+   * Per file, the name a contents page lists it under. Given, pages listing
+   * every file with the page it starts on — each line a link to that page —
+   * are put in front of the merged pages (`merge-contents.ts`).
+   */
+  contentsPage?: readonly string[];
+  /**
+   * Told how many contents pages were put in front, so the receipt's page
+   * re-count expects them (they depend on the first page's height).
+   */
+  onContentsPages?: (pages: number) => void;
 }
 
 /** Concatenate several PDFs into one, in the order given. */
@@ -220,10 +231,28 @@ export async function mergePdfs(
     }
     sources.push({ doc, indices });
   }
-  const { out } = await assemblePages(lib, sources, {
+  if (options.contentsPage && options.contentsPage.length !== files.length) {
+    throw new Error("one contents title per file");
+  }
+  const { out, pages } = await assemblePages(lib, sources, {
     documentState: "merge",
     ...(options.fileBookmarks ? { fileBookmarks: options.fileBookmarks } : {}),
   });
+  if (options.contentsPage) {
+    const titles = options.contentsPage;
+    const { addContentsPages } = await import("./merge-contents");
+    let at = 0;
+    const entries = sources.map(({ indices }, i) => {
+      const entry = { title: titles[i]!, page: pages[at]! };
+      at += indices.length;
+      return entry;
+    });
+    // Added before it is reported: `f?.(x)` does not evaluate `x` when `f`
+    // is absent, which once skipped the contents page for every caller that
+    // did not ask for the count.
+    const added = await addContentsPages(lib, out, entries);
+    options.onContentsPages?.(added);
+  }
   stamp(out);
   return out.save();
 }

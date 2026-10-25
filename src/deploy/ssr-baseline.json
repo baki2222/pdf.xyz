@@ -1626,6 +1626,7 @@
         "Get the order right before you merge",
         "Inputs, output, and limits",
         "Related guides",
+        "Start the merged PDF with a contents page",
         "Step by step",
         "Tools used in this guide",
         "Where the merge actually runs"
@@ -1831,17 +1832,18 @@
     },
     "guides/how-to-redact-a-pdf.html": {
       "title": "How to redact a PDF permanently — pdf.xyz",
-      "description": "Redact a PDF so the text under each box is gone, not hidden: every page is rebuilt as an image, right in your browser. No account needed.",
+      "description": "Redact a PDF so the text under each box is gone, not hidden: find words, detect personal data, then flatten or remove — in your browser. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-redact-a-pdf",
       "robots": "index, follow",
       "h1": ["How to redact a PDF permanently"],
       "h2": [
         "Before you share it",
         "Common questions",
+        "Find every instance before you redact",
+        "Flatten every page, or remove only the text",
         "Redacting is not the same as covering",
         "Related guides",
         "Step by step",
-        "The trade-off: every page becomes an image",
         "Tools used in this guide",
         "Your file stays on your device"
       ],
@@ -2368,7 +2370,7 @@
     },
     "guides/how-to-split-a-pdf.html": {
       "title": "How to split a PDF into separate files — pdf.xyz",
-      "description": "Split a PDF by page range, fixed intervals, or one file per page — right in your browser, so the file never leaves your device. No account needed.",
+      "description": "Split a PDF by page range, fixed intervals, one file per page, file size, bookmarks or a word on the page — right in your browser. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-split-a-pdf",
       "robots": "index, follow",
       "h1": ["How to split a PDF into separate files"],
@@ -7606,8 +7608,8 @@
       ]
     },
     "tools/redact-pdf.html": {
-      "title": "Redact PDF — Permanent Black-Out Boxes, No Upload — pdf.xyz",
-      "description": "Black out names, account numbers or signatures in a PDF. Pages are rebuilt as images, so nothing survives under the boxes. Done in your browser tab.",
+      "title": "Redact PDF — Find and Remove Text, No Upload — pdf.xyz",
+      "description": "Find words, detect emails, phone and card numbers, then black them out for good: pages flattened, or the text under each box removed. In your browser.",
       "canonical": "https://pdf.xyz/tools/redact-pdf",
       "robots": "index, follow",
       "h1": ["Redact PDF"],
@@ -8236,8 +8238,8 @@
       ]
     },
     "tools/split-pdf.html": {
-      "title": "Split PDF by Range, Size or Bookmarks — No Upload — pdf.xyz",
-      "description": "Split a PDF by page ranges, every N pages, each page, a maximum file size or its bookmarks. It runs in your browser, so the file is not uploaded.",
+      "title": "Split PDF by Pages, Bookmarks or Text — No Upload — pdf.xyz",
+      "description": "Split a PDF by page ranges, every N pages, each page, a maximum file size, its bookmarks or a word on the page. It runs in your browser; no upload.",
       "canonical": "https://pdf.xyz/tools/split-pdf",
       "robots": "index, follow",
       "h1": ["Split PDF"],
