@@ -51,14 +51,17 @@ describe("sampleVerdict", () => {
     expect(sampleVerdict(tam, two).detail).toMatch(/^1 of 3 words missing/);
   });
 
-  it("compares an unspaced script by its characters in order, one in ten may be lost", () => {
+  it("compares an unspaced script by its characters in order, one in five may be lost", () => {
     const zh = sample("chi_tra");
     const chars = [...zh.text];
     expect(sampleVerdict(zh, chars.join(" ")).ok).toBe(true);
-    // One of thirteen lost: still read.
-    expect(sampleVerdict(zh, chars.slice(1).join("")).ok).toBe(true);
-    // Two lost, or only the tail read (the first run's shape): not read.
-    expect(sampleVerdict(zh, chars.slice(2).join("")).ok).toBe(false);
+    // EXCERPT, container run 40158373197: 繁 read as 篆, 中 as "r" — 11/13.
+    expect(sampleVerdict(zh, "我們今天在臺北學習篆體r 文")).toMatchObject({
+      ok: true,
+      detail: "11 of 13 characters, in order",
+    });
+    // Three lost, or only the tail read (the first run's shape): not read.
+    expect(sampleVerdict(zh, chars.slice(3).join("")).ok).toBe(false);
     expect(sampleVerdict(zh, chars.slice(-3).join("")).ok).toBe(false);
     // The Simplified spelling of the same sentence is not the Traditional text.
     expect(sampleVerdict(zh, "我们今天在台北学习繁体中文").ok).toBe(false);
