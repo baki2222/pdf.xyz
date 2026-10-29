@@ -125,8 +125,6 @@ function abortError(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException("Aborted", "AbortError");
 }
 
-const NOTHING_PROCESSED = "Nothing was processed";
-
 /** The words for a final failure — the kind, the status number, the next step. Never the URL. */
 function failureFor(
   status: UploadAttemptStatus,
@@ -136,17 +134,17 @@ function failureFor(
     return {
       ok: false,
       code: "network",
-      message: `The upload was interrupted — check your connection and try again. ${NOTHING_PROCESSED}.`,
+      message: `The upload was interrupted — check your connection and try again. Nothing was processed.`,
     };
   }
   if (status === "timeout") {
     return {
       ok: false,
       code: "timeout",
-      message: `The upload took too long and was stopped — check your connection and try again. ${NOTHING_PROCESSED}.`,
+      message: `The upload took too long and was stopped — check your connection and try again. Nothing was processed.`,
     };
   }
-  const lead = `We couldn't upload your file to our secure server (the storage service answered ${status}). ${NOTHING_PROCESSED}`;
+  const lead = `We couldn't upload your file to our secure server (the storage service answered ${status}). Nothing was processed`;
   if (status === 429) {
     return {
       ok: false,
@@ -209,6 +207,12 @@ type Attempt =
       ok: false;
       status: UploadAttemptStatus;
       retryAfter: number | undefined;
+      /**
+       * Our own typed JSON error, when the slot is served by this app (the
+       * local-dev store answers `payload_too_large` that way). Object storage
+       * answers XML, so on production this is absent.
+       */
+      server: WorkerErrorFailure | undefined;
     };
 
 /** One PUT, bounded by a timeout. Rethrows only the caller's own abort. */
@@ -238,17 +242,20 @@ async function putOnce(
       signal: controller.signal,
     });
     if (res.ok) return { ok: true };
+    const read = await readWorkerError(res, "");
     return {
       ok: false,
       status: res.status,
       retryAfter: res.status === 429 ? retryAfterSeconds(res) : undefined,
+      server: read.code !== undefined && read.message !== "" ? read : undefined,
     };
-  } catch (error) {
+  } catch {
     if (signal?.aborted) throw abortError(signal);
     return {
       ok: false,
       status: timedOut ? "timeout" : "network",
       retryAfter: undefined,
+      server: undefined,
     };
   } finally {
     clearTimeout(timer);
@@ -283,7 +290,7 @@ export async function uploadToWorkerSlot(
     const result = await putOnce(input, slot, body);
     if (result.ok) return { ok: true, slot };
 
-    const { status, retryAfter } = result;
+    const { status, retryAfter, server } = result;
     const renew = status === 403 && !renewed;
     const transient =
       status === "network" ||
@@ -319,6 +326,8 @@ export async function uploadToWorkerSlot(
       if (input.signal?.aborted) throw abortError(input.signal);
       continue;
     }
-    return failureFor(status, retryAfter);
+    // A typed error of our own already says what happened in words; storage
+    // XML does not, so its status is said for it.
+    return server ?? failureFor(status, retryAfter);
   }
 }

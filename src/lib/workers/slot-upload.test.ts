@@ -405,3 +405,32 @@ describe("uploadToWorkerSlot — telemetry (the composed chain, at the sink)", (
     );
   });
 });
+
+describe("uploadToWorkerSlot — our own typed error is kept", () => {
+  it("a slot served by this app (local-dev) keeps its JSON reason and code", async () => {
+    const fetchImpl: SlotFetch = async (url) => {
+      if (url === "/api/uploads") {
+        return response(201, {
+          slots: [
+            {
+              fileId: "f1",
+              filename: FILENAME,
+              url: "/api/uploads/local/f1",
+              method: "PUT",
+              headers: {},
+            },
+          ],
+        });
+      }
+      return response(413, {
+        error: { code: "payload_too_large", message: "Too large." },
+      });
+    };
+    const result = await uploadToWorkerSlot(input(fetchImpl));
+    expect(result).toEqual({
+      ok: false,
+      code: "payload_too_large",
+      message: "Too large.",
+    });
+  });
+});

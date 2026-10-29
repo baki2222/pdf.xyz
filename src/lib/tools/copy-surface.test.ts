@@ -819,7 +819,9 @@ describe("copy reach: every file that holds words for a reader is walked, or rec
           how: "the 503 body when the AI ceiling is spent",
         },
         {
-          file: "src/lib/workers/client.ts",
+          // Was `src/lib/workers/client.ts` until 2026-10-29, when the three
+          // copies of the slot reservation and upload became one function.
+          file: "src/lib/workers/slot-upload.ts",
           sentence: "Could not start an upload session.",
           how: "an inline call argument in a module that exports no sentence",
         },
