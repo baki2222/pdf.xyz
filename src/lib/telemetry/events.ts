@@ -246,7 +246,46 @@ export type ProductEvent =
        */
       name: "palette_opened";
       trigger: PaletteTrigger;
+    }
+  | {
+      /**
+       * One PUT of a file to its presigned storage slot did not succeed. Sent
+       * per failed attempt by `uploadToWorkerSlot`, so a retry that recovered
+       * shows as one event with `retrying: true` and nothing after it.
+       *
+       * Added 2026-10-29: uploads failed on production with a message that
+       * hid the status, and nothing was measured. `status` is the HTTP status
+       * the storage service answered (a three-digit protocol code, not user
+       * data) or `"network"`/`"timeout"` when there was no answer. Never the
+       * slot URL (it is signed), the filename, or a raw byte count or time.
+       */
+      name: "upload_attempt_failed";
+      toolSlug: string;
+      status: UploadAttemptStatus;
+      /** 1 for the first PUT; at most 3 (one retry, one fresh slot). */
+      attempt: number;
+      /** Whether another attempt follows this one. */
+      retrying: boolean;
+      size: SizeBucket;
+      duration: DurationBucket;
     };
+
+/** What an upload attempt ended with: an HTTP status, or no answer at all. */
+export type UploadAttemptStatus = number | "network" | "timeout";
+
+/** True for a status an `upload_attempt_failed` may carry. */
+export function isUploadAttemptStatus(
+  status: unknown,
+): status is UploadAttemptStatus {
+  return (
+    status === "network" ||
+    status === "timeout" ||
+    (typeof status === "number" &&
+      Number.isInteger(status) &&
+      status >= 100 &&
+      status <= 599)
+  );
+}
 
 /** Every valid event name. The runtime allowlist behind {@link isKnownEventName}. */
 export const EVENT_NAMES = [
@@ -259,6 +298,7 @@ export const EVENT_NAMES = [
   "worker_operations_checked",
   "gated_tool_interest",
   "palette_opened",
+  "upload_attempt_failed",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];
@@ -361,5 +401,28 @@ export function toolFailedEvent(input: {
     toolSlug: input.toolSlug,
     capability: input.capability,
     reason: toolErrorReason(input.code),
+  };
+}
+
+/**
+ * Build an `upload_attempt_failed` event, bucketing the file's byte size and
+ * the attempt's elapsed time so neither raw number becomes an event field.
+ */
+export function uploadAttemptFailedEvent(input: {
+  toolSlug: string;
+  status: UploadAttemptStatus;
+  attempt: number;
+  retrying: boolean;
+  bytes: number;
+  elapsedMs: number;
+}): Extract<ProductEvent, { name: "upload_attempt_failed" }> {
+  return {
+    name: "upload_attempt_failed",
+    toolSlug: input.toolSlug,
+    status: input.status,
+    attempt: input.attempt,
+    retrying: input.retrying,
+    size: sizeBucket(input.bytes),
+    duration: durationBucket(input.elapsedMs),
   };
 }

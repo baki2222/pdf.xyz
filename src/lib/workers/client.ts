@@ -15,11 +15,11 @@
 // Import from the leaf contract modules (not the "@/lib/jobs" barrel) so this
 // browser module never pulls the server-side validators or the tools catalog
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
-import type { Job, JobArtifact, UploadSession } from "@/lib/jobs/types";
+import type { Job, JobArtifact } from "@/lib/jobs/types";
 import type { CompressionProfile } from "./compression/engine";
 import { pollJobToTerminal, type WorkerJobPhase } from "./job-polling";
 import { forwardStatus } from "./phases";
-import { markUploadStarted } from "@/lib/uploads/session-uploads";
+import { uploadToWorkerSlot } from "./slot-upload";
 import { readWorkerError } from "./read-error";
 import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
@@ -137,49 +137,21 @@ async function runWorkerCompressionSteps(
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxPollAttempts = options.maxPollAttempts ?? DEFAULT_MAX_POLL_ATTEMPTS;
 
-  // 1. Reserve an upload slot for exactly this file.
-  const sessionRes = await fetchImpl("/api/uploads", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: toArrayBuffer(
-      new TextEncoder().encode(
-        JSON.stringify({
-          tool: COMPRESS_TOOL,
-          files: [
-            {
-              filename: input.filename,
-              contentType: CONTENT_TYPE,
-              bytes: input.bytes.byteLength,
-            },
-          ],
-        }),
-      ),
-    ),
-    signal,
+  // 1–2. Reserve a slot and upload the bytes to it — the one shared upload,
+  //      with its timeout, one retry and plain-language failure
+  //      (`./slot-upload`). The job uses the slot it RETURNS: a 403 may have
+  //      moved the bytes to a fresh one.
+  const uploaded = await uploadToWorkerSlot({
+    tool: COMPRESS_TOOL,
+    filename: input.filename,
+    contentType: CONTENT_TYPE,
+    bytes: input.bytes,
+    fetchImpl,
+    ...(signal ? { signal } : {}),
+    onUploading: () => options.onPhase?.("uploading"),
   });
-  if (!sessionRes.ok) {
-    return readError(sessionRes, "Could not start an upload session.");
-  }
-  const session = (await sessionRes.json()) as UploadSession;
-  const slot = session.slots[0];
-  if (!slot) {
-    return { ok: false, message: "The worker did not return an upload slot." };
-  }
-
-  // 2. Upload the bytes directly to the slot the worker minted. Flag it before
-  //    the request, not after: once bytes are on the wire a crash fallback can
-  //    no longer honestly claim the file never left the device.
-  markUploadStarted();
-  options.onPhase?.("uploading");
-  const uploadRes = await fetchImpl(slot.url, {
-    method: slot.method,
-    headers: slot.headers,
-    body: toArrayBuffer(input.bytes),
-    signal,
-  });
-  if (!uploadRes.ok) {
-    return readError(uploadRes, "Uploading the file to the worker failed.");
-  }
+  if (!uploaded.ok) return uploaded;
+  const { slot } = uploaded;
   options.onPhase?.("uploaded");
 
   // 3. Create the job.

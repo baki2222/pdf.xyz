@@ -57,6 +57,40 @@ describe("sanitizeEvent", () => {
   });
 });
 
+describe("sanitizeEvent — upload_attempt_failed", () => {
+  it("passes a well-formed event with exactly its fields", () => {
+    const event: ProductEvent = {
+      name: "upload_attempt_failed",
+      toolSlug: "pdf-to-word",
+      status: "network",
+      attempt: 2,
+      retrying: false,
+      size: "<100KB",
+      duration: "5-30s",
+    };
+    expect(sanitizeEvent(event)).toEqual(event);
+  });
+
+  it("drops an event whose status is a URL or a message, not a code", () => {
+    for (const status of [
+      "https://storage.example/in/f1?X-Amz-Signature=deadbeef",
+      "Failed to fetch",
+    ]) {
+      expect(
+        sanitizeEvent({
+          name: "upload_attempt_failed",
+          toolSlug: "pdf-to-word",
+          status,
+          attempt: 1,
+          retrying: true,
+          size: "<100KB",
+          duration: "<250ms",
+        } as unknown as ProductEvent),
+      ).toBeNull();
+    }
+  });
+});
+
 describe("track", () => {
   it("sends a validated, redacted payload to the configured sink", () => {
     const seen: RedactedEvent[] = [];

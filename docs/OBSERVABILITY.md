@@ -39,20 +39,22 @@ Source: [`src/lib/telemetry/`](../src/lib/telemetry/)
 `name`), so adding an event or a field is a type-checked, reviewable change — not
 a free-form string. The events today:
 
-| Event                       | Fields (all privacy-safe)                                                        |
-| --------------------------- | -------------------------------------------------------------------------------- |
-| `tool_viewed`               | `toolSlug` (route id), `capability`                                              |
-| `tool_completed`            | `toolSlug`, `capability`, `inputCount?`, `outputSize?`, `duration?`              |
-| `tool_failed`               | `toolSlug`, `capability`, `reason` (coarse category)                             |
-| `workspace_handoff_created` | `toolSlug`, `mode`, `fileCount`                                                  |
-| `suggestion_opened`         | `toolSlug`, `source` (fixed enum), `rank` (`1`–`3`, `4+`), `carried`             |
-| `worker_status_checked`     | `mode`, `enabled`                                                                |
-| `worker_operations_checked` | `mode`, `health` (SLO class), `recommendedAction`, `drainable`, `daemonObserved` |
-| `gated_tool_interest`       | `toolSlug`, `capability`                                                         |
-| `palette_opened`            | `trigger` (`shortcut` or `button`) — never the query                             |
+| Event                       | Fields (all privacy-safe)                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------- |
+| `tool_viewed`               | `toolSlug` (route id), `capability`                                                                 |
+| `tool_completed`            | `toolSlug`, `capability`, `inputCount?`, `outputSize?`, `duration?`                                 |
+| `tool_failed`               | `toolSlug`, `capability`, `reason` (coarse category)                                                |
+| `workspace_handoff_created` | `toolSlug`, `mode`, `fileCount`                                                                     |
+| `suggestion_opened`         | `toolSlug`, `source` (fixed enum), `rank` (`1`–`3`, `4+`), `carried`                                |
+| `worker_status_checked`     | `mode`, `enabled`                                                                                   |
+| `worker_operations_checked` | `mode`, `health` (SLO class), `recommendedAction`, `drainable`, `daemonObserved`                    |
+| `gated_tool_interest`       | `toolSlug`, `capability`                                                                            |
+| `palette_opened`            | `trigger` (`shortcut` or `button`) — never the query                                                |
+| `upload_attempt_failed`     | `toolSlug`, `status` (HTTP code, `network` or `timeout`), `attempt`, `retrying`, `size`, `duration` |
 
 Every field is one of: a **public route slug**, a **fixed enum**, a **boolean**,
-or a **coarse bucket label**. No field is a filename, a raw byte count, a raw
+a **coarse bucket label**, or (for `upload_attempt_failed`) an **HTTP status
+code** or a **try number from 1 to 3**. No field is a filename, a raw byte count, a raw
 duration, page text, a raw URL, or an identifier.
 
 **Every event in this table is sent by something, and nothing sends an event
@@ -89,6 +91,11 @@ from:
   chain is `tool-outcome.test.tsx`.
 - `workspace_handoff_created` — `launchHandoff` in the workspace, only when a
   hand-off token was really created.
+- `upload_attempt_failed` — `uploadToWorkerSlot`
+  ([`slot-upload.ts`](../src/lib/workers/slot-upload.ts)), the one upload every
+  worker client uses, once per PUT that did not succeed. A retried 503 that then
+  worked is one event with `retrying: true`. `status` is the storage service's
+  HTTP status (a protocol code, not user data), never the signed slot URL.
 
 ### Privacy by construction
 
