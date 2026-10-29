@@ -214,7 +214,7 @@ function PlainCard({
           id={`status-card-${id}`}
           className="text-fg inline-flex items-center gap-2 text-base font-semibold"
         >
-          <ModeShape mode={mode} className="size-2.5" />
+          <ModeShape mode={mode} size="size-2.5" />
           {title}
         </h2>
         {badge}

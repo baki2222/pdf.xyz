@@ -183,7 +183,7 @@ function OverlayEditor({
           </div>
         ) : loadingOverlay ? (
           <p className="text-muted inline-flex items-center gap-2 text-sm">
-            <Spinner className="size-4" /> Reading overlay PDF…
+            <Spinner /> Reading overlay PDF…
           </p>
         ) : (
           <Dropzone

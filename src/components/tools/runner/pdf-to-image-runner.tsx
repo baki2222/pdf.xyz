@@ -9,7 +9,8 @@ import {
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
-import { rasterizePdf, type RasterPage } from "@/lib/pdf/render";
+// Type-only: the rasterizer loads when a run starts, not with the page.
+import type { RasterPage } from "@/lib/pdf/render";
 import { RASTER_MAX_DEVICE_PX } from "@/lib/pdf/render-utils";
 import {
   DEFAULT_RASTER_COLOR,
@@ -170,6 +171,7 @@ function PdfToImageEditor({
     const grayscale = color === "gray";
     setProgress({ done: 0, total: pages.length });
     void run(async () => {
+      const { rasterizePdf } = await import("@/lib/pdf/render");
       const rendered = await rasterizePdf(pdf.bytes, {
         format,
         dpi: resolution.dpi,

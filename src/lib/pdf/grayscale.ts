@@ -1,5 +1,7 @@
 import { outputName } from "./files";
-import { capturePdfPages, luminancePlane } from "./render";
+// The renderer (with pdf.js's loader) is imported when a run starts: this
+// module's presets and names ride Grayscale PDF's first load.
+const loadRender = () => import("./render");
 import {
   createGrayscaleBuilder,
   grayscaleTitle,
@@ -88,6 +90,7 @@ export async function grayscalePdf(
 ): Promise<GrayscaleResult> {
   const builder = await createGrayscaleBuilder({ quality: options.quality });
   let sourceTitle: string | null = null;
+  const { capturePdfPages, luminancePlane } = await loadRender();
   const pages = await capturePdfPages(bytes, {
     dpi: options.dpi ?? 150,
     signal: options.signal,

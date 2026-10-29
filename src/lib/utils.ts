@@ -1,12 +1,34 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+
+let observer: ((classes: string) => void) | null = null;
 
 /**
- * Merge conditional class names and resolve Tailwind conflicts.
- * Usage: cn("px-2", condition && "px-4") -> "px-4"
+ * Join conditional class names. It does NOT resolve Tailwind conflicts:
+ * `cn("px-2", wide && "px-4")` ships both, and the stylesheet's order picks
+ * one. Write one class per family per branch — `cn(wide ? "px-4" : "px-2")`.
+ *
+ * WAS `twMerge(clsx(...))` until 2026-10-29. tailwind-merge is ~8.5 KB gz,
+ * and `cn()` put it in every page's first load; over the whole prerendered
+ * site it changed 43 of 35,735 class attributes, all from a handful of
+ * override sites, now written without the override. What keeps a new one
+ * out: src/lib/cn-conflicts.test.ts (every call in src, every branch),
+ * the class check in ssr-content.test.ts (every prerendered page), and
+ * {@link observeClassesForTests} (every call the component suite makes).
  */
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+  const classes = clsx(inputs);
+  observer?.(classes);
+  return classes;
+}
+
+/**
+ * Sees every class list `cn()` returns — the component suite's conflict
+ * check (src/tests/setup.ts). Never set outside tests.
+ */
+export function observeClassesForTests(
+  fn: ((classes: string) => void) | null,
+): void {
+  observer = fn;
 }
 
 /** Format a number with thousands separators (locale-stable for SSR). */

@@ -64,9 +64,17 @@ beforeEach(() => {
   resetUnsavedForTests();
   configureTelemetry((e) => events.push(e));
 });
+// The triggers `open()` appends sit outside React's container, so cleanup()
+// does not remove them. Left behind, they leaked into whichever file the
+// shared worker ran next (`isolate: false`): use-zip-download's
+// `getByRole("button")` found five "trigger" buttons once the suite's file
+// order changed (2026-10-29).
+const triggers: HTMLButtonElement[] = [];
+
 afterEach(() => {
   resetTelemetry();
   resetPageTargetsForTests();
+  for (const trigger of triggers.splice(0)) trigger.remove();
 });
 
 function open(props: Partial<Parameters<typeof CommandPalette>[0]> = {}): {
@@ -76,6 +84,7 @@ function open(props: Partial<Parameters<typeof CommandPalette>[0]> = {}): {
   const trigger = document.createElement("button");
   trigger.textContent = "trigger";
   document.body.appendChild(trigger);
+  triggers.push(trigger);
   let closes = 0;
   render(
     <AppRouterContext.Provider value={ROUTER}>

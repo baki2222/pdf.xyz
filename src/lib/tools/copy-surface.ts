@@ -211,6 +211,12 @@ export function copyFiles(): string[] {
     // (2026-10-24): their refusals are the sentences the split runner shows.
     // A new module beside engine code, so walked, as the ratchet asks.
     path.join(ROOT, "src", "lib", "pdf", "split-modes.ts"),
+    // The engine's refusal copy (encrypted, unreadable), and the raster
+    // presets' wording the catalogue quotes — moved out of engine.ts and
+    // pdf-to-image.ts on 2026-10-29 so tool pages stop loading those modules
+    // up front. New modules, so walked, as the ratchet asks.
+    path.join(ROOT, "src", "lib", "pdf", "engine-errors.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "raster-format.ts"),
   ];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

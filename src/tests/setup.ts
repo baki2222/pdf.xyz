@@ -7,6 +7,8 @@ import { readNotoTtf } from "@/lib/pdf/noto-source";
 import { setFontByteSource } from "@/lib/pdf/unicode-font";
 import { discloseKeyingForTests } from "@/lib/ratelimit/config";
 import { resetWorkerStatusForTests } from "@/components/tools/use-worker-status";
+import { observeClassesForTests } from "@/lib/utils";
+import { droppedClasses } from "./class-conflicts";
 import {
   setPdfjsForAccessSource,
   type PdfjsForAccess,
@@ -42,6 +44,21 @@ setPdfjsForAccessSource(
       ).href
     ) as Promise<PdfjsForAccess>,
 );
+
+// cn() joins and does not merge (src/lib/utils.ts), so two classes from one
+// Tailwind family in one list are decided by the stylesheet's order, not by
+// what was written last. Every list the component suite renders is checked,
+// and a conflict throws inside the render that produced it — a red naming
+// the classes, rather than a page that looks slightly wrong in one state.
+// The static scan (src/lib/cn-conflicts.test.ts) cannot read a variable or a
+// prop handed further on; this sees them as rendered.
+observeClassesForTests((classes) => {
+  const dropped = droppedClasses(classes);
+  if (dropped.length > 0)
+    throw new Error(
+      `cn() produced conflicting classes — [${dropped.join(" ")}] lose to a later class in "${classes}". cn() does not merge: write one class per family per branch.`,
+    );
+});
 
 // Unmount anything rendered by a test and reset the DOM after every test.
 //

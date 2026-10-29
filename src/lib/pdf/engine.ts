@@ -1,10 +1,12 @@
 import type { PDFDocument } from "pdf-lib";
+import { probePdfEncryption, type EncryptionVerdict } from "./encryption";
 import {
-  encryptedPdfMessage,
-  probePdfEncryption,
-  type EncryptionVerdict,
-} from "./encryption";
-import { assemblePages } from "./page-copy";
+  PdfEncryptedError,
+  PdfEngineError,
+  UNREADABLE_PDF_MESSAGE,
+} from "./engine-errors";
+import type { assemblePages as AssemblePages } from "./page-copy";
+import { normalizeAngle } from "./rotation";
 import { loadPdfLib, type PdfLibModule } from "./pdf-lib";
 import type {
   NamedBytes,
@@ -13,64 +15,25 @@ import type {
   SplitPart,
 } from "./types";
 
+export * from "./engine-errors";
+export { normalizeAngle } from "./rotation";
+
+/**
+ * Page copying (`./page-copy`, with the structure walk it carries) is ~10 KB
+ * gz that only runs once a file is processed, while this module rides the
+ * first load of every tool page whose runner imports an engine function. It
+ * is imported at call time, like pdf-lib itself; every caller is already
+ * async.
+ */
+const assemblePages: typeof AssemblePages = async (...args) =>
+  (await import("./page-copy")).assemblePages(...args);
+
 /**
  * The core client-side PDF engine. Every function takes and returns plain byte
  * arrays so it can run in the browser, in Node, and under Vitest without any
  * DOM. All heavy lifting is delegated to pdf-lib (pure JavaScript, no native
  * bindings), which keeps these operations fully in-browser and privacy-safe.
  */
-
-/**
- * Why the loader refused a file, for callers that must tell the reasons apart.
- * `encrypted` means the file has an /Encrypt dictionary — which is NOT the same
- * as "needs a password": most encrypted PDFs open with no password at all and
- * only restrict editing. A caller that needs to know which asks a reader
- * (`classifyPdfAccess` in `./encryption`); the message alone cannot say.
- */
-export const PDF_ENGINE_ERROR_KINDS = ["encrypted", "unreadable"] as const;
-export type PdfEngineErrorKind = (typeof PDF_ENGINE_ERROR_KINDS)[number];
-
-/**
- * What a {@link PdfEngineError} may carry beside its message: the standard
- * `cause` (so a wrapped failure keeps its diagnostic) and the refusal `kind`.
- */
-export interface PdfEngineErrorOptions extends ErrorOptions {
-  readonly kind?: PdfEngineErrorKind;
-}
-
-/** Thrown for problems reading or writing PDF bytes, with user-facing copy. */
-export class PdfEngineError extends Error {
-  readonly kind: PdfEngineErrorKind | undefined;
-  constructor(message: string, options?: PdfEngineErrorOptions) {
-    super(message, options);
-    this.name = "PdfEngineError";
-    this.kind = options?.kind;
-  }
-}
-
-/**
- * pdf-lib refused the file because it is encrypted. `verdict` says whether it
- * needs a password to OPEN (`needs-password`), only carries its author's
- * editing restrictions (`opens-without-password`), or could not be told
- * (`null`) — and the message is the one true of that verdict. See
- * `./encryption` for why the difference is the whole point.
- */
-export class PdfEncryptedError extends PdfEngineError {
-  readonly verdict: EncryptionVerdict | null;
-  constructor(verdict: EncryptionVerdict | null, message?: string) {
-    super(message ?? encryptedPdfMessage(verdict), { kind: "encrypted" });
-    this.name = "PdfEncryptedError";
-    this.verdict = verdict;
-  }
-}
-
-/**
- * The loader's copy for bytes that are not a readable PDF. Exported so a caller
- * that finds the damage AFTER a successful load (a trailer with no catalog loads
- * fine and throws on the first page walk) reports it in the same words.
- */
-export const UNREADABLE_PDF_MESSAGE =
-  "This file couldn't be read as a PDF — it may be corrupted or not a PDF.";
 
 const PRODUCER = "pdf.xyz";
 
@@ -93,30 +56,6 @@ export async function pdfLoadError(
     return new PdfEncryptedError(await probe(bytes));
   }
   return new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
-}
-
-/** pdf.js's names for "this is not a readable PDF". */
-const PDFJS_UNREADABLE = new Set([
-  "InvalidPDFException",
-  "MissingPDFException",
-  "FormatError",
-]);
-
-/**
- * The same translation for a pdf.js load failure (text extraction, layout).
- * pdf.js already knows whether a password is needed, so no probe runs. A
- * failure that is NOT about the file — a worker that failed to start, a chunk
- * that did not load — is returned unchanged: calling it "not a PDF" would send
- * the user to fix a file that is fine.
- */
-export function pdfjsLoadError(err: unknown): unknown {
-  const name = (err as { name?: unknown } | null)?.name;
-  if (name === "PasswordException")
-    return new PdfEncryptedError("needs-password");
-  if (typeof name === "string" && PDFJS_UNREADABLE.has(name)) {
-    return new PdfEngineError(UNREADABLE_PDF_MESSAGE, { kind: "unreadable" });
-  }
-  return err;
 }
 
 /**
@@ -155,12 +94,6 @@ function sanitizeIndices(indices: number[], count: number): number[] {
     if (Number.isInteger(i) && i >= 0 && i < count) set.add(i);
   }
   return [...set].sort((a, b) => a - b);
-}
-
-/** Snap any angle to the nearest valid PDF rotation (0 | 90 | 180 | 270). */
-export function normalizeAngle(angle: number): Rotation {
-  const snapped = (((Math.round(angle / 90) * 90) % 360) + 360) % 360;
-  return snapped as Rotation;
 }
 
 /** Read the total number of pages in a PDF. */

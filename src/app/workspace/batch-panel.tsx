@@ -275,18 +275,22 @@ export function BatchPanel({
       <div
         className={cn(
           "rounded-ctl flex flex-col gap-3 border p-3.5",
-          content.tone === "ready" && "border-ok/40 bg-ok/10",
-          content.tone === "worker" && "border-info/40 bg-info/10",
-          content.tone === "muted" && "border-line bg-wash",
+          content.tone === "ready"
+            ? "border-ok/40 bg-ok/10"
+            : content.tone === "worker"
+              ? "border-info/40 bg-info/10"
+              : content.tone === "muted" && "border-line bg-wash",
         )}
       >
         <div className="flex flex-col gap-1" role="status" aria-live="polite">
           <span
             className={cn(
               "inline-flex items-center gap-1.5 text-sm font-semibold",
-              content.tone === "ready" && "text-ok",
-              content.tone === "worker" && "text-info",
-              content.tone === "muted" && "text-muted",
+              content.tone === "ready"
+                ? "text-ok"
+                : content.tone === "worker"
+                  ? "text-info"
+                  : content.tone === "muted" && "text-muted",
             )}
           >
             {content.tone === "ready" && (

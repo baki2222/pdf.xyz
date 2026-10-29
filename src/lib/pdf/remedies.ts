@@ -22,12 +22,12 @@
  */
 import { handoffCapabilityFor } from "@/lib/handoff/capability";
 import type { ProcessingMode } from "@/lib/tools/types";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import {
   PdfEncryptedError,
   PdfEngineError,
   type PdfEngineErrorKind,
-} from "./engine";
+} from "./engine-errors";
 import {
   UNLOCK_TOOL_HREF,
   UNLOCK_TOOL_NAME,
@@ -108,7 +108,7 @@ function remedy(
   verb: "Open" | "Try",
   why: string,
 ): Remedy {
-  const tool = getToolBySlug(toolSlug);
+  const tool = getToolEntry(toolSlug);
   const toolName = tool?.name ?? fallbackName;
   const processing = tool?.processing ?? "server";
   const carries = remedyCarries(toolSlug);

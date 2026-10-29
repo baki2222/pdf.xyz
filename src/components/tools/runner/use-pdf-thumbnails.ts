@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  createThumbnailRenderer,
-  type ThumbnailRenderer,
-} from "@/lib/pdf/render";
+// Type-only: the renderer (with pdfjs's loader) is imported when a document
+// is actually opened, below. Statically it rode every page-grid tool's first
+// load (~2.7 KB gz) for a visitor who had not picked a file yet.
+import type { ThumbnailRenderer } from "@/lib/pdf/render";
 import { clampPixelRatio, type Thumbnail } from "@/lib/pdf/render-utils";
 
 export type ThumbnailStatus = "idle" | "rendering" | "done" | "error";
@@ -148,6 +148,8 @@ export function usePdfThumbnails(
 
     (async () => {
       try {
+        const { createThumbnailRenderer } = await import("@/lib/pdf/render");
+        if (cancelled) return;
         renderer = await createThumbnailRenderer(bytes, { pixelRatio });
         if (cancelled) {
           await renderer.destroy();

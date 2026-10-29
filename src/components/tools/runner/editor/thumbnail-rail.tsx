@@ -110,8 +110,11 @@ function Thumb({
   }, [seen, doc, page.source, page.turn, scale]);
 
   const n = index + 1;
-  const iconBtn =
-    "text-muted hover:text-fg hover:bg-wash rounded-ctl inline-flex flex-col items-center justify-center gap-0.5 px-0.5 py-1 text-[10px] leading-none aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
+  // The hover ink is not in the base: Delete hovers red, and cn() joins
+  // rather than merges.
+  const iconBase =
+    "text-muted hover:bg-wash rounded-ctl inline-flex flex-col items-center justify-center gap-0.5 px-0.5 py-1 text-[10px] leading-none aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
+  const iconBtn = `${iconBase} hover:text-fg`;
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
@@ -208,7 +211,7 @@ function Thumb({
           onClick={() => {
             if (count > 1) ops.onDelete(index);
           }}
-          className={cn(iconBtn, "hover:text-err")}
+          className={cn(iconBase, "hover:text-err")}
         >
           <Trash2 className="size-3.5" aria-hidden />
           Delete

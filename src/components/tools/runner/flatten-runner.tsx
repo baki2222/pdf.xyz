@@ -185,7 +185,7 @@ export function FlattenEditor({
       <RunnerSection title="Detected form fields">
         {inspection === null && !countError ? (
           <p className="text-muted inline-flex items-center gap-2 text-sm">
-            <Spinner className="size-4" /> Inspecting PDF…
+            <Spinner /> Inspecting PDF…
           </p>
         ) : countError || !inspection ? (
           <p className="text-warn text-sm">{countError}</p>

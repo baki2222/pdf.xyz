@@ -6,7 +6,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { track } from "@/lib/telemetry/track";
 import { capabilityForMode } from "@/lib/jobs/capabilities";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 
 /**
  * "Tell me when this ships", for a tool that is not enabled in this deployment.
@@ -70,7 +70,7 @@ export function NotifyMe({
   // Derived here rather than passed in: fourteen panels render this button, and
   // a capability threaded by hand through each of them is fourteen chances to
   // file a click under the wrong one.
-  const tool = getToolBySlug(toolSlug);
+  const tool = getToolEntry(toolSlug);
 
   if (checking) return null;
 

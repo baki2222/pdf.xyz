@@ -3,7 +3,8 @@ import {
   MIME_BY_FORMAT,
 } from "@/lib/jobs/mime-by-format";
 import { converterToPdf, formatOf } from "@/lib/intent/formats";
-import { tools } from "@/lib/tools";
+import { TOOL_DIRECTORY } from "@/lib/tools/directory.generated";
+import type { ToolEntry } from "@/lib/tools/directory";
 import { fileOverCeilingMessage } from "@/lib/tools/file-ceilings";
 import type { Tool } from "@/lib/tools/types";
 import { extensionOf } from "./intake/families";
@@ -53,8 +54,10 @@ function formatList(formats: readonly string[]): string {
  * can go instead; this reads the format from the name the way every other
  * surface does.
  */
-export function converterToPdfFor(filename: string): Tool | undefined {
-  return converterToPdf(formatOf({ name: filename }).format, tools);
+export function converterToPdfFor(filename: string): ToolEntry | undefined {
+  // The directory, not the catalogue: this runs in the browser on every
+  // worker tool's pick, and the catalogue is ~9 KB gz of copy it never reads.
+  return converterToPdf(formatOf({ name: filename }).format, TOOL_DIRECTORY);
 }
 
 /** Is this the kind of file `tool` takes, by the rule the server applies? */

@@ -9,7 +9,7 @@
  * the history or disables Redo unexpectedly.
  */
 
-import { normalizeAngle } from "@/lib/pdf/engine";
+import { normalizeAngle } from "@/lib/pdf/rotation";
 import type { Rotation } from "@/lib/pdf/types";
 import { reorder } from "./list-utils";
 

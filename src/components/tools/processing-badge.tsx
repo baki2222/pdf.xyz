@@ -52,9 +52,12 @@ const GEOMETRY: Record<ProcessingShape, ReactNode> = {
  */
 export function ModeShape({
   mode,
+  size,
   className,
 }: {
   mode: ProcessingMode;
+  /** Replaces the default `size-2` (cn() joins; it does not merge). */
+  size?: string;
   className?: string;
 }) {
   const { hue, shape } = getProcessingMeta(mode);
@@ -64,7 +67,7 @@ export function ModeShape({
       fill="currentColor"
       aria-hidden="true"
       focusable="false"
-      className={cn("size-2 shrink-0", hue.ink, className)}
+      className={cn("shrink-0", hue.ink, size ?? "size-2", className)}
     >
       {GEOMETRY[shape]}
     </svg>

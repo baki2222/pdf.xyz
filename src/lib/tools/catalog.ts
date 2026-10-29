@@ -1,6 +1,6 @@
 import type { Tool } from "./types";
 import { MAX_IMAGE_MB, MAX_SOURCE_MB } from "./limits";
-import { RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS } from "@/lib/pdf/pdf-to-image";
+import { RASTER_RESOLUTION_DPIS as RESOLUTION_DPIS } from "@/lib/pdf/raster-format";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 
 /**

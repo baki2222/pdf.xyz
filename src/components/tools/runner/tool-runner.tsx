@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import type { RunnerKind } from "@/lib/pdf/registry";
-import { rasterFormatForSlug } from "@/lib/pdf/pdf-to-image";
+import { rasterFormatForSlug } from "@/lib/pdf/raster-format";
 
 /*
  * ONE CHUNK PER RUNNER. These were 27 static imports, and App Router puts

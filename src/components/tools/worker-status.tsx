@@ -108,7 +108,7 @@ export function WorkerStatusPending({
           aria-live="polite"
           className="text-muted inline-flex items-center gap-2 text-sm"
         >
-          <Spinner className="size-4" />
+          <Spinner />
           Checking the secure worker…
         </p>
       ) : (

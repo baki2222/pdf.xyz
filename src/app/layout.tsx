@@ -4,7 +4,7 @@ import { twitterAttribution } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
-import { WebVitals } from "@/components/telemetry/web-vitals";
+import { LazyWebVitals } from "@/components/telemetry/web-vitals-lazy";
 import { ConsentBanner } from "@/components/analytics/consent-banner";
 import { Ga4Gate } from "@/components/analytics/ga4-gate";
 import { LiveRegion } from "@/components/a11y/live-region";
@@ -197,7 +197,7 @@ export default function RootLayout({
         <LiveRegion />
         {/* Privacy-safe Web Vitals — only mounted when a telemetry endpoint is
             configured; otherwise this is not rendered and ships no listener. */}
-        {isTelemetryEnabled() && <WebVitals />}
+        {isTelemetryEnabled() && <LazyWebVitals />}
         {/* Consent-first analytics: the banner asks once, the gate acts on the
             stored answer. Until an explicit yes, no analytics code loads and no
             request to any Google origin exists — see src/lib/analytics. */}

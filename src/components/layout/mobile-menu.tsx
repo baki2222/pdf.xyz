@@ -15,12 +15,13 @@ interface Recent {
 
 /** Recent tools, named — read when the menu opens, never with the page. */
 async function readRecentTools(): Promise<Recent[]> {
-  const [{ readRecents }, { getToolBySlug }] = await Promise.all([
+  // The directory, not the catalogue: names are all this reads.
+  const [{ readRecents }, { getToolEntry }] = await Promise.all([
     import("@/lib/intent/recents"),
-    import("@/lib/tools"),
+    import("@/lib/tools/directory"),
   ]);
   return readRecents()
-    .map((r) => ({ slug: r.slug, name: getToolBySlug(r.slug)?.name ?? "" }))
+    .map((r) => ({ slug: r.slug, name: getToolEntry(r.slug)?.name ?? "" }))
     .filter((r) => r.name)
     .slice(0, 4);
 }

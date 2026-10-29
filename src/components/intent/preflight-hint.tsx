@@ -11,7 +11,7 @@ import { hintFor } from "@/lib/intent/hints";
 import { confirmLeave } from "@/lib/intent/unsaved";
 import type { PdfProbe } from "@/lib/pdf/probe-result";
 import { whereFor } from "@/lib/pdf/remedies";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,7 +61,7 @@ export function PreflightHint({
   const href = `/tools/${hint.toolSlug}`;
   const where = carries
     ? null
-    : whereFor(getToolBySlug(hint.toolSlug)?.processing ?? "client");
+    : whereFor(getToolEntry(hint.toolSlug)?.processing ?? "client");
 
   const open = async () => {
     const { launchWithFiles } = await import("@/lib/intent/launch");

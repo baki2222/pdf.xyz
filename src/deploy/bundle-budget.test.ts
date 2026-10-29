@@ -439,7 +439,59 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * duplicated copies, measured 816 / 267.8 here and the row went to
  * 856 / 277.8; the copies are gone, so that figure would hand them out.)
  */
-const EVERY_TOOL_PAGE = { kb: 851, gzKb: 276.1 } as const;
+/*
+ * LOWERED 2026-10-29 — the first-load wave (perf/first-load-wave2), and
+ * something got LIGHTER on every page. main 08beadda and the wave, both
+ * built and weighed with the shared weigher, raw KB / gz KB:
+ *
+ *     row             before         after          delta          ceiling (was)
+ *     homepage        652 / 207.61   618 / 196.56   -34 / -11.05   641 / 199.6  (675 / 210.7)
+ *     rotate-pdf      783 / 252.42   702 / 225.76   -81 / -26.66   724 / 229.8  (805 / 256.5)
+ *     ocr-pdf         793 / 255.38   711 / 228.67   -82 / -26.70   731 / 230.5  (813 / 257.3)
+ *     summarize-pdf   800 / 259.62   718 / 232.96   -82 / -26.66   740 / 236.3  (822 / 263.0)
+ *     guide (merge)   632 / 199.98   601 / 189.85   -31 / -10.13   634 / 193.3  (665 / 203.5)
+ *     404             636 / 201.10   602 / 190.04   -34 / -11.06   641 / 195.5  (675 / 206.6)
+ *     /tools          688 / 218.03   652 / 205.50   -36 / -12.52   679 / 209.6  (715 / 222.2)
+ *     /workspace      745 / 236.27   712 / 224.55   -33 / -11.72   739 / 229.2  (772 / 241.0)
+ *     /status         708 / 224.75   677 / 214.63   -31 / -10.12   714 / 221.8  (745 / 232.0)
+ *     all 50 tools    773-818 / 247.70-264.98  ->  695-735 / 221.84-239.04,
+ *                     every one -77..-85 raw / -25.18..-28.28 gz
+ *
+ * What left, by module, measured from webpack's chunk graph on the build:
+ *   every page   tailwind-merge (~8.5 gz): `cn()` is clsx now, and the 14
+ *                override sites it resolved are written without the
+ *                override (src/tests/class-conflicts.ts); Next's
+ *                web-vitals library (~2.7 gz), which the layout imported
+ *                to mount only with telemetry on (web-vitals-lazy.tsx).
+ *   tool pages   the tool catalogue (~6.6 gz + the modules it carried): the
+ *                hand-off, ticket-rail and remedy code read the five fields
+ *                they need from `@/lib/tools/directory` (generated, tested
+ *                against the catalogue); page copying and its structure walk
+ *                (~9.5 gz) behind `engine.ts`'s call-time import, and the
+ *                engine itself off the worker pages (`engine-errors.ts`,
+ *                `rotation.ts`); the thumbnail, cover, raster and grayscale
+ *                renderers (~2.3-2.7 gz) imported when a file arrives; the
+ *                range parser and file helpers off the route chunk
+ *                (`raster-format.ts`); Split's modes with the document.
+ *
+ * Each ceiling came down by exactly its row's saving (gz floored to the
+ * tenth), so every row keeps the headroom it had — none of the ~11-27 KB gz
+ * freed is handed out, and what the redesign still has to add (the test
+ * after BUDGETS) is held against the same room as before. The tool rows'
+ * old ceilings would have let a page regain the whole catalogue and
+ * tailwind-merge unseen.
+ *
+ * EVERY_TOOL_PAGE by the same rule, the smallest saving across the 50
+ * (-77 raw, translate-pdf; -25.18 gz, watermark-pdf): 851 / 276.1 ->
+ * 774 / 250.9, over a heaviest of 735 / 239.04 (edit-pdf).
+ *
+ * The polyfills chunk (110 KB raw, 38.6 gz) is still in every row: the
+ * weigher counts every chunk the HTML names, and this one is `noModule`,
+ * so no browser that runs this app downloads it (a local `next start`
+ * measured 165 KB of JS transferred for the homepage against 196.6 here).
+ * That is a fact about the unit, not a saving, and nothing here claims it.
+ */
+const EVERY_TOOL_PAGE = { kb: 774, gzKb: 250.9 } as const;
 const BUDGETS = [
   // TIGHTENED 700 -> 675 on 2026-10-08: the homepage weighs 635 KB once the
   // catalogue left it (b9ccf092). Same +40 KB margin as the tool pages; under
@@ -466,7 +518,9 @@ const BUDGETS = [
   // measured, +0.17 — the layout +0.09 and the map and telemetry reasons
   // +0.09 that every page pays (above the rows). With the layout's
   // remainder (1.02) still to come it has 0.05 to spare.
-  { name: "homepage", html: "index.html", kb: 675, gzKb: 210.7 },
+  //
+  // LOWERED 675 / 210.7 -> 641 / 199.6 on 2026-10-29 (the wave, above).
+  { name: "homepage", html: "index.html", kb: 641, gzKb: 199.6 },
   // LOWERED 1200 → 1100 on 2026-09-17, and this time something got LIGHTER:
   // jszip left the tool pages' load-time graph (a 129 KB chunk that rode
   // every page via the static import in src/lib/pdf/browser.ts, now fetched
@@ -568,23 +622,26 @@ const BUDGETS = [
   // WP-08 repair (2026-10-11): 252.06, 252.54 and 258.15 (+0.30, +0.29,
   // +0.29; itemised above the rows). Unchanged ceilings; 1.2 / 1.5 / 1.6 to
   // spare.
+  //
+  // LOWERED 2026-10-29 by each row's saving (the wave, above): 805 / 256.5
+  // -> 724 / 229.8, 813 / 257.3 -> 731 / 230.5, 822 / 263.0 -> 740 / 236.3.
   {
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
-    kb: 805,
-    gzKb: 256.5,
+    kb: 724,
+    gzKb: 229.8,
   },
   {
     name: "a worker tool page",
     html: "tools/ocr-pdf.html",
-    kb: 813,
-    gzKb: 257.3,
+    kb: 731,
+    gzKb: 230.5,
   },
   {
     name: "an AI tool page",
     html: "tools/summarize-pdf.html",
-    kb: 822,
-    gzKb: 263.0,
+    kb: 740,
+    gzKb: 236.3,
   },
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
@@ -602,11 +659,12 @@ const BUDGETS = [
   // was: no runner, no pdf-lib, no catalogue (the desk reads its tool from
   // the server, and the hand-off code arrives with a file). Re-repaired:
   // the same 201.5.
+  // LOWERED 665 / 203.5 -> 634 / 193.3 on 2026-10-29 (the wave, above).
   {
     name: "a guide page",
     html: "guides/how-to-merge-pdf-files.html",
-    kb: 665,
-    gzKb: 203.5,
+    kb: 634,
+    gzKb: 193.3,
   },
   // NEW 2026-10-09. The root 404 ships with EVERY route, which is why the
   // catalogue riding it reached every page (b9ccf092); it had no budget of its
@@ -617,7 +675,8 @@ const BUDGETS = [
   // 404 inherits lost the old upload zone), main added 0.8. Unchanged. (The
   // merge's first build measured 202.9; 2.0 of it the layout's duplicated
   // copies — fixed, above the rows.)
-  { name: "the 404 page", html: "_not-found.html", kb: 675, gzKb: 206.6 },
+  // LOWERED 675 / 206.6 -> 641 / 195.5 on 2026-10-29 (the wave, above).
+  { name: "the 404 page", html: "_not-found.html", kb: 641, gzKb: 195.5 },
   // NEW 2026-10-09. Both are prerendered (they read nothing from the request;
   // pages-static.test.ts holds them to that), so they are weighed here like
   // every other page rather than in a browser. Measured 675 / 214.2 and
@@ -674,14 +733,18 @@ const BUDGETS = [
   //               recovered here to nobody in particular.
   // Both rows were past the redesign's allowance for them before WP-07
   // (/tools 219.2, /workspace 238.0).
-  { name: "the tools explorer", html: "tools.html", kb: 715, gzKb: 222.2 },
-  { name: "the workspace", html: "workspace.html", kb: 772, gzKb: 241.0 },
+  //
+  // LOWERED 2026-10-29 (the wave, above): /tools 715 / 222.2 -> 679 / 209.6,
+  // /workspace 772 / 241.0 -> 739 / 229.2.
+  { name: "the tools explorer", html: "tools.html", kb: 679, gzKb: 209.6 },
+  { name: "the workspace", html: "workspace.html", kb: 739, gzKb: 229.2 },
   // ADDED 2026-10-23. The status page had no row, and that is how it carried
   // pdf-lib and the tool catalogue unnoticed: 1,193 KB raw / 418.5 KB gz on
   // production, then 707 / 224.1 once alert-vocabulary.ts cut the chain
   // (lazy-chunks.test.ts holds the pdf-lib half). The homepage's margins: a
   // pdf-lib-sized return cannot fit under either ceiling.
-  { name: "the status page", html: "status.html", kb: 745, gzKb: 232.0 },
+  // LOWERED 745 / 232.0 -> 714 / 221.8 on 2026-10-29 (the wave, above).
+  { name: "the status page", html: "status.html", kb: 714, gzKb: 221.8 },
 ] as const;
 
 /**
@@ -705,10 +768,23 @@ const BUDGETS = [
  * review, rule 2).
  */
 const LAYOUT = {
-  /** G.1: the root layout's growth for the whole programme, KB gz. */
-  allowanceKb: 2.5,
-  /** The root layout chunk at 8fd8048a (WP-07's base), bytes gz. */
-  baseBytes: 7_071,
+  /**
+   * What is LEFT of G.1's 2.5 KB gz for the root layout's growth, at the
+   * base below. WAS 2.5 over 7,071 B (8fd8048a, WP-07's base); on 2026-10-29
+   * the layout measured 9,457 B on main 08beadda — 2.33 of the 2.5 spent,
+   * 0.17 left — and the wave took Next's web-vitals library out of it
+   * (web-vitals-lazy.tsx): 6,754 B. The base moved to what is left, not to
+   * a fresh 2.5: re-anchoring with the whole allowance would hand the layout
+   * the 2.7 KB the wave freed.
+   */
+  allowanceKb: 0.17,
+  /**
+   * The root layout chunk on the wave's builds, 2026-10-29, bytes gz:
+   * 6,753-6,754 measured, set 14 B under so chunk-id churn between machines
+   * cannot trip the health check below (being under only makes the
+   * remainder smaller).
+   */
+  baseBytes: 6_740,
 };
 /** G.1, tool pages: 10.0 − (0.8 + 4.5 + 1.5 + 0.3 + 2.5), held by no package. */
 const UNALLOCATED = 0.4;
@@ -826,8 +902,9 @@ describe("client bundle budget", () => {
     const layout = layoutChunkGzBytes("index.html");
     // Health: the layout chunk was found and weighed, and has not shrunk
     // below the base it is measured from (a reader that found nothing would
-    // credit every row the whole allowance).
-    expect(layout).toBeGreaterThan(LAYOUT.baseBytes);
+    // credit every row the whole allowance; a layout that got lighter moves
+    // the base, as on 2026-10-29).
+    expect(layout).toBeGreaterThanOrEqual(LAYOUT.baseBytes);
     const layoutLeft = LAYOUT.allowanceKb - (layout - LAYOUT.baseBytes) / 1024;
     expect(
       layoutLeft,
@@ -1020,11 +1097,19 @@ describe("client bundle budget", () => {
   // not-found ships with every route: the whole catalogue (~32 KB raw) landed
   // in the homepage's and every guide's first load. Both stayed under their
   // 700 KB budgets, so nothing failed. This reads the CONTENT of the first-load
-  // chunks instead: no tool's tagline may be in them on a page that renders no
-  // tool UI. Markers are derived from the catalogue — every tagline a tool
-  // page's own first load carries verbatim (a template-literal tagline such as
-  // PDF/A's is stored in pieces, so it cannot be a marker) — and that tool
-  // page, which needs the catalogue, is the positive control.
+  // chunks instead: no tool's tagline may be in them on a page that does not
+  // need it. Markers are derived from the catalogue — every tagline the
+  // explorer's own first load carries verbatim (a template-literal tagline
+  // such as PDF/A's is stored in pieces, so it cannot be a marker) — and the
+  // explorer, which needs the catalogue, is the positive control.
+  //
+  // TOOL PAGES ARE CHECKED TOO since 2026-10-29. Until then every tool page
+  // was exempt and rotate-pdf was the control, because the hand-off notice,
+  // the ticket rail and the remedy builder read other tools' names and
+  // formats from `@/lib/tools`. They read `@/lib/tools/directory` now (five
+  // fields, generated from the catalogue), and the catalogue left every tool
+  // page's first load: rotate-pdf 50 -> 0 taglines. The exemption would have
+  // let it walk back unseen.
   it("ships the tool catalogue only on pages that need it", () => {
     if (!built) return;
     // Each page's first load is read ONCE, and each chunk file once across
@@ -1051,16 +1136,16 @@ describe("client bundle budget", () => {
       }
       return text;
     };
-    const control = firstLoad("tools/rotate-pdf.html");
+    const control = firstLoad("tools.html");
     const markers = tools
       .map((t) => t.tagline)
       .filter((tagline) => control.includes(tagline));
-    // Positive control and health check in one: the tool page carries nearly
+    // Positive control and health check in one: the explorer carries nearly
     // every tagline. Fewer means the reader went blind (wrong chunk set, a
     // catalogue that moved behind a boundary) and an empty list would pass.
     expect(
       markers.length,
-      `positive control: rotate-pdf's first load carries only ${markers.length} of ${tools.length} taglines`,
+      `positive control: the explorer's first load carries only ${markers.length} of ${tools.length} taglines`,
     ).toBeGreaterThanOrEqual(tools.length - 5);
     // The pages checked are DERIVED: every page the build prerendered. A typed
     // list (it was index.html and one guide) cannot see the next route that
@@ -1075,8 +1160,6 @@ describe("client bundle budget", () => {
       // only on the alert-posture → observability-barrel chain that also
       // carried pdf-lib, and left with it (2026-10-23, alert-vocabulary.ts).
     };
-    const isToolPage = (html: string) =>
-      tools.some((t) => html === `tools/${t.slug}.html`);
     const pages = prerenderedPages(NEXT_DIR);
     // Health check, both ways: the walk sees the whole site (89 pages counted
     // on 2026-10-09: 50 tools, 22 guides, 8 categories and 9 others, one of
@@ -1089,12 +1172,12 @@ describe("client bundle budget", () => {
       return markers.filter((m) => text.includes(m)).length;
     };
     const leaks = pages
-      .filter((html) => !isToolPage(html) && !(html in NEEDS_CATALOGUE))
+      .filter((html) => !(html in NEEDS_CATALOGUE))
       .map((html) => ({ html, taglines: carrying(html) }))
       .filter((row) => row.taglines > 0);
     expect(
       leaks,
-      `pages that render no tool UI load the tool catalogue up front — a client component they render imports @/lib/tools`,
+      `pages that do not need the tool catalogue load it up front — a client component they render imports @/lib/tools (a tool page's runner reads other tools from @/lib/tools/directory)`,
     ).toEqual([]);
     const stale = Object.keys(NEEDS_CATALOGUE).filter(
       (html) => !pages.includes(html) || carrying(html) === 0,
