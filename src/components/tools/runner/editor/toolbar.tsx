@@ -172,6 +172,10 @@ export const TOOL_BUTTONS: ToolButtonSpec[] = TOOL_GROUPS.flatMap((g) =>
 
 export const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 
+/** Why every tool but Select is off on a restricted PDF (its tooltip). */
+export const LOCKED_TOOL_REASON =
+  "Locked by the PDF's author: enter the owner password to use this tool";
+
 function ToolButton({
   label,
   shortcut,
@@ -180,6 +184,7 @@ function ToolButton({
   onClick,
   icon: Icon,
   showLabel = true,
+  reason,
 }: {
   label: string;
   shortcut?: string;
@@ -188,6 +193,8 @@ function ToolButton({
   onClick: () => void;
   icon: typeof Type;
   showLabel?: boolean;
+  /** Shown as the tooltip of a disabled button: why it is off. */
+  reason?: string;
 }) {
   return (
     <button
@@ -195,7 +202,13 @@ function ToolButton({
       aria-label={showLabel ? undefined : label}
       aria-pressed={pressed}
       aria-keyshortcuts={shortcut}
-      title={shortcut ? `${label} (${shortcut})` : label}
+      title={
+        disabled && reason
+          ? `${label}: ${reason}`
+          : shortcut
+            ? `${label} (${shortcut})`
+            : label
+      }
       aria-disabled={disabled || undefined}
       onClick={() => {
         if (!disabled) onClick();
@@ -308,7 +321,10 @@ export function EditorToolbar({
   onFind,
   onPages,
   pagesOpen = false,
+  locked = false,
 }: {
+  /** A restricted PDF without its owner password: only Select works. */
+  locked?: boolean;
   finding: boolean;
   onFind: () => void;
   /** Phones: open the Pages sheet (wider screens have the rail). */
@@ -347,6 +363,8 @@ export function EditorToolbar({
                   icon={b.icon}
                   shortcut={b.key || undefined}
                   pressed={tool === t}
+                  disabled={locked && t !== "select"}
+                  reason={LOCKED_TOOL_REASON}
                   onClick={() => onTool(t)}
                 />
               );
@@ -374,6 +392,8 @@ export function EditorToolbar({
           icon={Replace}
           shortcut="Control+F"
           pressed={finding}
+          disabled={locked}
+          reason={LOCKED_TOOL_REASON}
           onClick={onFind}
         />
       </Group>

@@ -79,6 +79,7 @@ export function SinglePdfRunner({
   writesPdf = true,
   reader = "pdf-lib",
   prepare,
+  openProtected = false,
 }: {
   hint?: string;
   children: (pdf: LoadedPdf, reset: () => void) => ReactNode;
@@ -101,6 +102,11 @@ export function SinglePdfRunner({
   reader?: PdfReader;
   /** Fetched while the file opens, before the editor draws — see `useSinglePdf`. */
   prepare?: () => Promise<void>;
+  /**
+   * Open a PDF whose author restricted it (no password needed to open) with
+   * those restrictions on `pdf.protection` — see `useSinglePdf`.
+   */
+  openProtected?: boolean;
 }) {
   // A tool with a preflight hint (E.9) probes the file as it opens.
   const slug = useToolRun()?.slug ?? "";
@@ -108,6 +114,7 @@ export function SinglePdfRunner({
     reader,
     preflight: hintNeedFor(slug),
     prepare,
+    openProtected,
   });
   // Self-claim only when a parent hasn't already provided a claimed hand-off.
   const selfHandoff = useToolHandoff(providedHandoff ? undefined : handoffSlug);

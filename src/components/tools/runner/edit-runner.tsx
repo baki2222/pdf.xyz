@@ -32,6 +32,9 @@ export function EditRunner() {
       downloadLabel="Download edited PDF"
       outputName={editedOutputName}
       footer={<EditorFooter />}
+      // A PDF its author restricted opens with only what the author allows:
+      // its form can be filled, and the copy keeps the author's protection.
+      openProtected
     />
   );
 }

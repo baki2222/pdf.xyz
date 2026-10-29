@@ -54,11 +54,17 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
  *    signature goes through embedDrawingFont, whose SUPPORTED_SCRIPTS include
  *    Cyrillic, Greek, Bengali and Han, and whose UNSUPPORTED_SCRIPTS include
  *    Arabic;
- *  - loadPdf (src/lib/pdf/engine.ts) refuses encrypted input with "Unlock it
- *    first". pdf-lib throws EncryptedPDFError whenever the trailer has
- *    /Encrypt, so a file encrypted only to restrict permissions (it opens
- *    without a password) is refused too. Unlock PDF is processing "server" in
- *    the catalogue and needs a password (src/lib/jobs/pdf-security.ts);
+ *  - encrypted input: a file that needs a password to open is refused (the
+ *    probe's "password-protected" sentence). One that opens without a
+ *    password (owner/permissions only) OPENS since 2026-10-29: the runner
+ *    passes `openProtected`, the file is decrypted in the browser
+ *    (src/lib/pdf/security), its fields are filled only if /P grants it
+ *    (bit 9 or 6), flatten is off, and the copy is the original plus an
+ *    incremental update under the author's own encryption — /Encrypt, /ID,
+ *    O/U untouched (protected-pdf.test.ts reads it back with pdf.js). The
+ *    owner password, typed in the page, unlocks everything and the copy is
+ *    then unencrypted. Unlock PDF is processing "server" in the catalogue
+ *    and needs a password (src/lib/jobs/pdf-security.ts);
  *  - download name: filledFormsOutputName → outputName(name, "filled");
  *  - size cap: the fill-forms runner's gate, read via toolFileCeilingMb.
  *
@@ -151,7 +157,7 @@ const content: ToolContent = {
     },
     {
       q: "Does the form leave my computer, and what about a locked PDF?",
-      a: `No. Your browser reads the PDF, up to ${ceilingMb} MB, writes the answers and builds the download itself. Any encrypted PDF is refused as soon as it opens, including one encrypted only to restrict editing or printing, with a message asking you to unlock it first. Removing that lock takes Unlock PDF, which needs the password and runs server-side rather than here: it sends the file over TLS to pdf.xyz's secure worker, deletes the input once the job finishes, and keeps the download link alive for ${LINK_MINUTES} minutes.`,
+      a: `No. Your browser reads the PDF, up to ${ceilingMb} MB, writes the answers and builds the download itself. A PDF that needs a password to open is refused, with a message saying so. One that opens without a password but whose author restricted it opens here with the author's rules in force: if they allow filling in the form you can fill it, flattening stays off, and the copy keeps the author's encryption, restrictions and owner password. Typing the owner password into the page unlocks everything for that file, checked in your browser and not sent anywhere, and the copy is then saved without encryption. Removing a password you know from a file outright takes Unlock PDF, which runs server-side rather than here: it sends the file over TLS to pdf.xyz's secure worker, deletes the input once the job finishes, and keeps the download link alive for ${LINK_MINUTES} minutes.`,
     },
   ],
 

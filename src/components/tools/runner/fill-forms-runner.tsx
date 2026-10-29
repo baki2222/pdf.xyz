@@ -26,6 +26,7 @@ import { RunBar } from "./run-bar";
 import { useUnsavedGuard } from "./use-unsaved-guard";
 import { FileHeader, SinglePdfRunner } from "./single-pdf-runner";
 import { PrivacyLine } from "./stamp-controls";
+import { ProtectionBanner } from "./protection-banner";
 import type { LoadedPdf } from "./use-single-pdf";
 
 export function FillFormsRunner() {
@@ -34,6 +35,9 @@ export function FillFormsRunner() {
       hint="One PDF · existing form fields are filled locally in your browser"
       handoffSlug="fill-forms"
       toolName="Fill Forms"
+      // A PDF its author restricted, that still allows filling, is filled
+      // and saved back under the author's own encryption.
+      openProtected
     >
       {(pdf, reset) => <FormInspector pdf={pdf} onReset={reset} />}
     </SinglePdfRunner>
@@ -210,6 +214,11 @@ function FieldsEditor({
   onReset: () => void;
 }) {
   const { busy, error, result, run, reset } = useAsyncRun<FillFormsResult>();
+  const protection = pdf.protection;
+  const [unlocked, setUnlocked] = useState(() => protection?.unlocked ?? false);
+  // Restricted: no owner password yet, so only what the author allows.
+  const restricted = protection !== undefined && !unlocked;
+  const canFill = !restricted || (protection?.canFillForms ?? true);
   const [values, setValues] = useState<Record<string, FieldValue>>(() =>
     initialValues(inspection.fields),
   );
@@ -241,7 +250,15 @@ function FieldsEditor({
   const onRun = () => {
     void run(async () => {
       const { applyFormValues } = await import("@/lib/pdf/forms");
-      return applyFormValues(pdf.bytes, values, { flatten });
+      if (!restricted || !protection)
+        return applyFormValues(pdf.bytes, values, { flatten });
+      // Flattening rewrites the page, which the author did not allow; the
+      // values go into the fields, saved back under the author's encryption.
+      const filled = await applyFormValues(pdf.bytes, values, {
+        flatten: false,
+      });
+      const saved = await protection.saveChanges(filled.bytes);
+      return { ...filled, bytes: saved.bytes };
     });
   };
 
@@ -265,6 +282,7 @@ function FieldsEditor({
             {result.appliedCount} field{result.appliedCount === 1 ? "" : "s"}{" "}
             filled
             {result.flattened ? " · flattened to static content" : ""}
+            {restricted ? " · author's protection kept" : ""}
             {flattenFailed && (
               <span className="border-warn/40 bg-warn/10 text-warn rounded-panel mt-3 flex items-start gap-2 border px-3 py-2 text-xs leading-relaxed">
                 <TriangleAlert
@@ -307,6 +325,14 @@ function FieldsEditor({
   return (
     <div className="flex flex-col gap-5">
       <FileHeader pdf={pdf} />
+      {protection && (
+        <ProtectionBanner
+          protection={protection}
+          unlocked={unlocked}
+          surface="forms"
+          onUnlocked={() => setUnlocked(true)}
+        />
+      )}
 
       <RunnerSection
         title="Form fields"
@@ -319,7 +345,13 @@ function FieldsEditor({
           </span>
         }
       >
-        <div className="border-line bg-wash divide-line rounded-panel flex flex-col divide-y overflow-hidden border">
+        <fieldset
+          disabled={!canFill}
+          className={cn(
+            "border-line bg-wash divide-line rounded-panel flex flex-col divide-y overflow-hidden border",
+            !canFill && "opacity-60",
+          )}
+        >
           {editable.map((field) => (
             <FieldRow key={field.name} field={field}>
               <FieldControl
@@ -334,16 +366,24 @@ function FieldsEditor({
               <ReadOnlyControl field={field} />
             </FieldRow>
           ))}
-        </div>
+        </fieldset>
       </RunnerSection>
 
       {unsupported.length > 0 && <UnsupportedNote fields={unsupported} />}
 
-      <label className="border-line bg-wash rounded-panel flex cursor-pointer items-start gap-3 border p-4">
+      <label
+        className={cn(
+          "border-line bg-wash rounded-panel flex items-start gap-3 border p-4",
+          restricted ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+        )}
+      >
         <input
           type="checkbox"
-          checked={flatten}
-          onChange={(event) => setFlatten(event.target.checked)}
+          checked={flatten && !restricted}
+          aria-disabled={restricted || undefined}
+          onChange={(event) => {
+            if (!restricted) setFlatten(event.target.checked);
+          }}
           className="accent-accent mt-0.5 size-4"
         />
         <span className="flex flex-col gap-0.5">
@@ -351,8 +391,9 @@ function FieldsEditor({
             Flatten after filling
           </span>
           <span className="text-muted text-xs leading-relaxed">
-            Bake the values into the page so they can&apos;t be edited or
-            cleared in a viewer. Leave off to keep the form interactive.
+            {restricted
+              ? "Flattening changes the page content, which this PDF's author doesn't allow without the owner password."
+              : "Bake the values into the page so they can't be edited or cleared in a viewer. Leave off to keep the form interactive."}
           </span>
         </span>
       </label>
@@ -366,7 +407,12 @@ function FieldsEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton onClick={onRun} busy={busy} busyLabel="Filling…">
+          <RunButton
+            onClick={onRun}
+            busy={busy}
+            disabled={!canFill}
+            busyLabel="Filling…"
+          >
             <PenLine className="size-4" aria-hidden />
             Fill form
           </RunButton>

@@ -12,6 +12,7 @@ import type { HintReason } from "@/lib/intent/hint-tools";
 import { readPreflight } from "@/components/intent/preflight-hint-chunk";
 import type { PdfProbe } from "@/lib/pdf/probe-result";
 import type { Rotation } from "@/lib/pdf/types";
+import type { ProtectedPdf } from "@/lib/pdf/security/protected-pdf";
 import { errorMessage } from "./runner-kit";
 
 export interface LoadedPdf {
@@ -31,6 +32,13 @@ export interface LoadedPdf {
    * it could not run, absent for a tool that has no hint to give.
    */
   probe?: PdfProbe | null;
+  /**
+   * Set for an encrypted PDF that opens without a password, opened by a
+   * tool that asked to (`openProtected`): `bytes` is then its DECRYPTED
+   * copy, and this holds the author's grant, the original file and the key
+   * to save the changes the grant allows (`@/lib/pdf/security`).
+   */
+  protection?: ProtectedPdf;
 }
 
 /**
@@ -77,6 +85,14 @@ export interface UseSinglePdfOptions {
    * failure is the editor's to absorb; the file still opens.
    */
   prepare?: () => Promise<void>;
+  /**
+   * Open an encrypted PDF that needs no password to open, the way a viewer
+   * does — decrypted in the browser, with its author's restrictions on
+   * {@link LoadedPdf.protection} for the tool to honour — instead of
+   * refusing it. Only for a tool that honours them: Edit PDF and Fill Forms
+   * fill the form and save it back under the author's encryption.
+   */
+  openProtected?: boolean;
 }
 
 /**
@@ -114,6 +130,7 @@ export function useSinglePdf({
   reader = "pdf-lib",
   preflight = null,
   prepare,
+  openProtected = false,
 }: UseSinglePdfOptions = {}) {
   const [pdf, setPdf] = useState<LoadedPdf | null>(null);
   const [locked, setLocked] = useState<LockedPdf | null>(null);
@@ -154,6 +171,22 @@ export function useSinglePdf({
         });
       } catch (err) {
         setPdf(null);
+        // A restricted file, for a tool that honours its author's grant:
+        // opened decrypted (`./open-protected`, its own chunk), or refused
+        // below as before.
+        const opened =
+          openProtected &&
+          bytes &&
+          err instanceof PdfEngineError &&
+          err.kind === "encrypted"
+            ? await import("./open-protected")
+                .then((m) => m.openProtectedCopy(file, bytes!, reader, prepare))
+                .catch(() => null)
+            : null;
+        if (opened) {
+          setPdf(opened);
+          return;
+        }
         const access =
           classifyLocked &&
           bytes &&
@@ -172,7 +205,7 @@ export function useSinglePdf({
         setLoading(false);
       }
     },
-    [classifyLocked, reader, preflight, prepare],
+    [classifyLocked, reader, preflight, prepare, openProtected],
   );
 
   const clear = useCallback(() => {

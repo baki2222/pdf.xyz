@@ -413,7 +413,10 @@ export function WysiwygEditor({
   runBar,
   firstStep,
   footer,
+  notice,
 }: {
+  /** Above everything under the file's name: a restricted PDF's banner. */
+  notice?: ReactNode;
   pdf: LoadedPdf;
   /**
    * The editor's state lives with its RUNNER (`edit-runner.tsx`, which owns
@@ -1241,6 +1244,8 @@ export function WysiwygEditor({
   const chooseTool = useCallback(
     (tool: Tool) => {
       dispatch({ type: "tool", tool });
+      // Locked: the reducer refused it and said why; open no panel either.
+      if (stateRef.current.lock && tool !== "select") return;
       const held = stateRef.current.pending;
       setSigning(tool === "signature" && (!held || held.kind === "image"));
       if (tool === "image") imageInput.current?.click();
@@ -1984,6 +1989,7 @@ export function WysiwygEditor({
       }
       if (mod && key === "f") {
         e.preventDefault();
+        if (s.lock) return;
         setFinding(true);
         return;
       }
@@ -2078,6 +2084,12 @@ export function WysiwygEditor({
       has no text to edit — to change a scan&apos;s words, use PDF to Word with
       “Recognise text in scans (OCR)”.
     </p>
+  ) : state.lock ? (
+    <p className="text-muted text-xs leading-relaxed" data-locked-help="">
+      {state.lock.fill
+        ? "Click a form field on the page to fill it in. The other tools need the owner password."
+        : "This PDF's author allows no changes. Enter the owner password above to unlock the tools."}
+    </p>
   ) : (
     <p className="text-muted text-xs leading-relaxed">
       Pick a tool, then click on a page to place it. Select an item to move it,
@@ -2140,6 +2152,7 @@ export function WysiwygEditor({
       onFind={() => setFinding((f) => !f)}
       onPages={wide ? undefined : () => setPagesOpen((o) => !o)}
       pagesOpen={pagesOpen}
+      locked={state.lock !== null}
     />
   );
 
@@ -2177,6 +2190,7 @@ export function WysiwygEditor({
             if (narrow) setPagesOpen(false);
           }}
           ops={pageOps}
+          locked={state.lock !== null}
           layout="sheet"
         />
       </section>
@@ -2189,6 +2203,7 @@ export function WysiwygEditor({
       data-wysiwyg-editor=""
     >
       <FileHeader pdf={pdf} />
+      {notice}
       {firstStep}
       {liveRegion}
       <input
@@ -2321,6 +2336,7 @@ export function WysiwygEditor({
                 current={current}
                 onJump={jumpTo}
                 ops={pageOps}
+                locked={state.lock !== null}
               />
             )}
           </div>
@@ -2364,6 +2380,7 @@ export function WysiwygEditor({
                     turn={pages[slot.index]?.rotate ?? 0}
                     widgets={widgetsOn(slot.index)}
                     fills={state.fills}
+                    fillLocked={state.lock !== null && !state.lock.fill}
                     onFill={(name, value) =>
                       dispatch({ type: "fill", name, value })
                     }
@@ -2595,6 +2612,7 @@ function PageSheet({
   turn,
   widgets,
   fills,
+  fillLocked,
   onFill,
   count,
   frame,
@@ -2633,6 +2651,8 @@ function PageSheet({
   /** The file's own form fields on this page, to fill in place. */
   widgets: PlacedWidget[];
   fills: Readonly<Record<string, FieldFill>>;
+  /** The file's author does not allow filling its form. */
+  fillLocked: boolean;
   onFill: (name: string, value: FieldFill | null) => void;
   count: number;
   frame: ExportFrame;
@@ -2963,6 +2983,7 @@ function PageSheet({
           fills={fills}
           scale={scale}
           onFill={onFill}
+          locked={fillLocked}
         />
       )}
 
@@ -3023,11 +3044,14 @@ function FormFillLayer({
   fills,
   scale,
   onFill,
+  locked = false,
 }: {
   widgets: PlacedWidget[];
   fills: Readonly<Record<string, FieldFill>>;
   scale: number;
   onFill: (name: string, value: FieldFill | null) => void;
+  /** The file's author does not allow filling: outlined, not editable. */
+  locked?: boolean;
 }) {
   const group = useId();
   return (
@@ -3057,6 +3081,7 @@ function FormFillLayer({
           style: { ...style, color: "#111827", accentColor: "#1d4ed8" },
         };
         const fillable =
+          !locked &&
           !field.readOnly &&
           field.type !== "signature" &&
           field.type !== "button";
@@ -3066,9 +3091,11 @@ function FormFillLayer({
               key={w.key}
               data-file-field={field.name}
               title={
-                field.readOnly
-                  ? `${field.name}: read-only`
-                  : `${field.name}: can't be filled here`
+                locked
+                  ? `${field.name}: the PDF's author doesn't allow filling`
+                  : field.readOnly
+                    ? `${field.name}: read-only`
+                    : `${field.name}: can't be filled here`
               }
               className="border-line-strong pointer-events-none absolute border border-dashed"
               style={style}

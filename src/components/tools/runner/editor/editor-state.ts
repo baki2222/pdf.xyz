@@ -145,7 +145,30 @@ export interface EditorState {
   fills: Record<string, FieldFill>;
   /** The file's own links, by origin ref, as they were read (once). */
   importedLinks: string[] | null;
+  /**
+   * The author's restrictions, while they hold: an encrypted PDF opened
+   * without its owner password (`@/lib/pdf/security`). Null = every tool.
+   */
+  lock: EditorLock | null;
 }
+
+/**
+ * What a restricted PDF's author allows the editor without the owner
+ * password. Only filling the file's own fields can be written back under
+ * the author's encryption (an incremental update); everything else the
+ * editor makes is page content, which the author withheld.
+ */
+export interface EditorLock {
+  /** The existing form fields may be filled (/P bit 9 or 6). */
+  fill: boolean;
+}
+
+/** What the editor says when a locked action is tried. */
+export const LOCKED_ACTION_MESSAGE =
+  "The author of this PDF doesn't allow changes to its pages. Enter the owner password to unlock every tool.";
+/** …and when filling is not allowed either. */
+export const LOCKED_FILL_MESSAGE =
+  "The author of this PDF doesn't allow filling in its form. Enter the owner password to unlock every tool.";
 
 export const INITIAL_STATE: EditorState = {
   objects: [],
@@ -160,6 +183,7 @@ export const INITIAL_STATE: EditorState = {
   pages: [],
   fills: {},
   importedLinks: null,
+  lock: null,
 };
 
 /**
@@ -170,14 +194,18 @@ export function initialEditorState({
   tool,
   pageCount,
   locale,
+  lock = null,
 }: {
   tool: Tool;
   pageCount: number;
   locale?: string;
+  lock?: EditorLock | null;
 }): EditorState {
   return {
     ...INITIAL_STATE,
-    tool,
+    // Locked, the only tool is Select (it is what fills a field).
+    tool: lock ? "select" : tool,
+    lock,
     pages: sourcePages(pageCount),
     defaults: {
       ...INITIAL_DEFAULTS,
@@ -230,7 +258,15 @@ export type EditorAction =
   | { type: "say"; message: string }
   /** The file's own links, read once when it opens: not an undo step. */
   | { type: "import"; links: EditorObject[] }
-  | { type: "fill"; name: string; value: FieldFill | null };
+  | { type: "fill"; name: string; value: FieldFill | null }
+  /** The owner password was verified: every tool, from now on. */
+  | { type: "unlock" };
+
+/** Actions that change a page, refused while the author's lock holds. */
+const LOCKED_ACTIONS: ReadonlySet<EditorAction["type"]> = new Set([
+  "commit",
+  "startEdit",
+]);
 
 function say(state: EditorState, message: string): EditorState["said"] {
   return { message, n: state.said.n + 1 };
@@ -381,7 +417,21 @@ export function editorReducer(
   state: EditorState,
   action: EditorAction,
 ): EditorState {
+  // The lock is enforced HERE, under every tool, shortcut, paste and drop:
+  // a control that forgets to disable itself still cannot change a page the
+  // author locked. (The writer refuses too — `@/lib/pdf/security/incremental`.)
+  if (state.lock) {
+    if (
+      LOCKED_ACTIONS.has(action.type) ||
+      (action.type === "tool" && action.tool !== "select")
+    )
+      return { ...state, said: say(state, LOCKED_ACTION_MESSAGE) };
+    if (action.type === "fill" && !state.lock.fill)
+      return { ...state, said: say(state, LOCKED_FILL_MESSAGE) };
+  }
   switch (action.type) {
+    case "unlock":
+      return { ...state, lock: null };
     case "commit": {
       const base = finishEdit(state);
       const done = commit(base.objects, base.history, action.command);

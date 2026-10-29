@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, lazy, useReducer, type ReactNode } from "react";
+import { Suspense, lazy, useReducer, useState, type ReactNode } from "react";
 import { Download, FileDown, Info } from "lucide-react";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { EditorExportResult } from "@/lib/pdf/editor-export";
@@ -13,6 +13,7 @@ import {
   outputFile,
   useAsyncRun,
 } from "../runner-kit";
+import { ProtectionBanner } from "../protection-banner";
 import { RunBar } from "../run-bar";
 import { SinglePdfRunner } from "../single-pdf-runner";
 import { useUnsavedGuard } from "../use-unsaved-guard";
@@ -63,6 +64,12 @@ export interface EditorRunnerConfig {
   outputName: (sourceName: string) => string;
   /** Under the editor while it is open: what this tool does, and does not. */
   footer: ReactNode;
+  /**
+   * Open a PDF its author restricted (it opens without a password) instead
+   * of refusing it: the editor then allows only what the author allows,
+   * until the owner password is entered (`../protection-banner`).
+   */
+  openProtected?: boolean;
 }
 
 export function EditorRunner(config: EditorRunnerConfig) {
@@ -72,6 +79,7 @@ export function EditorRunner(config: EditorRunnerConfig) {
       handoffSlug={config.slug}
       toolName={config.toolName}
       prepare={prepareEditor}
+      openProtected={config.openProtected}
     >
       {(pdf, reset) => (
         <EditorSession pdf={pdf} onReset={reset} config={config} />
@@ -89,15 +97,24 @@ function EditorSession({
   onReset: () => void;
   config: EditorRunnerConfig;
 }) {
+  const protection = pdf.protection;
+  const [unlocked, setUnlocked] = useState(() => protection?.unlocked ?? false);
   const [state, dispatch] = useReducer(
     editorReducer,
     {
       tool: config.initialTool,
       pageCount: pdf.pageCount,
       locale: typeof navigator === "undefined" ? undefined : navigator.language,
+      // A restricted PDF without its owner password: only what the author
+      // allows, enforced by the reducer (and again by the writer).
+      lock:
+        protection && !protection.unlocked
+          ? { fill: protection.canFillForms }
+          : null,
     },
     initialEditorState,
   );
+  const restricted = protection !== undefined && !unlocked;
   const { busy, error, result, run, reset, setError } =
     useAsyncRun<EditorExportResult>();
   const name = config.outputName(pdf.file.name);
@@ -118,11 +135,25 @@ function EditorSession({
     }
     void run(async () => {
       const { exportEditedPdf } = await import("@/lib/pdf/editor-export");
-      const out = await exportEditedPdf(pdf.bytes, objects, undefined, {
-        pages: next.pages,
-        removedLinks: removedLinks(next),
-        fills: next.fills,
-      });
+      // Restricted: the fills only, written onto the decrypted copy, then
+      // saved back as an incremental update under the author's encryption.
+      // Unlocked (or never encrypted): the whole edit, an unencrypted file.
+      const edited = restricted
+        ? await exportEditedPdf(pdf.bytes, [], undefined, {
+            fills: next.fills,
+          })
+        : await exportEditedPdf(pdf.bytes, objects, undefined, {
+            pages: next.pages,
+            removedLinks: removedLinks(next),
+            fills: next.fills,
+          });
+      const out =
+        restricted && protection
+          ? {
+              ...edited,
+              bytes: (await protection.saveChanges(edited.bytes)).bytes,
+            }
+          : edited;
       // Downloaded INSIDE the run, before it settles. `downloadBlob` clicks
       // a hidden anchor, and the runner stage's hold (`../stage-hold`) gives
       // its band back at the first click after the run settles — measured
@@ -147,6 +178,7 @@ function EditorSession({
               ]
             : []),
           `${result.pageCount} page${result.pageCount === 1 ? "" : "s"}`,
+          ...(restricted ? ["author's protection kept"] : []),
           formatBytes(result.bytes.byteLength),
         ].join(" · ")}
         onReset={onReset}
@@ -175,6 +207,19 @@ function EditorSession({
         pdf={pdf}
         state={state}
         dispatch={dispatch}
+        notice={
+          protection ? (
+            <ProtectionBanner
+              protection={protection}
+              unlocked={unlocked}
+              surface="editor"
+              onUnlocked={() => {
+                setUnlocked(true);
+                dispatch({ type: "unlock" });
+              }}
+            />
+          ) : null
+        }
         firstStep={
           config.firstStep ? (
             <p

@@ -51,7 +51,9 @@ function Thumb({
   onJump,
   dragging,
   setDragging,
+  locked,
 }: {
+  locked: boolean;
   doc: EditorPdf | null;
   page: RailPage;
   index: number;
@@ -126,7 +128,7 @@ function Thumb({
     <li
       data-rail-page={index}
       data-page-key={page.key}
-      draggable
+      draggable={!locked}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/x-editor-page", String(index));
         e.dataTransfer.effectAllowed = "move";
@@ -151,7 +153,7 @@ function Thumb({
         type="button"
         onClick={() => onJump(index)}
         onKeyDown={(e) => {
-          if (!e.altKey) return;
+          if (!e.altKey || locked) return;
           const back = e.key === "ArrowUp" || e.key === "ArrowLeft";
           const fwd = e.key === "ArrowDown" || e.key === "ArrowRight";
           if (back && index > 0) {
@@ -178,101 +180,104 @@ function Thumb({
         />
         <span className="text-muted text-[11px] tabular-nums">{n}</span>
       </button>
-      <span
-        role="group"
-        aria-label={`Page ${n}`}
-        className="flex flex-wrap justify-center gap-0.5"
-      >
-        <button
-          type="button"
-          aria-label={`Rotate page ${n}`}
-          title="Rotate 90°"
-          onClick={() => ops.onRotate(index)}
-          className={iconBtn}
+      {/* Locked by the file's author: no page operations to offer. */}
+      {!locked && (
+        <span
+          role="group"
+          aria-label={`Page ${n}`}
+          className="flex flex-wrap justify-center gap-0.5"
         >
-          <RotateCw className="size-3.5" aria-hidden />
-          Rotate
-        </button>
-        <button
-          type="button"
-          aria-label={`Insert a blank page after page ${n}`}
-          title="Insert blank page after"
-          onClick={() => ops.onInsert(index)}
-          className={iconBtn}
-        >
-          <FilePlus2 className="size-3.5" aria-hidden />
-          Blank page
-        </button>
-        <button
-          type="button"
-          aria-label={`Delete page ${n}`}
-          title={count <= 1 ? "A PDF needs at least one page" : "Delete page"}
-          aria-disabled={count <= 1 || undefined}
-          onClick={() => {
-            if (count > 1) ops.onDelete(index);
-          }}
-          className={cn(iconBase, "hover:text-err")}
-        >
-          <Trash2 className="size-3.5" aria-hidden />
-          Delete
-        </button>
-        {layout === "sheet" && (
-          <>
-            <button
-              type="button"
-              aria-label={`Move page ${n} earlier`}
-              aria-disabled={index === 0 || undefined}
-              onClick={() => {
-                if (index > 0) ops.onMove(index, index - 1);
-              }}
-              className={iconBtn}
-            >
-              <ArrowLeft className="size-3.5" aria-hidden />
-              Earlier
-            </button>
-            <button
-              type="button"
-              aria-label={`Move page ${n} later`}
-              aria-disabled={index === count - 1 || undefined}
-              onClick={() => {
-                if (index < count - 1) ops.onMove(index, index + 1);
-              }}
-              className={iconBtn}
-            >
-              <ArrowRight className="size-3.5" aria-hidden />
-              Later
-            </button>
-          </>
-        )}
-        {layout === "rail" && (
-          <>
-            <button
-              type="button"
-              aria-label={`Move page ${n} up`}
-              aria-disabled={index === 0 || undefined}
-              onClick={() => {
-                if (index > 0) ops.onMove(index, index - 1);
-              }}
-              className={cn(iconBtn, "sr-only focus:not-sr-only")}
-            >
-              <ArrowUp className="size-3.5" aria-hidden />
-              Up
-            </button>
-            <button
-              type="button"
-              aria-label={`Move page ${n} down`}
-              aria-disabled={index === count - 1 || undefined}
-              onClick={() => {
-                if (index < count - 1) ops.onMove(index, index + 1);
-              }}
-              className={cn(iconBtn, "sr-only focus:not-sr-only")}
-            >
-              <ArrowDown className="size-3.5" aria-hidden />
-              Down
-            </button>
-          </>
-        )}
-      </span>
+          <button
+            type="button"
+            aria-label={`Rotate page ${n}`}
+            title="Rotate 90°"
+            onClick={() => ops.onRotate(index)}
+            className={iconBtn}
+          >
+            <RotateCw className="size-3.5" aria-hidden />
+            Rotate
+          </button>
+          <button
+            type="button"
+            aria-label={`Insert a blank page after page ${n}`}
+            title="Insert blank page after"
+            onClick={() => ops.onInsert(index)}
+            className={iconBtn}
+          >
+            <FilePlus2 className="size-3.5" aria-hidden />
+            Blank page
+          </button>
+          <button
+            type="button"
+            aria-label={`Delete page ${n}`}
+            title={count <= 1 ? "A PDF needs at least one page" : "Delete page"}
+            aria-disabled={count <= 1 || undefined}
+            onClick={() => {
+              if (count > 1) ops.onDelete(index);
+            }}
+            className={cn(iconBase, "hover:text-err")}
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            Delete
+          </button>
+          {layout === "sheet" && (
+            <>
+              <button
+                type="button"
+                aria-label={`Move page ${n} earlier`}
+                aria-disabled={index === 0 || undefined}
+                onClick={() => {
+                  if (index > 0) ops.onMove(index, index - 1);
+                }}
+                className={iconBtn}
+              >
+                <ArrowLeft className="size-3.5" aria-hidden />
+                Earlier
+              </button>
+              <button
+                type="button"
+                aria-label={`Move page ${n} later`}
+                aria-disabled={index === count - 1 || undefined}
+                onClick={() => {
+                  if (index < count - 1) ops.onMove(index, index + 1);
+                }}
+                className={iconBtn}
+              >
+                <ArrowRight className="size-3.5" aria-hidden />
+                Later
+              </button>
+            </>
+          )}
+          {layout === "rail" && (
+            <>
+              <button
+                type="button"
+                aria-label={`Move page ${n} up`}
+                aria-disabled={index === 0 || undefined}
+                onClick={() => {
+                  if (index > 0) ops.onMove(index, index - 1);
+                }}
+                className={cn(iconBtn, "sr-only focus:not-sr-only")}
+              >
+                <ArrowUp className="size-3.5" aria-hidden />
+                Up
+              </button>
+              <button
+                type="button"
+                aria-label={`Move page ${n} down`}
+                aria-disabled={index === count - 1 || undefined}
+                onClick={() => {
+                  if (index < count - 1) ops.onMove(index, index + 1);
+                }}
+                className={cn(iconBtn, "sr-only focus:not-sr-only")}
+              >
+                <ArrowDown className="size-3.5" aria-hidden />
+                Down
+              </button>
+            </>
+          )}
+        </span>
+      )}
     </li>
   );
 }
@@ -284,6 +289,7 @@ export function ThumbnailRail({
   onJump,
   ops,
   layout = "rail",
+  locked = false,
 }: {
   doc: EditorPdf | null;
   pages: readonly RailPage[];
@@ -291,6 +297,8 @@ export function ThumbnailRail({
   onJump: (index: number) => void;
   ops: PageOps;
   layout?: "rail" | "sheet";
+  /** A restricted PDF: pages can be visited, not changed. */
+  locked?: boolean;
 }) {
   const [dragging, setDragging] = useState<number | null>(null);
   return (
@@ -319,6 +327,7 @@ export function ThumbnailRail({
             onJump={onJump}
             dragging={dragging}
             setDragging={setDragging}
+            locked={locked}
           />
         ))}
       </ol>
