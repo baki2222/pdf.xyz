@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { originPhrase, type HandoffOrigin } from "@/lib/handoff";
 import { acceptNoun } from "@/lib/intent/accept-noun";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import { Spinner } from "./runner-kit";
 import { useBringingFiles } from "./tool-context";
 import type { ToolHandoff } from "./use-tool-handoff";
@@ -56,7 +56,7 @@ export function HandoffProblem({
 }) {
   const noun = acceptNoun(handoff.accept);
   if (handoff.departed && handoff.status === "idle") {
-    const to = getToolBySlug(handoff.departed.slug)?.name;
+    const to = getToolEntry(handoff.departed.slug)?.name;
     if (!to) return null;
     return (
       <div
@@ -143,7 +143,7 @@ export function HandoffLoadedBadge({
     origin.kind === "result" ||
     origin.kind === "remedy" ||
     origin.kind === "hint"
-      ? (getToolBySlug(origin.fromSlug)?.name ?? null)
+      ? (getToolEntry(origin.fromSlug)?.name ?? null)
       : null;
   return (
     <p

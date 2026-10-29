@@ -837,7 +837,7 @@ function WorkerDeepPanel({
 
       {status === undefined ? (
         <p className="text-muted inline-flex items-center gap-2 pl-6 text-xs">
-          <Spinner className="size-3" />
+          <Spinner size="size-3" />
           Checking whether a secure worker is available…
         </p>
       ) : canRunDeep ? (

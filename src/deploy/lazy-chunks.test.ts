@@ -381,8 +381,8 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
 /**
  * What the ticket costs the visitor who brings a file: every chunk the desk
  * fetches for it, read from the desk's own chunk (the `Promise.all` of chunk
- * loads in front of the ticket's import), minus the catalogue (counted and
- * shared above) and minus what the home page already loaded.
+ * loads in front of the ticket's import), minus what the home page already
+ * loaded. Until 2026-10-29 also minus the catalogue (see the last note).
  *
  * A REGRESSION BOUND, set just above the measurement, not the plan's number.
  * The redesign planned 16 KB gz (G.1) against a 7.4 KB catalogue and before
@@ -425,13 +425,26 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * chunks of their own — counted here, where the catalogue is not. Measured
  * on both builds: excluding the catalogue 22.56 -> 23.29; INCLUDING it
  * 35.12 -> 32.58, so the ticket's whole fetch fell by 2.5 KB gz.
+ *
+ * THE CATALOGUE IS COUNTED since 2026-10-29, and the bound is the whole
+ * fetch: 23.5 excluding it -> 32.5 including it, which is TIGHTER than the
+ * 32.6 the old bound allowed. Three of the four raises above were the line
+ * between "the catalogue" and "the rest" moving while the visitor's download
+ * did not, and it moved again: the first-load wave took the catalogue off
+ * every tool page, and the modules it used to share a chunk with (the
+ * page-range parser, the file-name checks, the catalogue's own accessors)
+ * left that chunk for counted ones. Measured with this reader over main
+ * 08beadda and the wave: excluding the catalogue 23.29 -> 25.36, INCLUDING
+ * it 32.63 -> 32.02. A line a refactor moves is no bound; what a visitor
+ * fetches is. (`directory.generated.ts`, the tool names the hand-off check
+ * reads, is ~1 KB gz of that 32.02 and repeats what the catalogue says.)
  */
-const TICKET_FETCH_GZ_KB = 23.5;
+const TICKET_FETCH_GZ_KB = 32.5;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));
 
-  it(`everything the desk fetches for the ticket, beyond the catalogue and the page, stays under ${TICKET_FETCH_GZ_KB} KB gz`, () => {
+  it(`everything the desk fetches for the ticket, beyond the page, stays under ${TICKET_FETCH_GZ_KB} KB gz`, () => {
     if (!built) return;
     const all = walkJs(CHUNKS_DIR);
     const idOf = (f: string) => /^(\d+)[-.]/.exec(path.basename(f))?.[1];
@@ -470,11 +483,9 @@ describe("the ticket's on-demand fetch is bounded", () => {
     const onPage = new Set(
       chunkFiles(NEXT_DIR, "index.html").map((f) => path.resolve(f)),
     );
-    const counted = files.filter(
-      (f) => !isCatalogue(f) && !onPage.has(path.resolve(f)),
-    );
-    // Positive control: the catalogue was among the loads and was excluded.
-    expect(files.some(isCatalogue)).toBe(true);
+    const counted = files.filter((f) => !onPage.has(path.resolve(f)));
+    // Positive control: the catalogue was among the loads, and is counted.
+    expect(counted.some(isCatalogue)).toBe(true);
     const gz =
       counted.reduce(
         (sum, f) => sum + gzipSync(readFileSync(f), { level: 9 }).length,

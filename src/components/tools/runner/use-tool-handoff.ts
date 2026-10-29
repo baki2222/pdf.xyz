@@ -15,7 +15,7 @@ import {
   type ClaimedHandoff,
 } from "@/lib/handoff/claim";
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import { useToolRun } from "./tool-context";
 
 export {
@@ -113,7 +113,7 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
     forgetDeparture();
   }, []);
   const accept = useMemo(
-    () => (slug ? (getToolBySlug(slug)?.accept ?? []) : []),
+    () => (slug ? (getToolEntry(slug)?.accept ?? []) : []),
     [slug],
   );
 

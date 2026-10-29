@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 
 type Variant = "primary" | "secondary" | "outline" | "ghost";
 type Size = "sm" | "md" | "lg";
+type Weight = "medium" | "semibold";
 
 // `aria-disabled` is styled identically to `disabled` on purpose: a control that
 // stays focusable while it is unavailable (see `RunButton`) must still LOOK
@@ -9,7 +10,7 @@ type Size = "sm" | "md" | "lg";
 // primary's label is still read (every run's busy label, "Merging…"), and at
 // 60 it fell to 4.46:1 on the white panel (`design-tokens.test.ts`).
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-ctl font-medium whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-65 aria-disabled:cursor-not-allowed aria-disabled:opacity-65";
+  "inline-flex items-center justify-center gap-2 rounded-ctl whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-65 aria-disabled:cursor-not-allowed aria-disabled:opacity-65";
 
 /**
  * Token-driven, theme-scoped. `primary` is the inverted ground of whatever
@@ -30,27 +31,46 @@ const sizes: Record<Size, string> = {
   lg: "h-12 px-6 text-[15px]",
 };
 
+/**
+ * An option rather than a `className` override: cn() joins and does not merge
+ * (src/tests/class-conflicts.ts), so a caller's `font-semibold` beside the
+ * base's `font-medium` would be decided by Tailwind's emit order.
+ */
+const weights: Record<Weight, string> = {
+  medium: "font-medium",
+  semibold: "font-semibold",
+};
+
 export function buttonVariants({
   variant = "primary",
   size = "md",
+  weight = "medium",
   className,
 }: {
   variant?: Variant;
   size?: Size;
+  weight?: Weight;
   className?: string;
 } = {}) {
-  return cn(base, variants[variant], sizes[size], className);
+  return cn(base, weights[weight], variants[variant], sizes[size], className);
 }
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
   size?: Size;
+  weight?: Weight;
 };
 
-export function Button({ variant, size, className, ...props }: ButtonProps) {
+export function Button({
+  variant,
+  size,
+  weight,
+  className,
+  ...props
+}: ButtonProps) {
   return (
     <button
-      className={buttonVariants({ variant, size, className })}
+      className={buttonVariants({ variant, size, weight, className })}
       {...props}
     />
   );

@@ -162,8 +162,9 @@ export function PageTile({
       onDragEnd={onDragEnd}
       className={cn(
         "group rounded-panel relative flex flex-col items-center gap-2 border p-3 transition duration-200",
-        interactive && "cursor-pointer",
-        draggable && "cursor-grab active:cursor-grabbing",
+        draggable
+          ? "cursor-grab active:cursor-grabbing"
+          : interactive && "cursor-pointer",
         selected
           ? "border-accent/40 bg-accent/10 ring-accent/50 ring-2"
           : "border-line bg-wash hover:border-line-strong hover:bg-wash",
@@ -293,8 +294,10 @@ export function TileAction({
         if (!disabled) onClick();
       }}
       className={cn(
-        "border-line bg-wash text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-7 place-items-center border transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
-        danger && "hover:border-err/40 hover:bg-err/10 hover:text-err",
+        "border-line bg-wash text-muted rounded-ctl grid size-7 place-items-center border transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
+        danger
+          ? "hover:border-err/40 hover:bg-err/10 hover:text-err"
+          : "hover:bg-wash hover:text-fg",
       )}
     >
       {children}

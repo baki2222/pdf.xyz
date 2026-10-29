@@ -6,7 +6,7 @@
  * pages, and the docs.
  */
 
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import { HYBRID_SUMMARY, processingMeta } from "@/lib/tools/processing";
 import type { ProcessingMode, Tool } from "@/lib/tools/types";
 import { acceptsDamagedPdf } from "./damaged-input";
@@ -97,7 +97,7 @@ export function describeCapability(
 
 /** Resolve a tool slug to its capability, or `undefined` if the slug is unknown. */
 export function getToolCapability(slug: string): ToolCapability | undefined {
-  const tool = getToolBySlug(slug);
+  const tool = getToolEntry(slug);
   return tool ? capabilityForMode(tool.processing) : undefined;
 }
 
@@ -120,7 +120,7 @@ function inputKindForAccept(accept: readonly string[]): ToolInputKind {
  * else takes files. Derived from the catalog's `accept` list.
  */
 export function getToolInputKind(slug: string): ToolInputKind | undefined {
-  const tool = getToolBySlug(slug);
+  const tool = getToolEntry(slug);
   if (!tool) return undefined;
   return inputKindForAccept(tool.accept);
 }

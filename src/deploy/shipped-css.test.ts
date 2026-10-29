@@ -41,6 +41,7 @@ import { describe, expect, it } from "vitest";
 import { prerenderedPages } from "../../scripts/page-weight";
 import { processingMeta } from "@/lib/tools/processing";
 import { RAW_COLOUR_ALLOWANCE, rawColours } from "@/tests/raw-palette";
+import { droppedClasses } from "@/tests/class-conflicts";
 
 const NEXT_DIR = path.join(process.cwd(), ".next");
 const GLOBALS = path.join(process.cwd(), "src", "app", "globals.css");
@@ -209,3 +210,61 @@ describe("the shipped stylesheet", () => {
     expect(gz / 1024).toBeLessThanOrEqual(CEILING_GZ_KB);
   });
 });
+
+/**
+ * Every element the build prerenders carries at most one class per Tailwind
+ * family. `cn()` joins and does not merge since 2026-10-29 (src/lib/utils.ts),
+ * so two classes from one family — a base `font-medium` and a caller's
+ * `font-semibold` — are decided by the stylesheet's order, not by what was
+ * written last. The source scan (src/lib/cn-conflicts.test.ts) cannot read a
+ * variable or a prop handed further on; this reads what a reader receives,
+ * every class attribute of every page, with the same oracle.
+ */
+describe("the shipped markup", () => {
+  const built = existsSync(path.join(NEXT_DIR, "server", "app"));
+
+  it("positive control: a base class and its override in one attribute are reported", () => {
+    expect(
+      classConflicts(
+        `<a class="font-medium h-9 font-semibold"></a><b class="text-fg text-display-1"></b>`,
+      ),
+    ).toEqual([
+      { dropped: ["font-medium"], classes: "font-medium h-9 font-semibold" },
+    ]);
+  });
+
+  it("no prerendered element carries two classes from one family", () => {
+    if (!built) return;
+    const pages = prerenderedPages(NEXT_DIR);
+    let attributes = 0;
+    const found: { page: string; dropped: string[]; classes: string }[] = [];
+    for (const page of pages) {
+      const html = readFileSync(
+        path.join(NEXT_DIR, "server", "app", page),
+        "utf8",
+      );
+      attributes += [...html.matchAll(/\sclass="/g)].length;
+      for (const hit of classConflicts(html)) found.push({ page, ...hit });
+    }
+    // Health check: 99 pages and 35,735 class attributes on 2026-10-29.
+    expect(pages.length).toBeGreaterThanOrEqual(60);
+    expect(attributes).toBeGreaterThan(10_000);
+    expect(
+      found.filter(
+        (a, i) => found.findIndex((b) => b.classes === a.classes) === i,
+      ),
+      "an element ships two classes from one family — cn() does not merge; write one class per family per branch",
+    ).toEqual([]);
+  });
+});
+
+function classConflicts(
+  html: string,
+): { dropped: string[]; classes: string }[] {
+  const out: { dropped: string[]; classes: string }[] = [];
+  for (const m of html.matchAll(/\sclass="([^"]*)"/g)) {
+    const dropped = droppedClasses(m[1]!);
+    if (dropped.length > 0) out.push({ dropped, classes: m[1]! });
+  }
+  return out;
+}

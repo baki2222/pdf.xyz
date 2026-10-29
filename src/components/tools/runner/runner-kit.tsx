@@ -25,7 +25,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { PageRangeError } from "@/lib/pdf/ranges";
-import { PdfEngineError } from "@/lib/pdf/engine";
+import { PdfEngineError } from "@/lib/pdf/engine-errors";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "@/lib/pdf/encryption";
 import { remedyFor, type Remedy, type RemedyInput } from "@/lib/pdf/remedies";
 import type { RunOutput } from "@/lib/intent/run-output";
@@ -226,10 +226,9 @@ export { reorder } from "./list-utils";
  *  Presentational primitives
  * ------------------------------------------------------------------ */
 
-export function Spinner({ className }: { className?: string }) {
-  return (
-    <Loader2 className={cn("size-4 animate-spin", className)} aria-hidden />
-  );
+/** `size` replaces the default `size-4` (cn() joins; it does not merge). */
+export function Spinner({ size = "size-4" }: { size?: string }) {
+  return <Loader2 className={cn(size, "animate-spin")} aria-hidden />;
 }
 
 /**
@@ -662,7 +661,8 @@ function ProgressLine({ done, total, unit }: RunProgress) {
 export const WORKER_RUN_CLASSES = buttonVariants({
   variant: "primary",
   size: "lg",
-  className: "w-full font-semibold sm:w-auto sm:self-start",
+  weight: "semibold",
+  className: "w-full sm:w-auto sm:self-start",
 });
 
 /**
@@ -1240,7 +1240,7 @@ export function PreviewStatus({
     return (
       <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
         <span className="text-muted inline-flex items-center gap-1.5 text-xs">
-          <Spinner className="size-3" />
+          <Spinner size="size-3" />
           Rendering previews… {done}/{target}
         </span>
         <span

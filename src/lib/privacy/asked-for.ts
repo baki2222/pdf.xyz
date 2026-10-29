@@ -25,11 +25,11 @@
  * Copy: walked by `copyFiles()` (`src/lib/privacy`).
  */
 import { MAX_REQUEST_SIGNERS } from "@/lib/jobs/request-signatures";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import { AI_PROVIDER } from "./processors";
 
 function nameOf(slug: string): string {
-  const tool = getToolBySlug(slug);
+  const tool = getToolEntry(slug);
   if (!tool) throw new Error(`asked-for: no tool "${slug}" in the catalogue`);
   return tool.name;
 }

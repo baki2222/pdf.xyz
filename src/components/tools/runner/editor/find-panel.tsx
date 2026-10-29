@@ -30,8 +30,11 @@ const field =
   "border-line bg-canvas text-fg rounded-ctl h-9 flex-1 border px-2.5 text-sm";
 /** Inline, not a utility: a class only this panel used cost the shared stylesheet. */
 const fieldStyle = { minWidth: 0 } as const;
-const button =
-  "border-line text-fg hover:bg-wash rounded-ctl inline-flex h-9 shrink-0 items-center justify-center border px-3 text-xs font-medium aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
+// Padding is not in the base: the arrow buttons are narrower (px-2), and
+// cn() joins rather than merges.
+const buttonBase =
+  "border-line text-fg hover:bg-wash rounded-ctl inline-flex h-9 shrink-0 items-center justify-center border text-xs font-medium aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
+const button = `${buttonBase} px-3`;
 
 export function FindPanel({
   state,
@@ -108,7 +111,7 @@ export function FindPanel({
           title="Previous match (Shift+Enter)"
           aria-disabled={none || undefined}
           onClick={() => !none && onStep(-1)}
-          className={cn(button, "px-2")}
+          className={cn(buttonBase, "px-2")}
         >
           <ChevronUp className="size-4" aria-hidden />
         </button>
@@ -118,7 +121,7 @@ export function FindPanel({
           title="Next match (Enter)"
           aria-disabled={none || undefined}
           onClick={() => !none && onStep(1)}
-          className={cn(button, "px-2")}
+          className={cn(buttonBase, "px-2")}
         >
           <ChevronDown className="size-4" aria-hidden />
         </button>

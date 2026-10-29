@@ -17,7 +17,7 @@
  * ways, to the spec's table. Every number printed is a field of the probe.
  */
 import { imageOnlyRange, type PdfProbe } from "@/lib/pdf/probe-result";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import { renderEvidence } from "./evidence";
 import { HINT_TOOLS, hintNeedFor, type HintReason } from "./hint-tools";
 
@@ -46,7 +46,7 @@ export function hintFor(
   if (!reason || !probe || probe.read !== "ok" || probe.lock !== "none")
     return null;
   const toolSlug = TARGET[reason];
-  const toolName = getToolBySlug(toolSlug)?.name;
+  const toolName = getToolEntry(toolSlug)?.name;
   if (!toolName) return null;
   if (reason === "image-only") {
     const range = imageOnlyRange(probe);

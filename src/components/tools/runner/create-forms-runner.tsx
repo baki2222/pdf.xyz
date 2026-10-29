@@ -457,8 +457,11 @@ function CoordinateHelp({ context }: { context: NewFormContext }) {
  *  Field card
  * ------------------------------------------------------------------ */
 
-const INPUT_CLASS =
-  "w-full rounded-ctl border border-line bg-canvas px-3.5 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
+// The size is not in the base: the options box sets its own (text-xs), and
+// cn() joins rather than merges, so a base size would ship beside it.
+const INPUT_BASE =
+  "w-full rounded-ctl border border-line bg-canvas px-3.5 py-2.5 text-fg outline-none transition placeholder:text-muted focus:border-accent/40 focus:ring-2 focus:ring-accent/50";
+const INPUT_CLASS = `${INPUT_BASE} text-sm`;
 
 function FieldCard({
   draft,
@@ -728,7 +731,7 @@ function OptionsEditor({
         value={value}
         rows={4}
         onChange={(event) => onChange(event.target.value)}
-        className={cn(INPUT_CLASS, "resize-y font-mono text-xs")}
+        className={cn(INPUT_BASE, "resize-y font-mono text-xs")}
         placeholder={"Option A\nOption B\nOption C"}
       />
       {hint && (

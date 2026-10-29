@@ -11,7 +11,7 @@ import {
 } from "react";
 import { peekCarriedHandoff } from "@/lib/handoff/carry-key";
 import type { ClaimedHandoff } from "@/lib/handoff/claim";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import { useToolRun } from "./runner/tool-context";
 
 const Notice = lazy(() =>
@@ -96,7 +96,7 @@ export function useStagedHandoff(
 
   const dismiss = useCallback(() => setState(null), []);
   if (!state || state.status === "idle") return null;
-  const tool = getToolBySlug(slug);
+  const tool = getToolEntry(slug);
   return (
     <Suspense fallback={null}>
       <Notice

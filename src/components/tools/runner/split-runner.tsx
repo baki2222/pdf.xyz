@@ -3,12 +3,10 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { AlertTriangle, Download, Scissors } from "lucide-react";
 import { splitPdf } from "@/lib/pdf/engine";
-import {
-  combineRanges,
-  readTopLevelBookmarks,
-  splitPdfBySize,
-  type TopLevelBookmark,
-} from "@/lib/pdf/split-modes";
+// Type-only: the split modes (with the page assembler they copy pages
+// through, ~7.6 KB gz) load with the document, not with the page.
+import type { TopLevelBookmark } from "@/lib/pdf/split-modes";
+const loadSplitModes = () => import("@/lib/pdf/split-modes");
 import {
   buildSplitParts,
   formatPageNumbers,
@@ -140,7 +138,8 @@ export function SplitEditor({
 
   useEffect(() => {
     let live = true;
-    readTopLevelBookmarks(pdf.bytes)
+    loadSplitModes()
+      .then(({ readTopLevelBookmarks }) => readTopLevelBookmarks(pdf.bytes))
       .then((found) => live && setMarks(found))
       .catch(() => live && setMarks([]));
     return () => {
@@ -242,6 +241,7 @@ export function SplitEditor({
   const onSplit = () =>
     run(async (): Promise<SplitOutcome> => {
       if (mode === "size") {
+        const { splitPdfBySize } = await loadSplitModes();
         const { files, oversized } = await splitPdfBySize(
           pdf.bytes,
           targetBytes,
@@ -255,6 +255,7 @@ export function SplitEditor({
       }
       if (mode === "ranges" && mergeRanges) {
         const part = parts[0]!;
+        const { combineRanges } = await loadSplitModes();
         const bytes = await combineRanges(
           pdf.bytes,
           parseRanges(rangeInput, pdf.pageCount),
@@ -364,10 +365,11 @@ export function SplitEditor({
                 aria-describedby={off ? bookmarksNoteId : undefined}
                 className={cn(
                   "rounded-tag h-11 px-3.5 py-1.5 text-xs font-medium transition",
-                  mode === m.id
-                    ? "bg-invert text-fg-invert"
-                    : "text-muted hover:text-fg",
-                  off && "cursor-not-allowed opacity-50 hover:text-current",
+                  mode === m.id ? "bg-invert text-fg-invert" : "text-muted",
+                  // One hover ink per branch: cn() joins, it does not merge.
+                  off
+                    ? "cursor-not-allowed opacity-50 hover:text-current"
+                    : mode !== m.id && "hover:text-fg",
                 )}
               >
                 {m.label}

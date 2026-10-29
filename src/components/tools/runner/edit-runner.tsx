@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Info, Layers, Lock, ShieldCheck } from "lucide-react";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import { editedOutputName } from "@/lib/pdf/edit";
 import { PrivacyLine } from "./stamp-controls";
 import { EditorRunner } from "./editor/editor-session";
@@ -71,7 +71,7 @@ function EditorFooter() {
  * reader told to go elsewhere was given no way to get there.
  */
 function ToolLink({ slug }: { slug: string }) {
-  const tool = getToolBySlug(slug);
+  const tool = getToolEntry(slug);
   if (!tool) throw new Error(`edit-runner links unknown tool "${slug}"`);
   return (
     <Link href={`/tools/${tool.slug}`} className="font-semibold underline">

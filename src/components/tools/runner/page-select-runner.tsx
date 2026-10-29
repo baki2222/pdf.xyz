@@ -8,7 +8,7 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import { outputName } from "@/lib/pdf/files";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 import {
   ChipButton,
   ErrorNote,
@@ -87,7 +87,7 @@ export function PageSelectRunner({ mode }: { mode: Mode }) {
   const handoffSlug = mode === "extract" ? "extract-pages" : "remove-pages";
   // The catalogue's name, not a second spelling of it: this read "Remove
   // Pages" while the catalogue, the H1 and every link say "Delete Pages".
-  const toolName = getToolBySlug(handoffSlug)?.name ?? handoffSlug;
+  const toolName = getToolEntry(handoffSlug)?.name ?? handoffSlug;
   return (
     <SinglePdfRunner
       hint={config.emptyHint}

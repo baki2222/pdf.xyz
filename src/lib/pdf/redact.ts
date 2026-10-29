@@ -2,12 +2,9 @@ import { drawRasterImage, embedRasterImage, loadPdfLib } from "./pdf-lib";
 import { PdfEngineError, loadPdf } from "./engine";
 import { outputName } from "./files";
 import { displayedPageSize } from "./page-frame";
-import {
-  rasterizePdf,
-  type RasterCanvasInfo,
-  type RasterPage,
-  type RasterizeOptions,
-} from "./render";
+// Types only: the rasterizer loads when a redaction runs (below), not with
+// Redact PDF's page.
+import type { RasterCanvasInfo, RasterPage, RasterizeOptions } from "./render";
 import type { RedactionFill, RedactionRect } from "./redact-defaults";
 import {
   DEFAULT_REDACT_PRESET_ID,
@@ -332,7 +329,8 @@ export async function redactPdf(
   rasterize: (
     bytes: Uint8Array,
     options: RasterizeOptions,
-  ) => Promise<RasterPage[]> = (pdf, opts) => rasterizePdf(pdf, opts),
+  ) => Promise<RasterPage[]> = async (pdf, opts) =>
+    (await import("./render")).rasterizePdf(pdf, opts),
 ): Promise<RedactResult> {
   const rects = options.rects ?? [];
   if (rects.length === 0) {

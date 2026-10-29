@@ -1,4 +1,5 @@
-import { normalizeAngle, pdfjsLoadError } from "./engine";
+import { pdfjsLoadError } from "./engine-errors";
+import { normalizeAngle } from "./rotation";
 import type { Rotation } from "./types";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 

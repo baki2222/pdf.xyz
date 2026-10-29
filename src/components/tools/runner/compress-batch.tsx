@@ -239,8 +239,8 @@ export function CompressBatchRunner({
         >
           <span
             className={cn(
-              "bg-accent rounded-tag block h-full transition-[width] duration-300",
-              state.phase === "canceled" && "bg-faint",
+              "rounded-tag block h-full transition-[width] duration-300",
+              state.phase === "canceled" ? "bg-faint" : "bg-accent",
             )}
             style={{ width: `${progress.pct}%` }}
           />
@@ -472,7 +472,7 @@ function StatusGlyph({
     case "running":
       return (
         <span className={cn(base, "bg-accent/10 text-accent")}>
-          <Spinner className="size-4" />
+          <Spinner />
         </span>
       );
     case "done":

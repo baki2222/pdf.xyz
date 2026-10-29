@@ -22,7 +22,7 @@
 
 import { formatOf, toolAcceptsFormat } from "@/lib/intent/formats";
 import { getRunnerKind, type RunnerKind } from "@/lib/pdf/registry";
-import { getToolBySlug } from "@/lib/tools";
+import { getToolEntry } from "@/lib/tools/directory";
 
 export type HandoffMode = "collect" | "batch" | "single" | "stage" | "none";
 
@@ -91,7 +91,7 @@ export function handoffCapabilityFor(slug: string): HandoffCapability {
  * when its catalogue row takes files — every format but a lone `URL`.
  */
 function stagedMode(slug: string): HandoffMode {
-  const accept = getToolBySlug(slug)?.accept;
+  const accept = getToolEntry(slug)?.accept;
   if (!accept || accept.length === 0) return "none";
   return accept.every((f) => f.toUpperCase() === "URL") ? "none" : "stage";
 }
@@ -120,7 +120,7 @@ export function eligibleFilesFor<T extends FileMetaLike>(
   files: T[],
 ): T[] {
   if (!handoffCapabilityFor(slug).supported) return [];
-  const accept = getToolBySlug(slug)?.accept;
+  const accept = getToolEntry(slug)?.accept;
   if (!accept) return [];
   return files.filter((file) =>
     toolAcceptsFormat(accept, formatOf(file).format),

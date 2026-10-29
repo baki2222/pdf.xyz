@@ -35,7 +35,6 @@ import {
 import { parsePageList } from "@/lib/pdf/ranges";
 import { causeOf, remedyFor, type RemedyInput } from "@/lib/pdf/remedies";
 import { naturalOrder, orderNote } from "@/lib/intent/defaults";
-import { renderFirstPage } from "@/lib/pdf/render";
 import type { Thumbnail } from "@/lib/pdf/render-utils";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
@@ -147,7 +146,11 @@ export function MergeRunner() {
   }, []);
 
   const attachCover = useCallback((id: string, bytes: Uint8Array) => {
-    renderFirstPage(bytes, { targetWidth: 96 })
+    // The renderer loads with the first file, not with the page.
+    import("@/lib/pdf/render")
+      .then(({ renderFirstPage }) =>
+        renderFirstPage(bytes, { targetWidth: 96 }),
+      )
       .then((cover) => {
         if (!cover) return;
         if (!mounted.current) {

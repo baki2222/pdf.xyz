@@ -9,8 +9,19 @@
 
 import { baseName, sanitizeSegment } from "./files";
 import { parsePageList } from "./ranges";
-
-export type RasterFormat = "png" | "jpg";
+import {
+  RASTER_RESOLUTIONS,
+  type RasterFormat,
+  type RasterResolution,
+} from "./raster-format";
+export {
+  RASTER_RESOLUTIONS,
+  RASTER_RESOLUTION_CHOICES,
+  RASTER_RESOLUTION_DPIS,
+  rasterFormatForSlug,
+  type RasterFormat,
+  type RasterResolution,
+} from "./raster-format";
 
 /** Colour modes offered in the UI; the first is the default. */
 export const RASTER_COLORS = [
@@ -55,46 +66,6 @@ export const RASTER_EXT: Record<RasterFormat, string> = {
   png: "png",
   jpg: "jpg",
 };
-
-/** Map a catalog slug to the image format its runner produces. */
-export function rasterFormatForSlug(slug: string): RasterFormat {
-  return slug === "pdf-to-png" ? "png" : "jpg";
-}
-
-/** A selectable render-resolution preset. */
-export interface RasterResolution {
-  id: string;
-  label: string;
-  /** Dots per inch to rasterize at (PDF user space is 72 dpi). */
-  dpi: number;
-}
-
-/** Resolution presets offered in the UI, lowest → highest. */
-export const RASTER_RESOLUTIONS: readonly RasterResolution[] = [
-  { id: "screen", label: "Screen", dpi: 96 },
-  { id: "high", label: "High", dpi: 150 },
-  { id: "print", label: "Print", dpi: 300 },
-];
-
-/** "a, b or c" — a reader's list. */
-function orList(items: readonly string[]): string {
-  return items.length <= 1
-    ? items.join("")
-    : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
-}
-
-/**
- * "Screen (96 DPI), High (150 DPI) or Print (300 DPI)" — the presets as the
- * tool pages and guides name them, built from the list the runner renders.
- */
-export const RASTER_RESOLUTION_CHOICES = orList(
-  RASTER_RESOLUTIONS.map((r) => `${r.label} (${r.dpi} DPI)`),
-);
-
-/** "96, 150 or 300" — the same presets, as numbers. */
-export const RASTER_RESOLUTION_DPIS = orList(
-  RASTER_RESOLUTIONS.map((r) => String(r.dpi)),
-);
 
 /** Default resolution id — a good balance of sharpness and file size. */
 export const DEFAULT_RESOLUTION_ID = "high";
