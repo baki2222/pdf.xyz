@@ -27,11 +27,17 @@ import { redactValue } from "./redact";
 import {
   isKnownEventName,
   isToolErrorReason,
+  isUploadAttemptStatus,
   type ProductEvent,
 } from "./events";
 
 // Re-export the schema so a call site needs a single import from "@/lib/telemetry/track".
-export type { ProductEvent, EventName, ToolErrorReason } from "./events";
+export type {
+  ProductEvent,
+  EventName,
+  ToolErrorReason,
+  UploadAttemptStatus,
+} from "./events";
 export {
   EVENT_NAMES,
   TOOL_ERROR_REASONS,
@@ -42,6 +48,7 @@ export {
   toolErrorReason,
   handoffCreatedEvent,
   suggestionOpenedEvent,
+  uploadAttemptFailedEvent,
 } from "./events";
 export {
   countBucket,
@@ -155,6 +162,14 @@ export function sanitizeEvent(event: ProductEvent): RedactedEvent | null {
   if (
     event.name === "tool_failed" &&
     !isToolErrorReason((event as { reason?: unknown }).reason)
+  ) {
+    return null;
+  }
+  // The same for an upload's status: a number in the HTTP range or one of
+  // two words. A sender that put a URL or a server message there is dropped.
+  if (
+    event.name === "upload_attempt_failed" &&
+    !isUploadAttemptStatus((event as { status?: unknown }).status)
   ) {
     return null;
   }

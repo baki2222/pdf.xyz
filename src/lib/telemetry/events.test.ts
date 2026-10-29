@@ -5,6 +5,8 @@ import {
   isKnownEventName,
   toolCompletedEvent,
   handoffCreatedEvent,
+  isUploadAttemptStatus,
+  uploadAttemptFailedEvent,
 } from "./events";
 
 describe("event name allowlist", () => {
@@ -20,6 +22,7 @@ describe("event name allowlist", () => {
         "worker_operations_checked",
         "gated_tool_interest",
         "palette_opened",
+        "upload_attempt_failed",
       ].sort(),
     );
     // `worker_contract_hit` was declared here until 2026-09-27 and sent by
@@ -112,6 +115,46 @@ describe("TOOL_ERROR_REASONS", () => {
     // Reasons are fixed categories, never free-form messages.
     for (const reason of TOOL_ERROR_REASONS) {
       expect(reason).toMatch(/^[a-z-]+$/);
+    }
+  });
+});
+
+describe("uploadAttemptFailedEvent", () => {
+  it("buckets size and time — the only raw numbers are the status and the try", () => {
+    const event = uploadAttemptFailedEvent({
+      toolSlug: "unlock-pdf",
+      status: 503,
+      attempt: 1,
+      retrying: true,
+      bytes: 17 * 1024,
+      elapsedMs: 7_200,
+    });
+    expect(event).toEqual({
+      name: "upload_attempt_failed",
+      toolSlug: "unlock-pdf",
+      status: 503,
+      attempt: 1,
+      retrying: true,
+      size: "<100KB",
+      duration: "5-30s",
+    });
+  });
+
+  it("a status is an HTTP code or one of two words, nothing else", () => {
+    for (const ok of [403, 503, 100, 599, "network", "timeout"]) {
+      expect(isUploadAttemptStatus(ok)).toBe(true);
+    }
+    for (const bad of [
+      99,
+      600,
+      503.5,
+      "503",
+      "https://storage.example/x?X-Amz-Signature=1",
+      "Failed to fetch",
+      null,
+      undefined,
+    ]) {
+      expect(isUploadAttemptStatus(bad)).toBe(false);
     }
   });
 });

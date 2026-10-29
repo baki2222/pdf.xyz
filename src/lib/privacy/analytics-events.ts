@@ -112,6 +112,18 @@ export const ANALYTICS_EVENTS: AnalyticsEventCopy = {
         "whether you opened it with the keyboard shortcut or the button — never what you typed",
     },
   },
+  upload_attempt_failed: {
+    when: "sending a file to our processing server does not work on one try",
+    fields: {
+      toolSlug: TOOL,
+      status:
+        "the error number our storage service answered, such as 503, or that there was no answer — never the upload's address",
+      attempt: "which try it was: 1, 2 or 3",
+      retrying: "whether another try followed",
+      size: `how large the file was, as a band such as “${sizeBucket(5 * MB)}” — never the exact size`,
+      duration: `how long the try took, as a band such as “${durationBucket(2_000)}”`,
+    },
+  },
 };
 
 /** What every page view carries (`sendGa4PageView`). */

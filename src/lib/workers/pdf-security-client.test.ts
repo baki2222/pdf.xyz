@@ -137,6 +137,83 @@ describe("runWorkerProtect", () => {
   });
 });
 
+describe("the upload, through the whole run (2026-10-29)", () => {
+  /**
+   * The chain, not the unit: `uploadToWorkerSlot` may move the bytes to a
+   * fresh slot after a 403, and the job is only right if it is created from
+   * THAT slot. A client that kept using the first slot's fileId would pass
+   * every test of the shared function and create a job with no file.
+   */
+  function storage(puts: number[]) {
+    const calls: Recorded[] = [];
+    let sessions = 0;
+    let put = 0;
+    const fetchImpl: FetchLike = async (url, init) => {
+      calls.push({
+        url,
+        method: init?.method ?? "GET",
+        body: init?.body ? new TextDecoder().decode(init.body) : undefined,
+      });
+      if (url === "/api/uploads") {
+        sessions += 1;
+        return jsonResponse({
+          slots: [
+            {
+              fileId: `file_${sessions}`,
+              url: `https://upload.example/slot${sessions}`,
+              method: "PUT",
+              headers: {},
+            },
+          ],
+        });
+      }
+      if (url.startsWith("https://upload.example/")) {
+        const status = puts[put] ?? 200;
+        put += 1;
+        return {
+          ok: status === 200,
+          status,
+          json: async () => {
+            throw new SyntaxError("XML, not JSON");
+          },
+          arrayBuffer: async () => new ArrayBuffer(0),
+        };
+      }
+      if (url === "/api/jobs") return jsonResponse(completedJob);
+      if (url === "https://art.example/out")
+        return bytesResponse(new Uint8Array([1]));
+      throw new Error(`unexpected url ${url}`);
+    };
+    return { fetchImpl, calls };
+  }
+
+  it("a 403 on the first slot: the job is created from the FRESH slot", async () => {
+    const { fetchImpl, calls } = storage([403, 200]);
+    const result = await runWorkerUnlock(
+      { filename: "locked.pdf", bytes: new Uint8Array([9]), password: SECRET },
+      { fetchImpl },
+    );
+    expect(result.ok).toBe(true);
+    const job = JSON.parse(calls.find((c) => c.url === "/api/jobs")!.body!);
+    expect(job.inputs).toEqual(["file_2"]);
+  });
+
+  it("a storage refusal reaches the reader with its status, not the old fallback", async () => {
+    const { fetchImpl, calls } = storage([400]);
+    const result = await runWorkerUnlock(
+      { filename: "locked.pdf", bytes: new Uint8Array([9]), password: SECRET },
+      { fetchImpl },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain("the storage service answered 400");
+    expect(result.message).not.toContain("upload.example");
+    expect(result.message).not.toBe("Uploading the file to the worker failed.");
+    // Nothing was processed: no job was created.
+    expect(calls.some((c) => c.url === "/api/jobs")).toBe(false);
+  });
+});
+
 describe("canRunPdfSecurity", () => {
   const base = (over: Partial<WorkerStatus>): WorkerStatus =>
     ({
