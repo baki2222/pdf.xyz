@@ -47,3 +47,14 @@ export function guideDeskProps(tool: Tool): GuideDeskProps {
     hint: stagingHint(tool),
   };
 }
+
+/**
+ * Whether a guide about `tool` gets a desk at all: only when the tool takes a
+ * FILE. Webpage to PDF takes an address (its `accept` is a lone `URL`), so a
+ * desk on its guide could only say "Drop a URL file to see which tools open
+ * it", a sentence about a file that does not exist. The rule is the one
+ * `handoff/capability.ts` stages by: every format but a lone `URL`.
+ */
+export function guideHasDesk(tool: Tool): boolean {
+  return tool.accept.some((format) => format.toUpperCase() !== "URL");
+}

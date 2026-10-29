@@ -72,8 +72,8 @@ const EXAMPLE_OUT = officePdfOutputName(EXAMPLE_IN);
  *     it follows the job (busy-label-claims.test.ts);
  *   - "is a PDF" is `looksLikePdf`: a `%PDF` header in the first 1 KiB and
  *     `%%EOF` in the last 2 KiB, nothing deeper, so the copy says exactly that;
- *   - relatedGuides is empty on purpose: no guide in src/lib/guides/catalog.ts
- *     lists powerpoint-to-pdf among its tools;
+ *   - relatedGuides was empty until 2026-10-29, when the Word to PDF and
+ *     PDF to PowerPoint guides began listing powerpoint-to-pdf;
  *   - the browser client downloads the artifact bytes BEFORE showing "Your PDF
  *     is ready.", and the Download button saves those in-memory bytes
  *     (`downloadBytes(outcome.output, …)`), so it does not depend on the
@@ -163,7 +163,10 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: [
+    "how-to-convert-word-to-pdf",
+    "how-to-convert-pdf-to-powerpoint",
+  ],
 };
 
 export default content;

@@ -146,7 +146,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: ["how-to-reorder-pages-in-a-pdf"],
 };
 
 export default content;

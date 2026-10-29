@@ -164,7 +164,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: ["how-to-convert-pdf-to-word"],
+  relatedGuides: ["how-to-convert-word-to-pdf", "how-to-convert-pdf-to-word"],
 };
 
 export default content;

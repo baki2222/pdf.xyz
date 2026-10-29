@@ -142,7 +142,10 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: ["how-to-make-a-scanned-pdf-searchable"],
+  relatedGuides: [
+    "how-to-convert-pdf-to-excel",
+    "how-to-make-a-scanned-pdf-searchable",
+  ],
 };
 
 export default content;

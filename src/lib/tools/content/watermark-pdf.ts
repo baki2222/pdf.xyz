@@ -209,9 +209,9 @@ const content: ToolContent = {
     },
   ],
 
-  // Empty on purpose: no guide in src/lib/guides/catalog.ts covers stamping
-  // or watermarking, and the type asks for guides that genuinely cover it.
-  relatedGuides: [],
+  // Empty until 2026-10-29, when how-to-add-a-watermark-to-a-pdf shipped:
+  // until then no guide covered stamping or watermarking.
+  relatedGuides: ["how-to-add-a-watermark-to-a-pdf"],
 };
 
 export default content;

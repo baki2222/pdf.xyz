@@ -24,7 +24,7 @@ import {
 } from "@/components/guides/guide-contents";
 import { GuideDeskShell } from "@/components/intent/guide-desk-shell";
 import { GuideDeskSlot } from "@/components/intent/guide-desk-slot";
-import { guideDeskProps } from "@/lib/guides/desk";
+import { guideDeskProps, guideHasDesk } from "@/lib/guides/desk";
 import {
   articleSchema,
   breadcrumbSchema,
@@ -259,7 +259,7 @@ export default async function GuidePage({
                   {paragraph}
                 </p>
               ))}
-              {primary && (
+              {primary && guideHasDesk(primary) && (
                 <GuideDeskSlot desk={guideDeskProps(primary)}>
                   <GuideDeskShell {...guideDeskProps(primary)} />
                 </GuideDeskSlot>

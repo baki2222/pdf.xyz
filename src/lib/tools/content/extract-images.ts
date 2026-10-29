@@ -55,8 +55,8 @@ import { outputName } from "@/lib/pdf/files";
  *    password-protected. Unlock it first, then try again."
  *  - unlock-pdf is processing "server" in the catalogue, and its panel sends
  *    the password to the worker with the file; both are asserted below.
- *  - relatedGuides is empty on purpose: no guide in src/lib/guides/catalog.ts
- *    mentions extracting images.
+ *  - relatedGuides was empty until 2026-10-29: no guide mentioned
+ *    extracting images before how-to-extract-images-from-a-pdf.
  */
 const tool = getToolBySlug("extract-images");
 if (!tool || modeUploadsFiles(tool.processing)) {
@@ -161,7 +161,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: ["how-to-extract-images-from-a-pdf"],
 };
 
 export default content;

@@ -153,7 +153,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: ["how-to-convert-a-webpage-to-pdf"],
 };
 
 export default content;

@@ -74,7 +74,12 @@ describe("the guides catalogue is structurally sound", () => {
     // near that is the signal to revisit both files together, not to creep.
     // Revisited 2026-09-27: L04 and L05 each added five guides (16 → 21), so
     // both bounds moved together, keeping this one a guide under that one.
-    expect(slugs.length).toBeLessThanOrEqual(24);
+    // Revisited 2026-10-29: wave 2 added ten guides (22 → 32). The
+    // route-indexability bound no longer has a fixed guide allowance — it
+    // derives its expected expansion from `guides.length` — so this ceiling
+    // stands alone now: a count past it is a catalogue growing faster than
+    // anyone reviewed, not a route walk running out of slack.
+    expect(slugs.length).toBeLessThanOrEqual(36);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
@@ -174,9 +179,12 @@ describe("the guides catalogue is structurally sound", () => {
     // built by hand and can differ from main (the FAQ that advertised
     // chunking against a nine-day-old worker). An in-browser tool has no such
     // excuse, so the ledger cannot hold one.
+    // "word-to-pdf" left the ledger 2026-10-29 when how-to-convert-word-to-pdf
+    // shipped. Its excuse was "fidelity claims need a real job against the
+    // running image"; the guide makes none — it says LibreOffice lays the
+    // pages out, substitutes missing fonts and can move breaks, the same
+    // caveats the tool page states and claims-vs-capability holds.
     const KNOWN_GAPS: Record<string, string> = {
-      "word-to-pdf":
-        "LibreOffice on the worker: fidelity claims need a real job against the running image",
       "chat-with-pdf":
         "AI on the worker: answer-grounding claims need a real job against the running image",
     };
