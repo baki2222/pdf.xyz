@@ -50,6 +50,7 @@ import {
   countWord,
   forgottenPasswordAnswer,
   offlineAnswer,
+  PRIVATE_ADDRESS_EXAMPLES,
 } from "@/lib/tools/tool-facts";
 import { TRANSLATE_LANGUAGES } from "@/lib/jobs/translate-pdf";
 import {
@@ -69,6 +70,32 @@ import {
   SIGNATURE_STYLE_LABEL,
   SIGNATURE_STYLES,
 } from "@/lib/pdf/offered-kinds";
+import { STAMP_FONT_FAMILIES, STAMP_FONT_LABELS } from "@/lib/pdf/stamp";
+import { LENGTH_UNITS } from "@/lib/pdf/length-units";
+import { MIN_CROP_DIMENSION } from "@/lib/pdf/page-geometry";
+import { AUTO_CROP_PAD_PT } from "@/lib/pdf/auto-crop";
+import { MAX_HISTORY } from "@/components/tools/runner/organize-history";
+import {
+  DEFAULT_OCR_LANGUAGE,
+  OCR_OUTPUT_MODES,
+  PDF_TO_WORD_OCR_LANGUAGE_CODES,
+  RTL_OCR_LANGUAGES,
+  describeOcrLanguage,
+  type OcrLanguage,
+  type OcrOutputMode,
+} from "@/lib/jobs/ocr";
+import {
+  WORD_OCR_LABEL,
+  XLSX_CELL_BREAK_PHRASE,
+  XLSX_MERGE_CAVEAT,
+  XLSX_NUMBER_EXAMPLES,
+  XLSX_SHEET_NAME,
+  XLSX_TEXT_EXAMPLE,
+} from "@/lib/jobs/pdf-office-export";
+import {
+  HTML_LAYOUT_STEP,
+  htmlLayoutAnswer,
+} from "@/lib/tools/html-layout-copy";
 import type { Guide } from "./types";
 
 /**
@@ -129,6 +156,40 @@ const presetText = (r: RasterResolution) => `${r.label} (${r.dpi} DPI)`;
 
 /** Edit PDF's per-image cap, in MB — the same arithmetic its image picker shows. */
 const EDIT_IMAGE_MB = Math.round(MAX_EDIT_IMAGE_BYTES / (1024 * 1024));
+
+const listAnd = (items: readonly string[]) =>
+  new Intl.ListFormat("en", { type: "conjunction" }).format(items);
+const listOr = (items: readonly string[]) =>
+  new Intl.ListFormat("en", { type: "disjunction" }).format(items);
+
+/** Add Watermark's Font choices, as its runner labels them. */
+const WATERMARK_FONTS = listOr(
+  STAMP_FONT_FAMILIES.map((family) => STAMP_FONT_LABELS[family]),
+);
+
+/** Crop PDF's unit buttons, as the runner offers them. */
+const CROP_UNITS = listOr(LENGTH_UNITS);
+
+/** An OCR output mode's label, by id — throws rather than describe another. */
+function ocrModeLabel(id: OcrOutputMode): string {
+  const mode = OCR_OUTPUT_MODES.find((entry) => entry.id === id);
+  if (!mode) throw new Error(`a guide names unknown OCR output mode "${id}"`);
+  return mode.label;
+}
+
+/**
+ * The OCR language menu, by label, from the allowlist the job API accepts
+ * and the worker image's packs are tested against.
+ */
+const OCR_LANGUAGE_NAMES = listAnd(OCR_LANGUAGES.map((l) => l.label));
+/** Example scripts a guide names; each is a typed `OcrLanguage`, so a withdrawn one fails the build. */
+const OCR_EXAMPLES: readonly OcrLanguage[] = ["ben", "hin", "ara", "tam"];
+const OCR_EXAMPLE_NAMES = listAnd(OCR_EXAMPLES.map(describeOcrLanguage));
+/** The right-to-left languages PDF to Word's OCR option withholds. */
+const RTL_OCR_NAMES = listAnd(RTL_OCR_LANGUAGES.map(describeOcrLanguage));
+
+/** PDF to Excel's amount examples, as the engine stores them as numbers. */
+const XLSX_AMOUNTS = listOr(XLSX_NUMBER_EXAMPLES);
 
 export const guides: Guide[] = [
   {
@@ -2013,5 +2074,796 @@ export const guides: Guide[] = [
     ],
     published: "2026-09-27",
     updated: "2026-10-10",
+  },
+  {
+    slug: "how-to-edit-text-in-a-pdf",
+    title: "How to edit the existing text in a PDF",
+    description:
+      "Retype a line of a PDF's own text, or find and replace words on every page, in your browser. The old words are removed from the file, not covered up.",
+    tools: ["edit-pdf", "pdf-to-word", "ocr-pdf"],
+    keywords: [
+      "how to edit text in a pdf",
+      "edit pdf text",
+      "change text in pdf",
+      "find and replace in pdf",
+      "replace a word in a pdf",
+      "fix a typo in a pdf",
+    ],
+    intro: [
+      `To edit the text in a PDF, open ${nameOf("edit-pdf")}, add your file, choose Edit text and click the line you want to change. Retype it, press Apply & download, and the old words are removed from the page and yours are written where they stood.`,
+      "To change the same word or name everywhere at once, use Find & replace (Ctrl+F): it searches the text of every page and replaces through the same edit, so the old words leave the file rather than being hidden under a box.",
+      `${nameOf("edit-pdf")} runs in your browser tab, so your PDF stays on your device and there is no account to create. Files up to ${ceilingMb("edit-pdf")} MB open. Edit text changes one line at a time and does not reflow a paragraph; for rewriting whole paragraphs, ${nameOf("pdf-to-word")} is the better tool.`,
+    ],
+    steps: [
+      `Open the ${nameOf("edit-pdf")} tool and add your PDF. Its pages appear in your browser, and the file stays on your device.`,
+      "Choose Edit text in the toolbar. The PDF's own text is outlined on the page.",
+      "Click the line you want to change and retype it. While you type, the editor names the font your words will be written in.",
+      "To change a word everywhere, open Find & replace with Ctrl+F, type the words in Find and the new ones in Replace with, then press Replace or Replace all.",
+      "Press Apply & download. The edited copy downloads with -edited before the .pdf.",
+    ],
+    sections: [
+      {
+        id: "what-edit-text-changes",
+        heading: "What Edit text changes in the file",
+        body: [
+          "Edit text works on the text the PDF really contains. When you apply, the line you retyped is taken out of the page's content and your words are drawn where the line began, so a search or a copy of the saved file finds the new words, not the old ones. Text you did not touch stays as it was, and stays selectable.",
+          "Your words are set in the line's own font when that font has every character you typed. When it does not, the closest standard font is used instead, and the editor tells you which one while you type, so a changed line can look slightly different from its neighbours.",
+          "A retyped line stays one line. Edit text does not reflow a paragraph, so a much longer replacement does not push the lines below it down; keep a replacement close to the length of what it replaces, or split the change across lines.",
+        ],
+      },
+      {
+        id: "find-and-replace",
+        heading: "Find and replace across every page",
+        body: [
+          "Find & replace searches the words of every page as they currently read, so an edit you have already made is searched as edited. Match case narrows the search to the exact capitalisation, and the arrows step to the previous or next match.",
+          "Replace changes the match you are on; Replace all changes every match. Either is a normal Edit text edit, so the old words are removed from the file when you apply, and each Replace, or one Replace all, is a single step that Undo takes back.",
+        ],
+      },
+      {
+        id: "what-it-cannot-edit",
+        heading: "Scans and text it cannot edit",
+        body: [
+          `A scanned page is a picture of words, so Edit text has nothing to offer there, and the page says it has no editable text. Running ${nameOf("ocr-pdf")} does not change that for this tool: the recognised words are an invisible layer under the picture, and Edit text does not offer that layer, because the words you see are still part of the picture.`,
+          `To rework the words of a scan, use ${nameOf("pdf-to-word")} with “${WORD_OCR_LABEL}” ticked: it recognises the text first and gives you a Word document to edit. That tool runs on a secure worker rather than in your browser.`,
+          "Text the editor cannot change safely, such as vertical text or text nested deep inside an embedded object, is refused with a message rather than half-changed.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is the old text really gone, or just covered?",
+        answer:
+          "It is gone. When you apply, the line you edited is removed from the page's content and the new words are written in its place, so searching or copying the saved file finds only the new words. A Whiteout box is different: it only covers what is underneath, and the covered text stays in the file.",
+      },
+      {
+        question: "Why does my edited line use a different font?",
+        answer:
+          "The PDF's own font is used when it has every character you typed. Many PDFs embed only the letters they used, so a new letter can be missing from it; then the closest standard font is used instead, and the editor names it while you type.",
+      },
+      {
+        question: "Can I edit the text of a scanned PDF?",
+        answer: `Not with Edit text. A scan holds a picture of its words, and the text ${nameOf("ocr-pdf")} adds is an invisible layer that Edit text does not offer. To edit a scan's words, convert it with ${nameOf("pdf-to-word")} and tick “${WORD_OCR_LABEL}”, which recognises the text and hands you an editable Word document.`,
+      },
+      {
+        question: "Can I replace a word on every page at once?",
+        answer:
+          "Yes. Open Find & replace with Ctrl+F, type the word and its replacement, and press Replace all. Every match on every page is replaced, the old words are removed from the file when you apply, and one Undo takes the whole replacement back.",
+      },
+      {
+        question: "Does my PDF leave my device while I edit it?",
+        answer: `No. ${nameOf("edit-pdf")} reads and writes the PDF inside your browser tab. When your words need a script outside the basic Western set, the page fetches a matching Noto font from pdf.xyz; that request asks for a font by name and carries nothing from your document.`,
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-add-a-watermark-to-a-pdf",
+    title: "How to add a watermark to a PDF",
+    description:
+      "Stamp CONFIDENTIAL, DRAFT or your logo on a PDF in your browser: any position or tiled, on the pages you pick, over or behind the content.",
+    tools: ["watermark-pdf", "header-footer", "page-numbers"],
+    keywords: [
+      "how to add a watermark to a pdf",
+      "watermark pdf",
+      "add logo watermark to pdf",
+      "confidential stamp pdf",
+      "draft watermark pdf",
+      "tile watermark pdf",
+    ],
+    intro: [
+      `To add a watermark to a PDF, open ${nameOf("watermark-pdf")}, add your file, type your text or pick a PNG or JPEG picture, choose where it goes, and press Add watermark. The download is a copy of your PDF with the mark drawn on every page you chose.`,
+      `By default the mark is the word CONFIDENTIAL, set diagonally in the middle of every page. The position grid moves it to any of ${STAMP_POSITIONS.length} spots, Tile across the page repeats it in rows, and Pages and layer limits it to the pages you list or puts it behind the page's content instead of over it.`,
+      `The stamping runs in your browser tab, so your PDF and your picture stay on your device and no account is needed. ${nameOf("watermark-pdf")} takes one PDF at a time, up to ${ceilingMb("watermark-pdf")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("watermark-pdf")} tool and drop your PDF onto the box, or browse for it. The file stays on your device.`,
+      "In the Watermark section, replace CONFIDENTIAL in the Text field with your own wording, or switch the type to Image and add a PNG or JPEG.",
+      `Under Appearance, set Opacity, Rotation and Max font size, and for text pick ${WATERMARK_FONTS} and a colour. A picture has Image size instead of Max font size.`,
+      `Under Placement, click one of the ${STAMP_POSITIONS.length} cells, or tick Tile across the page to repeat the mark across each page.`,
+      "To stamp only some pages, open Pages and layer, choose Selected pages and type a list such as 1-3, 5. Choose Behind content there to draw the mark under the page's text and pictures.",
+      "Press Add watermark, then Download watermarked PDF. The copy is named after yours, with -watermarked added.",
+    ],
+    sections: [
+      {
+        id: "text-or-image",
+        heading: "A text watermark or a logo",
+        body: [
+          `A text mark is real text drawn into each page. Western European text, accents included, is set in the font you pick (${WATERMARK_FONTS}); letters beyond that set, and many other scripts, make the page fetch a matching Noto font from pdf.xyz first, drawn in its regular weight. Right-to-left scripts are refused with a message rather than stamped with their letters reversed.`,
+          "A picture mark takes a PNG or a JPEG, such as your logo. Image size sets its width as a share of the page width, and Opacity lets the page show through it, so a small logo in a bottom corner at low opacity brands every page without covering the text.",
+        ],
+      },
+      {
+        id: "position-tile-pages",
+        heading: "Position, tiling and pages",
+        body: [
+          `The position grid has ${STAMP_POSITIONS.length} cells: the four corners, the middle of each edge, and the centre. Tile across the page repeats the mark in rows over the whole page, drawing only copies that fit whole, so a smaller size gives you more of them.`,
+          "Each page is measured on its own, so in a document that mixes portrait and landscape sheets, each mark lands where it should on its page. Max font size and Image size are upper limits: on a page too small for the mark, it is drawn at the largest size that fits, and the result panel says on how many pages that happened.",
+          "Selected pages takes a list such as 1-3, 5, or an open range such as 4- for page 4 to the end. The pages you leave out are not changed.",
+          `For a line of text along the top or bottom edge of every page, ${nameOf("header-footer")} is made for that, and ${nameOf("page-numbers")} numbers the pages.`,
+        ],
+      },
+      {
+        id: "behind-content",
+        heading: "Over or behind the content",
+        body: [
+          "Over content, the default, draws the mark on top of the page. Behind content draws it first, so the page's own text and pictures sit on top of it and stay fully readable.",
+          "Anything opaque hides a mark drawn behind it. A scanned page is one picture covering the sheet, so a mark behind it disappears; on scans, keep Over content and lower the Opacity instead.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I watermark only some pages?",
+        answer:
+          "Yes. Open Pages and layer, choose Selected pages, and type the pages as a list such as 1-3, 5, or 4- for page 4 to the end. Only those pages are stamped; the rest are left as they were.",
+      },
+      {
+        question: "Can I use my logo as a watermark?",
+        answer:
+          "Yes. Switch the Watermark type to Image and add a PNG or JPEG. Image size sets how wide it is as a share of the page, Opacity how faint, and the position grid or Tile across the page where it goes.",
+      },
+      {
+        question: "Can someone remove the watermark?",
+        answer:
+          "Not with a viewer's switch: the mark is written into the page content, not added as a comment or an optional layer. But a text mark is selectable text, and a PDF editor can delete text or a picture from a page, so treat a watermark as a label and a deterrent, not as protection.",
+      },
+      {
+        question: "Why did my watermark come out smaller than I set?",
+        answer:
+          "Max font size and Image size are ceilings. On a page too small for the mark at that size, it is drawn at the largest size that fits on the part of the page a reader sees, and the result panel tells you on how many pages that happened. For a larger text mark, shorten the text.",
+      },
+      {
+        question: "Is my PDF sent anywhere when I add a watermark?",
+        answer: `No. ${nameOf("watermark-pdf")} stamps the PDF inside your browser tab, so the PDF and any picture you add stay on your device. The only thing the page may fetch is a Noto font from pdf.xyz, when your text needs one; that request carries nothing from your document.`,
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-crop-a-pdf",
+    title: "How to crop a PDF and trim its margins",
+    description:
+      "Trim PDF margins evenly or side by side, in points, millimetres or inches, or let Auto find the white margins for you. Runs in your browser, no account.",
+    tools: ["crop-pdf", "rotate-pdf", "compress-pdf"],
+    keywords: [
+      "how to crop a pdf",
+      "crop pdf",
+      "trim pdf margins",
+      "remove white margins from pdf",
+      "auto crop pdf",
+      "crop pdf pages",
+    ],
+    intro: [
+      `To crop a PDF, open ${nameOf("crop-pdf")}, add your file, and set how much to trim under Crop margins: one value for all four sides, a separate value for each side, or Auto, which finds the white margins around each page's content for you. Then press Crop PDF and download the result.`,
+      `You can measure in ${CROP_UNITS}, crop every page or only the pages you list, and check the result in the Crop preview before anything is cropped. ${nameOf("crop-pdf")} runs in your browser tab, so your PDF stays on your device; it opens one file at a time, up to ${ceilingMb("crop-pdf")} MB.`,
+      "Cropping hides the edges rather than deleting them: the tool shrinks each page's visible area, and the content outside it stays in the file, out of view. Selectable text stays selectable, because nothing is redrawn.",
+    ],
+    steps: [
+      `Open the ${nameOf("crop-pdf")} tool and drag your PDF into the drop area, or click it to choose the file. It stays on your device.`,
+      `In the Crop margins section, choose Uniform for one All sides slider, or Per side for separate Top, Right, Bottom and Left sliders, and pick ${CROP_UNITS} as the unit. You can drag a slider or type a value in the box beside it.`,
+      "For automatic margins, choose Auto and press Find white margins. The tool says how many pages it found content on and names any blank page, which it leaves uncropped.",
+      "In the Pages section, keep All pages, or choose Selected pages and type a list such as 2-4, 7.",
+      "Check the Crop preview, then press Crop PDF and Download cropped PDF.",
+    ],
+    sections: [
+      {
+        id: "manual-margins",
+        heading: "Set the margins yourself",
+        body: [
+          `Uniform trims the same amount from every edge with one All sides slider. Per side gives Top, Right, Bottom and Left their own sliders, so you can take a footer strip off the bottom and leave the other three edges alone. The unit buttons switch between ${CROP_UNITS}; a value you type is read in the unit you chose.`,
+          `Margins are measured on the page as your viewer shows it, so Top always trims the edge you see at the top, even on a page that is stored turned and only displayed upright. No page may end up narrower or shorter than ${MIN_CROP_DIMENSION} points: margins that would do that stop the run, and the message names the first page that failed.`,
+        ],
+      },
+      {
+        id: "auto-crop",
+        heading: "Let Auto find the white margins",
+        body: [
+          `Auto renders each page in your browser at a low resolution, finds the area that holds anything darker than near-white, such as text, lines, images or a scanner's grey edge, and proposes margins that keep it with ${AUTO_CROP_PAD_PT} points of white on every side. A page with nothing on it is named and left uncropped.`,
+          "With content on more than one page you choose between Each page its own box and Same box on every page. Same box on every page uses, for each edge, the smallest margin any page needs, so no page loses content. In Auto, the Crop preview shows the page itself under the proposed box, with Previous page and Next page to check each one.",
+          "A scan with a grey or speckled background has no white to find, so Auto may crop little or nothing there. Set the margins yourself instead.",
+        ],
+      },
+      {
+        id: "what-cropping-keeps",
+        heading: "What cropping keeps",
+        body: [
+          `The page content itself is not changed: the crop box, the region a PDF viewer shows, gets smaller, and whatever sits outside it is still in the file. That makes cropping a poor way to hide private information; for that, use a redaction tool. It also means the file does not reliably get smaller, so use ${nameOf("compress-pdf")} when size is the goal.`,
+          `Margins are measured from the page's current visible area, so cropping an already-cropped file trims further. If a page is on its side, turn it upright with ${nameOf("rotate-pdf")} first, so the edges you see are the edges you name.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I crop each side of a PDF by a different amount?",
+        answer:
+          "Yes. Under Crop margins, switch from Uniform to Per side and four sliders appear: Top, Right, Bottom and Left. Setting only Bottom, for instance, removes a footer strip and leaves the other edges alone.",
+      },
+      {
+        question: "Can it remove white margins automatically?",
+        answer: `Yes. Choose Auto and press Find white margins. Each page is checked for content, and the proposed crop keeps it with ${AUTO_CROP_PAD_PT} points of white around it; a blank page is named and left uncropped. Check each page in the preview before you press Crop PDF.`,
+      },
+      {
+        question: "Can I set the margins in millimetres or inches?",
+        answer: `Yes. Pick ${CROP_UNITS} beside the sliders. Each slider shows its value in that unit as you drag, and the box beside it takes a typed value in the same unit.`,
+      },
+      {
+        question: "Does cropping delete the content outside the margins?",
+        answer:
+          "No. Cropping shrinks each page's visible area; the content outside it stays in the file, out of view. Nothing on the page is redrawn, so selectable text stays selectable.",
+      },
+      {
+        question: "Why is the Crop PDF button greyed out?",
+        answer:
+          "It stays off while every slider sits at 0, because there is nothing to crop, and in Auto until Find white margins has found content on at least one page. A Pages list that is empty, backwards or past the last page is rejected with a message.",
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-convert-pdf-to-excel",
+    title: "How to convert a PDF to Excel",
+    description:
+      "Export a PDF's text to an Excel XLSX sheet, one row per line with each value in its column and amounts as numbers. A secure worker deletes your PDF after.",
+    tools: ["pdf-to-excel", "extract-tables", "ocr-pdf"],
+    keywords: [
+      "how to convert pdf to excel",
+      "pdf to excel",
+      "pdf to xlsx",
+      "pdf to spreadsheet",
+      "export pdf to excel",
+    ],
+    intro: [
+      `To convert a PDF to Excel, open ${nameOf("pdf-to-excel")}, add your PDF, press Export XLSX, and download the workbook. Each line of the PDF's text becomes a row of a sheet named “${XLSX_SHEET_NAME}”, split into cells at ${XLSX_CELL_BREAK_PHRASE}, and each value lands in the column it sits in on the page.`,
+      `It is layout placement, not table detection. When you want only the tables out of a page, each on its own, ${nameOf("extract-tables")} is the tool built for that.`,
+      `${nameOf("pdf-to-excel")} runs on a secure worker, not in your browser: your PDF, up to ${ceilingMb("pdf-to-excel")} MB, travels over an encrypted connection, and the worker deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored workbook.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-excel")} tool.`,
+      `Add your PDF by dragging it onto the box or clicking browse. Files up to ${ceilingMb("pdf-to-excel")} MB are accepted.`,
+      "Press Export XLSX. Your PDF uploads over an encrypted connection, and the button follows the job until the workbook is back in the page.",
+      `When “Your XLSX file is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the workbook right away.`,
+      "Open the sheet and tidy it: delete rows that came from page headers and footers, and check dates and codes that stayed text.",
+    ],
+    sections: [
+      {
+        id: "how-rows-and-columns-work",
+        heading: "How each line becomes a row",
+        body: [
+          `Every non-empty line of the PDF's text becomes one row, and a line breaks into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, so a blank cell stays blank and the values after it stay under their own headings. ${XLSX_MERGE_CAVEAT}`,
+          "Pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows. Ruling lines and cell borders are ignored, merged cells are not rebuilt, and fonts, colours and images are not carried over.",
+        ],
+      },
+      {
+        id: "numbers-stay-numbers",
+        heading: "Amounts arrive as numbers",
+        body: [
+          `An amount or a percentage written like ${XLSX_AMOUNTS} is stored as a number, so SUM adds a column up without converting anything, and the comma inside an amount never splits it. A date such as ${XLSX_TEXT_EXAMPLE}, a European-style 1.250,00, a negative in brackets and a code with leading zeros stay text, so convert those columns before you calculate with them.`,
+        ],
+      },
+      {
+        id: "scans-and-tables",
+        heading: "Scanned PDFs and table-only exports",
+        body: [
+          `A scanned page holds a picture of its words, so it has no text to export. A fully scanned PDF is refused with a message pointing to ${nameOf("ocr-pdf")}: run it there with the language the page is written in, choose a searchable PDF, and bring that file back here. If only some pages are scans, the export succeeds and the result says which pages had no text.`,
+          `${nameOf("extract-tables")} looks for tables by where the words sit, keeps only the regions that read as a grid of values, and hands back a CSV per table plus one workbook with a sheet for each. Choose it when you want the tables alone, without the headings and paragraphs around them.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Will my table's rows and columns line up in Excel?",
+        answer: `Usually, when the rows line up on the page: each value goes in the column it sits in, so a blank cell stays blank. A cell whose text wraps onto a second printed line gives you two rows, and two columns printed only one space apart stay in a single cell. ${XLSX_MERGE_CAVEAT}`,
+      },
+      {
+        question: "Will SUM work on the numbers?",
+        answer: `For amounts and percentages written like ${XLSX_AMOUNTS}, yes: each is stored as a number. Dates such as ${XLSX_TEXT_EXAMPLE}, European-style 1.250,00, negatives in brackets and codes with leading zeros stay text.`,
+      },
+      {
+        question: "Can I convert a scanned PDF to Excel?",
+        answer: `Not directly: a scan has no selectable text, so the job is refused with a link to ${nameOf("ocr-pdf")}. Run OCR first with the right language, choose a searchable PDF as the result, and convert that file here.`,
+      },
+      {
+        question: "Does PDF to Excel upload my file?",
+        answer: `Yes. The text is read by a native program a browser cannot run, so your PDF is uploaded over an encrypted connection to a secure worker, which deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored workbook.`,
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("pdf-to-excel")} MB, one PDF per run.`,
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-convert-pdf-to-powerpoint",
+    title: "How to convert a PDF to PowerPoint",
+    description:
+      "Turn each PDF page into a slide in a .pptx file, with pictures where the page shows them and each line of text in a text box. Runs on an auto-deleting worker.",
+    tools: ["pdf-to-powerpoint", "powerpoint-to-pdf", "ocr-pdf"],
+    keywords: [
+      "how to convert pdf to powerpoint",
+      "pdf to powerpoint",
+      "pdf to pptx",
+      "pdf to slides",
+      "turn a pdf into a presentation",
+    ],
+    intro: [
+      `To convert a PDF to PowerPoint, open ${nameOf("pdf-to-powerpoint")}, add your PDF, press Export PPTX, and download the .pptx file. Each page becomes one slide, in page order, and the slides take the size and shape of the first page.`,
+      "On each slide, a photo or screenshot from the page sits where the page shows it, as a picture of its own. Every line of selectable text becomes a text box at its place, in its size, weight and colour, set in a font matched to the PDF's. Lines, boxes, backgrounds and other drawing come across as pictures, stacked in the order the page paints them.",
+      `${nameOf("pdf-to-powerpoint")} runs on a secure worker rather than in your browser. Your PDF, up to ${ceilingMb("pdf-to-powerpoint")} MB, travels over an encrypted connection, and the worker deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-powerpoint")} tool.`,
+      `Drop one PDF on the box, or browse for it. Files up to ${ceilingMb("pdf-to-powerpoint")} MB are accepted, and Remove takes back a wrong pick.`,
+      "Press Export PPTX. Your PDF uploads over an encrypted connection to the secure worker, and the button follows the job while the slides are assembled.",
+      `When “Your PPTX file is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the file right away.`,
+      "Open the .pptx and check it against the PDF, which is the reference for fonts and drawing.",
+    ],
+    sections: [
+      {
+        id: "what-each-slide-holds",
+        heading: "What each slide holds",
+        body: [
+          "Pictures arrive as separate pictures where the page shows them, cut to the shape the page shows them through. Each line of text is its own text box, so a paragraph wrapped over five lines arrives as five boxes, and a page set in two columns keeps its columns apart.",
+          "Fonts are matched, not copied. A font that comes with Windows or Office keeps its name; others become a close standard font by style, so a line can run a little longer or shorter than on the page. Lines, boxes and backgrounds are pictures, not shapes, and links do not come across.",
+          "A page whose drawing is too intricate to stack in order becomes one picture of the page, with its text in invisible text boxes over it: you can select and search that text, but not see or restyle it.",
+        ],
+      },
+      {
+        id: "scanned-pages",
+        heading: "Scanned pages",
+        body: [
+          `A scanned page holds a picture of its words, so its slide carries the page as a picture and those words are not text. Run ${nameOf("ocr-pdf")} on the scan first and convert the result: its slides then also carry the recognised words, in invisible text boxes over each picture. The note beside the download names any pages that had no selectable text.`,
+        ],
+      },
+      {
+        id: "what-has-been-checked",
+        heading: "What has been checked",
+        body: [
+          "Decks made by this tool's export code were opened read-only by PowerPoint for Windows and saved back to PDF, and every page matched its source closely. Opening a downloaded file with a double-click and editing the slides have not been tested, so keep the PDF beside you as the reference while you work on the deck.",
+          `Going the other way, ${nameOf("powerpoint-to-pdf")} turns a .pptx or .ppt into a PDF, one slide per page, on the same kind of secure worker.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Will the slides look like my PDF?",
+        answer:
+          "Closely, in layout and pictures: each picture sits where the page shows it and each line of text is a text box at its place. Fonts are matched rather than copied, so a line can come out a little wider or narrower, and lines, boxes and backgrounds arrive as pictures rather than shapes.",
+      },
+      {
+        question: "What happens to a scanned PDF?",
+        answer: `It is converted, as pictures: each scanned page lands on its slide as a picture, and its words are not text. Run ${nameOf("ocr-pdf")} first and convert the OCR'd copy to have the recognised words in invisible text boxes over each picture.`,
+      },
+      {
+        question: "Why is a paragraph split into separate text boxes?",
+        answer:
+          "Each line of the PDF becomes its own text box, placed where that line sits. That keeps the page's look, including columns, but it means a wrapped paragraph arrives as one box per line.",
+      },
+      {
+        question: "Does the conversion upload my PDF?",
+        answer: `Yes. Your PDF is uploaded over an encrypted connection to a secure worker, which deletes it when the job finishes. The .pptx can be fetched for ${DEFAULT_RETENTION.outputTtlMinutes} minutes; after that the link no longer works, and a daily storage rule erases the stored copy.`,
+      },
+      {
+        question: "Can I convert a password-protected PDF?",
+        answer: `Not while it asks for a password to open: the job stops with a message and a link to ${nameOf("unlock-pdf")}. Remove the password there with the password you know, then convert the unlocked copy.`,
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-convert-word-to-pdf",
+    title: "How to convert a Word document to PDF",
+    description:
+      "Convert a .docx or .doc file to PDF with LibreOffice on a secure worker that deletes your file after the job. Excel and PowerPoint files convert the same way.",
+    tools: ["word-to-pdf", "excel-to-pdf", "powerpoint-to-pdf"],
+    keywords: [
+      "how to convert word to pdf",
+      "word to pdf",
+      "docx to pdf",
+      "doc to pdf",
+      "save word as pdf",
+      "excel to pdf",
+      "powerpoint to pdf",
+    ],
+    intro: [
+      `To convert a Word document to PDF, open ${nameOf("word-to-pdf")}, add your .docx or .doc file, press Convert to PDF, and download the result. The PDF is named after your file, and its typed text stays text you can search, select and copy.`,
+      "The pages are laid out by LibreOffice, not by Microsoft Word, following the page size, margins, headers and footers set in the document. A font the worker lacks is replaced by a stand-in, which can move a line or page break, so check the pages before you send them.",
+      `${nameOf("word-to-pdf")} runs on a secure worker. Your document, up to ${ceilingMb("word-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Spreadsheets and presentations go through ${nameOf("excel-to-pdf")} and ${nameOf("powerpoint-to-pdf")} the same way.`,
+    ],
+    steps: [
+      `Open the ${nameOf("word-to-pdf")} tool.`,
+      "Drag your .docx or .doc onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Press Convert to PDF. The document uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
+      `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
+      "Open the PDF and look for moved page breaks, a changed font or a shifted image before you send it.",
+    ],
+    sections: [
+      {
+        id: "how-it-is-laid-out",
+        heading: "How the PDF is laid out",
+        body: [
+          "LibreOffice reads Word's formats, but it is not Microsoft Word, so differences tend to show in fonts and floating objects. A font the document names that the worker does not have is replaced by a substitute whose letter widths may differ, which can push the last lines of a page onto the next; text boxes and wrapped images may land slightly elsewhere.",
+          "Documents built with styles, tables and pictures set in line with text give it the least to reinterpret. If something drifted, fix it in the Word file, for example by setting a floating image in line with text, and convert again.",
+        ],
+      },
+      {
+        id: "excel-and-powerpoint",
+        heading: "Excel and PowerPoint files",
+        body: [
+          `${nameOf("excel-to-pdf")} takes an Excel workbook or a CSV file and has LibreOffice print it to PDF. There is no sheet picker and no layout setting on the page, so set landscape and fit-to-page scaling in your spreadsheet app before converting if the columns split across pages.`,
+          `${nameOf("powerpoint-to-pdf")} takes a .pptx or .ppt and writes one slide per page. Speaker notes and slides marked hidden are not exported, so unhide any slide you want in the PDF first.`,
+        ],
+      },
+      {
+        id: "files-and-limits",
+        heading: "Accepted files and limits",
+        body: [
+          `${nameOf("word-to-pdf")} accepts Word's .docx and the older .doc format, one document per conversion, up to ${ceilingMb("word-to-pdf")} MB. Other formats, such as .odt, .rtf or .pages, are turned away rather than guessed at.`,
+          "A file that needs a password to open cannot be converted, because the page has no password field. Remove the password in Word, save a copy, and convert the copy.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Why do the page breaks differ from what Word shows me?",
+        answer:
+          "Because LibreOffice, not Microsoft Word, decides where each line and page ends. If the document names a font the worker does not have, a substitute is used, and a slightly wider one can push lines onto the next page. Typed text stays selectable either way.",
+      },
+      {
+        question: "Does Word to PDF upload my document?",
+        answer: `Yes. Your file is uploaded over an encrypted connection to a secure worker, which deletes it once the conversion job is finished. The PDF's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy.`,
+      },
+      {
+        question: "Which file types can I convert?",
+        answer: `${nameOf("word-to-pdf")} takes .docx and .doc. ${nameOf("excel-to-pdf")} takes Excel workbooks and CSV files, and ${nameOf("powerpoint-to-pdf")} takes .pptx and .ppt.`,
+      },
+      {
+        question: "How big can the document be?",
+        answer: `Up to ${ceilingMb("word-to-pdf")} MB, one document per conversion. For a batch, convert one file, press Remove, and add the next.`,
+      },
+      {
+        question: "Can I convert a password-protected Word file?",
+        answer:
+          "No. The page passes no password to LibreOffice, so a file that needs one to open fails with an error. Clear the password in Word, save a copy, and convert that.",
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-ocr-a-pdf-in-other-languages",
+    title: `How to OCR a PDF in ${OCR_EXAMPLES.slice(0, 3).map(describeOcrLanguage).join(", ")} and other languages`,
+    description: `OCR a scanned PDF in any of ${OCR_LANGUAGES.length} languages, including ${OCR_EXAMPLE_NAMES}, up to ${MAX_OCR_LANGUAGES} per job. Get a searchable PDF, text, or a Word file.`,
+    tools: ["ocr-pdf", "pdf-to-word"],
+    keywords: [
+      "ocr pdf in other languages",
+      "bengali ocr pdf",
+      "hindi ocr pdf",
+      "arabic ocr pdf",
+      "tamil ocr",
+      "multilingual ocr",
+      "ocr non english pdf",
+    ],
+    intro: [
+      `To OCR a PDF in a language other than English, open ${nameOf("ocr-pdf")}, select every language printed on the page under Languages, add your scan, and press Run OCR on the worker. ${OCR_LANGUAGES.length} languages are offered, including ${OCR_EXAMPLE_NAMES}, and one job can combine up to ${MAX_OCR_LANGUAGES}.`,
+      `Choosing the language is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a page read in the wrong language does not fail: the engine returns fluent-looking nonsense in the alphabet it was given, with no error.`,
+      `${nameOf("ocr-pdf")} runs on a secure worker. Your scan, up to ${ceilingMb("ocr-pdf")} MB, travels over an encrypted connection and is deleted when the job finishes, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
+    steps: [
+      `Open the ${nameOf("ocr-pdf")} tool.`,
+      `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} starts selected; deselect it if the page has none.`,
+      `Under Output, choose ${ocrModeLabel("searchable-pdf")}, ${ocrModeLabel("text")} for a .txt file, or ${ocrModeLabel("both")}.`,
+      "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Run OCR on the worker. The file uploads over an encrypted connection only when you press it.",
+      `Download the result. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      "Search the PDF or read the text to check it. If it looks like gibberish, change the language selection and run the job again.",
+    ],
+    sections: [
+      {
+        id: "the-language-list",
+        heading: "The languages on offer",
+        body: [
+          `The menu offers ${OCR_LANGUAGES.length} languages: ${OCR_LANGUAGE_NAMES}. The job API accepts only languages on this list and refuses any other rather than guessing.`,
+          `If the worker ever lacks the pack for a language you selected, the job stops before recognition starts and the error names that language, rather than blaming your file.`,
+        ],
+      },
+      {
+        id: "mixed-languages",
+        heading: "Documents in more than one language",
+        body: [
+          `A form printed in ${describeOcrLanguage("ben")} with English headings, or a ${describeOcrLanguage("hin")} letter with an English address block, needs every language on the page selected. Up to ${MAX_OCR_LANGUAGES} can be combined in one job; to swap one out at the limit, deselect a language first.`,
+          "Select only the languages that are really there: each one you add is more recognition work for the job.",
+        ],
+      },
+      {
+        id: "straight-to-word",
+        heading: "Straight to an editable Word document",
+        body: [
+          `${nameOf("pdf-to-word")} can run the OCR in the same job: tick “${WORD_OCR_LABEL}”, pick the languages, and the worker recognises the scan first and converts the result into a DOCX. Its picker offers ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages.`,
+          `${RTL_OCR_NAMES} are not offered for ${nameOf("pdf-to-word")}'s OCR: written right to left, their recognised words come out of the conversion out of order. ${nameOf("ocr-pdf")} reads them in order, so for those languages use ${nameOf("ocr-pdf")} and take its searchable PDF or its text.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Which languages can the OCR read?",
+        answer: `${OCR_LANGUAGES.length}: ${OCR_LANGUAGE_NAMES}. Up to ${MAX_OCR_LANGUAGES} can be combined in one job.`,
+      },
+      {
+        question: "Why does my OCR result look like gibberish?",
+        answer: `Usually the selected language does not match the page. ${describeOcrLanguage("ben")} read as English, for example, comes back as Latin letters that look plausible and mean nothing, with no error. Select the language the page is printed in and run the job again; a blurry, skewed or sideways scan causes the same symptom.`,
+      },
+      {
+        question: `Can I OCR ${listOr(RTL_OCR_LANGUAGES.map(describeOcrLanguage))}?`,
+        answer: `Yes, with ${nameOf("ocr-pdf")}, which reads them in order in its searchable PDF and its text. ${RTL_OCR_NAMES} are not offered for ${nameOf("pdf-to-word")}'s OCR, because their recognised words come out of that conversion out of order.`,
+      },
+      {
+        question: "Can I turn a scan straight into an editable Word document?",
+        answer: `Yes, for ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages. In ${nameOf("pdf-to-word")}, tick “${WORD_OCR_LABEL}” and pick the languages; the worker recognises the text first and converts the result in the same job.`,
+      },
+      {
+        question: "Is my scan uploaded?",
+        answer: `Yes. Recognition needs a native OCR engine, so your file is uploaded over an encrypted connection to a secure worker, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored result.`,
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-convert-a-webpage-to-pdf",
+    title: "How to save a web page as a PDF",
+    description:
+      "Paste a public link and get the page as a PDF with selectable text, rendered by Chromium on a secure worker. Choose page size, margins or one long page.",
+    tools: ["webpage-to-pdf", "html-to-pdf"],
+    keywords: [
+      "how to convert a webpage to pdf",
+      "webpage to pdf",
+      "url to pdf",
+      "save web page as pdf",
+      "website to pdf",
+      "html file to pdf",
+    ],
+    intro: [
+      `To save a web page as a PDF, open ${nameOf("webpage-to-pdf")}, paste the page's full address, choose a page layout if you want one, and press Render PDF. A copy of Chromium, the engine behind Chrome and Edge, loads the page, lets its scripts run, and prints it to a PDF whose text you can search and copy.`,
+      `The page is fetched by pdf.xyz's secure worker, not by your browser. The job carries only the address you typed, sent over an encrypted connection, and the site sees a signed-out visitor with none of your cookies, so members-only pages and paywalls come out as a stranger would see them.`,
+      `For an HTML file on your computer rather than a live address, ${nameOf("html-to-pdf")} renders it with the same engine and the same layout options. Either way, the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
+    steps: [
+      `Open the ${nameOf("webpage-to-pdf")} tool.`,
+      "Select everything in the address field, which starts with https://, and paste the full link from your browser's address bar over it. Only http and https links are accepted.",
+      HTML_LAYOUT_STEP.body,
+      "Press Render PDF. The address is uploaded to the secure worker over an encrypted connection, and Chromium opens and prints the page.",
+      `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF right away.`,
+    ],
+    sections: [
+      {
+        id: "page-layout",
+        heading: "Page size, margins, screen width and one long page",
+        body: [
+          htmlLayoutAnswer("site"),
+          "One long page suits a long article or a receipt you want to scroll through without page breaks; a screen width suits a site whose print layout hides things you want, because it lays the page out as on that screen and scales it to fit the paper.",
+        ],
+      },
+      {
+        id: "what-gets-printed",
+        heading: "What ends up in the PDF",
+        body: [
+          "The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Backgrounds are printed, and a site that ships a print stylesheet gets that layout. Words a site draws as a picture or on a canvas stay pictures.",
+          "Nothing scrolls the page, and its scripts run within a fixed budget of time, so an endless feed prints only what it loads unscrolled, and images that load only as you scroll can be missing. Cookie notices and adverts shown to a new visitor can appear too.",
+        ],
+      },
+      {
+        id: "html-files",
+        heading: "Converting an HTML file instead",
+        body: [
+          `${nameOf("html-to-pdf")} takes one .html or .htm file instead of an address. Drag it onto the drop zone, set the same Page layout options, and press Render PDF; the PDF is named after your file. Leave Page size on its default and a CSS @page rule in your file decides the paper.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I convert a members-only or paywalled page?",
+        answer:
+          "No. The worker receives only the address, never your cookies, so a members-only or paywalled page comes out as the screen a signed-out stranger gets, or as an error. For those, open the page yourself and use your browser's Print dialog with Save as PDF.",
+      },
+      {
+        question: "Can I choose the page size, margins or orientation?",
+        answer: htmlLayoutAnswer("site"),
+      },
+      {
+        question: "Is the text in the PDF selectable?",
+        answer:
+          "Yes. It is a printed PDF, not a screenshot, so words can be selected, copied and found with Ctrl+F. Words a site draws as a picture or on a canvas stay pictures.",
+      },
+      {
+        question: "Why was my address refused?",
+        answer: `It must begin with http:// or https://. Addresses on your own computer or a private network, such as ${listOr(PRIVATE_ADDRESS_EXAMPLES)}, are refused, and while rendering the worker fetches only public addresses, so a link that leads into a private network ends with an error instead of a PDF.`,
+      },
+      {
+        question: "How do I convert an HTML file on my computer?",
+        answer: `Use ${nameOf("html-to-pdf")}: drop one .html or .htm file, choose the layout, and press Render PDF. It runs on the same secure worker, which deletes your file when the job finishes.`,
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-extract-images-from-a-pdf",
+    title: "How to extract images from a PDF",
+    description:
+      "Save the pictures embedded in a PDF at their original resolution, JPEGs byte for byte and other images as lossless PNGs, right in your browser.",
+    tools: ["extract-images", "pdf-to-jpg", "pdf-to-png"],
+    keywords: [
+      "how to extract images from a pdf",
+      "extract images from pdf",
+      "save pictures from pdf",
+      "get images out of a pdf",
+      "pdf image extractor",
+    ],
+    intro: [
+      `To extract the images from a PDF, open ${nameOf("extract-images")}, add your file, and press Extract images. Each picture embedded in the PDF comes back as its own file at its stored resolution, with no page, text or margin around it. When more than one is found, you can download them one at a time or all together as a ZIP.`,
+      "The tool reads the PDF's image objects directly instead of photographing the page. JPEG images are written out byte for byte, so nothing is compressed a second time, and raw RGB, grayscale and black-and-white images are rebuilt as lossless PNGs at their native size.",
+      `It runs in your browser, so your PDF stays on your device and no account is needed. Files up to ${ceilingMb("extract-images")} MB are accepted.`,
+    ],
+    steps: [
+      `Open the ${nameOf("extract-images")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
+      "Press Extract images. The button reads Scanning for images… while each page's images are read in your browser.",
+      "Review the grid: each preview shows the image's width, height and format, and a skipped box lists any images that could not be extracted, with the reason.",
+      "When more than one image was found, press Download ZIP for all of them in one archive, or use a preview's own button for a single image; with only one, press Download image.",
+    ],
+    sections: [
+      {
+        id: "what-comes-out",
+        heading: "What you get for each image",
+        body: [
+          "JPEG images, CMYK JPEGs included, are saved as .jpg files exactly as the PDF stored them. RGB and grayscale images, black-and-white images and palette images over RGB or gray become lossless PNGs at native size. A picture reused on several pages is saved once, and each file's name gives its page and its order on that page, so the files list in page order.",
+          "When a PDF stores transparency as a mask beside a picture, that mask becomes the PNG's transparency, so a cut-out logo comes out cut out. A JPEG cannot carry a mask, so a masked JPEG comes out on a solid background.",
+        ],
+      },
+      {
+        id: "skipped-images",
+        heading: "Images it skips",
+        body: [
+          "Some kinds of image are not recovered yet, among them JPEG 2000, fax-style bitmaps, CMYK pixel images and images written inline in a page's drawing instructions. Each is counted under its reason in the skipped list rather than guessed at.",
+          `Images used as fill patterns or inside annotations are not scanned. When a picture is skipped, or when you need the whole page as an image, ${nameOf("pdf-to-jpg")} and ${nameOf("pdf-to-png")} render pages instead.`,
+        ],
+      },
+      {
+        id: "quality",
+        heading: "Quality and what the page did to the picture",
+        body: [
+          "The pixels are the ones the PDF holds. If the author shrank a photo before making the PDF, that smaller version is all the file has. The page's drawing instructions are not applied either: an image the page crops, rotates or flips is saved whole, in the orientation it was stored, and a colour profile the PDF assigns is not written into the saved file.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Will the extracted images keep their original quality?",
+        answer:
+          "The pixels do. JPEGs are copied byte for byte, and RGB or grayscale images become lossless PNGs at native size. If the author shrank an image before making the PDF, that smaller version is all the file holds.",
+      },
+      {
+        question:
+          "What is the difference between Extract Images and PDF to JPG?",
+        answer: `${nameOf("extract-images")} saves the pictures embedded in the PDF as they were stored, with no page around them. ${nameOf("pdf-to-jpg")} and ${nameOf("pdf-to-png")} render whole pages, text and all, as images.`,
+      },
+      {
+        question: "Why were no images found?",
+        answer:
+          "The pages may hold only text and vector drawings, which are not images. Images used as fill patterns or inside annotations are not scanned, and images written inline in a page's drawing instructions are listed as skipped.",
+      },
+      {
+        question: "Does my PDF leave my device?",
+        answer: `No. The file is read and the images are rebuilt in your browser, and when there is more than one, the ZIP is assembled there too. The whole PDF is held in your browser's memory while you work, which is why a file over ${ceilingMb("extract-images")} MB is turned away.`,
+      },
+      {
+        question: "Can I extract images from a password-protected PDF?",
+        answer: `Not while it is encrypted: any encryption makes the file fail to open here, even when it only limits printing or copying. ${nameOf("unlock-pdf")} can remove the encryption with a password you know; it runs on a secure worker, not in your browser.`,
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-reorder-pages-in-a-pdf",
+    title: "How to reorder pages in a PDF",
+    description:
+      "Drag PDF pages into a new order, turn, copy or delete them, and add blank pages, right in your browser. Undo any step. No account needed.",
+    tools: ["organize-pages", "edit-pdf", "rotate-pdf"],
+    keywords: [
+      "how to reorder pages in a pdf",
+      "rearrange pdf pages",
+      "reorder pdf pages",
+      "move pages in a pdf",
+      "change page order in pdf",
+    ],
+    intro: [
+      `To reorder the pages of a PDF, open ${nameOf("organize-pages")}, add your file, and drag the page tiles into the order you want. Press Apply & export, then Download organized PDF.`,
+      "Every page appears as a thumbnail tile on a board. Besides dragging, each tile has buttons to move it one place, turn it a quarter turn clockwise, duplicate it, delete it, or insert a blank page before or after it. Above the board, Reverse flips the whole order and Reset brings back the order the file arrived with.",
+      `It runs in your browser tab, so your PDF stays on your device; files up to ${ceilingMb("organize-pages")} MB open, and Undo walks back up to ${MAX_HISTORY} edits. If you are already editing the file in ${nameOf("edit-pdf")}, its page list can reorder pages too.`,
+    ],
+    steps: [
+      `Open the ${nameOf("organize-pages")} tool and drop your PDF onto the box, or click it to choose the file. It stays on your device.`,
+      "Drag a tile to its new place, or use its arrow buttons to move it one place at a time.",
+      "Use the buttons on a tile to turn it, duplicate it, delete it, or insert a blank page before or after it. Reverse flips the whole order.",
+      "Each tile shows its new position and its original page number, so check what moved. Undo and Redo step through your edits.",
+      "Press Apply & export, then Download organized PDF. The copy is named after yours, with -organized added.",
+    ],
+    sections: [
+      {
+        id: "the-board",
+        heading: "Working on the page board",
+        body: [
+          "Each tile carries two numbers: a corner badge for its new position and a label for its original page, so you can see at a glance what moved. By keyboard, focus a tile's handle, press Enter or Space to grab it, move it with the arrow keys, Home or End, and press Enter or Space again to drop it.",
+          "An inserted blank page shows as a plain white tile labelled Blank page and takes the size and orientation of the page beside it, which is handy when the next chapter should start on a right-hand page in two-sided printing. The delete button is disabled on the last page left from your PDF, since the export needs at least one.",
+        ],
+      },
+      {
+        id: "what-the-export-keeps",
+        heading: "What the reordered file keeps",
+        body: [
+          `Each page is copied across, not re-rendered, so its content is untouched and selectable text stays selectable. ${pageToolKeeps("subset", { inPlaceWhenOnlyTurned: true })}`,
+        ],
+      },
+      {
+        id: "in-the-editor",
+        heading: "Reordering pages while you edit",
+        body: [
+          `${nameOf("edit-pdf")} has a page list of its own: beside the pages on a wide screen, or under Pages on a smaller one. Each thumbnail can be turned a quarter, followed by a new blank page, or deleted, and dragged or moved with its arrows into a new order. What you placed on a page moves with it, and each change can be undone.`,
+          `When the only problem is pages on their side, ${nameOf("rotate-pdf")} turns the pages you pick, or the whole document, without touching the order.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Does reordering pages send my PDF to a server?",
+        answer:
+          "No. The reordered copy is assembled inside your browser tab, so the document stays on your device. Closing the tab before downloading discards the edit.",
+      },
+      {
+        question: "Can I add a blank page between two pages?",
+        answer:
+          "Yes. Use Insert blank page before or Insert blank page after on the tile next to where it should go. The blank page takes that page's size and orientation.",
+      },
+      {
+        question: "How do I reverse the page order?",
+        answer:
+          "Press Reverse above the board. It flips the whole order in one step, which suits a stack a scanner read last page first; Undo takes it back.",
+      },
+      {
+        question: "Does the reordered PDF keep its bookmarks and form fields?",
+        answer: pageToolKeepsAnswer("subset", { inPlaceWhenOnlyTurned: true }),
+      },
+      {
+        question: "Can I reorder pages in the PDF editor?",
+        answer: `Yes. In ${nameOf("edit-pdf")}, drag a thumbnail in the page list, or use its arrows, to move a page; anything you placed on that page moves with it.`,
+      },
+    ],
+    published: "2026-10-29",
+    updated: "2026-10-29",
   },
 ];

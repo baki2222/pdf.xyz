@@ -1,4 +1,8 @@
 {
+  "how-to-add-a-watermark-to-a-pdf": {
+    "contentHash": "7c7848cba18f9853f83abb20ec3d00a6128d8a279cfc144e2c3d8fd7610c5d0d",
+    "updated": "2026-10-29"
+  },
   "how-to-add-page-numbers-to-a-pdf": {
     "contentHash": "ff14fee37915e52d9b386f7db41aa42580b07d90457a9d531e33fef38844ccdb",
     "updated": "2026-09-27"
@@ -15,6 +19,10 @@
     "contentHash": "0f704946379e7eebb68a84514c3fcf79c762fa8569259c4a0013a69ce7042f11",
     "updated": "2026-10-10"
   },
+  "how-to-convert-a-webpage-to-pdf": {
+    "contentHash": "a5b594ab5ca6c02b06b79e9ac4f81569e8459faac51bae29f302c9cff3523738",
+    "updated": "2026-10-29"
+  },
   "how-to-convert-jpg-to-pdf": {
     "contentHash": "660c0f59317b56ce50b2c26ead97fe910c4017da62232644b62484c79db5d1a1",
     "updated": "2026-10-24"
@@ -23,21 +31,45 @@
     "contentHash": "69693c14c48f139b66a63514e3759367d705663c94aeb644f8fe9a63f6f321af",
     "updated": "2026-09-28"
   },
+  "how-to-convert-pdf-to-excel": {
+    "contentHash": "1ab36315244f0278b41e7e84b0b0876cadfbd04038f87799eefa55ca3f12759c",
+    "updated": "2026-10-29"
+  },
   "how-to-convert-pdf-to-jpg": {
     "contentHash": "718ab521d28ed77cb65456c8e2545f20ef36a367c5592d3731b1ba2fd8516ba9",
     "updated": "2026-09-27"
+  },
+  "how-to-convert-pdf-to-powerpoint": {
+    "contentHash": "0fbb52082e447cadf8a3a7c54079f24d24d05eee42a74313d9d5e0569af31c50",
+    "updated": "2026-10-29"
   },
   "how-to-convert-pdf-to-word": {
     "contentHash": "df370c0ee29230102d76e25350bcdef60dad342e2c30e4bdcb69a4bf23e9c721",
     "updated": "2026-10-17"
   },
+  "how-to-convert-word-to-pdf": {
+    "contentHash": "32e50242d6d3c5f3d4d65beebfaf11fe70d0b5836a347af0b7073e68336429a4",
+    "updated": "2026-10-29"
+  },
   "how-to-create-a-fillable-pdf-form": {
     "contentHash": "e9beee1ab3a14a13951ab54d755f8167bfef0156d2a9705da5784afd5544af73",
     "updated": "2026-09-27"
   },
+  "how-to-crop-a-pdf": {
+    "contentHash": "65003de961562518217d0c9379fbb984913573c87d5b49da5380f803ef00a3e7",
+    "updated": "2026-10-29"
+  },
   "how-to-delete-pages-from-a-pdf": {
     "contentHash": "bf80bc67cb31e6c651400260eec422711f1294d83cd6cf15bb5c585907c6114a",
     "updated": "2026-10-07"
+  },
+  "how-to-edit-text-in-a-pdf": {
+    "contentHash": "fa3aeeaf917e86cee4d346312f3a90c6ac6c1047bc7bf48687b0752fa5eb687f",
+    "updated": "2026-10-29"
+  },
+  "how-to-extract-images-from-a-pdf": {
+    "contentHash": "91eb2f491fe83e78f90d9e7fef8a5ac5d5721755b74dec0f623ba81a596c7cd5",
+    "updated": "2026-10-29"
   },
   "how-to-fill-out-a-pdf-form": {
     "contentHash": "1b64f90e9934f94eeb3070969d7f84f91f5e077bf60dd2d152a93baae037813e",
@@ -55,6 +87,10 @@
     "contentHash": "ad67ea1688f708a60b2d39c27829559fd108f89d0cb44bb717f2215c2dc6b9ac",
     "updated": "2026-10-25"
   },
+  "how-to-ocr-a-pdf-in-other-languages": {
+    "contentHash": "ff84ab2dffb4fefd22a187c73f181bb027ac51d15bec33b0b8ca28ed08cae44b",
+    "updated": "2026-10-29"
+  },
   "how-to-password-protect-a-pdf": {
     "contentHash": "1c1a93a20f2838ff729b10b98db8e2911d9698f040100db4095aa38f79d9a248",
     "updated": "2026-10-10"
@@ -66,6 +102,10 @@
   "how-to-remove-a-password-from-a-pdf": {
     "contentHash": "ced08ca3ac2f271281235cbcd0eab94b091690f77535ac5ddb86dce6748407b2",
     "updated": "2026-10-10"
+  },
+  "how-to-reorder-pages-in-a-pdf": {
+    "contentHash": "26c728bcf9a4ba437bcb2b38a427be62345a06924452ff832b31ca86bd9f3e82",
+    "updated": "2026-10-29"
   },
   "how-to-repair-a-damaged-pdf": {
     "contentHash": "efd90797ac2f41abf36f5ff0246c0737371a0de756d9832bc2693b55e6eebd22",

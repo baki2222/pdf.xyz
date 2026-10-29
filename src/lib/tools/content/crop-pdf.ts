@@ -132,8 +132,8 @@ const content: ToolContent = {
     },
   ],
 
-  // No guide in @/lib/guides covers cropping, so none is linked.
-  relatedGuides: [],
+  // Empty until 2026-10-29, when how-to-crop-a-pdf shipped.
+  relatedGuides: ["how-to-crop-a-pdf"],
 };
 
 export default content;

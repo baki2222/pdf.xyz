@@ -108,7 +108,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: ["how-to-merge-pdf-files"],
+  relatedGuides: ["how-to-reorder-pages-in-a-pdf", "how-to-merge-pdf-files"],
 };
 
 export default content;

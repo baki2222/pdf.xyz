@@ -182,7 +182,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: ["how-to-convert-word-to-pdf", "how-to-convert-pdf-to-excel"],
 };
 
 export default content;

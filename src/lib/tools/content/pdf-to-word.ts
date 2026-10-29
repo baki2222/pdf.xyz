@@ -218,6 +218,7 @@ const content: ToolContent = {
   relatedGuides: [
     "how-to-convert-pdf-to-word",
     "how-to-make-a-scanned-pdf-searchable",
+    "how-to-ocr-a-pdf-in-other-languages",
   ],
 };
 

@@ -206,7 +206,11 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: ["how-to-convert-pdf-to-word", "how-to-fill-out-a-pdf-form"],
+  relatedGuides: [
+    "how-to-edit-text-in-a-pdf",
+    "how-to-convert-pdf-to-word",
+    "how-to-fill-out-a-pdf-form",
+  ],
 };
 
 export default content;

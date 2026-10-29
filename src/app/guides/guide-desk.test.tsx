@@ -43,6 +43,7 @@ import { handoffCapabilityFor } from "@/lib/handoff/capability";
 import { takeCarriedHandoff } from "@/lib/handoff/carry";
 import { readOrigin } from "@/lib/handoff/origin";
 import { guides } from "@/lib/guides";
+import { guideHasDesk } from "@/lib/guides/desk";
 import {
   activePageTarget,
   resetPageTargetsForTests,
@@ -122,6 +123,7 @@ describe("every guide's desk, as the page serves it", () => {
     slug: g.slug,
     tool: getToolBySlug(g.tools[0]!)!,
   }));
+  const withDesk = primaries.filter(({ tool }) => guideHasDesk(tool));
 
   it("health check: every guide has a primary tool, and both kinds are present", () => {
     expect(primaries.length).toBeGreaterThanOrEqual(20);
@@ -132,16 +134,40 @@ describe("every guide's desk, as the page serves it", () => {
     const staged = primaries.filter(
       ({ tool }) => handoffCapabilityFor(tool.slug).mode === "stage",
     );
-    const none = primaries.filter(
+    // A tool that takes no FILE has no desk at all (`guideHasDesk`): since
+    // 2026-10-29 the webpage guide teaches Webpage to PDF, whose input is an
+    // address. Every guide WITH a desk must still hand its file off.
+    const none = withDesk.filter(
       ({ tool }) => !handoffCapabilityFor(tool.slug).supported,
     );
     expect(staged.length).toBeGreaterThanOrEqual(1);
     expect(none).toEqual([]);
     expect(primaries.length - staged.length).toBeGreaterThanOrEqual(10);
+    expect(withDesk.length).toBeGreaterThanOrEqual(primaries.length - 2);
+  });
+
+  it("a guide whose tool takes no file has no desk, and still opens its tool", async () => {
+    const deskless = primaries.filter(({ tool }) => !guideHasDesk(tool));
+    // Positive control: the address-only tool is found, not named — and it
+    // is the only kind the predicate excludes.
+    expect(deskless.map(({ tool }) => tool.accept)).toEqual(
+      deskless.map(() => ["URL"]),
+    );
+    expect(deskless.length).toBeGreaterThanOrEqual(1);
+    for (const { slug, tool } of deskless) {
+      const doc = await page(slug);
+      expect(doc.querySelector("[data-guide-desk]"), slug).toBeNull();
+      expect(
+        [...doc.querySelectorAll("a")].some(
+          (a) => a.textContent?.trim() === `Open ${tool.name}`,
+        ),
+        `${slug}: the Open button`,
+      ).toBe(true);
+    }
   });
 
   it("sits between the introduction and the first Open button, and promises only what the runner does", async () => {
-    for (const { slug, tool } of primaries) {
+    for (const { slug, tool } of withDesk) {
       const doc = await page(slug);
       const desk = doc.querySelector("[data-guide-desk]");
       expect(desk, `${slug}: no desk`).not.toBeNull();
