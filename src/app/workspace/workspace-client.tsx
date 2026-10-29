@@ -503,7 +503,7 @@ export function WorkspaceClient({
                     registry.requestFilePick(),
                   )
                 }
-                className={buttonVariants({ variant: "outline", size: "sm" })}
+                className={buttonVariants({ variant: "outline", size: "md" })}
               >
                 Add files
               </button>

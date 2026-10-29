@@ -102,8 +102,8 @@ const content: ToolContent = {
       body: "If the repack saved any bytes, press “Download optimized PDF”. The button shows the new size, and the file name gains “-optimized”.",
     },
     {
-      title: "Optional: compress images on the worker",
-      body: "In the “Deep image compression (secure worker)” panel, pick Extreme, Smaller, Balanced or High quality, tick “Grayscale” if you want the pages in shades of gray, and press “Compress images on the worker”, which uploads your file. If it shrank, or was converted to grayscale, press “Download compressed PDF”; if not, the panel says the original is already efficient.",
+      title: "Optional: compress images on our server",
+      body: "In the “Deep image compression (secure worker)” panel, pick Extreme, Smaller, Balanced or High quality, tick “Grayscale” if you want the pages in shades of gray, and press “Compress images on our server”, which uploads your file. If it shrank, or was converted to grayscale, press “Download compressed PDF”; if not, the panel says the original is already efficient.",
     },
   ],
 
@@ -114,7 +114,7 @@ const content: ToolContent = {
     },
     {
       q: "Is my file uploaded when I use Compress PDF?",
-      a: `Not by default. ${HYBRID_WORKER_STEP} Here that step is the “Compress images on the worker” button: the analysis and the lossless copy both run in your browser, and the button is shown only once the panel has confirmed a secure worker is available.`,
+      a: `Not by default. ${HYBRID_WORKER_STEP} Here that step is the “Compress images on our server” button: the analysis and the lossless copy both run in your browser, and the button is shown only once the panel has confirmed a secure worker is available.`,
     },
     {
       q: "Can I compress a PDF to a specific target size?",

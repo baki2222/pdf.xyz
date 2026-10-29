@@ -139,7 +139,7 @@ describe("OcrWorkerPanel", () => {
     // while OCR is off is the UPLOAD — Run is drawn but turned off.
     expect(fileInput()).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: /run ocr on the worker/i }),
+      screen.getByRole("button", { name: /recognize text/i }),
     ).toHaveAttribute("aria-disabled", "true");
 
     // It never fabricates a produced result / download in the disabled state.
@@ -206,7 +206,7 @@ describe("OcrWorkerPanel", () => {
 
     // The run affordance appears, driving the real (documented) job flow.
     expect(
-      await screen.findByRole("button", { name: /run ocr on the worker/i }),
+      await screen.findByRole("button", { name: /recognize text/i }),
     ).toBeInTheDocument();
     expect(screen.getByText("Available")).toBeInTheDocument();
     // A genuine file input is mounted (the Dropzone) — no fake success is shown.
@@ -232,7 +232,7 @@ describe("OcrWorkerPanel", () => {
     // unknown"): the drop zone takes a file at once; Run stays off.
     expect(fileInput()).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: /run ocr on the worker/i }),
+      screen.getByRole("button", { name: /recognize text/i }),
     ).toHaveAttribute("aria-disabled", "true");
   });
 });
@@ -261,7 +261,7 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
   it("states the per-job file count the runner enforces, not the platform's", async () => {
     stubFetch(AVAILABLE);
     render(<OcrWorkerPanel tool={ocrTool} />);
-    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    await screen.findByRole("button", { name: /recognize text/i });
     // Read the row a user reads, and derive its number from the constant the
     // runner and processor refuse on — a row that merely HAS a constant behind
     // it is what shipped "up to 20 files" for a one-file tool.
@@ -275,7 +275,7 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
   it("says so when a drop brings more than one file, and keeps the first", async () => {
     stubFetch(AVAILABLE);
     render(<OcrWorkerPanel tool={ocrTool} />);
-    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    await screen.findByRole("button", { name: /recognize text/i });
     const files = ["first.pdf", "second.pdf", "third.pdf"].map(
       (name) => new File(["%PDF-1.7"], name, { type: "application/pdf" }),
     );
@@ -294,7 +294,7 @@ describe("OcrWorkerPanel — the page says what one job takes", () => {
   it("shows no such note for a single file (positive control)", async () => {
     stubFetch(AVAILABLE);
     render(<OcrWorkerPanel tool={ocrTool} />);
-    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    await screen.findByRole("button", { name: /recognize text/i });
     await dropSheetsLive();
     fireEvent.drop(fileInput()!.closest("label")!, {
       dataTransfer: {
@@ -314,7 +314,7 @@ describe("OcrWorkerPanel — the language menu reads the worker's own report", (
   it("marks a language the worker has no pack for as unavailable, and will not select it", async () => {
     stubFetch(availableWith(["eng", "spa"]));
     render(<OcrWorkerPanel tool={ocrTool} />);
-    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    await screen.findByRole("button", { name: /recognize text/i });
 
     const bengali = chip(describeOcrLanguage("ben"));
     expect(bengali).toHaveAttribute("aria-disabled", "true");
@@ -335,7 +335,7 @@ describe("OcrWorkerPanel — the language menu reads the worker's own report", (
   it("disables no language when the worker reports every pack (the mirror)", async () => {
     stubFetch(AVAILABLE);
     render(<OcrWorkerPanel tool={ocrTool} />);
-    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    await screen.findByRole("button", { name: /recognize text/i });
     for (const language of OCR_LANGUAGES) {
       expect(chip(language.label)).not.toHaveAttribute("aria-disabled");
     }
@@ -344,7 +344,7 @@ describe("OcrWorkerPanel — the language menu reads the worker's own report", (
   it("drops a default the worker cannot run, falling back to one it can", async () => {
     stubFetch(availableWith(["spa", "fra"]));
     render(<OcrWorkerPanel tool={ocrTool} />);
-    await screen.findByRole("button", { name: /run ocr on the worker/i });
+    await screen.findByRole("button", { name: /recognize text/i });
     await waitFor(() => expect(summary()).toMatch(/Spanish → /));
     expect(summary()).not.toContain("English");
   });

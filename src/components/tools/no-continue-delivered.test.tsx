@@ -116,7 +116,7 @@ const DRIVERS: Record<
         target: { value: "correct horse" },
       });
       fireEvent.click(
-        await screen.findByRole("button", { name: /encrypt on the worker/i }),
+        await screen.findByRole("button", { name: /encrypt pdf/i }),
       );
     },
     announce: "Your PDF is protected and ready.",

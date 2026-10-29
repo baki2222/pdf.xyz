@@ -217,7 +217,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
     // …and the secure worker, which can, is mounted and runnable.
     expect(screen.getByText(WORKER_PANEL)).toBeInTheDocument();
     const run = await screen.findByRole("button", {
-      name: /compress images on the worker/i,
+      name: /compress images on our server/i,
     });
     expect(run).not.toHaveAttribute("aria-disabled", "true");
     // Signatures cannot be inspected in an encrypted file; say so, don't guess.
@@ -272,7 +272,7 @@ describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
 
     const run = await screen.findByRole(
       "button",
-      { name: /compress images on the worker/i },
+      { name: /compress images on our server/i },
       { timeout: 10_000 },
     );
     fireEvent.click(run);
@@ -433,7 +433,7 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
       screen.queryByRole("button", { name: /download optimized pdf/i }),
     ).toBeNull();
     const run = await screen.findByRole("button", {
-      name: /compress images on the worker/i,
+      name: /compress images on our server/i,
     });
     expect(run).toHaveAttribute("aria-disabled", "true");
 
@@ -461,7 +461,7 @@ describe("Compress: a digitally signed PDF", { timeout: 30_000 }, () => {
     ).toBeNull();
     expect(
       await screen.findByRole("button", {
-        name: /compress images on the worker/i,
+        name: /compress images on our server/i,
       }),
     ).not.toHaveAttribute("aria-disabled", "true");
   });
@@ -687,7 +687,7 @@ describe(
       await drop(container, [asFile(input, "photo.pdf")]);
       const run = await screen.findByRole(
         "button",
-        { name: /compress images on the worker/i },
+        { name: /compress images on our server/i },
         { timeout: 10_000 },
       );
       fireEvent.click(screen.getByRole("button", { name: "Extreme" }));

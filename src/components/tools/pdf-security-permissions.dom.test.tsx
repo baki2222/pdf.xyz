@@ -154,8 +154,7 @@ async function fillForm() {
   return container;
 }
 
-const runButton = () =>
-  screen.findByRole("button", { name: /encrypt on the worker/i });
+const runButton = () => screen.findByRole("button", { name: /encrypt pdf/i });
 
 describe("Protect PDF: permissions", { timeout: 30_000 }, () => {
   it("every box starts ticked, and with none unticked no owner password is asked for or sent", async () => {

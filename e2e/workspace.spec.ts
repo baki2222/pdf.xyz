@@ -141,7 +141,7 @@ test("batch queue launches a live tool and is honest about worker tools", async 
 
   // Choose a live in-browser tool and queue the staged files.
   await batch.getByLabel(/choose a tool/i).selectOption("merge-pdf");
-  await batch.getByRole("button", { name: /add all staged/i }).click();
+  await batch.getByRole("button", { name: /add all chosen files/i }).click();
   await expect(batch.getByRole("list", { name: /batch queue/i })).toContainText(
     "a.pdf",
   );
@@ -174,7 +174,7 @@ test("batch queue is honest about secure-worker tools", async ({ page }) => {
     name: /use one tool on several files/i,
   });
   await batch.getByLabel(/choose a tool/i).selectOption("ocr-pdf");
-  await batch.getByRole("button", { name: /add all staged/i }).click();
+  await batch.getByRole("button", { name: /add all chosen files/i }).click();
 
   // Secure-worker tools do not fake a local handoff; they route to the honest
   // worker preview instead: the status says where the tool runs, and the

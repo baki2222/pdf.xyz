@@ -82,7 +82,7 @@ test("a workspace launch sends no request carrying the hand-off token", async ({
     name: /use one tool on several files/i,
   });
   await batch.getByLabel(/choose a tool/i).selectOption("rotate-pdf");
-  await batch.getByRole("button", { name: /add all staged/i }).click();
+  await batch.getByRole("button", { name: /add all chosen files/i }).click();
   const urls = recordRequests(page);
   await batch.getByRole("button", { name: /open rotate pdf/i }).click();
   await expect(page).toHaveURL(/\/tools\/rotate-pdf$/);

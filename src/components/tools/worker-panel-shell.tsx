@@ -190,7 +190,7 @@ export function WorkerPanelShell({
             aria-expanded={details}
             aria-controls={detailsId}
             onClick={() => setDetails((was) => !was)}
-            className="text-muted hover:text-fg self-start text-sm font-medium underline-offset-4 transition hover:underline"
+            className="text-muted hover:text-fg h-11 self-start text-sm font-medium underline-offset-4 transition hover:underline"
           >
             Details
           </button>

@@ -306,7 +306,7 @@ describe("WorkerRunButton", () => {
           onRun?.();
         }}
       >
-        Run OCR on the worker
+        Recognize text
       </WorkerRunButton>
     );
   }
@@ -314,7 +314,7 @@ describe("WorkerRunButton", () => {
   it("keeps the keyboard for the whole worker job it started", () => {
     render(<Panel />);
     const button = screen.getByRole("button", {
-      name: "Run OCR on the worker",
+      name: "Recognize text",
     });
     button.focus();
 
@@ -354,7 +354,7 @@ describe("WorkerRunButton", () => {
     const onRun = vi.fn();
     render(<Panel onRun={onRun} />);
     const button = screen.getByRole("button", {
-      name: "Run OCR on the worker",
+      name: "Recognize text",
     });
 
     fireEvent.click(button);

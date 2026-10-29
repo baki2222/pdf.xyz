@@ -243,7 +243,7 @@ function Disclosure({
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((was) => !was)}
-        className="text-muted hover:text-fg inline-flex items-center gap-1.5 self-start text-sm font-medium underline-offset-4 transition hover:underline"
+        className="text-muted hover:text-fg inline-flex h-11 items-center gap-1.5 self-start text-sm font-medium underline-offset-4 transition hover:underline"
       >
         <ChevronDown
           className={cn("size-4 transition-transform", open && "rotate-180")}

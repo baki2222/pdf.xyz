@@ -231,7 +231,7 @@ export function SignaturePanel({
               aria-selected={source === s}
               onClick={() => setSource(s)}
               className={cn(
-                "rounded-ctl border px-3 py-1 text-xs font-medium",
+                "rounded-ctl h-11 border px-3 py-1 text-xs font-medium",
                 source === s
                   ? "border-accent/40 bg-accent/10 text-accent"
                   : "border-line text-muted hover:text-fg",
@@ -245,7 +245,7 @@ export function SignaturePanel({
           type="button"
           onClick={onClose}
           aria-label="Close signature panel"
-          className="text-muted hover:text-fg rounded-ctl p-1"
+          className="text-muted hover:text-fg rounded-ctl grid h-11 w-11 place-items-center"
         >
           <X className="size-4" aria-hidden />
         </button>
@@ -315,7 +315,7 @@ export function SignaturePanel({
                 aria-checked={style === s}
                 onClick={() => setStyle(s)}
                 className={cn(
-                  "rounded-ctl border px-3 py-1 text-xs font-medium",
+                  "rounded-ctl h-11 border px-3 py-1 text-xs font-medium",
                   style === s
                     ? "border-accent/40 bg-accent/10 text-accent"
                     : "border-line text-muted hover:text-fg",
@@ -393,7 +393,7 @@ export function SignaturePanel({
         <button
           type="button"
           onClick={() => void use()}
-          className={buttonVariants({ variant: "primary", size: "sm" })}
+          className={buttonVariants({ variant: "primary", size: "md" })}
         >
           Use signature
         </button>

@@ -272,7 +272,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
                   setFile(null);
                   setOutcome(null);
                 }}
-                className="text-muted hover:text-fg shrink-0 text-xs font-medium transition"
+                className="text-muted hover:text-fg shrink-0 text-sm font-medium transition max-sm:-my-1.5 max-sm:py-1.5"
               >
                 Remove
               </button>

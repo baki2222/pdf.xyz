@@ -74,7 +74,7 @@ const DRIVERS: Record<
   string,
   { slug?: string; prepare?: () => Promise<void>; run: RegExp }
 > = {
-  OcrWorkerPanel: { run: /run ocr on the worker/i },
+  OcrWorkerPanel: { run: /recognize text/i },
   PdfSecurityWorkerPanel: {
     slug: "protect-pdf",
     prepare: async () => {
@@ -82,7 +82,7 @@ const DRIVERS: Record<
         target: { value: "correct horse" },
       });
     },
-    run: /encrypt on the worker/i,
+    run: /encrypt pdf/i,
   },
   PdfStructureWorkerPanel: { slug: "repair-pdf", run: /repair on the worker/i },
   PdfArchiveWorkerPanel: { run: /convert to pdf\/a/i },

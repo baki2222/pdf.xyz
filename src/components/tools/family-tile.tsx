@@ -39,7 +39,7 @@ export function familyTileClass(family: string): string {
  * sees. The site's focus outline is a button's own.
  */
 export const FILTER_CHIP =
-  "group rounded-tag border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg aria-pressed:bg-invert aria-pressed:text-fg-invert aria-pressed:hover:bg-invert aria-pressed:hover:text-fg-invert inline-flex h-9 shrink-0 items-center gap-1.5 border px-3.5 text-sm font-medium whitespace-nowrap transition-colors aria-pressed:border-transparent";
+  "group rounded-tag border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg aria-pressed:bg-invert aria-pressed:text-fg-invert aria-pressed:hover:bg-invert aria-pressed:hover:text-fg-invert inline-flex h-11 shrink-0 items-center gap-1.5 border px-3.5 text-sm font-medium whitespace-nowrap transition-colors aria-pressed:border-transparent";
 
 /** A family's swatch on its chip, in its tile's class. */
 export function FamilySwatch({ family }: { family: string }) {
