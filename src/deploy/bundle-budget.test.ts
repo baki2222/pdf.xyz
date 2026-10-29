@@ -441,21 +441,22 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  */
 /*
  * LOWERED 2026-10-29 — the first-load wave (perf/first-load-wave2), and
- * something got LIGHTER on every page. main 08beadda and the wave, both
- * built and weighed with the shared weigher, raw KB / gz KB:
+ * something got LIGHTER on every page. main 08f18f87 (after #222 and #223)
+ * and the wave merged onto it, both built and weighed with the shared
+ * weigher, raw KB / gz KB:
  *
  *     row             before         after          delta          ceiling (was)
- *     homepage        652 / 207.61   618 / 196.56   -34 / -11.05   641 / 199.6  (675 / 210.7)
- *     rotate-pdf      783 / 252.42   702 / 225.76   -81 / -26.66   724 / 229.8  (805 / 256.5)
- *     ocr-pdf         793 / 255.38   711 / 228.67   -82 / -26.70   731 / 230.5  (813 / 257.3)
- *     summarize-pdf   800 / 259.62   718 / 232.96   -82 / -26.66   740 / 236.3  (822 / 263.0)
- *     guide (merge)   632 / 199.98   601 / 189.85   -31 / -10.13   634 / 193.3  (665 / 203.5)
- *     404             636 / 201.10   602 / 190.04   -34 / -11.06   641 / 195.5  (675 / 206.6)
- *     /tools          688 / 218.03   652 / 205.50   -36 / -12.52   679 / 209.6  (715 / 222.2)
- *     /workspace      745 / 236.27   712 / 224.55   -33 / -11.72   739 / 229.2  (772 / 241.0)
- *     /status         708 / 224.75   677 / 214.63   -31 / -10.12   714 / 221.8  (745 / 232.0)
- *     all 50 tools    773-818 / 247.70-264.98  ->  695-735 / 221.84-239.04,
- *                     every one -77..-85 raw / -25.18..-28.28 gz
+ *     homepage        652 / 207.74   618 / 196.68   -34 / -11.06   641 / 199.6  (675 / 210.7)
+ *     rotate-pdf      784 / 252.59   702 / 225.92   -82 / -26.67   723 / 229.8  (805 / 256.5)
+ *     ocr-pdf         796 / 256.45   714 / 229.74   -82 / -26.71   731 / 230.7  (813 / 257.3)
+ *     summarize-pdf   803 / 260.68   721 / 234.01   -82 / -26.67   740 / 236.3  (822 / 263.0)
+ *     guide (merge)   633 / 200.11   602 / 189.98   -31 / -10.13   634 / 193.3  (665 / 203.5)
+ *     404             636 / 201.23   602 / 190.17   -34 / -11.06   641 / 195.5  (675 / 206.6)
+ *     /tools          689 / 218.16   652 / 205.63   -37 / -12.53   678 / 209.6  (715 / 222.2)
+ *     /workspace      746 / 236.41   712 / 224.68   -34 / -11.72   738 / 229.2  (772 / 241.0)
+ *     /status         711 / 225.67   680 / 215.54   -31 / -10.13   714 / 221.8  (745 / 232.0)
+ *     all 50 tools    774-819 / 247.87-265.16  ->  695-736 / 222.01-239.21,
+ *                     every one -77..-85 raw / -25.19..-28.29 gz
  *
  * What left, by module, measured from webpack's chunk graph on the build:
  *   every page   tailwind-merge (~8.5 gz): `cn()` is clsx now, and the 14
@@ -481,9 +482,19 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * old ceilings would have let a page regain the whole catalogue and
  * tailwind-merge unseen.
  *
+ * ONE ROW IS NOT ITS SAVING: ocr-pdf. By the rule it would be 230.5, which
+ * leaves 0.76 gz against the 0.86 still to come there (WP-12 0.3, the
+ * unallocated 0.4, the layout's 0.17) and fails the test after BUDGETS.
+ * The 0.1 is not this wave's: #223's shared slot upload (8146-*.js, 2.5 KB
+ * gz with the stage helpers it shares, on every worker page) and #222 took
+ * ocr-pdf 255.38 -> 256.45 on main, which left main itself 0.85 against
+ * the same 0.86. 230.7 is the lowest tenth that takes what is to come —
+ * 26.6 under main's 257.3 — and recovering the 0.1 is the owner's call
+ * (the shared upload is the obvious candidate: it only runs on a pick).
+ *
  * EVERY_TOOL_PAGE by the same rule, the smallest saving across the 50
- * (-77 raw, translate-pdf; -25.18 gz, watermark-pdf): 851 / 276.1 ->
- * 774 / 250.9, over a heaviest of 735 / 239.04 (edit-pdf).
+ * (-77 raw, header-footer; -25.19 gz, watermark-pdf): 851 / 276.1 ->
+ * 774 / 250.9, over a heaviest of 736 / 239.21 (edit-pdf).
  *
  * The polyfills chunk (110 KB raw, 38.6 gz) is still in every row: the
  * weigher counts every chunk the HTML names, and this one is `noModule`,
@@ -624,18 +635,19 @@ const BUDGETS = [
   // spare.
   //
   // LOWERED 2026-10-29 by each row's saving (the wave, above): 805 / 256.5
-  // -> 724 / 229.8, 813 / 257.3 -> 731 / 230.5, 822 / 263.0 -> 740 / 236.3.
+  // -> 723 / 229.8, 813 / 257.3 -> 731 / 230.7 (see above: not its saving),
+  // 822 / 263.0 -> 740 / 236.3.
   {
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
-    kb: 724,
+    kb: 723,
     gzKb: 229.8,
   },
   {
     name: "a worker tool page",
     html: "tools/ocr-pdf.html",
     kb: 731,
-    gzKb: 230.5,
+    gzKb: 230.7,
   },
   {
     name: "an AI tool page",
@@ -734,10 +746,10 @@ const BUDGETS = [
   // Both rows were past the redesign's allowance for them before WP-07
   // (/tools 219.2, /workspace 238.0).
   //
-  // LOWERED 2026-10-29 (the wave, above): /tools 715 / 222.2 -> 679 / 209.6,
-  // /workspace 772 / 241.0 -> 739 / 229.2.
-  { name: "the tools explorer", html: "tools.html", kb: 679, gzKb: 209.6 },
-  { name: "the workspace", html: "workspace.html", kb: 739, gzKb: 229.2 },
+  // LOWERED 2026-10-29 (the wave, above): /tools 715 / 222.2 -> 678 / 209.6,
+  // /workspace 772 / 241.0 -> 738 / 229.2.
+  { name: "the tools explorer", html: "tools.html", kb: 678, gzKb: 209.6 },
+  { name: "the workspace", html: "workspace.html", kb: 738, gzKb: 229.2 },
   // ADDED 2026-10-23. The status page had no row, and that is how it carried
   // pdf-lib and the tool catalogue unnoticed: 1,193 KB raw / 418.5 KB gz on
   // production, then 707 / 224.1 once alert-vocabulary.ts cut the chain
@@ -780,7 +792,7 @@ const LAYOUT = {
   allowanceKb: 0.17,
   /**
    * The root layout chunk on the wave's builds, 2026-10-29, bytes gz:
-   * 6,753-6,754 measured, set 14 B under so chunk-id churn between machines
+   * 6,752-6,754 measured (6,752 after merging #222/#223), set 12-14 B under so chunk-id churn between machines
    * cannot trip the health check below (being under only makes the
    * remainder smaller).
    */
