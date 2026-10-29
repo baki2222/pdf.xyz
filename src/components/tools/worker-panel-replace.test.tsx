@@ -150,7 +150,14 @@ describe.each(SUBJECTS)("$name", { timeout: 30_000 }, ({ arm, tool }) => {
     });
     const first = fileFor(tool, "alpha");
     fireEvent.change(input, { target: { files: [first] } });
-    expect(await screen.findByText(first.name)).toBeInTheDocument();
+    // The name is drawn as soon as the drop zone hands the file over, but
+    // that hand-off waits on the zone's async checks; under CI's loaded
+    // full run the OCR arm took longer than findByText's default 1s, on
+    // main at #220 and on PR #222 alike (the OCR panel still renders
+    // `file.name` unchanged). The same budget the target check below has.
+    expect(
+      await screen.findByText(first.name, undefined, { timeout: 10_000 }),
+    ).toBeInTheDocument();
     // The zone is gone; the chip is the page's target now — once its box
     // (`ChosenFileLive`, fetched with the file it shows) is here: a cold
     // import under a loaded test run.

@@ -604,7 +604,10 @@ describe("no test file is imported by another test file", () => {
         "`No test suite found in file …`. Move whatever is shared into a plain " +
         "module — a file vitest collects is not a fixture library.",
     ).toEqual([]);
-  });
+    // A whole-repo parse, like the guard above: under CI's full unit run it
+    // passed 5s (PR #222, Linux) with nothing in its corpus at fault. The
+    // budget is the runtime's, not the assertion's.
+  }, 30_000);
 });
 
 /** Every `importer -> imported` edge whose target is itself a test file. */
