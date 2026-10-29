@@ -2075,7 +2075,8 @@ export function WysiwygEditor({
     <p className="text-muted text-xs leading-relaxed" data-edit-text-help="">
       Click any text on the page to change it. When you apply, the old words are
       removed from the file and yours are written in their place. A scanned page
-      has no text to edit: run OCR PDF on it first.
+      has no text to edit — to change a scan&apos;s words, use PDF to Word with
+      “Recognise text in scans (OCR)”.
     </p>
   ) : (
     <p className="text-muted text-xs leading-relaxed">
@@ -2971,8 +2972,9 @@ function PageSheet({
           className="bg-panel text-muted border-line rounded-ctl absolute border px-3 py-2 text-xs shadow-sm"
           style={{ left: 12, right: 12, top: 12 }}
         >
-          No editable text on this page. If it is a scan, run OCR PDF on it
-          first.
+          No editable text on this page. If it is a scan, PDF to Word with
+          “Recognise text in scans (OCR)” turns its words into text you can
+          edit.
         </p>
       )}
 

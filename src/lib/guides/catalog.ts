@@ -904,7 +904,7 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "Can I change the existing text in my PDF?",
-        answer: `Yes, a line at a time. In ${nameOf("edit-pdf")}, choose Edit text, click a line and retype it: the old words are removed from the file and yours are written where they stood. A scanned page has no text to edit until ${nameOf("ocr-pdf")} has been run. To rework whole paragraphs, convert the file with ${nameOf("pdf-to-word")}. A whiteout box only hides something; if the information must really be gone, draw a Redact box, or use ${nameOf("redact-pdf")}.`,
+        answer: `Yes, a line at a time. In ${nameOf("edit-pdf")}, choose Edit text, click a line and retype it: the old words are removed from the file and yours are written where they stood. A scanned page has no text to edit, and the invisible text ${nameOf("ocr-pdf")} adds is not offered either: to change a scan's words, use ${nameOf("pdf-to-word")} with “Recognise text in scans (OCR)”. To rework whole paragraphs, convert the file with ${nameOf("pdf-to-word")}. A whiteout box only hides something; if the information must really be gone, draw a Redact box, or use ${nameOf("redact-pdf")}.`,
       },
       {
         question: "Can I add an image or a logo to a PDF?",
@@ -926,7 +926,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-24",
+    updated: "2026-10-29",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",
