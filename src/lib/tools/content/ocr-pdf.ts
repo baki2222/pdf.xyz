@@ -127,7 +127,7 @@ const content: ToolContent = {
     },
     {
       title: "Add the scan and run it",
-      body: `Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. That area takes a file as soon as the page loads; the button stays off until the page confirms the OCR worker is available, and your file is sent only when you press it.`,
+      body: `Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Run OCR on the worker. That area takes a file as soon as the page loads; the button stays off until the page confirms the OCR worker is available, and your file is sent only when you press it.`,
     },
     {
       title: "Download and check the result",
@@ -138,7 +138,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Why does my OCR output look like gibberish?",
-      a: `Usually the selected language does not match the page. ${describeOcrLanguage("ben")} read as English comes back as Latin characters that look plausible and mean nothing, with no error. The file stays loaded after a run, so change the language selection and press Recognize text again. Blurry, skewed or low-resolution scans cause the same symptom, and neither engine is told to straighten or auto-rotate pages, so turn a sideways PDF page upright with Rotate PDF before recognising it.`,
+      a: `Usually the selected language does not match the page. ${describeOcrLanguage("ben")} read as English comes back as Latin characters that look plausible and mean nothing, with no error. The file stays loaded after a run, so change the language selection and press Run OCR on the worker again. Blurry, skewed or low-resolution scans cause the same symptom, and neither engine is told to straighten or auto-rotate pages, so turn a sideways PDF page upright with Rotate PDF before recognising it.`,
     },
     {
       q: "Does OCR change how my PDF looks?",

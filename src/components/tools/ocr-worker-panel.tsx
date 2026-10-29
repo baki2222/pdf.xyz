@@ -289,7 +289,7 @@ function OcrBody({
   );
 }
 
-const RUN_LABEL = "Recognize text";
+const RUN_LABEL = "Run OCR on the worker";
 
 /**
  * The drop zone, the run and the result. The drop zone takes a file from the

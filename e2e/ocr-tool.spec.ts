@@ -73,7 +73,7 @@ test.describe("OCR secure-worker tool page", () => {
     // upload — Run is drawn, and off.
     expect(await page.locator('input[type="file"]').count()).toBe(1);
     await expect(
-      page.getByRole("button", { name: "Recognize text" }),
+      page.getByRole("button", { name: "Run OCR on the worker" }),
     ).toHaveAttribute("aria-disabled", "true");
 
     // And no fabricated success / download.
