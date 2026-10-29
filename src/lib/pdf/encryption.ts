@@ -181,7 +181,7 @@ export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
 /**
  * The two tools that OPEN a restricted PDF (`openProtected`): they fill its
  * form under the author's own encryption, and unlock every tool with the
- * owner password typed in the page (`@/lib/pdf/security`). Named as the
+ * owner password typed in the page (`@/lib/pdf/security/protected-pdf`). Named as the
  * catalogue names them — checked in `encryption-verdict.test.ts`.
  */
 export const RESTRICTED_FORM_TOOLS = [

@@ -36,6 +36,13 @@ unsigned (4294966244), qpdf signed (−1052) — the same bits, and both are rea
 
 The owner passwords are **test values**, published here on purpose.
 
+`hash-2b-vectors.json` — 24 inputs to revision 6's Algorithm 2.B with
+pypdf's result for each, half of them stopping on the boundary round (the
+last byte of E equal to the round count minus 32): `python -I
+make-hash-2b-vectors.py hash-2b-vectors.json` (fixed seed). A fixture file
+has one random key, so whether it exercises that boundary is luck; these do
+on purpose. Added 2026-10-30, when the worker-image proof hit it.
+
 ## Where they are used
 
 - `src/tests/restricted-pdf-fixtures.ts` — the table above, as data.

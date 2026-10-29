@@ -29,7 +29,7 @@ import { rc4 } from "./rc4";
  * (certificate) security handlers, crypt filters other than the standard
  * methods.
  *
- * The oracle is never this file: `standard-handler.test.ts` derives keys for
+ * The oracle is never this file: `protected-pdf.test.ts` derives keys for
  * fixtures that qpdf and pypdf encrypted, and every output is read back by
  * pdf.js, which has its own implementation of every algorithm here.
  */
@@ -169,7 +169,7 @@ function legacyUserFromOwner(
 }
 
 /** ISO 32000-2 Algorithm 2.B (R6); R5 is a single SHA-256. */
-async function hash2B(
+export async function hash2B(
   r: number,
   password: Uint8Array,
   salt: Uint8Array,
@@ -178,7 +178,11 @@ async function hash2B(
   let k = await sha("SHA-256", concat(password, salt, udata));
   if (r === 5) return k;
   const names: ShaName[] = ["SHA-256", "SHA-384", "SHA-512"];
-  for (let round = 0; ; round += 1) {
+  // `rounds` counts the rounds DONE, from 1, as qpdf and pypdf count them:
+  // at least 64, then stop once the last byte of E is <= rounds - 32. A
+  // 0-based count ran one round too many whenever that byte equalled the
+  // boundary (pinned by `primitives.test.ts`'s pypdf vectors).
+  for (let rounds = 1; ; rounds += 1) {
     const one = concat(password, k, udata);
     const k1 = new Uint8Array(one.length * 64);
     for (let i = 0; i < 64; i += 1) k1.set(one, i * one.length);
@@ -190,7 +194,7 @@ async function hash2B(
     let mod = 0;
     for (let i = 0; i < 16; i += 1) mod += e[i]!;
     k = await sha(names[mod % 3]!, e);
-    if (round >= 63 && e[e.length - 1]! <= round - 32) break;
+    if (rounds >= 64 && e[e.length - 1]! <= rounds - 32) break;
   }
   return k.subarray(0, 32);
 }

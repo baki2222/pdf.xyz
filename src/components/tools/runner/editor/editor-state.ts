@@ -147,7 +147,7 @@ export interface EditorState {
   importedLinks: string[] | null;
   /**
    * The author's restrictions, while they hold: an encrypted PDF opened
-   * without its owner password (`@/lib/pdf/security`). Null = every tool.
+   * without its owner password (`@/lib/pdf/security/protected-pdf`). Null = every tool.
    */
   lock: EditorLock | null;
 }

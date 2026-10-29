@@ -27,6 +27,7 @@ import path from "node:path";
 import { exportEditedPdf } from "@/lib/pdf/editor-export";
 import { openProtectedPdf } from "@/lib/pdf/security/protected-pdf";
 import { StandardSecurityHandler } from "@/lib/pdf/security/standard-handler";
+import { QPDF_EXIT_WARNINGS, qpdfWroteOutput } from "@/lib/workers/qpdf-exit";
 import { makeRestrictedBase } from "@/tests/fixtures/restricted-pdf/make-base";
 
 const OWNER = "proof-owner-password";
@@ -34,6 +35,7 @@ const FILLS = { full_name: "Ada Lovelace", agree: true, country: "Japan" };
 
 interface Run {
   code: number;
+  timedOut: boolean;
   stdout: string;
 }
 
@@ -43,7 +45,7 @@ function qpdf(args: string[]): Promise<Run> {
       "qpdf",
       args,
       { timeout: 60_000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 },
-      (error: (Error & { code?: unknown }) | null, stdout) =>
+      (error: (Error & { code?: unknown; killed?: boolean }) | null, stdout) =>
         resolve({
           code:
             error === null
@@ -51,6 +53,7 @@ function qpdf(args: string[]): Promise<Run> {
               : typeof error.code === "number"
                 ? error.code
                 : -1,
+          timedOut: error?.killed === true,
           stdout: typeof stdout === "string" ? stdout : "",
         }),
     );
@@ -101,7 +104,8 @@ async function save(input: Uint8Array): Promise<Uint8Array> {
 
 async function main(): Promise<number> {
   const version = await qpdf(["--version"]);
-  if (version.code !== 0) {
+  // Any answer at all, warnings included (qpdf-exit's 0-or-3).
+  if (!qpdfWroteOutput(version)) {
     console.log("qpdf is not available in this image");
     return 2;
   }
@@ -133,10 +137,7 @@ async function main(): Promise<number> {
         "--accessibility=y",
         "--",
       ]);
-      check(
-        enc.code === 0 || enc.code === 3,
-        `${label}: qpdf encrypted the form`,
-      );
+      check(qpdfWroteOutput(enc), `${label}: qpdf encrypted the form`);
       const inBytes = new Uint8Array(await readFile(input));
       const before = await qpdf(["--show-encryption", input]);
       check(
@@ -146,10 +147,10 @@ async function main(): Promise<number> {
 
       await writeFile(output, await save(inBytes));
       const checked = await qpdf(["--check", output]);
-      check(
-        checked.code === 0,
-        `${label}: qpdf --check is clean (exit ${checked.code})`,
-      );
+      // Clean, not merely written: warnings (qpdf-exit's 3) fail this one.
+      const clean =
+        qpdfWroteOutput(checked) && checked.code !== QPDF_EXIT_WARNINGS;
+      check(clean, `${label}: qpdf --check is clean (exit ${checked.code})`);
       const after = await qpdf(["--show-encryption", output]);
       check(
         JSON.stringify(lockLines(after.stdout)) ===
@@ -182,8 +183,7 @@ async function main(): Promise<number> {
         const control = path.join(dir, `control-${bits[0]}.pdf`);
         await writeFile(control, await save(inBytes));
         const cj = await qpdf(["--json", "--json-key=acroform", control]);
-        const cv =
-          cj.code === 0 || cj.code === 3 ? acroformValues(cj.stdout) : {};
+        const cv = qpdfWroteOutput(cj) ? acroformValues(cj.stdout) : {};
         check(
           cv.full_name !== FILLS.full_name,
           `${label}: CONTROL — unencrypted objects do not read back`,

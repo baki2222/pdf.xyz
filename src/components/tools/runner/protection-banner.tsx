@@ -13,7 +13,7 @@ import { Spinner } from "./runner-kit";
  *
  * The password is held in this component's state only while it is typed,
  * cleared as soon as it is checked, and never logged, stored or sent: the
- * check is a hash the file itself carries (`@/lib/pdf/security`).
+ * check is a hash the file itself carries (`@/lib/pdf/security/protected-pdf`).
  */
 
 /** "printing, copying text and filling in the form", for the allowed few. */

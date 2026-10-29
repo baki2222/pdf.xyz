@@ -8,7 +8,7 @@ import {
 
 /**
  * An encrypted PDF opened as a viewer opens it: with the empty password,
- * decrypted in the browser (`@/lib/pdf/security`). Null when the empty
+ * decrypted in the browser (`@/lib/pdf/security/protected-pdf`). Null when the empty
  * password does not open it (it needs its open password) or its encryption
  * is one the handler does not read — the caller then refuses it as before,
  * in the probe's words.

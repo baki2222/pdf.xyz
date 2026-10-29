@@ -15,7 +15,7 @@
  *  - a runner that opts into `openProtected` (Edit PDF, Fill Forms, since
  *    2026-10-29) OPENS it with the author's restrictions in force — its form
  *    filled under the author's encryption, every tool once the owner
- *    password is entered (`@/lib/pdf/security`);
+ *    password is entered (`@/lib/pdf/security/protected-pdf`);
  *  - every other in-browser loader refuses both, in the words of the probe's
  *    verdict (`@/lib/pdf/encryption`): "password-protected" only for a file
  *    that needs a password, the editing-restrictions sentence for one that

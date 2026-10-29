@@ -36,7 +36,7 @@ export interface LoadedPdf {
    * Set for an encrypted PDF that opens without a password, opened by a
    * tool that asked to (`openProtected`): `bytes` is then its DECRYPTED
    * copy, and this holds the author's grant, the original file and the key
-   * to save the changes the grant allows (`@/lib/pdf/security`).
+   * to save the changes the grant allows (`@/lib/pdf/security/protected-pdf`).
    */
   protection?: ProtectedPdf;
 }

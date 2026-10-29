@@ -29,8 +29,8 @@ import {
  *    the decrypted copy and saves an UNENCRYPTED file — what Unlock PDF
  *    does on the server, here in the browser.
  *
- * The owner password is checked and dropped: it is never stored on this
- * object, logged, or sent anywhere.
+ * The owner password is checked and dropped: this object holds no copy of
+ * it, and nothing here logs it or sends it anywhere.
  */
 export class ProtectedPdf {
   #unlocked = false;
