@@ -67,6 +67,13 @@ beforeEach(() => {
 afterEach(() => {
   resetTelemetry();
   resetPageTargetsForTests();
+  // `open()` appends its trigger to <body>, outside what RTL's cleanup
+  // unmounts. Left there, every "trigger" outlived this file: with
+  // `isolate: false` the next file to share the document (use-zip-download,
+  // whenever the sequencer happened to order it after this one) found a
+  // dozen buttons where it asked for one, and failed for a reason of ours.
+  for (const el of document.body.querySelectorAll(":scope > button"))
+    if (el.textContent === "trigger") el.remove();
 });
 
 function open(props: Partial<Parameters<typeof CommandPalette>[0]> = {}): {

@@ -18,7 +18,7 @@ import {
  *    a masked "Current password" field with a Show/Hide password toggle and
  *    the hint "Enter the password that currently opens this PDF.", a
  *    "Too long: n/127 bytes." warning past MAX_PDF_PASSWORD_BYTES, the
- *    "Unlock on the worker" button (busy label `jobBusyLabel(job.phase,
+ *    "Unlock PDF" button (busy label `jobBusyLabel(job.phase,
  *    COPY[mode].running)`: Uploading your file…, Waiting for the worker…,
  *    Unlocking on the worker… while qpdf runs, Downloading the result…;
  *    disabled until a file AND a non-empty password are present), then
@@ -139,14 +139,14 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the locked PDF",
-      body: `Drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. Nothing is sent until you press Unlock on the worker, which works once the badge reads Secure worker; if no worker is available, the panel explains why under that button.`,
+      body: `Drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. Nothing is sent until you press Unlock PDF, which works once the badge reads Secure worker; if no worker is available, the panel explains why under that button.`,
     },
     {
       title: "Type the current password",
       body: `Put the password that opens the file into the Current password field; for a file that views without a prompt but is restricted, use its owner password. Dots hide what you type until you press the Show password eye icon at the end of the field. The limit is ${MAX_PDF_PASSWORD_BYTES} bytes, not characters, so accented or non-Latin letters use it up faster; past it, the hint reads "Too long: n/${MAX_PDF_PASSWORD_BYTES} bytes."`,
     },
     {
-      title: "Select Unlock on the worker",
+      title: "Select Unlock PDF",
       body: "Nothing happens when you press it without a file, without a password, or with a password over the limit. Otherwise it shows a spinner for the whole run, and its label follows the job: Uploading your file…, Waiting for the worker…, Unlocking on the worker… while qpdf decrypts, then Downloading the result… as the unlocked copy comes back to your browser.",
     },
     {
@@ -162,7 +162,7 @@ const content: ToolContent = {
     },
     {
       q: "Which password do I need to enter?",
-      a: "The decryption is done by qpdf, which accepts either of a PDF's two passwords: the user password asked for when the file is opened, or the owner password that governs printing and editing. Because Unlock on the worker stays inactive while Current password is blank, a PDF with no open password but locked-down permissions can only be unlocked here with its owner password.",
+      a: "The decryption is done by qpdf, which accepts either of a PDF's two passwords: the user password asked for when the file is opened, or the owner password that governs printing and editing. Because Unlock PDF stays inactive while Current password is blank, a PDF with no open password but locked-down permissions can only be unlocked here with its owner password.",
     },
     {
       q: "Why did I get 'The password is incorrect, or this PDF cannot be unlocked with it'?",

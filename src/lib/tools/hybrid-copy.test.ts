@@ -9,7 +9,7 @@
  *    processed on an encrypted, isolated worker." `toolFaq` had two arms —
  *    in-browser and everything else — and hybrid fell into the worker arm. The
  *    default path (analysis + lossless repack) never calls the API; the only
- *    upload is the "Compress images on the worker" button.
+ *    upload is the "Compress images on our server" button.
  *  - The mode line said "Runs in your browser when possible, with an encrypted
  *    server fallback for large or complex files", and the capability descriptor
  *    (/status, worker preview) said the same with "when it can". There is no

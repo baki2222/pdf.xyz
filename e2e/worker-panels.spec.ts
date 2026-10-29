@@ -373,7 +373,7 @@ test("a staged hand-off uploads nothing either: Flatten PDF's Continue with Prot
   await expect(page).toHaveURL(/\/tools\/protect-pdf$/);
   // Staged, by name, and said to wait for Run.
   await expect(
-    page.getByText(/nothing is uploaded until you press Encrypt on the worker/),
+    page.getByText(/nothing is uploaded until you press Encrypt PDF/),
   ).toBeVisible();
   await expect(page.getByText(/^form.*\.pdf$/).first()).toBeVisible();
   await expect(slot(page)).toHaveAttribute("data-state", "run");
@@ -381,7 +381,7 @@ test("a staged hand-off uploads nothing either: Flatten PDF's Continue with Prot
   expect(wire.uploads, "a staged file was uploaded before Run").toEqual([]);
 
   await page.getByLabel("New password").fill("correct horse");
-  await page.getByRole("button", { name: "Encrypt on the worker" }).click();
+  await page.getByRole("button", { name: "Encrypt PDF" }).click();
   await expect(card(page, "Your PDF is protected and ready.")).toBeVisible({
     timeout: 20_000,
   });
@@ -471,14 +471,14 @@ test("G.7 row 4: an encrypted PDF in Rotate → Unlock (the file goes along) →
   await expect(page).toHaveURL(/\/tools\/unlock-pdf$/);
   // The file arrived as the remedy, staged — not uploaded.
   await expect(
-    page.getByText(/nothing is uploaded until you press Unlock on the worker/),
+    page.getByText(/nothing is uploaded until you press Unlock PDF/),
   ).toBeVisible();
   await expect(page.getByText("locked.pdf", { exact: true })).toBeVisible();
   await expect(slot(page)).toHaveAttribute("data-state", "run");
   expect(wire.uploads).toEqual([]);
   await page.getByLabel("Current password").fill("user-pass");
   actions++;
-  await page.getByRole("button", { name: "Unlock on the worker" }).click();
+  await page.getByRole("button", { name: "Unlock PDF" }).click();
   actions++;
   await expect(card(page, "Your PDF is unlocked and ready.")).toBeVisible({
     timeout: 20_000,

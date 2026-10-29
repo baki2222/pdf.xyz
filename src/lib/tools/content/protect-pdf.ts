@@ -23,7 +23,7 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
  *    visitor sees them: the "Add a PDF to password-protect" drop zone (one
  *    file, with a Remove button), the masked "New password" field with a
  *    show/hide toggle and a byte counter once the password is too long, the
- *    "Encryption strength" chips, the "Encrypt on the worker" button, the
+ *    "Encryption strength" chips, the "Encrypt PDF" button, the
  *    "Your PDF is protected and ready." result and a "Download <name>" button.
  *    CHANGED 2026-10-24: until then the panel sent ONLY `password` and
  *    `keyLength` and had no owner-password or permissions control. It now
@@ -146,7 +146,7 @@ const content: ToolContent = {
     },
     {
       title: "Encrypt and download",
-      body: `Press Encrypt on the worker once a file and a password are both in place. When "Your PDF is protected and ready." appears, use the button beneath it; for ${EXAMPLE_INPUT} it reads Download ${EXAMPLE_OUTPUT}. Open the saved file once to confirm it asks for the password.`,
+      body: `Press Encrypt PDF once a file and a password are both in place. When "Your PDF is protected and ready." appears, use the button beneath it; for ${EXAMPLE_INPUT} it reads Download ${EXAMPLE_OUTPUT}. Open the saved file once to confirm it asks for the password.`,
     },
   ],
 

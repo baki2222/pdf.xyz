@@ -82,7 +82,7 @@ const DRIVERS: Record<
         target: { value: "correct horse" },
       });
     },
-    run: /encrypt on the worker/i,
+    run: /encrypt pdf/i,
   },
   PdfStructureWorkerPanel: { slug: "repair-pdf", run: /repair on the worker/i },
   PdfArchiveWorkerPanel: { run: /convert to pdf\/a/i },

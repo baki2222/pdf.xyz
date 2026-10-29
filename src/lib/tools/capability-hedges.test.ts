@@ -19,7 +19,7 @@
  *                       secure-worker step that needs a native engine."
  *   - the runner     — `canRunDeepCompression` measured `true` against the LIVE
  *                      production `/api/worker/status`, so the page renders a
- *                      working "Compress images on the worker" button three
+ *                      working "Compress images on our server" button three
  *                      lines below the sentence calling it unshipped.
  *
  * And it did not only mislead readers. `how` is what `howToSteps` feeds to

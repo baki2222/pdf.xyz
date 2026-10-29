@@ -589,7 +589,7 @@ test("a password-protected PDF in Rotate offers Unlock PDF once, and says which 
  * picked twice. COUNTED here, to a file this process opens:
  *
  *   pick the three PDFs (1) → Merge 3 PDFs (2) → Continue with Compress PDF
- *   (3) → Compress images on the worker (4) → Download compressed PDF (5).
+ *   (3) → Compress images on our server (4) → Download compressed PDF (5).
  *
  * The files are image-heavy on purpose. A merge's output is written by the
  * same writer Compress PDF's in-browser repack uses, after the same garbage
@@ -641,7 +641,7 @@ test("G.7 row 2: merge 3 PDFs, then compress — five actions, no file picked tw
   ).toBeVisible();
 
   await page
-    .getByRole("button", { name: /compress images on the worker/i })
+    .getByRole("button", { name: /compress images on our server/i })
     .click();
   actions++;
   // What reached the worker is the merge's output, as it was made: its five

@@ -32,14 +32,14 @@ export function AnalyticsChoices() {
       </p>
       <div className="flex gap-2">
         <Button
-          size="sm"
+          size="md"
           variant={consent === "granted" ? "secondary" : "primary"}
           onClick={() => storeConsent("granted")}
         >
           Allow analytics
         </Button>
         <Button
-          size="sm"
+          size="md"
           variant="secondary"
           onClick={() => storeConsent("denied")}
         >
