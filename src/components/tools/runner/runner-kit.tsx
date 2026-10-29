@@ -389,6 +389,22 @@ export function useOutcomeFocus<T extends HTMLElement = HTMLDivElement>(
       !document.body.contains(activeElement);
     if (!orphaned) {
       announceOutcome(message);
+      // Focus stays put — but a sighted phone user who tapped Run is still
+      // looking at the button, and the worker panels draw their result
+      // BELOW it: measured on production at 360x800, Protect PDF's download
+      // finished at y=937 and Unlock PDF's at y=1162, off the screen, with
+      // nothing on screen saying the file was ready. So while focus is still
+      // on a button in this result's own panel (the trigger), the result is
+      // brought into view; never while the user is typing somewhere, which
+      // is the case focus is left alone for. `e2e/mobile-pass.mobile.spec.ts`
+      // runs a worker job at 360 wide and fails if the result is off screen.
+      const panel = node.closest("[data-tool-panel]");
+      if (
+        activeElement instanceof HTMLButtonElement &&
+        activeElement.closest("[data-tool-panel]") === panel
+      ) {
+        node.scrollIntoView?.({ block: "nearest", behavior: "instant" });
+      }
       return;
     }
     node.focus({ preventScroll: true });
@@ -701,6 +717,7 @@ export function WorkerRunButton({
       }}
       aria-disabled={blocked || undefined}
       aria-busy={busy}
+      data-run-trigger=""
       className={WORKER_RUN_CLASSES}
     >
       {busy ? (
@@ -728,9 +745,9 @@ export function WorkerRunButton({
 export type DownloadCtaSize = "md" | "lg" | "inline";
 
 const DOWNLOAD_CTA_SIZE: Record<DownloadCtaSize, string> = {
-  md: "w-full px-6 py-2.5 text-sm sm:w-auto sm:self-start",
+  md: "w-full px-6 py-3 text-sm sm:w-auto sm:self-start",
   lg: "w-full px-7 py-3 text-base sm:w-auto sm:self-start",
-  inline: "px-5 py-2 text-sm",
+  inline: "px-5 py-3 text-sm",
 };
 
 /**
@@ -1170,7 +1187,7 @@ export function ChipButton({
       title={title}
       aria-pressed={active}
       className={cn(
-        "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
+        "rounded-tag inline-flex h-11 items-center gap-1.5 border px-3.5 py-1.5 text-xs font-medium transition-colors aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
         active
           ? "border-accent/50 bg-accent/10 text-accent"
           : "border-line text-muted hover:border-line-strong hover:bg-wash hover:text-fg",

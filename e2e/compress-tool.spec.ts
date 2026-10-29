@@ -46,7 +46,7 @@ test("compress analyzes in-browser and honestly labels the worker path", async (
 
   // With the worker disabled there is no run button — the file is never uploaded.
   await expect(
-    page.getByRole("button", { name: /compress images on the worker/i }),
+    page.getByRole("button", { name: /compress images on our server/i }),
   ).toHaveCount(0);
 
   expect(guard.cspViolations(), guard.cspViolations().join("\n")).toEqual([]);

@@ -174,7 +174,7 @@ export function SegmentedControl<T extends string>({
             title={option.title}
             onClick={() => onChange(option.value)}
             className={cn(
-              "rounded-ctl inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition",
+              "rounded-ctl inline-flex h-11 items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition",
               active ? "bg-accent/10 text-accent" : "text-muted hover:text-fg",
             )}
           >

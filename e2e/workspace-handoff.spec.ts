@@ -31,7 +31,7 @@ test("hands a batch off from the workspace to Compress and runs it in-browser", 
     name: /use one tool on several files/i,
   });
   await batch.getByLabel(/choose a tool/i).selectOption("compress-pdf");
-  await batch.getByRole("button", { name: /add all staged/i }).click();
+  await batch.getByRole("button", { name: /add all chosen files/i }).click();
 
   // Two files + a batch-ready tool → real hand-off into the batch runner.
   await batch
@@ -65,7 +65,7 @@ test("hands a single PDF off from the workspace to Rotate and runs it", async ({
     name: /use one tool on several files/i,
   });
   await batch.getByLabel(/choose a tool/i).selectOption("rotate-pdf");
-  await batch.getByRole("button", { name: /add all staged/i }).click();
+  await batch.getByRole("button", { name: /add all chosen files/i }).click();
 
   // Rotate is one-file-at-a-time — the panel says so, honestly.
   await expect(batch.getByText(/opens your first file/i)).toBeVisible();
@@ -137,7 +137,7 @@ test("clear session wipes staged files, remembered activity, and hand-offs", asy
     name: /use one tool on several files/i,
   });
   await batch.getByLabel(/choose a tool/i).selectOption("compress-pdf");
-  await batch.getByRole("button", { name: /add all staged/i }).click();
+  await batch.getByRole("button", { name: /add all chosen files/i }).click();
   await batch.getByRole("button", { name: /open compress pdf/i }).click();
   await expect(page).toHaveURL(/\/tools\/compress-pdf$/);
 

@@ -25,7 +25,7 @@ export function OpenFilesButton({ className }: { className?: string }) {
         );
       }}
       className={cn(
-        "border-line text-fg hover:bg-wash rounded-ctl inline-flex h-10 shrink-0 items-center justify-center gap-2 border px-3 text-sm font-medium transition-colors",
+        "border-line text-fg hover:bg-wash rounded-ctl inline-flex h-11 shrink-0 items-center justify-center gap-2 border px-3.5 text-sm font-medium transition-colors",
         className,
       )}
     >

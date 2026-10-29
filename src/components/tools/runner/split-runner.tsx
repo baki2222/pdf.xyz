@@ -364,7 +364,7 @@ export function SplitEditor({
                 aria-disabled={off || undefined}
                 aria-describedby={off ? bookmarksNoteId : undefined}
                 className={cn(
-                  "rounded-tag px-3.5 py-1.5 text-xs font-medium transition",
+                  "rounded-tag h-11 px-3.5 py-1.5 text-xs font-medium transition",
                   mode === m.id ? "bg-invert text-fg-invert" : "text-muted",
                   // One hover ink per branch: cn() joins, it does not merge.
                   off

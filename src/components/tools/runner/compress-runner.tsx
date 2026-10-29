@@ -1000,7 +1000,7 @@ function DeepRunControls({
         busyLabel="Compressing on the worker…"
         icon={ServerCog}
       >
-        Compress images on the worker
+        Compress images on our server
       </WorkerRunButton>
       {blockedBySignatures && (
         <p className="text-muted text-xs">

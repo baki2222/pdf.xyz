@@ -234,7 +234,7 @@ export function BatchPanel({
               className={buttonVariants({ variant: "outline", size: "sm" })}
             >
               <Plus className="size-3.5" aria-hidden />
-              Add all staged
+              Add all chosen files
             </button>
           </div>
         </div>

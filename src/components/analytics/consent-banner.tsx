@@ -76,11 +76,11 @@ export function ConsentBanner() {
         .
       </p>
       <div className="mt-3 flex gap-2">
-        <Button size="sm" onClick={() => storeConsent("granted")}>
+        <Button size="md" onClick={() => storeConsent("granted")}>
           Allow analytics
         </Button>
         <Button
-          size="sm"
+          size="md"
           variant="secondary"
           onClick={() => storeConsent("denied")}
         >

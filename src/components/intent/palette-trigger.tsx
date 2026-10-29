@@ -38,7 +38,7 @@ function useApple(): boolean {
 
 /**
  * The header's way into the command palette: at `lg` and up a field-shaped
- * button ("Find a tool or guide", and the shortcut), below that a 40px icon
+ * button ("Find a tool or guide", and the shortcut), below that a 44px icon
  * button. The shortcut's slot has a FIXED width, so the swap from "Ctrl K"
  * to "⌘ K" after hydration moves nothing.
  *
@@ -96,7 +96,7 @@ export function PaletteTrigger() {
         onClick={() => show("button")}
         onPointerEnter={prefetch}
         onFocus={prefetch}
-        className="border-line text-muted hover:text-fg hover:border-line-strong rounded-ctl inline-flex h-10 shrink-0 items-center justify-center gap-2 border px-3 transition-colors"
+        className="border-line text-muted hover:text-fg hover:border-line-strong rounded-ctl inline-flex h-11 shrink-0 items-center justify-center gap-2 border px-3.5 transition-colors"
       >
         <Search className="size-4 shrink-0" aria-hidden />
         <span className="w-36 text-left text-sm max-lg:hidden">

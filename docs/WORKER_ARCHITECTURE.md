@@ -72,7 +72,7 @@ The Compress tool page (`compress-runner.tsx`) always runs the on-device lossles
 
 - **`disabled`** (default, production, e2e): shows the honest "not enabled in this environment" note. Nothing is uploaded.
 - **`remote-configured`**: states a backend is configured but this build ships no pipeline yet.
-- **`local-dev` with a native engine**: offers a real "Compress images on the worker" action that runs the full flow via `src/lib/workers/client.ts` (create session → upload → job → poll → download), clearly labeled **Local-dev worker · runs on this machine**.
+- **`local-dev` with a native engine**: offers a real "Compress images on our server" action that runs the full flow via `src/lib/workers/client.ts` (create session → upload → job → poll → download), clearly labeled **Local-dev worker · runs on this machine**.
 - **`local-dev` without a native engine**: explains that no engine (Ghostscript/qpdf/mutool) is installed, so deep compression can't run here — without offering a button that would only fail.
 
 To try it locally: run `PDFXYZ_WORKER_MODE=local-dev pnpm dev`, open `/tools/compress-pdf`, and add a PDF. With no native engine installed the page honestly says deep compression is unavailable (and a `deep` job via the API fails as `not_implemented`); a `{ "profile": "lossless" }` job via the API completes with a real, smaller PDF and a working download URL. Install Ghostscript/qpdf/mutool to enable the deep path and the in-page run button.

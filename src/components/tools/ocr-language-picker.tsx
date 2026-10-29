@@ -184,7 +184,7 @@ export function OcrLanguagePicker({ choice }: { choice: OcrLanguageChoice }) {
                     : undefined
               }
               className={cn(
-                "rounded-tag inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
+                "rounded-tag inline-flex h-11 items-center gap-1.5 border px-3 py-1.5 text-xs font-medium transition aria-disabled:cursor-not-allowed aria-disabled:opacity-40",
                 active
                   ? "border-accent/40 bg-accent/10 text-accent"
                   : "border-line bg-wash text-muted hover:border-line-strong hover:bg-wash hover:text-fg",

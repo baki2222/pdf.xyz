@@ -112,7 +112,7 @@ export function MobileMenu() {
         aria-expanded={open}
         aria-controls="mobile-menu"
         aria-haspopup="dialog"
-        className="border-line text-fg hover:bg-wash rounded-ctl grid size-10 shrink-0 place-items-center border transition-colors md:hidden"
+        className="border-line text-fg hover:bg-wash rounded-ctl grid h-11 w-11 shrink-0 place-items-center border transition-colors md:hidden"
       >
         <Menu className="size-5" aria-hidden />
       </button>
@@ -155,7 +155,7 @@ export function MobileMenu() {
                 type="button"
                 onClick={close}
                 aria-label="Close menu"
-                className="border-line text-fg hover:bg-wash rounded-ctl grid size-10 place-items-center border transition-colors"
+                className="border-line text-fg hover:bg-wash rounded-ctl grid h-11 w-11 place-items-center border transition-colors"
               >
                 <X className="size-5" aria-hidden />
               </button>
