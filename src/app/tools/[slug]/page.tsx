@@ -33,7 +33,7 @@ import {
   howToSchema,
   toolApplicationSchema,
 } from "@/lib/structured-data";
-import { toolFacts } from "@/lib/tools/tool-facts";
+import { runnerReadsWithPdfjs, toolFacts } from "@/lib/tools/tool-facts";
 import {
   pageDescription,
   pageFaq,
@@ -439,6 +439,7 @@ export default async function ToolPage({
                       slug: tool.slug,
                       name: tool.name,
                       category: tool.category,
+                      readsWithPdfjs: runnerReadsWithPdfjs(tool.slug),
                     }}
                     plan={continueTargetsFor(tool, tools)}
                   >

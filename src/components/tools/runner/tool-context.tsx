@@ -37,6 +37,13 @@ export interface ToolRunInfo {
   readonly slug: string;
   readonly name: string;
   readonly category: ToolCategoryId;
+  /**
+   * The runner reads page content with pdf.js, so a file arriving warms
+   * pdf.js and its worker (`warmPdfjs`). Computed on the server from
+   * `runnerReadsWithPdfjs` (`@/lib/tools/tool-facts`), whose table is held to
+   * each runner's call graph — the client never ships that table.
+   */
+  readonly readsWithPdfjs?: boolean;
 }
 
 export interface ToolRun extends ToolRunInfo {

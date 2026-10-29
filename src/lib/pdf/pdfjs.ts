@@ -2,6 +2,7 @@ import { pdfjsLoadError } from "./engine-errors";
 import { normalizeAngle } from "./rotation";
 import type { Rotation } from "./types";
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
+import { sharedPdfWorker, withSharedWorker } from "./pdfjs-worker";
 
 /**
  * The one loader for pdfjs, and the read-only questions only pdfjs can answer.
@@ -27,15 +28,18 @@ import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
 
 export type PdfjsModule = typeof import("pdfjs-dist");
 
-let workerConfigured = false;
+let browserPdfjs: PdfjsModule | null = null;
 
 /**
  * Load pdfjs once. In a browser that is the main build with our locally
- * bundled worker. Where the DOM geometry pdfjs's main build needs at import
- * time is absent — Node (tests, scripts) and jsdom have no `DOMMatrix` — it is
- * the legacy build, which runs there with its own fake worker. The legacy
- * import is hidden from the bundlers: the browser never takes that branch, and
- * it must not become a chunk the browser could fetch.
+ * bundled worker — ONE worker for the page, which every document opens in
+ * (`./pdfjs-worker`: two documents used to fetch and start the 361 KB-gz
+ * worker script twice). Where the DOM geometry pdfjs's main build needs at
+ * import time is absent — Node (tests, scripts) and jsdom have no `DOMMatrix`
+ * — it is the legacy build, which runs there with its own fake worker, and is
+ * returned untouched. The legacy import is hidden from the bundlers: the
+ * browser never takes that branch, and it must not become a chunk the browser
+ * could fetch.
  */
 export async function loadPdfjs(): Promise<PdfjsModule> {
   if (typeof globalThis.DOMMatrix === "undefined") {
@@ -43,15 +47,21 @@ export async function loadPdfjs(): Promise<PdfjsModule> {
       /* webpackIgnore: true */ /* turbopackIgnore: true */ "pdfjs-dist/legacy/build/pdf.mjs"
     )) as PdfjsModule;
   }
+  if (browserPdfjs) return browserPdfjs;
   const pdfjs = await import("pdfjs-dist");
-  if (!workerConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
-      import.meta.url,
-    ).toString();
-    workerConfigured = true;
-  }
-  return pdfjs;
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
+  const shared = browserPdfjs ?? withSharedWorker(pdfjs);
+  browserPdfjs = shared;
+  // Start the page's worker now, not at the first open: every caller is about
+  // to open a document, and `warmPdfjs` (in the runner kit) calls this loader
+  // on file arrival precisely so the worker script is fetched before the run
+  // button. A start that fails is forgotten (`./pdfjs-worker`) and reported
+  // by the open that needed it, so it is not reported here.
+  sharedPdfWorker(pdfjs.PDFWorker).promise.catch(() => {});
+  return shared;
 }
 
 /**
