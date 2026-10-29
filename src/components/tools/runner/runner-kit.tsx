@@ -232,6 +232,38 @@ export function Spinner({ size = "size-4" }: { size?: string }) {
 }
 
 /**
+ * Start fetching pdfjs AND starting its worker, without waiting — called when
+ * a file arrives on a tool whose runner reads page content with pdfjs (the
+ * Dropzone below, and a hand-off's arrival in `./use-tool-handoff`), the way
+ * `warmPdfLib` warms pdf-lib. Never on page load: the first load stays lean.
+ *
+ * Measured on production 2026-10-29: after the click on Compare PDFs the
+ * worker script alone took ~1.6 s, and the result came ~250 ms after it. A
+ * warm-up at file arrival moves that wait behind the reader's hand travelling
+ * to the button. At idle priority, so it does not compete with reading the
+ * file the runner is doing at that moment.
+ *
+ * HERE, and this small, on purpose: this module is on every tool page's first
+ * load, worker panels included, against rows with tens of bytes left
+ * (`bundle-budget.test.ts` caught OCR PDF's row over on each larger draft —
+ * a static edge to `@/lib/pdf/pdfjs`, a module of its own, then a new async
+ * chunk the webpack runtime had to map). So the loader is reached through
+ * `@/lib/pdf/pdfjs-browser`, already an async chunk (the encryption probe's
+ * door to the same one loader), and the loader starts the shared worker
+ * itself. Off a real browser the loader returns pdfjs's legacy build with no
+ * worker started. Fire-and-forget: a failed warm-up never surfaces.
+ */
+export function warmPdfjs(): void {
+  const start = () =>
+    void import("@/lib/pdf/pdfjs-browser")
+      .then((m) => m.loadBrowserPdfjs())
+      .catch(() => {});
+  if (typeof requestIdleCallback === "function")
+    requestIdleCallback(start, { timeout: 300 });
+  else setTimeout(start);
+}
+
+/**
  * A runner's or panel's drop zone: the one drop primitive (`DropSheet`) with
  * the runners' defaults — a square sheet with crop marks around a dashed
  * field, the title a "…, or" that the accent "browse" ends.
@@ -283,6 +315,7 @@ export function Dropzone({
   busy?: boolean;
 }) {
   const [refusal, setRefusal] = useState<string | null>(null);
+  const readsWithPdfjs = useToolRun()?.readsWithPdfjs;
 
   const receive = useCallback(
     (files: File[]) => {
@@ -291,9 +324,13 @@ export function Dropzone({
       // the pdf-lib chunk is usually already here. Fire-and-forget; the
       // operation's own await is the surface that reports failures.
       warmPdfLib();
+      // And pdf.js with its worker, on the tools whose runner reads page
+      // content with it (the page says which, from the runner's call graph):
+      // the worker script was ~1.6 s of Compare's wait after the click.
+      if (readsWithPdfjs) warmPdfjs();
       onFiles(files);
     },
-    [onFiles],
+    [onFiles, readsWithPdfjs],
   );
 
   // Read by the page at every question, so the latest `busy` is the answer.

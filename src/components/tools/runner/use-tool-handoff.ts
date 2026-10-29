@@ -17,6 +17,7 @@ import {
 import { warmPdfLib } from "@/lib/pdf/pdf-lib";
 import { getToolEntry } from "@/lib/tools/directory";
 import { useToolRun } from "./tool-context";
+import { warmPdfjs } from "./runner-kit";
 
 export {
   claimArrival,
@@ -60,7 +61,9 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
   const [departed, setDeparted] = useState<Departure | null>(null);
   // The page's job: told which tools these files already went through, so it
   // can draw the steps and "Continue with" can pass them on.
-  const arrived = useToolRun()?.arrived;
+  const run = useToolRun();
+  const arrived = run?.arrived;
+  const readsWithPdfjs = run?.readsWithPdfjs === true;
   // Claims exactly once, even under React StrictMode's double-invoked effects.
   const startedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -100,12 +103,13 @@ export function useToolHandoff(slug: string | undefined): ToolHandoff {
         // download now rather than paying it at run-click (the one gap the
         // pdf-lib deferral left open — TASK-05 §3c).
         warmPdfLib();
+        if (readsWithPdfjs) warmPdfjs();
         arrived?.(result.trail);
         focusArrival();
       }
       setState(result);
     });
-  }, [slug, router, arrived]);
+  }, [slug, router, arrived, readsWithPdfjs]);
 
   const dismiss = useCallback(() => {
     setState(IDLE);

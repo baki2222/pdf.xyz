@@ -839,6 +839,27 @@ export function midRunFetches(slug: string): readonly MidRunFetch[] {
   return RUNNER_MID_RUN_FETCHES[kind];
 }
 
+/**
+ * Does the runner behind `slug` read page CONTENT with pdf.js — so a file
+ * arriving there should warm pdf.js and its worker (`warmPdfjs`)?
+ *
+ * Derived, never typed: a `character-map` fetch is classified (in
+ * `offline-answer.test.ts`, by walking each runner's call graph) exactly when
+ * the runner reaches a `getDocument` that spreads `PDFJS_DOCUMENT_DEFAULTS`
+ * AND evaluates page content — and every `getDocument` in shipped source
+ * spreads those defaults. That is the property the warm-up wants: a metadata
+ * read alone (the encryption probe, reached only for a locked file) is not
+ * counted, so a pdf-lib writer is not made to fetch the worker for it.
+ * Over-approximate in the direction that costs only bandwidth: a runner that
+ * reaches pdf.js only in one mode (Split "by text") is warmed in every mode.
+ */
+export function runnerReadsWithPdfjs(slug: string): boolean {
+  const kind = getRunnerKind(slug);
+  return (
+    kind !== undefined && RUNNER_MID_RUN_FETCHES[kind].includes("character-map")
+  );
+}
+
 /** How the engine arrives — true of every in-browser tool, exclusive of nothing. */
 export const ENGINE_ARRIVES_FACT =
   "The page and its processing engine load over the network, and parts of the engine are fetched the first time a step needs them. The processing itself runs on your device.";
