@@ -65,6 +65,7 @@ import { exportEditedPdf } from "@/lib/pdf/editor-export";
 import {
   DEFAULT_TEXT_STYLE,
   typedSignatureObject,
+  type EditorObject,
 } from "@/lib/pdf/editor/model";
 import { addWatermark } from "@/lib/pdf/watermark";
 import { addPageNumbers } from "@/lib/pdf/page-numbers";
@@ -699,11 +700,11 @@ describe("sign, edit and annotate answer what they draw", () => {
     }
   });
 
-  it("annotations are drawn into the page, not added as comment objects", async () => {
+  it("markups are drawn into the page by default, and saved as comment objects when chosen", async () => {
     const bytes = await pdfWithPages([[300, 400]]);
     // Until 2026-10-24 this ran `annotatePdf`, the Annotate PDF form's
     // engine; the page now mounts the shared editor, whose export this is.
-    const { bytes: marked } = await exportEditedPdf(bytes, [
+    const markups: EditorObject[] = [
       {
         id: "h",
         kind: "highlight",
@@ -726,15 +727,34 @@ describe("sign, edit and annotate answer what they draw", () => {
         fill: "#fef08a",
         ...DEFAULT_TEXT_STYLE,
       },
-    ]);
+    ];
+    const { bytes: marked } = await exportEditedPdf(bytes, markups);
     const doc = await PDFDocument.load(marked);
     expect(doc.getPage(0).node.Annots()?.size() ?? 0).toBe(0);
     expect(contentOf(doc, 0).length).toBeGreaterThan(
       contentOf(await PDFDocument.load(bytes), 0).length,
     );
+    // The other choice beside Apply: the same two, as two annotations.
+    const { bytes: commented } = await exportEditedPdf(
+      bytes,
+      markups,
+      undefined,
+      { markups: "comments" },
+    );
+    expect(
+      (await PDFDocument.load(commented)).getPage(0).node.Annots()?.size(),
+    ).toBe(2);
     for (const tool of mounting("annotate")) {
       const served = answer(tool.slug, /comments/);
-      expect(served).toMatch(/^No\./);
+      // INVERTED 2026-10-30, history kept. This pinned /^No\./ — "No.
+      // Annotate PDF draws its … into the page itself rather than adding
+      // comment objects" — true until #230 (2026-10-29) added "Save markups
+      // as comments", and served false for a day after it: the export above
+      // writes two annotations. The answer now says both, and that a
+      // restricted PDF only ever gets comments.
+      expect(served).toMatch(/^Not by default\./);
+      expect(served).toContain("Save markups as comments");
+      expect(served).toMatch(/owner password/);
       for (const k of MARKUP_KINDS)
         expect(served).toContain(EDITOR_KIND_FACT[k]);
       // WAS: the answer named typed X/Y points ("72 points to an inch") —

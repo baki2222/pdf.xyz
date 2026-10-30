@@ -13,9 +13,10 @@
  *  - a runner that opts into `classifyLocked` (Compress) offers a restricted
  *    file the secure worker instead of refusing it;
  *  - a runner that opts into `openProtected` (Edit PDF, Fill Forms, since
- *    2026-10-29) OPENS it with the author's restrictions in force — its form
- *    filled under the author's encryption, every tool once the owner
- *    password is entered (`@/lib/pdf/security/protected-pdf`);
+ *    2026-10-29; Annotate PDF since 2026-10-30) OPENS it with the author's
+ *    restrictions in force — its form filled and comments added under the
+ *    author's encryption, every tool once the owner password is entered
+ *    (`@/lib/pdf/security/protected-pdf`);
  *  - every other in-browser loader refuses both, in the words of the probe's
  *    verdict (`@/lib/pdf/encryption`): "password-protected" only for a file
  *    that needs a password, the editing-restrictions sentence for one that
@@ -44,7 +45,11 @@ import {
   stepText,
 } from "./page-copy";
 import { getRunnerKind } from "@/lib/pdf/registry";
-import { ENCRYPTED_PDF_MESSAGES, LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
+import {
+  ENCRYPTED_PDF_MESSAGES,
+  LOCKED_PDF_COPY,
+  RESTRICTED_OPENERS,
+} from "@/lib/pdf/encryption";
 import { runnerModuleOf } from "@/tests/tool-panel-modules";
 
 const RUNNER_DIR = "src/components/tools/runner";
@@ -213,8 +218,18 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       "pdf-to-text",
     ]);
     expect(by("offers-worker")).toEqual(["compress-pdf"]);
-    // 2026-10-29: the two tools that fill a restricted file's form.
-    expect(by("opens-protected")).toEqual(["edit-pdf", "fill-forms"]);
+    // 2026-10-29: the two tools that fill a restricted file's form; on
+    // 2026-10-30 Annotate PDF, the same editor, began to open one too.
+    expect(by("opens-protected")).toEqual([
+      "annotate-pdf",
+      "edit-pdf",
+      "fill-forms",
+    ]);
+    // …and they are the tools the refusal sends people to — the page's own
+    // runner, not a list, decides who belongs in that sentence.
+    expect(by("opens-protected")).toEqual(
+      RESTRICTED_OPENERS.map((t) => t.href.replace(/^\/tools\//, "")).sort(),
+    );
     expect(by("refuses").length).toBeGreaterThan(15);
     // Bounded both ways: a corpus that shrank would pass vacuously.
     expect(served.length).toBe(tools.length);

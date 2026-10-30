@@ -179,18 +179,32 @@ export const UNLOCK_TOOL_NAME = "Unlock PDF";
 export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
 
 /**
- * The two tools that OPEN a restricted PDF (`openProtected`): they fill its
- * form under the author's own encryption, and unlock every tool with the
- * owner password typed in the page (`@/lib/pdf/security/protected-pdf`). Named as the
- * catalogue names them — checked in `encryption-verdict.test.ts`.
+ * The tools that OPEN a restricted PDF (`openProtected`): they save what the
+ * author allows — a filled form, comments — under the author's own
+ * encryption, and unlock every tool with the owner password typed in the
+ * page (`@/lib/pdf/security/protected-pdf`). Named as the catalogue names
+ * them, and exactly the runners that opt in — both checked in
+ * `encryption-verdict.test.ts`, which also holds the sentence below to name
+ * every one of them.
+ *
+ * HISTORY. Until 2026-10-30 this was RESTRICTED_FORM_TOOLS, Edit PDF and Fill
+ * Forms only, and the sentence said they "can still fill its form" — while
+ * Annotate PDF, the same editor, refused the file with this very message.
  */
-export const RESTRICTED_FORM_TOOLS = [
+export const RESTRICTED_OPENERS = [
   { name: "Edit PDF", href: "/tools/edit-pdf" },
+  { name: "Annotate PDF", href: "/tools/annotate-pdf" },
   { name: "Fill Forms", href: "/tools/fill-forms" },
 ] as const;
 
-/** Added 2026-10-29, when those two began to open restricted files. */
-export const RESTRICTED_FORM_TOOLS_SENTENCE = `${RESTRICTED_FORM_TOOLS[0].name} and ${RESTRICTED_FORM_TOOLS[1].name} can still fill its form if the author allows that.`;
+/**
+ * Added 2026-10-29 (filling); comments named 2026-10-30. A literal, not built
+ * from the list: the refusal ships in the first load of every writing tool,
+ * and building it cost the OCR page its budget (`bundle-budget.test.ts`).
+ * Annotate PDF's editor fills a form too, but nobody opens it for that.
+ */
+export const RESTRICTED_OPENERS_SENTENCE =
+  "If its author allows it, Edit PDF and Fill Forms can still fill in its form, and Edit PDF and Annotate PDF can add comments to it.";
 
 /** The file needs a password to open. */
 export const PDF_NEEDS_PASSWORD_MESSAGE = `This PDF is password-protected. Remove the password with ${UNLOCK_TOOL_NAME} first, then try again.`;
@@ -204,7 +218,7 @@ export const PDF_NEEDS_PASSWORD_MESSAGE = `This PDF is password-protected. Remov
  * restrictions-only file is unlocked with its OWNER password. So the way out
  * this names is that one.
  */
-export const PDF_RESTRICTED_MESSAGE = `This PDF has editing restrictions set by its author. It opens without a password, but these tools can't change it until the restrictions are removed — ${UNLOCK_TOOL_NAME} removes them with the owner (permissions) password that set them. ${RESTRICTED_FORM_TOOLS_SENTENCE}`;
+export const PDF_RESTRICTED_MESSAGE = `This PDF has editing restrictions set by its author. It opens without a password, but these tools can't change it until the restrictions are removed — ${UNLOCK_TOOL_NAME} removes them with the owner (permissions) password that set them. ${RESTRICTED_OPENERS_SENTENCE}`;
 
 /** The probe could not run: a sentence true of both kinds. */
 export const PDF_ENCRYPTED_UNKNOWN_MESSAGE = `This PDF is encrypted, so these tools can't change it. Remove the encryption with ${UNLOCK_TOOL_NAME} first — enter the password that opens it or, if it opens without one, its owner (permissions) password — then try again.`;

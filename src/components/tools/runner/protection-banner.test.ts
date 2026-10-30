@@ -4,7 +4,19 @@ import {
   ALL_PERMISSIONS_ALLOWED,
   permissionsFromP,
 } from "@/lib/jobs/pdf-permissions";
-import { allowedSentence } from "./protection-banner";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { openProtectedPdf } from "@/lib/pdf/security/protected-pdf";
+import {
+  RESTRICTED_FIXTURES,
+  VIEW_ONLY_FIXTURE,
+  readRestrictedFixture,
+} from "@/tests/restricted-pdf-fixtures";
+import {
+  COMMENTS_NOT_ALLOWED,
+  ProtectionBanner,
+  allowedSentence,
+} from "./protection-banner";
 
 /**
  * The banner says only what THIS file's author grants — read from /P, the
@@ -48,5 +60,47 @@ describe("what the banner says the author allows", () => {
     const p = permissionsFromP(4 | 8 | 256 | ~0xfff);
     expect(p.modify && !p.annotate).toBe(true);
     expect(allowedSentence(p, true)).not.toMatch(/comment/);
+  });
+});
+
+/**
+ * The banner as the editor renders it, over the real fixtures' handlers. A
+ * mark-up tool (Annotate PDF opens on Highlight) on a file whose author
+ * withholds comments must say THAT is why its tools are locked, and still
+ * offer the owner password.
+ */
+describe("the editor's banner says whether comments are allowed", () => {
+  const render = async (file: string, surface: "editor" | "forms") => {
+    const opened = await openProtectedPdf(readRestrictedFixture(file));
+    if (opened.kind !== "opened") throw new Error(`${file}: ${opened.kind}`);
+    return renderToStaticMarkup(
+      createElement(ProtectionBanner, {
+        protection: opened.pdf,
+        unlocked: false,
+        onUnlocked: () => {},
+        surface,
+      }),
+    ).replace(/&#x27;/g, "'");
+  };
+
+  it("view only: comments refused by the author, the owner password offered", async () => {
+    const html = await render(VIEW_ONLY_FIXTURE.file, "editor");
+    expect(html).toContain('data-banner-comments="locked"');
+    expect(html).toContain(COMMENTS_NOT_ALLOWED);
+    expect(html).toContain("Owner password");
+    expect(html).toContain("Unlock all tools");
+  });
+
+  it("positive control: comments granted (bit 6) are not called refused", async () => {
+    const granted = RESTRICTED_FIXTURES[0]!;
+    expect(granted.permissions).toContain(32);
+    const html = await render(granted.file, "editor");
+    expect(html).toContain("saved as comments");
+    expect(html).not.toContain(COMMENTS_NOT_ALLOWED);
+  });
+
+  it("Fill Forms places no comments, so it says nothing about them", async () => {
+    const html = await render(VIEW_ONLY_FIXTURE.file, "forms");
+    expect(html).not.toContain(COMMENTS_NOT_ALLOWED);
   });
 });

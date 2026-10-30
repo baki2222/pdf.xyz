@@ -46,6 +46,14 @@ function listOf(items: readonly string[], joiner = "and"): string {
  *    pdf-lib (`stampProducer`: Creator/Producer), so an existing digital
  *    signature stops validating; result "Annotated PDF ready", "Download
  *    annotated PDF", `annotatedOutputName` (-annotated).
+ *  - Restricted input (since 2026-10-30): `annotate-runner.tsx` passes
+ *    `openProtected`, as Edit PDF does, so a PDF that opens with the empty
+ *    password is decrypted in the browser and its /P is enforced by the
+ *    editor's lock; comments only (bit 6), written as an incremental update
+ *    under the author's encryption (`ProtectedPdf.saveChanges`), the
+ *    markup choice fixed to comments. Until then the page said "an
+ *    encrypted PDF will not load, even one a viewer opens without asking
+ *    for a password" — true while the runner refused it.
  */
 const noteScripts = listOf(SUPPORTED_SCRIPTS);
 const isRtl = (reason: string) => /right[\s-]to[\s-]left/i.test(reason);
@@ -91,8 +99,9 @@ const content: ToolContent = {
 
   intro: [
     "Annotate PDF shows every page of your document and opens with Highlight ready: drag across the page and a translucent bar lands there. Beside it in the toolbar are Whiteout, Draw for freehand ink and Note for a typed note on coloured paper, and the rest of the editor's tools: text, pictures, signatures, rectangles, ellipses, lines and arrows. Anything you place can be dragged, resized from its handles, restyled or deleted, and every step can be undone.",
-    `The whole job runs in your browser: the PDF is drawn, marked and saved there, with no upload, so it stays on your device. The limit is ${CEILING_MB} MB, and an encrypted PDF will not load, even one a viewer opens without asking for a password. Notes in the Western European character set are drawn in a built-in font; otherwise the page fetches a Noto typeface from this site, covering ${noteScripts}. A note with characters none of those faces draws, such as ${refusedExamples}${emojiClause}, stops the export with a message naming them.${rtlClause}`,
+    `The whole job runs in your browser: the PDF is drawn, marked and saved there, with no upload, so it stays on your device. The limit is ${CEILING_MB} MB. A PDF that needs a password to open has to be unlocked first; one that opens without a password but whose author restricted changes opens with only what the author allows, as described below. Notes in the Western European character set are drawn in a built-in font; otherwise the page fetches a Noto typeface from this site, covering ${noteScripts}. A note with characters none of those faces draws, such as ${refusedExamples}${emojiClause}, stops the export with a message naming them.${rtlClause}`,
     "Beside Apply & download you choose how highlights, drawings, notes, shapes and lines are saved. Flatten into the page, the default, draws them as content inside the page, so they show in every viewer and printout, the original text stays selectable and nothing becomes an image. Save markups as comments writes each one as a standard PDF annotation instead (a highlight, an ink drawing, a free-text note, a square, circle or line, each with its own appearance), which other PDF apps list as comments and let you select, edit or delete. Whiteout and redaction are always written into the page: a comment can be deleted by whoever opens the file, so a cover saved as one would hide nothing.",
+    "A PDF whose author restricted changes, but that opens without a password, opens here with the author's rules in force. If the author allows comments, highlights, drawings, notes, shapes and lines are always saved as comments, never flattened, and the copy you download keeps the author's encryption, restrictions and owner password, with the original file kept byte for byte and the comments added after it. If the author does not allow comments, the mark-up tools stay locked and the page says so. Either way, typing the owner password into the page unlocks every tool for that file, checked in your browser and not sent anywhere, and the copy is then saved without encryption.",
   ],
 
   useCases: [
@@ -144,7 +153,7 @@ const content: ToolContent = {
     },
     {
       q: "Does annotating change anything else in my PDF?",
-      a: "Unless you turn, insert, delete or reorder pages in the page list, pages keep their count, size and rotation, and their text and images; the file keeps its bookmarks, form fields, existing annotations, title and author. What does change: Creator and Producer both become this site's name, and an existing digital signature will no longer validate, because pdf-lib writes out a whole new file rather than appending to the signed one. Markups sit on top of the page's own content, later ones over earlier ones.",
+      a: "Unless you turn, insert, delete or reorder pages in the page list, pages keep their count, size and rotation, and their text and images; the file keeps its bookmarks, form fields, existing annotations, title and author. What does change on an ordinary PDF: Creator and Producer both become this site's name, and an existing digital signature will no longer validate, because pdf-lib writes out a whole new file rather than appending to the signed one. A PDF whose author restricted changes is the exception: its original bytes are kept and the comments are appended after them, as an update under the author's own encryption. Markups sit on top of the page's own content, later ones over earlier ones.",
     },
     {
       q: "Is my document uploaded?",

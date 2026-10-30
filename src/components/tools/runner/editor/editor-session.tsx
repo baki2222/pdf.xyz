@@ -247,7 +247,10 @@ function EditorSession({
           ) : null
         }
         firstStep={
-          config.firstStep ? (
+          // A runner's first step names its tools; under the author's lock
+          // some are off (Annotate PDF's names Whiteout), and the banner and
+          // the locked help say what is allowed instead.
+          config.firstStep && !state.lock ? (
             <p
               data-first-step=""
               className="border-accent/30 bg-accent/5 text-fg rounded-panel flex items-start gap-2 border px-3.5 py-2.5 text-sm"
