@@ -262,15 +262,19 @@ function EditorSession({
           <>
             {error && <ErrorNote message={error} />}
             <RunBar>
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                {hasMarkups ? (
+              <div
+                className={
+                  hasMarkups
+                    ? "flex flex-wrap items-end justify-between gap-3"
+                    : "flex justify-end"
+                }
+              >
+                {hasMarkups && (
                   <MarkupChoice
                     value={restricted ? "comments" : markups}
                     onChange={setMarkups}
                     fixed={restricted}
                   />
-                ) : (
-                  <span />
                 )}
                 <RunButton
                   onClick={onApply}
@@ -329,13 +333,13 @@ function MarkupChoice({
       data-markup-mode={value}
       className="flex min-w-0 flex-col gap-1.5"
     >
-      <legend className="text-fg mb-1 text-xs font-semibold">
+      <legend className="text-fg pb-1 text-xs font-semibold">
         Highlights, drawings, notes and shapes
       </legend>
       {options.map((o) => (
         <label
           key={o.mode}
-          className="text-fg flex min-h-9 cursor-pointer items-center gap-2 text-xs"
+          className="text-fg flex min-h-10 cursor-pointer items-center gap-2 text-xs"
         >
           <input
             type="radio"
