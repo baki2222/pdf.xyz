@@ -27,6 +27,7 @@ import { PDF_ENGINE_ERROR_KINDS } from "./engine";
 import { UNLOCK_TOOL_HREF, UNLOCK_TOOL_NAME } from "./encryption";
 import {
   REPAIR_TOOL_NAME,
+  UPLOAD_CLAUSE,
   causeOf,
   remedyCarries,
   remedyFor,
@@ -34,6 +35,42 @@ import {
 } from "./remedies";
 
 const VERDICTS = ["needs-password", "opens-without-password", null] as const;
+
+/**
+ * Does a remedy's `where` say where the file goes, and when? It must carry
+ * the module's own clause, read from `remedies.ts` rather than retyped.
+ *
+ * HISTORY (2026-10-30, PR #228): this pinned the literal "uploads to the
+ * secure worker only when you start it". The copy pass that replaced
+ * "worker" with "our secure server" in the sentence turned it red on CI
+ * for Repair PDF and Unlock PDF — the property held, the words had moved.
+ * Now the clause is one constant both sentences are built from, and the
+ * controls below hold the predicate to the property: it must reject a
+ * sentence that names no destination, and the clause itself must still
+ * name an upload, a server, and the reader's own start.
+ */
+const saysWhereTheFileGoes = (where: string | null | undefined) =>
+  typeof where === "string" && where.includes(UPLOAD_CLAUSE);
+
+describe("the where-the-file-goes predicate", () => {
+  it("health check: the clause names the upload, where it goes, and when", () => {
+    expect(UPLOAD_CLAUSE).toMatch(/\buploads?\b/);
+    expect(UPLOAD_CLAUSE).toMatch(/\bsecure server\b/);
+    expect(UPLOAD_CLAUSE).toMatch(/\bonly when you start it\b/);
+  });
+
+  it("control: rejects a sentence that says nothing about where the file goes", () => {
+    expect(saysWhereTheFileGoes("Your file goes with you.")).toBe(false);
+    expect(saysWhereTheFileGoes(null)).toBe(false);
+    // ...and the sentence that shipped before the copy pass, whose clause is
+    // no longer the module's: a stale sentence is not accepted either.
+    expect(
+      saysWhereTheFileGoes(
+        "Your file goes with you, and it uploads to the secure worker only when you start it.",
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("every refusal the engine can name has a decision", () => {
   it("health check: the kinds are the engine's own list", () => {
@@ -53,9 +90,9 @@ describe("every refusal the engine can name has a decision", () => {
       // Where it runs is said, from the catalogue, in words.
       expect(remedy!.processing).toBe(target!.processing);
       expect(
-        remedy!.where,
-        `${remedy!.toolName} runs as "${remedy!.processing}", and nothing says where the file goes there`,
-      ).toMatch(/uploads to the secure worker only when you start it/);
+        saysWhereTheFileGoes(remedy!.where),
+        `${remedy!.toolName} runs as "${remedy!.processing}", and nothing says where the file goes there: ${remedy!.where}`,
+      ).toBe(true);
       expect(remedy!.label).toMatch(
         new RegExp(`^(?:Open|Try) ${remedy!.toolName}$`),
       );
