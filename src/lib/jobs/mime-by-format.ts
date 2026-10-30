@@ -46,6 +46,9 @@ export const MIME_BY_FORMAT: Record<string, readonly string[]> = {
   JPG: ["image/jpeg", "image/jpg"],
   JPEG: ["image/jpeg", "image/jpg"],
   PNG: ["image/png"],
+  WEBP: ["image/webp"],
+  GIF: ["image/gif"],
+  BMP: ["image/bmp", "image/x-ms-bmp"],
   HTML: ["text/html"],
   HTM: ["text/html"],
   MD: ["text/markdown", "text/plain"],
@@ -77,6 +80,9 @@ export const EXTENSIONS_BY_FORMAT: Record<string, readonly string[]> = {
   JPG: ["jpg"],
   JPEG: ["jpeg"],
   PNG: ["png"],
+  WEBP: ["webp"],
+  GIF: ["gif"],
+  BMP: ["bmp"],
   HTML: ["html"],
   HTM: ["htm"],
   MD: ["md", "mdown"],
@@ -100,6 +106,17 @@ const FORMAT_ALIASES: Readonly<Record<string, string>> = {
 export function normalizeFormatLabel(label: string): string {
   const upper = label.trim().toUpperCase();
   return FORMAT_ALIASES[upper] ?? upper;
+}
+
+/**
+ * Is this catalogue format an image — read from its MIME types, never from a
+ * typed list? So "3 images" (not "3 files") follows a format the moment it
+ * joins the table: JPG and PNG were typed as THE images in three places, and
+ * WebP, GIF and BMP (2026-10-30) would have been "files" in all of them.
+ */
+export function isImageFormatLabel(label: string): boolean {
+  const mimes = MIME_BY_FORMAT[label.trim().toUpperCase()];
+  return !!mimes && mimes.every((mime) => mime.startsWith("image/"));
 }
 
 /**

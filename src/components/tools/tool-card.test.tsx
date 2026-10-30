@@ -125,10 +125,13 @@ describe("ToolCard", () => {
     const { container } = render(<FormatsLine tool={tool} />);
     const card = container as HTMLElement;
     // The arrow is hidden; the sentence carries the same facts.
-    expect(within(card).getByText("JPG, PNG → PDF")).toHaveAttribute(
-      "aria-hidden",
+    // "JPG, PNG" until 2026-10-30, when the accept row gained WebP, GIF, BMP.
+    expect(
+      within(card).getByText("JPG, PNG, WEBP, GIF, BMP → PDF"),
+    ).toHaveAttribute("aria-hidden");
+    expect(card.textContent).toContain(
+      "Takes JPG, PNG, WEBP, GIF, BMP; makes PDF.",
     );
-    expect(card.textContent).toContain("Takes JPG, PNG; makes PDF.");
   });
 });
 

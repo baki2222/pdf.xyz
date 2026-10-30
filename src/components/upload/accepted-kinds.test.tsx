@@ -163,29 +163,34 @@ describe("the picker admits only what some tool opens", () => {
     expect(nobodyOpens(ACCEPTED_KINDS)).toEqual([]);
   });
 
-  it("positive control: the image kind that shipped is caught on exactly its four extra tokens", () => {
+  it("positive control: an image kind listing formats nobody opens is caught on exactly those tokens", () => {
+    // HISTORY: this was the kind that shipped until 2026-10-09 — PNG, JPEG,
+    // WebP and GIF — caught on its four WebP and GIF tokens. On 2026-10-30
+    // the image tools began decoding WebP and GIF, so that listing became
+    // TRUE and could no longer be the control; HEIC and TIFF, which no tool
+    // opens, are the same shape now.
     const shipped = [
       {
         label: "images",
         accept: [
           "image/png",
           "image/jpeg",
-          "image/webp",
-          "image/gif",
+          "image/heic",
+          "image/tiff",
           ".png",
           ".jpg",
           ".jpeg",
-          ".webp",
-          ".gif",
+          ".heic",
+          ".tiff",
         ],
         maxBytes: 1,
       },
     ];
     expect(nobodyOpens(shipped)).toEqual([
-      "image/webp",
-      "image/gif",
-      ".webp",
-      ".gif",
+      "image/heic",
+      "image/tiff",
+      ".heic",
+      ".tiff",
     ]);
   });
 });

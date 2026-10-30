@@ -169,7 +169,11 @@ const CORPUS: readonly Row[] = [
   ["split pages", { first: "split-pdf" }],
   ["word", { top: ["word-to-pdf", "pdf-to-word"] }],
   ["heic", { unsupported: "HEIC", never: NO_WEBPAGE }],
-  ["webp", { unsupported: "WEBP", never: NO_WEBPAGE }],
+  // INVERTED 2026-10-30: "webp" was `{ unsupported: "WEBP" }` while no tool
+  // opened WebP. JPG / PNG to PDF now decode it, so the search must lead
+  // there; TIFF keeps the unsupported answer's second row.
+  ["webp", { top: ["jpg-to-pdf", "png-to-pdf"], never: NO_WEBPAGE }],
+  ["tiff", { unsupported: "TIFF", never: NO_WEBPAGE }],
   // Misspellings: one edit, a swap counting as one.
   ["mrege", { first: "merge-pdf" }],
   ["comprss pdf", { first: "compress-pdf" }],

@@ -53,9 +53,23 @@ export const ACCEPTED_KINDS: readonly AcceptedKind[] = [
   },
   {
     label: "images",
-    // PNG and JPEG only: both image tools embed exactly those. WebP and GIF
-    // were listed here until 2026-10-09, inviting files every tool turns away.
-    accept: ["image/png", "image/jpeg", ".png", ".jpg", ".jpeg"],
+    // WebP and GIF were listed here until 2026-10-09, inviting files every
+    // tool turned away. Since 2026-10-30 both image tools decode WebP, GIF
+    // and BMP, so the three are back — and the test that caught the first
+    // listing holds them to the tools' accept rows.
+    accept: [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif",
+      "image/bmp",
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp",
+      ".gif",
+      ".bmp",
+    ],
     maxBytes: MAX_IMAGE_BYTES,
   },
   {

@@ -2,6 +2,9 @@ import type { ToolContent } from "./types";
 import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
 import { toolFacts } from "@/lib/tools/tool-facts";
 import {
+  BATES_MAX_DIGITS,
+  batesFormat,
+  DEFAULT_BATES_DIGITS,
   DEFAULT_PAGE_NUMBER_FORMAT,
   numberedOutputName,
   numberingPlan,
@@ -84,6 +87,14 @@ import { SUPPORTED_SCRIPTS, UNSUPPORTED_SCRIPTS } from "@/lib/pdf/font-packs";
  * engine and the runner's preview share. With Courier picked, a label in
  * another script may be set in the shipped monospace face rather than Noto,
  * so the intro says "a matching typeface", not "Noto".
+ *
+ * 2026-10-30 (feat/tool-options-wave2): "(no zero padding)" above is
+ * SUPERSEDED, history kept. `{n:W}` / `{total:W}` pad to W digits (1 to
+ * BATES_MAX_DIGITS), and the runner's Numbering style "Bates number" builds
+ * `batesFormat(Prefix, Digits)`. The Bates FAQ said fixed-width numbers were
+ * "not available" until then; `bates-numbering.test.ts` reads ACME-000001..
+ * back from the saved file with pdf.js and holds this FAQ and the Bates fact
+ * to `batesExample`, which is the engine's own preview of that template.
  */
 const positionCount = STAMP_POSITIONS.length;
 const ceilingMb = Math.round(
@@ -135,6 +146,13 @@ const tailLastLabel = previewPageNumber(
   tailPlan.total,
 );
 
+/** The Bates example: prefix ACME- at the default digit count, page 1. */
+const batesExample = previewPageNumber(
+  batesFormat("ACME-", DEFAULT_BATES_DIGITS),
+  1,
+  1,
+);
+
 const sampleName = "report.pdf";
 const sampleOutput = numberedOutputName(sampleName);
 
@@ -162,7 +180,7 @@ const content: ToolContent = {
   metaDescription: `Number PDF pages as ${presets[0]}, ${presets[1]} or your own template, skip a cover page, and pick one of ${positionCount} spots. Numbering happens on your device.`,
 
   intro: [
-    `Add Page Numbers stamps a number onto every page of one PDF, or onto every page from a chosen page onward, and can leave a cover or the last pages without one. The format starts as "${DEFAULT_PAGE_NUMBER_FORMAT}", and a row of presets switches it with one click. You can also type your own template, where {n} becomes the page's number and {total} the last number printed, so "Exhibit A – {n}" works as well as a bare figure. A Preview pill beside the Format heading shows the label the first numbered page will carry. For a document printed as a book, Facing pages swaps left and right on even pages so the number stays on the outer edge.`,
+    `Add Page Numbers stamps a number onto every page of one PDF, or onto every page from a chosen page onward, and can leave a cover or the last pages without one. The format starts as "${DEFAULT_PAGE_NUMBER_FORMAT}", and a row of presets switches it with one click. You can also type your own template, where {n} becomes the page's number and {total} the last number printed, so "Exhibit A – {n}" works as well as a bare figure, and a Bates number style prints a prefix with a zero-padded number, such as ${batesExample}. A Preview pill beside the Format heading shows the label the first numbered page will carry. For a document printed as a book, Facing pages swaps left and right on even pages so the number stays on the outer edge.`,
     `All of the numbering happens inside the open tab: your PDF is loaded from your device into memory, stamped with pdf-lib, and saved back to you, with no upload to pdf.xyz at any point. A file over ${ceilingMb} MB is refused as soon as you pick it, before any numbering starts. Plain Western labels use the font you pick, ${fontNames}, all built into the PDF format; a label in another script the tool can draw pulls a matching typeface down from the pdf.xyz site, and only the font travels, never your document.`,
     "Page content, bookmarks, links and filled-in form fields come through; each number is drawn into the page as text, in a dark slate ink unless you pick another Color, at a Small, Medium or Large margin from the edge. Document properties keep their title and author, but the producer and creator fields now read pdf.xyz. Because the pages gain new content and the whole file is written out again, a digital signature already in it will no longer validate. On a page with a rotation flag, the number still lands at the edge you see and reads horizontally. A password-protected PDF is refused when you pick it and has to be unlocked first.",
   ],
@@ -178,7 +196,7 @@ const content: ToolContent = {
     },
     {
       title: "Label exhibits or a document production",
-      body: 'A custom template such as "ACME-{n}" with a First number that continues from the last batch gives every numbered page a unique, prefixed reference.',
+      body: `The Bates number style, a prefix with a zero-padded number such as ${batesExample}, and a First number that continues from the last batch give every page a unique, fixed-width reference.`,
     },
   ],
 
@@ -189,7 +207,7 @@ const content: ToolContent = {
     },
     {
       title: "Pick a format",
-      body: `Click a preset (${presetList}) or type into the Custom format field using {n} and {total}. The Preview pill follows each keystroke.`,
+      body: `Click a preset (${presetList}) or type into the Custom format field using {n} and {total}. For a Bates number, switch the Numbering style and fill in Prefix and Digits. The Preview pill follows each keystroke.`,
     },
     {
       title: "Set placement",
@@ -216,7 +234,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I do Bates numbering with this?",
-      a: 'For simple cases, yes: put a prefix in the custom template, such as "SMITH-{n}", and set First number to continue an earlier batch. Numbers are printed without leading zeros, though, so a fixed-width style like 000123 is not available.',
+      a: `Yes. Pick Bates number as the Numbering style, type a Prefix such as ACME- and choose how many Digits the number has: with ${DEFAULT_BATES_DIGITS} digits the first page reads ${batesExample}. Set First number to carry on from an earlier batch. In your own template, {n:${DEFAULT_BATES_DIGITS}} pads the number the same way, from 1 to ${BATES_MAX_DIGITS} digits; a number longer than the width is printed in full, never cut short. The number is drawn as real text, so it can be searched and copied.`,
     },
     {
       q: "Will the numbers cover text already on the page?",

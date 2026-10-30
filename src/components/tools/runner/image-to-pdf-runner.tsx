@@ -18,7 +18,8 @@ import {
   imagePdfOutputName,
   imagePickerAccept,
   isImageAllowedForKind,
-  sniffRasterFormat,
+  IMAGE_MIME,
+  sniffImageFormat,
   unsupportedImageMessage,
   type ImagePdfKind,
 } from "@/lib/pdf/image-to-pdf";
@@ -117,7 +118,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         if (!isImageAllowedForKind(kind, file)) {
           rejected.push({
             name: file.name,
-            reason: "Choose PNG or JPG images.",
+            reason: "Choose PNG, JPG, WebP, GIF or BMP images.",
           });
         } else if (file.size <= 0) {
           rejected.push({ name: file.name, reason: "File is empty." });
@@ -149,8 +150,9 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         setLoading((n) => Math.max(0, n - accepted.length));
       }
       // Decide by the bytes, now, rather than after the user has arranged
-      // every image: a ".png" saved from the web is often a JPEG (fine) or a
-      // WebP (not), and the name cannot tell those apart. Pick order is kept:
+      // every image: a ".png" saved from the web is often a JPEG or a WebP
+      // (both fine since 2026-10-30) or a HEIC (not), and the name cannot
+      // tell those apart. Pick order is kept:
       // `settled[i]` is `accepted[i]`.
       const loaded: ImageItem[] = [];
       const unreadable: Rejection[] = [];
@@ -164,7 +166,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           continue;
         }
         const bytes = outcome.value;
-        const format = sniffRasterFormat(bytes);
+        const format = sniffImageFormat(bytes);
         if (!format) {
           unreadable.push({
             name: file.name,
@@ -175,7 +177,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         loaded.push({
           id: `${Date.now()}-${idRef.current++}`,
           name: file.name,
-          type: format === "png" ? "image/png" : "image/jpeg",
+          type: IMAGE_MIME[format],
           size: file.size,
           bytes,
           previewUrl: URL.createObjectURL(file),

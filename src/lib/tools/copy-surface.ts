@@ -228,6 +228,14 @@ export function copyFiles(): string[] {
     // (2026-10-24): their refusals are the sentences the split runner shows.
     // A new module beside engine code, so walked, as the ratchet asks.
     path.join(ROOT, "src", "lib", "pdf", "split-modes.ts"),
+    // Merge PDF's page-order labels and Alternate pages' refusals
+    // (2026-10-30): the words the merge runner shows. Beside engine code,
+    // so listed singly, as the ratchet asks of a new module.
+    path.join(ROOT, "src", "lib", "pdf", "merge-order.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "merge-alternate.ts"),
+    // JPG / PNG to PDF's WebP, GIF and BMP decoder (2026-10-30): its
+    // refusals are the sentences the image runners show.
+    path.join(ROOT, "src", "lib", "pdf", "image-transcode.ts"),
     // The engine's refusal copy (encrypted, unreadable), and the raster
     // presets' wording the catalogue quotes — moved out of engine.ts and
     // pdf-to-image.ts on 2026-10-29 so tool pages stop loading those modules

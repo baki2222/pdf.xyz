@@ -175,16 +175,18 @@ describe("eligibleFilesFor", () => {
     const jpg = { name: "photo.jpeg", type: "image/jpeg" };
     const jpgByExt = { name: "scan.JPG", type: "" };
     const webp = { name: "pic.webp", type: "image/webp" };
+    const heic = { name: "pic.heic", type: "image/heic" };
     // INVERTED. JPG to PDF used to keep only JPEGs and PNG to PDF only PNGs, so
     // "Turn your 5 images into a PDF" handed a mixed set to a tool that
     // silently dropped the other format. Both engines embed both now.
+    // INVERTED AGAIN 2026-10-30: the WebP was dropped here until both tools
+    // began decoding it; a HEIC is what is dropped now.
     expect(
-      eligibleFilesFor("jpg-to-pdf", [pdf, jpg, jpgByExt, png, webp]),
-    ).toEqual([jpg, jpgByExt, png]);
-    expect(eligibleFilesFor("png-to-pdf", [pdf, jpg, png, webp])).toEqual([
-      jpg,
-      png,
-    ]);
+      eligibleFilesFor("jpg-to-pdf", [pdf, jpg, jpgByExt, png, webp, heic]),
+    ).toEqual([jpg, jpgByExt, png, webp]);
+    expect(eligibleFilesFor("png-to-pdf", [pdf, jpg, png, webp, heic])).toEqual(
+      [jpg, png, webp],
+    );
   });
 
   // WAS `eligibleFilesFor("ocr-pdf", …)` → [], when a worker panel could not
