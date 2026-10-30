@@ -92,6 +92,13 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/compress-grayscale.ts",
       "src/lib/pdf/offered-kinds.ts",
       "src/lib/pdf/overlay.ts",
+      // Added 2026-10-30: the four new in-browser tools' phrase modules.
+      "src/lib/pdf/scan-enhance.ts",
+      "src/lib/pdf/scan-to-pdf.ts",
+      "src/lib/pdf/scan-browser.ts",
+      "src/lib/pdf/metadata.ts",
+      "src/lib/pdf/resize.ts",
+      "src/lib/pdf/n-up.ts",
       "src/lib/workers/read-error.ts",
       // Added 2026-10-09 (WP-04): the sentence a tool page says about files
       // that arrived from another page ("Loaded 2 files you added.").

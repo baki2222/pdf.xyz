@@ -462,8 +462,14 @@ describe("the catalogue ships in one chunk, shared by every surface that reads i
  * it 32.63 -> 32.02. A line a refactor moves is no bound; what a visitor
  * fetches is. (`directory.generated.ts`, the tool names the hand-off check
  * reads, is ~1 KB gz of that 32.02 and repeats what the catalogue says.)
+ *
+ * RAISED 32.5 -> 32.8 on 2026-10-30, for four new tools, which the ticket
+ * offers like every other: their catalogue entries (the catalogue chunk,
+ * gzip -9, 6,859 -> 7,276 B with the four entries already cut to the fields
+ * a page reads — no seoTitle, cardSummary or next, three keywords each) and
+ * their directory rows (+56 B). Measured 32.68 on the branch.
  */
-const TICKET_FETCH_GZ_KB = 32.5;
+const TICKET_FETCH_GZ_KB = 32.8;
 
 describe("the ticket's on-demand fetch is bounded", () => {
   const built = existsSync(path.join(NEXT_DIR, "server", "app"));

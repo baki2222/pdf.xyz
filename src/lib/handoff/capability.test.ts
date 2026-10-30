@@ -349,6 +349,10 @@ const RUNNER_OPENS: Record<
   edit: isLikelyPdf,
   "extract-images": isLikelyPdf,
   compare: isLikelyPdf,
+  scan: (file) => isImageAllowedForKind("jpg", file),
+  metadata: isLikelyPdf,
+  resize: isLikelyPdf,
+  "n-up": isLikelyPdf,
 };
 
 const carried = (slug: string, file: { name: string; type: string }) =>

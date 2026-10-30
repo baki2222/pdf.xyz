@@ -120,6 +120,19 @@ const ComparePdfRunner = dynamic(() =>
   ),
 );
 
+const ScanRunner = dynamic(() =>
+  import("./scan-runner").then(({ ScanRunner }) => ScanRunner),
+);
+const MetadataRunner = dynamic(() =>
+  import("./metadata-runner").then(({ MetadataRunner }) => MetadataRunner),
+);
+const ResizeRunner = dynamic(() =>
+  import("./resize-runner").then(({ ResizeRunner }) => ResizeRunner),
+);
+const NUpRunner = dynamic(() =>
+  import("./n-up-runner").then(({ NUpRunner }) => NUpRunner),
+);
+
 /**
  * Client-side dispatcher: renders the interactive runner for a supported tool.
  * The dynamic tool page decides whether a tool is supported (via the registry)
@@ -185,6 +198,14 @@ export function ToolRunner({ kind, slug }: { kind: RunnerKind; slug: string }) {
       return <ExtractImagesRunner />;
     case "compare":
       return <ComparePdfRunner />;
+    case "scan":
+      return <ScanRunner />;
+    case "metadata":
+      return <MetadataRunner />;
+    case "resize":
+      return <ResizeRunner />;
+    case "n-up":
+      return <NUpRunner />;
     default:
       return null;
   }

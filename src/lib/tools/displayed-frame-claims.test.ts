@@ -284,9 +284,13 @@ describe("pages whose engine reads the displayed frame do not describe the store
       "crop-pdf",
       "edit-pdf",
       "header-footer",
+      // Joined 2026-10-30: both size and place each page by its visible
+      // frame (CropBox, turned by /Rotate), and their pages say so.
+      "n-up-pdf",
       "organize-pages",
       "page-numbers",
       "redact-pdf",
+      "resize-pdf",
       "sign-pdf",
       "watermark-pdf",
     ]);

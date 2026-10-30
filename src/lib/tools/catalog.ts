@@ -127,6 +127,21 @@ export const tools: Tool[] = [
     keywords: ["extract images", "save images", "pdf images", "get pictures"],
     related: ["pdf-to-jpg", "pdf-to-png", "compress-pdf"],
   },
+  {
+    slug: "n-up-pdf",
+    name: "Multiple Pages per Sheet",
+    tagline: "Put 2, 4, 6 or 9 pages on one sheet.",
+    description:
+      "Put 2, 4, 6 or 9 PDF pages on each A4 or US Letter sheet, in the order you pick, with optional borders. Runs in your browser.",
+    category: "organize",
+    icon: "nUp",
+    processing: "client",
+    badge: "new",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+    keywords: ["n-up pdf", "pages per sheet", "2 up pdf"],
+    related: ["organize-pages", "resize-pdf", "merge-pdf"],
+  },
 
   // ─────────────────────────────── Optimize ───────────────────────────────
   {
@@ -282,7 +297,7 @@ export const tools: Tool[] = [
     // ZIP: "One PDF per image" delivers the PDFs as one archive.
     outputs: ["PDF", "ZIP"],
     keywords: ["jpg to pdf", "jpeg to pdf", "image to pdf", "photos to pdf"],
-    related: ["png-to-pdf", "pdf-to-jpg", "merge-pdf"],
+    related: ["png-to-pdf", "scan-to-pdf", "pdf-to-jpg", "merge-pdf"],
   },
   {
     slug: "png-to-pdf",
@@ -297,6 +312,21 @@ export const tools: Tool[] = [
     outputs: ["PDF", "ZIP"],
     keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],
     related: ["jpg-to-pdf", "pdf-to-png", "merge-pdf"],
+  },
+  {
+    slug: "scan-to-pdf",
+    name: "Scan to PDF",
+    tagline: "Photograph pages into one PDF.",
+    description:
+      "Photograph pages with your phone's camera, or pick photos, and get one PDF with a Document or Black & white clean-up. Runs in your browser.",
+    category: "convert-to",
+    icon: "scan",
+    processing: "client",
+    badge: "new",
+    accept: ["JPG", "JPEG", "PNG"],
+    outputs: ["PDF"],
+    keywords: ["scan to pdf", "pdf scanner", "camera to pdf"],
+    related: ["jpg-to-pdf", "ocr-pdf", "compress-pdf"],
   },
   {
     slug: "html-to-pdf",
@@ -656,6 +686,23 @@ export const tools: Tool[] = [
     related: ["rotate-pdf", "redact-pdf", "organize-pages", "edit-pdf"],
   },
   {
+    slug: "resize-pdf",
+    name: "Resize PDF",
+    // "size" stays out of the tagline and keywords: it is a synonym of
+    // "compress" (intents.ts), and a search for compress must not offer this.
+    tagline: "Change pages to A4, Letter and more.",
+    description:
+      "Change a PDF's pages to A4, US Letter, Legal, A3, A5 or a custom size, scaling the content or only the canvas. Runs in your browser.",
+    category: "edit",
+    icon: "resize",
+    processing: "client",
+    badge: "new",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+    keywords: ["resize pdf", "letter to a4", "scale pdf"],
+    related: ["crop-pdf", "n-up-pdf", "rotate-pdf"],
+  },
+  {
     slug: "header-footer",
     // The name carries the head term: it is the <title>, the H1 and the card.
     name: "PDF Header & Footer",
@@ -697,6 +744,21 @@ export const tools: Tool[] = [
       "template overlay",
     ],
     related: ["watermark-pdf", "header-footer", "merge-pdf", "edit-pdf"],
+  },
+  {
+    slug: "edit-pdf-metadata",
+    name: "Edit PDF Metadata",
+    tagline: "Change or remove a PDF's title, author and dates.",
+    description:
+      "View and edit a PDF's title, author, subject, keywords and dates, or remove them all, XMP included. Runs in your browser.",
+    category: "edit",
+    icon: "metadata",
+    processing: "client",
+    badge: "new",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+    keywords: ["pdf metadata", "pdf properties", "remove pdf metadata"],
+    related: ["protect-pdf", "redact-pdf", "flatten-pdf"],
   },
 
   // ─────────────────────────────── Sign & Forms ───────────────────────────
@@ -801,7 +863,7 @@ export const tools: Tool[] = [
       "add password to pdf",
       "protect pdf",
     ],
-    related: ["unlock-pdf", "redact-pdf", "flatten-pdf"],
+    related: ["unlock-pdf", "redact-pdf", "edit-pdf-metadata", "flatten-pdf"],
   },
   {
     slug: "unlock-pdf",

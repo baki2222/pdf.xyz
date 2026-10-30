@@ -512,9 +512,13 @@ const ANNOT_NO_VIEW = 1 << 5;
  * form field or an Acrobat stamp annotation — the very things people keep as
  * stamp PDFs — vanished from the overlay, and a page holding nothing else had
  * no content stream at all and failed the whole job. Runs on the in-memory
- * overlay document only; the user's file is untouched.
+ * overlay document only; the user's file is untouched. Multiple Pages per
+ * Sheet (`./n-up`) bakes its source pages the same way before embedding them.
  */
-function bakeAnnotationAppearances(lib: PdfLibModule, page: PDFPage): void {
+export function bakeAnnotationAppearances(
+  lib: PdfLibModule,
+  page: PDFPage,
+): void {
   const { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef, PDFStream } = lib;
   const annots = page.node.Annots();
   if (!annots) return;

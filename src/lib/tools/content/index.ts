@@ -16,6 +16,7 @@ import compressPdf from "./compress-pdf";
 import createForms from "./create-forms";
 import cropPdf from "./crop-pdf";
 import editPdf from "./edit-pdf";
+import editPdfMetadata from "./edit-pdf-metadata";
 import excelToPdf from "./excel-to-pdf";
 import extractImages from "./extract-images";
 import extractPages from "./extract-pages";
@@ -28,6 +29,7 @@ import htmlToPdf from "./html-to-pdf";
 import jpgToPdf from "./jpg-to-pdf";
 import markdownToPdf from "./markdown-to-pdf";
 import mergePdf from "./merge-pdf";
+import nUpPdf from "./n-up-pdf";
 import ocrPdf from "./ocr-pdf";
 import optimizeWeb from "./optimize-web";
 import organizePages from "./organize-pages";
@@ -48,7 +50,9 @@ import redactPdf from "./redact-pdf";
 import removePages from "./remove-pages";
 import repairPdf from "./repair-pdf";
 import requestSignatures from "./request-signatures";
+import resizePdf from "./resize-pdf";
 import rotatePdf from "./rotate-pdf";
+import scanToPdf from "./scan-to-pdf";
 import signPdf from "./sign-pdf";
 import splitPdf from "./split-pdf";
 import summarizePdf from "./summarize-pdf";
@@ -73,6 +77,7 @@ export const toolContent: Readonly<Record<string, ToolContent>> =
       createForms,
       cropPdf,
       editPdf,
+      editPdfMetadata,
       excelToPdf,
       extractImages,
       extractPages,
@@ -85,6 +90,7 @@ export const toolContent: Readonly<Record<string, ToolContent>> =
       jpgToPdf,
       markdownToPdf,
       mergePdf,
+      nUpPdf,
       ocrPdf,
       optimizeWeb,
       organizePages,
@@ -105,7 +111,9 @@ export const toolContent: Readonly<Record<string, ToolContent>> =
       removePages,
       repairPdf,
       requestSignatures,
+      resizePdf,
       rotatePdf,
+      scanToPdf,
       signPdf,
       splitPdf,
       summarizePdf,

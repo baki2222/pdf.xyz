@@ -831,6 +831,10 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   edit: ["image-decoder", "character-map", "drawing-font"],
   "extract-images": [],
   compare: ["character-map"],
+  scan: [],
+  metadata: [],
+  resize: [],
+  "n-up": [],
 };
 
 /** The document-dependent fetches the tool behind `slug` can make mid-run. */
