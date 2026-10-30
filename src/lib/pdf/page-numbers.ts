@@ -41,7 +41,10 @@ export type PageNumberMargin = keyof typeof PAGE_NUMBER_MARGINS;
 export const DEFAULT_PAGE_NUMBER_MARGIN = PAGE_NUMBER_MARGINS.medium;
 
 export interface PageNumberOptions {
-  /** Template with `{n}` / `{total}` tokens. Defaults to "Page {n} of {total}". */
+  /**
+   * Template with `{n}` / `{total}` tokens, and `{n:6}` / `{total:6}` for a
+   * number zero-padded to that many digits. Defaults to "Page {n} of {total}".
+   */
   format?: string;
   /** Where on the page to stamp. Defaults to bottom-center. */
   position?: StampPosition;
@@ -75,11 +78,58 @@ export interface PageNumberOptions {
   color?: RGB;
 }
 
+/** The widest zero-padding a `{n:W}` token may ask for. */
+export const BATES_MAX_DIGITS = 12;
+
+/** The Bates style's starting digit count: ACME-000001. */
+export const DEFAULT_BATES_DIGITS = 6;
+
+/**
+ * `{n:6}`, `{page:6}`, `{total:6}`, `{pages:6}`: the number, zero-padded to
+ * that many digits (case-insensitive, like the plain tokens). Resolved HERE,
+ * before `applyTokens`, so the width token costs only the page-numbers chunk
+ * and not every stamp tool that shares `stamp.ts`.
+ */
+const WIDTH_TOKEN = /\{(n|page|total|pages):(\d+)\}/gi;
+
+/**
+ * The label one page shows: width tokens padded, then the plain tokens. The
+ * width is capped here as well as refused by `validatePageNumberFormat`: the
+ * runner previews every keystroke, and `{n:99999999}` must not allocate a
+ * hundred-megabyte string on the way to its error message.
+ */
+function formatLabel(format: string, n: number, total: number): string {
+  const padded = format.replace(WIDTH_TOKEN, (_, key: string, width: string) =>
+    String(/^(n|page)$/i.test(key) ? n : total).padStart(
+      Math.min(Number(width), BATES_MAX_DIGITS),
+      "0",
+    ),
+  );
+  return applyTokens(padded, { n, total });
+}
+
+/**
+ * The Bates style's template: a prefix, then the number padded to `digits`
+ * (ACME- and 6 give ACME-000001). The first value is First number.
+ */
+export function batesFormat(prefix: string, digits: number): string {
+  const width = clamp(Math.floor(digits), 1, BATES_MAX_DIGITS);
+  return `${prefix}{n:${width}}`;
+}
+
 export function validatePageNumberFormat(format: string): void {
   if (format.trim().length === 0) {
     throw new PdfEngineError(
       'Add a page-number format, for example "Page {n} of {total}".',
     );
+  }
+  for (const [token, , width] of format.matchAll(WIDTH_TOKEN)) {
+    const digits = Number(width);
+    if (digits < 1 || digits > BATES_MAX_DIGITS) {
+      throw new PdfEngineError(
+        `Pick a width from 1 to ${BATES_MAX_DIGITS} digits, like {n:6} for 000001. "${token}" asks for ${digits}.`,
+      );
+    }
   }
 }
 
@@ -93,7 +143,7 @@ export function previewPageNumber(
   n: number,
   total: number,
 ): string {
-  return applyTokens(format, { n, total });
+  return formatLabel(format, n, total);
 }
 
 export interface NumberingPlan {
@@ -164,13 +214,13 @@ export async function addPageNumbers(
   // from the wrong set. Choosing up front also means a refusal arrives before
   // page one is touched rather than part-way through the loop.
   const labels = plan.stamps
-    .map(({ n }) => applyTokens(format, { n, total: plan.total }))
+    .map(({ n }) => formatLabel(format, n, plan.total))
     .filter((text) => text.trim().length > 0);
   const font = await embedStampFont(doc, labels, "regular", options.font);
 
   for (const { index, n } of plan.stamps) {
     const page = pages[index]!;
-    const text = applyTokens(format, { n, total: plan.total });
+    const text = formatLabel(format, n, plan.total);
     if (text.trim().length === 0) continue;
 
     // Physical page 2, 4, 6… is a left-hand page in a printed spread.

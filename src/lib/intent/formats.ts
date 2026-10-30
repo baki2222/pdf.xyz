@@ -47,6 +47,9 @@ export const FORMATS = [
   "PPTX",
   "JPG",
   "PNG",
+  "WEBP",
+  "GIF",
+  "BMP",
   "HTML",
   "MD",
   "TXT",
@@ -56,15 +59,14 @@ export type Format = (typeof FORMATS)[number];
 /**
  * Formats people bring that no tool here opens. The site says so in writing
  * ("No tool here opens HEIC photos."), so no tool may accept one of these —
- * held by `formats.test.ts`.
+ * held by `formats.test.ts`. WEBP, GIF and BMP moved to {@link FORMATS} on
+ * 2026-10-30, when JPG / PNG to PDF began decoding them in the browser; the
+ * "No tool here opens WebP images." answer went with them.
  */
 export const UNSUPPORTED_FORMATS = [
   "HEIC",
   "HEIF",
-  "WEBP",
-  "GIF",
   "TIFF",
-  "BMP",
   "SVG",
   "AVIF",
   "ODT",
@@ -89,10 +91,7 @@ export const UNSUPPORTED_SIGNS: Record<
 > = {
   HEIC: { extensions: ["heic"], mimes: ["image/heic", "image/heic-sequence"] },
   HEIF: { extensions: ["heif"], mimes: ["image/heif", "image/heif-sequence"] },
-  WEBP: { extensions: ["webp"], mimes: ["image/webp"] },
-  GIF: { extensions: ["gif"], mimes: ["image/gif"] },
   TIFF: { extensions: ["tif", "tiff"], mimes: ["image/tiff"] },
-  BMP: { extensions: ["bmp"], mimes: ["image/bmp", "image/x-ms-bmp"] },
   SVG: { extensions: ["svg"], mimes: ["image/svg+xml"] },
   AVIF: { extensions: ["avif"], mimes: ["image/avif"] },
   ODT: {

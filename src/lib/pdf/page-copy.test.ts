@@ -28,6 +28,7 @@ import {
   splitPdf,
 } from "./engine";
 import { combineRanges, splitPdfBySize } from "./split-modes";
+import { mergeAlternating } from "./merge-alternate";
 import { loadPdfjs } from "./pdfjs";
 import { buildSplitParts, rangesPerPage } from "./ranges";
 import type { OrganizePlanItem } from "./types";
@@ -1380,8 +1381,13 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
       expect.arrayContaining(["engine.ts", "split-modes.ts", "page-copy.ts"]),
     );
     expect(carrierFiles.length).toBeGreaterThan(20);
-    // Positive control for the parser: it finds merge as the one that merges.
-    expect(carriers("merge")).toEqual(["mergePdfs"]);
+    // Positive control for the parser: it finds the merges as the ones that
+    // merge. HISTORY: `["mergePdfs"]` alone until 2026-10-30, when Merge
+    // PDF's Alternate pages mode (`merge-alternate.ts`) became the second
+    // merge-state assembler — this line went red on its arrival, as it
+    // should, and "every merge carrier carries what mergePdfs carries" below
+    // is what it now holds it to.
+    expect(carriers("merge")).toEqual(["mergeAlternating", "mergePdfs"]);
     expect(carriers("subset")).toEqual(
       [
         ...Object.keys(SUBSET_TOOLS),
@@ -1882,6 +1888,31 @@ describe("merge keeps every source's form fillable and its bookmarks", () => {
     );
     expect(viewer.pageMode).toBe("UseOutlines");
     const inspected = await inspect(merged);
+    expect(inspected.pageDicts).toBe(inspected.pageCount);
+    expect(inspected.dangling).toEqual([]);
+  });
+
+  it("every merge carrier carries what mergePdfs carries (Alternate pages moves pages, not state)", async () => {
+    // The other merge-state assembler found by the derived scan above. Same
+    // files, same form values, same bookmark titles, no orphan page and no
+    // reference to nothing — only the page ORDER may differ.
+    const handbook = await handbookDoc();
+    const form = await formDoc();
+    const files = [handbook, form, handbook];
+    const plain = await mergePdfs(files);
+    const alternate = await mergeAlternating(files, {
+      reverse: [false, true, false],
+    });
+    expect((await viewerFields(alternate)).values).toEqual(
+      (await viewerFields(plain)).values,
+    );
+    const sorted = async (b: Uint8Array) =>
+      titles((await readAsViewer(b)).outline).sort();
+    expect(await sorted(alternate)).toEqual(await sorted(plain));
+    // Health: the comparison is not between two empty outlines.
+    expect((await sorted(plain)).length).toBeGreaterThan(3);
+    const inspected = await inspect(alternate);
+    expect(inspected.pageCount).toBe((await inspect(plain)).pageCount);
     expect(inspected.pageDicts).toBe(inspected.pageCount);
     expect(inspected.dangling).toEqual([]);
   });

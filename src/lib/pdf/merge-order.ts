@@ -33,3 +33,28 @@ export function sortMergeItems<T extends { name: string; seq: number }>(
     (a, b) => sign * collator.compare(a.name, b.name) || bySeq(a, b),
   );
 }
+
+/**
+ * Merge PDF's page orders. "append" is the merge it always was: every file's
+ * pages, one file after another. "alternate" takes one page from each file in
+ * turn (`interleavePages`), for a fronts file and a backs file scanned apart.
+ */
+export const MERGE_MODES = ["append", "alternate"] as const;
+export type MergeMode = (typeof MERGE_MODES)[number];
+
+export const MERGE_MODE_LABEL: Record<MergeMode, string> = {
+  append: "One after another",
+  alternate: "Alternate pages",
+};
+
+/**
+ * One item from each list in turn — A1, B1, C1, A2, B2, … — and, once a
+ * shorter list runs out, the rest of the longer ones in their own order.
+ */
+export function interleavePages<T>(lists: readonly (readonly T[])[]): T[] {
+  const out: T[] = [];
+  const longest = Math.max(0, ...lists.map((list) => list.length));
+  for (let i = 0; i < longest; i += 1)
+    for (const list of lists) if (i < list.length) out.push(list[i]!);
+  return out;
+}

@@ -4,6 +4,7 @@
  * a suggestion row spell "2 PDFs" and "15 pages" the same way.
  */
 import { formatBytes } from "@/lib/utils";
+import { isImageFormatLabel } from "@/lib/jobs/mime-by-format";
 import { renderEvidence } from "./evidence";
 import type { FileFacts } from "./facts";
 import { MEASURING, pagesOf, type FactWord } from "./fact-words";
@@ -46,7 +47,7 @@ export function ticketSummary(
       }),
       tone: "muted",
     });
-  else if (only === "JPG" || only === "PNG")
+  else if (only !== null && isImageFormatLabel(only))
     words.push({
       text: renderEvidence({
         kind: "count",

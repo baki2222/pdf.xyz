@@ -5,11 +5,15 @@ import { useMemo, useState } from "react";
 import { Download, ListOrdered } from "lucide-react";
 import {
   addPageNumbers,
+  BATES_MAX_DIGITS,
+  batesFormat,
+  DEFAULT_BATES_DIGITS,
   DEFAULT_PAGE_NUMBER_FORMAT,
   numberedOutputName,
   numberingPlan,
   PAGE_NUMBER_MARGINS,
   previewPageNumber,
+  validatePageNumberFormat,
   type PageNumberMargin,
 } from "@/lib/pdf/page-numbers";
 import {
@@ -34,6 +38,7 @@ import {
   ResultPanel,
   RunButton,
   RunnerSection,
+  errorMessage,
   outputFile,
   useAsyncRun,
 } from "./runner-kit";
@@ -63,6 +68,17 @@ export const FORMAT_PRESETS: { value: string; label: string }[] = [
   { value: "{n}", label: "1" },
   { value: "- {n} -", label: "- 1 -" },
 ];
+
+/**
+ * The two numbering styles. "Bates number" builds the template from a prefix
+ * and a digit count (`batesFormat`: ACME- and 6 give ACME-000001), counting
+ * from First number; it is not a preset, because its template is typed text.
+ */
+export const NUMBER_STYLES = [
+  { value: "pages", label: "Page numbers" },
+  { value: "bates", label: "Bates number" },
+] as const;
+type NumberStyle = (typeof NUMBER_STYLES)[number]["value"];
 
 /** The margin presets as the runner labels them, smallest first. */
 const MARGIN_LABELS: Record<PageNumberMargin, string> = {
@@ -114,7 +130,24 @@ export function PageNumbersEditor({
   const [facing, setFacing] = useState(false);
   const [font, setFont] = useState<StampFontFamily>("helvetica");
   const [inkHex, setInkHex] = useState(DEFAULT_INK_HEX);
+  const [style, setStyle] = useState<NumberStyle>("pages");
+  const [batesPrefix, setBatesPrefix] = useState("");
+  const [batesDigits, setBatesDigits] = useState(DEFAULT_BATES_DIGITS);
   const { busy, error, result, run, reset } = useAsyncRun<Uint8Array>();
+
+  // The template actually drawn: the typed or preset one, or the Bates
+  // style's prefix + padded number.
+  const template =
+    style === "bates" ? batesFormat(batesPrefix, batesDigits) : format;
+  // Said before the run, in the engine's own words, rather than after it.
+  const formatProblem = useMemo(() => {
+    try {
+      validatePageNumberFormat(template || DEFAULT_PAGE_NUMBER_FORMAT);
+      return null;
+    } catch (err) {
+      return errorMessage(err);
+    }
+  }, [template]);
 
   // The engine's own arithmetic, so the preview and the summary cannot
   // disagree with what is drawn.
@@ -128,17 +161,20 @@ export function PageNumbersEditor({
     const first = plan.stamps[0];
     if (!first) return "";
     return previewPageNumber(
-      format || DEFAULT_PAGE_NUMBER_FORMAT,
+      template || DEFAULT_PAGE_NUMBER_FORMAT,
       first.n,
       plan.total,
     );
-  }, [format, plan]);
+  }, [template, plan]);
 
   const onRun = () => {
-    // A preset is kept; anything typed is not.
-    const preset = OPTION_SCHEMAS["page-numbers"].format.values.find(
-      (value) => value === format,
-    );
+    // A preset is kept; anything typed is not (a Bates prefix is typed).
+    const preset =
+      style === "pages"
+        ? OPTION_SCHEMAS["page-numbers"].format.values.find(
+            (value) => value === format,
+          )
+        : undefined;
     rememberOptions("page-numbers", {
       position,
       startPage,
@@ -147,7 +183,7 @@ export function PageNumbersEditor({
     });
     return run(() =>
       addPageNumbers(pdf.bytes, {
-        format,
+        format: template,
         position,
         startPage,
         startAt,
@@ -204,22 +240,58 @@ export function PageNumbersEditor({
       >
         <div className="flex flex-col gap-3">
           <SegmentedControl
-            label="Number format preset"
-            value={FORMAT_PRESETS.some((p) => p.value === format) ? format : ""}
-            options={[
-              ...FORMAT_PRESETS,
-              ...(FORMAT_PRESETS.some((p) => p.value === format)
-                ? []
-                : [{ value: "", label: "Custom" }]),
-            ]}
-            onChange={(value) => value && setFormat(value)}
+            label="Numbering style"
+            value={style}
+            options={[...NUMBER_STYLES]}
+            onChange={setStyle}
           />
-          <TextField
-            label="Custom format ({n} = page, {total} = count)"
-            value={format}
-            onChange={setFormat}
-            placeholder={DEFAULT_PAGE_NUMBER_FORMAT}
-          />
+          {style === "pages" ? (
+            <>
+              <SegmentedControl
+                label="Number format preset"
+                value={
+                  FORMAT_PRESETS.some((p) => p.value === format) ? format : ""
+                }
+                options={[
+                  ...FORMAT_PRESETS,
+                  ...(FORMAT_PRESETS.some((p) => p.value === format)
+                    ? []
+                    : [{ value: "", label: "Custom" }]),
+                ]}
+                onChange={(value) => value && setFormat(value)}
+              />
+              <TextField
+                label="Custom format ({n} = page, {total} = count, {n:6} = 000001)"
+                value={format}
+                onChange={setFormat}
+                placeholder={DEFAULT_PAGE_NUMBER_FORMAT}
+              />
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <TextField
+                  label="Prefix"
+                  value={batesPrefix}
+                  onChange={setBatesPrefix}
+                  placeholder="ACME-"
+                />
+                <NumberField
+                  label="Digits"
+                  value={batesDigits}
+                  min={1}
+                  max={BATES_MAX_DIGITS}
+                  onChange={setBatesDigits}
+                />
+              </div>
+              <p className="text-muted text-xs">
+                Every page gets the prefix and a number padded with zeros to
+                that many digits. It counts up from First number, under
+                Placement, so a new batch can carry on from the last one.
+              </p>
+            </>
+          )}
+          {formatProblem && <ErrorNote message={formatProblem} />}
         </div>
       </RunnerSection>
 
@@ -321,7 +393,9 @@ export function PageNumbersEditor({
             reason={
               numberedCount === 0
                 ? "No page gets a number with these settings."
-                : null
+                : formatProblem
+                  ? "Fix the number format above first."
+                  : null
             }
           >
             {(describedBy) => (
@@ -329,7 +403,7 @@ export function PageNumbersEditor({
                 onClick={onRun}
                 busy={busy}
                 describedBy={describedBy}
-                disabled={numberedCount === 0}
+                disabled={numberedCount === 0 || formatProblem !== null}
                 busyLabel="Numbering…"
               >
                 <ListOrdered className="size-4" aria-hidden />

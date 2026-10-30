@@ -55,7 +55,12 @@ const MARGINS = or(
  *    both image tools (type or name), then the runner reads the bytes as the
  *    file is ADDED (`sniffRasterFormat`): a JPEG named .png goes in as a
  *    JPEG, and a WebP/GIF/BMP/TIFF/HEIC/AVIF named .png is refused at once
- *    with `unsupportedImageMessage`. What still reaches Create PDF and fails
+ *    with `unsupportedImageMessage`. SUPERSEDED 2026-10-30, history kept:
+ *    WebP, GIF and BMP are now sniffed (`sniffImageFormat`), decoded by the
+ *    browser and re-encoded (src/lib/pdf/image-transcode.ts: PNG with
+ *    alpha, JPEG at 0.92 without; a GIF's first frame), read back from the
+ *    saved PDF by src/lib/pdf/image-formats.test.ts. TIFF, HEIC and AVIF are
+ *    still refused by name; the steps' example names an AVIF. What still reaches Create PDF and fails
  *    is a file with a valid signature pdf-lib cannot parse (a 2-frame APNG,
  *    a damaged image). tool-page-substance.test.ts holds the steps to every
  *    refusal the runner gives, in its words.
@@ -71,7 +76,7 @@ const content: ToolContent = {
   seoTitle: "PNG to PDF — Screenshots & Logos, No Upload",
   metaDescription: `Combine PNG screenshots, diagrams and logos into a single PDF in your browser. Pixels are kept without JPEG blur, up to ${MAX_IMAGE_MB} MB a file, and nothing is uploaded.`,
   intro: [
-    "PNG to PDF places every PNG you add on a page of its own and saves the set as a single PDF. It suits what people keep as PNG in the first place — screenshots, diagrams, line art, logos on a transparent background — where crisp edges matter more than a small file. Nothing is turned into JPEG on the way: pixels are stored with lossless Flate compression, so small interface text is not smudged by block artefacts. The one exception is a PNG with sixteen bits per channel, which is cut down to eight.",
+    "PNG to PDF places every PNG you add on a page of its own and saves the set as a single PDF. It suits what people keep as PNG in the first place — screenshots, diagrams, line art, logos on a transparent background — where crisp edges matter more than a small file. A PNG is never turned into JPEG on the way: its pixels are stored with lossless Flate compression, so small interface text is not smudged by block artefacts. The one exception is a PNG with sixteen bits per channel, which is cut down to eight. WebP, GIF and BMP images are taken too: your browser decodes each one and it is saved again, as a PNG when it has transparency and as a high-quality JPEG when it has none, and an animated GIF gives its first frame only.",
     `Unless you change the page setup, every page is a portrait US Letter sheet with a white background and a 0.5 in margin. You can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}) first; Fit to image makes each page the size of its PNG plus the margin, which suits screenshots. A PNG bigger than the space is scaled down to fit and centred. A smaller one is never enlarged: it is drawn at one PDF point per pixel, so a tiny icon stays tiny. Any DPI value stored inside the PNG is ignored.`,
     `The work happens in this browser tab: your PNGs are read from your device, laid out there, and handed back as a download, and none of them is uploaded to pdf.xyz. Each file may be up to ${MAX_IMAGE_MB} MB.`,
   ],
@@ -96,7 +101,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PNG files",
-      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG or JPG images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is a WebP image., when its contents are not a PNG or JPG.`,
+      body: `Drag PNGs onto the box reading "Drop PNG images here, or browse", or click anywhere in it to open your file picker; JPG photos are accepted too, and so are WebP, GIF and BMP images. Files added later join the end of the list. A file that is left out gets a note naming it and the reason: "Choose PNG, JPG, WebP, GIF or BMP images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "chart.png" is an AVIF image., when its contents are none of those.`,
     },
     {
       title: "Arrange the image order",
@@ -122,7 +127,7 @@ const content: ToolContent = {
     },
     {
       q: "Will my screenshots lose quality?",
-      a: "No pixel is re-saved as JPEG, so edges and on-screen text survive intact, even when a large image is shown scaled down on the page. Two caveats. A sixteen-bit PNG is reduced to eight bits per channel. And every image is stored as eight-bit RGB without PNG's own row filtering, so a palette or greyscale PNG is expanded to full colour and can make a PDF far heavier than the file you added.",
+      a: "No PNG pixel is re-saved as JPEG, so edges and on-screen text survive intact, even when a large image is shown scaled down on the page. Two caveats. A sixteen-bit PNG is reduced to eight bits per channel. And every image is stored as eight-bit RGB without PNG's own row filtering, so a palette or greyscale PNG is expanded to full colour and can make a PDF far heavier than the file you added. A WebP, GIF or BMP without transparency is the one kind stored as JPEG, at high quality, because it has to be saved again either way.",
     },
     {
       q: "Can I put PNG and JPG images in the same PDF?",
@@ -130,7 +135,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did Create PDF fail on a file it accepted?",
-      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a WebP, GIF or other format renamed to .png is turned away as you add it, and a JPEG saved with a .png name is accepted and placed as a JPEG. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image" (or "as a JPG image"), which stops the whole PDF. Remove the file the message names and run it again.',
+      a: 'Adding a file checks its name, its size and the first bytes of its contents, so a file whose contents are not a PNG, JPG, WebP, GIF or BMP is turned away as you add it, even when it is named .png, and a JPEG or WebP saved with a .png name is accepted and placed as what it really is. What that check cannot see is an animated PNG with more than one frame, or a damaged image whose first bytes look right: it gets into the list and then fails with "could not be decoded as a PNG image" (or "as a JPG image"), which stops the whole PDF. Remove the file the message names and run it again.',
     },
     {
       q: "Can a page be exactly the size of my screenshot?",

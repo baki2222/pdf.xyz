@@ -41,11 +41,41 @@ const IMAGE_FORMATS = {
   { types: readonly string[]; extensions: readonly string[] }
 >;
 
+/**
+ * The formats the BROWSER decodes and `image-transcode.ts` re-encodes as a
+ * JPEG (opaque) or a PNG (with transparency) — a PDF cannot hold them as
+ * they are. Same shape as {@link IMAGE_FORMATS}, so the gate and the picker
+ * read both from one place. HEIC, TIFF and AVIF are absent on purpose: no
+ * decoder for them ships in every browser.
+ */
+const DECODED_FORMATS = {
+  webp: { types: ["image/webp"], extensions: [".webp"], label: "WebP" },
+  gif: { types: ["image/gif"], extensions: [".gif"], label: "GIF" },
+  bmp: {
+    types: ["image/bmp", "image/x-ms-bmp"],
+    extensions: [".bmp"],
+    label: "BMP",
+  },
+} as const;
+export type DecodedImageFormat = keyof typeof DECODED_FORMATS;
+
+/** Every format the image tools take. */
+export type ImageFormat = RasterImageFormat | DecodedImageFormat;
+const ALL_FORMATS: Record<
+  ImageFormat,
+  { types: readonly string[]; extensions: readonly string[] }
+> = { ...IMAGE_FORMATS, ...DECODED_FORMATS };
+
+/** The MIME type a sniffed image is carried under: its table's first. */
+export const IMAGE_MIME = Object.fromEntries(
+  Object.entries(ALL_FORMATS).map(([f, { types }]) => [f, types[0]!]),
+) as Record<ImageFormat, string>;
+
 function looksLike(
-  format: RasterImageFormat,
+  format: ImageFormat,
   file: Pick<ImagePdfInput, "name" | "type">,
 ): boolean {
-  const { types, extensions } = IMAGE_FORMATS[format];
+  const { types, extensions } = ALL_FORMATS[format];
   const name = file.name.toLowerCase();
   return (
     (types as readonly string[]).includes(file.type) ||
@@ -70,15 +100,29 @@ export function isLikelyPng(
  * {@link isImageAllowedForKind} takes, the tool's own format first.
  */
 export function imagePickerAccept(kind: ImagePdfKind): string {
-  const order: RasterImageFormat[] =
-    kind === "jpg" ? ["jpg", "png"] : ["png", "jpg"];
+  const order: ImageFormat[] =
+    kind === "jpg"
+      ? ["jpg", "png", "webp", "gif", "bmp"]
+      : ["png", "jpg", "webp", "gif", "bmp"];
   return order
-    .flatMap((f) => [...IMAGE_FORMATS[f].types, ...IMAGE_FORMATS[f].extensions])
+    .flatMap((f) => [...ALL_FORMATS[f].types, ...ALL_FORMATS[f].extensions])
     .join(",");
 }
 
 /**
- * Can this file go into an image PDF? PNG and JPEG, on BOTH tools.
+ * Is this a file the engine embeds AS IT IS — PNG or JPEG? Scan to PDF's
+ * gate: its photo pipeline reads JPEG and PNG only.
+ */
+export function isEmbeddableImage(
+  file: Pick<ImagePdfInput, "name" | "type">,
+): boolean {
+  return isLikelyPng(file) || isLikelyJpeg(file);
+}
+
+/**
+ * Can this file go into an image PDF? PNG and JPEG, on BOTH tools — and,
+ * since 2026-10-30, WebP, GIF and BMP, which the browser decodes and the
+ * engine re-encodes ({@link DECODED_FORMATS}).
  *
  * It used to be one format per tool, while the engine could embed either: a
  * workspace with 3 PNGs and 2 JPGs was offered "Turn your 5 images into a
@@ -92,7 +136,12 @@ export function isImageAllowedForKind(
   _kind: ImagePdfKind,
   file: Pick<ImagePdfInput, "name" | "type">,
 ): boolean {
-  return isLikelyPng(file) || isLikelyJpeg(file);
+  return (
+    isEmbeddableImage(file) ||
+    (Object.keys(DECODED_FORMATS) as DecodedImageFormat[]).some((f) =>
+      looksLike(f, file),
+    )
+  );
 }
 
 /**
@@ -116,13 +165,45 @@ export function sniffRasterFormat(bytes: Uint8Array): RasterImageFormat | null {
   return null;
 }
 
-/** Name the format of image bytes we cannot embed, when we can tell. */
+/** The WebP, GIF or BMP the bytes hold, by their signature. */
+function sniffDecodedFormat(bytes: Uint8Array): DecodedImageFormat | null {
+  const ascii = (offset: number, length: number) =>
+    String.fromCharCode(...bytes.subarray(offset, offset + length));
+  if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") return "webp";
+  // The same signatures `intent/sniff.ts` reads, so a file the hand-off
+  // sends here is the file this takes (`formats.test.ts` holds the two).
+  if (ascii(0, 4) === "GIF8") return "gif";
+  // "BM", a 4-byte size, then four reserved bytes that are always zero: a
+  // bare "BM" starts too many text files to be a signature on its own.
+  if (
+    ascii(0, 2) === "BM" &&
+    bytes.length >= 10 &&
+    bytes[6] === 0 &&
+    bytes[7] === 0 &&
+    bytes[8] === 0 &&
+    bytes[9] === 0
+  ) {
+    return "bmp";
+  }
+  return null;
+}
+
+/**
+ * Every image the tools take, by its bytes: the two embedded as they are
+ * ({@link sniffRasterFormat}) and the three re-encoded first. `null` for
+ * anything else — HEIC, TIFF, AVIF, not an image.
+ */
+export function sniffImageFormat(bytes: Uint8Array): ImageFormat | null {
+  return sniffRasterFormat(bytes) ?? sniffDecodedFormat(bytes);
+}
+
+/** The reader's list of what can be converted, from the two tables. */
+const TAKEN = "PNG, JPG, WebP, GIF and BMP";
+
+/** Name the format of image bytes we cannot convert, when we can tell. */
 function describeImageBytes(bytes: Uint8Array): string | null {
   const ascii = (offset: number, length: number) =>
     String.fromCharCode(...bytes.subarray(offset, offset + length));
-  if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") return "WebP";
-  if (ascii(0, 4) === "GIF8") return "GIF";
-  if (ascii(0, 2) === "BM") return "BMP";
   const tiffLE = bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2a;
   const tiffBE = bytes[0] === 0x4d && bytes[1] === 0x4d && bytes[3] === 0x2a;
   if (tiffLE || tiffBE) return "TIFF";
@@ -140,9 +221,11 @@ export function unsupportedImageMessage(
   bytes: Uint8Array,
 ): string {
   const real = describeImageBytes(bytes);
+  // "an AVIF image": the one name here that starts with a vowel.
+  const article = real && /^[AEIOU]/.test(real) ? "an" : "a";
   return real
-    ? `"${name}" is a ${real} image. Only PNG and JPG images can be converted here.`
-    : `"${name}" isn't a PNG or JPG image.`;
+    ? `"${name}" is ${article} ${real} image. Only ${TAKEN} images can be converted here.`
+    : `"${name}" isn't a ${TAKEN.replace(" and ", " or ")} image.`;
 }
 
 export function validateImagePdfInputs(
@@ -156,7 +239,9 @@ export function validateImagePdfInputs(
   }
   for (const file of files) {
     if (!isImageAllowedForKind(kind, file)) {
-      throw new PdfEngineError(`"${file.name}" isn't a PNG or JPG image.`);
+      throw new PdfEngineError(
+        `"${file.name}" isn't a ${TAKEN.replace(" and ", " or ")} image.`,
+      );
     }
     if (file.bytes.byteLength === 0) {
       throw new PdfEngineError(`"${file.name}" is empty.`);
@@ -223,13 +308,24 @@ async function addImagePage(
   file: ImagePdfInput,
   options: ImagePageOptions,
 ): Promise<void> {
-  const format = sniffRasterFormat(file.bytes);
+  let bytes = file.bytes;
+  let format = sniffRasterFormat(bytes);
   if (!format) {
-    throw new PdfEngineError(unsupportedImageMessage(file.name, file.bytes));
+    const decoded = sniffDecodedFormat(bytes);
+    if (!decoded) {
+      throw new PdfEngineError(unsupportedImageMessage(file.name, bytes));
+    }
+    // Decoded by the browser and re-encoded as a JPEG or a PNG; loaded on
+    // the first such image only.
+    const { transcodeImage } = await import("./image-transcode");
+    ({ bytes, format } = await transcodeImage(file.name, bytes, {
+      mime: DECODED_FORMATS[decoded].types[0],
+      label: DECODED_FORMATS[decoded].label,
+    }));
   }
   let image;
   try {
-    image = await embedRasterImage(doc, file.bytes, format);
+    image = await embedRasterImage(doc, bytes, format);
   } catch {
     throw new PdfEngineError(
       `"${file.name}" could not be decoded as a ${format === "jpg" ? "JPG" : "PNG"} image.`,

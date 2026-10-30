@@ -99,14 +99,24 @@ describe("suggestTools (the adapter over rankForFiles)", () => {
   });
 
   it("does not promise a conversion for images no tool can take", () => {
-    const slugs = all([file("a.webp"), file("b.heic")]).map((s) => s.slug);
+    // HISTORY: the pair was a.webp + b.heic until 2026-10-30, when JPG / PNG
+    // to PDF began converting WebP; a TIFF is the unsupported image now.
+    const slugs = all([file("a.tiff"), file("b.heic")]).map((s) => s.slug);
     expect(slugs).not.toContain("jpg-to-pdf");
     expect(slugs).not.toContain("png-to-pdf");
     expect(
-      suggestTools([file("a.webp"), file("b.heic")], index).notes.map(
+      suggestTools([file("a.tiff"), file("b.heic")], index).notes.map(
         (n) => n.kind,
       ),
     ).toEqual(["unsupported", "unsupported"]);
+  });
+
+  it("positive control: a WebP, GIF or BMP alone is offered to an image tool", () => {
+    for (const name of ["a.webp", "b.gif", "c.bmp"])
+      expect(
+        all([file(name)]).map((s) => s.slug),
+        name,
+      ).toContain("jpg-to-pdf");
   });
 
   it("suggests the matching converter for office and text files", () => {

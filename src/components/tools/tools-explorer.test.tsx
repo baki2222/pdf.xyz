@@ -510,8 +510,9 @@ describe("ToolsExplorer: the unsupported-format answer, as rendered", () => {
     const heading = region!.querySelector("h2");
     const body = heading?.nextElementSibling;
     expect(heading?.textContent).toBe("No tool here opens HEIC photos.");
+    // "takes JPG and PNG." until 2026-10-30 (the accept row gained three).
     expect(body?.textContent).toBe(
-      "Save a JPG copy first. JPG to PDF takes JPG and PNG.",
+      "Save a JPG copy first. JPG to PDF takes JPG, PNG, WEBP, GIF and BMP.",
     );
   });
 

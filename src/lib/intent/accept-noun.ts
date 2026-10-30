@@ -7,7 +7,10 @@
  * both, so the notice that says what a tool could not open and the desk
  * that says what it opens cannot name the same files two ways.
  */
-import { normalizeFormatLabel } from "@/lib/jobs/mime-by-format";
+import {
+  isImageFormatLabel,
+  normalizeFormatLabel,
+} from "@/lib/jobs/mime-by-format";
 
 /** "a"/"an" before a format read as letters: an MD file, a PDF. */
 const article = (label: string) => (/^[AEFHILMNORSX]/.test(label) ? "an" : "a");
@@ -33,7 +36,7 @@ export function acceptNoun(accept: readonly string[]): {
     return { one: "a PDF", many: "PDFs" };
   }
   const list = orList(labels);
-  const images = labels.every((l) => l === "JPG" || l === "PNG");
+  const images = labels.every(isImageFormatLabel);
   const kind = images ? "image" : "file";
   return { one: `${article(list)} ${list} ${kind}`, many: `${list} ${kind}s` };
 }

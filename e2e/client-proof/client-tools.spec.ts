@@ -210,7 +210,9 @@ test.describe("client tool proof — the derived set", () => {
     );
     expect(wrong).toEqual([]);
     // Health: the tools whose options they exist for each have one (the
-    // three page tools joined 2026-10-24 with their new options).
+    // three page tools joined 2026-10-24 with their new options; Merge PDF's
+    // Alternate pages and Add Page Numbers' Bates style on 2026-10-30, with
+    // a second JPG to PDF variant for WebP, GIF and BMP).
     expect(new Set(VARIANTS.map((v) => v.slug))).toEqual(
       new Set([
         "jpg-to-pdf",
@@ -220,6 +222,8 @@ test.describe("client tool proof — the derived set", () => {
         "rotate-pdf",
         "crop-pdf",
         "organize-pages",
+        "merge-pdf",
+        "page-numbers",
       ]),
     );
     for (const v of VARIANTS)

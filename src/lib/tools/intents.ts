@@ -136,10 +136,7 @@ export const UNSUPPORTED_ANSWERS: Readonly<
 > = {
   HEIC: { noun: "HEIC photos", becomes: "JPG", how: "Save a JPG copy first." },
   HEIF: { noun: "HEIF images", becomes: "JPG", how: "Save a JPG copy first." },
-  WEBP: { noun: "WebP images", becomes: "PNG", how: "Save a PNG copy first." },
-  GIF: { noun: "GIF images", becomes: "PNG", how: "Save a PNG copy first." },
   TIFF: { noun: "TIFF images", becomes: "PNG", how: "Save a PNG copy first." },
-  BMP: { noun: "BMP images", becomes: "PNG", how: "Save a PNG copy first." },
   SVG: {
     noun: "SVG graphics",
     becomes: "PNG",

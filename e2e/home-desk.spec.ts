@@ -273,7 +273,10 @@ test("a HEIC photo: the ticket says no tool opens it, and what to do instead", a
   ]);
   const ticket = ticketOf(page);
   await expect(ticket).toContainText(/No tool here opens HEIC photos\./);
-  await expect(ticket).toContainText(/JPG to PDF takes JPG and PNG/);
+  // "takes JPG and PNG" until 2026-10-30, when the accept row gained three.
+  await expect(ticket).toContainText(
+    /JPG to PDF takes JPG, PNG, WEBP, GIF and BMP/,
+  );
 
   expect(guard.pageErrors, guard.pageErrors.join("\n")).toEqual([]);
 });
