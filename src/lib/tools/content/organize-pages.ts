@@ -104,7 +104,7 @@ const content: ToolContent = {
     },
     {
       q: "Why does my PDF fail to open here?",
-      a: "Any encrypted PDF stops at the drop box, and the message says which lock it has. One that needs a password to open is called password-protected. One that anyone can open but whose printing or editing is locked is told it has editing restrictions instead. With the password that opens it, or for a restricted file its owner (permissions) password, Unlock PDF can remove the lock, though that step is not local: the PDF is uploaded over TLS to pdf.xyz's worker. A file too damaged to parse, or one that only carries a .pdf name, gets a could-not-be-read error; Repair PDF, also a worker tool, may rebuild a damaged one before you return here.",
+      a: "Any encrypted PDF stops at the drop box, and the message says which lock it has. One that needs a password to open is called password-protected. One that anyone can open but whose printing or editing is locked is told it has editing restrictions instead. With the password that opens it, or for a restricted file its owner (permissions) password, Unlock PDF can remove the lock, though that step is not local: the PDF is uploaded over TLS to pdf.xyz's server. A file too damaged to parse, or one that only carries a .pdf name, gets a could-not-be-read error; Repair PDF, also a server tool, may rebuild a damaged one before you return here.",
     },
   ],
 

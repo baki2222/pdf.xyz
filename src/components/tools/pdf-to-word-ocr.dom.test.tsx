@@ -36,7 +36,7 @@ function status(ocrAvailable: boolean): WorkerStatus {
     mode: "remote-configured",
     enabled: true,
     localDevOnly: false,
-    detail: "A worker backend is configured.",
+    detail: "A server backend is configured.",
     compress: { lossless: false, deep: false, engines: [] },
     scan: { active: false, detail: "not scanned" },
     ocr: ocrAvailable
@@ -50,12 +50,12 @@ function status(ocrAvailable: boolean): WorkerStatus {
           available: false,
           engine: null,
           languages: [],
-          detail: "OCR isn't enabled on this worker.",
+          detail: "OCR isn't enabled on this server.",
         },
     security: {
       available: true,
       operations: ["protect", "unlock"],
-      detail: "qpdf runs on the worker.",
+      detail: "qpdf runs on our secure server.",
     },
     providers: {
       ...providers,
@@ -68,7 +68,7 @@ function status(ocrAvailable: boolean): WorkerStatus {
       verdict: "off",
       observed: false,
       drainable: false,
-      detail: "no worker observed",
+      detail: "no server observed",
     },
   };
 }
@@ -284,7 +284,7 @@ describe("PDF to Word: Recognise text in scans (OCR)", () => {
       screen.getByRole("checkbox", { name: /recognise text in scans/i }),
     );
     expect(
-      await screen.findByText(/OCR isn't enabled on this worker/),
+      await screen.findByText(/OCR isn't enabled on this server/),
     ).toBeInTheDocument();
     const run = screen.getByRole("button", { name: /export docx/i });
     expect(run).toHaveAttribute("aria-disabled", "true");

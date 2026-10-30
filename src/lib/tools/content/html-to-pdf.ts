@@ -128,7 +128,7 @@ const content: ToolContent = {
 
   intro: [
     "HTML to PDF takes one .html or .htm file and prints it the way a browser would. Headless Chromium, the open-source engine behind Chrome, lays out the markup with the CSS inside the file, runs its JavaScript within a bounded rendering window, and prints the result. Because it is a print rather than a screenshot, text stays selectable, @media print rules take effect, and a CSS @page rule decides the paper size.",
-    `Chromium does not run in your browser, so this is an upload: the file goes over TLS to pdf.xyz's secure worker, which deletes it when the job finishes (and within ${INPUT_MINUTES} minutes in any case). The PDF's download link lasts ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
+    `Chromium does not run in your browser, so this is an upload: the file goes over TLS to pdf.xyz's secure server, which deletes it when the job finishes (and within ${INPUT_MINUTES} minutes in any case). The PDF's download link lasts ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy after that.`,
     "Only the single file you choose is uploaded. A stylesheet, image or font referenced by a path such as css/site.css sits on your computer, not beside the upload, so it has nothing to load. Self-contained HTML works best: CSS in a <style> block, images and fonts embedded as data: URIs. To capture a page that is already online, give its address to Webpage to PDF instead.",
   ],
 
@@ -154,12 +154,12 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your HTML file",
-      body: "Drag one .html or .htm file onto the dashed drop zone, or click it to pick one. The name then appears with a Remove button. The drop zone works before the page has heard from the worker; the file is sent only when you press Render PDF, and that button stays off until a secure worker is ready. When none is, the panel says why and offers a “Notify me when this ships” button.",
+      body: "Drag one .html or .htm file onto the dashed drop zone, or click it to pick one. The name then appears with a Remove button. The drop zone works before the page has heard from our server; the file is sent only when you press Render PDF, and that button stays off until a secure server is ready. When none is, the panel says why and offers a “Notify me when this ships” button.",
     },
     HTML_LAYOUT_STEP,
     {
       title: "Click Render PDF",
-      body: "It stays disabled until a file is added. Once clicked, its label follows the job: “Uploading your file…”, then “Waiting for the worker…” if the queue is busy, “Rendering PDF…” while Chromium prints, and “Downloading the result…”. A Cancel button below it stops the job at any point.",
+      body: "It stays disabled until a file is added. Once clicked, its label follows the job: “Uploading your file…”, then “Waiting for our server…” if the queue is busy, “Rendering PDF…” while Chromium prints, and “Downloading the result…”. A Cancel button below it stops the job at any point.",
     },
     {
       title: "Download the PDF",
@@ -170,15 +170,15 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Is my HTML file uploaded, and how long is it kept?",
-      a: `Yes, over TLS, because Chromium runs on the worker. The upload is removed when the job ends, success or failure, and within ${INPUT_MINUTES} minutes regardless. The download link works for ${LINK_MINUTES} minutes; a daily storage rule then erases the stored PDF, typically a few hours later.`,
+      a: `Yes, over TLS, because Chromium runs on our secure server. The upload is removed when the job ends, success or failure, and within ${INPUT_MINUTES} minutes regardless. The download link works for ${LINK_MINUTES} minutes; a daily storage rule then erases the stored PDF, typically a few hours later.`,
     },
     {
       q: "Why are my images, fonts or stylesheet missing from the PDF?",
-      a: 'Usually a relative path. The worker receives your one HTML file and nothing else, so src="images/logo.png", href="style.css" or /img/logo.png point at files it never had. Paste the CSS into a <style> element, embed images and fonts as data: URIs, and render again.',
+      a: 'Usually a relative path. Our server receives your one HTML file and nothing else, so src="images/logo.png", href="style.css" or /img/logo.png point at files it never had. Paste the CSS into a <style> element, embed images and fonts as data: URIs, and render again.',
     },
     {
       q: "Does JavaScript run before the page is printed?",
-      a: "Yes, within a fixed budget of rendering time, so a chart or table built by script can appear. Content that waits on a long timer, or on other files the page links to, which the worker never receives, may be missing.",
+      a: "Yes, within a fixed budget of rendering time, so a chart or table built by script can appear. Content that waits on a long timer, or on other files the page links to, which our server never receives, may be missing.",
     },
     {
       q: "Can I choose the page size, margins or orientation?",
@@ -189,11 +189,11 @@ const content: ToolContent = {
     },
     {
       q: "Does the PDF get a date, a title or a file path on every page?",
-      a: "No. The worker asks Chromium for the page alone, so no print date, <title>, file location or page count is added at the top or bottom of any page. For page numbers or a running header, add them afterwards with Add Page Numbers or PDF Header & Footer.",
+      a: "No. Our server asks Chromium for the page alone, so no print date, <title>, file location or page count is added at the top or bottom of any page. For page numbers or a running header, add them afterwards with Add Page Numbers or PDF Header & Footer.",
     },
     {
       q: "What happens if the file is too big or will not render?",
-      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, the worker tries again, and when every attempt fails the note says Chromium could not render the file. If the page stops waiting while the render is still going, a note says the worker is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job; a finished PDF stays available for ${LINK_MINUTES} minutes.`,
+      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, our server tries again, and when every attempt fails the note says Chromium could not render the file. If the page stops waiting while the render is still going, a note says our server is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job; a finished PDF stays available for ${LINK_MINUTES} minutes.`,
     },
   ],
 

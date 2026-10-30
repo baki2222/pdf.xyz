@@ -75,19 +75,19 @@ const READY: WorkerStatus = {
   mode: "remote-configured",
   enabled: true,
   localDevOnly: false,
-  detail: "A worker backend is configured.",
+  detail: "A server backend is configured.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: false, detail: "not scanned" },
   ocr: {
     available: true,
     engine: "tesseract",
     languages: ["eng"],
-    detail: "OCR runs on the worker.",
+    detail: "OCR runs on our secure server.",
   },
   security: {
     available: true,
     operations: ["protect", "unlock"],
-    detail: "qpdf runs on the worker.",
+    detail: "qpdf runs on our secure server.",
   },
   providers: {
     ...providers,
@@ -103,7 +103,7 @@ const READY: WorkerStatus = {
     verdict: "off",
     observed: false,
     drainable: false,
-    detail: "no worker observed",
+    detail: "no server observed",
   },
 };
 

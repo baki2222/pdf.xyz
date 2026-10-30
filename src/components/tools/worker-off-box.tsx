@@ -57,8 +57,8 @@ export default function OffBox({
       <div id={whyId} hidden={!why} className="flex flex-col gap-2">
         {off}
         <p className="text-muted text-xs leading-relaxed">
-          Nothing is uploaded while the worker is unavailable. A file you add
-          stays here, and Run turns on once the worker is ready.
+          Nothing is uploaded while our server is unavailable. A file you add
+          stays here, and Run turns on once our server is ready.
         </p>
       </div>
       <NotifyMe

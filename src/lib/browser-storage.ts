@@ -106,7 +106,7 @@ export const BROWSER_STORAGE: readonly BrowserStore[] = [
     perTool: true,
     area: "sessionStorage",
     holds:
-      "The id of a secure-worker job that may still be running, so a reload can keep waiting for it. Never the file, its name, your options or a password.",
+      "The id of a secure-server job that may still be running, so a reload can keep waiting for it. Never the file, its name, your options or a password.",
     lasts: `Until the job's result expires, after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, or until this tab closes.`,
   },
 ];

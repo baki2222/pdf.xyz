@@ -195,7 +195,7 @@ export function PageTile({
             dragHandle.onToggle();
           }}
           className={cn(
-            "focus-visible:ring-accent/50 rounded-ctl absolute top-2 left-2 z-10 grid size-6 cursor-grab place-items-center border transition focus:outline-none focus-visible:ring-2 active:cursor-grabbing",
+            "focus-visible:ring-accent/50 rounded-ctl tap absolute top-2 left-2 z-10 grid size-6 cursor-grab place-items-center border transition focus:outline-none focus-visible:ring-2 active:cursor-grabbing",
             grabbed
               ? "border-accent/40 bg-accent/10 text-accent"
               : "bg-canvas/70 border-line text-muted hover:text-fg",
@@ -294,7 +294,7 @@ export function TileAction({
         if (!disabled) onClick();
       }}
       className={cn(
-        "border-line bg-wash text-muted rounded-ctl grid size-7 place-items-center border transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
+        "border-line bg-wash text-muted rounded-ctl tap grid size-7 place-items-center border transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30",
         danger
           ? "hover:border-err/40 hover:bg-err/10 hover:text-err"
           : "hover:bg-wash hover:text-fg",

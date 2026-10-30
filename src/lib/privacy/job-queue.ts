@@ -57,14 +57,14 @@ const JOURNAL = "the queue's on-disk journal, on our web server,";
 export const JOB_RECORD_JOURNAL_NOTE = `Like everything our job queue holds, it can also remain in ${JOURNAL} until that journal is next compacted.`;
 
 /** What becomes of what a tool's user types, said once for every tool. */
-export const TYPED_INPUT_QUEUE_LIFETIME = `Our job queue removes what you type when the job ends — or, if no worker ever runs the job, when the queue's retention lapses after ${JOB_RECORD_WINDOW} — and ${JOURNAL} can keep a copy until it is next compacted.`;
+export const TYPED_INPUT_QUEUE_LIFETIME = `Our job queue removes what you type when the job ends — or, if no server ever runs the job, when the queue's retention lapses after ${JOB_RECORD_WINDOW} — and ${JOURNAL} can keep a copy until it is next compacted.`;
 
 /**
  * How long a typed password waits on our side — said by the Protect/Unlock
  * panel AND by /privacy §2, from this one constant (re-exported by
  * `@/lib/jobs/pdf-security`, where both import it).
  */
-export const PASSWORD_QUEUE_LIFETIME = `Our job queue removes it when the job finishes or is cancelled — or, if no worker picks it up, when the queue's retention lapses after ${JOB_RECORD_WINDOW} — and ${JOURNAL} can keep a copy until it is next compacted.`;
+export const PASSWORD_QUEUE_LIFETIME = `Our job queue removes it when the job finishes or is cancelled — or, if no server picks it up, when the queue's retention lapses after ${JOB_RECORD_WINDOW} — and ${JOURNAL} can keep a copy until it is next compacted.`;
 
 /** For §10: what a request about a processed document may still find. */
 export const JOB_RECORD_EXPIRY_NOTE = `though ${JOURNAL} can keep a copy until it is next compacted`;

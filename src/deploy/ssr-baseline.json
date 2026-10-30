@@ -676,7 +676,7 @@
     },
     "guides/how-to-compress-a-pdf.html": {
       "title": "How to compress a PDF — pdf.xyz",
-      "description": "Compress a PDF with a lossless repack that runs in your browser, or send image-heavy files through deep image compression on a secure, auto-deleting worker.",
+      "description": "Compress a PDF with a lossless repack that runs in your browser, or send image-heavy files through deep image compression on a secure, auto-deleting server.",
       "canonical": "https://pdf.xyz/guides/how-to-compress-a-pdf",
       "robots": "index, follow",
       "h1": ["How to compress a PDF"],
@@ -784,7 +784,7 @@
     },
     "guides/how-to-convert-a-webpage-to-pdf.html": {
       "title": "How to save a web page as a PDF — pdf.xyz",
-      "description": "Paste a public link and get the page as a PDF with selectable text, rendered by Chromium on a secure worker. Choose page size, margins or one long page.",
+      "description": "Paste a public link and get the page as a PDF with selectable text, rendered by Chromium on a secure server. Choose page size, margins or one long page.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-a-webpage-to-pdf",
       "robots": "index, follow",
       "h1": ["How to save a web page as a PDF"],
@@ -1100,7 +1100,7 @@
     },
     "guides/how-to-convert-pdf-to-excel.html": {
       "title": "How to convert a PDF to Excel — pdf.xyz",
-      "description": "Export a PDF's text to an Excel XLSX sheet, one row per line with each value in its column and amounts as numbers. A secure worker deletes your PDF after.",
+      "description": "Export a PDF's text to an Excel XLSX sheet, one row per line with each value in its column and amounts as numbers. A secure server deletes your PDF after.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-pdf-to-excel",
       "robots": "index, follow",
       "h1": ["How to convert a PDF to Excel"],
@@ -1314,7 +1314,7 @@
     },
     "guides/how-to-convert-pdf-to-powerpoint.html": {
       "title": "How to convert a PDF to PowerPoint — pdf.xyz",
-      "description": "Turn each PDF page into a slide in a .pptx file, with pictures where the page shows them and each line of text in a text box. Runs on an auto-deleting worker.",
+      "description": "Turn each PDF page into a slide in a .pptx file, with pictures where the page shows them and each line of text in a text box. Runs on an auto-deleting server.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-pdf-to-powerpoint",
       "robots": "index, follow",
       "h1": ["How to convert a PDF to PowerPoint"],
@@ -1420,7 +1420,7 @@
     },
     "guides/how-to-convert-pdf-to-word.html": {
       "title": "How to convert a PDF to an editable Word document — pdf.xyz",
-      "description": "Convert a PDF into an editable Word (DOCX) file on a secure worker that deletes the input when the job finishes. No account needed.",
+      "description": "Convert a PDF into an editable Word (DOCX) file on a secure server that deletes the input when the job finishes. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-pdf-to-word",
       "robots": "index, follow",
       "h1": ["How to convert a PDF to an editable Word document"],
@@ -1528,7 +1528,7 @@
     },
     "guides/how-to-convert-word-to-pdf.html": {
       "title": "How to convert a Word document to PDF — pdf.xyz",
-      "description": "Convert a .docx or .doc file to PDF with LibreOffice on a secure worker that deletes your file after the job. Excel and PowerPoint files convert the same way.",
+      "description": "Convert a .docx or .doc file to PDF with LibreOffice on a secure server that deletes your file after the job. Excel and PowerPoint files convert the same way.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-word-to-pdf",
       "robots": "index, follow",
       "h1": ["How to convert a Word document to PDF"],
@@ -2379,7 +2379,7 @@
     },
     "guides/how-to-make-a-scanned-pdf-searchable.html": {
       "title": "How to make a scanned PDF searchable — pdf.xyz",
-      "description": "OCR a scanned PDF so its text becomes searchable and selectable — processed on an auto-deleting worker, no account needed.",
+      "description": "OCR a scanned PDF so its text becomes searchable and selectable — processed on an auto-deleting server, no account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-make-a-scanned-pdf-searchable",
       "robots": "index, follow",
       "h1": ["How to make a scanned PDF searchable"],
@@ -2699,7 +2699,7 @@
     },
     "guides/how-to-password-protect-a-pdf.html": {
       "title": "How to password-protect a PDF — pdf.xyz",
-      "description": "Password-protect a PDF with real AES encryption. Your file goes to an auto-deleting worker, and no account is needed.",
+      "description": "Password-protect a PDF with real AES encryption. Your file goes to an auto-deleting server, and no account is needed.",
       "canonical": "https://pdf.xyz/guides/how-to-password-protect-a-pdf",
       "robots": "index, follow",
       "h1": ["How to password-protect a PDF"],
@@ -2916,7 +2916,7 @@
     },
     "guides/how-to-remove-a-password-from-a-pdf.html": {
       "title": "How to remove a password from a PDF — pdf.xyz",
-      "description": "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an auto-deleting worker.",
+      "description": "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an auto-deleting server.",
       "canonical": "https://pdf.xyz/guides/how-to-remove-a-password-from-a-pdf",
       "robots": "index, follow",
       "h1": ["How to remove a password from a PDF"],
@@ -3129,7 +3129,7 @@
     },
     "guides/how-to-repair-a-damaged-pdf.html": {
       "title": "How to repair a damaged or corrupted PDF — pdf.xyz",
-      "description": "Rebuild a damaged PDF with qpdf on a secure worker that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+      "description": "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-repair-a-damaged-pdf",
       "robots": "index, follow",
       "h1": ["How to repair a damaged or corrupted PDF"],
@@ -3557,7 +3557,7 @@
     },
     "guides/how-to-translate-a-pdf.html": {
       "title": "How to translate a PDF into another language — pdf.xyz",
-      "description": "Translate a PDF into another language with AI. Get Markdown and plain text back; the secure worker wipes inputs at job end. No account needed.",
+      "description": "Translate a PDF into another language with AI. Get Markdown and plain text back; our secure server wipes inputs at job end. No account needed.",
       "canonical": "https://pdf.xyz/guides/how-to-translate-a-pdf",
       "robots": "index, follow",
       "h1": ["How to translate a PDF into another language"],
@@ -3795,7 +3795,7 @@
     },
     "privacy.html": {
       "title": "Privacy Policy — pdf.xyz",
-      "description": "What pdf.xyz does with your files. Most tools never upload anything; the rest process on a worker that deletes the upload when the job ends and stops serving the result after 60 minutes. No accounts, no advertising, no sale of personal data.",
+      "description": "What pdf.xyz does with your files. Most tools never upload anything; the rest process on a server that deletes the upload when the job ends and stops serving the result after 60 minutes. No accounts, no advertising, no sale of personal data.",
       "canonical": "https://pdf.xyz/privacy",
       "robots": "index, follow",
       "h1": ["Privacy Policy"],
@@ -4591,7 +4591,7 @@
     },
     "tools/category/convert-to.html": {
       "title": "PDF converter: Word, Excel, JPG and more to PDF — pdf.xyz",
-      "description": "Convert Word, Excel, PowerPoint, JPG, PNG, HTML, web pages, Markdown and plain text to PDF. Each tool shows whether it runs in your browser or on a secure worker.",
+      "description": "Convert Word, Excel, PowerPoint, JPG, PNG, HTML, web pages, Markdown and plain text to PDF. Each tool shows whether it runs in your browser or on a secure server.",
       "canonical": "https://pdf.xyz/tools/category/convert-to",
       "robots": "index, follow",
       "h1": ["PDF converter: turn files into PDF"],
@@ -5389,7 +5389,7 @@
     },
     "tools/compress-pdf.html": {
       "title": "Compress PDF — Reduce PDF File Size Online — pdf.xyz",
-      "description": "Reduce PDF file size with a lossless repack that runs in your browser, or send image-heavy scans to optional deep image compression on a secure worker.",
+      "description": "Reduce PDF file size with a lossless repack that runs in your browser, or send image-heavy scans to optional deep image compression on a secure server.",
       "canonical": "https://pdf.xyz/tools/compress-pdf",
       "robots": "index, follow",
       "h1": ["Compress PDF"],
@@ -5809,7 +5809,7 @@
     },
     "tools/excel-to-pdf.html": {
       "title": "Excel to PDF Converter: XLSX, XLS and CSV to PDF — pdf.xyz",
-      "description": "Convert one XLSX, XLS or CSV spreadsheet to PDF with LibreOffice on a secure worker. The workbook is deleted when the job ends; the PDF link lasts 60 min.",
+      "description": "Convert one XLSX, XLS or CSV spreadsheet to PDF with LibreOffice on a secure server. The workbook is deleted when the job ends; the PDF link lasts 60 min.",
       "canonical": "https://pdf.xyz/tools/excel-to-pdf",
       "robots": "index, follow",
       "h1": ["Excel to PDF"],
@@ -7177,7 +7177,7 @@
     },
     "tools/optimize-web.html": {
       "title": "Optimize for Web — Linearize PDF for Fast Web View — pdf.xyz",
-      "description": "Linearize a PDF with qpdf so a browser can show page one while the rest is still downloading. The worker deletes your upload once the job ends.",
+      "description": "Linearize a PDF with qpdf so a browser can show page one while the rest is still downloading. Our server deletes your upload once the job ends.",
       "canonical": "https://pdf.xyz/tools/optimize-web",
       "robots": "index, follow",
       "h1": ["Optimize PDF for Web"],
@@ -7594,7 +7594,7 @@
     },
     "tools/pdf-to-excel.html": {
       "title": "PDF to Excel: Convert PDF Text Lines to XLSX — pdf.xyz",
-      "description": "Export a PDF's text to an XLSX sheet: one row per line, each value in its column, amounts as numbers. A secure worker converts it, then deletes your PDF.",
+      "description": "Export a PDF's text to an XLSX sheet: one row per line, each value in its column, amounts as numbers. A secure server converts it, then deletes your PDF.",
       "canonical": "https://pdf.xyz/tools/pdf-to-excel",
       "robots": "index, follow",
       "h1": ["PDF to Excel"],
@@ -10006,7 +10006,7 @@
     },
     "tools/webpage-to-pdf.html": {
       "title": "Webpage to PDF: Convert a Web Page URL to PDF — pdf.xyz",
-      "description": "Paste a public link and Chromium on pdf.xyz's secure worker loads the live page, runs its scripts and prints it to a PDF with real, selectable text.",
+      "description": "Paste a public link and Chromium on pdf.xyz's secure server loads the live page, runs its scripts and prints it to a PDF with real, selectable text.",
       "canonical": "https://pdf.xyz/tools/webpage-to-pdf",
       "robots": "index, follow",
       "h1": ["Webpage to PDF"],
@@ -10111,7 +10111,7 @@
     },
     "tools/word-to-pdf.html": {
       "title": "Word to PDF Converter: DOCX and DOC to PDF — pdf.xyz",
-      "description": "Make a PDF from a .docx or .doc with LibreOffice on a secure worker. Your Word file is deleted once the job ends; its PDF download expires in 60 minutes.",
+      "description": "Make a PDF from a .docx or .doc with LibreOffice on a secure server. Your Word file is deleted once the job ends; its PDF download expires in 60 minutes.",
       "canonical": "https://pdf.xyz/tools/word-to-pdf",
       "robots": "index, follow",
       "h1": ["Word to PDF"],

@@ -30,14 +30,14 @@ const READY: WorkerStatus = {
   mode: "remote-configured",
   enabled: true,
   localDevOnly: false,
-  detail: "A worker backend is configured.",
+  detail: "A server backend is configured.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: false, detail: "not scanned" },
   ocr: { available: false, engine: null, languages: [], detail: "n/a" },
   security: {
     available: true,
     operations: ["protect", "unlock"],
-    detail: "qpdf runs on the worker.",
+    detail: "qpdf runs on our secure server.",
   },
   providers: {
     ...providers,
@@ -50,7 +50,7 @@ const READY: WorkerStatus = {
     verdict: "off",
     observed: false,
     drainable: false,
-    detail: "no worker observed",
+    detail: "no server observed",
   },
 };
 
@@ -95,7 +95,7 @@ async function pick(html: string | File, name = "report.html") {
     vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
   );
   render(<HtmlRenderWorkerPanel tool={htmlTool} />);
-  await screen.findByText("Secure worker");
+  await screen.findByText("Secure server");
   const input = document.querySelector<HTMLInputElement>('input[type="file"]');
   expect(input).not.toBeNull();
   fireEvent.change(input!, {
@@ -192,7 +192,7 @@ describe("HtmlRenderWorkerPanel — the address field is named", () => {
       vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
     );
     render(<HtmlRenderWorkerPanel tool={urlTool} />);
-    await screen.findByText("Secure worker");
+    await screen.findByText("Secure server");
   }
 
   it("by a visible label, not by its placeholder", async () => {
@@ -220,7 +220,7 @@ describe("HtmlRenderWorkerPanel — the address field is named", () => {
       vi.fn().mockResolvedValue({ ok: true, json: async () => READY }),
     );
     render(<HtmlRenderWorkerPanel tool={htmlTool} />);
-    await screen.findByText("Secure worker");
+    await screen.findByText("Secure server");
     expect(screen.queryByLabelText("Web address")).toBeNull();
   });
 });

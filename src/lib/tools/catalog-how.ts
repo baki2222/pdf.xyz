@@ -57,11 +57,11 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   "compress-pdf": [
     "Add your PDF — it's analyzed privately, right in your browser.",
     "Review the size breakdown and download a lossless-optimized copy.",
-    "For image-heavy files, deep image compression runs on a secure, auto-deleting worker — the page checks one is available before anything leaves your device.",
+    "For image-heavy files, deep image compression runs on a secure, auto-deleting server — the page checks one is available before anything leaves your device.",
   ],
   "repair-pdf": [
     "Upload the damaged PDF over an encrypted connection — it only has to start like a PDF, so a truncated file is taken in.",
-    "Press “Repair on the worker”: qpdf rewrites the file's structure on the secure worker, which deletes the input when the job finishes.",
+    "Press “Repair on our secure server”: qpdf rewrites the file's structure on our secure server, which deletes the input when the job finishes.",
     `Download the repaired PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. If the file had to be rebuilt, a list above the download says what was reconstructed.`,
   ],
   // Authored because the runner takes MANY images, and the default steps
@@ -83,12 +83,12 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "html-to-pdf": [
     "Upload one .html or .htm file over an encrypted connection.",
-    "Select Render PDF — Chromium renders it on a secure worker that deletes the input when the job finishes.",
+    "Select Render PDF — Chromium renders it on a secure server that deletes the input when the job finishes.",
     `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ],
   "webpage-to-pdf": [
     "Paste a public http(s) URL.",
-    "Select Render PDF — Chromium captures the page on a secure worker.",
+    "Select Render PDF — Chromium captures the page on a secure server.",
     `Download the PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ],
   "markdown-to-pdf": [
@@ -117,7 +117,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   ],
   "pdf-to-pdfa": [
     "Upload your PDF over an encrypted connection.",
-    `Press “Convert to PDF/A”: Ghostscript converts it to ${PDF_A_STANDARD} on the secure worker, which deletes the input when the job finishes.`,
+    `Press “Convert to PDF/A”: Ghostscript converts it to ${PDF_A_STANDARD} on our secure server, which deletes the input when the job finishes.`,
     `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Anything the conversion had to remove is listed with the download.`,
   ],
   "pdf-to-markdown": [
@@ -156,18 +156,18 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   "sign-pdf": [
     "Open the PDF you need to sign.",
     "Create a signature by drawing, typing, or picking an image.",
-    "Click on the page to place it, then Apply & download.",
+    "Tap or click the page to place it, then Apply & download.",
   ],
   "request-signatures": [
     "Upload your PDF over an encrypted connection.",
     `Add up to ${MAX_REQUEST_SIGNERS} signers — a name and an email each — with “Add signer”, then choose the “Signing order”, the “Signature page” their fields go on, and whether each signature gets a date field beside it.`,
-    "Press “Prepare signature request”: the secure worker adds a named, fillable field for each signer and deletes the input when the job finishes.",
+    "Press “Prepare signature request”: our secure server adds a named, fillable field for each signer and deletes the input when the job finishes.",
     `Download the ZIP — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes — and send ${REQUEST_PACKAGE_FILES.prepared} to your signers yourself: pdf.xyz does not email it or track who has signed.`,
   ],
   "unlock-pdf": [
     "Upload the password-protected PDF over an encrypted connection.",
     "Type the password that currently opens it.",
-    "The secure worker removes the encryption and deletes the input when the job finishes.",
+    "Our secure server removes the encryption and deletes the input when the job finishes.",
     `Download the unlocked copy — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ],
   "redact-pdf": [

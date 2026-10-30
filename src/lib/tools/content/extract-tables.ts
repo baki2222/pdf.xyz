@@ -66,7 +66,7 @@ const content: ToolContent = {
   intro: [
     `Copying a table out of a PDF usually pastes as one long column, or as rows glued together with spaces. Extract Tables reads the position of every word on a page, puts words on the same line into one row, joins words set a normal space apart into one cell, and finds columns from the white-space gutters that run down the rows. It keeps a block as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each (and is not mostly bullet items), and no sentence wraps from one row into the next.`,
     "Titles, captions, paragraph lines and footnotes end a table rather than joining it, so a page can yield several tables, each saved as its own CSV and sheet. A one-line subheading set in a table's first column also ends it, so a sectioned table can come back as several. Three layouts still trip it up: two tables side by side on the same rows come out as one wide table, a cell that wraps in the first column ends its table, and a centred one-line note directly under a table can be taken as its last row.",
-    `Word positions come from the native pdftotext engine, so your PDF is uploaded over TLS to pdf.xyz's secure worker rather than read in the browser. The input is deleted when the job finishes, the link the ZIP is served from expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy once that link has lapsed. A PDF above ${CEILING_MB} MB is refused before any of it is uploaded, and each run takes one PDF.`,
+    `Word positions come from the native pdftotext engine, so your PDF is uploaded over TLS to pdf.xyz's secure server rather than read in the browser. The input is deleted when the job finishes, the link the ZIP is served from expires after ${LINK_MINUTES} minutes, and a daily storage rule erases the stored copy once that link has lapsed. A PDF above ${CEILING_MB} MB is refused before any of it is uploaded, and each run takes one PDF.`,
   ],
 
   useCases: [
@@ -87,11 +87,11 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the PDF",
-      body: "Drop one PDF onto the area that reads Add your PDF, or browse, or click browse to pick it. As its Selectable PDF hint says, the file needs real text rather than a scanned image. The area takes a file at once, Extract tables works only while the status badge reads Secure worker, and a Remove button beside the chosen file's name clears a wrong pick.",
+      body: "Drop one PDF onto the area that reads Add your PDF, or browse, or click browse to pick it. As its Selectable PDF hint says, the file needs real text rather than a scanned image. The area takes a file at once, Extract tables works only while the status badge reads Secure server, and a Remove button beside the chosen file's name clears a wrong pick.",
     },
     {
       title: "Press Extract tables",
-      body: `Table detection takes no options, so this button is the only control. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for the worker…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result.`,
+      body: `Table detection takes no options, so this button is the only control. A file over ${CEILING_MB} MB is refused as soon as you pick it, before anything is read or sent. While the job runs, the button reads Uploading your file…, Waiting for our server…, Extracting tables… and Downloading the result… in turn, and it stays busy until the ZIP has come back to your browser. A scan with no text, or a file in which no table is detected, shows an error beneath the button in place of a result.`,
     },
     {
       title: "Download the ZIP",

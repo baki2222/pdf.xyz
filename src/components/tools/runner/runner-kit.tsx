@@ -581,6 +581,7 @@ export function RunButton({
   busyLabel = "Working…",
   className,
   progress,
+  describedBy,
 }: {
   onClick: () => void;
   busy?: boolean;
@@ -594,6 +595,8 @@ export function RunButton({
    * "7 / 24 pages", never a percentage the operation did not report.
    */
   progress?: RunProgress | null;
+  /** The id of what says why it is greyed out ({@link RunReason}). */
+  describedBy?: string;
 }) {
   const blocked = Boolean(busy) || Boolean(disabled);
   const button = (
@@ -609,6 +612,7 @@ export function RunButton({
       }}
       aria-disabled={blocked || undefined}
       aria-busy={busy}
+      aria-describedby={describedBy}
       className={buttonVariants({
         variant: "primary",
         size: "lg",
@@ -732,6 +736,7 @@ export function WorkerRunButton({
   busyLabel,
   icon: Icon,
   children,
+  describedBy,
 }: {
   onClick: () => void;
   busy?: boolean;
@@ -740,6 +745,8 @@ export function WorkerRunButton({
   busyLabel: string;
   icon: LucideIcon;
   children: ReactNode;
+  /** As {@link RunButton}'s: what says why it is greyed out. */
+  describedBy?: string;
 }) {
   const blocked = Boolean(busy) || Boolean(disabled);
   return (
@@ -754,6 +761,7 @@ export function WorkerRunButton({
       }}
       aria-disabled={blocked || undefined}
       aria-busy={busy}
+      aria-describedby={describedBy}
       data-run-trigger=""
       className={WORKER_RUN_CLASSES}
     >

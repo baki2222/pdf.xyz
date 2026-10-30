@@ -75,7 +75,7 @@ const withRouter = (children: ReactNode) => (
 const DEEP_READY = {
   mode: "local-dev",
   localDevOnly: true,
-  detail: "local dev worker",
+  detail: "local dev server",
   compress: { lossless: true, deep: true, engines: ["ghostscript"] },
 } as unknown as WorkerStatus;
 
@@ -182,7 +182,7 @@ async function drop(container: HTMLElement, files: File[]) {
   fireEvent.drop(input!.closest("label")!, { dataTransfer: { files } });
 }
 
-const WORKER_PANEL = "Deep image compression (secure worker)";
+const WORKER_PANEL = "Deep image compression (secure server)";
 
 describe("Compress: an encrypted PDF", { timeout: 30_000 }, () => {
   it("owner-password only: says RESTRICTED, never 'password', and keeps the worker path", async () => {
@@ -668,7 +668,7 @@ describe("Compress batch", { timeout: 30_000 }, () => {
 });
 
 describe(
-  "Compress: Extreme and Grayscale on the worker",
+  "Compress: Extreme and Grayscale on our secure server",
   { timeout: 30_000 },
   () => {
     // Through the REAL local-dev adapter (job-option parser, processor,

@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useCallback, useMemo, useState } from "react";
 import {
   Eye,
@@ -151,19 +152,19 @@ const COPY: Record<
 > = {
   protect: {
     icon: Lock,
-    badge: "Secure-worker encryption",
+    badge: "Password encryption",
     blurb:
-      "Encrypting a PDF needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker rather than in your browser. Your password is used only to encrypt the file and is deleted from our job queue when the job ends; the input is wiped right after.",
+      "Encrypting a PDF needs the native qpdf engine, so it runs on an isolated, auto-deleting secure server rather than in your browser. Your password is used only to encrypt the file and is deleted from our job queue when the job ends; the input is wiped right after.",
     cta: "Encrypt PDF",
-    running: "Encrypting on the worker…",
+    running: "Encrypting on our secure server…",
   },
   unlock: {
     icon: Unlock,
-    badge: "Secure-worker unlock",
+    badge: "Password removal",
     blurb:
-      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure worker. Enter the password that opens the file — or, if it opens without one and only printing, copying or editing is locked, its owner (permissions) password. Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
+      "Removing a password needs the native qpdf engine, so it runs on an isolated, auto-deleting secure server. Enter the password that opens the file — or, if it opens without one and only printing, copying or editing is locked, its owner (permissions) password. Unlock can't recover or bypass a password you don't know. The input is wiped right after.",
     cta: "Unlock PDF",
-    running: "Unlocking on the worker…",
+    running: "Unlocking on our secure server…",
   },
 };
 
@@ -407,7 +408,7 @@ function SecurityRunArea({
                 setFile(null);
                 setOutcome(null);
               }}
-              className="text-muted hover:text-fg shrink-0 text-sm font-medium transition max-sm:-my-1.5 max-sm:py-1.5"
+              className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
             >
               Remove
             </button>
@@ -525,24 +526,38 @@ function SecurityRunArea({
         job={job}
         bytes={file?.size}
         run={(ready) => (
-          <WorkerRunButton
-            onClick={start}
-            busy={busy}
-            // `canSubmit` already folds in `!busy`; both go through one blocked branch.
-            disabled={!ready || !canSubmit}
-            busyLabel={jobBusyLabel(job.phase, COPY[mode].running)}
-            icon={mode === "protect" ? Lock : Unlock}
+          <RunReason
+            after
+            reason={
+              ready && file !== null && passwordMissing
+                ? mode === "protect"
+                  ? "Type a new password first."
+                  : "Type the password that opens this PDF first."
+                : null
+            }
           >
-            {COPY[mode].cta}
-          </WorkerRunButton>
+            {(describedBy) => (
+              <WorkerRunButton
+                onClick={start}
+                busy={busy}
+                describedBy={describedBy}
+                // `canSubmit` already folds in `!busy`; both go through one blocked branch.
+                disabled={!ready || !canSubmit}
+                busyLabel={jobBusyLabel(job.phase, COPY[mode].running)}
+                icon={mode === "protect" ? Lock : Unlock}
+              >
+                {COPY[mode].cta}
+              </WorkerRunButton>
+            )}
+          </RunReason>
         )}
         jobStatus={<WorkerJobStatus job={job} />}
         note={
           <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {status?.localDevOnly
-              ? "This runs on your local-dev worker — the file and password are processed in-process on this machine, not sent to any third party."
-              : `Nothing leaves this browser until you press ${COPY[mode].cta}. Then your file uploads to the secure worker; your password travels with the job through our queue and is used only to perform the operation.`}
+              ? "This runs on your local-dev server — the file and password are processed in-process on this machine, not sent to any third party."
+              : `Nothing leaves this browser until you press ${COPY[mode].cta}. Then your file uploads to our secure server; your password travels with the job through our queue and is used only to perform the operation.`}
           </p>
         }
         off={

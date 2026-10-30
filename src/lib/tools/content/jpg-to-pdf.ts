@@ -87,7 +87,7 @@ const content: ToolContent = {
     },
     {
       title: "A paper document shot page by page",
-      body: "A signed lease or a completed paper form photographed one sheet at a time becomes a single PDF with its pages in sequence. If you need the text to be searchable, OCR PDF can add a text layer afterwards; unlike this tool, that step uploads the file to pdf.xyz's worker.",
+      body: "A signed lease or a completed paper form photographed one sheet at a time becomes a single PDF with its pages in sequence. If you need the text to be searchable, OCR PDF can add a text layer afterwards; unlike this tool, that step uploads the file to pdf.xyz's server.",
     },
     {
       title: "An application that wants one file",
@@ -131,7 +131,7 @@ const content: ToolContent = {
     },
     {
       q: "Does converting JPG to PDF reduce photo quality?",
-      a: "No. Each JPEG goes in as it is, not decompressed and saved again (a turned phone photo only has its rotation tag reset to upright), so every pixel of the original is still there even when the photo is displayed smaller to fit the page. The flip side is that the PDF is as heavy as the photos. Compress PDF's in-browser repack cannot shrink photo data; its Deep image compression step can, when a secure worker is available, but that step uploads the PDF to pdf.xyz's worker.",
+      a: "No. Each JPEG goes in as it is, not decompressed and saved again (a turned phone photo only has its rotation tag reset to upright), so every pixel of the original is still there even when the photo is displayed smaller to fit the page. The flip side is that the PDF is as heavy as the photos. Compress PDF's in-browser repack cannot shrink photo data; its Deep image compression step can, when a secure server is available, but that step uploads the PDF to pdf.xyz's server.",
     },
     {
       q: "Does the PDF keep my photos' metadata, such as location?",

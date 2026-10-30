@@ -1273,7 +1273,7 @@ export function WysiwygEditor({
         dispatch({ type: "tool", tool: "image" });
         dispatch({
           type: "say",
-          message: "Image ready: click on a page to place it",
+          message: "Image ready: tap or click a page to place it",
         });
       } catch (err) {
         setError(
@@ -2080,23 +2080,23 @@ export function WysiwygEditor({
     />
   ) : state.tool === "edittext" ? (
     <p className="text-muted text-xs leading-relaxed" data-edit-text-help="">
-      Click any text on the page to change it. When you apply, the old words are
-      removed from the file and yours are written in their place. A scanned page
-      has no text to edit — to change a scan&apos;s words, use PDF to Word with
-      “Recognise text in scans (OCR)”.
+      Tap or click any text on the page to change it. When you apply, the old
+      words are removed from the file and yours are written in their place. A
+      scanned page has no text to edit — to change a scan&apos;s words, use PDF
+      to Word with “Recognise text in scans (OCR)”.
     </p>
   ) : state.lock ? (
     <p className="text-muted text-xs leading-relaxed" data-locked-help="">
       {state.lock.annotate
-        ? "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows. Click a form field to fill it in. The other tools need the owner password."
+        ? "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows, and the form fields on the page can be filled in. Then Apply & download: the author's restrictions stay in the downloaded file; the other tools need the owner password."
         : state.lock.fill
-          ? "Click a form field on the page to fill it in. The other tools need the owner password."
+          ? "Fill in the form fields on the page, then Apply & download. The author's restrictions stay in the downloaded file; the other tools need the owner password."
           : "This PDF's author allows no changes. Enter the owner password above to unlock the tools."}
     </p>
   ) : (
     <p className="text-muted text-xs leading-relaxed">
-      Pick a tool, then click on a page to place it. Select an item to move it,
-      resize it from its handles, or change its style here.
+      Pick a tool, then tap or click a page to place it. Select an item to move
+      it, resize it from its handles, or change its style here.
     </p>
   );
 
@@ -2241,7 +2241,7 @@ export function WysiwygEditor({
               dispatch({ type: "defaults", patch: { person: { name } } });
               dispatch({
                 type: "say",
-                message: `${state.tool === "initials" ? `Initials ${initialsOf(name)}` : "Name"} ready: click on a page to place`,
+                message: `${state.tool === "initials" ? `Initials ${initialsOf(name)}` : "Name"} ready: tap or click a page to place`,
               });
             }}
           >
@@ -2278,7 +2278,7 @@ export function WysiwygEditor({
               data-signature-ready=""
               className="border-line bg-panel rounded-panel flex flex-wrap items-center justify-between gap-2 border px-3.5 py-2 text-sm"
             >
-              <span>Click on a page to place your signature.</span>
+              <span>Tap or click a page to place your signature.</span>
               <button
                 type="button"
                 onClick={() => setSigning(true)}
@@ -2298,7 +2298,7 @@ export function WysiwygEditor({
               setSigning(false);
               dispatch({
                 type: "say",
-                message: "Signature ready: click on a page to place it",
+                message: "Signature ready: tap or click a page to place it",
               });
             }}
           />

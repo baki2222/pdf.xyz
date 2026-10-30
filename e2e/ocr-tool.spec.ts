@@ -15,7 +15,7 @@ test.describe("OCR secure-worker tool page", () => {
     ).toBeVisible();
 
     // The dedicated OCR panel (not the generic preview, not a fake uploader).
-    await expect(page.getByText("Secure-worker OCR")).toBeVisible();
+    await expect(page.getByText("Text recognition")).toBeVisible();
     await expect(
       page.getByText("OCR PDF runs on our secure server"),
     ).toBeVisible();
@@ -73,7 +73,7 @@ test.describe("OCR secure-worker tool page", () => {
     // upload — Run is drawn, and off.
     expect(await page.locator('input[type="file"]').count()).toBe(1);
     await expect(
-      page.getByRole("button", { name: "Run OCR on the worker" }),
+      page.getByRole("button", { name: "Recognize text" }),
     ).toHaveAttribute("aria-disabled", "true");
 
     // And no fabricated success / download.

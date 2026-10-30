@@ -265,8 +265,8 @@ function PicturesNotCarried({
         : `${overBudget} would have taken the document past what one conversion carries (${OVER_BUDGET_LIMITS})`),
     tooLarge > 0 &&
       (tooLarge === lost
-        ? `${lost === 1 ? "it was" : "they were"} too large for the worker to carry`
-        : `${tooLarge} ${was(tooLarge)} too large for the worker to carry`),
+        ? `${lost === 1 ? "it was" : "they were"} too large for our server to carry`
+        : `${tooLarge} ${was(tooLarge)} too large for our server to carry`),
     undecoded > 0 &&
       (undecoded === lost
         ? `${lost === 1 ? "its" : "their"} image data could not be decoded, and may be damaged`

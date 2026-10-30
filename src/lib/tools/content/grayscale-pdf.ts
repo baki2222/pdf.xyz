@@ -125,7 +125,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I still select or search the text after converting?",
-      a: `No. Each page is stored as one image, so the text is part of the picture. OCR PDF can add a recognized text layer to the gray copy, and the ${PRINT.label} setting gives it more pixels to read. Unlike this tool, OCR PDF uploads the file over TLS to pdf.xyz's secure worker; there the input is deleted when the job finishes, the result's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `No. Each page is stored as one image, so the text is part of the picture. OCR PDF can add a recognized text layer to the gray copy, and the ${PRINT.label} setting gives it more pixels to read. Unlike this tool, OCR PDF uploads the file over TLS to pdf.xyz's secure server; there the input is deleted when the job finishes, the result's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that.`,
     },
     {
       q: `What is the difference between ${SCREEN.label} and ${PRINT.label}?`,
@@ -137,7 +137,7 @@ const content: ToolContent = {
     },
     {
       q: "Does it work on password-protected PDFs?",
-      a: `No. Any encrypted PDF is turned away as soon as you choose it, and the message says which lock it has. One that needs a password to open is called password-protected. One that opens without a password but carries an owner password restricting printing or copying is told it has editing restrictions instead. Unlock PDF strips the encryption if you give it the open password, or the owner password for one of those restricted files; its password box cannot be left blank. Unlock PDF is not in-browser: the file and password go over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the unlocked copy's link lasts ${OUTPUT_TTL} minutes, and a daily storage rule erases it after that. Bring the unlocked copy back here.`,
+      a: `No. Any encrypted PDF is turned away as soon as you choose it, and the message says which lock it has. One that needs a password to open is called password-protected. One that opens without a password but carries an owner password restricting printing or copying is told it has editing restrictions instead. Unlock PDF strips the encryption if you give it the open password, or the owner password for one of those restricted files; its password box cannot be left blank. Unlock PDF is not in-browser: the file and password go over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy's link lasts ${OUTPUT_TTL} minutes, and a daily storage rule erases it after that. Bring the unlocked copy back here.`,
     },
     {
       q: "Why does the result say some images could not be decoded?",

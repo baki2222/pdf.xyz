@@ -2333,7 +2333,7 @@ export const PROOF_LIMITS: Record<string, string> = {
   "compare-pdf":
     "Both documents are uploaded through the same multi-file picker, which is the flow the runner offers. The no-text verdicts — neither PDF, or only ONE of them, has selectable text — are not exercised here; src/components/tools/runner/compare-pdf-runner.test.tsx renders them from real PDF bytes in jsdom, but reads them with pdfjs's legacy build, not the browser build a user runs. The too-large-to-diff error is likewise covered only there, with synthetic text.",
   "compress-pdf":
-    "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-worker step this tool offers is a server path and is covered by worker:prove-tools, not here.",
+    "Only the in-browser lossless repack, on a fixture built to be repackable. The hybrid secure-server step this tool offers is a server path and is covered by worker:prove-tools, not here.",
   "split-pdf":
     "This case proves only the default even split into two ranges. e2e/merge-tool.spec.ts adds By bookmarks, By file size (every part under the target) and custom ranges merged into one file (the single-output, no-ZIP branch), each read from the downloaded bytes. Every N pages, Each page, and By file size's oversized-single-page notice are not exercised in a browser; that notice's engine half is pinned in src/lib/pdf/merge-split-options.test.ts.",
   "organize-pages":

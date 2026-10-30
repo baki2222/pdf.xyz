@@ -136,7 +136,7 @@ export const tools: Tool[] = [
     cardSummary:
       "See what makes a PDF large, and repack it without losing quality.",
     description:
-      "See exactly what's inflating your PDF and losslessly repack it in your browser. Deep image downsampling runs on a secure, auto-deleting worker.",
+      "See exactly what's inflating your PDF and losslessly repack it in your browser. Deep image downsampling runs on a secure, auto-deleting server.",
     category: "optimize",
     icon: "compress",
     processing: "hybrid",
@@ -184,7 +184,7 @@ export const tools: Tool[] = [
     cardSummary:
       "Let a PDF's first page show while the rest is still downloading.",
     description:
-      "Linearize a PDF for Fast Web View, so its first page can show while the rest downloads — not compression. Runs on a worker that deletes the input after the job.",
+      "Linearize a PDF for Fast Web View, so its first page can show while the rest downloads — not compression. Runs on a server that deletes the input after the job.",
     category: "optimize",
     icon: "speed",
     processing: "server",
@@ -221,7 +221,7 @@ export const tools: Tool[] = [
       // substitutes, not the fonts themselves, with none for Aptos, Word's
       // default since 2023, and only in an image rebuilt from that commit.
       // claims-vs-capability.test.ts bans fidelity promises.
-      "Convert Word documents to PDF, rendered by LibreOffice on a secure worker that deletes the input after the job. Fonts the worker lacks are substituted.",
+      "Convert Word documents to PDF, rendered by LibreOffice on a secure server that deletes the input after the job. Fonts our server lacks are substituted.",
     category: "convert-to",
     icon: "word",
     processing: "server",
@@ -236,7 +236,7 @@ export const tools: Tool[] = [
     name: "Excel to PDF",
     tagline: "Spreadsheets into clean PDF tables.",
     description:
-      "Convert Excel workbooks and CSV files to PDF — laid out by LibreOffice on a secure worker that deletes the input when the job finishes.",
+      "Convert Excel workbooks and CSV files to PDF — laid out by LibreOffice on a secure server that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "excel",
     processing: "server",
@@ -250,7 +250,7 @@ export const tools: Tool[] = [
     name: "PowerPoint to PDF",
     tagline: "Slides into shareable PDF decks.",
     description:
-      "Convert PowerPoint presentations to PDF, one slide per page — rendered by LibreOffice on a secure worker that deletes the input when the job finishes.",
+      "Convert PowerPoint presentations to PDF, one slide per page — rendered by LibreOffice on a secure server that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "powerpoint",
     processing: "server",
@@ -304,7 +304,7 @@ export const tools: Tool[] = [
     tagline: "Render HTML files as PDF.",
     cardSummary: "Turn an HTML file into a PDF.",
     description:
-      "Convert an HTML file into PDF with a real Chromium rendering engine on a secure worker that deletes the input when the job finishes.",
+      "Convert an HTML file into PDF with a real Chromium rendering engine on a secure server that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "html",
     processing: "server",
@@ -318,7 +318,7 @@ export const tools: Tool[] = [
     name: "Webpage to PDF",
     tagline: "Capture a public web page URL as a PDF.",
     description:
-      "Enter a URL and capture the fully rendered page as a print-quality PDF — Chromium renders it on a secure worker that deletes the input when the job finishes.",
+      "Enter a URL and capture the fully rendered page as a print-quality PDF — Chromium renders it on a secure server that deletes the input when the job finishes.",
     category: "convert-to",
     icon: "web",
     processing: "server",
@@ -484,7 +484,7 @@ export const tools: Tool[] = [
     tagline: `Archive-oriented ${PDF_A_STANDARD}, made with Ghostscript.`,
     cardSummary:
       "Save a PDF in the PDF/A format, made for long-term archiving.",
-    description: `Convert PDFs to ${PDF_A_STANDARD} for long-term archiving — processed by Ghostscript on a secure worker that deletes the input when the job finishes.`,
+    description: `Convert PDFs to ${PDF_A_STANDARD} for long-term archiving — processed by Ghostscript on a secure server that deletes the input when the job finishes.`,
     category: "convert-from",
     icon: "pdfa",
     processing: "server",
@@ -788,7 +788,7 @@ export const tools: Tool[] = [
     seoTitle: "Password Protect PDF — AES Encryption",
     tagline: "Encrypt with a password.",
     description:
-      "Password-protect a PDF with AES encryption, so only people with the password can open it. Encryption runs on an auto-deleting secure worker.",
+      "Password-protect a PDF with AES encryption, so only people with the password can open it. Encryption runs on an auto-deleting secure server.",
     category: "security",
     icon: "protect",
     processing: "server",

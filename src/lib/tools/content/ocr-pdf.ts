@@ -93,7 +93,7 @@ const content: ToolContent = {
 
   intro: [
     `A scanner or phone camera saves each page as a picture, so Ctrl+F finds nothing and no sentence can be copied out. OCR PDF reads the lettering and returns it as real text. For a PDF, your pages stay as they are and an invisible text layer is laid underneath, so the document looks the same but becomes searchable and selectable. Send a JPG or PNG instead, such as a photographed receipt or a screenshot of a form, and any PDF you ask for comes back as a single page holding that image with the recognised words beneath it.`,
-    `Recognition needs a native OCR engine, so this online tool does not run in your browser. Your file is uploaded over TLS to pdf.xyz's secure worker, which runs OCRmyPDF on PDFs and Tesseract on images. The input is deleted when the job finishes, the download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored result. One scan goes in per run, at most ${CEILING_MB} MB.`,
+    `Recognition needs a native OCR engine, so this online tool does not run in your browser. Your file is uploaded over TLS to pdf.xyz's secure server, which runs OCRmyPDF on PDFs and Tesseract on images. The input is deleted when the job finishes, the download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored result. One scan goes in per run, at most ${CEILING_MB} MB.`,
     `Of every choice on the page, the language is the one most likely to spoil a result. ${LANGUAGE_COUNT} are on offer, with ${NON_LATIN} among them, and a single job can combine up to ${MAX_OCR_LANGUAGES}. Picking the wrong one does not produce an error: the engine matches shapes against the alphabet it was given and returns fluent-looking nonsense.`,
   ],
 
@@ -127,7 +127,7 @@ const content: ToolContent = {
     },
     {
       title: "Add the scan and run it",
-      body: `Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Run OCR on the worker. That area takes a file as soon as the page loads; the button stays off until the page confirms the OCR worker is available, and your file is sent only when you press it.`,
+      body: `Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. That area takes a file as soon as the page loads; the button stays off until the page confirms the OCR server is available, and your file is sent only when you press it.`,
     },
     {
       title: "Download and check the result",
@@ -138,7 +138,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Why does my OCR output look like gibberish?",
-      a: `Usually the selected language does not match the page. ${describeOcrLanguage("ben")} read as English comes back as Latin characters that look plausible and mean nothing, with no error. The file stays loaded after a run, so change the language selection and press Run OCR on the worker again. Blurry, skewed or low-resolution scans cause the same symptom, and neither engine is told to straighten or auto-rotate pages, so turn a sideways PDF page upright with Rotate PDF before recognising it.`,
+      a: `Usually the selected language does not match the page. ${describeOcrLanguage("ben")} read as English comes back as Latin characters that look plausible and mean nothing, with no error. The file stays loaded after a run, so change the language selection and press Recognize text again. Blurry, skewed or low-resolution scans cause the same symptom, and neither engine is told to straighten or auto-rotate pages, so turn a sideways PDF page upright with Rotate PDF before recognising it.`,
     },
     {
       q: "Does OCR change how my PDF looks?",
@@ -150,15 +150,15 @@ const content: ToolContent = {
     },
     {
       q: "Which languages are supported, and can I mix them?",
-      a: `The menu lists ${LANGUAGE_COUNT}, from English and Spanish to ${NON_LATIN}, and one job can combine up to ${MAX_OCR_LANGUAGES}. If the worker ever lacks the recognition pack for a language you selected, the job stops before recognition starts and the error names that language, instead of blaming your file.`,
+      a: `The menu lists ${LANGUAGE_COUNT}, from English and Spanish to ${NON_LATIN}, and one job can combine up to ${MAX_OCR_LANGUAGES}. If our server ever lacks the recognition pack for a language you selected, the job stops before recognition starts and the error names that language, instead of blaming your file.`,
     },
     {
-      q: "What happens to my file on the worker?",
-      a: `It is uploaded over TLS, recognised on pdf.xyz's secure worker, and the input is deleted when the job ends. You have ${OUTPUT_TTL} minutes to download the result before its link expires, and a daily storage rule clears the stored output after that. The tool never asks you to create an account.`,
+      q: "What happens to my file on our secure server?",
+      a: `It is uploaded over TLS, recognised on pdf.xyz's secure server, and the input is deleted when the job ends. You have ${OUTPUT_TTL} minutes to download the result before its link expires, and a daily storage rule clears the stored output after that. The tool never asks you to create an account.`,
     },
     {
       q: "How big a scan can I process, and how many at once?",
-      a: `One file per run, up to ${CEILING_MB} MB. For the next document, press Remove beside the current file name, add the new scan and run again: your languages and output choice stay as you left them until you reload the page. Size is not the only limit, since every page takes recognition time and a job has a time limit on the worker, so cut a very long scan into parts with Split PDF first.`,
+      a: `One file per run, up to ${CEILING_MB} MB. For the next document, press Remove beside the current file name, add the new scan and run again: your languages and output choice stay as you left them until you reload the page. Size is not the only limit, since every page takes recognition time and a job has a time limit on our secure server, so cut a very long scan into parts with Split PDF first.`,
     },
   ],
 

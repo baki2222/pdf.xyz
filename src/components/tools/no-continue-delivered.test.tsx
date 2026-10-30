@@ -175,7 +175,7 @@ describe("a reason for no next step reaches the page that has one", () => {
         const arm = panelDispatchArms().find((a) =>
           a.slugs.includes(tool.slug),
         );
-        if (!arm) throw new Error(`no worker panel serves ${tool.slug}`);
+        if (!arm) throw new Error(`no server panel serves ${tool.slug}`);
         const driver = DRIVERS[arm.component];
         if (!driver)
           throw new Error(

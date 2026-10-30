@@ -63,7 +63,7 @@ export const CAPABILITY_DESCRIPTORS: Record<
     // the deletion. Live scanning status is reported separately, from the worker's
     // own heartbeat — see `workerPipelineStages`.
     summary:
-      "Runs on a secure worker, which deletes your upload when the job ends and serves the result for a limited time.",
+      "Runs on a secure server, which deletes your upload when the job ends and serves the result for a limited time.",
     uploadsFiles: true,
   },
   hybrid: {
@@ -261,7 +261,7 @@ function checksStage(
   return {
     id: "checks",
     title: "Safety checks",
-    description: `Each file is checked before any processor sees it: ${preflightRefusals(tool)}.${damageClause(tool)} Whether a malware scan runs as well is reported by the live worker, and shows here once this page has heard from it.`,
+    description: `Each file is checked before any processor sees it: ${preflightRefusals(tool)}.${damageClause(tool)} Whether a malware scan runs as well is reported by the live server, and shows here once this page has heard from it.`,
   };
 }
 

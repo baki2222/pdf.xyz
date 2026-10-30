@@ -172,7 +172,8 @@ export function useWorkerJob<R extends { ok: boolean }>(config: {
     jobId.current = restored.jobId;
     setOutcome({
       ok: false,
-      message: "A job you started here may still be running on the worker.",
+      message:
+        "A job you started here may still be running on our secure server.",
       jobId: restored.jobId,
       stillRunning: true,
     });
@@ -290,7 +291,7 @@ export function jobBusyLabel(
     case "uploading":
       return "Uploading your file…";
     case "queued":
-      return "Waiting for the worker…";
+      return "Waiting for our server…";
     case "downloading":
       return "Downloading the result…";
     default:
@@ -337,7 +338,7 @@ export function WorkerJobStatus<R extends { ok: boolean }>({
         <p className="text-fg flex items-start gap-2 text-sm leading-relaxed">
           <Hourglass className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
-            The worker is still on this job — the browser stopped waiting, not
+            Our server is still on this job — the browser stopped waiting, not
             the job. Keep waiting to get the result here: that does not upload
             the file again or start a new job. A finished result stays available
             for {DEFAULT_RETENTION.outputTtlMinutes} minutes.

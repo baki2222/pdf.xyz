@@ -196,7 +196,7 @@ const content: ToolContent = {
 
   intro: [
     `Summarize PDF condenses a long document into something you can read before deciding whether the full text deserves your time. You choose a length (${shortLength("brief")}, ${shortLength("standard")} or ${shortLength("detailed")}) and a shape: prose paragraphs, bullet points or an outline with headings. An optional focus line asks the model to pay special attention to whatever you name, such as deadlines, costs or risks.`,
-    `The summary is written by an AI model, not in your browser. The PDF is uploaded over TLS to pdf.xyz's secure worker, which extracts its selectable text and passes that text, never the file, to a third-party AI provider. Once the job ends, success or failure, the worker deletes your uploaded PDF; its link to the summary ZIP lasts ${OUTPUT_TTL} minutes, and a storage rule that runs daily later erases the stored ZIP.`,
+    `The summary is written by an AI model, not in your browser. The PDF is uploaded over TLS to pdf.xyz's secure server, which extracts its selectable text and passes that text, never the file, to a third-party AI provider. Once the job ends, success or failure, our server deletes your uploaded PDF; its link to the summary ZIP lasts ${OUTPUT_TTL} minutes, and a storage rule that runs daily later erases the stored ZIP.`,
     `The model is given at most ${MAX_CHARS} characters of the extracted text. A longer document is summarized from its first page up to that point, and both the results panel and summary.md say how far the reading got, by page. Pages that hold only a scanned image add nothing to the summary, because no character recognition runs in this tool.`,
   ],
 
@@ -222,7 +222,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: `Click the box marked "Add your PDF, or browse" to pick a file, or drop one onto it. It takes one PDF per summary, and files over ${CEILING_MB} MB are refused. The box takes a file before the page has heard from the worker, and the file goes to the secure worker only when you press Summarize PDF. If the worker's status cannot be checked, a short note and a Check again button appear under that button, which stays off. If the worker or its AI model is not ready, the reason appears there instead, alongside a button labelled "Notify me when this ships". Pressing that sends only the tool's name, to be counted as a request; nobody is notified later.`,
+      body: `Click the box marked "Add your PDF, or browse" to pick a file, or drop one onto it. It takes one PDF per summary, and files over ${CEILING_MB} MB are refused. The box takes a file before the page has heard from our server, and the file goes to our secure server only when you press Summarize PDF. If our server's status cannot be checked, a short note and a Check again button appear under that button, which stays off. If our server or its AI model is not ready, the reason appears there instead, alongside a button labelled "Notify me when this ships". Pressing that sends only the tool's name, to be counted as a request; nobody is notified later.`,
     },
     {
       title: "Choose a length and a format",
@@ -234,7 +234,7 @@ const content: ToolContent = {
     },
     {
       title: "Summarize and download",
-      body: `Press Summarize PDF. The button then shows where the job is: Uploading your file…, Waiting for the worker… if it is queued, Summarizing… while the worker reads the text and the model writes, and Downloading the result…. When it finishes, the panel has already fetched the result and shows a button naming the ZIP (report.pdf becomes ${EXAMPLE_ZIP}). The ZIP holds summary.md, summary.txt, manifest.json with the provider, model and options, and README.txt.`,
+      body: `Press Summarize PDF. The button then shows where the job is: Uploading your file…, Waiting for our server… if it is queued, Summarizing… while our server reads the text and the model writes, and Downloading the result…. When it finishes, the panel has already fetched the result and shows a button naming the ZIP (report.pdf becomes ${EXAMPLE_ZIP}). The ZIP holds summary.md, summary.txt, manifest.json with the provider, model and options, and README.txt.`,
     },
   ],
 
@@ -253,7 +253,7 @@ const content: ToolContent = {
     },
     {
       q: "How many PDFs can I summarize per day?",
-      a: `Summaries draw on ${AI_ALLOWANCE_CLAUSE}, the same pool used by ${OTHER_AI_TOOLS}. ${AI_ALLOWANCE_WHO_SHARES} One summary never costs more than ${RUN_CEILING} characters of that pool, however long the PDF is, so at least ${SUMMARIES_PHRASE} ${SUMMARIES_PHRASE_FIT} in a day when nothing else has drawn on it. The charge is taken when the job is submitted, so a job the worker refuses or that fails still uses it. Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone until the next day.`,
+      a: `Summaries draw on ${AI_ALLOWANCE_CLAUSE}, the same pool used by ${OTHER_AI_TOOLS}. ${AI_ALLOWANCE_WHO_SHARES} One summary never costs more than ${RUN_CEILING} characters of that pool, however long the PDF is, so at least ${SUMMARIES_PHRASE} ${SUMMARIES_PHRASE_FIT} in a day when nothing else has drawn on it. The charge is taken when the job is submitted, so a job our server refuses or that fails still uses it. Separately, pdf.xyz's own daily AI processing limit can pause summaries for everyone until the next day.`,
     },
     {
       q: "Can I rely on the summary being accurate?",

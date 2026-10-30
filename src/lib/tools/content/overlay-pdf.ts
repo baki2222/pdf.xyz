@@ -191,7 +191,7 @@ const content: ToolContent = {
     },
     {
       q: "What if either PDF is password-protected?",
-      a: `Each picker refuses an encrypted file the moment you add it, and that includes a PDF with no open password whose printing or copying is locked, because those permissions are enforced through encryption. Unlock PDF can remove the protection given the open password or, for a permissions-only file, the owner password. Unlike this tool, Unlock PDF uploads: the PDF travels over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the unlocked copy can be downloaded for ${linkMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
+      a: `Each picker refuses an encrypted file the moment you add it, and that includes a PDF with no open password whose printing or copying is locked, because those permissions are enforced through encryption. Unlock PDF can remove the protection given the open password or, for a permissions-only file, the owner password. Unlike this tool, Unlock PDF uploads: the PDF travels over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the unlocked copy can be downloaded for ${linkMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
     },
   ],
 

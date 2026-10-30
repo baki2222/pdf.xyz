@@ -86,8 +86,8 @@ export function OfficeConversionWorkerPanel({ tool }: { tool: Tool }) {
   return (
     <WorkerPanelShell
       tool={tool}
-      engine={{ label: "LibreOffice renderer", icon: FileText }}
-      description="LibreOffice converts your uploaded document into a real PDF on the isolated worker. It produces a PDF artifact or fails honestly — no placeholder output."
+      engine={{ label: "Office conversion", icon: FileText }}
+      description="LibreOffice converts your uploaded document into a real PDF on our isolated server. It produces a PDF artifact or fails honestly — no placeholder output."
       canRun={(status) =>
         canRunOfficeConversion(status) && isOfficeTool(tool.slug)
       }
@@ -181,7 +181,7 @@ function OfficeRunArea({
                 setFile(null);
                 setOutcome(null);
               }}
-              className="text-muted hover:text-fg shrink-0 text-sm font-medium transition max-sm:-my-1.5 max-sm:py-1.5"
+              className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
             >
               Remove
             </button>
@@ -223,8 +223,8 @@ function OfficeRunArea({
         note={
           <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            Your document uploads to the secure worker only when you press{" "}
-            {RUN_LABEL}. It is stored only for the short worker lifecycle and
+            Your document uploads to our secure server only when you press{" "}
+            {RUN_LABEL}. It is stored only for the short server lifecycle and
             wiped after processing.
           </p>
         }
@@ -232,10 +232,10 @@ function OfficeRunArea({
           <>
             <p className="text-muted text-sm leading-relaxed">
               {status?.daemon.detail ??
-                "The secure worker is not drainable here."}
+                "Our secure server is not drainable here."}
             </p>
             <p className="text-muted text-xs leading-relaxed">
-              {RUN_LABEL} stays off until the worker is ready, so{" "}
+              {RUN_LABEL} stays off until our server is ready, so{" "}
               {catalogTool.name} never pretends to process input it cannot
               actually convert.
             </p>

@@ -556,8 +556,8 @@ function workerPhoneRoutes(): Route[] {
       applied: async (page: Page) => {
         const panel = page.locator("[data-tool-panel]");
         // The answer arrived and replaced the "checking" box…
-        await expect(panel).not.toContainText("Checking the secure worker");
-        await expect(panel).not.toContainText("couldn't reach the worker");
+        await expect(panel).not.toContainText("Checking our secure server");
+        await expect(panel).not.toContainText("reach the server status");
         // …with the state it asked for: a ready deployment shows the run
         // area, this server's answer the not-enabled state.
         const notify = panel.getByRole("button", {
@@ -628,7 +628,7 @@ async function expectStable(page: Page, route: Route, testInfo: TestInfo) {
   if (served)
     expect(
       await served(),
-      "the worker status was never answered",
+      "the server status was never answered",
     ).toBeGreaterThan(0);
   await route.applied?.(page);
   testInfo.annotations.push({ type: "cls", description: m.cls.toFixed(4) });
@@ -955,7 +955,7 @@ async function gapAcrossTheAnswer(
   await waitForHydration(page.locator("[data-tool-panel]"));
   // The answer is held back: this is the panel as first painted.
   await expect(page.locator("[data-tool-panel]")).toContainText(
-    "Checking the secure worker",
+    "Checking our secure server",
   );
   expect(await served(), "the status answered before the first reading").toBe(
     0,
@@ -963,10 +963,10 @@ async function gapAcrossTheAnswer(
   const before = await readGap(page);
   await releaseWorkerStatus(page);
   await expect
-    .poll(served, { message: "the worker status was never answered" })
+    .poll(served, { message: "the server status was never answered" })
     .toBeGreaterThan(0);
   await expect(page.locator("[data-tool-panel]")).not.toContainText(
-    "Checking the secure worker",
+    "Checking our secure server",
   );
   // A frame for the run area to lay out.
   await page.evaluate(

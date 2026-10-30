@@ -113,8 +113,8 @@ const content: ToolContent = {
 
   intro: [
     `Repair PDF passes a file that refuses to open, or opens with an error, through qpdf's parser and writer and hands back the rewritten copy. A "corrupted" PDF can still hold its pages while having lost the map to them: the cross-reference table that records where each object sits is damaged, or the file is cut off before its trailer. qpdf's documented behaviour when that table is broken is to rebuild it by scanning the file for the objects that remain.`,
-    `The only structural check before qpdf runs is for a PDF header near the start of the file, so qpdf will still try a download that stopped partway and lost its end-of-file marker. If qpdf refuses the file outright, the job ends at once without a retry and says why: the PDF is password-protected and needs Unlock PDF first, or it could not be rebuilt into a PDF. If qpdf does not finish inside the worker's time limit, or what it writes lacks a PDF header or an end-of-file marker, the run is retried, and if it keeps failing the job fails with no file. When qpdf recovers the document with warnings, they are shown next to the result.`,
-    `This runs on a server. Your PDF, up to ${CEILING_MB} MB, is uploaded over TLS to pdf.xyz's secure worker, and the uploaded copy is deleted once the job is over. The repaired file's download link expires after ${LINK_MINUTES} minutes; the stored bytes linger until the next pass of a once-a-day storage rule wipes them.`,
+    `The only structural check before qpdf runs is for a PDF header near the start of the file, so qpdf will still try a download that stopped partway and lost its end-of-file marker. If qpdf refuses the file outright, the job ends at once without a retry and says why: the PDF is password-protected and needs Unlock PDF first, or it could not be rebuilt into a PDF. If qpdf does not finish inside our server's time limit, or what it writes lacks a PDF header or an end-of-file marker, the run is retried, and if it keeps failing the job fails with no file. When qpdf recovers the document with warnings, they are shown next to the result.`,
+    `This runs on a server. Your PDF, up to ${CEILING_MB} MB, is uploaded over TLS to pdf.xyz's secure server, and the uploaded copy is deleted once the job is over. The repaired file's download link expires after ${LINK_MINUTES} minutes; the stored bytes linger until the next pass of a once-a-day storage rule wipes them.`,
   ],
 
   useCases: [
@@ -139,30 +139,30 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the damaged PDF",
-      body: `Drop one PDF onto the box reading "Add a PDF, or browse", or click it and choose the file; up to ${CEILING_MB} MB, and there are no settings to choose. The box takes a file at once; nothing is sent until the status badge at the top of the panel reads Secure worker and you press Repair on the worker.`,
+      body: `Drop one PDF onto the box reading "Add a PDF, or browse", or click it and choose the file; up to ${CEILING_MB} MB, and there are no settings to choose. The box takes a file at once; nothing is sent until the status badge at the top of the panel reads Secure server and you press Repair on our secure server.`,
     },
     {
-      title: "Press Repair on the worker",
-      body: "The file uploads and qpdf rewrites it. The button shows where the job is: Uploading your file…, then Waiting for the worker… while it is queued, Repairing on the worker… while qpdf runs, and Downloading the result… as the repaired copy is fetched into the page. A Cancel button under it stops the job while it runs. It stays busy until that copy is in the page, the job fails, or the browser stops waiting; then a note says the worker is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job.",
+      title: "Press Repair on our secure server",
+      body: "The file uploads and qpdf rewrites it. The button shows where the job is: Uploading your file…, then Waiting for our server… while it is queued, Repairing on our secure server… while qpdf runs, and Downloading the result… as the repaired copy is fetched into the page. A Cancel button under it stops the job while it runs. It stays busy until that copy is in the page, the job fails, or the browser stops waiting; then a note says our server is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job.",
     },
     {
       title: "Read the warnings, if any",
-      body: `If qpdf recovered the file with warnings, a notice headed This PDF was damaged and has been rebuilt sits above the download button with qpdf's messages: each repeated message once, no more than ${WARNING_LINES} of them, lines that would expose a worker file path left out, and a final line noting that further messages were not shown whenever any were held back. No notice means no warning text came back from qpdf; it does not mean the file is guaranteed intact.`,
+      body: `If qpdf recovered the file with warnings, a notice headed This PDF was damaged and has been rebuilt sits above the download button with qpdf's messages: each repeated message once, no more than ${WARNING_LINES} of them, lines that would expose a server file path left out, and a final line noting that further messages were not shown whenever any were held back. No notice means no warning text came back from qpdf; it does not mean the file is guaranteed intact.`,
     },
     {
       title: "Save the repaired copy",
-      body: `The button labelled Download followed by the file name saves the bytes the page already fetched, so saving does not depend on the link; invoice.pdf comes back as ${EXAMPLE_OUTPUT}. The worker's link to the stored copy expires after ${LINK_MINUTES} minutes.`,
+      body: `The button labelled Download followed by the file name saves the bytes the page already fetched, so saving does not depend on the link; invoice.pdf comes back as ${EXAMPLE_OUTPUT}. Our server's link to the stored copy expires after ${LINK_MINUTES} minutes.`,
     },
   ],
 
   faqs: [
     {
       q: "Can every corrupted PDF be repaired?",
-      a: "No. qpdf can reconstruct a damaged or missing cross-reference table when the objects are still in the file, but it cannot bring back bytes that are not there. If qpdf refuses the file, the job stops straight away without a retry, saying either that the file could not be rebuilt into a PDF or that it is password-protected and needs Unlock PDF first. A run that goes past the worker's time limit, or writes something without a PDF header and end-of-file marker, is tried again and then fails the job with no file produced.",
+      a: "No. qpdf can reconstruct a damaged or missing cross-reference table when the objects are still in the file, but it cannot bring back bytes that are not there. If qpdf refuses the file, the job stops straight away without a retry, saying either that the file could not be rebuilt into a PDF or that it is password-protected and needs Unlock PDF first. A run that goes past our server's time limit, or writes something without a PDF header and end-of-file marker, is tried again and then fails the job with no file produced.",
     },
     {
       q: "Why was my file refused before the repair started?",
-      a: "The worker looks for the PDF header (%PDF-) near the start of the file. Without it the file is probably not a PDF at all, such as a renamed image or an HTML error page saved with a .pdf name, or it has lost its beginning, so no repair is attempted and the job is not retried.",
+      a: "Our server looks for the PDF header (%PDF-) near the start of the file. Without it the file is probably not a PDF at all, such as a renamed image or an HTML error page saved with a .pdf name, or it has lost its beginning, so no repair is attempted and the job is not retried.",
     },
     {
       q: "What do the warnings after a repair mean?",
@@ -178,7 +178,7 @@ const content: ToolContent = {
     },
     {
       q: "Where does my file go, and for how long?",
-      a: `Over TLS to pdf.xyz's secure worker. The uploaded file is removed once the job reaches its end, whether the repair worked or not; if a failed attempt is being retried, it is kept for that retry. The repaired copy's link works for ${LINK_MINUTES} minutes and then returns an error, and a daily storage rule afterwards removes the stored file.`,
+      a: `Over TLS to pdf.xyz's secure server. The uploaded file is removed once the job reaches its end, whether the repair worked or not; if a failed attempt is being retried, it is kept for that retry. The repaired copy's link works for ${LINK_MINUTES} minutes and then returns an error, and a daily storage rule afterwards removes the stored file.`,
     },
   ],
 

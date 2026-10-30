@@ -74,7 +74,7 @@ function badgeFor(
     return { tone: "muted", label: "Status unknown", pulse: false };
   if (!available) return { tone: "muted", label: "Not enabled", pulse: false };
   return status.mode === "local-dev"
-    ? { tone: "warn", label: "Local-dev worker", pulse: true }
+    ? { tone: "warn", label: "Local-dev server", pulse: true }
     : { tone: "ok", label: readyLabel, pulse: false };
 }
 
@@ -103,7 +103,7 @@ export function WorkerPanelShell({
   heading,
   description,
   canRun,
-  readyLabel = "Secure worker",
+  readyLabel = "Secure server",
   specRows,
   footer,
   children,

@@ -967,6 +967,32 @@ html[data-dragging] .reg-mark {
     }
   }
 
+  /* Touch targets on a touch screen: 44px (WCAG 2.5.5), the icon still
+     drawn at its own size. `tap`, an icon button; `tap-row`, a text link's
+     row; `tap-line`, a row of icon buttons on a line of its own (Merge's
+     file rows, which have no room beside the name); `tap-y`, a text button
+     grown to 44px without moving what is around it.
+     `e2e/mobile-pass.mobile.spec.ts` measures them. */
+  @media (pointer: coarse) {
+    .tap {
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+    }
+    .tap-row {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2.75rem;
+    }
+    .tap-line {
+      width: 100%;
+      justify-content: flex-end;
+    }
+    .tap-y {
+      margin-block: -0.75rem;
+      padding-block: 0.75rem;
+    }
+  }
+
   /* The dimension-line end cap: a short vertical tick on the strip's rule. */
   .dim-cap {
     position: relative;

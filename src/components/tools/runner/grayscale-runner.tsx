@@ -140,7 +140,7 @@ export function GrayscaleEditor({
         <InfoTile
           icon={ShieldCheck}
           title="Private"
-          body="Rendering happens in your browser using the bundled pdf.js worker — no upload."
+          body="Rendering happens in your browser using the bundled pdf.js library — no upload."
         />
         <InfoTile
           icon={TriangleAlert}

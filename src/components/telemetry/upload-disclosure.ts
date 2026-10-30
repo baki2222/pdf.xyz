@@ -20,7 +20,7 @@ export const NO_UPLOAD_DISCLOSURE =
   "Nothing was uploaded and your files are untouched.";
 
 export const AFTER_UPLOAD_DISCLOSURE =
-  "A file had already been uploaded to the secure worker to run this tool; your local copy is untouched.";
+  "A file had already been uploaded to our secure server to run this tool; your local copy is untouched.";
 
 /**
  * The honest one-line disclosure for a crash fallback, or `null` when it is not

@@ -109,15 +109,15 @@ export function WorkerStatusPending({
           className="text-muted inline-flex items-center gap-2 text-sm"
         >
           <Spinner />
-          Checking the secure worker…
+          Checking our secure server…
         </p>
       ) : (
         <>
           <p role="status" className="text-muted text-sm leading-relaxed">
             {limited
-              ? "The worker status service is busy and asked us to wait. "
-              : "We couldn’t reach the worker status service just now. "}
-            Nothing is uploaded until the worker is confirmed.
+              ? "The server status service is busy and asked us to wait. "
+              : "We couldn’t reach the server status service just now. "}
+            Nothing is uploaded until our server is confirmed.
           </p>
           <button
             type="button"

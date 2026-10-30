@@ -148,7 +148,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: 'Why does it say "No selectable text found"?',
-      a: `No page gave up a stored character other than white space, which is typical of a scan, a phone photo, or a file whose lettering was turned into drawn outlines. ${ocrName} can add a text layer: leave its Output on "${ocrSearchableLabel}" and select every language printed on the pages, then convert the PDF it returns here. ${ocrName} runs on pdf.xyz's secure worker, so unlike this tool it uploads your file.`,
+      a: `No page gave up a stored character other than white space, which is typical of a scan, a phone photo, or a file whose lettering was turned into drawn outlines. ${ocrName} can add a text layer: leave its Output on "${ocrSearchableLabel}" and select every language printed on the pages, then convert the PDF it returns here. ${ocrName} runs on pdf.xyz's secure server, so unlike this tool it uploads your file.`,
     },
     {
       q: "Does it keep headings, tables, bold text and links?",
@@ -168,7 +168,7 @@ const content: ToolContent = {
     },
     {
       q: "Will it open a PDF that has a password or copy restrictions?",
-      a: `Copy or printing restrictions are no obstacle: a PDF that opens without a password is converted like any other file. One that needs a password to open is refused as it opens, with a message saying it is password-protected; ${unlockName} can remove that password if you enter it, but that tool uploads the PDF to pdf.xyz's secure worker.`,
+      a: `Copy or printing restrictions are no obstacle: a PDF that opens without a password is converted like any other file. One that needs a password to open is refused as it opens, with a message saying it is password-protected; ${unlockName} can remove that password if you enter it, but that tool uploads the PDF to pdf.xyz's secure server.`,
     },
   ],
 

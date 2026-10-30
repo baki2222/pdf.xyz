@@ -161,7 +161,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I split a password-protected PDF?",
-      a: `Not in this tool. ${UNLOCK_PDF} removes the encryption when you type a password the file accepts; its password field cannot be left empty, so a file that only restricts printing or copying needs its owner password there. ${UNLOCK_PDF} is not in-browser: the PDF and the password go over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, the download link expires after ${LINK_MINUTES} minutes, and the stored copy is erased by a daily storage rule after that. The split you do afterwards stays in your browser.`,
+      a: `Not in this tool. ${UNLOCK_PDF} removes the encryption when you type a password the file accepts; its password field cannot be left empty, so a file that only restricts printing or copying needs its owner password there. ${UNLOCK_PDF} is not in-browser: the PDF and the password go over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, the download link expires after ${LINK_MINUTES} minutes, and the stored copy is erased by a daily storage rule after that. The split you do afterwards stays in your browser.`,
     },
   ],
 

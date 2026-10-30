@@ -28,6 +28,7 @@ export function EditRunner() {
       toolName="Edit PDF"
       hint="One PDF · edited locally in your browser"
       initialTool="select"
+      emptyReason="Change or add something on a page first."
       resultTitle="Edited PDF ready"
       downloadLabel="Download edited PDF"
       outputName={editedOutputName}

@@ -149,7 +149,7 @@ export default async function ToolPage({
   const panel = runnerKind ? undefined : WORKER_PANELS[tool.slug];
   if (!runnerKind && !panel)
     throw new Error(
-      `/tools/${tool.slug} has neither an in-browser runner nor a worker panel route`,
+      `/tools/${tool.slug} has neither an in-browser runner nor a server panel route`,
     );
 
   const breadcrumbs = [
@@ -455,7 +455,7 @@ export default async function ToolPage({
                             ProcessingMode by construction, so a new mode is a
                             compile error instead of a false promise. */}
                         {modeUploadsFiles(tool.processing)
-                          ? "Analyzed privately in your browser. Any secure-worker step is optional and clearly labeled before a file is uploaded."
+                          ? "Analyzed privately in your browser. Any secure-server step is optional and clearly labeled before a file is uploaded."
                           : "Runs in your browser — your file never leaves your device."}
                       </div>
                       <TicketRail />

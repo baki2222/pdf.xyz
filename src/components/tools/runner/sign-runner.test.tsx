@@ -53,7 +53,7 @@ const useSignature = () =>
 
 /** The signature is ready to place (the panel closed and says so). */
 const placing = () =>
-  screen.queryByText("Click on a page to place your signature.") !== null;
+  screen.queryByText("Tap or click a page to place your signature.") !== null;
 
 describe("Sign PDF signature panel", () => {
   it("keeps the drawing pad — and what is drawn on it — across source switches", async () => {

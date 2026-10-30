@@ -99,22 +99,22 @@ const EXPORT_COPY: Record<
     summary:
       // CHANGED 2026-10-24: "…; run OCR first to have its words as text
       // too." — before the OCR switch below ran it in the same job.
-      "The worker reads each page's selectable text, in reading order, and its pictures, and packages them into a real DOCX file. A scanned page comes through as a picture; turn on OCR below to have its words as text too.",
-    note: "Running this uses a private secure-worker job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
+      "Our server reads each page's selectable text, in reading order, and its pictures, and packages them into a real DOCX file. A scanned page comes through as a picture; turn on OCR below to have its words as text too.",
+    note: "Running this uses a private secure-server job. A PDF with no selectable text at all, such as a scan, needs the OCR switch on.",
     hint: "Selectable PDF",
   },
   "pdf-to-excel": {
     badge: "Selectable text export",
     summary:
-      "The worker extracts selectable PDF text and packages it into a real XLSX file. Pages without selectable text (scans) are not included; run OCR first to include them.",
-    note: "Running this uses a private secure-worker job. Only selectable text is exported; scanned/image-only PDFs need OCR first.",
+      "Our server extracts selectable PDF text and packages it into a real XLSX file. Pages without selectable text (scans) are not included; run OCR first to include them.",
+    note: "Running this uses a private secure-server job. Only selectable text is exported; scanned/image-only PDFs need OCR first.",
     hint: "Selectable PDF",
   },
   "pdf-to-powerpoint": {
     badge: "Pages to slides",
     summary:
-      "The worker reads each page and builds a real PPTX file: pictures where the page shows them, text in text boxes at their places, other drawing as pictures. A scanned page comes through as a picture; run OCR first to have its words as text too.",
-    note: "Running this uses a private secure-worker job. A scanned page comes through as a picture on its slide; run OCR first to have its words as text.",
+      "Our server reads each page and builds a real PPTX file: pictures where the page shows them, text in text boxes at their places, other drawing as pictures. A scanned page comes through as a picture; run OCR first to have its words as text too.",
+    note: "Running this uses a private secure-server job. A scanned page comes through as a picture on its slide; run OCR first to have its words as text.",
     hint: "One PDF",
   },
 };
@@ -209,7 +209,7 @@ function PdfOfficeRunArea({
   }, [file, tool, run, available, ocrBlocked, offersOcr, ocrOn, languages]);
   // Read only once the status says this panel cannot run.
   const unavailableDetail =
-    status?.daemon.detail ?? "The secure worker is not drainable here.";
+    status?.daemon.detail ?? "Our secure server is not drainable here.";
 
   return (
     <div className="flex flex-col gap-4">
@@ -233,7 +233,7 @@ function PdfOfficeRunArea({
                 setFile(null);
                 setOutcome(null);
               }}
-              className="text-muted hover:text-fg shrink-0 text-sm font-medium transition max-sm:-my-1.5 max-sm:py-1.5"
+              className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
             >
               Remove
             </button>
@@ -279,7 +279,7 @@ function PdfOfficeRunArea({
             ) : (
               <p className="text-warn text-xs leading-relaxed">
                 {status?.ocr.detail ??
-                  "OCR isn't available on this worker, so this option can't run here."}{" "}
+                  "OCR isn't available on this server, so this option can't run here."}{" "}
                 Turn it off to convert the selectable text alone.
               </p>
             ))}
@@ -326,7 +326,7 @@ function PdfOfficeRunArea({
               {unavailableDetail}
             </p>
             <p className="text-muted text-xs leading-relaxed">
-              {runLabel} stays off until the worker is ready, so{" "}
+              {runLabel} stays off until our server is ready, so{" "}
               {catalogTool.name} never pretends to process input it cannot
               actually convert.
             </p>

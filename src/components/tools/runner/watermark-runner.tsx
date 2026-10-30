@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useState } from "react";
 import { Download, ImageIcon, Stamp, X } from "lucide-react";
 import {
@@ -386,15 +387,30 @@ export function WatermarkEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={!ready}
-            busyLabel="Stamping…"
+          <RunReason
+            reason={
+              !ready
+                ? mode === "text" && trimmed.length === 0
+                  ? "Type the watermark text first."
+                  : mode !== "text" && image === null
+                    ? "Choose the watermark image first."
+                    : "Type which pages get the watermark first."
+                : null
+            }
           >
-            <Stamp className="size-4" aria-hidden />
-            Add watermark
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onRun}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={!ready}
+                busyLabel="Stamping…"
+              >
+                <Stamp className="size-4" aria-hidden />
+                Add watermark
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>
