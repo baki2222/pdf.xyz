@@ -7,7 +7,7 @@ import type { ProtectedPdf } from "@/lib/pdf/security/protected-pdf";
 import { Spinner } from "./runner-kit";
 
 /**
- * The note above a restricted PDF (Edit PDF, Fill Forms): what its author
+ * The note above a restricted PDF (Edit PDF, Annotate PDF, Fill Forms): what its author
  * allows, in plain words, and the one way past it — the owner password,
  * typed here and checked in the browser by the file's own security handler.
  *
@@ -46,6 +46,14 @@ export function allowedSentence(
     ? `Its author allows ${joinWords(allowed)}, but not changes to the page content.`
     : "Its author allows viewing it, but not changes of any kind.";
 }
+
+/**
+ * Said in the editor when the author withholds comments (/P bit 6): the
+ * mark-up tools are locked for THAT reason, not because they draw into the
+ * page — Annotate PDF opens on one of them.
+ */
+export const COMMENTS_NOT_ALLOWED =
+  "This PDF's author doesn't allow comments, so highlights, drawings, notes and shapes need the owner password too.";
 
 /** Said once the owner password is accepted. Matches Unlock PDF: no encryption. */
 export const UNLOCKED_NOTE =
@@ -138,11 +146,19 @@ export function ProtectionBanner({
               What you fill in is saved inside the author&apos;s protection: the
               copy keeps the same restrictions and owner password.
               {surface === "editor" &&
-                " Text, pictures, signatures, shapes, highlights and notes are written into the page itself here, so they need the owner password."}
+                " Text, pictures, signatures, whiteout and redaction are written into the page itself, so they need the owner password."}
             </p>
           ) : (
             <p className="text-muted text-xs leading-relaxed">
               Without the owner password this file can only be viewed here.
+            </p>
+          )}
+          {surface === "editor" && !canComment && (
+            <p
+              className="text-muted text-xs leading-relaxed"
+              data-banner-comments="locked"
+            >
+              {COMMENTS_NOT_ALLOWED}
             </p>
           )}
         </div>

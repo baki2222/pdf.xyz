@@ -53,6 +53,10 @@ on purpose. Added 2026-10-30, when the worker-image proof hit it.
   right/wrong, fill-and-save read back by pdf.js, the unencrypted-write control.
 - `e2e/restricted-pdf.spec.ts` — the banner, a fill and a download in
   `/tools/edit-pdf`, then the owner password.
+- `e2e/annotate-restricted.spec.ts` — a highlight saved as a comment in
+  `/tools/annotate-pdf` (R6, bit 6), and the view-only file's locked tools.
+- `src/components/tools/runner/protection-banner.test.ts` — the editor's
+  banner over the R6 and view-only handlers: comments allowed, or not.
 
 The worker-image proof (`scripts/worker-restricted-edit-proof.ts`) does not use
 these files: it encrypts `make-base.ts`'s form with the image's own qpdf.

@@ -14,8 +14,8 @@ import {
   PDF_ENCRYPTED_UNKNOWN_MESSAGE,
   PDF_NEEDS_PASSWORD_MESSAGE,
   PDF_RESTRICTED_MESSAGE,
-  RESTRICTED_FORM_TOOLS,
-  RESTRICTED_FORM_TOOLS_SENTENCE,
+  RESTRICTED_OPENERS,
+  RESTRICTED_OPENERS_SENTENCE,
   UNLOCK_TOOL_HREF,
   UNLOCK_TOOL_NAME,
   probePdfEncryption,
@@ -330,12 +330,12 @@ describe("the way out is real", () => {
   });
 
   it("the tools the restricted message names exist, and are the ones that open a restricted file", () => {
-    expect(PDF_RESTRICTED_MESSAGE).toContain(RESTRICTED_FORM_TOOLS_SENTENCE);
+    expect(PDF_RESTRICTED_MESSAGE).toContain(RESTRICTED_OPENERS_SENTENCE);
     const runners = path.join(process.cwd(), "src/components/tools/runner");
-    for (const { name, href } of RESTRICTED_FORM_TOOLS) {
+    for (const { name, href } of RESTRICTED_OPENERS) {
       const slug = href.replace(/^\/tools\//, "");
       expect(getToolBySlug(slug)?.name).toBe(name);
-      expect(RESTRICTED_FORM_TOOLS_SENTENCE).toContain(name);
+      expect(RESTRICTED_OPENERS_SENTENCE).toContain(name);
     }
     // The property, not the names: the runners that opt into opening a
     // restricted file are exactly these two (discovered, not listed).
@@ -347,7 +347,13 @@ describe("the way out is real", () => {
         ),
       )
       .sort();
-    expect(openers).toEqual(["edit-runner.tsx", "fill-forms-runner.tsx"]);
+    // 2026-10-30: Annotate PDF, which mounts the same editor as Edit PDF,
+    // joined them (it refused restricted files until then).
+    expect(openers).toEqual([
+      "annotate-runner.tsx",
+      "edit-runner.tsx",
+      "fill-forms-runner.tsx",
+    ]);
   });
 
   /*

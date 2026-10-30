@@ -34,6 +34,11 @@ export function AnnotateRunner() {
       downloadLabel="Download annotated PDF"
       outputName={annotatedOutputName}
       footer={<AnnotateFooter />}
+      // A PDF its author restricted opens as it does in Edit PDF: markups
+      // saved as comments under the author's encryption when the author
+      // allows comments, every tool once the owner password is entered.
+      // Refused with the editing-restrictions message until 2026-10-30.
+      openProtected
     />
   );
 }
@@ -56,7 +61,10 @@ function AnnotateFooter() {
           highlights, drawings, notes and shapes are drawn as page content where
           you place them. Saved as comments, they are standard PDF annotations
           that other PDF apps can select, edit or delete. Whiteout is always
-          drawn into the page, and there are no reply threads here.
+          drawn into the page, and there are no reply threads here. On a PDF
+          whose author restricted changes, markups are always saved as comments,
+          and only if the author allows comments; the owner password unlocks
+          everything else.
         </p>
       </div>
       <PrivacyLine>

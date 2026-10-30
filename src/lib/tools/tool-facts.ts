@@ -83,6 +83,7 @@ import {
   DEEP_COMPRESSION_PRESETS,
   EDITOR_KINDS,
   EDITOR_KIND_FACT,
+  COMMENT_KINDS,
   MARKUP_KINDS,
   FIELD_TYPE_FACT,
   GRAYSCALE_DPI_PRESETS,
@@ -1256,10 +1257,26 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
     case "annotate":
       return [
         {
+          // WAS "No. Annotate PDF draws its … into the page itself rather
+          // than adding comment objects" — true until #230 (2026-10-29) added
+          // "Save markups as comments" beside Apply, and served false for a
+          // day after it. Both halves are now derived from the kind lists.
           question: "Will my markup show up as comments in other PDF readers?",
-          answer: `No. ${tool.name} draws its ${listed(
-            MARKUP_KINDS.map((k) => EDITOR_KIND_FACT[k]),
-          )} into the page itself rather than adding comment objects, so a reader shows them as part of the page: they are not listed as comments, and they cannot be replied to, hidden or edited there.`,
+          answer: `Not by default. Flatten into the page, the default beside Apply & download, draws ${tool.name}'s ${listed(
+            MARKUP_KINDS.filter((k) => isCommentKind(k)).map(
+              (k) => EDITOR_KIND_FACT[k],
+            ),
+          )} into the page itself, so a reader shows them as part of the page, not as comments. Choose Save markups as comments and they are written as standard PDF annotations instead, as are ${COMMENT_KINDS.filter(
+            (k) => !(MARKUP_KINDS as readonly string[]).includes(k),
+          )
+            .map((k) => EDITOR_KIND_FACT[k])
+            .join(
+              ", and ",
+            )}: other PDF apps list them as comments and can select, edit or delete them. The ${listed(
+            MARKUP_KINDS.filter((k) => !isCommentKind(k)).map(
+              (k) => EDITOR_KIND_FACT[k],
+            ),
+          )} are always drawn into the page, because a comment can be deleted by whoever opens the file. On a PDF whose author restricted changes, markups are always saved as comments, and only if the author allows comments, until the owner password is entered.`,
         },
         {
           question: "How do I place a highlight?",
@@ -1472,6 +1489,11 @@ function listed(
   return items.length <= 1
     ? items.join("")
     : `${items.slice(0, -1).join(", ")} ${conjunction} ${items.at(-1)}`;
+}
+
+/** Does "Save markups as comments" write this kind as an annotation? */
+function isCommentKind(kind: string): boolean {
+  return (COMMENT_KINDS as readonly string[]).includes(kind);
 }
 
 /**
