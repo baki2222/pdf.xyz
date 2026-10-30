@@ -3265,7 +3265,7 @@ export const guides: Guide[] = [
     faq: [
       {
         question: "How do I print two pages on one sheet of paper?",
-        answer: `Choose ${N_UP_COUNTS[0]} per sheet, keep ${N_UP_AUTO} orientation, and press Create sheets. Two portrait pages land side by side on a landscape sheet. Download the PDF and print it at one page per sheet.`,
+        answer: `Choose ${N_UP_COUNTS[0]} per sheet, keep Orientation on ${N_UP_AUTO}, and press Create sheets. Two portrait pages land side by side on a landscape sheet. Download the PDF and print it at one page per sheet.`,
       },
       {
         question: "Is the text still sharp and searchable?",
