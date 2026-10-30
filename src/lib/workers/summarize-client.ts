@@ -7,7 +7,8 @@ import {
 import { canRunAiTool } from "./ai-tool-availability";
 import type { SummaryFormat, SummaryLength } from "@/lib/jobs/summarize-pdf";
 import { OFFICE_EXPORT_ERROR_CODES } from "@/lib/jobs/office-export-results";
-import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
+import type { ExtractedPdfText } from "@/lib/pdf/text";
+import { extractPdfTextOnDemand } from "@/lib/pdf/text-lazy";
 import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 
 /**
@@ -102,7 +103,11 @@ export type SummarizePreflight =
  */
 export const summarizePreflightDeps: {
   extract: (bytes: Uint8Array) => Promise<ExtractedPdfText>;
-} = { extract: extractPdfText };
+} = {
+  // The text module arrives when the preflight first runs (Run pressed), not
+  // with the page (`@/lib/pdf/text-lazy`).
+  extract: extractPdfTextOnDemand,
+};
 
 export async function preflightSummarize(
   bytes: Uint8Array,

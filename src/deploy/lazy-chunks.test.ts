@@ -34,6 +34,8 @@ import { RESULT_ENDING_CHUNK } from "@/components/intent/result-ending-chunk";
 import { DROP_ENGINE_MARK } from "@/lib/intent/drop-engine";
 import { tools } from "@/lib/tools";
 import { SEARCH_ENGINE_CHUNK } from "@/lib/tools/search-tools";
+import { STOPPED_WAITING } from "@/lib/workers/job-polling";
+import { NO_UPLOAD_SLOT } from "@/lib/workers/slot-upload";
 import { chunkFiles, prerenderedPages } from "../../scripts/page-weight";
 
 const ROOT = process.cwd();
@@ -264,6 +266,28 @@ const OUR_LAZY: LazyLibrary[] = [
     what: "the command palette",
     marker: PALETTE_CHUNK_MARKER,
     why: "the header's trigger fetches it on approach (hover, focus, Ctrl/Meta) or when it is opened; a visitor who never opens it never downloads it",
+    allowedAtLoad: {},
+  },
+  // 2026-10-30 (perf/lazy-slot-upload): a worker job's run — the shared
+  // upload with its retry and telemetry (#223), the poll, the error reader.
+  // #223 put them in one chunk every worker tool page and the status page
+  // loaded up front (8146-*.js, 2.5 KB gz with the stage helpers); a
+  // panel's chosen file, or Compress PDF's deep run becoming possible,
+  // fetches it now (`@/lib/workers/job-run-lazy`), and a run awaits that
+  // same fetch. Each module is found by a sentence of its own that its code
+  // returns, not by a marker of the gathering module: a static import of
+  // `./slot-upload` or `./job-polling` directly — the shape #223 shipped —
+  // would carry neither a `job-run` export nor this table's attention.
+  {
+    what: "the shared slot upload",
+    marker: NO_UPLOAD_SLOT,
+    why: "a worker panel fetches it when its file is chosen, Compress PDF when its deep run becomes possible, and every worker client awaits it as its run starts; a visit that never brings a file never downloads it",
+    allowedAtLoad: {},
+  },
+  {
+    what: "the worker job's poll",
+    marker: STOPPED_WAITING,
+    why: "it arrives with the upload, on the same fetch, and runs only once a job exists",
     allowedAtLoad: {},
   },
   // WP-05 review (2026-10-10): the home desk's own island. It IS first-load

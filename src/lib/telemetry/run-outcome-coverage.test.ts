@@ -112,6 +112,13 @@ interface ModuleInfo {
   imports: Map<string, { file: string; name: string }>;
   /** Named re-exports: exported name → its origin. */
   reexports: Map<string, { file: string; name: string }>;
+  /**
+   * Local names destructured from a module fetched ON DEMAND — `const { a }
+   * = await import("./m")`, or `= await door()` where `door` is a function
+   * whose body is that `import()` (`loadJobRun`). Also in `imports`: each is
+   * a call of the module's export, made after the fetch.
+   */
+  lazy: Set<string>;
 }
 
 class Corpus {
@@ -121,6 +128,74 @@ class Corpus {
     const fileSet = new Set(sources.keys());
     for (const [file, source] of sources) {
       this.modules.set(file, this.read(file, source, fileSet));
+    }
+    this.bindLazy(fileSet);
+  }
+
+  /**
+   * SINCE 2026-10-30 (perf/lazy-slot-upload) the worker clients reach the
+   * upload, the poll and the error reader through `loadJobRun()`, so those
+   * calls are no longer named by any import declaration — and this corpus,
+   * reading only declarations, saw four job-creating clients that "never
+   * wait" for their jobs. A dynamic import destructured and then CALLED is
+   * a call, not a load (rule 4: loading a module is not running a
+   * function), so the binding is followed exactly as far as a static one:
+   * the destructured name, to that module's export, and nothing else of it.
+   */
+  private bindLazy(files: Set<string>): void {
+    const importTarget = (file: string, n: TS.Node): string | null =>
+      ts.isCallExpression(n) &&
+      n.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      n.arguments.length === 1 &&
+      ts.isStringLiteral(n.arguments[0]!)
+        ? this.resolveSpec(file, n.arguments[0].text, files)
+        : null;
+    // A door: a top-level function whose body fetches exactly one module.
+    const doors = new Map<string, string>();
+    for (const mod of this.modules.values()) {
+      for (const [name, fn] of mod.functions) {
+        const targets = new Set<string>();
+        const walk = (n: TS.Node): void => {
+          const t = importTarget(mod.file, n);
+          if (t) targets.add(t);
+          ts.forEachChild(n, walk);
+        };
+        walk(fn);
+        if (targets.size === 1)
+          doors.set(`${mod.file}#${name}`, [...targets][0]!);
+      }
+    }
+    for (const mod of this.modules.values()) {
+      const walk = (n: TS.Node): void => {
+        if (
+          ts.isVariableDeclaration(n) &&
+          ts.isObjectBindingPattern(n.name) &&
+          n.initializer &&
+          ts.isAwaitExpression(n.initializer)
+        ) {
+          const call = n.initializer.expression;
+          const target =
+            importTarget(mod.file, call) ??
+            (ts.isCallExpression(call) && ts.isIdentifier(call.expression)
+              ? (doors.get(
+                  this.resolveCall(mod.file, call.expression.text) ?? "",
+                ) ?? null)
+              : null);
+          if (target) {
+            for (const el of n.name.elements) {
+              if (el.dotDotDotToken || !ts.isIdentifier(el.name)) continue;
+              const prop = el.propertyName;
+              mod.imports.set(el.name.text, {
+                file: target,
+                name: prop && ts.isIdentifier(prop) ? prop.text : el.name.text,
+              });
+              mod.lazy.add(el.name.text);
+            }
+          }
+        }
+        ts.forEachChild(n, walk);
+      };
+      walk(mod.sf);
     }
   }
 
@@ -154,6 +229,7 @@ class Corpus {
       exported: new Set(),
       imports: new Map(),
       reexports: new Map(),
+      lazy: new Set(),
     };
     for (const stmt of sf.statements) {
       if (ts.isFunctionDeclaration(stmt) && stmt.name) {
@@ -753,6 +829,49 @@ describe("the instruments", () => {
     ).toEqual([]);
     // Health: the direct pollers are still most of the creators.
     expect(pollers.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("lazy bindings: the clients' on-demand calls are read, and only through a door", () => {
+    // Health (`[] ⊆ X` is vacuously true): the real corpus HAS lazy
+    // bindings, and among them the poll — else the set above is green
+    // because the walk went blind, not because every job is waited for.
+    const lazy = [...REAL.modules.values()].flatMap((m) =>
+      [...m.lazy].map((name) => `${m.file}#${name}`),
+    );
+    expect(lazy.length, lazy.join(", ")).toBeGreaterThanOrEqual(4);
+    expect(
+      lazy.filter((k) => k.endsWith("#pollJobToTerminal")).length,
+      lazy.join(", "),
+    ).toBeGreaterThanOrEqual(2);
+    // Control, through the same Corpus: a door's destructured name resolves
+    // to the export it names (via a re-export, as `./job-run` does); a direct
+    // `await import()` too; the same shape from a call that fetches nothing
+    // binds nothing — the walk must not widen to every destructured await.
+    const c = new Corpus(
+      new Map([
+        ["src/x/impl.ts", "export function work() {}"],
+        ["src/x/kit.ts", 'export { work } from "./impl";'],
+        [
+          "src/x/door.ts",
+          [
+            'export function loadKit() { return import("./kit"); }',
+            "export async function notADoor() { return { work: () => {} }; }",
+          ].join(String.fromCharCode(10)),
+        ],
+        [
+          "src/x/caller.ts",
+          [
+            'import { loadKit, notADoor } from "./door";',
+            "export async function viaDoor() { const { work } = await loadKit(); work(); }",
+            'export async function viaImport() { const { work: run } = await import("./kit"); run(); }',
+            "export async function viaPlain() { const { work: other } = await notADoor(); other(); }",
+          ].join(String.fromCharCode(10)),
+        ],
+      ]),
+    );
+    expect(c.resolveCall("src/x/caller.ts", "work")).toBe("src/x/impl.ts#work");
+    expect(c.resolveCall("src/x/caller.ts", "run")).toBe("src/x/impl.ts#work");
+    expect(c.resolveCall("src/x/caller.ts", "other")).toBeNull();
   });
 
   it("positive control: 6a2fc17's silent compress state is flagged, the reporting one is not", () => {

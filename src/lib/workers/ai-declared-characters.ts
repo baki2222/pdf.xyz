@@ -14,11 +14,16 @@
  * existed. Counting is how a small document gets cheaper; it must never be
  * what stops a document the worker could read.
  */
-import { extractPdfText, type ExtractedPdfText } from "@/lib/pdf/text";
+import type { ExtractedPdfText } from "@/lib/pdf/text";
+// The text module arrives when a count is first asked for, not with the
+// panel's page (`@/lib/pdf/text-lazy`).
+import { extractPdfTextOnDemand } from "@/lib/pdf/text-lazy";
 
 export async function countDeclaredCharacters(
   bytes: Uint8Array,
-  extract: (bytes: Uint8Array) => Promise<ExtractedPdfText> = extractPdfText,
+  extract: (
+    bytes: Uint8Array,
+  ) => Promise<ExtractedPdfText> = extractPdfTextOnDemand,
 ): Promise<number | null> {
   try {
     const { characterCount } = await extract(bytes);

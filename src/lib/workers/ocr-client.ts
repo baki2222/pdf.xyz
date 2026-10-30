@@ -21,11 +21,10 @@
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact } from "@/lib/jobs/types";
 import type { OcrOptions } from "@/lib/jobs/ocr";
-import { pollJobToTerminal, type WorkerJobPhase } from "./job-polling";
+import type { WorkerJobPhase } from "./job-polling";
 import { forwardStatus } from "./phases";
 import { OCR_JOB_POLL } from "@/lib/jobs/client-wait";
-import { uploadToWorkerSlot } from "./slot-upload";
-import { readWorkerError } from "./read-error";
+import { loadJobRun } from "./job-run-lazy";
 import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const OCR_TOOL = "ocr-pdf";
@@ -125,6 +124,7 @@ async function readError(
   res: Awaited<ReturnType<FetchLike>>,
   fallback: string,
 ): Promise<OcrWorkerFailure> {
+  const { readWorkerError } = await loadJobRun();
   return readWorkerError(res, fallback);
 }
 
@@ -153,6 +153,7 @@ async function runWorkerOcrSteps(
   // 1–2. Reserve a slot and upload the bytes to it — the one shared upload
   //      (`./slot-upload`). The job uses the slot it RETURNS: a 403 may have
   //      moved the bytes to a fresh one.
+  const { uploadToWorkerSlot } = await loadJobRun();
   const uploaded = await uploadToWorkerSlot({
     tool: OCR_TOOL,
     filename: input.filename,
@@ -200,6 +201,7 @@ async function finishOcrJob(
   const { signal } = options;
 
   // 4. Poll to a terminal state (a production worker is async).
+  const { pollJobToTerminal } = await loadJobRun();
   const polled = await pollJobToTerminal({
     job: started,
     fetchImpl,

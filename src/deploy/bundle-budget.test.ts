@@ -491,6 +491,7 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * the same 0.86. 230.7 is the lowest tenth that takes what is to come —
  * 26.6 under main's 257.3 — and recovering the 0.1 is the owner's call
  * (the shared upload is the obvious candidate: it only runs on a pick).
+ * It was taken: 2026-10-30, below.
  *
  * EVERY_TOOL_PAGE by the same rule, the smallest saving across the 50
  * (-77 raw, header-footer; -25.19 gz, watermark-pdf): 851 / 276.1 ->
@@ -501,6 +502,44 @@ const chunkList = (html: string) => chunkUrls(NEXT_DIR, html);
  * so no browser that runs this app downloads it (a local `next start`
  * measured 165 KB of JS transferred for the homepage against 196.6 here).
  * That is a fact about the unit, not a saving, and nothing here claims it.
+ */
+/*
+ * LOWERED 2026-10-30 — the worker run on demand (perf/lazy-slot-upload), and
+ * something got LIGHTER on every worker page. main 4bd2dc86 and the branch,
+ * both built and weighed with the shared weigher, raw KB / gz KB (exact):
+ *
+ *     row             before          after           delta          ceiling (was)
+ *     ocr-pdf         714 / 229.914   710 / 227.751   -4 / -2.163    727 / 228.7  (731 / 230.7)
+ *     summarize-pdf   722 / 234.328   710 / 229.195   -12 / -5.133   728 / 231.2  (740 / 236.3)
+ *     /status         680 / 215.554   675 / 213.416   -5 / -2.138    709 / 219.7  (714 / 221.8)
+ *     rotate-pdf, homepage, guide, 404, /tools, /workspace: ±0.002 (the
+ *     webpack runtime maps two more async chunks), unchanged
+ *     all 50 tools    every worker page -2.13..-5.13 gz (ai-extract and
+ *                     summarize -5.13, compress -2.48, translate -2.67, the
+ *                     rest -2.13..-2.17); every client-side page ±0.002
+ *
+ * What left: #223's shared chunk (8146-*.js, 2,528 B gz) — the slot upload,
+ * the poll, the error reader — is `@/lib/workers/job-run` now, reached only
+ * through `job-run-lazy.ts` (a chosen file warms it; a run awaits it), and
+ * held off every page's first load by `lazy-chunks.test.ts`. The stage
+ * helpers it shared stay with the panels that draw them. On Summarize and AI
+ * Extract the text module goes too (~3 gz), behind `@/lib/pdf/text-lazy`:
+ * its preflight and its count read text only once Run is pressed.
+ *
+ * Each ceiling came down by its row's saving (raw by the weigher's KB, gz
+ * floored to the tenth), as on 2026-10-29 — except ocr-pdf again, and in
+ * the other direction from before. By that rule it would be 228.6, which
+ * leaves 0.849 against the 0.858 still to come (WP-12 0.3, the unallocated
+ * 0.4, the layout's 0.158) and fails the test after BUDGETS by 0.009: main
+ * grew 0.17 on that page after the wave (229.74 -> 229.91, #224-#227), and
+ * on this machine main itself measured 0.786 left at 230.7 — 0.07 short of
+ * what is to come. 228.7 is the lowest tenth that takes it, 2.0 under
+ * 230.7. #223's chunk, the wave's "obvious candidate", is off the page;
+ * what keeps this row 0.1 above its saving now is main's growth since the
+ * wave, not the upload.
+ *
+ * EVERY_TOOL_PAGE is unchanged: by the same rule it falls by the smallest
+ * saving across the 50, and the client-side pages saved nothing.
  */
 const EVERY_TOOL_PAGE = { kb: 774, gzKb: 250.9 } as const;
 const BUDGETS = [
@@ -637,6 +676,10 @@ const BUDGETS = [
   // LOWERED 2026-10-29 by each row's saving (the wave, above): 805 / 256.5
   // -> 723 / 229.8, 813 / 257.3 -> 731 / 230.7 (see above: not its saving),
   // 822 / 263.0 -> 740 / 236.3.
+  //
+  // LOWERED 2026-10-30, the worker run on demand (above BUDGETS): ocr-pdf
+  // 731 / 230.7 -> 727 / 228.7, summarize-pdf 740 / 236.3 -> 728 / 231.2;
+  // rotate-pdf saved nothing and is unchanged.
   {
     name: "a client-side tool page",
     html: "tools/rotate-pdf.html",
@@ -646,14 +689,14 @@ const BUDGETS = [
   {
     name: "a worker tool page",
     html: "tools/ocr-pdf.html",
-    kb: 731,
-    gzKb: 230.7,
+    kb: 727,
+    gzKb: 228.7,
   },
   {
     name: "an AI tool page",
     html: "tools/summarize-pdf.html",
-    kb: 740,
-    gzKb: 236.3,
+    kb: 728,
+    gzKb: 231.2,
   },
   // A content page. The homepage-class budget is deliberate and does double
   // duty as a leak detector: a guide must never pull the pdf-lib chunk or a
@@ -756,7 +799,10 @@ const BUDGETS = [
   // (lazy-chunks.test.ts holds the pdf-lib half). The homepage's margins: a
   // pdf-lib-sized return cannot fit under either ceiling.
   // LOWERED 745 / 232.0 -> 714 / 221.8 on 2026-10-29 (the wave, above).
-  { name: "the status page", html: "status.html", kb: 714, gzKb: 221.8 },
+  // LOWERED 714 / 221.8 -> 709 / 219.7 on 2026-10-30 (the worker run on
+  // demand, above): it loaded #223's upload chunk through the security
+  // client's availability check.
+  { name: "the status page", html: "status.html", kb: 709, gzKb: 219.7 },
 ] as const;
 
 /**
