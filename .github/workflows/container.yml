@@ -185,6 +185,19 @@ jobs:
       - name: Worker image options proof — grayscale, permissions and page layout (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:options-proof
 
+      # Restricted-PDF editing (2026-10-29): Edit PDF and Fill Forms fill a
+      # PDF whose author restricted it WITHOUT the owner password, saved as
+      # an incremental update under the author's own encryption, in the
+      # browser (`src/lib/pdf/security`). Here the image's REAL qpdf
+      # encrypts a generated form (R6 AES-256 and R4 AES-128, object
+      # streams on, fill + comment only), the same save runs, and qpdf
+      # reads it back: --check clean, the same R/P/methods, the owner
+      # password still the owner's, the typed values decrypted — and the
+      # control (new objects unencrypted) must not read back. No user
+      # document, secret, queue or store.
+      - name: Worker image restricted-PDF editing proof — qpdf reads the in-browser save (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:restricted-edit-proof
+
       # OCR languages (2026-10-25): the image's own `tesseract --list-langs`
       # must name every language the product offers (derived from
       # OCR_LANGUAGES, not typed), and a page in each sample script — typed

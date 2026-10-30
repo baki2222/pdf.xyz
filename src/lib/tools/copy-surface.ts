@@ -131,6 +131,10 @@ export function copyFiles(): string[] {
     // policy renders. A directory root, so a sixth module is walked on
     // arrival. Same rule: no trailing unit comments in its files.
     path.join(ROOT, "src", "lib", "privacy"),
+    // The in-browser security handler (2026-10-29): what a restricted PDF's
+    // save refuses, and why a file could not be decrypted. New phrase code,
+    // walked from its first file. Same rule: no trailing unit comments.
+    path.join(ROOT, "src", "lib", "pdf", "security"),
     ...Object.keys(PENDING_COPY_ROOTS).map((root) => path.join(ROOT, root)),
   ];
   const out: string[] = [

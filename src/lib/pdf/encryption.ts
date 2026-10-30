@@ -178,6 +178,20 @@ export type EncryptionVerdict = "opens-without-password" | "needs-password";
 export const UNLOCK_TOOL_NAME = "Unlock PDF";
 export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
 
+/**
+ * The two tools that OPEN a restricted PDF (`openProtected`): they fill its
+ * form under the author's own encryption, and unlock every tool with the
+ * owner password typed in the page (`@/lib/pdf/security/protected-pdf`). Named as the
+ * catalogue names them — checked in `encryption-verdict.test.ts`.
+ */
+export const RESTRICTED_FORM_TOOLS = [
+  { name: "Edit PDF", href: "/tools/edit-pdf" },
+  { name: "Fill Forms", href: "/tools/fill-forms" },
+] as const;
+
+/** Added 2026-10-29, when those two began to open restricted files. */
+export const RESTRICTED_FORM_TOOLS_SENTENCE = `${RESTRICTED_FORM_TOOLS[0].name} and ${RESTRICTED_FORM_TOOLS[1].name} can still fill its form if the author allows that.`;
+
 /** The file needs a password to open. */
 export const PDF_NEEDS_PASSWORD_MESSAGE = `This PDF is password-protected. Remove the password with ${UNLOCK_TOOL_NAME} first, then try again.`;
 
@@ -190,7 +204,7 @@ export const PDF_NEEDS_PASSWORD_MESSAGE = `This PDF is password-protected. Remov
  * restrictions-only file is unlocked with its OWNER password. So the way out
  * this names is that one.
  */
-export const PDF_RESTRICTED_MESSAGE = `This PDF has editing restrictions set by its author. It opens without a password, but these tools can't change it until the restrictions are removed — ${UNLOCK_TOOL_NAME} removes them with the owner (permissions) password that set them.`;
+export const PDF_RESTRICTED_MESSAGE = `This PDF has editing restrictions set by its author. It opens without a password, but these tools can't change it until the restrictions are removed — ${UNLOCK_TOOL_NAME} removes them with the owner (permissions) password that set them. ${RESTRICTED_FORM_TOOLS_SENTENCE}`;
 
 /** The probe could not run: a sentence true of both kinds. */
 export const PDF_ENCRYPTED_UNKNOWN_MESSAGE = `This PDF is encrypted, so these tools can't change it. Remove the encryption with ${UNLOCK_TOOL_NAME} first — enter the password that opens it or, if it opens without one, its owner (permissions) password — then try again.`;

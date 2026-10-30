@@ -12,6 +12,10 @@
  *    that needs a password to open;
  *  - a runner that opts into `classifyLocked` (Compress) offers a restricted
  *    file the secure worker instead of refusing it;
+ *  - a runner that opts into `openProtected` (Edit PDF, Fill Forms, since
+ *    2026-10-29) OPENS it with the author's restrictions in force — its form
+ *    filled under the author's encryption, every tool once the owner
+ *    password is entered (`@/lib/pdf/security/protected-pdf`);
  *  - every other in-browser loader refuses both, in the words of the probe's
  *    verdict (`@/lib/pdf/encryption`): "password-protected" only for a file
  *    that needs a password, the editing-restrictions sentence for one that
@@ -68,13 +72,15 @@ function runnerSource(slug: string): string | null {
  * `refuses`: it refuses it, in the verdict's words. `null`: no in-browser
  * runner (a worker panel), which this does not classify.
  */
-type Restricted = "opens" | "offers-worker" | "refuses";
+type Restricted = "opens" | "opens-protected" | "offers-worker" | "refuses";
 
 function restrictedFileMeets(slug: string): Restricted | null {
   const source = runnerSource(slug);
   if (source === null) return null;
   if (/\breader="pdfjs"/.test(source)) return "opens";
   if (/\bclassifyLocked\s*:\s*true\b/.test(source)) return "offers-worker";
+  // A bare JSX flag on its own line: `openProtected` (see `use-single-pdf`).
+  if (/^\s*openProtected\s*$/m.test(source)) return "opens-protected";
   return "refuses";
 }
 
@@ -137,8 +143,9 @@ function falseClaims(text: string, meets: Restricted): string[] {
       return (
         restricted && (SAYS_PASSWORD_PROTECTED.test(s) || GETS_THROUGH.test(s))
       );
-    // A reader that opens restricted files: neither they, nor encrypted files
-    // as a whole, are refused or called password-protected.
+    // A reader that opens restricted files (pdfjs, or the editors that honour
+    // the author's grant): neither they, nor encrypted files as a whole, are
+    // refused or called password-protected.
     return (
       (restricted || ANY_ENCRYPTED.test(s)) &&
       (REFUSED.test(s) || SAYS_PASSWORD_PROTECTED.test(s))
@@ -206,6 +213,8 @@ describe("encryption claims on tool pages match the runner's reader", () => {
       "pdf-to-text",
     ]);
     expect(by("offers-worker")).toEqual(["compress-pdf"]);
+    // 2026-10-29: the two tools that fill a restricted file's form.
+    expect(by("opens-protected")).toEqual(["edit-pdf", "fill-forms"]);
     expect(by("refuses").length).toBeGreaterThan(15);
     // Bounded both ways: a corpus that shrank would pass vacuously.
     expect(served.length).toBe(tools.length);

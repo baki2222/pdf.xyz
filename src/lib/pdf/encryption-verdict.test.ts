@@ -14,6 +14,8 @@ import {
   PDF_ENCRYPTED_UNKNOWN_MESSAGE,
   PDF_NEEDS_PASSWORD_MESSAGE,
   PDF_RESTRICTED_MESSAGE,
+  RESTRICTED_FORM_TOOLS,
+  RESTRICTED_FORM_TOOLS_SENTENCE,
   UNLOCK_TOOL_HREF,
   UNLOCK_TOOL_NAME,
   probePdfEncryption,
@@ -325,6 +327,27 @@ describe("the way out is real", () => {
     for (const message of ENCRYPTED_PDF_MESSAGES) {
       expect(message).toContain(UNLOCK_TOOL_NAME);
     }
+  });
+
+  it("the tools the restricted message names exist, and are the ones that open a restricted file", () => {
+    expect(PDF_RESTRICTED_MESSAGE).toContain(RESTRICTED_FORM_TOOLS_SENTENCE);
+    const runners = path.join(process.cwd(), "src/components/tools/runner");
+    for (const { name, href } of RESTRICTED_FORM_TOOLS) {
+      const slug = href.replace(/^\/tools\//, "");
+      expect(getToolBySlug(slug)?.name).toBe(name);
+      expect(RESTRICTED_FORM_TOOLS_SENTENCE).toContain(name);
+    }
+    // The property, not the names: the runners that opt into opening a
+    // restricted file are exactly these two (discovered, not listed).
+    const openers = readdirSync(runners)
+      .filter((f) => f.endsWith(".tsx") && !f.includes(".test."))
+      .filter((f) =>
+        /^\s*openProtected\s*$/m.test(
+          readFileSync(path.join(runners, f), "utf8"),
+        ),
+      )
+      .sort();
+    expect(openers).toEqual(["edit-runner.tsx", "fill-forms-runner.tsx"]);
   });
 
   /*
