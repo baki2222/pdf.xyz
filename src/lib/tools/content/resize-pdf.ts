@@ -83,7 +83,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: ["how-to-resize-pdf-pages"],
 };
 
 export default content;

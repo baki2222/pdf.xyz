@@ -310,7 +310,12 @@ describe("product events: declared ⇔ sent", () => {
       orphaned,
       "an emitter nothing calls or mounts is a declared event with extra steps",
     ).toEqual([]);
-  });
+    // Budget, not assertion (2026-10-30): up to 4.6 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default. The work is the same; the runner is not.
+    // `src/tests/timeout-headroom.ts` names the next test past half its budget
+    // on every CI run.
+  }, 30_000);
 });
 
 describe("docs/OBSERVABILITY.md lists the events the code declares", () => {

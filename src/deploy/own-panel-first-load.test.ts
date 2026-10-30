@@ -270,7 +270,12 @@ describe("a tool page's first load carries its own panel, and no other tool's", 
     // A plausibility bound, not a measurement: 50 tools on 2026-10-09.
     expect(pages.length).toBeGreaterThanOrEqual(40);
     expect(pages.length).toBeLessThanOrEqual(120);
-  });
+    // Budget, not assertion (2026-10-30): up to 3.7 s on CI's slower 4-vCPU
+    // runners in the Bundle budget step (12 logs, 10-24..10-30), against
+    // vitest's 5-second default. The work is the same; the runner is not.
+    // `src/tests/timeout-headroom.ts` names the next test past half its budget
+    // on every CI run.
+  }, 30_000);
 
   it("health check: the panel modules are every panel file, read off both dispatchers", () => {
     if (!built) return;

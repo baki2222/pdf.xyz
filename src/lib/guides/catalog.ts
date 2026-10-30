@@ -96,6 +96,26 @@ import {
   HTML_LAYOUT_STEP,
   htmlLayoutAnswer,
 } from "@/lib/tools/html-layout-copy";
+import { MAX_SCAN_SIDE_PX, SCAN_PAGE_SIZES } from "@/lib/pdf/scan-to-pdf";
+import { SCAN_ENHANCEMENTS } from "@/lib/pdf/scan-enhance";
+import { METADATA_DATE_FIELDS, METADATA_TEXT_FIELDS } from "@/lib/pdf/metadata";
+import {
+  MAX_RESIZE_SIDE_PT,
+  MIN_RESIZE_SIDE_PT,
+  RESIZE_MODES,
+  RESIZE_ORIENTATIONS,
+  RESIZE_SIZES,
+} from "@/lib/pdf/resize";
+import {
+  N_UP_BORDER_PT,
+  N_UP_COUNTS,
+  N_UP_MARGINS,
+  N_UP_ORDERS,
+  N_UP_ORIENTATIONS,
+  N_UP_SHEETS,
+  type NUpCount,
+} from "@/lib/pdf/n-up";
+import { PT_PER_INCH } from "@/lib/pdf/page-geometry";
 import type { Guide } from "./types";
 
 /**
@@ -190,6 +210,72 @@ const RTL_OCR_NAMES = listAnd(RTL_OCR_LANGUAGES.map(describeOcrLanguage));
 
 /** PDF to Excel's amount examples, as the engine stores them as numbers. */
 const XLSX_AMOUNTS = listOr(XLSX_NUMBER_EXAMPLES);
+
+/**
+ * A control's on-screen label, by id, from the list the runner draws its
+ * buttons from. Throws rather than describe a choice the runner dropped.
+ */
+function labelOf<T extends { id: string; label: string }>(
+  list: readonly T[],
+  id: T["id"],
+): string {
+  const found = list.find((entry) => entry.id === id);
+  if (!found) throw new Error(`a guide names unknown choice "${id}"`);
+  return found.label;
+}
+
+/** Scan to PDF's Clean-up and Page size choices, as its runner labels them. */
+const SCAN_CLEANUPS = listOr(SCAN_ENHANCEMENTS.map((e) => e.label));
+const SCAN_SIZES = listOr(SCAN_PAGE_SIZES.map((s) => s.label));
+const SCAN_DOCUMENT = labelOf(SCAN_ENHANCEMENTS, "document");
+const SCAN_BW = labelOf(SCAN_ENHANCEMENTS, "bw");
+const SCAN_ORIGINAL = labelOf(SCAN_ENHANCEMENTS, "original");
+const SCAN_FIT = labelOf(SCAN_PAGE_SIZES, "fit");
+const SCAN_FIXED_SIZES = listAnd(
+  SCAN_PAGE_SIZES.filter((s) => s.id !== "fit").map((s) => s.label),
+);
+const SCAN_LONG_SIDE = MAX_SCAN_SIDE_PX.toLocaleString("en-US");
+
+/** Edit PDF Metadata's fields, as its Document properties section labels them. */
+const METADATA_TEXT_NAMES = listAnd(METADATA_TEXT_FIELDS.map((f) => f.label));
+const METADATA_DATE_NAMES = listAnd(METADATA_DATE_FIELDS.map((f) => f.label));
+
+/** Resize PDF's choices, as its runner labels them. */
+const RESIZE_SIZE_NAMES = listOr(RESIZE_SIZES.map((s) => s.label));
+const RESIZE_UNITS = listOr(LENGTH_UNITS);
+const RESIZE_FIT = labelOf(RESIZE_MODES, "fit");
+const RESIZE_CANVAS = labelOf(RESIZE_MODES, "canvas");
+const RESIZE_MATCH = labelOf(RESIZE_ORIENTATIONS, "match");
+const RESIZE_FIXED_ORIENTATIONS = listOr(
+  RESIZE_ORIENTATIONS.filter((o) => o.id !== "match").map((o) => o.label),
+);
+const RESIZE_A4 = labelOf(RESIZE_SIZES, "a4");
+const RESIZE_LETTER = labelOf(RESIZE_SIZES, "letter");
+const RESIZE_MIN_IN = MIN_RESIZE_SIDE_PT / PT_PER_INCH;
+const RESIZE_MAX_IN = MAX_RESIZE_SIDE_PT / PT_PER_INCH;
+
+/** Multiple Pages per Sheet's choices, as its runner labels them. */
+const N_UP_COUNT_NAMES = listOr(N_UP_COUNTS.map(String));
+const N_UP_SHEET_NAMES = listOr(N_UP_SHEETS.map((s) => s.label));
+const N_UP_ORDER_NAMES = listOr(N_UP_ORDERS.map((o) => o.label));
+const N_UP_ACROSS = labelOf(N_UP_ORDERS, "across");
+const N_UP_DOWN = labelOf(N_UP_ORDERS, "down");
+const N_UP_AUTO = labelOf(N_UP_ORIENTATIONS, "auto");
+const N_UP_FIXED_ORIENTATIONS = listOr(
+  N_UP_ORIENTATIONS.filter((o) => o.id !== "auto").map((o) => o.label),
+);
+const N_UP_MARGIN_NAMES = listOr(
+  N_UP_MARGINS.map((m) =>
+    m.points > 0 ? `${m.label} (${m.points} points)` : m.label,
+  ),
+);
+/** "2-up": a count the runner offers, or the build fails. */
+function upName(count: NUpCount): string {
+  if (!N_UP_COUNTS.includes(count)) {
+    throw new Error(`a guide names ${count} per sheet, which is not offered`);
+  }
+  return `${count}-up`;
+}
 
 export const guides: Guide[] = [
   {
@@ -2866,5 +2952,342 @@ export const guides: Guide[] = [
     ],
     published: "2026-10-29",
     updated: "2026-10-29",
+  },
+  {
+    slug: "how-to-scan-documents-to-pdf-with-your-phone",
+    title: "How to scan documents to PDF with your phone camera",
+    description:
+      "Photograph paper pages with your phone's camera and save them as one PDF, with a clean-up that makes the paper white. Made in your browser, no app needed.",
+    tools: ["scan-to-pdf", "ocr-pdf", "jpg-to-pdf"],
+    keywords: [
+      "how to scan documents to pdf with phone",
+      "scan to pdf",
+      "phone camera to pdf",
+      "scan paper to pdf without an app",
+      "pdf scanner online",
+      "turn photos of pages into a pdf",
+    ],
+    intro: [
+      `To scan paper to a PDF with your phone, open ${nameOf("scan-to-pdf")} in your phone's browser and press Take photo. Your phone's camera opens; photograph the first page, then press the button again for each page after it. Choose a clean-up, press Create PDF, and download one PDF with a page for every photo.`,
+      `There is no app to install. The button asks the browser for a photo the same way a page asks for any file, and your phone's own camera takes it. On a computer the same button opens the file picker, so you can also use photos you took earlier. Everything after that happens in your browser tab, so your photos stay on your device.`,
+      `The clean-up is what makes a photo look like a scan: ${SCAN_DOCUMENT} turns a dim, grey photo of paper into white paper with dark text, and ${SCAN_BW} reduces it to pure black and white for the smallest file.`,
+    ],
+    steps: [
+      `Open the ${nameOf("scan-to-pdf")} tool on your phone and press Take photo. Lay the page flat in good light and fill the frame with it before you take the picture.`,
+      "Press Take photo of the next page for each page after the first. To use photos you already have, drop JPG or PNG files where it says Drop photos here, or click browse.",
+      "Check the Pages list. Each photo is a page with a preview; use its buttons to rotate it a quarter turn, move it up or down, or remove it.",
+      `Under Clean-up choose ${SCAN_CLEANUPS}, and under Page size choose ${SCAN_SIZES}. The previews change to match.`,
+      "Press Create PDF, then Download PDF. The file is named scan- followed by today's date.",
+    ],
+    sections: [
+      {
+        id: "good-photos",
+        heading: "Taking photos that scan well",
+        body: [
+          "The photo is used exactly as you framed it. The tool does not find the edges of the page, crop away the table around it or straighten a page shot at an angle, so the framing is yours to get right: lay the page on a flat surface, hold the phone straight above it, and let the page fill the frame. Daylight from a window works well; stand so your own shadow does not fall across the paper.",
+          "Phones record which way up each photo was taken, and the tool uses that to turn every page upright. Some apps drop that note when they save or share a picture, so if a preview still shows a page on its side, press its rotate button until it reads the right way up.",
+        ],
+      },
+      {
+        id: "clean-up",
+        heading: `${SCAN_ORIGINAL}, ${SCAN_DOCUMENT} or ${SCAN_BW}`,
+        body: [
+          `${SCAN_ORIGINAL} keeps the photo's colours, which suits a page with a coloured stamp, a photo or highlighter you need to see. ${SCAN_DOCUMENT} is the starting choice: it makes the page grayscale and stretches the contrast, so off-white paper becomes white and faint print becomes dark, while keeping the grey tones of a pencil note or a signature.`,
+          `${SCAN_BW} turns every pixel pure black or pure white and gives the smallest file, which makes it the best choice for typed text. Each pixel is compared with the brightness of the area around it rather than with one fixed level, so a shadow across one corner of the paper still reads as paper instead of turning black.`,
+        ],
+      },
+      {
+        id: "page-size",
+        heading: "Page size and sharpness",
+        body: [
+          `On ${SCAN_FIXED_SIZES} each photo is scaled to fit the page, centred, with its proportions kept and no margin added, and the page turns landscape for a wide photo. ${SCAN_FIT} gives each page the photo's own shape instead.`,
+          `Each photo is scaled so its long side is at most ${SCAN_LONG_SIDE} pixels before it is saved. That is sharp enough to read and print a full page, and it keeps a many-page scan small enough to send by email. Photos up to ${ceilingMb("scan-to-pdf")} MB each are accepted.`,
+        ],
+      },
+      {
+        id: "other-tools",
+        heading: "When another tool is the better fit",
+        body: [
+          `The pages of the PDF are pictures, so their text cannot be searched or copied. To add a searchable text layer, run the finished PDF through ${nameOf("ocr-pdf")}; unlike this tool, it runs on pdf.xyz's secure server.`,
+          `If you are turning ordinary photos into a PDF rather than scanning paper, such as holiday pictures or screenshots, ${nameOf("jpg-to-pdf")} keeps them as they are and lets you choose a margin around each one, where this tool fills the page and cleans up the light.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Do I need to install a scanner app?",
+        answer:
+          "No. The tool runs in your phone's web browser. Take photo opens the phone's own camera, and the PDF is made in the browser tab, so there is nothing to install and no account to make.",
+      },
+      {
+        question: "Are my photos sent to a server?",
+        answer:
+          "No. The photos are read, cleaned up and saved into the PDF inside your browser tab, and the download is made on your device. The page itself loads from pdf.xyz, but the pictures you take or pick are not sent to us.",
+      },
+      {
+        question:
+          "Does it straighten the page or crop the edges automatically?",
+        answer: `No. There is no automatic edge detection, cropping or perspective correction: each photo is used as framed. Fill the frame with the page and hold the phone flat above it. To trim a margin afterwards, open the PDF in ${nameOf("crop-pdf")}.`,
+      },
+      {
+        question: "Can I search or copy the text in the scanned PDF?",
+        answer: `Not on its own, because each page is a picture. ${nameOf("ocr-pdf")} adds a searchable, selectable text layer; it runs on pdf.xyz's secure server rather than in your browser.`,
+      },
+      {
+        question: "Which photos can I add?",
+        answer: `JPG and PNG photos, up to ${ceilingMb("scan-to-pdf")} MB each. Another kind of image is turned away with a note to choose JPG or PNG photos.`,
+      },
+    ],
+    published: "2026-10-30",
+    updated: "2026-10-30",
+  },
+  {
+    slug: "how-to-edit-pdf-metadata",
+    title: "How to edit PDF metadata (title, author, keywords)",
+    description:
+      "See and change a PDF's title, author, subject, keywords and dates, or remove them all, XMP included, right in your browser. No account needed.",
+    tools: ["edit-pdf-metadata", "redact-pdf", "unlock-pdf"],
+    keywords: [
+      "how to edit pdf metadata",
+      "change pdf title",
+      "change pdf author",
+      "remove metadata from pdf",
+      "pdf properties editor",
+      "add keywords to pdf",
+    ],
+    intro: [
+      `To edit a PDF's metadata, open ${nameOf("edit-pdf-metadata")}, add your file, and type over the values it shows: ${METADATA_TEXT_NAMES}, plus the ${METADATA_DATE_NAMES} dates. Press Save metadata and download the copy. To strip all of it before you share a file, choose Remove all metadata instead.`,
+      "Metadata is the document information a PDF carries beside its pages. Many readers show the title in the window or tab instead of the file name, search tools index it, and anyone who opens the file's properties can read the author, which is often your name, filled in by the app that made the file.",
+      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("edit-pdf-metadata")} MB, and the pages themselves are not changed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("edit-pdf-metadata")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
+      "Wait for the Document properties fields to fill in with what the file holds now. A field that reads Not set has no value.",
+      `Type over any field, or empty it to remove that entry. ${METADATA_DATE_NAMES} take a date and time in your device's time zone.`,
+      "To remove everything instead, switch What to do from Edit values to Remove all metadata.",
+      "Press Save metadata, or Remove metadata when removing. Check the values read back from the saved copy, then press Download PDF; the copy's name ends in -metadata.",
+    ],
+    sections: [
+      {
+        id: "the-fields",
+        heading: "What each field is for",
+        body: [
+          "Title is what many readers show in place of the file name, and the line a search engine may use for the file. Author names the person or company behind it. Subject is a one-line summary, and Keywords are words a desktop search or a document library can find the file by; separate them with commas.",
+          "Creator is the app the document was made in, such as a word processor, and Producer is the program that wrote the PDF. Created and Modified are the dates the file states for itself. A scanned or converted file often carries the date it was converted rather than the date of the document, and you can correct either one.",
+        ],
+      },
+      {
+        id: "xmp",
+        heading: "The second copy, XMP",
+        body: [
+          "Many PDFs keep the same information twice: once in the document information entries and again in an XMP packet, a block of XML that Acrobat and other readers prefer when it is there. A tool that changed only the first copy would leave those readers showing the old title.",
+          "So when a file has XMP, a note beside Document properties says so, and saving replaces the packet with a fresh one holding the same values as the fields. Anything else the old packet held is not kept. A file with no XMP packet does not get one.",
+        ],
+      },
+      {
+        id: "remove-all",
+        heading: "What Remove all metadata takes out, and what it leaves",
+        body: [
+          `Remove all metadata deletes the ${METADATA_TEXT_NAMES} entries, both dates, and the XMP packet. Every page is kept as it was.`,
+          `It does not touch what is on the pages, or the comments, form fields, bookmarks and the metadata inside embedded images. If the private details are in the text or pictures on a page, use ${nameOf("redact-pdf")} to remove them from the page itself.`,
+        ],
+      },
+      {
+        id: "limits",
+        heading: "Files it cannot change",
+        body: [
+          `An encrypted PDF cannot be opened here, even one that only limits printing or copying. ${nameOf("unlock-pdf")} can remove the encryption with a password you know; it runs on a secure server, not in your browser.`,
+          "A PDF carrying a digital signature can be edited, but the copy is a changed file, so the signature in it will no longer verify. Keep the signed original if the signature matters.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "How do I change the title of a PDF?",
+        answer:
+          "Open the file, type the new title into the Title field, press Save metadata and download the copy. The file name is a separate thing: rename the downloaded file in your folder if you want that changed too.",
+      },
+      {
+        question: "Why does my PDF reader still show the old title?",
+        answer:
+          "Make sure you opened the downloaded copy, not the original. Some readers show the file name rather than the title unless the PDF asks them to, and a reader may remember what it showed last time. When the file had XMP metadata, the copy's XMP holds the new title too.",
+      },
+      {
+        question: "How do I remove my name from a PDF before sharing it?",
+        answer:
+          "Empty the Author field and save, or choose Remove all metadata to clear every entry at once. A name typed on the pages themselves is not metadata; it stays until you remove it from the page.",
+      },
+      {
+        question: "Is my PDF sent to a server to change its metadata?",
+        answer:
+          "No. The file is opened, changed and saved in your browser tab. The page loads from pdf.xyz, but the PDF you pick is not sent to us.",
+      },
+      {
+        question: "Can I type a title in any language?",
+        answer:
+          "Yes. The values are stored as Unicode, so Bengali, Chinese, Arabic or any other script is saved exactly as typed and read back by other PDF readers.",
+      },
+    ],
+    published: "2026-10-30",
+    updated: "2026-10-30",
+  },
+  {
+    slug: "how-to-resize-pdf-pages",
+    title: "How to resize PDF pages to A4 or Letter",
+    description: `Change a PDF's pages to ${RESIZE_SIZE_NAMES} or a custom size, scaling the content to fit or changing only the canvas. Runs in your browser.`,
+    tools: ["resize-pdf", "crop-pdf", "n-up-pdf"],
+    keywords: [
+      "how to resize pdf pages",
+      "resize pdf to a4",
+      "convert letter pdf to a4",
+      "change pdf page size",
+      "scale pdf to fit a4",
+      "a4 to letter pdf",
+    ],
+    intro: [
+      `To resize the pages of a PDF, open ${nameOf("resize-pdf")}, add your file, and pick the new page size: ${RESIZE_SIZE_NAMES}, or a custom width and height. Choose ${RESIZE_FIT} so nothing is cut off, press Resize PDF, and download the copy.`,
+      `The usual reason is paper. A document laid out on ${RESIZE_LETTER} has to print on ${RESIZE_A4} in most of the world, or the other way round, and a printer left to sort it out may cut the edges off or shrink the page by its own rules. Resizing the file settles the size once, for every printer and reader.`,
+      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("resize-pdf")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("resize-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
+      `Under New page size, pick ${RESIZE_SIZE_NAMES}, or pick Custom and type a Width and Height in ${RESIZE_UNITS}.`,
+      `Under Orientation, keep ${RESIZE_MATCH} so each page stays portrait or landscape as it was, or choose ${RESIZE_FIXED_ORIENTATIONS} for every page.`,
+      `Under How to resize, choose ${RESIZE_FIT} or ${RESIZE_CANVAS}.`,
+      "Under Pages, keep All pages, or choose Selected pages and type a list such as 1-3, 5.",
+      "Press Resize PDF, then Download resized PDF. The copy is named after yours, with -resized added.",
+    ],
+    sections: [
+      {
+        id: "two-ways",
+        heading: "Scale the content, or change only the canvas",
+        body: [
+          `${RESIZE_FIT} gives each page the new size and scales what is on it, up or down, to fit inside, centred and with its proportions kept, so nothing is cut off and nothing is stretched. When the old and new shapes differ, a blank band appears at two opposite edges.`,
+          `${RESIZE_CANVAS} keeps the content at the size it was and moves the page edges around it, centred. A bigger size adds blank margin, which leaves room for binding, hole punching or notes. A smaller size hides whatever falls outside the new edges; it is hidden, not deleted, much as ${nameOf("crop-pdf")} hides it.`,
+        ],
+      },
+      {
+        id: "letter-and-a4",
+        heading: `${RESIZE_LETTER} to ${RESIZE_A4}, and back`,
+        body: [
+          `${RESIZE_A4} is a little narrower and taller than ${RESIZE_LETTER}. Scaled to fit, a ${RESIZE_LETTER} page shrinks slightly to the new width and gains a thin blank band at the top and bottom; an ${RESIZE_A4} page made ${RESIZE_LETTER} shrinks to the new height and gains bands at the left and right. Either way every line stays on the page.`,
+          `A page that a reader shows turned, such as one rotated in ${nameOf("rotate-pdf")}, gets the new size the way it is shown, so a landscape page becomes a landscape ${RESIZE_A4} page with ${RESIZE_MATCH}. A custom size can be anything from ${RESIZE_MIN_IN} to ${RESIZE_MAX_IN} inches on each side.`,
+        ],
+      },
+      {
+        id: "what-it-keeps",
+        heading: "What resizing keeps",
+        body: [
+          `Text stays text and images are not re-compressed: the page's own drawing is kept and only drawn at a different size, so nothing turns blurry. With ${RESIZE_FIT}, links, comments and form fields move and scale with the content, so they stay on the words they belong to.`,
+          `If what you want is a smaller file rather than a smaller page, use ${nameOf("compress-pdf")}. To fit several pages onto one sheet of paper, use ${nameOf("n-up-pdf")}; to trim white margins off the pages, use ${nameOf("crop-pdf")}.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "How do I change a PDF from Letter to A4?",
+        answer: `Open the file, pick ${RESIZE_A4} under New page size, keep ${RESIZE_MATCH} and ${RESIZE_FIT}, and press Resize PDF. The content shrinks slightly to fit the narrower page, so nothing is cut off when it prints.`,
+      },
+      {
+        question: "Will resizing cut off the edges of my pages?",
+        answer: `Not with ${RESIZE_FIT}: the content is scaled to fit inside the new page. With ${RESIZE_CANVAS} and a smaller size, what falls outside the new edges is hidden, though it is still in the file.`,
+      },
+      {
+        question: "Will the text get blurry?",
+        answer:
+          "No. Text and drawings stay sharp and images are not re-encoded; the page is only drawn at a different size, the way a printer's fit-to-page setting does it. Scaling a page down does make small text smaller.",
+      },
+      {
+        question: "Can I resize only some pages?",
+        answer:
+          "Yes. Under Pages choose Selected pages and type the pages, such as 2, 4-6. The pages you leave out keep their size, so the copy can mix sizes.",
+      },
+      {
+        question: "Is my PDF sent to a server to resize it?",
+        answer:
+          "No. The pages are resized in your browser tab and the copy is saved on your device; the PDF is not sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-30",
+    updated: "2026-10-30",
+  },
+  {
+    slug: "how-to-print-multiple-pages-per-sheet",
+    title: `How to print multiple pages per sheet (${upName(2)}, ${upName(4)})`,
+    description: `Put ${N_UP_COUNT_NAMES} PDF pages on each ${N_UP_SHEET_NAMES} sheet, in the order you pick, with margins and optional borders. Runs in your browser.`,
+    tools: ["n-up-pdf", "resize-pdf", "organize-pages"],
+    keywords: [
+      "how to print multiple pages per sheet",
+      "multiple pages per sheet pdf",
+      "2 pages per sheet pdf",
+      "4 pages per sheet",
+      "n-up pdf",
+      "print slides as handouts",
+    ],
+    intro: [
+      `To put several pages of a PDF on one sheet, open ${nameOf("n-up-pdf")}, add your file, and choose ${N_UP_COUNT_NAMES} per sheet. Press Create sheets and download a new PDF whose every page holds that many of the original pages, shrunk to fit.`,
+      "It does what a print dialog's pages-per-sheet setting does, but saves the result as a file. You can check it on screen before printing, send it to someone else to print, or print it on a printer whose settings you cannot find; print it at one page per sheet, since the pages are already laid out.",
+      `It runs in your browser, so your PDF stays on your device. It opens one file at a time, up to ${ceilingMb("n-up-pdf")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("n-up-pdf")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
+      `Under Pages per sheet, choose ${N_UP_COUNT_NAMES} per sheet. Beside the heading, the tool shows how many sheets that makes.`,
+      `Under Sheet size choose ${N_UP_SHEET_NAMES}, and under Orientation keep ${N_UP_AUTO} or choose ${N_UP_FIXED_ORIENTATIONS}.`,
+      `Under Order choose ${N_UP_ORDER_NAMES}, and under Margin choose ${N_UP_MARGIN_NAMES}. Tick Draw a thin border around each page for an outline you can cut along.`,
+      `Press Create sheets, then Download PDF. The copy is named after yours, with the count added, such as -${upName(4)}.`,
+    ],
+    sections: [
+      {
+        id: "layout",
+        heading: "How the pages are laid out",
+        body: [
+          `${N_UP_AUTO} picks portrait or landscape, whichever draws the first page largest: two portrait pages sit side by side on a landscape sheet, and four fill a portrait sheet in a grid. Each page is scaled to fit its place with its proportions kept, so a landscape page among portrait ones is simply drawn smaller.`,
+          `${N_UP_ACROSS} fills each row from left to right and then moves down, the way you read. ${N_UP_DOWN} fills each column from top to bottom and then moves right, like newspaper columns. When the last sheet is not full, its remaining places are left empty. The margin keeps the same space at the sheet's edges and between pages, and the border is a ${N_UP_BORDER_PT}-point line.`,
+        ],
+      },
+      {
+        id: "what-the-sheets-keep",
+        heading: "What the sheets keep",
+        body: [
+          "Each page is placed as a drawing, not a picture, so text stays sharp and selectable however far you zoom in. What shrinks is the printed size: at the higher counts, body text becomes small, so print a test sheet before a long run.",
+          "Filled form fields and stamps show on the sheets as they look, but links and form fields stop being clickable or editable there. The sheets are a new PDF, so the original's bookmarks are not carried over. Keep the original for anything that has to stay interactive.",
+        ],
+      },
+      {
+        id: "related-jobs",
+        heading: "When another tool is the better fit",
+        body: [
+          `Pages go onto the sheets in their own order; the tool does not rearrange them for a folded booklet. To change the order first, such as moving a cover page or dropping blank pages, use ${nameOf("organize-pages")} and then make the sheets.`,
+          `To print one page per sheet on different paper, such as a ${RESIZE_LETTER} document on ${RESIZE_A4}, use ${nameOf("resize-pdf")} instead.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "How do I print two pages on one sheet of paper?",
+        answer: `Choose ${N_UP_COUNTS[0]} per sheet, keep ${N_UP_AUTO} orientation, and press Create sheets. Two portrait pages land side by side on a landscape sheet. Download the PDF and print it at one page per sheet.`,
+      },
+      {
+        question: "Is the text still sharp and searchable?",
+        answer:
+          "Yes. Each page is placed as a scaled-down drawing, not turned into an image, so text stays selectable and sharp when you zoom in. Only its printed size changes.",
+      },
+      {
+        question: "Do links and form fields still work on the sheets?",
+        answer:
+          "They show as they looked, but they stop being interactive: a link on a sheet does not open and a field cannot be edited. Keep the original file for anything that has to stay clickable.",
+      },
+      {
+        question: "Can it make a folded booklet?",
+        answer: `No. Pages fill the sheets in their own order, ${N_UP_ACROSS.toLowerCase()} or ${N_UP_DOWN.toLowerCase()}; there is no booklet ordering for folding and stapling.`,
+      },
+      {
+        question: "Is my PDF sent to a server?",
+        answer:
+          "No. The sheets are made in your browser tab and saved on your device; the PDF is not sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-30",
+    updated: "2026-10-30",
   },
 ];

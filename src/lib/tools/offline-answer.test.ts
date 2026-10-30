@@ -584,7 +584,12 @@ describe("the fetch-site graph is healthy", () => {
     expect(classesOf("lib/pdf/unicode-font.ts#fetchFromOrigin")).toEqual([
       "drawing-font",
     ]);
-  });
+    // Budget, not assertion (2026-10-30): up to 2.7 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default. The work is the same; the runner is not.
+    // `src/tests/timeout-headroom.ts` names the next test past half its budget
+    // on every CI run.
+  }, 30_000);
 
   it("each runner's graph is plausibly sized, and the controls land where they must", () => {
     const sizes = inBrowser().map((t) => [t.slug, reachedBy(t.slug).size]);

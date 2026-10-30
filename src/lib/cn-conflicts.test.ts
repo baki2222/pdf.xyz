@@ -429,5 +429,10 @@ describe("cn() call sites", () => {
       found,
       'a cn() call can produce two classes from one family — write one class per family per branch (`x ? "a" : "b"`), since cn() does not merge',
     ).toEqual([]);
-  });
+    // Budget, not assertion (2026-10-30): up to 4.8 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default. The work is the same; the runner is not.
+    // `src/tests/timeout-headroom.ts` names the next test past half its budget
+    // on every CI run.
+  }, 30_000);
 });

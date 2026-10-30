@@ -3,6 +3,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { nativeCanvasTestFiles } from "./src/tests/native-canvas";
+import { TimeoutHeadroomReporter } from "./src/tests/timeout-headroom";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 
@@ -44,6 +45,26 @@ export function cliExclude(argv: readonly string[]): string[] {
 const CLI_EXCLUDE = cliExclude(process.argv);
 
 /**
+ * The reporters, which on GitHub Actions add one that lists every test that
+ * used more than half its timeout (`src/tests/timeout-headroom.ts` has why).
+ * Elsewhere `undefined`, so vitest keeps choosing its own. Setting
+ * `reporters` replaces vitest's defaults, so CI names both of them: the
+ * console reporter and `github-actions`, which annotates failures.
+ */
+export function suiteReporters(
+  env: Readonly<Record<string, string | undefined>>,
+): ["default", "github-actions", TimeoutHeadroomReporter] | undefined {
+  return env.GITHUB_ACTIONS === "true"
+    ? [
+        "default",
+        "github-actions",
+        new TimeoutHeadroomReporter({ root: ROOT, github: true }),
+      ]
+    : undefined;
+}
+const REPORTERS = suiteReporters(process.env);
+
+/**
  * What every project runs with; each project adds its pool, and the
  * native-canvas project one setup file of its own. Exported for
  * `src/tests/pdfjs-load-order.vitest.config.ts`, which runs a child vitest
@@ -74,6 +95,9 @@ export default defineConfig({
   plugins: [tsconfigPaths(), react()],
   resolve,
   test: {
+    // Spread, not `reporters: undefined`: vitest 4 reads an explicit
+    // undefined as a list and fails to start.
+    ...(REPORTERS ? { reporters: REPORTERS } : {}),
     // Compile every `scripts/worker-*.ts` entrypoint once (~1.8s) before any test runs, so the
     // ~1.2k CLI smoke spawns exec plain `node` rather than paying tsx's ~0.61s loader bootstrap
     // each time (~730 CPU-seconds of pure overhead — the reason the `pnpm qa` vitest step blew its

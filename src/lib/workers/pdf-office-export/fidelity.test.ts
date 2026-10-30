@@ -93,7 +93,12 @@ describe("the comparison, against controls", () => {
         expect(ink / page.gray.length, fixture.name).toBeGreaterThan(5);
       }
     }
-  });
+    // Budget, not assertion (2026-10-30): up to 4.2 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default. The work is the same; the runner is not.
+    // `src/tests/timeout-headroom.ts` names the next test past half its budget
+    // on every CI run.
+  }, 30_000);
 
   // `pnpm worker:prove-tools` against production, 2026-10-24: the PowerPoint
   // round trip FAILED with pdf.js's "Please provide binary data as
@@ -125,7 +130,12 @@ describe("the comparison, against controls", () => {
         expect(page.score, `${fixture.name} p${page.page}`).toBeCloseTo(1, 2);
       expect(report.pass, fixture.name).toBe(false);
     }
-  });
+    // Budget, not assertion (2026-10-30): up to 5.2 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default, and it timed out there on 2026-10-25 (run 40159338051).
+    // The work is the same; the runner is not. `src/tests/timeout-headroom.ts`
+    // names the next test past half its budget on every CI run.
+  }, 30_000);
 
   it("sees a page whose content moved 30 points, and forgives one moved 1 point", async () => {
     const { pdf } = await imageCaptionPdf();
