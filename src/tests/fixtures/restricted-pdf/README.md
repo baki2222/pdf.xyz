@@ -46,6 +46,9 @@ on purpose. Added 2026-10-30, when the worker-image proof hit it.
 ## Where they are used
 
 - `src/tests/restricted-pdf-fixtures.ts` — the table above, as data.
+- `src/lib/pdf/security/restricted-comments.test.ts` — a highlight and a note
+  saved as comments under each grant that allows them (/P bit 6), the
+  unencrypted-write control, and the view-only file that refuses them.
 - `src/lib/pdf/security/protected-pdf.test.ts` — key derivation, owner password
   right/wrong, fill-and-save read back by pdf.js, the unencrypted-write control.
 - `e2e/restricted-pdf.spec.ts` — the banner, a fill and a download in

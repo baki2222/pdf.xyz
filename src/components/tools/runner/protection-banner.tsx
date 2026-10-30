@@ -31,10 +31,12 @@ export function allowedSentence(
   canFill: boolean,
 ): string {
   // A grant this editor cannot honour without rewriting the file: the
-  // author allows changes, but only filling can be saved back under the
-  // author's encryption here.
+  // author allows changes, but only filling (and comments, when granted)
+  // can be saved back under the author's encryption here.
   if (permissions.modify)
-    return "Its author allows changes, but without the owner password this editor can only fill in the form of an encrypted PDF.";
+    return permissions.annotate
+      ? "Its author allows changes, but without the owner password this editor can only fill in the form of an encrypted PDF and add comments to it."
+      : "Its author allows changes, but without the owner password this editor can only fill in the form of an encrypted PDF.";
   const allowed: string[] = [];
   if (canFill) allowed.push("filling in the form");
   if (permissions.annotate) allowed.push("adding comments");
@@ -61,7 +63,7 @@ export function ProtectionBanner({
   protection: ProtectedPdf;
   unlocked: boolean;
   onUnlocked: () => void;
-  /** The editor also explains why its comment tools stay locked. */
+  /** The editor also says which of its tools save comments and which stay locked. */
   surface: "editor" | "forms";
 }) {
   const id = useId();
@@ -83,6 +85,7 @@ export function ProtectionBanner({
   }
 
   const canFill = protection.canFillForms;
+  const canComment = surface === "editor" && protection.canAnnotate;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!password || checking) return;
@@ -118,7 +121,19 @@ export function ProtectionBanner({
             {allowedSentence(protection.permissions, canFill)} To change the
             page content, enter the owner password.
           </p>
-          {canFill ? (
+          {canComment ? (
+            <p
+              className="text-muted text-xs leading-relaxed"
+              data-banner-comments=""
+            >
+              Highlights, drawings, notes and shapes are saved as comments,
+              which the author allows, and what you fill in is saved too — both
+              inside the author&apos;s protection: the copy keeps the same
+              restrictions and owner password. Text, pictures, signatures,
+              whiteout and redaction are written into the page itself, so they
+              need the owner password.
+            </p>
+          ) : canFill ? (
             <p className="text-muted text-xs leading-relaxed">
               What you fill in is saved inside the author&apos;s protection: the
               copy keeps the same restrictions and owner password.

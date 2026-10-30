@@ -140,7 +140,7 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
   "annotate-pdf": [
     "Open your PDF — Highlight is ready in the Mark up group.",
     "Drag or click on the page to highlight, draw, white out or add a note.",
-    "Apply & download the annotated PDF with the markups in the page.",
+    "Apply & download the annotated PDF, markups flattened into the page or saved as comments.",
   ],
   "crop-pdf": [
     "Open the PDF you want to crop.",

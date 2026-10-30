@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { MAX_ZOOM, MIN_ZOOM } from "@/lib/pdf/editor/geometry";
 import { MARKUP_KINDS, type EditorKind } from "@/lib/pdf/offered-kinds";
 import type { EditorFieldType } from "@/lib/pdf/editor/model";
-import type { Tool } from "./editor-state";
+import { toolAllowed, type EditorLock, type Tool } from "./editor-state";
 
 /**
  * The editor's toolbar: every tool is an icon AND its name — a bar of bare
@@ -321,10 +321,13 @@ export function EditorToolbar({
   onFind,
   onPages,
   pagesOpen = false,
-  locked = false,
+  lock = null,
 }: {
-  /** A restricted PDF without its owner password: only Select works. */
-  locked?: boolean;
+  /**
+   * A restricted PDF without its owner password: Select, and the comment
+   * tools when its author allows comments (`toolAllowed`).
+   */
+  lock?: EditorLock | null;
   finding: boolean;
   onFind: () => void;
   /** Phones: open the Pages sheet (wider screens have the rail). */
@@ -363,7 +366,7 @@ export function EditorToolbar({
                   icon={b.icon}
                   shortcut={b.key || undefined}
                   pressed={tool === t}
-                  disabled={locked && t !== "select"}
+                  disabled={!toolAllowed(t, lock)}
                   reason={LOCKED_TOOL_REASON}
                   onClick={() => onTool(t)}
                 />
@@ -392,7 +395,7 @@ export function EditorToolbar({
           icon={Replace}
           shortcut="Control+F"
           pressed={finding}
-          disabled={locked}
+          disabled={lock !== null}
           reason={LOCKED_TOOL_REASON}
           onClick={onFind}
         />

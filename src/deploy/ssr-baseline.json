@@ -4293,7 +4293,7 @@
     },
     "tools/annotate-pdf.html": {
       "title": "Annotate PDF — Highlight, Add Notes, No Upload — pdf.xyz",
-      "description": "Highlight, draw, add notes and white out parts of a PDF by dragging and clicking on its pages, flattened into the page by your own browser. Nothing is uploaded.",
+      "description": "Highlight, draw, add notes and white out a PDF by clicking on its pages, then flatten them or save them as editable comments, in your browser. No upload.",
       "canonical": "https://pdf.xyz/tools/annotate-pdf",
       "robots": "index, follow",
       "h1": ["Annotate PDF"],

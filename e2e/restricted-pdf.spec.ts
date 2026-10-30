@@ -121,11 +121,14 @@ test("restricted: fills the form and keeps the author's encryption", async ({
   );
   // The help beside the pages says what this PDF allows — not the placing
   // tools' "Pick a tool, then tap or click a page to place it", which are
-  // locked here.
+  // locked here. This fixture grants comments (/P bit 6) as well as filling,
+  // so the help names both. (Until comments were saved under the author's
+  // encryption, #228 pinned the fill-only sentence here; that sentence now
+  // belongs to a fill-only grant.)
   const help = page.locator("[data-locked-help]");
   await expect(help).toBeVisible();
   await expect(help).toHaveText(
-    "Fill in the form fields on the page, then Apply & download. The author's restrictions stay in the downloaded file; the other tools need the owner password.",
+    "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows, and the form fields on the page can be filled in. Then Apply & download: the author's restrictions stay in the downloaded file; the other tools need the owner password.",
   );
   await expect(page.getByText(/Pick a tool, then/)).toHaveCount(0);
   await banner.scrollIntoViewIfNeeded();
@@ -156,6 +159,79 @@ test("restricted: fills the form and keeps the author's encryption", async ({
   await expect(page.getByText("author's protection kept")).toBeVisible();
   expect(guard.pageErrors).toEqual([]);
   expect(guard.cspViolations()).toEqual([]);
+});
+
+test("restricted, comments allowed: a highlight and a note are saved as comments under the author's encryption", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const guard = attachConsoleGuard(page);
+  await open(page);
+  const banner = page.locator('[data-protection-banner="restricted"]');
+  await expect(banner.locator("[data-banner-comments]")).toContainText(
+    "saved as comments",
+  );
+  // The comment tools are on; page-content tools stay off.
+  await expect(tool(page, "Highlight")).not.toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  await expect(tool(page, "Note")).not.toHaveAttribute("aria-disabled", "true");
+  await expect(tool(page, "Text")).toHaveAttribute("aria-disabled", "true");
+  await expect(tool(page, "Whiteout")).toHaveAttribute("aria-disabled", "true");
+
+  await tool(page, "Highlight").click();
+  const sheet = page.locator('[data-editor-page="0"]');
+  await sheet.scrollIntoViewIfNeeded();
+  const box = (await sheet.boundingBox())!;
+  const scale = box.width / 612;
+  const pt = (x: number, y: number) => ({
+    x: box.x + x * scale,
+    y: box.y + y * scale,
+  });
+  await page.mouse.move(pt(60, 50).x, pt(60, 50).y);
+  await page.mouse.down();
+  await page.mouse.move(pt(260, 82).x, pt(260, 82).y, { steps: 8 });
+  await page.mouse.up();
+  await tool(page, "Note").click();
+  await page.mouse.click(pt(340, 40).x, pt(340, 40).y);
+  await page.keyboard.type("Restricted note");
+  await page.keyboard.press("Escape");
+  await expect(page.locator('[data-markup-mode="comments"]')).toBeVisible();
+  await shot(page, "restricted-comments.png");
+
+  const buf = await captureDownload(
+    page,
+    page.getByRole("button", { name: /apply & download/i }),
+  );
+  const original = readFileSync(FIXTURE);
+  expect(buf.subarray(0, original.length).equals(original)).toBe(true);
+  const read = await readAsViewer(buf);
+  expect(read.encrypted).toBe(true);
+  expect(read.permissions).toEqual(GRANT);
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useWorkerFetch: false,
+    disableFontFace: true,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+  });
+  try {
+    const doc = await task.promise;
+    const annots = (await (await doc.getPage(1)).getAnnotations()) as {
+      subtype: string;
+      contentsObj?: { str?: string };
+    }[];
+    expect(annots.some((a) => a.subtype === "Highlight")).toBe(true);
+    expect(annots.find((a) => a.subtype === "FreeText")?.contentsObj?.str).toBe(
+      "Restricted note",
+    );
+  } finally {
+    await task.destroy();
+  }
+  await expect(page.getByText("2 saved as comments")).toBeVisible();
+  await expect(page.getByText("author's protection kept")).toBeVisible();
+  expect(guard.pageErrors).toEqual([]);
 });
 
 test("owner password: wrong refused, right unlocks every tool and drops the encryption", async ({

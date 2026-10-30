@@ -39,5 +39,14 @@ describe("what the banner says the author allows", () => {
     const sentence = allowedSentence(ALL_PERMISSIONS_ALLOWED, true);
     expect(sentence).not.toMatch(/not changes/);
     expect(sentence).toMatch(/only fill in the form/);
+    // Comments are granted too, and the editor saves them: said.
+    expect(sentence).toMatch(/and add comments to it/);
+  });
+
+  it("changes granted WITHOUT comments: no comment is promised", () => {
+    // P with modify (bit 4) and fill (bit 9) but not annotate (bit 6).
+    const p = permissionsFromP(4 | 8 | 256 | ~0xfff);
+    expect(p.modify && !p.annotate).toBe(true);
+    expect(allowedSentence(p, true)).not.toMatch(/comment/);
   });
 });

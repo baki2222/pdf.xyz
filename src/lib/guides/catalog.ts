@@ -869,6 +869,7 @@ export const guides: Guide[] = [
         body: [
           "Edit PDF adds, and with Edit text it retypes the PDF's own text a line at a time: a line you retype is removed from the page and written anew, and everything you did not touch stays exactly where it is. It does not reflow a paragraph. The pages are kept, not redrawn, so the original text stays selectable just as it was.",
           "When you apply your edits, text, pictures, shapes and marks are written into the page itself. In the downloaded file they are part of the page, not a comment or a separate object that someone can move or delete in their PDF viewer. Links and form fields are the exception: they are saved as real links and fillable fields, so a reader can click and fill them.",
+          "Highlights, drawings, notes, shapes and lines can be the exception too: choose Save markups as comments beside Apply & download, and each is saved as a standard PDF annotation that other PDF apps list as a comment and let you select, edit or delete. Whiteout and redaction are always written into the page, because a cover saved as a comment could simply be deleted.",
           "The page list beside the pages turns, inserts, deletes and reorders pages; everything placed on a page moves with it. Pages you do not change there keep their order, size and rotation.",
           "Pages are shown the way your viewer shows them, after any rotation setting and with only their visible area, and what you place lands exactly there in the downloaded file, reading upright.",
         ],
@@ -888,7 +889,7 @@ export const guides: Guide[] = [
         body: [
           "A whiteout box can cover a word, a number, or an old date, and the printed page will look clean. But whatever is underneath is still in the file: it can still be selected and copied, and anyone who removes the box in another editor sees it again.",
           "When information must actually be gone, use Redact PDF instead. It covers the areas you choose and then rebuilds every page as a flattened image, so the text and drawings underneath are removed rather than hidden. The trade-off is that no text in the redacted copy can be selected any more.",
-          "For review marks on their own — highlights, outlines, notes, and arrows placed by position — Annotate PDF runs in your browser too and flattens its markups into the page in the same way.",
+          "For review marks on their own — highlights, outlines, notes, and arrows — Annotate PDF runs in your browser too, and offers the same choice: markups flattened into the page, or saved as comments.",
         ],
       },
       {

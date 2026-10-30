@@ -25,6 +25,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { exportEditedPdf } from "@/lib/pdf/editor-export";
+import { DEFAULT_TEXT_STYLE } from "@/lib/pdf/editor/model";
 import { openProtectedPdf } from "@/lib/pdf/security/protected-pdf";
 import { StandardSecurityHandler } from "@/lib/pdf/security/standard-handler";
 import { QPDF_EXIT_WARNINGS, qpdfWroteOutput } from "@/lib/workers/qpdf-exit";
@@ -102,6 +103,63 @@ async function save(input: Uint8Array): Promise<Uint8Array> {
   return (await opened.pdf.saveChanges(edited.bytes)).bytes;
 }
 
+const NOTE = "Proof comment: reviewed";
+
+/** A highlight and a note, saved as comments — Edit PDF's restricted markup. */
+async function saveComments(input: Uint8Array): Promise<Uint8Array> {
+  const opened = await openProtectedPdf(input);
+  if (opened.kind !== "opened")
+    throw new Error(`could not open: ${opened.kind}`);
+  const edited = await exportEditedPdf(
+    opened.pdf.plain,
+    [
+      {
+        id: "h",
+        kind: "highlight",
+        page: 0,
+        x: 60,
+        y: 60,
+        width: 200,
+        height: 20,
+        color: "#facc15",
+        opacity: 0.4,
+      },
+      {
+        ...DEFAULT_TEXT_STYLE,
+        id: "n",
+        kind: "note",
+        page: 0,
+        x: 320,
+        y: 60,
+        width: 180,
+        size: 11,
+        text: NOTE,
+        fill: "#fef08a",
+      },
+    ],
+    undefined,
+    { markups: "comments" },
+  );
+  return (await opened.pdf.saveChanges(edited.bytes)).bytes;
+}
+
+/** Each annotation's subtype and decrypted /Contents, from qpdf's JSON. */
+function annotationsOf(
+  stdout: string,
+): { subtype: string; contents: string }[] {
+  const json = JSON.parse(stdout) as {
+    qpdf?: [unknown, Record<string, { value?: Record<string, unknown> }>];
+  };
+  const objects = json.qpdf?.[1] ?? {};
+  const text = (v: unknown) =>
+    typeof v === "string" ? v.replace(/^u:/, "") : "";
+  return Object.values(objects).flatMap((o) => {
+    const v = o.value;
+    if (!v || v["/Type"] !== "/Annot") return [];
+    return [{ subtype: String(v["/Subtype"]), contents: text(v["/Contents"]) }];
+  });
+}
+
 async function main(): Promise<number> {
   const version = await qpdf(["--version"]);
   // Any answer at all, warnings included (qpdf-exit's 0-or-3).
@@ -175,6 +233,29 @@ async function main(): Promise<number> {
         `${label}: qpdf decrypts the typed values`,
       );
 
+      // Comments: a highlight and a note, the page's /Annots rewritten and
+      // nothing else of the page (the grant includes --annotate=y).
+      const annotated = path.join(dir, `comments-${bits[0]}.pdf`);
+      await writeFile(annotated, await saveComments(inBytes));
+      const aChecked = await qpdf(["--check", annotated]);
+      check(
+        qpdfWroteOutput(aChecked) && aChecked.code !== QPDF_EXIT_WARNINGS,
+        `${label}: comments — qpdf --check is clean (exit ${aChecked.code})`,
+      );
+      const aLock = await qpdf(["--show-encryption", annotated]);
+      check(
+        JSON.stringify(lockLines(aLock.stdout)) ===
+          JSON.stringify(lockLines(before.stdout)),
+        `${label}: comments — same encryption and permissions as the input`,
+      );
+      const aJson = await qpdf(["--json", "--json-key=qpdf", annotated]);
+      const annots = qpdfWroteOutput(aJson) ? annotationsOf(aJson.stdout) : [];
+      check(
+        annots.some((a) => a.subtype === "/Highlight") &&
+          annots.some((a) => a.subtype === "/FreeText" && a.contents === NOTE),
+        `${label}: comments — qpdf decrypts a /Highlight and the note's /FreeText`,
+      );
+
       // CONTROL: the new objects unencrypted must not read back.
       const real = StandardSecurityHandler.prototype.encrypt;
       StandardSecurityHandler.prototype.encrypt = async (_k, _n, _g, data) =>
@@ -187,6 +268,16 @@ async function main(): Promise<number> {
         check(
           cv.full_name !== FILLS.full_name,
           `${label}: CONTROL — unencrypted objects do not read back`,
+        );
+        const ca = path.join(dir, `control-comments-${bits[0]}.pdf`);
+        await writeFile(ca, await saveComments(inBytes));
+        const caJson = await qpdf(["--json", "--json-key=qpdf", ca]);
+        const caNotes = qpdfWroteOutput(caJson)
+          ? annotationsOf(caJson.stdout)
+          : [];
+        check(
+          !caNotes.some((a) => a.contents === NOTE),
+          `${label}: CONTROL — an unencrypted note does not read back`,
         );
       } finally {
         StandardSecurityHandler.prototype.encrypt = real;

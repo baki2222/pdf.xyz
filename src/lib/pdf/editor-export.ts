@@ -45,6 +45,13 @@ import {
 } from "./editor/fields";
 import { isIdentity, sourcePages, type PageRef } from "./editor/pages";
 import {
+  isCommentObject,
+  writeComments,
+  type CommentObject,
+  type MarkupMode,
+} from "./editor/comments";
+import { placeRuns, type PdfjsTextItem, type TextRun } from "./editor/runs";
+import {
   layoutText,
   lineBaseline,
   lineLeft,
@@ -74,6 +81,11 @@ import {
  * replayed on the file FIRST — so every object lands in the frame of the
  * page it was displayed on, and moves with it.
  *
+ * "Save markups as comments" (`edits.markups`) writes highlights, drawings,
+ * notes, shapes and lines as real PDF annotations instead of drawing them
+ * (`editor/comments.ts`); everything else is drawn as before. It is the
+ * only way a restricted PDF whose author allows comments is marked up.
+ *
  * `editor-export.test.ts` reads the output back through pdf.js (positions
  * ±1 pt on rotated and cropped pages, extractable text, Bengali glyphs);
  * `editor-export-phase3.test.ts` reads links, fields and pages back.
@@ -88,6 +100,8 @@ export interface EditorExportResult {
   retext: RetextOutcome[];
   /** The file's own form fields filled. */
   filled: number;
+  /** Markups written as PDF annotations ("Save markups as comments"). */
+  comments: number;
 }
 
 /** What changes besides the objects: the page list, deleted links, filled fields. */
@@ -98,6 +112,66 @@ export interface DocumentEdits {
   removedLinks?: readonly string[];
   /** Values typed into the file's own fields, by field name. */
   fills?: Readonly<Record<string, FieldFill>>;
+  /**
+   * How highlights, drawings, notes, shapes and lines are saved: drawn into
+   * the page (`"flatten"`, the default) or as PDF annotations another reader
+   * can select, edit and delete (`"comments"`). Whiteout, Redact and
+   * everything else are page content either way.
+   */
+  markups?: MarkupMode;
+}
+
+/**
+ * pdf.js's text items for the given SOURCE pages of `bytes` — what a
+ * highlight saved as a comment snaps its quads to. A file whose text cannot
+ * be read gives none, and the highlight keeps the box that was drawn.
+ */
+async function sourceTextItems(
+  bytes: Uint8Array,
+  sources: ReadonlySet<number>,
+): Promise<Map<number, PdfjsTextItem[]>> {
+  const out = new Map<number, PdfjsTextItem[]>();
+  if (sources.size === 0) return out;
+  try {
+    const { loadPdfjs, awaitPdfjsDocument } = await import("./pdfjs");
+    const { PDFJS_DOCUMENT_DEFAULTS } = await import("./wasm-assets");
+    const pdfjs = await loadPdfjs();
+    const task = pdfjs.getDocument({
+      data: bytes.slice(),
+      ...PDFJS_DOCUMENT_DEFAULTS,
+    });
+    const doc = await awaitPdfjsDocument(task);
+    try {
+      for (const source of sources) {
+        if (source < 0 || source >= doc.numPages) continue;
+        const page = await doc.getPage(source + 1);
+        try {
+          const content = await page.getTextContent();
+          out.set(
+            source,
+            content.items.flatMap((item) =>
+              "str" in item
+                ? [
+                    {
+                      str: item.str,
+                      transform: item.transform as number[],
+                      width: item.width,
+                    },
+                  ]
+                : [],
+            ),
+          );
+        } finally {
+          page.cleanup();
+        }
+      }
+    } finally {
+      await task.destroy().catch(() => {});
+    }
+  } catch {
+    // Unreadable text: highlights keep their boxes.
+  }
+  return out;
 }
 
 /** Everything the editor reads from the file before it opens. */
@@ -318,6 +392,10 @@ export async function exportEditedPdf(
   );
   const removedLinks = edits.removedLinks ?? [];
   const fills = edits.fills ?? {};
+  const asComments = edits.markups === "comments";
+  const comments: CommentObject[] = asComments
+    ? list.filter(isCommentObject)
+    : [];
 
   const doc = await loadPdf(bytes);
   const pageList = edits.pages ?? sourcePages(doc.getPageCount());
@@ -448,6 +526,11 @@ export async function exportEditedPdf(
     const page = pages[obj.page]!;
     const frame = frames[obj.page]!;
     const rotate = degrees(frame.rotation);
+    if (asComments && isCommentObject(obj)) {
+      // Not drawn: written as an annotation below.
+      counts[obj.kind] += 1;
+      continue;
+    }
     switch (obj.kind) {
       case "text":
         drawWords(page, frame, obj, 0);
@@ -642,6 +725,40 @@ export async function exportEditedPdf(
     counts[obj.kind] += 1;
   }
 
+  // Markups as comments: annotations with their own appearances, in list
+  // order. Highlights snap to the text under them, read from the file as it
+  // was opened (a page keeps its content when it is moved or turned).
+  let commentCount = 0;
+  if (comments.length > 0) {
+    const highlighted = new Set<number>();
+    for (const o of comments) {
+      const source = pageList[o.page]?.source;
+      if (o.kind === "highlight" && typeof source === "number")
+        highlighted.add(source);
+    }
+    const items = await sourceTextItems(bytes, highlighted);
+    const runs: Record<number, TextRun[]> = {};
+    pageList.forEach((ref, i) => {
+      const read = ref.source === null ? undefined : items.get(ref.source);
+      if (read) runs[i] = placeRuns(i, read, frames[i]!);
+    });
+    commentCount = writeComments(
+      {
+        lib,
+        doc,
+        pages,
+        frames,
+        runs,
+        note: (obj) => ({
+          font: fontOf.get(obj.id)!,
+          measure: measureFor(obj),
+          box: objectBounds(obj, textHeight),
+        }),
+      },
+      comments,
+    );
+  }
+
   // Links: real annotations with a target, not drawn.
   writeLinks(
     lib,
@@ -675,5 +792,6 @@ export async function exportEditedPdf(
     counts,
     retext: retextOutcomes,
     filled,
+    comments: commentCount,
   };
 }
