@@ -180,7 +180,11 @@ function blockFor(tool: ToolIndexEntry, file: FileFacts): Blocked | null {
       // Nothing opens it without its password — not a viewer, not a worker.
       return tool.slug === UNLOCK ? null : "unlock-first";
     case "restricted":
-      return browserOnlyWriter ? "unlock-first" : null;
+      // The restricted openers take it as it is (filling, comments); every
+      // other browser-only writer needs Unlock PDF first.
+      return browserOnlyWriter && !tool.restrictedOpener
+        ? "unlock-first"
+        : null;
     case "unknown":
       // pdf.js could not open it either: nothing in this tab will.
       return tool.hasBrowserPath ? "unlock-first" : null;
