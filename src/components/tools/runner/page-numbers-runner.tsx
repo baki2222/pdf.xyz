@@ -11,9 +11,11 @@ import {
   DEFAULT_PAGE_NUMBER_FORMAT,
   numberedOutputName,
   numberingPlan,
+  NUMBER_STYLES,
   PAGE_NUMBER_MARGINS,
   previewPageNumber,
   validatePageNumberFormat,
+  type NumberStyle,
   type PageNumberMargin,
 } from "@/lib/pdf/page-numbers";
 import {
@@ -68,17 +70,6 @@ export const FORMAT_PRESETS: { value: string; label: string }[] = [
   { value: "{n}", label: "1" },
   { value: "- {n} -", label: "- 1 -" },
 ];
-
-/**
- * The two numbering styles. "Bates number" builds the template from a prefix
- * and a digit count (`batesFormat`: ACME- and 6 give ACME-000001), counting
- * from First number; it is not a preset, because its template is typed text.
- */
-export const NUMBER_STYLES = [
-  { value: "pages", label: "Page numbers" },
-  { value: "bates", label: "Bates number" },
-] as const;
-type NumberStyle = (typeof NUMBER_STYLES)[number]["value"];
 
 /** The margin presets as the runner labels them, smallest first. */
 const MARGIN_LABELS: Record<PageNumberMargin, string> = {
