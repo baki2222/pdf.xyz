@@ -693,7 +693,7 @@ function CompressEditor({
       <button
         type="button"
         onClick={onReset}
-        className="text-muted hover:text-fg inline-flex items-center gap-1.5 self-start text-xs font-medium transition"
+        className="text-muted hover:text-fg tap-row inline-flex items-center gap-1.5 self-start text-xs font-medium transition"
       >
         Analyze another file
       </button>

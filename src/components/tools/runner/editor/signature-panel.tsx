@@ -304,7 +304,7 @@ export function SignaturePanel({
             id="editor-sign-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="border-line bg-canvas text-fg rounded-ctl border px-3 py-2 text-sm"
+            className="border-line bg-canvas text-fg rounded-ctl h-11 border px-3 py-2 text-sm"
           />
           <div role="radiogroup" aria-label="Style" className="flex gap-1">
             {SIGNATURE_STYLES.map((s) => (
@@ -359,7 +359,7 @@ export function SignaturePanel({
             />
           )}
           {uploadIsPhoto && (
-            <label className="text-muted flex items-center gap-2 text-xs">
+            <label className="text-muted tap-row flex items-center gap-2 text-xs">
               <input
                 type="checkbox"
                 checked={removeBackground}
@@ -371,7 +371,7 @@ export function SignaturePanel({
         </div>
       )}
 
-      <label className="text-muted flex items-center gap-2 text-xs">
+      <label className="text-muted tap-row flex items-center gap-2 text-xs">
         <input
           type="checkbox"
           checked={remember}

@@ -399,7 +399,7 @@ export function SplitEditor({
               onChange={(e) => setRangeInput(e.target.value)}
               placeholder="e.g. 1-3, 4-6, 7-"
               spellCheck={false}
-              className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+              className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl h-11 border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
             />
             <span className="text-muted text-xs">
               Use commas to separate ranges. Ranges are inclusive, e.g.{" "}
@@ -494,7 +494,7 @@ export function SplitEditor({
               onChange={(e) => setTextQuery(e.target.value)}
               placeholder="e.g. Invoice number"
               spellCheck={false}
-              className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
+              className="bg-canvas/60 border-line text-fg focus:border-accent/40 focus:ring-accent/50 rounded-ctl h-11 border px-3.5 py-2.5 text-sm transition outline-none focus:ring-2"
             />
           </label>
           <label
