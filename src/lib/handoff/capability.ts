@@ -71,6 +71,10 @@ const MODE_BY_KIND: Record<RunnerKind, HandoffMode> = {
   edit: "single",
   "extract-images": "single",
   compare: "collect",
+  scan: "batch",
+  metadata: "single",
+  resize: "single",
+  "n-up": "single",
 };
 
 /** Resolve a tool slug to its handoff capability. */

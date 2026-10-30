@@ -102,6 +102,10 @@ export const RUNNER_FILE_CEILINGS: Record<RunnerKind, number> = {
   edit: MAX_PDF_BYTES,
   "extract-images": MAX_PDF_BYTES,
   compare: MAX_PDF_BYTES,
+  scan: MAX_IMAGE_BYTES,
+  metadata: MAX_PDF_BYTES,
+  resize: MAX_PDF_BYTES,
+  "n-up": MAX_PDF_BYTES,
 };
 
 /**

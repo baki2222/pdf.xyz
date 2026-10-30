@@ -193,6 +193,15 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "redact-categories.ts"),
     path.join(ROOT, "src", "lib", "pdf", "redact-remove.ts"),
     path.join(ROOT, "src", "lib", "pdf", "overlay.ts"),
+    // The four tools of 2026-10-30 (Scan to PDF, Edit PDF Metadata, Resize
+    // PDF, Multiple Pages per Sheet): their option labels and refusals are
+    // new phrase code, so walked from the first commit.
+    path.join(ROOT, "src", "lib", "pdf", "scan-enhance.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "scan-to-pdf.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "scan-browser.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "metadata.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "resize.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "n-up.ts"),
     path.join(ROOT, "src", "lib", "workers", "read-error.ts"),
     // The sentence an upload that did not reach storage ends with
     // (2026-10-29): the kind, the HTTP status and the next step. New phrase

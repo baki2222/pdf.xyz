@@ -378,6 +378,37 @@ export async function pdfPageTexts(buf: Buffer): Promise<string[]> {
   }
 }
 
+/**
+ * The document information a reader gets, read by pdfjs (`getMetadata`): the
+ * Info dictionary's entries, and the XMP packet's `dc:title` when there is
+ * one. pdf-lib wrote the file; pdfjs reading it back is the independent half.
+ */
+export async function pdfInfo(buf: Buffer): Promise<{
+  info: Record<string, unknown>;
+  xmpTitle: string | null;
+}> {
+  expectMagic(buf, "pdf");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useWorkerFetch: false,
+    disableFontFace: true,
+    ...PDFJS_DOCUMENT_DEFAULTS,
+    ...pdfjsAssetOptions(),
+  });
+  try {
+    const doc = await task.promise;
+    const { info, metadata } = await doc.getMetadata();
+    const title = metadata?.get("dc:title");
+    return {
+      info: info as Record<string, unknown>,
+      xmpTitle: typeof title === "string" ? title : null,
+    };
+  } finally {
+    await task.destroy();
+  }
+}
+
 /** A text run as a reader sees it: viewer points from the page's TOP-LEFT. */
 export interface PdfTextRun {
   str: string;

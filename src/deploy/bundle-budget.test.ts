@@ -846,6 +846,8 @@ const LAYOUT = {
 };
 /** G.1, tool pages: 10.0 − (0.8 + 4.5 + 1.5 + 0.3 + 2.5), held by no package. */
 const UNALLOCATED = 0.4;
+/** What the four tools of 2026-10-30 took of {@link UNALLOCATED} (see below). */
+const NEW_TOOLS_2026_10_30 = 0.32;
 const TOOL_PAGES_TO_COME = {
   // WP-08 landed 2026-10-10 (its 4.5 deleted here, as the rule says).
   //
@@ -861,7 +863,16 @@ const TOOL_PAGES_TO_COME = {
   // WP-14 (radius vocabulary) was allocated no tool-page growth in G.1, so
   // what is still to come here is WP-12's share and the 0.4 no one holds.
   "WP-12": 0.3,
-  unallocated: UNALLOCATED,
+  // 0.32 of the unallocated 0.4 TAKEN on 2026-10-30 by the four new
+  // in-browser tools (Scan to PDF, Edit PDF Metadata, Resize PDF, Multiple
+  // Pages per Sheet) — A RE-ALLOCATION OF G.1, flagged for the owner in that
+  // PR. What every tool page pays for four more tools: their registry rows,
+  // handoff and file-ceiling rows, directory entries, dispatcher arms and
+  // webpack's chunk map. Measured gzip -9 over each page's first load, main
+  // e9cdf42c -> the branch: ocr 227.54 -> 227.87, rotate 226.39 -> 226.70,
+  // summarize 229.00 -> 229.33, merge 222.22 -> 222.53 (+0.31 each); the
+  // weigher's ocr-pdf row then had 0.55 left against 0.86 still to come.
+  unallocated: UNALLOCATED - NEW_TOOLS_2026_10_30,
 };
 /**
  * The table as it stood before WP-08 landed — the positive control below
@@ -872,6 +883,8 @@ const TOOL_PAGES_TO_COME_AT_WP07 = {
   "WP-08": 4.5,
   "WP-11": 1.5,
   ...TOOL_PAGES_TO_COME,
+  // The whole 0.4, as it stood then — not what is left of it today.
+  unallocated: UNALLOCATED,
 };
 const STILL_TO_COME: Record<string, Record<string, number>> = {
   "tools/rotate-pdf.html": TOOL_PAGES_TO_COME,

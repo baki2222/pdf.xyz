@@ -100,6 +100,19 @@ function toGray(image: PdfjsImage): {
   channelsEqual: boolean;
 } {
   const { width, height, kind, data } = image;
+  if (kind === 1) {
+    // 1 bit per pixel, MSB first, rows padded to a byte; pdf.js has already
+    // applied the image's Decode, so a set bit is white.
+    const rowBytes = (width + 7) >> 3;
+    const gray = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const bit = (data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7))) & 1;
+        gray[y * width + x] = bit ? 255 : 0;
+      }
+    }
+    return { width, height, gray, channelsEqual: true };
+  }
   const stride = kind === 2 ? 3 : kind === 3 ? 4 : 0;
   if (!stride) throw new Error(`Unsupported pdf.js image kind ${kind}.`);
   const gray = new Uint8Array(width * height);

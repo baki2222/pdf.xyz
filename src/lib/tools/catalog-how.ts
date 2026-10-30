@@ -180,6 +180,13 @@ export const TOOL_HOW: Readonly<Record<string, readonly string[]>> = {
     "Select Flatten form fields — each field's current value is drawn into the page.",
     "Download a PDF whose field values can no longer be edited.",
   ],
+  // Several photos, one page each: the page's own steps (content/scan-to-pdf.ts)
+  // are what it renders; these are the catalogue's short form of them.
+  "scan-to-pdf": [
+    "Take a photo of each page with your phone's camera, or add photos you already have — they stay on your device.",
+    "Put the pages in order, rotate any that came out sideways, and pick Original, Document or Black & white.",
+    "Choose A4, US Letter or Fit to photo, then create and download one PDF.",
+  ],
   // Two files, in an order that matters: compare-pdf.ts reports lines only
   // in the FIRST as removed and lines only in the SECOND as added.
   "compare-pdf": [

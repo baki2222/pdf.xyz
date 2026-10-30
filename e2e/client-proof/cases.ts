@@ -1,3 +1,4 @@
+import { inflateSync } from "node:zlib";
 import JSZip from "jszip";
 import { expect, type Page } from "@playwright/test";
 import { PDFDocument, degrees, rgb } from "pdf-lib";
@@ -32,6 +33,18 @@ import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
 import { addWatermark } from "../../src/lib/pdf/watermark";
 import { addPageNumbers } from "../../src/lib/pdf/page-numbers";
 import { NO_CROP, cropPdf } from "../../src/lib/pdf/crop";
+import { SCAN_PAGE_SIZES, scansToPdf } from "../../src/lib/pdf/scan-to-pdf";
+import { RESIZE_SIZES, resizePdf } from "../../src/lib/pdf/resize";
+import {
+  DEFAULT_N_UP_OPTIONS,
+  N_UP_SHEETS,
+  nUpPdf,
+} from "../../src/lib/pdf/n-up";
+import {
+  JPEG_30X20_EXIF6,
+  JPEG_HEIGHT,
+  JPEG_WIDTH,
+} from "../../src/tests/jpeg-fixtures";
 import {
   fileInput,
   placeEditorText,
@@ -67,6 +80,8 @@ import {
   pdfCropBoxes,
   pdfFormSnapshot,
   pdfImages,
+  pdfInfo,
+  pdfTextPositions,
   pdfPageCount,
   pdfPageImages,
   pdfPageTexts,
@@ -391,6 +406,31 @@ function expectRasterSize(
 const MIXED_IMAGES_PAGES = "one page per image: the JPG and the PNG";
 const MIXED_IMAGES_FIRST = "page 1 is the JPEG, DCT-coded";
 const MIXED_IMAGES_SECOND = "page 2 is the PNG, Flate-coded";
+
+/** Why each new-tool proof rejects an artifact, shared with its controls. */
+const SCAN_FAILS = {
+  pages: "one page per photo: two photos, two pages",
+  upright: "each photo stored upright, at its own size (EXIF applied)",
+  oneBit: "Black & white pages are 1-bit DeviceGray images",
+  pageSize: "A4 pages, turned to each photo's shape",
+} as const;
+const META_VALUES = {
+  title: "E2E-TITLE-MARK",
+  author: "E2E Author Mark",
+} as const;
+const META_FAILS = {
+  title: "the saved Info title is the one typed",
+  author: "the saved Info author is the one typed",
+  pages: "every page kept",
+} as const;
+const RESIZE_FAILS = {
+  size: "every page is landscape A4",
+  scaled: "the content is scaled to fit and centred",
+} as const;
+const NUP_FAILS = {
+  sheets: "four pages, two to a portrait A4 sheet",
+  order: "page 1 above page 2 on sheet 1, page 3 above page 4 on sheet 2",
+} as const;
 
 export const CASES: Record<string, ToolCase> = {
   "merge-pdf": {
@@ -1637,6 +1677,274 @@ export const CASES: Record<string, ToolCase> = {
         "utf8",
       ),
   },
+
+  "scan-to-pdf": {
+    kind: "scan",
+    artifact: "pdf",
+    // Two photos in one pick: a JPEG whose pixels are stored LANDSCAPE
+    // (30 × 20) with an EXIF Orientation 6 tag — a portrait phone photo, as
+    // phones save one — and a wide PNG. Black & white is chosen, so each page
+    // must come back as a 1-bit image, upright, filling an A4 page.
+    run: async (ctx) => {
+      const png = makePngFixture("page-2.png", 240, 160);
+      ctx.data["page-2.png"] = png.bytes;
+      await uploadPayloads(ctx.page, [
+        {
+          name: "page-1.jpg",
+          mimeType: "image/jpeg",
+          buffer: Buffer.from(JPEG_30X20_EXIF6),
+        },
+        { name: "page-2.png", mimeType: "image/png", buffer: png.bytes },
+      ]);
+      await expect(ctx.page.locator("[data-scan-page]")).toHaveCount(2);
+      const bw = ctx.page.getByRole("button", { name: "Black & white" });
+      await waitForHydration(bw);
+      await bw.click();
+      await expect(bw).toHaveAttribute("aria-pressed", "true");
+      return runAndDownload(
+        ctx,
+        /^create pdf$/i,
+        /scan saved as pdf/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: async (buf) => {
+      const pages = await pdfPageImages(buf);
+      expect(pages.length, SCAN_FAILS.pages).toBe(2);
+      const [first, second] = pages.map((images) => images[0]);
+      // EXIF 6 turns the stored 30 × 20 photo into a 20 × 30 portrait one.
+      expect([first?.width, first?.height], SCAN_FAILS.upright).toEqual([
+        JPEG_HEIGHT,
+        JPEG_WIDTH,
+      ]);
+      expect([second?.width, second?.height], SCAN_FAILS.upright).toEqual([
+        240, 160,
+      ]);
+      for (const image of [first, second]) {
+        expect(
+          [image?.colorSpace, image?.bitsPerComponent],
+          SCAN_FAILS.oneBit,
+        ).toEqual(["/DeviceGray", 1]);
+      }
+      // …and the 1-bit stream really holds one bit per pixel.
+      for (const image of await pdfImages(buf)) {
+        expect(inflateSync(image.bytes).length, SCAN_FAILS.oneBit).toBe(
+          Math.ceil(image.width / 8) * image.height,
+        );
+      }
+      const doc = await PDFDocument.load(buf);
+      const sizes = doc.getPages().map((p) => {
+        const { width, height } = p.getSize();
+        return [Math.round(width), Math.round(height)];
+      });
+      // A4, portrait for the portrait photo, landscape for the wide one.
+      const a4 = SCAN_PAGE_SIZES.find((s) => s.id === "a4")!.size!;
+      const [w, h] = [Math.round(a4.width), Math.round(a4.height)];
+      expect(sizes, SCAN_FAILS.pageSize).toEqual([
+        [w, h],
+        [h, w],
+      ]);
+    },
+    // Four near misses, each wrong in ONE way, built by the tool's own writer
+    // so only the property under test differs:
+    //  1. the EXIF tag ignored — page 1 lying on its side;
+    //  2. Document (8-bit gray) where Black & white was chosen;
+    //  3. the second photo dropped;
+    //  4. US Letter pages instead of the default A4.
+    control: async () => {
+      const page = (
+        width: number,
+        height: number,
+        enhancement: "bw" | "document" = "bw",
+      ) => ({
+        enhancement,
+        plane: new Uint8Array(width * height).fill(255),
+        width,
+        height,
+      });
+      const upright = page(JPEG_HEIGHT, JPEG_WIDTH);
+      const wide = page(240, 160);
+      const build = async (
+        inputs: Parameters<typeof scansToPdf>[0],
+        size: Parameters<typeof scansToPdf>[1] = "a4",
+      ) => Buffer.from((await scansToPdf(inputs, size)).bytes);
+      return [
+        await build([page(JPEG_WIDTH, JPEG_HEIGHT), wide]),
+        await build([
+          page(JPEG_HEIGHT, JPEG_WIDTH, "document"),
+          page(240, 160, "document"),
+        ]),
+        await build([upright]),
+        await build([upright, wide], "letter"),
+      ];
+    },
+    rejectsBecause: [
+      SCAN_FAILS.upright,
+      SCAN_FAILS.oneBit,
+      SCAN_FAILS.pages,
+      SCAN_FAILS.pageSize,
+    ],
+  },
+
+  "edit-pdf-metadata": {
+    kind: "metadata",
+    artifact: "pdf",
+    run: async (ctx) => {
+      await uploadTextPdf(ctx, "props.pdf", {
+        pages: 2,
+        title: "Old fixture title",
+      });
+      const title = ctx.page.getByLabel("Title", { exact: true });
+      // The form opens holding what the file holds.
+      await expect(title).toHaveValue("Old fixture title");
+      await waitForHydration(title);
+      await title.fill(META_VALUES.title);
+      await ctx.page
+        .getByLabel("Author", { exact: true })
+        .fill(META_VALUES.author);
+      return runAndDownload(
+        ctx,
+        /^save metadata$/i,
+        /metadata saved/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: async (buf) => {
+      const { info } = await pdfInfo(buf);
+      expect(info.Title, META_FAILS.title).toBe(META_VALUES.title);
+      expect(info.Author, META_FAILS.author).toBe(META_VALUES.author);
+      expect(await pdfPageCount(buf), META_FAILS.pages).toBe(2);
+    },
+    // 1. the upload unchanged (its old title);
+    // 2. the new title written but the author lost;
+    // 3. both values right on a copy that dropped a page.
+    control: async (ctx) => {
+      const source = input(ctx, "props.pdf");
+      const titled = await PDFDocument.load(source, { updateMetadata: false });
+      titled.setTitle(META_VALUES.title);
+      const shortened = await PDFDocument.load(source, {
+        updateMetadata: false,
+      });
+      shortened.setTitle(META_VALUES.title);
+      shortened.setAuthor(META_VALUES.author);
+      shortened.removePage(1);
+      return [
+        source,
+        Buffer.from(await titled.save()),
+        Buffer.from(await shortened.save()),
+      ];
+    },
+    rejectsBecause: [META_FAILS.title, META_FAILS.author, META_FAILS.pages],
+  },
+
+  "resize-pdf": {
+    kind: "resize",
+    artifact: "pdf",
+    // The fixture's 320 × 240 pages, resized with the defaults: A4, each page
+    // keeping its own (landscape) orientation, content scaled to fit.
+    run: async (ctx) => {
+      await uploadTextPdf(ctx, "wide.pdf", { pages: 2 });
+      return runAndDownload(
+        ctx,
+        /^resize pdf$/i,
+        /pdf resized/i,
+        /download resized pdf/i,
+      );
+    },
+    assert: async (buf, ctx) => {
+      const a4 = RESIZE_SIZES.find((s) => s.id === "a4")!.size;
+      const pages = await pdfTextPositions(buf);
+      expect(pages.length).toBe(2);
+      const [before] = await pdfTextPositions(input(ctx, "wide.pdf"));
+      const markerX = (runs: { str: string; x: number }[], n: number) =>
+        runs.find((r) => r.str.includes(marker("wide.pdf", n)))?.x ?? NaN;
+      // Independent oracle: scale the 320 × 240 page to fit landscape A4,
+      // centre it, and the marker's left edge moves with the content.
+      const [W, H] = [a4.height, a4.width];
+      const scale = Math.min(W / 320, H / 240);
+      const sourceX = markerX(before!.runs, 1);
+      pages.forEach((page, i) => {
+        expect(
+          [Math.round(page.width), Math.round(page.height)],
+          RESIZE_FAILS.size,
+        ).toEqual([Math.round(W), Math.round(H)]);
+        const want = (W - 320 * scale) / 2 + sourceX * scale;
+        expect(
+          Math.abs(markerX(page.runs, i + 1) - want),
+          RESIZE_FAILS.scaled,
+        ).toBeLessThan(1);
+      });
+    },
+    // 1. the upload itself: still 320 × 240;
+    // 2. the right page size with the content left at its own size — what
+    //    "Change canvas only" makes, so the fit scale is what is checked.
+    control: async (ctx) => {
+      const source = input(ctx, "wide.pdf");
+      const a4 = RESIZE_SIZES.find((s) => s.id === "a4")!.size;
+      const canvas = await resizePdf(source, {
+        ...a4,
+        orientation: "match",
+        mode: "canvas",
+      });
+      return [source, Buffer.from(canvas.bytes)];
+    },
+    rejectsBecause: [RESIZE_FAILS.size, RESIZE_FAILS.scaled],
+  },
+
+  "n-up-pdf": {
+    kind: "n-up",
+    artifact: "pdf",
+    // Four landscape pages at the default two per sheet: Auto picks a
+    // portrait A4 sheet with the pages stacked, so pages 1 and 2 share sheet
+    // 1 (page 1 on top) and pages 3 and 4 share sheet 2.
+    run: async (ctx) => {
+      await uploadTextPdf(ctx, "deck.pdf", { pages: 4 });
+      return runAndDownload(
+        ctx,
+        /^create sheets$/i,
+        /sheets created/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: async (buf) => {
+      const sheets = await pdfTextPositions(buf);
+      expect(sheets.length, NUP_FAILS.sheets).toBe(2);
+      const a4 = N_UP_SHEETS.find((s) => s.id === "a4")!.size;
+      sheets.forEach((sheet, s) => {
+        expect(
+          [Math.round(sheet.width), Math.round(sheet.height)],
+          NUP_FAILS.sheets,
+        ).toEqual([Math.round(a4.width), Math.round(a4.height)]);
+        const y = (n: number) =>
+          sheet.runs.find((r) => r.str.includes(marker("deck.pdf", n)))?.y ??
+          NaN;
+        const top = y(s * 2 + 1);
+        const bottom = y(s * 2 + 2);
+        expect(
+          Number.isFinite(top) && Number.isFinite(bottom),
+          NUP_FAILS.order,
+        ).toBe(true);
+        expect(top, NUP_FAILS.order).toBeLessThan(bottom);
+        expect(bottom, NUP_FAILS.order).toBeGreaterThan(sheet.height / 2);
+      });
+    },
+    // 1. the upload itself — four pages, not two sheets;
+    // 2. the tool's own writer on the pages in the wrong order (2, 1, 4, 3),
+    //    so only which page sits on top differs.
+    control: async (ctx) => {
+      const source = input(ctx, "deck.pdf");
+      const doc = await PDFDocument.load(source);
+      const swapped = await PDFDocument.create();
+      for (const page of await swapped.copyPages(doc, [1, 0, 3, 2])) {
+        swapped.addPage(page);
+      }
+      const wrong = await nUpPdf(await swapped.save(), {
+        ...DEFAULT_N_UP_OPTIONS,
+      });
+      return [source, Buffer.from(wrong.bytes)];
+    },
+    rejectsBecause: [NUP_FAILS.sheets, NUP_FAILS.order],
+  },
 };
 
 /**
@@ -2314,6 +2622,14 @@ export const UNPROVEN: Record<string, string> = {
  * a slug that has no proof case, so the list cannot outlive its subject.
  */
 export const PROOF_LIMITS: Record<string, string> = {
+  "scan-to-pdf":
+    "Two photos picked through the page's drop sheet (a JPEG carrying EXIF Orientation 6 and a wide PNG) with Black & white on the default A4 pages. The camera input itself is driven only by e2e/scan-to-pdf.mobile.spec.ts, at 375 px, through setInputFiles: no real camera is opened in any test. Original and Document clean-up, Fit to photo and US Letter, rotating, reordering and removing a page are not exercised in a real browser; the clean-up filters' pixels and the page layout are proven in Node by src/lib/pdf/scan-to-pdf.test.ts.",
+  "edit-pdf-metadata":
+    "Only Edit values, changing the title and the author of a file with no XMP packet. Remove all metadata, the date fields, and the XMP rewrite are proven in Node only, by src/lib/pdf/metadata.test.ts, which reads every output back with pdf-lib and pdf.js.",
+  "resize-pdf":
+    "Only the defaults: A4, Match each page, Scale content to fit, all pages. Change canvas only, custom sizes and units, selected pages, pages carrying /Rotate or an inset CropBox, and links moved with the content are proven in Node by src/lib/pdf/resize.test.ts, through pdf.js, not in a real browser.",
+  "n-up-pdf":
+    "Only the defaults: 2 per sheet, A4, Auto (portrait here), Across, then down, Small margin, no borders. 4, 6 and 9 per sheet, Down, then across, US Letter, borders and /Rotate pages are proven in Node by src/lib/pdf/n-up.test.ts, through pdf.js, not in a real browser.",
   "sign-pdf":
     "Only the TYPED signature source is exercised. The drawn-signature path (signature-pad.tsx) needs real pointer strokes on a canvas, and the uploaded-image source is untested.",
   "annotate-pdf":

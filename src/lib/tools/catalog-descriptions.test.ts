@@ -21,7 +21,7 @@ const SERP_CEILING = 165;
 
 describe("catalog descriptions", () => {
   it("covers the whole catalogue (health check for the suite itself)", () => {
-    expect(tools.length).toBe(50);
+    expect(tools.length).toBe(54);
     for (const tool of tools) {
       expect(tool.description, `${tool.slug} has no description`).toBeTruthy();
     }

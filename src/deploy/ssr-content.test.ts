@@ -203,7 +203,11 @@ describe("the build keeps every piece of server-rendered content the baseline re
     expect(
       getAllToolSlugs().filter((slug) => !home.has(`/tools/${slug}`)),
     ).toEqual([]);
-  });
+    // Parses every built page (`snapshotBuild`), like the removals check
+    // below. The corpus grows with the catalogue — 54 tool pages since
+    // 2026-10-30 — and this took 5,127 ms on CI (PR #233), past vitest's 5 s
+    // default; the same class as #189's peers.
+  }, 30_000);
 
   it("the /tools hub serves the whole catalogue, unfiltered, whatever a query will rank", () => {
     if (!built) return;
@@ -227,7 +231,9 @@ describe("the build keeps every piece of server-rendered content the baseline re
         ),
       ),
     ).toEqual([]);
-  });
+    // `snapshotBuild` parses every built page to read this one: the same
+    // walk, and the same 2026-10-30 timeout, as the positive control above.
+  }, 30_000);
 
   it("no page lost a heading, a structured-data type, a link or a head field", () => {
     if (!built) return;

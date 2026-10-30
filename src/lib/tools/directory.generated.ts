@@ -54,6 +54,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     outputs: ["JPG", "PNG", "ZIP"],
   },
   {
+    slug: "n-up-pdf",
+    name: "Multiple Pages per Sheet",
+    processing: "client",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+  },
+  {
     slug: "compress-pdf",
     name: "Compress PDF",
     processing: "hybrid",
@@ -122,6 +129,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     processing: "client",
     accept: ["PNG", "JPG", "JPEG"],
     outputs: ["PDF", "ZIP"],
+  },
+  {
+    slug: "scan-to-pdf",
+    name: "Scan to PDF",
+    processing: "client",
+    accept: ["JPG", "JPEG", "PNG"],
+    outputs: ["PDF"],
   },
   {
     slug: "html-to-pdf",
@@ -250,6 +264,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
     outputs: ["PDF"],
   },
   {
+    slug: "resize-pdf",
+    name: "Resize PDF",
+    processing: "client",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+  },
+  {
     slug: "header-footer",
     name: "PDF Header & Footer",
     processing: "client",
@@ -259,6 +280,13 @@ export const TOOL_DIRECTORY: readonly ToolEntry[] = [
   {
     slug: "overlay-pdf",
     name: "Overlay PDF",
+    processing: "client",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+  },
+  {
+    slug: "edit-pdf-metadata",
+    name: "Edit PDF Metadata",
     processing: "client",
     accept: ["PDF"],
     outputs: ["PDF"],

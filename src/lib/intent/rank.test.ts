@@ -561,7 +561,7 @@ describe("notes: what the ranking cannot offer, said", () => {
     expect(over).toMatchObject({
       kind: "over-ceiling",
       name: "photo.png",
-      tools: ["JPG to PDF", "PNG to PDF"],
+      tools: ["JPG to PDF", "PNG to PDF", "Scan to PDF"],
     });
     expect(notes([file("photo.png", 1 * MB)])).toEqual([]);
   });

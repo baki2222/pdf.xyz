@@ -433,6 +433,9 @@ const NAMES_WITHOUT_HEAD_TERM = [
   "extract-pages",
   "extract-tables",
   "fill-forms",
+  // Added 2026-10-30: "Multiple Pages per Sheet" is the phrase people search
+  // and print dialogs use; its seoTitle leads with "N-up PDF".
+  "n-up-pdf",
   "organize-pages",
   "page-numbers",
   "remove-pages",

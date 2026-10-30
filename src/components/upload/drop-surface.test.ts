@@ -41,6 +41,11 @@
  *    `e2e/helpers.ts`'s `fileInput()` (the first input on the page) always
  *    finds the page's own sheet. (In `drop-layer.tsx` until 2026-10-10: it
  *    left every page's first load for the layer's lazily loaded view.)
+ *  - `tools/runner/scan-runner.tsx`: Scan to PDF's "Take photo" button, an
+ *    `<input capture="environment">` that opens a phone's rear camera. It is
+ *    a camera, not a place a file is dropped: the page's own sheet (rendered
+ *    BEFORE it, so `fileInput()` still finds the sheet) takes drops, picks
+ *    and pastes, and both feed the runner's one `addFiles`.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -59,6 +64,8 @@ const EXEMPT: Record<string, string> = {
     "the editor's image-insert picker places a picture on an open page; it is not a document arriving",
   "src/components/intent/drop-layer-view.tsx":
     "the header's Open files picker when a page has no target: made when asked for, at the end of <body>",
+  "src/components/tools/runner/scan-runner.tsx":
+    "Scan to PDF's camera button: a capture input that opens a phone's camera, not a drop target; it renders after the page's sheet, and what it takes goes through the same addFiles",
 };
 
 /** Every way a source can make a file input. Selectors (`[type="file"]`) excluded. */

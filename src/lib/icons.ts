@@ -1,6 +1,7 @@
 import {
   AlignLeft,
   Bot,
+  Camera,
   Contrast,
   Crop,
   Droplets,
@@ -16,6 +17,7 @@ import {
   FormInput,
   Gauge,
   GitCompare,
+  Grid2x2,
   Globe,
   Hash,
   Highlighter,
@@ -34,6 +36,7 @@ import {
   PenLine,
   Presentation,
   RotateCw,
+  Scaling,
   ScanSearch,
   ScanText,
   Scissors,
@@ -43,6 +46,7 @@ import {
   Sparkles,
   SquareStack,
   Table,
+  Tags,
   Trash2,
   Type,
   Unlock,
@@ -64,6 +68,7 @@ export const ICONS = {
   removePages: Trash2,
   rotate: RotateCw,
   extractImages: Images,
+  nUp: Grid2x2,
   // optimize
   compress: Minimize2,
   ocr: ScanText,
@@ -84,6 +89,7 @@ export const ICONS = {
   align: AlignLeft,
   table: Table,
   convertTo: FileInput,
+  scan: Camera,
   convertFrom: FileOutput,
   // edit
   edit: PenLine,
@@ -93,6 +99,8 @@ export const ICONS = {
   crop: Crop,
   headerFooter: PanelTop,
   overlay: Layers,
+  resize: Scaling,
+  metadata: Tags,
   // sign
   sign: Signature,
   requestSign: Send,
