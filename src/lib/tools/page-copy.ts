@@ -127,7 +127,20 @@ export function pageDescription(tool: Tool): string {
  * does not list the tool (the scanned-PDF guide from the AI and export pages,
  * the form guide from Edit, Flatten and Request Signatures); none of those
  * sixteen reaches the page.
+ *
+ * BOUNDED since 2026-10-30: at most {@link GUIDE_BAND_LIMIT} cards. The band
+ * grew with the catalogue — every guide that lists a tool was a card, so
+ * three new guides took Merge PDF's band from three cards to five and its
+ * `main` past the first-visit ceiling (`e2e/first-visit.ts`), and OCR PDF
+ * already carried eleven. Guides that teach this tool are never dropped; the
+ * related ones fill what is left, in the order above. A related guide that
+ * loses its slot is still linked from the home page's guide list (which
+ * links every guide, `internal-links.test.ts`), the /guides index, and the
+ * band's own "All guides" link — `tool-page-guides-band.test.ts` holds that
+ * on the rendered pages.
  */
+export const GUIDE_BAND_LIMIT = 4;
+
 export function pageGuides(tool: Tool): readonly ToolGuide[] {
   const named = pageRelatedGuideSlugs(tool);
   const rank = (entry: ToolGuide) => {
@@ -141,5 +154,7 @@ export function pageGuides(tool: Tool): readonly ToolGuide[] {
       .map((entry, order) => ({ entry, order }))
       .sort((a, b) => rank(a.entry) - rank(b.entry) || a.order - b.order)
       .map(({ entry }) => entry);
-  return [...inRole("primary"), ...inRole("related")];
+  const primary = inRole("primary");
+  const room = Math.max(0, GUIDE_BAND_LIMIT - primary.length);
+  return [...primary, ...inRole("related").slice(0, room)];
 }

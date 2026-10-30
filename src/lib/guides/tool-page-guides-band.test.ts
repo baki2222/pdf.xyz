@@ -34,7 +34,8 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { guides } from "./catalog";
-import { reversesTool } from "./index";
+import { guidesForTool, reversesTool } from "./index";
+import { GUIDE_BAND_LIMIT } from "@/lib/tools/page-copy";
 import { getToolBySlug, tools } from "@/lib/tools";
 import type { Tool } from "@/lib/tools/types";
 
@@ -206,19 +207,58 @@ describe("each tool page's Guides band points the right way", () => {
 
   it("every guide that teaches a tool reaches that tool's page", () => {
     // The other direction: dropping reverse guides must not drop anything
-    // else. Each guide's primary tool shows it, and every non-reverse
-    // neighbour does too.
+    // else. Each guide's primary tool shows it, ALWAYS; a non-reverse
+    // neighbour shows it unless its band is full (see the bound below).
+    //
+    // INVERTED 2026-10-30 (history kept): this said every non-reverse
+    // neighbour shows the guide, which made the band grow with the
+    // catalogue — Merge PDF went from three cards to five when three guides
+    // landed, OCR PDF already had eleven. A neighbour may now drop a related
+    // guide, only when its band holds GUIDE_BAND_LIMIT cards and links the
+    // /guides index; the home page links every guide besides
+    // (internal-links.test.ts), so the dropped guide stays crawlable.
     const missing: string[] = [];
+    const dropped: string[] = [];
     for (const guide of guides) {
       const primary = getToolBySlug(guide.tools[0]!)!;
       for (const slug of guide.tools) {
         const tool = getToolBySlug(slug)!;
         if (slug !== primary.slug && reverses(tool, primary)) continue;
-        const cards = bandCards(pages.get(slug) ?? "") ?? [];
-        if (!cards.some((c) => c.slug === guide.slug))
-          missing.push(`/tools/${slug} does not link /guides/${guide.slug}`);
+        const html = pages.get(slug) ?? "";
+        const cards = bandCards(html) ?? [];
+        if (cards.some((c) => c.slug === guide.slug)) continue;
+        const full =
+          cards.length === GUIDE_BAND_LIMIT &&
+          html.slice(html.indexOf(">Guides</h2>")).includes('href="/guides"');
+        if (slug !== primary.slug && full)
+          dropped.push(`/tools/${slug} ↛ ${guide.slug}`);
+        else missing.push(`/tools/${slug} does not link /guides/${guide.slug}`);
       }
     }
     expect(missing, missing.join("\n")).toEqual([]);
+    // Positive control: the bound really drops something today, so the
+    // exemption above is exercised and not decoration.
+    expect(dropped.length, "the band bound drops nothing").toBeGreaterThan(0);
+  });
+
+  it("no band grows with the catalogue: at most GUIDE_BAND_LIMIT cards", () => {
+    const sizes = [...pages].map(
+      ([slug, html]) => [slug, (bandCards(html) ?? []).length] as const,
+    );
+    const over = sizes.filter(([, n]) => n > GUIDE_BAND_LIMIT);
+    expect(over.map(([s, n]) => `${s}: ${n}`)).toEqual([]);
+    // Positive control: the RAW relationship exceeds the bound somewhere,
+    // so the bound is what holds the rendered band to it.
+    const raw = tools.filter(
+      (t) => guidesForTool(t.slug).length > GUIDE_BAND_LIMIT,
+    );
+    expect(
+      raw.length,
+      "no tool has more guides than the bound",
+    ).toBeGreaterThan(0);
+    // Health: the census is reading bands, not finding none.
+    expect(
+      sizes.filter(([, n]) => n === GUIDE_BAND_LIMIT).length,
+    ).toBeGreaterThan(0);
   });
 });
