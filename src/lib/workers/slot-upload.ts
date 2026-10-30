@@ -47,6 +47,14 @@ import {
   type UploadAttemptStatus,
 } from "@/lib/telemetry/track";
 
+/**
+ * The refusal when a reservation answers without a slot. A constant so
+ * `lazy-chunks.test.ts` can find this module's chunk by its own sentence
+ * and hold that no page loads it up front (it arrives through
+ * `./job-run-lazy`); reworded, that test's positive control fails.
+ */
+export const NO_UPLOAD_SLOT = "The worker did not return an upload slot.";
+
 /** The slice of `fetch` this needs; every worker client's `FetchLike` fits it. */
 export type SlotFetch = (
   input: string,
@@ -196,7 +204,7 @@ async function reserveSlot(
   const session = (await res.json()) as UploadSession;
   const slot = session.slots?.[0];
   if (!slot) {
-    return { ok: false, message: "The worker did not return an upload slot." };
+    return { ok: false, message: NO_UPLOAD_SLOT };
   }
   return { ok: true, slot };
 }

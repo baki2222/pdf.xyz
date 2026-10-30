@@ -8,7 +8,7 @@ import {
   type PdfSecurityWorkerOptions,
   type PdfSecurityWorkerResult,
 } from "./pdf-security-client";
-import { readWorkerError } from "./read-error";
+import { loadJobRun } from "./job-run-lazy";
 import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const HTML_TO_PDF_TOOL = "html-to-pdf";
@@ -51,6 +51,7 @@ async function readError(
   res: Awaited<ReturnType<FetchLike>>,
   fallback: string,
 ): Promise<PdfSecurityWorkerResult> {
+  const { readWorkerError } = await loadJobRun();
   return readWorkerError(res, fallback);
 }
 

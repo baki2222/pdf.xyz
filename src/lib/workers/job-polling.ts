@@ -101,6 +101,15 @@ export type PollJobResult =
  */
 const MAX_CONSECUTIVE_POLL_FAILURES = 3;
 
+/**
+ * The words when the poll budget runs out. A constant so
+ * `lazy-chunks.test.ts` can find this module's chunk by its own sentence and
+ * hold that no page loads it up front (it arrives through `./job-run-lazy`);
+ * reworded, that test's positive control fails.
+ */
+export const STOPPED_WAITING =
+  "Stopped waiting for the worker — the job may still finish.";
+
 /** Bounded exponential backoff applied on top of the normal poll interval. */
 function backoffMs(base: number, consecutiveFailures: number): number {
   return Math.min(base * 2 ** consecutiveFailures, base * 8);
@@ -155,7 +164,7 @@ export async function pollJobToTerminal(
         // Says what is true: we stopped waiting. The job did not necessarily
         // stop working, and the id below is what makes that statement useful
         // rather than an apology.
-        message: "Stopped waiting for the worker — the job may still finish.",
+        message: STOPPED_WAITING,
         jobId,
         stillRunning: true,
       };

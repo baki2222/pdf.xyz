@@ -36,6 +36,7 @@ import {
   type CompressWorkerResult,
 } from "@/lib/workers/client";
 import type { WorkerStatus } from "@/lib/workers/status";
+import { warmJobRun } from "@/lib/workers/job-run-lazy";
 import {
   reportToolCompleted,
   reportToolFailed,
@@ -773,6 +774,12 @@ function WorkerDeepPanel({
   // A run still in flight when the panel unmounts settles its hold then.
   const holding = useRef<(() => void) | null>(null);
   useEffect(() => () => holding.current?.(), []);
+  // The deep run's upload and polling load on demand
+  // (`@/lib/workers/job-run-lazy`): fetched once a file is here AND the
+  // worker can take it, so they are in hand when the button is pressed.
+  useEffect(() => {
+    if (canRunDeep) warmJobRun();
+  }, [canRunDeep]);
 
   async function run() {
     // Held from the press, like every runner's (`./stage-hold`): the card

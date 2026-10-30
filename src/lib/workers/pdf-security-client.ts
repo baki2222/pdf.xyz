@@ -28,16 +28,15 @@ import type { Job, JobArtifact } from "@/lib/jobs/types";
 import type { PdfKeyLength } from "@/lib/jobs/pdf-security";
 import type { PdfPermissions } from "@/lib/jobs/pdf-permissions";
 import type { WorkerStatus } from "./status";
-import { pollJobToTerminal, type WorkerJobPhase } from "./job-polling";
+import type { WorkerJobPhase } from "./job-polling";
 import { forwardStatus } from "./phases";
 import { jobPollFor } from "@/lib/jobs/client-wait";
-import { uploadToWorkerSlot } from "./slot-upload";
+import { loadJobRun } from "./job-run-lazy";
 import { declaredContentTypeFor } from "@/lib/jobs/mime-by-format";
 import {
   describeByteCeiling,
   workerFileCeilingBytes,
 } from "./engine-file-ceilings";
-import { readWorkerError } from "./read-error";
 import {
   NO_SELECTABLE_TEXT_MESSAGE,
   readsOnlySelectableText,
@@ -159,6 +158,7 @@ async function readError(
   res: Awaited<ReturnType<FetchLike>>,
   fallback: string,
 ): Promise<PdfSecurityWorkerFailure> {
+  const { readWorkerError } = await loadJobRun();
   return readWorkerError(res, fallback);
 }
 
@@ -280,6 +280,7 @@ async function runSecurityJobSteps(
   // Reserve a slot and upload the bytes to it — the one shared upload
   // (`./slot-upload`). The job uses the slot it RETURNS: a 403 may have
   // moved the bytes to a fresh one.
+  const { uploadToWorkerSlot } = await loadJobRun();
   const uploaded = await uploadToWorkerSlot({
     tool,
     filename,
@@ -337,6 +338,7 @@ export async function finishSecurityJob(
 
   // 4. Poll to a terminal state (a production worker is async; local-dev is already
   //    terminal on create, so this returns immediately).
+  const { pollJobToTerminal } = await loadJobRun();
   const polled = await pollJobToTerminal({
     job: started,
     fetchImpl,

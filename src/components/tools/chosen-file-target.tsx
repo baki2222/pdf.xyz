@@ -1,6 +1,7 @@
 "use client";
 
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
+import { warmJobRun } from "@/lib/workers/job-run-lazy";
 import type { ChosenFileProps } from "./replace-boxes";
 
 /** The chip as its page's target, fetched with the file it shows. */
@@ -34,6 +35,13 @@ const ChosenFileLive = lazy(() => import("./replace-boxes"));
  * page names (`data-tool-name`).
  */
 export function ChosenFileTarget(props: ChosenFileProps) {
+  // The chip appears when a worker panel's file is chosen (a pick, a drop,
+  // a hand-off), so this is where the run's upload and polling code starts
+  // downloading (`@/lib/workers/job-run-lazy`): in hand when Run is pressed,
+  // and never with the page.
+  useEffect(() => {
+    warmJobRun();
+  }, []);
   return (
     // Until its box is here the chip is drawn on its own — marked as the
     // page's target to be, so a file released meanwhile waits for it

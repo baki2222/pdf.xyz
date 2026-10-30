@@ -17,10 +17,9 @@
 // into the client bundle. `isTerminalStatus` is the only runtime value used.
 import type { Job, JobArtifact } from "@/lib/jobs/types";
 import type { CompressionProfile } from "./compression/engine";
-import { pollJobToTerminal, type WorkerJobPhase } from "./job-polling";
+import type { WorkerJobPhase } from "./job-polling";
 import { forwardStatus } from "./phases";
-import { uploadToWorkerSlot } from "./slot-upload";
-import { readWorkerError } from "./read-error";
+import { loadJobRun } from "./job-run-lazy";
 import { withToolOutcome } from "@/lib/telemetry/tool-outcome";
 
 const COMPRESS_TOOL = "compress-pdf";
@@ -107,6 +106,7 @@ async function readError(
   res: Awaited<ReturnType<FetchLike>>,
   fallback: string,
 ): Promise<CompressWorkerFailure> {
+  const { readWorkerError } = await loadJobRun();
   return readWorkerError(res, fallback);
 }
 
@@ -141,6 +141,7 @@ async function runWorkerCompressionSteps(
   //      with its timeout, one retry and plain-language failure
   //      (`./slot-upload`). The job uses the slot it RETURNS: a 403 may have
   //      moved the bytes to a fresh one.
+  const { uploadToWorkerSlot, pollJobToTerminal } = await loadJobRun();
   const uploaded = await uploadToWorkerSlot({
     tool: COMPRESS_TOOL,
     filename: input.filename,
