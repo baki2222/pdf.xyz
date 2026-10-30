@@ -137,6 +137,12 @@ describe("every fixture: a deck PowerPoint's readers accept, one slide per page"
       const deck = await readDeck(run.output);
       expect(deck.slides).toHaveLength(fixture.pages.length);
     },
+    // Budget, not assertion (2026-10-30): up to 3.7 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default. The work is the same; the runner is not.
+    // `src/tests/timeout-headroom.ts` names the next test past half its budget
+    // on every CI run.
+    30_000,
   );
 });
 

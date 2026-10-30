@@ -307,5 +307,10 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     await vi.waitFor(() => expect(encoded.length).toBe(2), { timeout: 5000 });
     expect(encoded[1]).toEqual({ ...keyed, type: "image/jpeg" });
     expect(screen.getByAltText("Signature preview")).toBeInTheDocument();
-  });
+    // Budget, not assertion (2026-10-30): up to 3.4 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default. The work is the same; the runner is not.
+    // `src/tests/timeout-headroom.ts` names the next test past half its budget
+    // on every CI run.
+  }, 30_000);
 });

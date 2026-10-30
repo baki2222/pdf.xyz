@@ -770,7 +770,12 @@ describe("pdf-to-powerpoint writes a deck PowerPoint opens", () => {
       expect(read.problems, fixture.name).toEqual([]);
       expect(read.slides, fixture.name).toHaveLength(fixture.pages.length);
     }
-  });
+    // Budget, not assertion (2026-10-30): up to 5.0 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default, and it timed out there on 2026-10-30 (run 41059569399).
+    // The work is the same; the runner is not. `src/tests/timeout-headroom.ts`
+    // names the next test past half its budget on every CI run.
+  }, 30_000);
 
   it("NEGATIVE CONTROL: the engine's own deck goes red without its master list", async () => {
     // Run through the detector, on the writer's real output — the shape of
