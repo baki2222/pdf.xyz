@@ -735,9 +735,9 @@ const SHIPPED = {
     "Product analytics — only after you say yes. We use Google Analytics to count visits and see which tools are used, and it is loaded only after you choose “Allow analytics” in the banner. Until then — and always, if you decline — no analytics code loads and nothing is sent to Google. When allowed, Google receives, acting as our processor: coarse browser and device information, an approximate location derived from your IP address, the random identifier its cookie holds, and for each page you view the page's address without its query string, the page's title, and the address of the previous page, also without its query string. It also receives the events below, each with the fields shown, every one of them carrying the page it happened on without its query string. It never sees your documents: analytics events are stripped of filenames, links, and query strings before they are sent, and file contents never pass through this channel at all. How long Google keeps this data is set by the retention setting of our Google Analytics property. There is no advertising pixel and no error-tracking SDK, and you can change your decision at any time in the cookies section below.",
   /** Rendered after five of the seven "What some tools ask you for" items. */
   inTheQueue:
-    "Our job queue keeps them only until the job ends — or, if no worker ever runs the job, until the queue's retention lapses after 24 hours.",
+    "Our job queue keeps them only until the job ends — or, if no server ever runs the job, until the queue's retention lapses after 24 hours.",
   passwordLifetime:
-    "It waits in our job queue only until the job finishes or is cancelled (or, if no worker picks it up, until the queue's retention lapses), then it is deleted.",
+    "It waits in our job queue only until the job finishes or is cancelled (or, if no server picks it up, until the queue's retention lapses), then it is deleted.",
   jobRecord:
     "A record of the job — including your file's name — is kept for about 24 hours so the system can report status, avoid duplicating work, and retry safely. It does not contain your document's contents.",
 } as const;
@@ -1069,7 +1069,7 @@ describe("§2 puts each answer where its question is", () => {
 
   it("positive control: a status link inside the inputs block is caught", () => {
     const shipped = fragment(
-      "<p>What some tools ask you for. 8 of the worker and AI tools also take something you type.</p>" +
+      "<p>What some tools ask you for. 8 of our server and AI tools also take something you type.</p>" +
         "<ul><li>Request Signatures asks for …</li></ul>" +
         '<p>Every tool page states which of these applies before you choose a file, and <a href="/status">the status page</a> lists them all.</p>',
     );

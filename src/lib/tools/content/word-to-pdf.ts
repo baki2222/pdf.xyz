@@ -83,7 +83,7 @@ const linkMinutes = DEFAULT_RETENTION.outputTtlMinutes;
 /** Who refuses above the ceiling: the converter when its cap is the lower. */
 const sizeAnswer =
   ceiling.tier === "worker" && ceiling.engine
-    ? `One document per conversion, of up to ${ceilingMb} MB, the most LibreOffice on the worker accepts: a larger Word file is turned away as soon as you pick it, before anything uploads. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
+    ? `One document per conversion, of up to ${ceilingMb} MB, the most LibreOffice on our secure server accepts: a larger Word file is turned away as soon as you pick it, before anything uploads. Word's Compress Pictures can shrink an image-heavy file. For a batch, convert one file, press Remove, and add the next.`
     : `One document per conversion, up to ${ceilingMb} MB. For a batch, convert one file, press Remove, and add the next.`;
 
 const content: ToolContent = {
@@ -91,12 +91,12 @@ const content: ToolContent = {
 
   seoTitle: "Word to PDF Converter: DOCX and DOC to PDF",
 
-  metaDescription: `Make a PDF from a .docx or .doc with LibreOffice on a secure worker. Your Word file is deleted once the job ends; its PDF download expires in ${linkMinutes} minutes.`,
+  metaDescription: `Make a PDF from a .docx or .doc with LibreOffice on a secure server. Your Word file is deleted once the job ends; its PDF download expires in ${linkMinutes} minutes.`,
 
   intro: [
-    "Word to PDF takes one .docx or .doc file and hands it to LibreOffice, running headless on pdf.xyz's secure worker. LibreOffice lays out the pages from the page size, margins, headers and footers set in the document itself and exports a PDF named after your file. Typed text comes out as text, so it can be searched, selected and copied; a picture of text, such as a pasted scan, stays a picture.",
-    "LibreOffice reads Word's formats, but it is not Microsoft Word, and differences tend to show in fonts and floating objects. A font the worker lacks is replaced by a stand-in whose letter widths may differ, which can move line and page breaks, and text boxes or wrapped images may land slightly elsewhere. Styles, tables and in-line images give it the least to reinterpret.",
-    `Nothing is converted on your own computer. Your document goes to pdf.xyz's secure worker over an encrypted (TLS) connection and is deleted there when the job ends. The finished PDF can be fetched for ${linkMinutes} minutes, after which a daily storage rule clears the stored copy. The converter takes Word files of up to ${ceilingMb} MB, one at a time.`,
+    "Word to PDF takes one .docx or .doc file and hands it to LibreOffice, running headless on pdf.xyz's secure server. LibreOffice lays out the pages from the page size, margins, headers and footers set in the document itself and exports a PDF named after your file. Typed text comes out as text, so it can be searched, selected and copied; a picture of text, such as a pasted scan, stays a picture.",
+    "LibreOffice reads Word's formats, but it is not Microsoft Word, and differences tend to show in fonts and floating objects. A font our server lacks is replaced by a stand-in whose letter widths may differ, which can move line and page breaks, and text boxes or wrapped images may land slightly elsewhere. Styles, tables and in-line images give it the least to reinterpret.",
+    `Nothing is converted on your own computer. Your document goes to pdf.xyz's secure server over an encrypted (TLS) connection and is deleted there when the job ends. The finished PDF can be fetched for ${linkMinutes} minutes, after which a daily storage rule clears the stored copy. The converter takes Word files of up to ${ceilingMb} MB, one at a time.`,
   ],
 
   useCases: [
@@ -125,7 +125,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Convert to PDF",
-      body: 'The document is sent to pdf.xyz\'s secure worker over an encrypted connection. The button reads "Uploading your file…", then "Waiting for the worker…" while the job is queued, "Converting to PDF…" while LibreOffice converts it, and "Downloading the result…" as the finished PDF is fetched back into the tab.',
+      body: 'The document is sent to pdf.xyz\'s secure server over an encrypted connection. The button reads "Uploading your file…", then "Waiting for our server…" while the job is queued, "Converting to PDF…" while LibreOffice converts it, and "Downloading the result…" as the finished PDF is fetched back into the tab.',
     },
     {
       title: "Save the PDF",
@@ -140,11 +140,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Why might the page breaks differ from what Word shows me?",
-      a: "Because LibreOffice, not Microsoft Word, decides where each line and page ends. If the document names a font the worker does not have, a substitute is used, and a slightly wider one can push the last lines of a page onto the next; floating text boxes and wrapped images are placed by LibreOffice's own rules too. Typed text stays selectable either way.",
+      a: "Because LibreOffice, not Microsoft Word, decides where each line and page ends. If the document names a font our server does not have, a substitute is used, and a slightly wider one can push the last lines of a page onto the next; floating text boxes and wrapped images are placed by LibreOffice's own rules too. Typed text stays selectable either way.",
     },
     {
       q: "What happens to my Word file after it is converted?",
-      a: `Your .docx or .doc travels over TLS to pdf.xyz's secure worker, and the worker deletes it once the conversion job is finished. The PDF LibreOffice made sits behind a download link that expires after ${linkMinutes} minutes, and a daily storage rule erases that stored file once the link has lapsed.`,
+      a: `Your .docx or .doc travels over TLS to pdf.xyz's secure server, and our server deletes it once the conversion job is finished. The PDF LibreOffice made sits behind a download link that expires after ${linkMinutes} minutes, and a daily storage rule erases that stored file once the link has lapsed.`,
     },
     {
       q: "Which file types can I convert here?",
@@ -160,7 +160,7 @@ const content: ToolContent = {
     },
     {
       q: "Why is there no upload area, only a notice?",
-      a: 'The panel first checks whether the secure worker can run LibreOffice. You can add a file at once; it goes to the secure worker only after a check confirms the worker and you press Convert to PDF. If the badge reads "Not enabled", that button stays off and a "Notify me when this ships" button appears under it. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it.',
+      a: 'The panel first checks whether our secure server can run LibreOffice. You can add a file at once; it goes to our secure server only after a check confirms our server and you press Convert to PDF. If the badge reads "Not enabled", that button stays off and a "Notify me when this ships" button appears under it. If it reads "Status unknown", the status check did not answer, and a "Check again" button retries it.',
     },
   ],
 

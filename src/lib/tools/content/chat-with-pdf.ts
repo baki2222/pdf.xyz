@@ -149,8 +149,8 @@ const content: ToolContent = {
 
   intro: [
     `Chat with PDF answers questions about one document at a time. Ask "What is the notice period?" and the model receives your PDF's text with every page that has text marked by its number, plus an instruction to answer from that text alone and to cite what it used as [p.4]. If the answer is not there, the instruction is to say so plainly instead of reaching for outside knowledge.`,
-    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (the worker refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, a notice above the answer says how far into the document the reading got, by page when the text allows.`,
-    `There is no in-browser mode. Every question is its own job: the PDF goes over TLS to pdf.xyz's secure worker, which pulls out the text and forwards it, with your question and the recent exchanges, to a third-party AI provider, while the PDF file itself is not passed on. That job's upload is removed as soon as it ends, the worker's link to its answer ZIP lapses ${OUTPUT_TTL} minutes after the answer is ready, and a storage rule that runs once a day clears the leftover copy. The worker does not link one question to the next; this page holds the conversation and re-sends it each time.`,
+    `Only the PDF's selectable text is read; no character recognition runs here. A scan or photographed document has no such text, so the page stops it before upload (our server refuses any the browser cannot check) and points you to ${OCR_TOOL}; run that first and ask the searchable copy. Uploads of up to ${CEILING_MB} MB are accepted, and the model is sent at most ${READ_CHARS} characters of the page-labelled text. For a longer file, a notice above the answer says how far into the document the reading got, by page when the text allows.`,
+    `There is no in-browser mode. Every question is its own job: the PDF goes over TLS to pdf.xyz's secure server, which pulls out the text and forwards it, with your question and the recent exchanges, to a third-party AI provider, while the PDF file itself is not passed on. That job's upload is removed as soon as it ends, our server's link to its answer ZIP lapses ${OUTPUT_TTL} minutes after the answer is ready, and a storage rule that runs once a day clears the leftover copy. Our server does not link one question to the next; this page holds the conversation and re-sends it each time.`,
   ],
 
   useCases: [
@@ -175,11 +175,11 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: "The Add your PDF, or browse area and the question box are there as soon as the page loads; Ask the PDF works once the status badge reads Secure worker. Drop one PDF on the area or click browse.",
+      body: "The Add your PDF, or browse area and the question box are there as soon as the page loads; Ask the PDF works once the status badge reads Secure server. Drop one PDF on the area or click browse.",
     },
     {
       title: "Type your question",
-      body: `Write it in the Your question box in plain language, up to ${QUESTION_CHARS} characters, and press Ask the PDF. While it runs, the button says where the job is (Uploading your file…, Waiting for the worker…, Answering…, Downloading the result…) until the answer package is back in the page.`,
+      body: `Write it in the Your question box in plain language, up to ${QUESTION_CHARS} characters, and press Ask the PDF. While it runs, the button says where the job is (Uploading your file…, Waiting for our server…, Answering…, Downloading the result…) until the answer package is back in the page.`,
     },
     {
       title: "Read the answer and its citations",
@@ -198,7 +198,7 @@ const content: ToolContent = {
     },
     {
       q: "Why does it say my PDF has no text to answer from?",
-      a: `The file is most likely a scan or image-only PDF, so there is no selectable text to answer from. The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the day's allowance. A file the page cannot open is sent on to the worker, and if the worker finds no text in it either, that refusal comes after the question has been charged. Run it through ${OCR_TOOL}, pressing the document's language under Languages, then ask the OCR'd copy; answers are only as good as the recognised text.`,
+      a: `The file is most likely a scan or image-only PDF, so there is no selectable text to answer from. The page checks the file for text before sending it, and when it finds none the question stops there and takes nothing from the day's allowance. A file the page cannot open is sent on to our server, and if our server finds no text in it either, that refusal comes after the question has been charged. Run it through ${OCR_TOOL}, pressing the document's language under Languages, then ask the OCR'd copy; answers are only as good as the recognised text.`,
     },
     {
       q: "What if the answer is in a part of the document it did not read?",
@@ -206,7 +206,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to the conversation if I reload the page?",
-      a: "It starts over. Nothing carries over on the worker from one question to the next: the conversation lives in this page, which re-sends the recent exchanges with each follow-up and uploads the PDF again. Removing the file or reloading the page starts a new conversation.",
+      a: "It starts over. Nothing carries over on our secure server from one question to the next: the conversation lives in this page, which re-sends the recent exchanges with each follow-up and uploads the PDF again. Removing the file or reloading the page starts a new conversation.",
     },
     {
       q: "How many questions can I ask in a day?",

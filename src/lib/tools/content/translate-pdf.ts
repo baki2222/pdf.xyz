@@ -203,7 +203,7 @@ const content: ToolContent = {
 
   intro: [
     `Translate PDF has an AI model rewrite your document's text between any two of ${LANGUAGE_COUNT} languages, from ${list(["es", "bn"])} to ${list(["ja", "ar"])}. The model is told to keep headings and lists, leave names, numbers, code and URLs alone unless they clearly need translating, and add, drop or summarise nothing. You get a ZIP such as ${EXAMPLE_ZIP} holding translation.md, translation.txt, a README and a manifest naming the model and languages: translated text, not a rebuilt PDF, so fonts, columns and images are not recreated.`,
-    `The work happens online, on pdf.xyz's secure worker. Your PDF, one file up to ${CEILING_MB} MB, is uploaded over TLS; the worker extracts its text and sends that text, plus any instruction you typed, but not the PDF file, to a third-party AI provider used under agreements that prohibit training on data sent through the API. The uploaded PDF is deleted when the job finishes, the ZIP's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy.`,
+    `The work happens online, on pdf.xyz's secure server. Your PDF, one file up to ${CEILING_MB} MB, is uploaded over TLS; our server extracts its text and sends that text, plus any instruction you typed, but not the PDF file, to a third-party AI provider used under agreements that prohibit training on data sent through the API. The uploaded PDF is deleted when the job finishes, the ZIP's download link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy.`,
     `One pass carries up to ${PASS_CHARS} characters; longer documents are split at page boundaries, translated in order and reassembled. Your browser counts the text before anything uploads, so a file with no page that fits a pass, or a scan with no text layer, is stopped without touching the allowance. ${AI_ALLOWANCE_FACT} The allowance is charged when the job is created, just after the upload: a document needing more than is left today is refused whole with nothing charged rather than half translated, and one over ${DAY_CHARS} characters, the whole day's allowance, has to be split into smaller files first.`,
   ],
 
@@ -214,7 +214,7 @@ const content: ToolContent = {
     },
     {
       title: "Read a report or thesis in another language",
-      body: `A single-column document in ${either(["ja", "zh", "ko"])} becomes Markdown you can skim, quote and search. The worker reads each line straight across the page, so on a two-column paper the two columns' lines reach the model interleaved.`,
+      body: `A single-column document in ${either(["ja", "zh", "ko"])} becomes Markdown you can skim, quote and search. Our server reads each line straight across the page, so on a two-column paper the two columns' lines reach the model interleaved.`,
     },
     {
       title: "Localise a manual without renaming the product",
@@ -233,7 +233,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add one PDF",
-      body: `Drop a PDF on the box labelled "Add your PDF, or browse", or click it to pick one; Remove clears it. The box takes a file at once; Translate PDF works only once the page confirms a secure worker with an AI model is available, and the file goes to the secure worker only when you press it.`,
+      body: `Drop a PDF on the box labelled "Add your PDF, or browse", or click it to pick one; Remove clears it. The box takes a file at once; Translate PDF works only once the page confirms a secure server with an AI model is available, and the file goes to our secure server only when you press it.`,
     },
     {
       title: "Pick the languages",
@@ -245,7 +245,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Translate PDF",
-      body: "Your browser counts the text first, while the button reads Translating…; if it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for the worker…), is translated (Translating…), and the ZIP is fetched (Downloading the result…) before the download button appears.",
+      body: "Your browser counts the text first, while the button reads Translating…; if it fits, the PDF uploads over TLS (Uploading your file…), waits in the queue (Waiting for our server…), is translated (Translating…), and the ZIP is fetched (Downloading the result…) before the download button appears.",
     },
     {
       title: "Download the ZIP",
@@ -268,7 +268,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens if one page holds too much text?",
-      a: `A page over ${PASS_CHARS} characters cannot fit one pass, so it is skipped rather than cut off, and a notice where it sat names the page and its character count. Extracting that page on its own does not help, because the page itself is over the limit. Separately, if the worker finds more text than the job reserved from the free allowance, or more pages with text than your browser counted, translation stops at that page and one notice there names the untranslated pages and which limit ran out.`,
+      a: `A page over ${PASS_CHARS} characters cannot fit one pass, so it is skipped rather than cut off, and a notice where it sat names the page and its character count. Extracting that page on its own does not help, because the page itself is over the limit. Separately, if our server finds more text than the job reserved from the free allowance, or more pages with text than your browser counted, translation stops at that page and one notice there names the untranslated pages and which limit ran out.`,
     },
     {
       q: "How accurate is an AI translation of a PDF?",

@@ -3,6 +3,7 @@
 // Cover thumbnails are pre-rendered PNG blobs (object URLs); see page-tile.tsx.
 /* eslint-disable @next/next/no-img-element */
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import {
   useCallback,
   useEffect,
@@ -483,13 +484,13 @@ export function MergeRunner() {
                   {formatBytes(item.size)}
                 </span>
               </span>
-              <span className="flex shrink-0 items-center gap-1">
+              <span className="tap-line flex shrink-0 items-center gap-1">
                 <button
                   type="button"
                   onClick={() => move(index, index - 1)}
                   aria-disabled={index === 0 || undefined}
                   aria-label={`Move ${item.name} up`}
-                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl tap grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
                 >
                   <ArrowUp className="size-4" aria-hidden />
                 </button>
@@ -498,7 +499,7 @@ export function MergeRunner() {
                   onClick={() => move(index, index + 1)}
                   aria-disabled={index === items.length - 1 || undefined}
                   aria-label={`Move ${item.name} down`}
-                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
+                  className="text-muted hover:bg-wash hover:text-fg rounded-ctl tap grid size-7 place-items-center transition aria-disabled:cursor-not-allowed aria-disabled:opacity-30"
                 >
                   <ArrowDown className="size-4" aria-hidden />
                 </button>
@@ -506,7 +507,7 @@ export function MergeRunner() {
                   type="button"
                   onClick={() => removeAt(index)}
                   aria-label={`Remove ${item.name}`}
-                  className="text-muted hover:bg-err/10 hover:text-err rounded-ctl grid size-7 place-items-center transition"
+                  className="text-muted hover:bg-err/10 hover:text-err rounded-ctl tap grid size-7 place-items-center transition"
                 >
                   <X className="size-4" aria-hidden />
                 </button>
@@ -535,6 +536,12 @@ export function MergeRunner() {
                 <Spinner />
               </span>
               Reading {loading} file{loading === 1 ? "" : "s"}…
+              {/* On a touch screen the file row's 44 px buttons take a line
+                  of their own (`tap-line`): this holds it. Nothing on a
+                  mouse, where they sit beside the name. */}
+              <span aria-hidden className="tap-line invisible flex">
+                <span className="tap block" />
+              </span>
               <span
                 aria-hidden
                 className="invisible flex w-full pl-7 text-xs sm:pl-28"
@@ -608,15 +615,32 @@ export function MergeRunner() {
             <Layers className="text-accent size-3.5" aria-hidden />
             Files are combined in the order shown above.
           </p>
-          <RunButton
-            onClick={onMerge}
-            busy={busy}
-            disabled={items.length < 2 || selectionError}
-            busyLabel="Merging…"
+          <RunReason
+            reason={
+              items.length < 2 || selectionError
+                ? items.length === 0
+                  ? "Add at least two PDFs first."
+                  : items.length === 1
+                    ? "Add one more PDF first."
+                    : selectionError
+                      ? "Fix the page range above first."
+                      : null
+                : null
+            }
           >
-            <Plus className="size-4" aria-hidden />
-            Merge {items.length} PDF{items.length === 1 ? "" : "s"}
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onMerge}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={items.length < 2 || selectionError}
+                busyLabel="Merging…"
+              >
+                <Plus className="size-4" aria-hidden />
+                Merge {items.length} PDF{items.length === 1 ? "" : "s"}
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>

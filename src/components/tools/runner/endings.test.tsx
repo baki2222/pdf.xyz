@@ -152,7 +152,7 @@ describe("an error's remedy", () => {
     expect(links[0]!.textContent).toBe("Open Unlock PDF");
     expect(alert.textContent).toMatch(/with the password that opens it\./);
     expect(alert.textContent).toMatch(
-      /uploads to the secure worker only when you start it/,
+      /uploads to our secure server only when you start it/,
     );
     // The shared predicate gives the office-export panel the same answer.
     expect(errorNoteLinksUnlock(err.message)).toBe(true);

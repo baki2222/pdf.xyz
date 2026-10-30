@@ -83,19 +83,19 @@ const COPY: Record<
 > = {
   repair: {
     icon: Wrench,
-    badge: "Secure-worker repair",
+    badge: "Structure repair",
     blurb:
-      "Repair rewrites the PDF through qpdf's parser/writer on an isolated secure worker, recovering readable structure when possible. It never fabricates pages or content: if qpdf cannot produce a valid PDF, the job fails honestly.",
-    cta: "Repair on the worker",
-    running: "Repairing on the worker…",
+      "Repair rewrites the PDF through qpdf's parser/writer on an isolated secure server, recovering readable structure when possible. It never fabricates pages or content: if qpdf cannot produce a valid PDF, the job fails honestly.",
+    cta: "Repair on our secure server",
+    running: "Repairing on our secure server…",
   },
   optimize: {
     icon: Zap,
     badge: "Fast-web optimization",
     blurb:
-      "Optimize PDF for Web linearizes the PDF with qpdf so browsers can start rendering before the whole file downloads. The worker produces a real fast-web-view PDF or fails honestly.",
-    cta: "Optimize on the worker",
-    running: "Optimizing on the worker…",
+      "Optimize PDF for Web linearizes the PDF with qpdf so browsers can start rendering before the whole file downloads. Our server produces a real fast-web-view PDF or fails honestly.",
+    cta: "Optimize on our secure server",
+    running: "Optimizing on our secure server…",
   },
 };
 
@@ -181,7 +181,7 @@ function StructureRunArea({
 
   const detail =
     status?.security.detail ??
-    "This qpdf-backed worker path is not enabled here.";
+    "This qpdf-backed server path is not enabled here.";
 
   return (
     <div className="flex flex-col gap-4">
@@ -207,7 +207,7 @@ function StructureRunArea({
                 setOutcome(null);
                 setRanBytes(undefined);
               }}
-              className="text-muted hover:text-fg shrink-0 text-sm font-medium transition max-sm:-my-1.5 max-sm:py-1.5"
+              className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
             >
               Remove
             </button>
@@ -257,15 +257,15 @@ function StructureRunArea({
           <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {status?.localDevOnly
-              ? `This runs on your local-dev worker on this machine when you press ${copy.cta}.`
-              : `Pressing ${copy.cta} uploads your file to the secure worker, processes it with qpdf, and wipes the input after processing.`}
+              ? `This runs on your local-dev server on this machine when you press ${copy.cta}.`
+              : `Pressing ${copy.cta} uploads your file to our secure server, processes it with qpdf, and wipes the input after processing.`}
           </p>
         }
         off={
           <>
             <p className="text-muted text-sm leading-relaxed">{detail}</p>
             <p className="text-muted text-xs leading-relaxed">
-              {copy.cta} stays off until the worker is ready, so {tool.name}{" "}
+              {copy.cta} stays off until our server is ready, so {tool.name}{" "}
               never pretends to process a file it cannot actually run.
             </p>
           </>

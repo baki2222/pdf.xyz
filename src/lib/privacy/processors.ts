@@ -71,7 +71,7 @@ export const PROCESSORS: readonly Processor[] = [
     id: "contabo",
     name: "Contabo",
     basedIn: "Germany",
-    does: "Provides the server our processing worker runs on, where uploaded files are scanned for malware and processed.",
+    does: "Provides the server our file processing runs on, where uploaded files are scanned for malware and processed.",
   },
   {
     id: "openai",

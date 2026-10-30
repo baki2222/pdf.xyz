@@ -27,8 +27,8 @@ export function SignRunner() {
       firstStep={
         <>
           <span className="font-semibold">Place signature:</span> create your
-          signature — draw it, type it or pick a picture of it — then click on
-          the page where it goes. Drag it into place and resize it from a
+          signature — draw it, type it or pick a picture of it — then tap or
+          click the page where it goes. Drag it into place and resize it from a
           corner. <span className="font-semibold">Date</span>,{" "}
           <span className="font-semibold">Initials</span>,{" "}
           <span className="font-semibold">Name</span> and{" "}
@@ -37,6 +37,7 @@ export function SignRunner() {
           way.
         </>
       }
+      emptyReason="Place your signature, or a date, initials, name or check, on a page first."
       resultTitle="PDF signed"
       downloadLabel="Download signed PDF"
       outputName={signatureOutputName}

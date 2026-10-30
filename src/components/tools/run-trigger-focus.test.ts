@@ -211,7 +211,7 @@ describe("a run does not blur the user who started it", () => {
 
     expect(
       offenders,
-      `these files hand-roll the worker run trigger instead of using <WorkerRunButton>:\n  ${offenders.join("\n  ")}`,
+      `these files hand-roll our server run trigger instead of using <WorkerRunButton>:\n  ${offenders.join("\n  ")}`,
     ).toEqual([]);
   });
 });

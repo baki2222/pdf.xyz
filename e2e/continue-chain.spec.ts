@@ -570,7 +570,7 @@ test("a password-protected PDF in Rotate offers Unlock PDF once, and says which 
   await expect(alert.getByRole("link")).toHaveText("Open Unlock PDF");
   await expect(alert).toContainText("with the password that opens it.");
   await expect(alert).toContainText(
-    "it uploads to the secure worker only when you start it",
+    "it uploads to our secure server only when you start it",
   );
 
   await alert.getByRole("link", { name: "Open Unlock PDF" }).click();
@@ -1045,7 +1045,7 @@ async function compressAfterPick(page: Page, screen: Screen) {
   // The worker's card answers after the analysis on a slow line; its answer
   // is part of what a visit pays.
   await expect(
-    page.getByText("Checking whether a secure worker is available…"),
+    page.getByText("Checking whether a secure server is available…"),
   ).toHaveCount(0, { timeout: 20_000 });
   await page.waitForTimeout(500);
   const shifts = await recordedShifts(page);
@@ -1413,7 +1413,7 @@ test("the shortest analysis: an unheld stage fills the panel to the bottom of th
     page.getByRole("button", { name: /download optimized pdf/i }),
   ).toHaveCount(0);
   await expect(
-    page.getByText("Checking whether a secure worker is available…"),
+    page.getByText("Checking whether a secure server is available…"),
   ).toBeVisible();
 
   const stageBox = page.locator("[data-compress-stage]");

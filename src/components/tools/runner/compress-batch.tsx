@@ -64,7 +64,7 @@ async function repackOrExplain(bytes: Uint8Array): Promise<LosslessResult> {
       const access = await classifyPdfAccess(bytes);
       if (access.kind === "restricted") {
         throw new PdfEngineError(
-          `${LOCKED_PDF_COPY.restricted} Compress it on its own to use the secure worker.`,
+          `${LOCKED_PDF_COPY.restricted} Compress it on its own to use our secure server.`,
           { kind: "encrypted" },
         );
       }
@@ -200,7 +200,7 @@ export function CompressBatchRunner({
           each PDF&apos;s structure in your browser — every page looks the same,
           and nothing is uploaded. A digitally signed file is flagged, because
           any rewrite makes its signatures show as invalid. It doesn&apos;t
-          re-encode images; image-heavy files need the secure worker (open a
+          re-encode images; image-heavy files need our secure server (open a
           single file to see that path).
         </p>
       </div>

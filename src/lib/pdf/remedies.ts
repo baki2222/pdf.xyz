@@ -83,8 +83,8 @@ export function remedyCarries(toolSlug: string): boolean {
 export function whereFor(mode: ProcessingMode, carries = false): string | null {
   if (mode !== "server") return null;
   return carries
-    ? "Your file goes with you, and it uploads to the secure worker only when you start it."
-    : "You add the file there, and it uploads to the secure worker only when you start it.";
+    ? "Your file goes with you, and it uploads to our secure server only when you start it."
+    : "You add the file there, and it uploads to our secure server only when you start it.";
 }
 
 /** The words for an encrypted file, by what a reader made of its lock. */

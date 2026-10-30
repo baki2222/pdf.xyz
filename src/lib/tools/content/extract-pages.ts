@@ -138,7 +138,7 @@ const content: ToolContent = {
     },
     {
       q: "Why won't my PDF open in Extract Pages?",
-      a: `The message on screen names the cause. A file over ${MAX_MB} MB is too large for in-browser processing. Any encrypted PDF is stopped with a request to unlock it first, even one whose only protection is a printing or copying restriction. Knowing the password lets Unlock PDF produce a decrypted copy you can bring back here. Unlock PDF, unlike extracting, works off your device: the encrypted PDF and the password you type travel over TLS to pdf.xyz's secure worker, which deletes that input once the job ends; the decrypted file's download link stops working after ${LINK_MINUTES} minutes, and a daily storage rule erases the worker's copy after that. A file with neither a .pdf name nor the PDF file type is turned away, an empty file is refused, and a damaged PDF that cannot be parsed is reported as unreadable.`,
+      a: `The message on screen names the cause. A file over ${MAX_MB} MB is too large for in-browser processing. Any encrypted PDF is stopped with a request to unlock it first, even one whose only protection is a printing or copying restriction. Knowing the password lets Unlock PDF produce a decrypted copy you can bring back here. Unlock PDF, unlike extracting, works off your device: the encrypted PDF and the password you type travel over TLS to pdf.xyz's secure server, which deletes that input once the job ends; the decrypted file's download link stops working after ${LINK_MINUTES} minutes, and a daily storage rule erases our server's copy after that. A file with neither a .pdf name nor the PDF file type is turned away, an empty file is refused, and a damaged PDF that cannot be parsed is reported as unreadable.`,
     },
   ],
 

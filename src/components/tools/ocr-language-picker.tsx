@@ -178,7 +178,7 @@ export function OcrLanguagePicker({ choice }: { choice: OcrLanguageChoice }) {
               aria-pressed={active}
               title={
                 notInstalled
-                  ? "Not installed on the current worker — it has no recognition pack for this language."
+                  ? "Not installed on our server — it has no recognition pack for this language."
                   : atCap
                     ? `Deselect a language first — at most ${MAX_OCR_LANGUAGES} at once.`
                     : undefined

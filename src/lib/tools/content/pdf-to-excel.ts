@@ -73,12 +73,12 @@ const content: ToolContent = {
   seoTitle: "PDF to Excel: Convert PDF Text Lines to XLSX",
 
   metaDescription:
-    "Export a PDF's text to an XLSX sheet: one row per line, each value in its column, amounts as numbers. A secure worker converts it, then deletes your PDF.",
+    "Export a PDF's text to an XLSX sheet: one row per line, each value in its column, amounts as numbers. A secure server converts it, then deletes your PDF.",
 
   intro: [
     `PDF to Excel reads the selectable text of one PDF and writes it into a single worksheet, named "${XLSX_SHEET_NAME}", inside an XLSX workbook. The text is pulled with poppler's pdftotext in layout mode, which pads each line with spaces so a printed table row keeps gaps between its columns. Each non-empty line becomes one spreadsheet row, split into cells at ${XLSX_CELL_BREAK_PHRASE}; a single space or a comma never starts a new cell. Rows that line up are treated as one table, and each value goes in the column it sits in on the page, so an empty cell stays empty. Pages follow one another with no blank row between them, so page headers, footers and page numbers printed as text end up among the data rows.`,
     `This is layout placement, not table detection: ruling lines and cell borders are ignored and merged cells are not rebuilt. ${XLSX_MERGE_CAVEAT} An amount or a percentage such as ${AMOUNTS} is stored as a number a formula can add up, and the comma inside it never splits it; a date such as ${XLSX_TEXT_EXAMPLE}, a European-style 1.250,00, a negative in brackets and a code with leading zeros stay text. To pull individual tables out of a page, Extract Tables finds each table by where its words sit and exports it on its own.`,
-    `Poppler is a native program that a browser cannot run, so the export happens on pdf.xyz's secure worker and each run takes one PDF of at most ${CEILING_MB} MB, sent over TLS. The worker deletes your PDF when the export job finishes. Your workbook can be fetched from its link for ${OUTPUT_TTL} minutes, and once that link has expired a daily storage rule erases the stored XLSX.`,
+    `Poppler is a native program that a browser cannot run, so the export happens on pdf.xyz's secure server and each run takes one PDF of at most ${CEILING_MB} MB, sent over TLS. Our server deletes your PDF when the export job finishes. Your workbook can be fetched from its link for ${OUTPUT_TTL} minutes, and once that link has expired a daily storage rule erases the stored XLSX.`,
   ],
 
   useCases: [
@@ -99,11 +99,11 @@ const content: ToolContent = {
   steps: [
     {
       title: "Pick the PDF to convert",
-      body: `The box is there from the start, but its Export button stays off while the worker is unavailable, and the panel offers "Notify me when this ships" instead; once the badge reads "Secure worker", the button works. Drag a PDF onto the box that reads "Add your PDF, or", or click browse in it. The chosen file's name replaces the box, with a Remove button beside it for undoing a wrong pick.`,
+      body: `The box is there from the start, but its Export button stays off while our server is unavailable, and the panel offers "Notify me when this ships" instead; once the badge reads "Secure server", the button works. Drag a PDF onto the box that reads "Add your PDF, or", or click browse in it. The chosen file's name replaces the box, with a Remove button beside it for undoing a wrong pick.`,
     },
     {
       title: "Press Export XLSX",
-      body: `A PDF larger than ${CEILING_MB} MB is refused as soon as you pick it, before its bytes leave your device. Otherwise pressing Export XLSX uploads it: the button reads "Uploading your file…", then "Waiting for the worker…", "Exporting XLSX…" while the worker converts it, and "Downloading the result…" until the finished XLSX is sitting in the page. A PDF with no selectable text stops here, with an error asking you to run OCR first and a link to OCR PDF.`,
+      body: `A PDF larger than ${CEILING_MB} MB is refused as soon as you pick it, before its bytes leave your device. Otherwise pressing Export XLSX uploads it: the button reads "Uploading your file…", then "Waiting for our server…", "Exporting XLSX…" while our server converts it, and "Downloading the result…" until the finished XLSX is sitting in the page. A PDF with no selectable text stops here, with an error asking you to run OCR first and a link to OCR PDF.`,
     },
     {
       title: "Save the workbook",
@@ -138,7 +138,7 @@ const content: ToolContent = {
     },
     {
       q: "Who holds my PDF and the workbook, and until when?",
-      a: `Your PDF reaches pdf.xyz's secure worker over TLS and is deleted as soon as the export job is over. The link the XLSX is served from lasts ${OUTPUT_TTL} minutes; once it lapses, a daily storage rule clears the workbook from storage.`,
+      a: `Your PDF reaches pdf.xyz's secure server over TLS and is deleted as soon as the export job is over. The link the XLSX is served from lasts ${OUTPUT_TTL} minutes; once it lapses, a daily storage rule clears the workbook from storage.`,
     },
   ],
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
@@ -438,7 +439,7 @@ function RedactEditor({
         <InfoTile
           icon={ShieldCheck}
           title="Private"
-          body="Rendering runs in your browser with the bundled pdf.js worker — your PDF is never uploaded."
+          body="Rendering runs in your browser with the bundled pdf.js library — your PDF is never uploaded."
         />
       </div>
 
@@ -450,22 +451,35 @@ function RedactEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={areaCount === 0 || !pageSizes}
-            busyLabel={
-              method === "flatten" ? "Redacting pages…" : "Removing text…"
-            }
-            progress={
-              method === "flatten" && progress
-                ? { ...progress, unit: "pages" }
-                : undefined
+          <RunReason
+            reason={
+              areaCount === 0 || !pageSizes
+                ? pageSizes
+                  ? "Mark at least one area to remove first."
+                  : null
+                : null
             }
           >
-            <EyeOff className="size-4" aria-hidden />
-            Redact PDF
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onRun}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={areaCount === 0 || !pageSizes}
+                busyLabel={
+                  method === "flatten" ? "Redacting pages…" : "Removing text…"
+                }
+                progress={
+                  method === "flatten" && progress
+                    ? { ...progress, unit: "pages" }
+                    : undefined
+                }
+              >
+                <EyeOff className="size-4" aria-hidden />
+                Redact PDF
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>

@@ -304,8 +304,8 @@ describe("guide copy tells the truth about where the work runs", () => {
           `${guide.slug}: hybrid, no browser path`,
         ).toBe(true);
         expect(
-          /worker/i.test(all),
-          `${guide.slug}: hybrid, no worker pass`,
+          /secure[ -]server/i.test(all),
+          `${guide.slug}: hybrid, no secure-server pass`,
         ).toBe(true);
       }
     }

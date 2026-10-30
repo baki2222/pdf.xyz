@@ -51,7 +51,7 @@ export const categoryPageCopy: Record<ToolCategoryId, CategoryPageCopy> = {
     title: "PDF converter: Word, Excel, JPG and more to PDF",
     heading: "PDF converter: turn files into PDF",
     description:
-      "Convert Word, Excel, PowerPoint, JPG, PNG, HTML, web pages, Markdown and plain text to PDF. Each tool shows whether it runs in your browser or on a secure worker.",
+      "Convert Word, Excel, PowerPoint, JPG, PNG, HTML, web pages, Markdown and plain text to PDF. Each tool shows whether it runs in your browser or on a secure server.",
     intro:
       "Start from the file you have and finish with a PDF anyone can open. Office documents, images, web pages, Markdown and plain text each have their own converter, so the settings fit the source instead of one form trying to fit them all.",
     keywords: ["pdf converter", "convert to pdf", "file to pdf", "create pdf"],

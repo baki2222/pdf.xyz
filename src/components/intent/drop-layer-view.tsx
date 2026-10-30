@@ -43,7 +43,7 @@ function filesWord(count: number): string {
 
 /** Where the page's privacy line is said once more, at the moment of release. */
 const STAYS =
-  "Stays in this browser until you start a step marked Secure worker or AI.";
+  "Stays in this browser until you start a step marked Secure server or AI.";
 
 /** What the veil says a release will do — the route, put in words. */
 export function veilWords(

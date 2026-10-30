@@ -697,13 +697,13 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       // Was "Two paths": a count with no list behind it. The value names both.
       label: "Where it runs",
       value:
-        "Lossless structural repack always runs in your browser; deep image compression is an optional, clearly-labeled secure-worker step that needs a native engine.",
+        "Lossless structural repack always runs in your browser; deep image compression is an optional, clearly-labeled secure-server step that needs a native engine.",
     },
   ],
   "ocr-pdf": [
     {
       label: "Languages",
-      value: `${OCR_LANGUAGES.length} recognition languages advertised, up to ${MAX_OCR_LANGUAGES} per job — the worker's own live report governs which packs are actually installed.`,
+      value: `${OCR_LANGUAGES.length} recognition languages advertised, up to ${MAX_OCR_LANGUAGES} per job — our server's own live report governs which packs are actually installed.`,
     },
   ],
   "summarize-pdf": [
@@ -1217,11 +1217,11 @@ function runnerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "Does compressing reduce the quality of my PDF?",
-          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-worker step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}. Its Grayscale switch is off unless you tick it: ${DEEP_COMPRESSION_GRAYSCALE_HINT}`,
+          answer: `Not in your browser: that step re-saves the same pages, packed more tightly, and every page looks exactly as before. Only the optional secure-server step changes quality — it lowers the resolution of images sharper than the level you pick: ${dpiChoices(DEEP_COMPRESSION_PRESETS)}. Its Grayscale switch is off unless you tick it: ${DEEP_COMPRESSION_GRAYSCALE_HINT}`,
         },
         {
           question: "How much smaller will my PDF get?",
-          answer: `That depends on what the file holds, so no figure is promised in advance. The in-browser step measures the exact saving before you download, and offers the download only when the file got smaller. When it saves little and images make up ${percent(IMAGE_HEAVY_SHARE)}% or more of the file, it points you to the secure-worker step, which is where the images themselves are made smaller.`,
+          answer: `That depends on what the file holds, so no figure is promised in advance. The in-browser step measures the exact saving before you download, and offers the download only when the file got smaller. When it saves little and images make up ${percent(IMAGE_HEAVY_SHARE)}% or more of the file, it points you to the secure-server step, which is where the images themselves are made smaller.`,
         },
       ];
     case "sign":
@@ -1514,7 +1514,7 @@ export const TRANSLATE_LANGUAGES_ANSWER = `${TRANSLATE_LANGUAGES.length} languag
  * repair that returns rubble.
  */
 export const REPAIR_TAKES =
-  "Any file that starts like a PDF, including one that is truncated or whose internal structure is broken: the worker rewrites what it can read into a new, well-formed PDF. If what comes back is still not a readable PDF, the job fails and you get no file rather than a broken one. A file that does not start like a PDF is refused.";
+  "Any file that starts like a PDF, including one that is truncated or whose internal structure is broken: our server rewrites what it can read into a new, well-formed PDF. If what comes back is still not a readable PDF, the job fails and you get no file rather than a broken one. A file that does not start like a PDF is refused.";
 
 /** What the warning list beside a repaired download means (`RepairWarnings`). */
 export const REPAIR_WARNINGS_ANSWER =
@@ -1553,7 +1553,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
           // CHANGED 2026-10-24: "Not into text. … Run the scan through OCR
           // PDF first, then export the result" — true until the panel could
           // run OCR in the same job.
-          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. With the switch on, the worker runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and converts its result in the same job: each page's scan then comes through as a picture, followed by its words as text.`,
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. With the switch on, our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and converts its result in the same job: each page's scan then comes through as a picture, followed by its words as text.`,
         },
       ];
     case "pdf-to-excel":
@@ -1597,7 +1597,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: "What goes on each slide?",
-          answer: `One slide per PDF page, in the same order, each the shape of the first page. A photo or screenshot on the page is a picture of its own on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied; and the page's other drawing, such as lines, boxes, backgrounds and stencilled images, comes as pictures. A page whose drawing would take more than ${MAX_LAYERS_PER_PAGE.toLocaleString("en-US")} such pictures to stack in order becomes one picture of the page instead, with its text in invisible text boxes over it, selectable but not shown. A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page, except on a page the worker cannot read before it is drawn, as in a damaged PDF, where a picture can be left out with no note. A page with nothing on it becomes an empty slide.`,
+          answer: `One slide per PDF page, in the same order, each the shape of the first page. A photo or screenshot on the page is a picture of its own on the slide, where the page shows it; every line of selectable text is a text box at its place, in its size, weight and colour, with its font matched rather than copied; and the page's other drawing, such as lines, boxes, backgrounds and stencilled images, comes as pictures. A page whose drawing would take more than ${MAX_LAYERS_PER_PAGE.toLocaleString("en-US")} such pictures to stack in order becomes one picture of the page instead, with its text in invisible text boxes over it, selectable but not shown. A picture too large for our server, or one it cannot decode, is left out, and the note beside the download names its page, except on a page our server cannot read before it is drawn, as in a damaged PDF, where a picture can be left out with no note. A page with nothing on it becomes an empty slide.`,
         },
         {
           question: `Can ${tool.name} convert a scanned PDF?`,
@@ -1635,7 +1635,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
       return [
         {
           question: `Does ${tool.name} email my signers?`,
-          answer: `No. It prepares the request: you add up to ${MAX_REQUEST_SIGNERS} signers, and the worker adds a named, fillable field for each of them to the PDF and packages it for you to send. Nothing is sent from pdf.xyz, and nothing is signed until each signer fills in their fields.`,
+          answer: `No. It prepares the request: you add up to ${MAX_REQUEST_SIGNERS} signers, and our server adds a named, fillable field for each of them to the PDF and packages it for you to send. Nothing is sent from pdf.xyz, and nothing is signed until each signer fills in their fields.`,
         },
         {
           question: "What is in the download?",
@@ -1689,7 +1689,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
         {
           question: `Can ${tool.name} remove a password I don't know?`,
           answer:
-            "No. You type the password that opens the PDF — or, if it opens without one, its owner (permissions) password; an empty one is refused — and the worker uses it to decrypt the file. It does not guess or crack passwords, and nothing is recovered or bypassed. With a wrong password the job fails and no file is produced.",
+            "No. You type the password that opens the PDF — or, if it opens without one, its owner (permissions) password; an empty one is refused — and our server uses it to decrypt the file. It does not guess or crack passwords, and nothing is recovered or bypassed. With a wrong password the job fails and no file is produced.",
         },
         {
           question: "What if my PDF has no password?",
@@ -1778,7 +1778,7 @@ function officeInputFaq(tool: Tool): ToolFaqEntry[] {
   return [
     {
       question: `Which files can ${tool.name} convert?`,
-      answer: `Files ending in ${listed(extensions, "or")}. The worker checks the extension before converting, and a file with any other extension is refused.`,
+      answer: `Files ending in ${listed(extensions, "or")}. Our server checks the extension before converting, and a file with any other extension is refused.`,
     },
   ];
 }
@@ -1899,7 +1899,7 @@ export function modeFaq(tool: Tool): readonly ToolFaqEntry[] {
         const where =
           capability === "ai"
             ? "Our processing server extracts the PDF's selectable text and sends that text — not the file — to a third-party AI provider to produce the result."
-            : "The file is processed on a secure worker.";
+            : "The file is processed on a secure server.";
         entries.push({
           question: `What happens to my file after ${tool.name} runs?`,
           answer: `${where} Inputs are wiped when the job finishes, ${retention}`,
@@ -1949,7 +1949,7 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
   }
   if (capability === "hybrid") {
     entries.push({
-      question: `What happens to my file if I run the optional secure-worker step?`,
+      question: `What happens to my file if I run the optional secure-server step?`,
       answer: `Only then does the file leave your device. Inputs are wiped when the job finishes, the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
     });
   }
@@ -2017,7 +2017,7 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
       // true while this sentence rotted silently.
       entries.push({
         question: `How much of my PDF can ${tool.name} translate in one run?`,
-        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is not refused for length: it is split at page boundaries, translated a few pages at a time, then reassembled in order. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. The whole document is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over ${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} characters, the whole day's allowance, has to be split into smaller files. If the worker finds more text or more pages than the job reserved, translation stops there and a notice in place names the untranslated pages and why, so nothing stops silently.`,
+        answer: `${TRANSLATE_MAX_INPUT_CHARS.toLocaleString("en-US")} characters of selectable text per pass — about ${translatePagesAtSparsest} sparsely-set ${pluralPages(translatePagesAtSparsest)}, or ${translatePagesAtDensest} ${pluralPages(translatePagesAtDensest)} of dense text. Translation writes roughly as much as it reads, so that ceiling is the model's output budget — far below the reading cap the other AI tools state. A longer document is not refused for length: it is split at page boundaries, translated a few pages at a time, then reassembled in order. A SINGLE page holding more than that many characters cannot be translated at all — it is skipped, and the result says so in place, at the point where that page was. The whole document is charged against the free daily allowance when the job is created, so a document needing more than is left today is refused before it runs, with nothing charged, rather than half translated; one over ${AI_CHARACTER_ALLOWANCE_DELIVERED.toLocaleString("en-US")} characters, the whole day's allowance, has to be split into smaller files. If our server finds more text or more pages than the job reserved, translation stops there and a notice in place names the untranslated pages and why, so nothing stops silently.`,
       });
     } else if (tool.slug === CHAT_TOOL_SLUG) {
       // PER QUESTION: every question is its own job, and since L08 (9ebe3e6)
@@ -2067,7 +2067,7 @@ export function factFaq(tool: Tool): readonly ToolFaqEntry[] {
   if (tool.slug === "ocr-pdf") {
     entries.push({
       question: "Which languages can OCR recognize?",
-      answer: `${OCR_LANGUAGES.length} languages are advertised, with up to ${MAX_OCR_LANGUAGES} selectable per job. The worker reports the packs it actually has installed, and the page's live status reflects that report.`,
+      answer: `${OCR_LANGUAGES.length} languages are advertised, with up to ${MAX_OCR_LANGUAGES} selectable per job. Our server reports the packs it actually has installed, and the page's live status reflects that report.`,
     });
   }
 
@@ -2113,7 +2113,7 @@ const DERIVED_STEPS: Record<string, readonly string[]> = {
     "Type the password that will be needed to open it.",
     `Choose the encryption strength: ${encryptionLabels}. ${describePdfKeyLength(DEFAULT_PDF_KEY_LENGTH)} is the default.`,
     "Optionally, under Permissions, untick what readers may not do and set an owner password that differs from the open password.",
-    "The secure worker encrypts the file and deletes the input when the job finishes.",
+    "Our secure server encrypts the file and deletes the input when the job finishes.",
     `Download the protected PDF — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ],
   "ai-extract": [
@@ -2160,7 +2160,7 @@ function defaultSteps(tool: Tool): readonly string[] {
     return [
       `Open the tool and pick your ${formats} file — the main work runs in your browser.`,
       "Save the result to your device.",
-      `Optionally, start the clearly labeled secure-worker step — only then is the file uploaded, and its download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      `Optionally, start the clearly labeled secure-server step — only then is the file uploaded, and its download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ];
   }
   if (getToolInputKind(tool.slug) === "url") {
@@ -2175,7 +2175,7 @@ function defaultSteps(tool: Tool): readonly string[] {
   }
   return [
     `Upload your ${formats} file over an encrypted connection.`,
-    "The secure worker processes the file and deletes the input when the job finishes.",
+    "Our secure server processes the file and deletes the input when the job finishes.",
     `Download the result — the link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
   ];
 }

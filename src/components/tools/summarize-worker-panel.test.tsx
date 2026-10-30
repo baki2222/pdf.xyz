@@ -47,14 +47,14 @@ const READY: WorkerStatus = {
   mode: "remote-configured",
   enabled: true,
   localDevOnly: false,
-  detail: "A worker backend is configured.",
+  detail: "A server backend is configured.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: true, detail: "scanned" },
   ocr: { available: false, engine: null, languages: [], detail: "off" },
   security: {
     available: true,
     operations: ["protect", "unlock"],
-    detail: "qpdf runs on the worker.",
+    detail: "qpdf runs on our secure server.",
   },
   providers: {
     ...providers,
@@ -115,7 +115,7 @@ function network() {
         return json({
           jobId: "job_sum1",
           status: "failed",
-          error: { code: "x", message: "stubbed worker", retryable: false },
+          error: { code: "x", message: "stubbed server", retryable: false },
         });
       throw new Error(`unexpected fetch ${url}`);
     }),
@@ -204,7 +204,7 @@ describe("Summarize panel — a PDF that cannot be summarized is refused before 
   it("POSITIVE CONTROL: a PDF with text goes to the worker", async () => {
     const urls = network();
     extraction.run = async () => textOf("A contract with several clauses.");
-    expect(await summarize()).toHaveTextContent(/stubbed worker/);
+    expect(await summarize()).toHaveTextContent(/stubbed server/);
     expect(urls).toContain("/api/uploads");
     expect(urls).toContain("/api/jobs");
   });

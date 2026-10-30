@@ -78,8 +78,10 @@ function callSites(): CallSite[] {
     for (const m of code.matchAll(/\bjobBusyLabel\(\s*[\w.]+\s*,\s*/g)) {
       const rest = code.slice(m.index! + m[0].length);
       let labels: RegExp[];
-      const literal = /^"([^"]+)"\s*\)/.exec(rest);
-      const template = /^`([^`]+)`\s*\)/.exec(rest);
+      // `,?`: a label too long for one line is wrapped by prettier, with a
+      // trailing comma ("Recognizing text on our secure server…", 2026-10-30).
+      const literal = /^"([^"]+)"\s*,?\s*\)/.exec(rest);
+      const template = /^`([^`]+)`\s*,?\s*\)/.exec(rest);
       const expression = /^[\w[\].]+\.running\s*\)/.exec(rest);
       if (literal) labels = [new RegExp(escape(literal[1]!))];
       else if (template)
@@ -179,10 +181,12 @@ describe("a page that names a busy label names the stages around it", () => {
     expect(SITES.length).toBeGreaterThanOrEqual(usesJob.length);
     expect(WORKING.length).toBeGreaterThan(SITES.length);
     expect(WORKING.length).toBeLessThan(40);
-    expect(QUEUED).toBe("Waiting for the worker…");
+    expect(QUEUED).toBe("Waiting for our server…");
     expect(DOWNLOADING).toBe("Downloading the result…");
     // The expression and template shapes resolved to real labels.
-    expect(WORKING.some((l) => l.test("Unlocking on the worker…"))).toBe(true);
+    expect(WORKING.some((l) => l.test("Unlocking on our secure server…"))).toBe(
+      true,
+    );
     expect(WORKING.some((l) => l.test("Exporting PPTX…"))).toBe(true);
   });
 
@@ -199,7 +203,7 @@ describe("a page that names a busy label names the stages around it", () => {
       expect(oneLabelClaim(shipped), shipped).toBe(true);
     expect(
       oneLabelClaim(
-        "While it runs, the button says where the job is (Uploading your file…, Waiting for the worker…, Answering…, Downloading the result…) until the answer package is back in the page.",
+        "While it runs, the button says where the job is (Uploading your file…, Waiting for our server…, Answering…, Downloading the result…) until the answer package is back in the page.",
       ),
     ).toBe(false);
     // A field naming no working label is not this guard's business.

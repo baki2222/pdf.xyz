@@ -64,7 +64,7 @@ const content: ToolContent = {
     },
     {
       q: "Can someone still change the answers after flattening?",
-      a: `Not through the fields that were flattened: they are removed from the form. Signature fields are kept, and any field the result lists under "Left as-is, still interactive" is still live. It is not a lock on the file, though, and a full PDF editor can still alter page content. To make the copy open only with a password, use Protect PDF next. Unlike this tool it does not stay in your browser: Protect PDF encrypts on pdf.xyz's secure worker, reached over TLS, which deletes the uploaded input when the job finishes; the protected copy's link lasts ${PROTECT_LINK_MINUTES} minutes.`,
+      a: `Not through the fields that were flattened: they are removed from the form. Signature fields are kept, and any field the result lists under "Left as-is, still interactive" is still live. It is not a lock on the file, though, and a full PDF editor can still alter page content. To make the copy open only with a password, use Protect PDF next. Unlike this tool it does not stay in your browser: Protect PDF encrypts on pdf.xyz's secure server, reached over TLS, which deletes the uploaded input when the job finishes; the protected copy's link lasts ${PROTECT_LINK_MINUTES} minutes.`,
     },
     {
       q: "Does it flatten comments, annotations and layers too?",

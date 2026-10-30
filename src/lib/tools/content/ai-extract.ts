@@ -138,8 +138,8 @@ const content: ToolContent = {
 
   intro: [
     `AI Data Extraction asks an AI model for just the values you name in a PDF, such as an invoice number, a due date or a list of product codes, and hands them back as JSON. In a field schema you list up to ${MAX_EXTRACTION_FIELDS} named fields, each typed as ${FIELD_TYPES}, and the model is told to use each name, unchanged, as a key in its answer. Alternatively, write an instruction of up to ${PROMPT_CHARS} characters in your own words; the model is then asked for a flat JSON object and chooses descriptive key names itself.`,
-    `Your browser sends the file over TLS to pdf.xyz's secure worker. The worker reads out its text layer and passes that text, with your field list or instruction, to a third-party AI provider. The provider gets text only, never the PDF. When the job ends the worker deletes the uploaded file; the extraction package stays downloadable for ${OUTPUT_TTL} minutes, and once that window closes a daily storage rule sweeps the stored copy away.`,
-    `Per run the builder accepts one PDF, capped at ${CEILING_MB} MB. Of its text, the model sees no more than ${MAX_CHARS} characters, and that count includes the spaces and line breaks the worker's text reader keeps to mirror the page layout, so how many pages fit depends on how the pages are set; a long file's result states how far reading got. The model's instructions are to use only that text. pdf.xyz invents no values: with a field schema it lines the reply up with your field names, and the model's own reply is kept beside it, as returned. ${AI_EXTRACT_UNRETURNED_NULL} Instructions are not guarantees, so check any figure you will act on.`,
+    `Your browser sends the file over TLS to pdf.xyz's secure server. Our server reads out its text layer and passes that text, with your field list or instruction, to a third-party AI provider. The provider gets text only, never the PDF. When the job ends our server deletes the uploaded file; the extraction package stays downloadable for ${OUTPUT_TTL} minutes, and once that window closes a daily storage rule sweeps the stored copy away.`,
+    `Per run the builder accepts one PDF, capped at ${CEILING_MB} MB. Of its text, the model sees no more than ${MAX_CHARS} characters, and that count includes the spaces and line breaks our server's text reader keeps to mirror the page layout, so how many pages fit depends on how the pages are set; a long file's result states how far reading got. The model's instructions are to use only that text. pdf.xyz invents no values: with a field schema it lines the reply up with your field names, and the model's own reply is kept beside it, as returned. ${AI_EXTRACT_UNRETURNED_NULL} Instructions are not guarantees, so check any figure you will act on.`,
   ],
 
   useCases: [
@@ -172,11 +172,11 @@ const content: ToolContent = {
     },
     {
       title: "Press Extract data",
-      body: "The button stays inactive until a file is added and the selected mode has something to ask: at least one named field under Field schema, with no two names the same, or some text under Prompt. Once pressed, its label follows the job: Uploading your file… while the PDF uploads, Waiting for the worker… while it is queued, Extracting… while the text goes to the AI provider and the reply is packaged, and Downloading the result… at the end.",
+      body: "The button stays inactive until a file is added and the selected mode has something to ask: at least one named field under Field schema, with no two names the same, or some text under Prompt. Once pressed, its label follows the job: Uploading your file… while the PDF uploads, Waiting for our server… while it is queued, Extracting… while the text goes to the AI provider and the reply is packaged, and Downloading the result… at the end.",
     },
     {
       title: "Download the extraction package",
-      body: `For invoice.pdf the button reads Download ${SAMPLE_ZIP}. When only part of a long document was read, a warning above it says so, naming the last page read in full when that can be worked out. The page has already fetched the file by then; the worker's own link to it lapses after ${OUTPUT_TTL} minutes.`,
+      body: `For invoice.pdf the button reads Download ${SAMPLE_ZIP}. When only part of a long document was read, a warning above it says so, naming the last page read in full when that can be worked out. The page has already fetched the file by then; our server's own link to it lapses after ${OUTPUT_TTL} minutes.`,
     },
   ],
 
@@ -191,11 +191,11 @@ const content: ToolContent = {
     },
     {
       q: "Is my document sent to an AI company, and is it used for training?",
-      a: "The provider receives the text the worker read from your PDF plus your field names or instruction, not the file. On training, pdf.xyz can speak only to its contracts, and the agreements it uses its AI providers under prohibit training on data sent through the API. Anything a provider does outside those terms is out of pdf.xyz's hands, so keep documents that cannot bear that risk away from the AI tools.",
+      a: "The provider receives the text our server read from your PDF plus your field names or instruction, not the file. On training, pdf.xyz can speak only to its contracts, and the agreements it uses its AI providers under prohibit training on data sent through the API. Anything a provider does outside those terms is out of pdf.xyz's hands, so keep documents that cannot bear that risk away from the AI tools.",
     },
     {
       q: "How many extractions can I run a day?",
-      a: `Every AI tool on pdf.xyz spends from ${AI_ALLOWANCE_POOL}, ${AI_ALLOWANCE_CLAUSE}. One extraction never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or hundreds, so at least ${EXTRACTIONS_PHRASE} ${EXTRACTIONS_PHRASE_FIT} in a day if no other AI job has used the pool. The charge is taken when the job is submitted, after the upload, and a job the worker then refuses or that fails still uses it. A PDF this page can already tell has no selectable text is stopped before upload and costs nothing. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
+      a: `Every AI tool on pdf.xyz spends from ${AI_ALLOWANCE_POOL}, ${AI_ALLOWANCE_CLAUSE}. One extraction never costs more than ${RUN_CEILING} characters of that pool, whether the PDF is one page or hundreds, so at least ${EXTRACTIONS_PHRASE} ${EXTRACTIONS_PHRASE_FIT} in a day if no other AI job has used the pool. The charge is taken when the job is submitted, after the upload, and a job our server then refuses or that fails still uses it. A PDF this page can already tell has no selectable text is stopped before upload and costs nothing. And when pdf.xyz's own daily spending cap for AI is reached, every AI tool pauses until the next day, however much of the free allowance is left.`,
     },
     {
       q: "What happens with a very long PDF?",
@@ -203,7 +203,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did my extraction fail, or come back null or wrong?",
-      a: `When the model's reply is not valid JSON, the worker can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt or in a descriptive field name. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
+      a: `When the model's reply is not valid JSON, our server can put the job back in its queue for another attempt by itself. Once the attempts run out, the job fails with nothing to download and a message saying a retry may succeed. A wrong value comes from the model's reply or from the text it was given: an OCR layer with misread characters, or side-by-side columns read across as one line, can mislead it. Compare the value with the page, and when a page holds several similar figures, name the exact one you want in a prompt or in a descriptive field name. ${AI_EXTRACT_NULL_INSTRUCTION} ${AI_EXTRACT_NULL_MEANING} ${AI_EXTRACT_NOT_NULL_WARNING} A single-value field asked of a column of figures is where this happens most, since every row holds a candidate.`,
     },
   ],
 

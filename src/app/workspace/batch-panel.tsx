@@ -185,12 +185,12 @@ export function BatchPanel({
             component has. It deliberately no longer says "not enabled here":
             the predicate behind this list (`!s.live && s.uploadsFiles`) is two
             static catalogue lookups and never observes the environment, while
-            the worker IS enabled on this deployment. Twenty tools were labelled
+            our server IS enabled on this deployment. Twenty tools were labelled
             "not enabled" at the exact moment a user picks one — and picking one
             uploads their file, so a reader could reasonably conclude nothing
             would leave their machine. A label may not claim an environment
             state its predicate cannot see; the enablement question belongs to
-            the live worker status this component does not fetch.
+            the live server status this component does not fetch.
           */}
           <optgroup label="Secure server · your file is uploaded">
             {workerTools.map((t) => (

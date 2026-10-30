@@ -124,7 +124,7 @@ const content: ToolContent = {
   intro: [
     `PDF to PDF/A, an online converter, rewrites an ordinary PDF as ${PDF_A_STANDARD}: conformance level b of PDF/A-2 (ISO 19005-2), the archiving format meant for documents that must still open and look the same years from now. Ghostscript's pdfwrite device rebuilds the file with its PDF/A-2 setting switched on. Level b (basic) is about visual appearance; the tagged structure that level a requires is not added.`,
     `Some of what a PDF can carry has no place in PDF/A, and the converter is told to drop it and keep going rather than abandon the job. What Ghostscript reports while doing so appears above your download in its own words: at most ${NOTE_LINES} distinct lines, each cut to ${NOTE_CHARS} characters, with any line naming a file path held back and a closing line saying further messages were not shown. The line you are most likely to meet ends in "discarding DOCINFO", because most PDFs carry producer or creator text. Nothing checks the output against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.`,
-    `The conversion happens where Ghostscript is installed, on pdf.xyz's secure worker, so your PDF (one per job, ${CEILING_MB} MB at most) travels there over TLS. Once the job is over the worker deletes your original. You then have ${LINK_MINUTES} minutes to download the archive version, and whatever is still in storage after that is wiped by the next daily sweep.`,
+    `The conversion happens where Ghostscript is installed, on pdf.xyz's secure server, so your PDF (one per job, ${CEILING_MB} MB at most) travels there over TLS. Once the job is over our server deletes your original. You then have ${LINK_MINUTES} minutes to download the archive version, and whatever is still in storage after that is wiped by the next daily sweep.`,
   ],
 
   useCases: [
@@ -134,7 +134,7 @@ const content: ToolContent = {
     },
     {
       title: "Records you must keep for years",
-      body: "Board minutes and annual statements outlive the software that made them, and PDF/A requires every font to be embedded. Where your original only names a font without carrying it, Ghostscript uses one from its own set instead; on the worker, NimbusSans was seen standing in for Helvetica. The notes do not report that swap, so compare the archive copy with the original page by page.",
+      body: "Board minutes and annual statements outlive the software that made them, and PDF/A requires every font to be embedded. Where your original only names a font without carrying it, Ghostscript uses one from its own set instead; on our secure server, NimbusSans was seen standing in for Helvetica. The notes do not report that swap, so compare the archive copy with the original page by page.",
     },
     {
       title: "An upload portal that insists on PDF/A",
@@ -148,8 +148,8 @@ const content: ToolContent = {
 
   steps: [
     {
-      title: "Check the worker badge",
-      body: "The badge at the top reads Secure worker when conversion is available. Otherwise the panel says why and its Convert button stays off, so nothing is sent.",
+      title: "Check our server badge",
+      body: "The badge at the top reads Secure server when conversion is available. Otherwise the panel says why and its Convert button stays off, so nothing is sent.",
     },
     {
       title: "Add one PDF",
@@ -157,7 +157,7 @@ const content: ToolContent = {
     },
     {
       title: "Press Convert to PDF/A",
-      body: "The button reads Uploading your file… while the PDF travels to the secure worker, Waiting for the worker… while the job is queued, Converting to PDF/A… while Ghostscript rewrites it, and Downloading the result… as the copy comes back. The worker first looks for a PDF header at the start and a %%EOF marker near the end; a file missing either, such as a download that stopped partway, is refused and nothing is produced.",
+      body: "The button reads Uploading your file… while the PDF travels to our secure server, Waiting for our server… while the job is queued, Converting to PDF/A… while Ghostscript rewrites it, and Downloading the result… as the copy comes back. Our server first looks for a PDF header at the start and a %%EOF marker near the end; a file missing either, such as a download that stopped partway, is refused and nothing is produced.",
     },
     {
       title: "Read the notes, then download",
@@ -168,7 +168,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Will the converted file pass a PDF/A validator?",
-      a: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Before your file is returned, the worker checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART}, conformance ${PDFA_EXPECTED_CONFORMANCE} in its XMP metadata, plus an embedded colour profile (a ${PDFA_OUTPUT_INTENT_SUBTYPE} output intent). If either declaration is missing, no file is returned. A declaration is not proof of conformance, so the file carries no compliance guarantee; check it with the validator your archive uses. One oddity: Ghostscript's metadata notices say "PDF/A1" even though it runs with its PDF/A-2 setting. The notes show that wording unchanged, and we have not established why Ghostscript uses it.`,
+      a: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Before your file is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART}, conformance ${PDFA_EXPECTED_CONFORMANCE} in its XMP metadata, plus an embedded colour profile (a ${PDFA_OUTPUT_INTENT_SUBTYPE} output intent). If either declaration is missing, no file is returned. A declaration is not proof of conformance, so the file carries no compliance guarantee; check it with the validator your archive uses. One oddity: Ghostscript's metadata notices say "PDF/A1" even though it runs with its PDF/A-2 setting. The notes show that wording unchanged, and we have not established why Ghostscript uses it.`,
     },
     {
       q: "Can I choose PDF/A-1b, PDF/A-2u or PDF/A-3?",
@@ -180,7 +180,7 @@ const content: ToolContent = {
     },
     {
       q: "Does converting a scan to PDF/A make its text searchable?",
-      a: "No. A scanned page stays a picture of text. Run it through OCR PDF first, which adds a searchable text layer, then convert that file and search the PDF/A copy to confirm the words survived. OCR also runs on the secure worker, so the scan is uploaded for that step too.",
+      a: "No. A scanned page stays a picture of text. Run it through OCR PDF first, which adds a searchable text layer, then convert that file and search the PDF/A copy to confirm the words survived. OCR also runs on our secure server, so the scan is uploaded for that step too.",
     },
     {
       q: "What about a PDF that asks for a password when opened?",
@@ -188,7 +188,7 @@ const content: ToolContent = {
     },
     {
       q: "How long is my PDF kept?",
-      a: `Ghostscript works in a temporary folder on the worker, and a cleanup step deletes that folder whether or not the conversion worked. The stored upload is deleted once the job ends, or held for a retry if the job hit a temporary error. Your PDF/A result can be fetched for ${LINK_MINUTES} minutes. After that its link returns an error, and the stored bytes go when the storage rule next runs on its daily cycle.`,
+      a: `Ghostscript works in a temporary folder on our secure server, and a cleanup step deletes that folder whether or not the conversion worked. The stored upload is deleted once the job ends, or held for a retry if the job hit a temporary error. Your PDF/A result can be fetched for ${LINK_MINUTES} minutes. After that its link returns an error, and the stored bytes go when the storage rule next runs on its daily cycle.`,
     },
   ],
 

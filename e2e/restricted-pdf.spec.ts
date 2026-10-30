@@ -119,6 +119,15 @@ test("restricted: fills the form and keeps the author's encryption", async ({
     "aria-disabled",
     "true",
   );
+  // The help beside the pages says what this PDF allows — not the placing
+  // tools' "Pick a tool, then tap or click a page to place it", which are
+  // locked here.
+  const help = page.locator("[data-locked-help]");
+  await expect(help).toBeVisible();
+  await expect(help).toHaveText(
+    "Fill in the form fields on the page, then Apply & download. The author's restrictions stay in the downloaded file; the other tools need the owner password.",
+  );
+  await expect(page.getByText(/Pick a tool, then/)).toHaveCount(0);
   await banner.scrollIntoViewIfNeeded();
   await shot(page, "restricted-banner.png");
 
@@ -127,6 +136,9 @@ test("restricted: fills the form and keeps the author's encryption", async ({
   await expect(name).toBeVisible();
   await name.fill("Ada Lovelace");
   await page.locator('[data-file-field="agree"]').check();
+  // Still the form's help once a field has been used.
+  await expect(help).toBeVisible();
+  await expect(page.getByText(/Pick a tool, then/)).toHaveCount(0);
   await shot(page, "restricted-filled.png");
 
   const buf = await captureDownload(

@@ -236,7 +236,7 @@ export type BatchStatus =
   | "ready" // live collect/batch tool + files → launch the whole set in-browser
   | "single" // live single-file tool + files → opens with the first queued file
   | "worker-disabled" // worker tool, backend not enabled here
-  | "unavailable"; // tool has no in-browser runner yet (and isn't a worker tool)
+  | "unavailable"; // tool has no in-browser runner yet (and isn't a server tool)
 
 export interface BatchPlan {
   toolSlug: string | null;

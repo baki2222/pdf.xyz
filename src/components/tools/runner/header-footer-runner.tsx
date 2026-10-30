@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useEffect, useMemo, useState } from "react";
 import { Download, PanelTop } from "lucide-react";
 import {
@@ -224,15 +225,22 @@ export function HeaderFooterEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={!hasContent}
-            busyLabel="Applying…"
+          <RunReason
+            reason={!hasContent ? "Type a header or a footer first." : null}
           >
-            <PanelTop className="size-4" aria-hidden />
-            Add header &amp; footer
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onRun}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={!hasContent}
+                busyLabel="Applying…"
+              >
+                <PanelTop className="size-4" aria-hidden />
+                Add header &amp; footer
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>

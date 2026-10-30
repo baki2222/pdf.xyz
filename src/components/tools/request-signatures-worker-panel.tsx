@@ -215,7 +215,7 @@ export function RequestSignaturesWorkerPanel({ tool }: { tool: Tool }) {
       tool={tool}
       tone="accent"
       engine={{ label: "Signature request", icon: PenLine }}
-      description="The worker adds real fillable fields for each signer and returns a signature-request package — the prepared PDF, a manifest, and an audit trail. It prepares and records the request; it never fabricates a signed document, and legally-binding delivery to external signers needs a configured e-signature provider."
+      description="Our server adds real fillable fields for each signer and returns a signature-request package — the prepared PDF, a manifest, and an audit trail. It prepares and records the request; it never fabricates a signed document, and legally-binding delivery to external signers needs a configured e-signature provider."
       canRun={canRunRequestSignatures}
       specRows={[
         {
@@ -470,7 +470,7 @@ export function RequestBuilder({
               <button
                 type="button"
                 onClick={() => pickFile(null)}
-                className="text-muted hover:text-fg font-medium transition"
+                className="text-muted hover:text-fg tap tap-y font-medium transition"
               >
                 Remove
               </button>
@@ -632,8 +632,8 @@ export function RequestBuilder({
         note={
           <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            Your PDF uploads to a private secure-worker job only when you press{" "}
-            {RUN_LABEL}. The worker prepares the PDF with real fillable fields
+            Your PDF uploads to a private secure-server job only when you press{" "}
+            {RUN_LABEL}. Our server prepares the PDF with real fillable fields
             and packages the request — it does not collect or certify
             signatures.
           </p>
@@ -642,10 +642,10 @@ export function RequestBuilder({
           <>
             <p className="text-muted text-sm leading-relaxed">
               {status?.daemon.detail ??
-                "The secure worker is not drainable here."}
+                "Our secure server is not drainable here."}
             </p>
             <p className="text-muted text-xs leading-relaxed">
-              {RUN_LABEL} stays off until the worker is ready, so {tool.name}{" "}
+              {RUN_LABEL} stays off until our server is ready, so {tool.name}{" "}
               never pretends to prepare a request it cannot actually package.
             </p>
           </>

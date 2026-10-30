@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useState } from "react";
 import {
   Download,
@@ -291,17 +292,26 @@ function OverlayEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={!overlay}
-            busyLabel="Overlaying…"
+          <RunReason
+            reason={
+              !overlay ? "Add the PDF to lay over the pages first." : null
+            }
           >
-            <Layers className="size-4" aria-hidden />
-            {overlay
-              ? `Overlay onto ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"}`
-              : "Add an overlay PDF"}
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onRun}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={!overlay}
+                busyLabel="Overlaying…"
+              >
+                <Layers className="size-4" aria-hidden />
+                {overlay
+                  ? `Overlay onto ${pdf.pageCount} page${pdf.pageCount === 1 ? "" : "s"}`
+                  : "Add an overlay PDF"}
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>

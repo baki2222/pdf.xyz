@@ -89,7 +89,7 @@ test("a scan in PDF to Text shows the OCR hint, and its button opens OCR PDF", a
     exact: true,
   });
   if (!stages) {
-    await expect(hint).toContainText("uploads to the secure worker only when");
+    await expect(hint).toContainText("uploads to our secure server only when");
     test.info().annotations.push({
       type: "pending",
       description:

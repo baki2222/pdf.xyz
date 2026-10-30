@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
  * only generates a class it can read in the source; `tool-grid.test.tsx` and
  * `tool-card.test.tsx` hold every rendered family to `bg-cat-<its id>`.
  *
- * WAS a theme ink at 10% on the tile (`bg-current/10`) with the glyph in the
- * ink: every tile read as the same pale square (review of PR #199). Moved
+ * WAS a theme ink at 10% on the tile (currentColor at a tenth) with the
+ * glyph in the ink: every tile read as the same pale square (review of PR #199). Moved
  * here from the home grid on 2026-10-23, when every tool card on the site
  * (the catalogue, the category pages, a tool page's related tools, a guide's
  * tools used, the workspace's rows) took the home card's tile.

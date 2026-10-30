@@ -18,7 +18,7 @@ test("compress analyzes in-browser and honestly labels the worker path", async (
 
   // Hybrid tools get the honest banner, not the pure in-browser guarantee.
   await expect(
-    page.getByText(/any secure-worker step is optional/i),
+    page.getByText(/any secure-server step is optional/i),
   ).toBeVisible();
 
   await uploadFiles(page, file);
@@ -34,7 +34,7 @@ test("compress analyzes in-browser and honestly labels the worker path", async (
 
   // The secure-worker deep path is present but honestly labeled "Not enabled".
   await expect(
-    page.getByText("Deep image compression (secure worker)", { exact: true }),
+    page.getByText("Deep image compression (secure server)", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Not enabled", { exact: true })).toBeVisible();
   // The fallback detail names its own vantage (this web process) rather than

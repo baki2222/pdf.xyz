@@ -253,14 +253,14 @@ const READY_FOR_WAIT: WorkerStatus = {
   mode: "remote-configured",
   enabled: true,
   localDevOnly: false,
-  detail: "A worker backend is configured.",
+  detail: "A server backend is configured.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: true, detail: "scanned" },
   ocr: { available: false, engine: null, languages: [], detail: "off" },
   security: {
     available: true,
     operations: ["protect", "unlock"],
-    detail: "qpdf runs on the worker.",
+    detail: "qpdf runs on our secure server.",
   },
   providers: {
     ...providers,

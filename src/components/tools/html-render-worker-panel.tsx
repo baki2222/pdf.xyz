@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useCallback, useEffect, useId, useState } from "react";
 import {
   Download,
@@ -88,12 +89,12 @@ export function HtmlRenderWorkerPanel({ tool }: { tool: Tool }) {
   return (
     <WorkerPanelShell
       tool={tool}
-      engine={{ label: "Chromium renderer", icon: Icon }}
+      engine={{ label: "Web page capture", icon: Icon }}
       description={
         <>
           Chromium renders{" "}
           {mode === "url" ? "the public URL" : "your uploaded HTML file"} to a
-          real print PDF on the isolated worker. It produces a PDF artifact or
+          real print PDF on our isolated server. It produces a PDF artifact or
           fails honestly — no screenshot placeholder and no browser-side fake.
         </>
       }
@@ -224,7 +225,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
   const missing =
     mode === "html" ? !file : url.trim().length <= "https://".length;
   const detail =
-    status?.daemon.detail ?? "The secure worker is not drainable here.";
+    status?.daemon.detail ?? "Our secure server is not drainable here.";
 
   return (
     <div className="flex flex-col gap-4">
@@ -272,7 +273,7 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
                   setFile(null);
                   setOutcome(null);
                 }}
-                className="text-muted hover:text-fg shrink-0 text-sm font-medium transition max-sm:-my-1.5 max-sm:py-1.5"
+                className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
               >
                 Remove
               </button>
@@ -322,30 +323,42 @@ function HtmlRenderRunArea({ mode, tool }: { mode: Mode; tool: Tool }) {
         job={job}
         bytes={mode === "html" ? file?.size : undefined}
         run={(ready) => (
-          <WorkerRunButton
-            onClick={start}
-            busy={busy}
-            disabled={!ready || missing}
-            busyLabel={jobBusyLabel(job.phase, "Rendering PDF…")}
-            icon={FileCode}
+          <RunReason
+            after
+            reason={
+              ready && missing && mode === "url"
+                ? "Type the page's address first."
+                : null
+            }
           >
-            {RUN_LABEL}
-          </WorkerRunButton>
+            {(describedBy) => (
+              <WorkerRunButton
+                onClick={start}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={!ready || missing}
+                busyLabel={jobBusyLabel(job.phase, "Rendering PDF…")}
+                icon={FileCode}
+              >
+                {RUN_LABEL}
+              </WorkerRunButton>
+            )}
+          </RunReason>
         )}
         jobStatus={<WorkerJobStatus job={job} />}
         note={
           <p className="text-info flex items-start gap-1.5 text-xs leading-relaxed">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
             {mode === "url"
-              ? `Pressing ${RUN_LABEL} starts a private secure-worker job. Only public http(s) URLs are accepted; private/localhost targets are rejected.`
-              : `Your HTML uploads to a private secure-worker job only when you press ${RUN_LABEL}. It is stored only for the short worker lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
+              ? `Pressing ${RUN_LABEL} starts a private secure-server job. Only public http(s) URLs are accepted; private/localhost targets are rejected.`
+              : `Your HTML uploads to a private secure-server job only when you press ${RUN_LABEL}. It is stored only for the short server lifecycle and wiped after processing. Only the file itself is uploaded, so embed its images and stylesheets or link them with full https:// addresses.`}
           </p>
         }
         off={
           <>
             <p className="text-muted text-sm leading-relaxed">{detail}</p>
             <p className="text-muted text-xs leading-relaxed">
-              {RUN_LABEL} stays off until the worker is ready, so {tool.name}{" "}
+              {RUN_LABEL} stays off until our server is ready, so {tool.name}{" "}
               never pretends to process input it cannot actually render.
             </p>
           </>

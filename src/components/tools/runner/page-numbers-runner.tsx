@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useMemo, useState } from "react";
 import { Download, ListOrdered } from "lucide-react";
 import {
@@ -316,15 +317,26 @@ export function PageNumbersEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={numberedCount === 0}
-            busyLabel="Numbering…"
+          <RunReason
+            reason={
+              numberedCount === 0
+                ? "No page gets a number with these settings."
+                : null
+            }
           >
-            <ListOrdered className="size-4" aria-hidden />
-            Add page numbers
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onRun}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={numberedCount === 0}
+                busyLabel="Numbering…"
+              >
+                <ListOrdered className="size-4" aria-hidden />
+                Add page numbers
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>

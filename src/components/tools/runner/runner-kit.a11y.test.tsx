@@ -299,14 +299,14 @@ describe("WorkerRunButton", () => {
     return (
       <WorkerRunButton
         busy={busy}
-        busyLabel="Recognizing on the worker…"
+        busyLabel="Recognizing text on our secure server…"
         icon={UploadCloud}
         onClick={() => {
           setBusy(true);
           onRun?.();
         }}
       >
-        Run OCR on the worker
+        Recognize text
       </WorkerRunButton>
     );
   }
@@ -314,13 +314,15 @@ describe("WorkerRunButton", () => {
   it("keeps the keyboard for the whole worker job it started", () => {
     render(<Panel />);
     const button = screen.getByRole("button", {
-      name: "Run OCR on the worker",
+      name: "Recognize text",
     });
     button.focus();
 
     fireEvent.click(button);
 
-    expect(button).toHaveAccessibleName("Recognizing on the worker…");
+    expect(button).toHaveAccessibleName(
+      "Recognizing text on our secure server…",
+    );
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(button).toHaveAttribute("aria-disabled", "true");
     // The load-bearing one: jest-dom reads the native attribute and ignores
@@ -354,7 +356,7 @@ describe("WorkerRunButton", () => {
     const onRun = vi.fn();
     render(<Panel onRun={onRun} />);
     const button = screen.getByRole("button", {
-      name: "Run OCR on the worker",
+      name: "Recognize text",
     });
 
     fireEvent.click(button);
@@ -429,9 +431,9 @@ describe("a failed run", () => {
   it("is still an alert", () => {
     // Passes today. It is here so the sibling that already worked cannot quietly
     // regress while attention is on the success path.
-    render(<ErrorNote message="The worker could not read this PDF." />);
+    render(<ErrorNote message="Our server could not read this PDF." />);
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "The worker could not read this PDF.",
+      "Our server could not read this PDF.",
     );
   });
 });
