@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -476,15 +477,24 @@ function OrganizeEditor({
             Badge shows the new position; label shows the original page. Grab a
             tile&apos;s handle and use arrow keys, or press Ctrl/⌘+Z to undo.
           </p>
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={!dirty}
-            busyLabel="Building…"
+          <RunReason
+            reason={
+              !dirty ? "Rearrange, rotate, add or delete a page first." : null
+            }
           >
-            <Download className="size-4" aria-hidden />
-            Apply &amp; export
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onRun}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={!dirty}
+                busyLabel="Building…"
+              >
+                <Download className="size-4" aria-hidden />
+                Apply &amp; export
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>

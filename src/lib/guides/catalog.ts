@@ -248,7 +248,7 @@ export const guides: Guide[] = [
         heading: "Inputs, output, and limits",
         body: [
           `Merge PDF accepts PDF files and produces a single PDF. Each file you add can be up to ${ceilingMb("merge-pdf")} MB, and you need at least two files for a merge to make sense — the tool is built around combining several documents into one.`,
-          "If the combined document ends up heavier than you would like, Compress PDF can follow up: its lossless structural repack always runs in your browser, with deep image compression available as an optional, clearly labeled secure-worker step.",
+          "If the combined document ends up heavier than you would like, Compress PDF can follow up: its lossless structural repack always runs in your browser, with deep image compression available as an optional, clearly labeled secure-server step.",
         ],
       },
     ],
@@ -278,7 +278,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-25",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-split-a-pdf",
@@ -371,7 +371,7 @@ export const guides: Guide[] = [
     slug: "how-to-compress-a-pdf",
     title: "How to compress a PDF",
     description:
-      "Compress a PDF with a lossless repack that runs in your browser, or send image-heavy files through deep image compression on a secure, auto-deleting worker.",
+      "Compress a PDF with a lossless repack that runs in your browser, or send image-heavy files through deep image compression on a secure, auto-deleting server.",
     tools: ["compress-pdf", "optimize-web"],
     keywords: [
       "compress pdf",
@@ -383,7 +383,7 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To compress a PDF, open the Compress PDF tool, add your file, and download the lossless-optimized copy it produces right in your browser. Alongside that copy, the tool shows you a size breakdown so you can see exactly what is inflating the file — before you decide whether the optional deep image compression step is worth it.",
-      "What sets this approach apart is that it keeps two very different kinds of compression explicitly separate. The analysis and the lossless repack run entirely in your browser, so on that path your PDF stays on your device from start to finish. Deep image compression — the step that downsamples images in image-heavy files — is optional and clearly labeled, and it runs on a secure, auto-deleting worker. The page checks that a worker is available before anything leaves your device.",
+      "What sets this approach apart is that it keeps two very different kinds of compression explicitly separate. The analysis and the lossless repack run entirely in your browser, so on that path your PDF stays on your device from start to finish. Deep image compression — the step that downsamples images in image-heavy files — is optional and clearly labeled, and it runs on a secure, auto-deleting server. The page checks that a server is available before anything leaves your device.",
       "There is no account to create: add a PDF, read the breakdown, and save the result.",
     ],
     steps: [
@@ -391,8 +391,8 @@ export const guides: Guide[] = [
       "Add your PDF. The analysis runs privately, right in your browser — the file stays on your device while it is inspected.",
       "Review the size breakdown to see exactly what is inflating your PDF.",
       "Download the lossless-optimized copy. The repack runs entirely in your browser, and because it is lossless, the document's content is left as it was.",
-      "For image-heavy files, choose the deep image compression step. It is optional and clearly labeled: your PDF is uploaded to a secure, auto-deleting worker that downsamples the images.",
-      "Before anything leaves your device, the page checks that a worker is available — the deep step starts only after that check passes.",
+      "For image-heavy files, choose the deep image compression step. It is optional and clearly labeled: your PDF is uploaded to a secure, auto-deleting server that downsamples the images.",
+      "Before anything leaves your device, the page checks that a server is available — the deep step starts only after that check passes.",
       `Download the compressed result. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
     ],
     sections: [
@@ -401,15 +401,15 @@ export const guides: Guide[] = [
         heading: "Lossless repack vs. deep image compression",
         body: [
           "The lossless structural repack always runs in your browser. It rewrites the file's internal structure without touching the content, so it is the safe default: run it on any PDF, and if the result is small enough, you are done. The breakdown comes first, so you can see what is inflating the PDF before deciding whether the lossless pass alone will get you where you need to be.",
-          "Deep image compression is the second path, and it exists for image-heavy files. It needs a native engine, so it runs as an optional, clearly labeled secure-worker step rather than in the browser: your PDF is uploaded to the worker, images are downsampled, and you download a smaller PDF. Nothing routes you there silently — you choose the step yourself, and the page confirms a worker is available before anything leaves your device.",
+          "Deep image compression is the second path, and it exists for image-heavy files. It needs a native engine, so it runs as an optional, clearly labeled secure-server step rather than in the browser: your PDF is uploaded to our server, images are downsampled, and you download a smaller PDF. Nothing routes you there silently — you choose the step yourself, and the page confirms a server is available before anything leaves your device.",
         ],
       },
       {
         id: "where-your-file-is-processed",
         heading: "Where your file is processed",
         body: [
-          `Compress PDF is a hybrid tool, and the two paths have different privacy stories — both stated plainly. The size analysis and the lossless repack happen on your device: for that path, your PDF never leaves your browser. The optional deep image compression step is different: there, your file is uploaded to a secure worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
-          "Because the availability check runs first, nothing is sent to a worker that is not there to receive it.",
+          `Compress PDF is a hybrid tool, and the two paths have different privacy stories — both stated plainly. The size analysis and the lossless repack happen on your device: for that path, your PDF never leaves your browser. The optional deep image compression step is different: there, your file is uploaded to a secure server, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          "Because the availability check runs first, nothing is sent to a server that is not there to receive it.",
         ],
       },
       {
@@ -446,12 +446,12 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to my file after deep image compression runs?",
-        answer: `The job runs on a secure worker, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `The job runs on a secure server, and inputs are wiped when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "Will a smaller PDF also open faster on a website?",
         answer:
-          "Size is only part of it. If the PDF will be read in a browser, run Optimize for Web on the compressed copy: it linearizes the file with qpdf on a secure worker, so the first page can render while the rest still downloads, and the input is deleted after the job. Linearizing reorders the file for streaming; it is not a compression step.",
+          "Size is only part of it. If the PDF will be read in a browser, run Optimize for Web on the compressed copy: it linearizes the file with qpdf on a secure server, so the first page can render while the rest still downloads, and the input is deleted after the job. Linearizing reorders the file for streaming; it is not a compression step.",
       },
       {
         question: "Do I need an account to compress a PDF?",
@@ -460,13 +460,13 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-10",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-convert-pdf-to-word",
     title: "How to convert a PDF to an editable Word document",
     description:
-      "Convert a PDF into an editable Word (DOCX) file on a secure worker that deletes the input when the job finishes. No account needed.",
+      "Convert a PDF into an editable Word (DOCX) file on a secure server that deletes the input when the job finishes. No account needed.",
     tools: ["pdf-to-word", "ocr-pdf", "word-to-pdf"],
     keywords: [
       "convert pdf to word",
@@ -478,14 +478,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To convert a PDF into an editable Word document, open the PDF to Word tool, upload your PDF, and download the result as a DOCX file. The conversion carries the PDF's selectable text into Word as plain paragraphs in reading order, so you edit the words instead of retyping them — the formatting is not rebuilt.",
-      `PDF to Word is a server tool: your PDF travels over an encrypted connection to a secure worker, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
-      `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let the worker convert it, and save the DOCX before the link expires.`,
+      `PDF to Word is a server tool: your PDF travels over an encrypted connection to a secure server, and our server deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      `There is no account to create. Pick a PDF up to ${ceilingMb("pdf-to-word")} MB, let our server convert it, and save the DOCX before the link expires.`,
     ],
     steps: [
       "Open the PDF to Word tool.",
       `Upload the PDF you want to convert — it travels over an encrypted connection, and files up to ${ceilingMb("pdf-to-word")} MB are accepted.`,
       "Start the conversion.",
-      "Wait while the secure worker converts the PDF into a Word document. The worker deletes the input when the job finishes.",
+      "Wait while our secure server converts the PDF into a Word document. Our server deletes the input when the job finishes.",
       `Download the DOCX. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
       "Open the downloaded DOCX in Word and format the text the way you need it — the words arrive as plain paragraphs, in reading order.",
     ],
@@ -503,7 +503,7 @@ export const guides: Guide[] = [
         id: "where-it-runs",
         heading: "Where the conversion runs",
         body: [
-          `PDF to Word runs on a secure worker, not in your browser. Your file is uploaded over an encrypted connection, the worker processes it, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `PDF to Word runs on a secure server, not in your browser. Your file is uploaded over an encrypted connection, our server processes it, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
           "You do not need an account to run the conversion — open the page, pick the file, and download the result.",
         ],
       },
@@ -528,11 +528,11 @@ export const guides: Guide[] = [
       {
         question: "Does PDF to Word upload my file?",
         answer:
-          "Yes. PDF to Word is a server tool: your PDF is uploaded over an encrypted connection and processed on a secure worker. The worker deletes the input when the job finishes.",
+          "Yes. PDF to Word is a server tool: your PDF is uploaded over an encrypted connection and processed on a secure server. Our server deletes the input when the job finishes.",
       },
       {
         question: "What happens to my PDF after the conversion runs?",
-        answer: `The file is processed on a secure worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `The file is processed on a secure server, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "How large can my PDF be?",
@@ -549,7 +549,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-17",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-convert-jpg-to-pdf",
@@ -908,7 +908,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I add an image or a logo to a PDF?",
-        answer: `Yes. Choose Image, pick a PNG or JPG of up to ${EDIT_IMAGE_MB} MB, then click on the page where it should go. Drag it to move it, resize it from a corner, and set its opacity in the panel beside the page.`,
+        answer: `Yes. Choose Image, pick a PNG or JPG of up to ${EDIT_IMAGE_MB} MB, then tap or click the page where it should go. Drag it to move it, resize it from a corner, and set its opacity in the panel beside the page.`,
       },
       {
         question: "Can I add content to more than one page?",
@@ -926,7 +926,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-29",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-create-a-fillable-pdf-form",
@@ -1190,7 +1190,7 @@ export const guides: Guide[] = [
     slug: "how-to-make-a-scanned-pdf-searchable",
     title: "How to make a scanned PDF searchable",
     description:
-      "OCR a scanned PDF so its text becomes searchable and selectable — processed on an auto-deleting worker, no account needed.",
+      "OCR a scanned PDF so its text becomes searchable and selectable — processed on an auto-deleting server, no account needed.",
     tools: ["ocr-pdf", "pdf-to-text", "extract-tables"],
     keywords: [
       "how to make a scanned pdf searchable",
@@ -1201,14 +1201,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To make a scanned PDF searchable, run it through the OCR PDF tool. Optical character recognition reads the page images and adds a searchable, copyable text layer, so the file you download responds to search and lets you select and copy text like any other document.",
-      "This tool runs on a secure worker rather than in your browser. Your file uploads over an encrypted connection, the job runs there, and the input is deleted when the job finishes. There is no account step anywhere in the flow — open the page, add the file, download the result.",
+      "This tool runs on a secure server rather than in your browser. Your file uploads over an encrypted connection, the job runs there, and the input is deleted when the job finishes. There is no account step anywhere in the flow — open the page, add the file, download the result.",
       "Scans on paper are not the only input, either. A JPG or PNG — a photo of a contract, a screenshot of a form — goes in the same way and comes out as a searchable PDF or as plain text.",
     ],
     steps: [
       "Open the OCR PDF tool.",
-      "Add your scanned PDF, JPG, or PNG — it uploads over an encrypted connection to an isolated worker.",
-      `Pick the recognition languages that appear in your document — up to ${MAX_OCR_LANGUAGES} per job. The page's live status shows which language packs the worker reports as installed.`,
-      "Start the job. The worker runs optical character recognition, adds the text layer, and deletes the input when the job finishes.",
+      "Add your scanned PDF, JPG, or PNG — it uploads over an encrypted connection to an isolated server.",
+      `Pick the recognition languages that appear in your document — up to ${MAX_OCR_LANGUAGES} per job. The page's live status shows which language packs our server reports as installed.`,
+      "Start the job. Our server runs optical character recognition, adds the text layer, and deletes the input when the job finishes.",
       `Download the result. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the result promptly.`,
       "Open the downloaded PDF and try a search, or select and copy a passage. Both now work because the text layer is in place.",
     ],
@@ -1218,7 +1218,7 @@ export const guides: Guide[] = [
         heading: "Pick the right recognition languages",
         body: [
           `Recognition is language-aware. The tool advertises ${OCR_LANGUAGES.length} recognition languages, and you can select up to ${MAX_OCR_LANGUAGES} of them for a single job — so a document that mixes languages can name up to ${MAX_OCR_LANGUAGES} of the languages it contains in a single job.`,
-          "The advertised list and the installed list are treated as two different claims, deliberately. The worker reports which language packs it actually has installed, and the page's live status reflects that report — what you can run is governed by what the worker says is really there, not by a static list.",
+          "The advertised list and the installed list are treated as two different claims, deliberately. Our server reports which language packs it actually has installed, and the page's live status reflects that report — what you can run is governed by what our server says is really there, not by a static list.",
         ],
       },
       {
@@ -1233,7 +1233,7 @@ export const guides: Guide[] = [
         id: "where-your-file-goes",
         heading: "Where your file goes",
         body: [
-          "OCR PDF does its work on a secure worker: your file uploads over an encrypted connection and is processed there. The input is deleted when the job finishes.",
+          "OCR PDF does its work on a secure server: your file uploads over an encrypted connection and is processed there. The input is deleted when the job finishes.",
           `The result is held only briefly. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is involved at any point.`,
         ],
       },
@@ -1241,7 +1241,7 @@ export const guides: Guide[] = [
         id: "limits-worth-knowing",
         heading: "Limits worth knowing",
         body: [
-          `Each file can be up to ${ceilingMb("ocr-pdf")} MB. Accepted inputs are PDF, JPG, and PNG; outputs are PDF and TXT. A single job recognizes up to ${MAX_OCR_LANGUAGES} languages, chosen from the ${OCR_LANGUAGES.length} advertised — with the worker's own live report deciding which packs are installed and ready. And because the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, treat the result as something to save right away rather than a stored copy to come back for.`,
+          `Each file can be up to ${ceilingMb("ocr-pdf")} MB. Accepted inputs are PDF, JPG, and PNG; outputs are PDF and TXT. A single job recognizes up to ${MAX_OCR_LANGUAGES} languages, chosen from the ${OCR_LANGUAGES.length} advertised — with our server's own live report deciding which packs are installed and ready. And because the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, treat the result as something to save right away rather than a stored copy to come back for.`,
         ],
       },
     ],
@@ -1253,11 +1253,11 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to my file after OCR runs?",
-        answer: `The job runs on a secure worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `The job runs on a secure server, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "Which languages can the OCR recognize?",
-        answer: `${OCR_LANGUAGES.length} languages are advertised, with up to ${MAX_OCR_LANGUAGES} selectable per job. The worker reports the packs it actually has installed, and the page's live status reflects that report.`,
+        answer: `${OCR_LANGUAGES.length} languages are advertised, with up to ${MAX_OCR_LANGUAGES} selectable per job. Our server reports the packs it actually has installed, and the page's live status reflects that report.`,
       },
       {
         question: "How large can my scanned PDF be?",
@@ -1270,13 +1270,13 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-25",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-password-protect-a-pdf",
     title: "How to password-protect a PDF",
     description:
-      "Password-protect a PDF with real AES encryption. Your file goes to an auto-deleting worker, and no account is needed.",
+      "Password-protect a PDF with real AES encryption. Your file goes to an auto-deleting server, and no account is needed.",
     tools: ["protect-pdf", "unlock-pdf", "redact-pdf"],
     keywords: [
       "password protect pdf",
@@ -1287,14 +1287,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       "To password-protect a PDF, open the Protect PDF tool on pdf.xyz, add your file, and set a password. The tool applies real AES encryption with qpdf, so only people who have the password can open the resulting PDF.",
-      `Protect PDF is a server tool: encryption runs on an auto-deleting secure worker rather than in your browser. Your file uploads over an encrypted connection, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      `Protect PDF is a server tool: encryption runs on an auto-deleting secure server rather than in your browser. Your file uploads over an encrypted connection, and our server deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       "No account is needed — open the tool, pick a file, choose a password, and download the encrypted copy. If you later need to remove the protection from a copy you can open, the Unlock PDF tool reverses the process using the password you know.",
     ],
     steps: [
       "Open the Protect PDF tool.",
-      "Add the PDF you want to protect — it uploads over an encrypted connection to the secure worker.",
+      "Add the PDF you want to protect — it uploads over an encrypted connection to our secure server.",
       "Set the password that will be required to open the document. Anyone without it will not be able to open the protected copy.",
-      "Run the tool. The secure worker applies AES encryption with qpdf and deletes the input when the job finishes.",
+      "Run the tool. Our secure server applies AES encryption with qpdf and deletes the input when the job finishes.",
       `Download the protected PDF. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the file right away.`,
       "Confirm the protection: open the downloaded copy in your PDF viewer and check that it asks for the password before showing the document.",
     ],
@@ -1311,7 +1311,7 @@ export const guides: Guide[] = [
         id: "where-your-file-is-processed",
         heading: "Where your file is processed",
         body: [
-          `Protect PDF runs on the server side, because the encryption uses qpdf on an auto-deleting secure worker. Your PDF travels over an encrypted connection, the isolated worker applies the encryption, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `Protect PDF runs on the server side, because the encryption uses qpdf on an auto-deleting secure server. Your PDF travels over an encrypted connection, our isolated server applies the encryption, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
           "No account is needed at any step. Because the link is deliberately short-lived, download the protected file as soon as the job completes and keep your own copy.",
         ],
       },
@@ -1336,7 +1336,7 @@ export const guides: Guide[] = [
       {
         question: "Does password-protecting a PDF upload my file?",
         answer:
-          "Yes. Protect PDF runs on a secure worker rather than in the browser, because the AES encryption is applied with qpdf. The file travels over an encrypted connection, the worker is isolated, and it deletes the input when the job finishes.",
+          "Yes. Protect PDF runs on a secure server rather than in the browser, because the AES encryption is applied with qpdf. The file travels over an encrypted connection, our server is isolated, and it deletes the input when the job finishes.",
       },
       {
         question: "How long does my protected PDF stay available?",
@@ -1358,13 +1358,13 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-10",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-translate-a-pdf",
     title: "How to translate a PDF into another language",
     description:
-      "Translate a PDF into another language with AI. Get Markdown and plain text back; the secure worker wipes inputs at job end. No account needed.",
+      "Translate a PDF into another language with AI. Get Markdown and plain text back; our secure server wipes inputs at job end. No account needed.",
     tools: ["translate-pdf", "ocr-pdf", "summarize-pdf"],
     keywords: [
       "translate pdf",
@@ -1382,9 +1382,9 @@ export const guides: Guide[] = [
     steps: [
       "Open the Translate PDF tool.",
       "Pick the PDF you want translated. The tool reads selectable text, so if your document is a scan, run it through OCR PDF first.",
-      "Upload your PDF — it travels over an encrypted connection to the secure worker that runs the job.",
+      "Upload your PDF — it travels over an encrypted connection to our secure server that runs the job.",
       `In “Translate into”, pick one of the ${TRANSLATE_LANGUAGES.length} languages offered, and leave “Source language” on “Auto-detect” or set it yourself.`,
-      "Start the translation. A long document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order. The worker deletes the input when the job finishes.",
+      "Start the translation. A long document is not refused: it is split at page boundaries, translated a few pages at a time, and reassembled in order. Our server deletes the input when the job finishes.",
       `Download the result — translated Markdown and plain text, packaged together. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
     ],
     sections: [
@@ -1451,7 +1451,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-25",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-delete-pages-from-a-pdf",
@@ -1698,7 +1698,7 @@ export const guides: Guide[] = [
     slug: "how-to-repair-a-damaged-pdf",
     title: "How to repair a damaged or corrupted PDF",
     description:
-      "Rebuild a damaged PDF with qpdf on a secure worker that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
+      "Rebuild a damaged PDF with qpdf on a secure server that deletes the input when the job finishes, and see what had to be fixed. No account needed.",
     tools: ["repair-pdf", "unlock-pdf", "ocr-pdf"],
     keywords: [
       "repair pdf",
@@ -1709,13 +1709,13 @@ export const guides: Guide[] = [
       "repair pdf online",
     ],
     intro: [
-      "To repair a damaged PDF, open the Repair PDF tool, upload the file, and download the rebuilt copy. The worker runs the file through qpdf, which reads what it can of the damaged structure and writes it out as a new, well-formed PDF.",
-      `Repair PDF is a server tool: your file travels over an encrypted connection to a secure worker, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed.`,
+      "To repair a damaged PDF, open the Repair PDF tool, upload the file, and download the rebuilt copy. Our server runs the file through qpdf, which reads what it can of the damaged structure and writes it out as a new, well-formed PDF.",
+      `Repair PDF is a server tool: your file travels over an encrypted connection to a secure server, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule. No account is needed.`,
     ],
     steps: [
       "Open the Repair PDF tool.",
       `Upload the damaged PDF — it travels over an encrypted connection, and files up to ${ceilingMb("repair-pdf")} MB are accepted. It only has to start like a PDF, so a truncated file is taken in.`,
-      "Press “Repair on the worker”. qpdf rewrites the file's structure on the secure worker, which deletes the input when the job finishes.",
+      "Press “Repair on our secure server”. qpdf rewrites the file's structure on our secure server, which deletes the input when the job finishes.",
       "If the file had to be rebuilt, read the list above the download: it names what was reconstructed.",
       `Download the repaired PDF. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
     ],
@@ -1740,7 +1740,7 @@ export const guides: Guide[] = [
         id: "where-the-repair-runs",
         heading: "Where the repair runs",
         body: [
-          `Repair PDF runs on a secure worker, not in your browser. Your file is uploaded over an encrypted connection, qpdf rebuilds it there, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+          `Repair PDF runs on a secure server, not in your browser. Your file is uploaded over an encrypted connection, qpdf rebuilds it there, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
         ],
       },
       {
@@ -1763,7 +1763,7 @@ export const guides: Guide[] = [
       },
       {
         question: "What happens to my PDF after the repair runs?",
-        answer: `The file is processed on a secure worker, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+        answer: `The file is processed on a secure server, and the input is deleted when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       },
       {
         question: "How large can the PDF be?",
@@ -1776,7 +1776,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-10",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-add-page-numbers-to-a-pdf",
@@ -1901,7 +1901,7 @@ export const guides: Guide[] = [
         id: "after-flattening",
         heading: "After flattening",
         body: [
-          `Flattening stops the answers being edited, but anyone who has the file can still open and read it. If it should only open for certain people, ${nameOf("protect-pdf")} adds a password with AES encryption. That step runs on a secure worker rather than in your browser.`,
+          `Flattening stops the answers being edited, but anyone who has the file can still open and read it. If it should only open for certain people, ${nameOf("protect-pdf")} adds a password with AES encryption. That step runs on a secure server rather than in your browser.`,
         ],
       },
     ],
@@ -1931,7 +1931,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-compare-two-pdf-files",
@@ -1971,7 +1971,7 @@ export const guides: Guide[] = [
         id: "scanned-pdfs",
         heading: "Scanned PDFs need OCR first",
         body: [
-          `${nameOf("compare-pdf")} reads the text already embedded in each PDF. A scanned page is a picture with no text in it, so two scans compare as having no selectable text at all. Run each one through ${nameOf("ocr-pdf")} first — it adds a searchable text layer on a secure worker — then compare the results.`,
+          `${nameOf("compare-pdf")} reads the text already embedded in each PDF. A scanned page is a picture with no text in it, so two scans compare as having no selectable text at all. Run each one through ${nameOf("ocr-pdf")} first — it adds a searchable text layer on a secure server — then compare the results.`,
         ],
       },
       {
@@ -2002,13 +2002,13 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-remove-a-password-from-a-pdf",
     title: "How to remove a password from a PDF",
     description:
-      "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an auto-deleting worker.",
+      "Remove the password from a PDF you can open: type the password that works and download an unprotected copy. Runs on an auto-deleting server.",
     tools: ["unlock-pdf", "protect-pdf"],
     keywords: [
       "how to remove a password from a pdf",
@@ -2019,14 +2019,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To remove a password from a PDF, open ${nameOf("unlock-pdf")}, add the protected file, type the password that opens it, and download an unprotected copy. Anyone can then open that copy without a password.`,
-      `${nameOf("unlock-pdf")} runs on a secure worker rather than in your browser, because decryption uses the native qpdf engine. Your file uploads over an encrypted connection, and the worker deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
+      `${nameOf("unlock-pdf")} runs on a secure server rather than in your browser, because decryption uses the native qpdf engine. Your file uploads over an encrypted connection, and our server deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and stored copies are erased by a daily storage rule.`,
       "It is not a password cracker. It needs the password that currently opens the file, and it cannot recover, guess or bypass a password nobody knows.",
     ],
     steps: [
       `Open the ${nameOf("unlock-pdf")} tool.`,
-      "Add the password-protected PDF — it uploads over an encrypted connection to the secure worker.",
+      "Add the password-protected PDF — it uploads over an encrypted connection to our secure server.",
       "Type the password that currently opens the file.",
-      "Run the tool. The secure worker removes the encryption and deletes the input when the job finishes.",
+      "Run the tool. Our secure server removes the encryption and deletes the input when the job finishes.",
       `Download the unlocked copy. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
       "Open the downloaded copy to confirm it no longer asks for a password.",
     ],
@@ -2049,7 +2049,7 @@ export const guides: Guide[] = [
         id: "putting-the-lock-back",
         heading: "Putting a password back",
         body: [
-          `If you only needed the lock off to make a change, put it back afterwards: ${nameOf("protect-pdf")} encrypts a PDF with AES so it only opens with a password, and it runs on the same kind of secure worker.`,
+          `If you only needed the lock off to make a change, put it back afterwards: ${nameOf("protect-pdf")} encrypts a PDF with AES so it only opens with a password, and it runs on the same kind of secure server.`,
         ],
       },
     ],
@@ -2061,7 +2061,7 @@ export const guides: Guide[] = [
       {
         question: "Is my PDF uploaded when I unlock it?",
         answer:
-          "Yes. Unlocking runs on a secure worker rather than in the browser. The file travels over an encrypted connection, and the worker deletes the input when the job finishes.",
+          "Yes. Unlocking runs on a secure server rather than in the browser. The file travels over an encrypted connection, and our server deletes the input when the job finishes.",
       },
       {
         question: "How long is the unlocked copy available?",
@@ -2073,7 +2073,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-10-10",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-edit-text-in-a-pdf",
@@ -2124,7 +2124,7 @@ export const guides: Guide[] = [
         heading: "Scans and text it cannot edit",
         body: [
           `A scanned page is a picture of words, so Edit text has nothing to offer there, and the page says it has no editable text. Running ${nameOf("ocr-pdf")} does not change that for this tool: the recognised words are an invisible layer under the picture, and Edit text does not offer that layer, because the words you see are still part of the picture.`,
-          `To rework the words of a scan, use ${nameOf("pdf-to-word")} with “${WORD_OCR_LABEL}” ticked: it recognises the text first and gives you a Word document to edit. That tool runs on a secure worker rather than in your browser.`,
+          `To rework the words of a scan, use ${nameOf("pdf-to-word")} with “${WORD_OCR_LABEL}” ticked: it recognises the text first and gives you a Word document to edit. That tool runs on a secure server rather than in your browser.`,
           "Text the editor cannot change safely, such as vertical text or text nested deep inside an embedded object, is refused with a message rather than half-changed.",
         ],
       },
@@ -2155,7 +2155,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-add-a-watermark-to-a-pdf",
@@ -2326,7 +2326,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-pdf-to-excel",
     title: "How to convert a PDF to Excel",
     description:
-      "Export a PDF's text to an Excel XLSX sheet, one row per line with each value in its column and amounts as numbers. A secure worker deletes your PDF after.",
+      "Export a PDF's text to an Excel XLSX sheet, one row per line with each value in its column and amounts as numbers. A secure server deletes your PDF after.",
     tools: ["pdf-to-excel", "extract-tables", "ocr-pdf"],
     keywords: [
       "how to convert pdf to excel",
@@ -2338,7 +2338,7 @@ export const guides: Guide[] = [
     intro: [
       `To convert a PDF to Excel, open ${nameOf("pdf-to-excel")}, add your PDF, press Export XLSX, and download the workbook. Each line of the PDF's text becomes a row of a sheet named “${XLSX_SHEET_NAME}”, split into cells at ${XLSX_CELL_BREAK_PHRASE}, and each value lands in the column it sits in on the page.`,
       `It is layout placement, not table detection. When you want only the tables out of a page, each on its own, ${nameOf("extract-tables")} is the tool built for that.`,
-      `${nameOf("pdf-to-excel")} runs on a secure worker, not in your browser: your PDF, up to ${ceilingMb("pdf-to-excel")} MB, travels over an encrypted connection, and the worker deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored workbook.`,
+      `${nameOf("pdf-to-excel")} runs on a secure server, not in your browser: your PDF, up to ${ceilingMb("pdf-to-excel")} MB, travels over an encrypted connection, and our server deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored workbook.`,
     ],
     steps: [
       `Open the ${nameOf("pdf-to-excel")} tool.`,
@@ -2387,7 +2387,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does PDF to Excel upload my file?",
-        answer: `Yes. The text is read by a native program a browser cannot run, so your PDF is uploaded over an encrypted connection to a secure worker, which deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored workbook.`,
+        answer: `Yes. The text is read by a native program a browser cannot run, so your PDF is uploaded over an encrypted connection to a secure server, which deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored workbook.`,
       },
       {
         question: "How large can my PDF be?",
@@ -2395,13 +2395,13 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-convert-pdf-to-powerpoint",
     title: "How to convert a PDF to PowerPoint",
     description:
-      "Turn each PDF page into a slide in a .pptx file, with pictures where the page shows them and each line of text in a text box. Runs on an auto-deleting worker.",
+      "Turn each PDF page into a slide in a .pptx file, with pictures where the page shows them and each line of text in a text box. Runs on an auto-deleting server.",
     tools: ["pdf-to-powerpoint", "powerpoint-to-pdf", "ocr-pdf"],
     keywords: [
       "how to convert pdf to powerpoint",
@@ -2413,12 +2413,12 @@ export const guides: Guide[] = [
     intro: [
       `To convert a PDF to PowerPoint, open ${nameOf("pdf-to-powerpoint")}, add your PDF, press Export PPTX, and download the .pptx file. Each page becomes one slide, in page order, and the slides take the size and shape of the first page.`,
       "On each slide, a photo or screenshot from the page sits where the page shows it, as a picture of its own. Every line of selectable text becomes a text box at its place, in its size, weight and colour, set in a font matched to the PDF's. Lines, boxes, backgrounds and other drawing come across as pictures, stacked in the order the page paints them.",
-      `${nameOf("pdf-to-powerpoint")} runs on a secure worker rather than in your browser. Your PDF, up to ${ceilingMb("pdf-to-powerpoint")} MB, travels over an encrypted connection, and the worker deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      `${nameOf("pdf-to-powerpoint")} runs on a secure server rather than in your browser. Your PDF, up to ${ceilingMb("pdf-to-powerpoint")} MB, travels over an encrypted connection, and our server deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ],
     steps: [
       `Open the ${nameOf("pdf-to-powerpoint")} tool.`,
       `Drop one PDF on the box, or browse for it. Files up to ${ceilingMb("pdf-to-powerpoint")} MB are accepted, and Remove takes back a wrong pick.`,
-      "Press Export PPTX. Your PDF uploads over an encrypted connection to the secure worker, and the button follows the job while the slides are assembled.",
+      "Press Export PPTX. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the slides are assembled.",
       `When “Your PPTX file is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the file right away.`,
       "Open the .pptx and check it against the PDF, which is the reference for fonts and drawing.",
     ],
@@ -2444,7 +2444,7 @@ export const guides: Guide[] = [
         heading: "What has been checked",
         body: [
           "Decks made by this tool's export code were opened read-only by PowerPoint for Windows and saved back to PDF, and every page matched its source closely. Opening a downloaded file with a double-click and editing the slides have not been tested, so keep the PDF beside you as the reference while you work on the deck.",
-          `Going the other way, ${nameOf("powerpoint-to-pdf")} turns a .pptx or .ppt into a PDF, one slide per page, on the same kind of secure worker.`,
+          `Going the other way, ${nameOf("powerpoint-to-pdf")} turns a .pptx or .ppt into a PDF, one slide per page, on the same kind of secure server.`,
         ],
       },
     ],
@@ -2465,7 +2465,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Does the conversion upload my PDF?",
-        answer: `Yes. Your PDF is uploaded over an encrypted connection to a secure worker, which deletes it when the job finishes. The .pptx can be fetched for ${DEFAULT_RETENTION.outputTtlMinutes} minutes; after that the link no longer works, and a daily storage rule erases the stored copy.`,
+        answer: `Yes. Your PDF is uploaded over an encrypted connection to a secure server, which deletes it when the job finishes. The .pptx can be fetched for ${DEFAULT_RETENTION.outputTtlMinutes} minutes; after that the link no longer works, and a daily storage rule erases the stored copy.`,
       },
       {
         question: "Can I convert a password-protected PDF?",
@@ -2473,13 +2473,13 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-convert-word-to-pdf",
     title: "How to convert a Word document to PDF",
     description:
-      "Convert a .docx or .doc file to PDF with LibreOffice on a secure worker that deletes your file after the job. Excel and PowerPoint files convert the same way.",
+      "Convert a .docx or .doc file to PDF with LibreOffice on a secure server that deletes your file after the job. Excel and PowerPoint files convert the same way.",
     tools: ["word-to-pdf", "excel-to-pdf", "powerpoint-to-pdf"],
     keywords: [
       "how to convert word to pdf",
@@ -2492,8 +2492,8 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To convert a Word document to PDF, open ${nameOf("word-to-pdf")}, add your .docx or .doc file, press Convert to PDF, and download the result. The PDF is named after your file, and its typed text stays text you can search, select and copy.`,
-      "The pages are laid out by LibreOffice, not by Microsoft Word, following the page size, margins, headers and footers set in the document. A font the worker lacks is replaced by a stand-in, which can move a line or page break, so check the pages before you send them.",
-      `${nameOf("word-to-pdf")} runs on a secure worker. Your document, up to ${ceilingMb("word-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Spreadsheets and presentations go through ${nameOf("excel-to-pdf")} and ${nameOf("powerpoint-to-pdf")} the same way.`,
+      "The pages are laid out by LibreOffice, not by Microsoft Word, following the page size, margins, headers and footers set in the document. A font our server lacks is replaced by a stand-in, which can move a line or page break, so check the pages before you send them.",
+      `${nameOf("word-to-pdf")} runs on a secure server. Your document, up to ${ceilingMb("word-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. Spreadsheets and presentations go through ${nameOf("excel-to-pdf")} and ${nameOf("powerpoint-to-pdf")} the same way.`,
     ],
     steps: [
       `Open the ${nameOf("word-to-pdf")} tool.`,
@@ -2507,7 +2507,7 @@ export const guides: Guide[] = [
         id: "how-it-is-laid-out",
         heading: "How the PDF is laid out",
         body: [
-          "LibreOffice reads Word's formats, but it is not Microsoft Word, so differences tend to show in fonts and floating objects. A font the document names that the worker does not have is replaced by a substitute whose letter widths may differ, which can push the last lines of a page onto the next; text boxes and wrapped images may land slightly elsewhere.",
+          "LibreOffice reads Word's formats, but it is not Microsoft Word, so differences tend to show in fonts and floating objects. A font the document names that our server does not have is replaced by a substitute whose letter widths may differ, which can push the last lines of a page onto the next; text boxes and wrapped images may land slightly elsewhere.",
           "Documents built with styles, tables and pictures set in line with text give it the least to reinterpret. If something drifted, fix it in the Word file, for example by setting a floating image in line with text, and convert again.",
         ],
       },
@@ -2532,11 +2532,11 @@ export const guides: Guide[] = [
       {
         question: "Why do the page breaks differ from what Word shows me?",
         answer:
-          "Because LibreOffice, not Microsoft Word, decides where each line and page ends. If the document names a font the worker does not have, a substitute is used, and a slightly wider one can push lines onto the next page. Typed text stays selectable either way.",
+          "Because LibreOffice, not Microsoft Word, decides where each line and page ends. If the document names a font our server does not have, a substitute is used, and a slightly wider one can push lines onto the next page. Typed text stays selectable either way.",
       },
       {
         question: "Does Word to PDF upload my document?",
-        answer: `Yes. Your file is uploaded over an encrypted connection to a secure worker, which deletes it once the conversion job is finished. The PDF's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy.`,
+        answer: `Yes. Your file is uploaded over an encrypted connection to a secure server, which deletes it once the conversion job is finished. The PDF's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy.`,
       },
       {
         question: "Which file types can I convert?",
@@ -2553,7 +2553,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-ocr-a-pdf-in-other-languages",
@@ -2570,15 +2570,15 @@ export const guides: Guide[] = [
       "ocr non english pdf",
     ],
     intro: [
-      `To OCR a PDF in a language other than English, open ${nameOf("ocr-pdf")}, select every language printed on the page under Languages, add your scan, and press Run OCR on the worker. ${OCR_LANGUAGES.length} languages are offered, including ${OCR_EXAMPLE_NAMES}, and one job can combine up to ${MAX_OCR_LANGUAGES}.`,
+      `To OCR a PDF in a language other than English, open ${nameOf("ocr-pdf")}, select every language printed on the page under Languages, add your scan, and press Recognize text. ${OCR_LANGUAGES.length} languages are offered, including ${OCR_EXAMPLE_NAMES}, and one job can combine up to ${MAX_OCR_LANGUAGES}.`,
       `Choosing the language is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a page read in the wrong language does not fail: the engine returns fluent-looking nonsense in the alphabet it was given, with no error.`,
-      `${nameOf("ocr-pdf")} runs on a secure worker. Your scan, up to ${ceilingMb("ocr-pdf")} MB, travels over an encrypted connection and is deleted when the job finishes, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      `${nameOf("ocr-pdf")} runs on a secure server. Your scan, up to ${ceilingMb("ocr-pdf")} MB, travels over an encrypted connection and is deleted when the job finishes, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ],
     steps: [
       `Open the ${nameOf("ocr-pdf")} tool.`,
       `Under Languages, select every language the document uses, up to ${MAX_OCR_LANGUAGES}. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} starts selected; deselect it if the page has none.`,
       `Under Output, choose ${ocrModeLabel("searchable-pdf")}, ${ocrModeLabel("text")} for a .txt file, or ${ocrModeLabel("both")}.`,
-      "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Run OCR on the worker. The file uploads over an encrypted connection only when you press it.",
+      "Drop one PDF, JPG or PNG into the Add a scan to OCR area and press Recognize text. The file uploads over an encrypted connection only when you press it.",
       `Download the result. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
       "Search the PDF or read the text to check it. If it looks like gibberish, change the language selection and run the job again.",
     ],
@@ -2588,7 +2588,7 @@ export const guides: Guide[] = [
         heading: "The languages on offer",
         body: [
           `The menu offers ${OCR_LANGUAGES.length} languages: ${OCR_LANGUAGE_NAMES}. The job API accepts only languages on this list and refuses any other rather than guessing.`,
-          `If the worker ever lacks the pack for a language you selected, the job stops before recognition starts and the error names that language, rather than blaming your file.`,
+          `If our server ever lacks the pack for a language you selected, the job stops before recognition starts and the error names that language, rather than blaming your file.`,
         ],
       },
       {
@@ -2603,7 +2603,7 @@ export const guides: Guide[] = [
         id: "straight-to-word",
         heading: "Straight to an editable Word document",
         body: [
-          `${nameOf("pdf-to-word")} can run the OCR in the same job: tick “${WORD_OCR_LABEL}”, pick the languages, and the worker recognises the scan first and converts the result into a DOCX. Its picker offers ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages.`,
+          `${nameOf("pdf-to-word")} can run the OCR in the same job: tick “${WORD_OCR_LABEL}”, pick the languages, and our server recognises the scan first and converts the result into a DOCX. Its picker offers ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages.`,
           `${RTL_OCR_NAMES} are not offered for ${nameOf("pdf-to-word")}'s OCR: written right to left, their recognised words come out of the conversion out of order. ${nameOf("ocr-pdf")} reads them in order, so for those languages use ${nameOf("ocr-pdf")} and take its searchable PDF or its text.`,
         ],
       },
@@ -2623,21 +2623,21 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I turn a scan straight into an editable Word document?",
-        answer: `Yes, for ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages. In ${nameOf("pdf-to-word")}, tick “${WORD_OCR_LABEL}” and pick the languages; the worker recognises the text first and converts the result in the same job.`,
+        answer: `Yes, for ${PDF_TO_WORD_OCR_LANGUAGE_CODES.length} of the ${OCR_LANGUAGES.length} languages. In ${nameOf("pdf-to-word")}, tick “${WORD_OCR_LABEL}” and pick the languages; our server recognises the text first and converts the result in the same job.`,
       },
       {
         question: "Is my scan uploaded?",
-        answer: `Yes. Recognition needs a native OCR engine, so your file is uploaded over an encrypted connection to a secure worker, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored result.`,
+        answer: `Yes. Recognition needs a native OCR engine, so your file is uploaded over an encrypted connection to a secure server, which deletes the input when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored result.`,
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-convert-a-webpage-to-pdf",
     title: "How to save a web page as a PDF",
     description:
-      "Paste a public link and get the page as a PDF with selectable text, rendered by Chromium on a secure worker. Choose page size, margins or one long page.",
+      "Paste a public link and get the page as a PDF with selectable text, rendered by Chromium on a secure server. Choose page size, margins or one long page.",
     tools: ["webpage-to-pdf", "html-to-pdf"],
     keywords: [
       "how to convert a webpage to pdf",
@@ -2649,14 +2649,14 @@ export const guides: Guide[] = [
     ],
     intro: [
       `To save a web page as a PDF, open ${nameOf("webpage-to-pdf")}, paste the page's full address, choose a page layout if you want one, and press Render PDF. A copy of Chromium, the engine behind Chrome and Edge, loads the page, lets its scripts run, and prints it to a PDF whose text you can search and copy.`,
-      `The page is fetched by pdf.xyz's secure worker, not by your browser. The job carries only the address you typed, sent over an encrypted connection, and the site sees a signed-out visitor with none of your cookies, so members-only pages and paywalls come out as a stranger would see them.`,
+      `The page is fetched by pdf.xyz's secure server, not by your browser. The job carries only the address you typed, sent over an encrypted connection, and the site sees a signed-out visitor with none of your cookies, so members-only pages and paywalls come out as a stranger would see them.`,
       `For an HTML file on your computer rather than a live address, ${nameOf("html-to-pdf")} renders it with the same engine and the same layout options. Either way, the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
     ],
     steps: [
       `Open the ${nameOf("webpage-to-pdf")} tool.`,
       "Select everything in the address field, which starts with https://, and paste the full link from your browser's address bar over it. Only http and https links are accepted.",
       HTML_LAYOUT_STEP.body,
-      "Press Render PDF. The address is uploaded to the secure worker over an encrypted connection, and Chromium opens and prints the page.",
+      "Press Render PDF. The address is uploaded to our secure server over an encrypted connection, and Chromium opens and prints the page.",
       `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF right away.`,
     ],
     sections: [
@@ -2688,7 +2688,7 @@ export const guides: Guide[] = [
       {
         question: "Can I convert a members-only or paywalled page?",
         answer:
-          "No. The worker receives only the address, never your cookies, so a members-only or paywalled page comes out as the screen a signed-out stranger gets, or as an error. For those, open the page yourself and use your browser's Print dialog with Save as PDF.",
+          "No. Our server receives only the address, never your cookies, so a members-only or paywalled page comes out as the screen a signed-out stranger gets, or as an error. For those, open the page yourself and use your browser's Print dialog with Save as PDF.",
       },
       {
         question: "Can I choose the page size, margins or orientation?",
@@ -2701,15 +2701,15 @@ export const guides: Guide[] = [
       },
       {
         question: "Why was my address refused?",
-        answer: `It must begin with http:// or https://. Addresses on your own computer or a private network, such as ${listOr(PRIVATE_ADDRESS_EXAMPLES)}, are refused, and while rendering the worker fetches only public addresses, so a link that leads into a private network ends with an error instead of a PDF.`,
+        answer: `It must begin with http:// or https://. Addresses on your own computer or a private network, such as ${listOr(PRIVATE_ADDRESS_EXAMPLES)}, are refused, and while rendering our server fetches only public addresses, so a link that leads into a private network ends with an error instead of a PDF.`,
       },
       {
         question: "How do I convert an HTML file on my computer?",
-        answer: `Use ${nameOf("html-to-pdf")}: drop one .html or .htm file, choose the layout, and press Render PDF. It runs on the same secure worker, which deletes your file when the job finishes.`,
+        answer: `Use ${nameOf("html-to-pdf")}: drop one .html or .htm file, choose the layout, and press Render PDF. It runs on the same secure server, which deletes your file when the job finishes.`,
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",
@@ -2782,11 +2782,11 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I extract images from a password-protected PDF?",
-        answer: `Not while it is encrypted: any encryption makes the file fail to open here, even when it only limits printing or copying. ${nameOf("unlock-pdf")} can remove the encryption with a password you know; it runs on a secure worker, not in your browser.`,
+        answer: `Not while it is encrypted: any encryption makes the file fail to open here, even when it only limits printing or copying. ${nameOf("unlock-pdf")} can remove the encryption with a password you know; it runs on a secure server, not in your browser.`,
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-29",
+    updated: "2026-10-30",
   },
   {
     slug: "how-to-reorder-pages-in-a-pdf",

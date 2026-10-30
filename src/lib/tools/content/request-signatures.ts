@@ -101,9 +101,9 @@ const content: ToolContent = {
   metaDescription: `Add a named signature box, and optionally a date box, for each of up to ${maxSigners} signers on one PDF. You get a ZIP with the file and a manifest; no email is sent.`,
 
   intro: [
-    `Request Signatures gets a PDF ready for other people to sign. You list up to ${maxSigners} signers by name and email, pick the page for the signature block, and say whether they sign one after another or all at once. The worker stacks one fillable signature box per signer near the bottom of that page, each with a date box beside it unless you untick that option.`,
+    `Request Signatures gets a PDF ready for other people to sign. You list up to ${maxSigners} signers by name and email, pick the page for the signature block, and say whether they sign one after another or all at once. Our server stacks one fillable signature box per signer near the bottom of that page, each with a date box beside it unless you untick that option.`,
     `What you download is a ZIP, not a signed document. Inside are prepared.pdf with the new fields, manifest.json recording every signer, field and the chosen order, audit-trail.json with the original file's SHA-256 fingerprint and one "request.prepared" event, and a README.txt. Nobody is emailed and the order is recorded, not enforced: you send prepared.pdf yourself, and each signer types into their own boxes.`,
-    `The fields are added by pdf.xyz's secure worker, not in your browser, so your PDF (a single upload, capped at ${ceilingMb} MB) and the signer names and addresses are sent over TLS to that worker. It deletes the PDF you uploaded once the job ends. The ZIP, which carries those names and addresses, can be fetched for ${linkMinutes} minutes before the link to it is refused, and a daily storage rule later erases the stored ZIP.`,
+    `The fields are added by pdf.xyz's secure server, not in your browser, so your PDF (a single upload, capped at ${ceilingMb} MB) and the signer names and addresses are sent over TLS to that server. It deletes the PDF you uploaded once the job ends. The ZIP, which carries those names and addresses, can be fetched for ${linkMinutes} minutes before the link to it is refused, and a daily storage rule later erases the stored ZIP.`,
   ],
 
   useCases: [
@@ -128,7 +128,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your PDF",
-      body: `The form is there from the start, and its Prepare button works only when the status check finds the worker's storage, queue and daemon ready. If it finds them not ready, you see a one-line note (a Why? button under it gives the reason), Try again, and a button labelled "Notify me when this ships", which records only the tool's name and asks for no contact details; if the check does not answer at all, a Check again button retries it. Then drag a single PDF, no larger than ${ceilingMb} MB, onto the dashed area headed "Add your PDF, or" and ending in a browse link, or click that link; Remove drops the chosen file.`,
+      body: `The form is there from the start, and its Prepare button works only when the status check finds our server's storage, queue and daemon ready. If it finds them not ready, you see a one-line note (a Why? button under it gives the reason), Try again, and a button labelled "Notify me when this ships", which records only the tool's name and asks for no contact details; if the check does not answer at all, a Check again button retries it. Then drag a single PDF, no larger than ${ceilingMb} MB, onto the dashed area headed "Add your PDF, or" and ending in a browse link, or click that link; Remove drops the chosen file.`,
     },
     {
       title: "List the signers",
@@ -140,7 +140,7 @@ const content: ToolContent = {
     },
     {
       title: "Prepare and download",
-      body: 'Press Prepare signature request. It stays disabled until a PDF and one complete signer row exist, while the PDF is still being read ("Reading…" beside its name), and for an encrypted PDF. Once pressed, its label follows the job: "Uploading your file…", then "Waiting for the worker…" while it is queued, "Preparing request…" while the worker adds the fields, and "Downloading the result…" as the package comes back. The Download button for the file ending in -signature-request.zip then saves a copy the page already holds; there is no link to come back to, so keep the tab open until the ZIP is saved.',
+      body: 'Press Prepare signature request. It stays disabled until a PDF and one complete signer row exist, while the PDF is still being read ("Reading…" beside its name), and for an encrypted PDF. Once pressed, its label follows the job: "Uploading your file…", then "Waiting for our server…" while it is queued, "Preparing request…" while our server adds the fields, and "Downloading the result…" as the package comes back. The Download button for the file ending in -signature-request.zip then saves a copy the page already holds; there is no link to come back to, so keep the tab open until the ZIP is saved.',
     },
   ],
 
@@ -167,7 +167,7 @@ const content: ToolContent = {
     },
     {
       q: "Why was my request refused?",
-      a: `Once your PDF has been read, the Signature page box shows its page count, accepts only pages the PDF has and starts on the last one; if a page past the end still reaches the worker, the error names both your page and the PDF's page count. An encrypted PDF is stopped as soon as you add it, before anything is uploaded, with a message that says which lock it has, or, when the check cannot tell, asks for whichever password applies: one that needs a password to open is called password-protected, and one that opens without a password but carries its author's editing restrictions is told so, since fields cannot be added to either, and Prepare signature request stays disabled. A damaged PDF is refused by the worker as a file that couldn't be read as a PDF. Bytes without a PDF header never reach this step; a basic soundness check rejects them first. For a locked file, remove the lock with Unlock PDF (a separate upload to the same worker), using the password that opens it or, for a restricted file, its owner (permissions) password, and prepare the unlocked copy.`,
+      a: `Once your PDF has been read, the Signature page box shows its page count, accepts only pages the PDF has and starts on the last one; if a page past the end still reaches our server, the error names both your page and the PDF's page count. An encrypted PDF is stopped as soon as you add it, before anything is uploaded, with a message that says which lock it has, or, when the check cannot tell, asks for whichever password applies: one that needs a password to open is called password-protected, and one that opens without a password but carries its author's editing restrictions is told so, since fields cannot be added to either, and Prepare signature request stays disabled. A damaged PDF is refused by our server as a file that couldn't be read as a PDF. Bytes without a PDF header never reach this step; a basic soundness check rejects them first. For a locked file, remove the lock with Unlock PDF (a separate upload to the same server), using the password that opens it or, for a restricted file, its owner (permissions) password, and prepare the unlocked copy.`,
     },
   ],
 

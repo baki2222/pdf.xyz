@@ -29,6 +29,7 @@ export function AnnotateRunner() {
           it in the toolbar.
         </>
       }
+      emptyReason="Add a highlight, whiteout, drawing or note to a page first."
       resultTitle="Annotated PDF ready"
       downloadLabel="Download annotated PDF"
       outputName={annotatedOutputName}

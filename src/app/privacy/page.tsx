@@ -53,7 +53,7 @@ const {
 
 export const metadata: Metadata = buildMetadata({
   title: "Privacy Policy",
-  description: `What pdf.xyz does with your files. Most tools never upload anything; the rest process on a worker that deletes the upload when the job ends and stops serving the result after ${outputWindow}. No accounts, no advertising, no sale of personal data.`,
+  description: `What pdf.xyz does with your files. Most tools never upload anything; the rest process on a server that deletes the upload when the job ends and stops serving the result after ${outputWindow}. No accounts, no advertising, no sale of personal data.`,
   path: "/privacy",
 });
 
@@ -112,7 +112,7 @@ export default function PrivacyPage() {
           <strong className={strong}>The short version.</strong> {inBrowser} of
           our {tools.length} tools do their work entirely inside your browser —
           those files are never uploaded, so we never receive them. The
-          remaining {onWorker} can send your file to a processing worker, which
+          remaining {onWorker} can send your file to a processing server, which
           deletes it when the job ends and stops serving the result after{" "}
           {outputWindow}. There are no accounts, no advertising, and no sale or
           sharing of personal information. Each tool&apos;s page says which kind
@@ -167,7 +167,7 @@ export default function PrivacyPage() {
         </p>
         <p>
           <strong className={strong}>
-            Tools that use a processing worker ({onWorker} of {tools.length}).
+            Tools that use a processing server ({onWorker} of {tools.length}).
           </strong>{" "}
           Some work cannot be done in a browser — optical character recognition,
           office-format conversion, and anything using an AI model. For these,
@@ -176,7 +176,7 @@ export default function PrivacyPage() {
           on our processing server, and then removed on this timetable:
         </p>
         {/* "Scanned for malware" is true of production, observed at the wire
-            (the live worker status reported scan.active = true on 2026-10-10),
+            (the live server status reported scan.active = true on 2026-10-10),
             and /status renders that live answer. It is NOT guaranteed by the
             code: PDFXYZ_WORKER_REQUIRE_SCAN is opt-in and strict mode does not
             imply it, so this page no longer says a scanner-less deployment
@@ -245,7 +245,7 @@ export default function PrivacyPage() {
             This group — {split.browserFirst.map((t) => t.name).join(", ")} —
             runs in your browser first and uploads only when the local attempt
             cannot finish the job. Because an upload <em>can</em> happen, it is
-            counted with the worker tools above rather than with the {inBrowser}{" "}
+            counted with the server tools above rather than with the {inBrowser}{" "}
             that never upload. That is why a count of tools with an in-browser
             mode is larger than the count that never send anything — same
             catalogue, two different questions.
@@ -272,8 +272,8 @@ export default function PrivacyPage() {
         <p>
           <strong className={strong}>One case worth naming.</strong> If you use
           the tools that add or remove a PDF password, the password you type is
-          part of the instructions sent to the worker. {PASSWORD_QUEUE_LIFETIME}{" "}
-          While the job runs, the worker hands the password to the encryption
+          part of the instructions sent to our server. {PASSWORD_QUEUE_LIFETIME}{" "}
+          While the job runs, our server hands the password to the encryption
           tool through a temporary file in the job&apos;s own folder, which is
           erased when the job ends. It is never written to a log, an error
           message or a result. Still: if a password is one you use elsewhere,
@@ -281,7 +281,7 @@ export default function PrivacyPage() {
         </p>
         <p>
           <strong className={strong}>What some tools ask you for.</strong>{" "}
-          {`${askingTools} of the worker and AI tools also take something you type, which travels with the job. ${TYPED_INPUT_QUEUE_LIFETIME} This is all of it:`}
+          {`${askingTools} of the server and AI tools also take something you type, which travels with the job. ${TYPED_INPUT_QUEUE_LIFETIME} This is all of it:`}
         </p>
         {/* The queue's rule is said once, above; each item says only what
             differs, after its tools in bold — the shape of the timetable.
@@ -300,7 +300,7 @@ export default function PrivacyPage() {
         <p>
           Our AI tools — summarising, translating, answering questions about a
           document, and structured extraction — work from the{" "}
-          <strong className={strong}>text</strong> of your PDF. The worker
+          <strong className={strong}>text</strong> of your PDF. Our server
           extracts that text and sends it to our AI provider, {AI_PROVIDER.name}
           , together with anything you typed into the tool (section 2 lists what
           each one takes), to produce the answer. The PDF file itself is not

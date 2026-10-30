@@ -372,7 +372,7 @@ function CompressLocked({
             This PDF has permission restrictions
           </h3>
           <p className="text-muted/90 text-sm">
-            {LOCKED_PDF_COPY.restricted} You can still try the secure worker
+            {LOCKED_PDF_COPY.restricted} You can still try our secure server
             below, but it may not be able to process an encrypted file. If it
             can&apos;t, it will say so, and your file stays as it is. If it can,
             the compressed copy is a new file, and the owner&apos;s restrictions
@@ -562,7 +562,7 @@ function CompressEditor({
                 ? `Repacking this PDF saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) without changing how any page looks.`
                 : `Repacking this PDF losslessly saved ${formatBytes(summary.savedBytes)} (${pct(summary.savedRatio)}%) — no quality lost.`)}
             {summary.recommendation === "needs-worker" &&
-              `About ${pct(summary.imageShare)}% of this file is images. Real size wins come from downsampling them, which runs on the secure worker below.`}
+              `About ${pct(summary.imageShare)}% of this file is images. Real size wins come from downsampling them, which runs on our secure server below.`}
             {summary.recommendation === "already-lean" &&
               "There's little structural overhead to remove, and images aren't the bulk of the file. Deeper compression would trade away quality."}
           </p>
@@ -823,13 +823,13 @@ function WorkerDeepPanel({
         <div className="flex flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-fg text-sm font-medium">
-              Deep image compression (secure worker)
+              Deep image compression (secure server)
             </span>
             <WorkerBadge status={status} canRunDeep={canRunDeep} />
           </div>
           <p className="text-muted text-sm leading-relaxed">
             Aggressive image downsampling and re-encoding can&apos;t be done
-            reliably in the browser, so it runs on an auto-deleting worker. The
+            reliably in the browser, so it runs on an auto-deleting server. The
             analysis above stays 100% on your device.
           </p>
           {signatureCount === null && (
@@ -845,7 +845,7 @@ function WorkerDeepPanel({
       {status === undefined ? (
         <p className="text-muted inline-flex items-center gap-2 pl-6 text-xs">
           <Spinner size="size-3" />
-          Checking whether a secure worker is available…
+          Checking whether a secure server is available…
         </p>
       ) : canRunDeep ? (
         <DeepRunControls
@@ -865,7 +865,7 @@ function WorkerDeepPanel({
       ) : (
         <p className="text-muted pl-6 text-xs leading-relaxed">
           {status?.detail ??
-            "The secure worker isn't enabled in this environment, so deep compression isn't available here."}
+            "Our secure server isn't enabled in this environment, so deep compression isn't available here."}
         </p>
       )}
     </div>
@@ -885,7 +885,7 @@ function WorkerBadge({
     return (
       <span className="border-warn/40 bg-warn/10 text-warn rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px] font-medium">
         <span className="bg-warn size-1.5 rounded-full" aria-hidden />
-        Local-dev worker
+        Local-dev server
       </span>
     );
   }
@@ -893,7 +893,7 @@ function WorkerBadge({
     return (
       <span className="border-ok/40 bg-ok/10 text-ok rounded-tag inline-flex items-center gap-1.5 border px-2.5 py-0.5 text-[11px] font-medium">
         <span className="bg-ok size-1.5 rounded-full" aria-hidden />
-        Secure worker
+        Secure server
       </span>
     );
   }
@@ -951,7 +951,7 @@ function DeepRunControls({
   const showCard = outcome?.ok === true && (savedBytes > 0 || ranGrayscale);
   const noGain = useOutcomeFocus<HTMLParagraphElement>(
     outcome?.ok === true && !showCard,
-    "Compression finished. The worker could not shrink this file further without losing quality — the original is already efficient.",
+    "Compression finished. Our server could not shrink this file further without losing quality — the original is already efficient.",
   );
 
   return (
@@ -959,8 +959,8 @@ function DeepRunControls({
       <p className="text-warn flex items-start gap-1.5 text-xs leading-relaxed">
         <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
         {localDevOnly
-          ? "This runs on your local-dev worker — the file is sent to the in-process worker on this machine, not to any third party."
-          : "Running this uploads your file to the secure worker."}
+          ? "This runs on your local-dev server — the file is sent to the in-process server on this machine, not to any third party."
+          : "Running this uploads your file to our secure server."}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -1004,7 +1004,7 @@ function DeepRunControls({
         onClick={onRun}
         busy={busy}
         disabled={blockedBySignatures}
-        busyLabel="Compressing on the worker…"
+        busyLabel="Compressing on our secure server…"
         icon={ServerCog}
       >
         Compress images on our server
@@ -1022,8 +1022,8 @@ function DeepRunControls({
           <ResultCard
             announce={
               savedBytes > 0
-                ? `Compression finished. The worker shrank this file by ${formatBytes(savedBytes)}${ranGrayscale ? " and converted it to grayscale" : ""} — ${formatBytes(outcome.output.byteLength)} final.`
-                : `Compression finished. The worker converted this file to grayscale — ${formatBytes(outcome.output.byteLength)} final. It did not get smaller.`
+                ? `Compression finished. Our server shrank this file by ${formatBytes(savedBytes)}${ranGrayscale ? " and converted it to grayscale" : ""} — ${formatBytes(outcome.output.byteLength)} final.`
+                : `Compression finished. Our server converted this file to grayscale — ${formatBytes(outcome.output.byteLength)} final. It did not get smaller.`
             }
             output={outputFile(
               outcome.output,
@@ -1033,20 +1033,20 @@ function DeepRunControls({
           >
             {savedBytes > 0 ? (
               <p className="text-ok text-sm">
-                The worker shrank this file by {formatBytes(savedBytes)} (
+                Our server shrank this file by {formatBytes(savedBytes)} (
                 {pct(savedBytes / Math.max(1, originalBytes))}%)
                 {ranGrayscale ? " and converted it to grayscale" : ""} —{" "}
                 {formatBytes(outcome.output.byteLength)} final.
               </p>
             ) : (
               <p className="text-ok text-sm">
-                The worker converted this file to grayscale —{" "}
+                Our server converted this file to grayscale —{" "}
                 {formatBytes(outcome.output.byteLength)} final. It did not get
                 smaller.
               </p>
             )}
             {/* The percentage above is computed from two byte counts. It is a
-                COMPRESSION figure only when the worker proved the output still
+                COMPRESSION figure only when our server proved the output still
                 holds the input's pages; when the input could not be counted it
                 is a size difference between two files whose relationship was
                 never established, and saying so is cheaper than being wrong. */}
@@ -1087,7 +1087,7 @@ function DeepRunControls({
             aria-label="Compression finished with no size reduction"
             className="border-line bg-wash text-muted focus-visible:ring-ok/50 rounded-panel border p-4 text-sm outline-none focus-visible:ring-2"
           >
-            The worker couldn&apos;t shrink this file further without losing
+            Our server couldn&apos;t shrink this file further without losing
             quality — the original is already efficient.
           </p>
         ))}
@@ -1128,7 +1128,7 @@ function SignatureWarning({
             This PDF has {count} {noun}.
           </strong>{" "}
           A signature covers the file&apos;s exact bytes, so any change to the
-          file — this repack included, and the secure worker&apos;s compression
+          file — this repack included, and our secure server&apos;s compression
           too — makes {count === 1 ? "it" : "them"} show as invalid, even though
           every page looks the same. Keep your original if the {noun} matter.
         </span>

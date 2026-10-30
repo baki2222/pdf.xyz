@@ -181,7 +181,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can I change the existing text in my PDF?",
-      a: "Yes, a line at a time. Choose Edit text, click the line and retype it; when you apply, the old words are removed from the file and the new ones are written where they began. They use the line's own font when it has every character you typed; otherwise the closest standard font is used and the editor says which while you type. A scanned page has no text to change (OCR PDF's invisible text layer is not offered for editing; PDF to Word with its OCR option ticked is the way to edit a scan's words), and text nested inside embedded objects is refused. To rewrite whole paragraphs, PDF to Word gives an editable document, though that tool uploads the file to pdf.xyz's secure worker.",
+      a: "Yes, a line at a time. Choose Edit text, click the line and retype it; when you apply, the old words are removed from the file and the new ones are written where they began. They use the line's own font when it has every character you typed; otherwise the closest standard font is used and the editor says which while you type. A scanned page has no text to change (OCR PDF's invisible text layer is not offered for editing; PDF to Word with its OCR option ticked is the way to edit a scan's words), and text nested inside embedded objects is refused. To rewrite whole paragraphs, PDF to Word gives an editable document, though that tool uploads the file to pdf.xyz's secure server.",
     },
 
     {

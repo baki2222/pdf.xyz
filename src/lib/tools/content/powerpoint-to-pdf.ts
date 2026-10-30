@@ -94,7 +94,7 @@ const content: ToolContent = {
 
   intro: [
     `PowerPoint to PDF takes one presentation, a modern .pptx or a legacy .ppt from PowerPoint 97–2003, and returns a PDF with one slide per page. Each page keeps the slide's shape, so a widescreen deck is not squeezed onto A4 or Letter. Text typed into text boxes stays searchable, copyable text; words inside a picture stay a picture.`,
-    `Conversion does not happen in your browser. The deck is uploaded over TLS to pdf.xyz's secure worker, and LibreOffice exports it there with its default PDF settings, because this page sends the converter no options of its own. The uploaded presentation is deleted when the job finishes, the download link expires after ${LINK_MINUTES} minutes, and the stored copy is erased by a daily storage rule after that. The converter takes decks of up to ${CEILING_MB} MB.`,
+    `Conversion does not happen in your browser. The deck is uploaded over TLS to pdf.xyz's secure server, and LibreOffice exports it there with its default PDF settings, because this page sends the converter no options of its own. The uploaded presentation is deleted when the job finishes, the download link expires after ${LINK_MINUTES} minutes, and the stored copy is erased by a daily storage rule after that. The converter takes decks of up to ${CEILING_MB} MB.`,
     `Animations do not carry over, so bullet points that appeared one click at a time all show together. LibreOffice's default export leaves speaker notes and hidden slides out. Because LibreOffice rather than Microsoft PowerPoint does the drawing, missing fonts are substituted and elaborate effects can shift slightly, so skim the result before you send it.`,
   ],
 
@@ -120,7 +120,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your presentation",
-      body: 'Drop one .pptx or .ppt file on the box that reads "Add your document, or browse", or click browse to pick it. The box takes a file at once, and Convert to PDF works only when the status badge next to "LibreOffice renderer" says "Secure worker"; any other badge comes with a note on the state of the converter under that button.',
+      body: 'Drop one .pptx or .ppt file on the box that reads "Add your document, or browse", or click browse to pick it. The box takes a file at once, and Convert to PDF works only when the status badge next to "Office conversion" says "Secure server"; any other badge comes with a note on the state of the converter under that button.',
     },
     {
       title: "Check the file you picked",
@@ -128,7 +128,7 @@ const content: ToolContent = {
     },
     {
       title: "Click Convert to PDF",
-      body: 'The button follows the round trip: "Uploading your file…" while the deck goes to the secure worker, "Waiting for the worker…" while the job is queued, "Converting to PDF…" during the LibreOffice export, and "Downloading the result…" while the finished PDF comes back into this tab.',
+      body: 'The button follows the round trip: "Uploading your file…" while the deck goes to our secure server, "Waiting for our server…" while the job is queued, "Converting to PDF…" during the LibreOffice export, and "Downloading the result…" while the finished PDF comes back into this tab.',
     },
     {
       title: "Download the PDF",
@@ -151,7 +151,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to my presentation after I convert it?",
-      a: `It is kept in the secure worker's storage while the job runs, including any automatic retry, and deleted when the job finishes, whether it succeeded or failed. The finished PDF's download link expires after ${LINK_MINUTES} minutes; a daily storage rule erases the stored copy after that.`,
+      a: `It is kept in our secure server's storage while the job runs, including any automatic retry, and deleted when the job finishes, whether it succeeded or failed. The finished PDF's download link expires after ${LINK_MINUTES} minutes; a daily storage rule erases the stored copy after that.`,
     },
     {
       q: "How large a presentation can I convert?",
@@ -159,7 +159,7 @@ const content: ToolContent = {
     },
     {
       q: "Why did my conversion fail?",
-      a: `A password-protected deck cannot be converted, because there is no field on this page to type the password into. A locked .pptx is recognised before LibreOffice runs, and the job stops with a message telling you to remove the password in ${PROTECT.app} (${PROTECT.protect}); save an unprotected copy and convert that. A file too damaged for LibreOffice to open also fails, as does one it cannot finish within ${TIMEOUT_SECONDS} seconds or whose PDF comes out larger than the worker's output limit. None of those is retried, because the same file would fail the same way again. If the page stops waiting before the worker finishes, it shows Keep waiting, which goes back to the same job instead of starting a new one. The worker also rejects any output missing the %PDF header or the closing %%EOF marker, so a broken export never comes back as a download.`,
+      a: `A password-protected deck cannot be converted, because there is no field on this page to type the password into. A locked .pptx is recognised before LibreOffice runs, and the job stops with a message telling you to remove the password in ${PROTECT.app} (${PROTECT.protect}); save an unprotected copy and convert that. A file too damaged for LibreOffice to open also fails, as does one it cannot finish within ${TIMEOUT_SECONDS} seconds or whose PDF comes out larger than our server's output limit. None of those is retried, because the same file would fail the same way again. If the page stops waiting before our server finishes, it shows Keep waiting, which goes back to the same job instead of starting a new one. Our server also rejects any output missing the %PDF header or the closing %%EOF marker, so a broken export never comes back as a download.`,
     },
   ],
 

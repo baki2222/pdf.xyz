@@ -125,7 +125,7 @@ describe("PreflightHint", () => {
     );
     if (!hintCarries("ocr-pdf", pdfFile()))
       expect(note.textContent).toMatch(
-        /uploads to the secure worker only when/,
+        /uploads to our secure server only when/,
       );
   });
 

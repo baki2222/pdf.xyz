@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { Suspense, lazy, useReducer, useState, type ReactNode } from "react";
 import { Download, FileDown, Info } from "lucide-react";
 import { downloadBytes } from "@/lib/pdf/browser";
@@ -58,6 +59,8 @@ export interface EditorRunnerConfig {
   initialTool: Tool;
   /** One line above the pages: what to do first. */
   firstStep?: ReactNode;
+  /** Beside the greyed-out Apply while nothing is on a page yet. */
+  emptyReason: string;
   /** The result's heading, its download button, and the file it saves. */
   resultTitle: string;
   downloadLabel: string;
@@ -240,15 +243,20 @@ function EditorSession({
             {error && <ErrorNote message={error} />}
             <RunBar>
               <div className="flex justify-end">
-                <RunButton
-                  onClick={onApply}
-                  busy={busy}
-                  disabled={empty}
-                  busyLabel="Applying…"
-                >
-                  <FileDown className="size-4" aria-hidden />
-                  Apply &amp; download
-                </RunButton>
+                <RunReason reason={empty ? config.emptyReason : null}>
+                  {(describedBy) => (
+                    <RunButton
+                      onClick={onApply}
+                      busy={busy}
+                      describedBy={describedBy}
+                      disabled={empty}
+                      busyLabel="Applying…"
+                    >
+                      <FileDown className="size-4" aria-hidden />
+                      Apply &amp; download
+                    </RunButton>
+                  )}
+                </RunReason>
               </div>
             </RunBar>
           </>

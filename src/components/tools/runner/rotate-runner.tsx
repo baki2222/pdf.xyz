@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useMemo, useRef, useState } from "react";
 import {
   Download,
@@ -243,15 +244,24 @@ function RotateEditor({
 
       <RunBar>
         <div className="flex justify-end">
-          <RunButton
-            onClick={onRun}
-            busy={busy}
-            disabled={changedCount === 0}
-            busyLabel="Rotating…"
+          <RunReason
+            reason={
+              changedCount === 0 ? "Rotate at least one page first." : null
+            }
           >
-            <RotateCw className="size-4" aria-hidden />
-            Apply rotation
-          </RunButton>
+            {(describedBy) => (
+              <RunButton
+                onClick={onRun}
+                busy={busy}
+                describedBy={describedBy}
+                disabled={changedCount === 0}
+                busyLabel="Rotating…"
+              >
+                <RotateCw className="size-4" aria-hidden />
+                Apply rotation
+              </RunButton>
+            )}
+          </RunReason>
         </div>
       </RunBar>
     </div>

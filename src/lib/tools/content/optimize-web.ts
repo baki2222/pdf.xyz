@@ -65,12 +65,12 @@ const content: ToolContent = {
   seoTitle: "Optimize for Web — Linearize PDF for Fast Web View",
 
   metaDescription:
-    "Linearize a PDF with qpdf so a browser can show page one while the rest is still downloading. The worker deletes your upload once the job ends.",
+    "Linearize a PDF with qpdf so a browser can show page one while the rest is still downloading. Our server deletes your upload once the job ends.",
 
   intro: [
     "Optimize for Web rewrites a PDF in linearized form, the layout Acrobat calls Fast Web View. An ordinary PDF keeps its object index at the end, so a viewer opening it from a link must fetch the tail before drawing anything. A linearized file puts what page one needs at the front, plus a hint table, so a viewer that requests byte ranges can show the first page while the rest arrives and fetch other pages as they are opened.",
     "The work is done by qpdf with its --linearize option and nothing else. qpdf changes the order and layout of the stored objects, not what they draw: no page is re-rendered and no image is downsampled, though by default qpdf may losslessly re-compress streams as it writes them. It is not a size reducer; for a smaller file, use Compress PDF.",
-    `qpdf is a native program, so linearizing cannot happen in your browser: the PDF, at most ${ceilingMb} MB and one per job, is uploaded over TLS to pdf.xyz's secure worker. Your original is removed from the worker as soon as the job is over, successful or not. The linearized result stays fetchable for ${linkMinutes} minutes; after that its link is dead, and a storage rule on a daily cycle deletes what remains.`,
+    `qpdf is a native program, so linearizing cannot happen in your browser: the PDF, at most ${ceilingMb} MB and one per job, is uploaded over TLS to pdf.xyz's secure server. Your original is removed from our server as soon as the job is over, successful or not. The linearized result stays fetchable for ${linkMinutes} minutes; after that its link is dead, and a storage rule on a daily cycle deletes what remains.`,
   ],
 
   useCases: [
@@ -94,20 +94,20 @@ const content: ToolContent = {
 
   steps: [
     {
-      title: "Wait for the worker check",
-      body: "On load the panel asks the worker status endpoint whether a worker is ready to accept jobs, and shows the answer in a badge, which reads “Secure worker” on the live site. The drop box takes a file at once, and it goes to the secure worker only once that answer is yes and you press the button: while the check runs the panel says “Checking the secure worker…”, a failed check offers “Check again”, and if the worker is not enabled it offers “Notify me when this ships”, which only adds one to a count of requests for this tool.",
+      title: "Wait for the server check",
+      body: "On load the panel asks the server status endpoint whether a server is ready to accept jobs, and shows the answer in a badge, which reads “Secure server” on the live site. The drop box takes a file at once, and it goes to our secure server only once that answer is yes and you press the button: while the check runs the panel says “Checking our secure server…”, a failed check offers “Check again”, and if our server is not enabled it offers “Notify me when this ships”, which only adds one to a count of requests for this tool.",
     },
     {
       title: "Add one PDF",
       body: `Drop the PDF on the dashed drop zone, or click that zone to open a file picker. It takes a single document; drop several and all but the first are ignored. The chosen name then replaces the zone, with “Remove” beside it to start over. The upload is requested with the file's size and a type read from its name, so a file over ${ceilingMb} MB, or one whose name does not end in .pdf, is turned away before any of its bytes are sent.`,
     },
     {
-      title: "Click “Optimize on the worker”",
-      body: "There are no options to set. The button shows each stage in turn: “Uploading your file…”, “Waiting for the worker…” while the job is queued, “Optimizing on the worker…” while qpdf linearizes it, then “Downloading the result…”. Before the result is accepted, the worker checks that it is not empty, has a PDF header near its start and an end-of-file marker near its end, and is actually linearized.",
+      title: "Click “Optimize on our secure server”",
+      body: "There are no options to set. The button shows each stage in turn: “Uploading your file…”, “Waiting for our server…” while the job is queued, “Optimizing on our secure server…” while qpdf linearizes it, then “Downloading the result…”. Before the result is accepted, our server checks that it is not empty, has a PDF header near its start and an end-of-file marker near its end, and is actually linearized.",
     },
     {
       title: "Download the result",
-      body: `When the job completes, the page fetches the result straight away, and a button reading “Download” plus the new name saves it; ${exampleInput}, for example, comes back as ${exampleOutput}. The page keeps no link to the worker's copy, which stops being served after ${linkMinutes} minutes anyway, so if you reload before saving, run the job again.`,
+      body: `When the job completes, the page fetches the result straight away, and a button reading “Download” plus the new name saves it; ${exampleInput}, for example, comes back as ${exampleOutput}. The page keeps no link to our server's copy, which stops being served after ${linkMinutes} minutes anyway, so if you reload before saving, run the job again.`,
     },
   ],
 

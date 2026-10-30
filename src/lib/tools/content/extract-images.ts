@@ -157,7 +157,7 @@ const content: ToolContent = {
     },
     {
       q: "Can I extract images from a password-protected PDF?",
-      a: "Not while it is encrypted. Any encryption at all makes the file fail to open here, even when it needs no password to view and only limits printing or copying. Unlock PDF can take the encryption off with a password you know; it runs on pdf.xyz's worker, so there the file and that password are uploaded.",
+      a: "Not while it is encrypted. Any encryption at all makes the file fail to open here, even when it needs no password to view and only limits printing or copying. Unlock PDF can take the encryption off with a password you know; it runs on pdf.xyz's server, so there the file and that password are uploaded.",
     },
   ],
 

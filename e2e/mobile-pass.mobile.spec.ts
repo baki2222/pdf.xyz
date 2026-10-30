@@ -24,7 +24,10 @@ import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
  * since OCR is not a popular tool. (The worker
  * panels' Remove, 45x16, and "What happens to your file", 168x20, became
  * 32px without moving anything around them — the CSS ceiling had no room
- * for the negative-margin rule 44px needed — and are not held here.)
+ * for the negative-margin rule 44px needed. The second pass, 2026-10-30,
+ * found the room: they are 44px now and held below, with Merge's file-row
+ * buttons and Rotate's and Organize's page-tile buttons, 28x28 and 24x24
+ * until then, and the footer's links, 20px tall.)
  *
  * And on the worker tools the result was off the screen: a tap on Unlock
  * left focus on the button (it is never disabled, #46), so the result card
@@ -68,7 +71,7 @@ interface Measured {
 }
 
 /** One reading of the page: what is too small, what is past the edge. */
-function measure(page: Page): Promise<Measured> {
+function measure(page: Page, selector = TARGETS): Promise<Measured> {
   return page.evaluate(
     ({ selector, min, width }) => {
       // The SCREEN, not `innerWidth`: on a touch phone the layout viewport
@@ -123,7 +126,7 @@ function measure(page: Page): Promise<Measured> {
         scrollWidth: document.documentElement.scrollWidth,
       };
     },
-    { selector: TARGETS, min: MIN, width: SCREEN },
+    { selector, min: MIN, width: SCREEN },
   );
 }
 
@@ -380,4 +383,126 @@ test("Unlock PDF at 360: a tap on Run ends with the result on the screen", async
     .toBe(true);
   // Control: the predicate says no for something that is off the screen.
   expect(await onScreen(page, "footer")).toBe(false);
+});
+
+/*
+ * THE SECOND PASS (2026-10-30): the icon buttons on the way to a result, the
+ * footer's links, and the worker panels' two text buttons. Each is drawn at
+ * its own size and given a 44px target on a touch screen (`tap`, `tap-row`,
+ * `tap-y` in globals.css) — so this project, a touch phone, is the one that
+ * can see them.
+ */
+
+/** Merge's file-row buttons; the page tiles' actions and drag handle. */
+const ICON_TARGETS = [
+  '[data-tool-panel] li button[aria-label^="Move "]',
+  '[data-tool-panel] li button[aria-label^="Remove "]',
+  "[data-tool-panel] button[title]",
+  '[data-tool-panel] [aria-roledescription="Draggable page"]',
+].join(", ");
+
+/** The `WxH` entries of a reading under the minimum HEIGHT. */
+const tooShort = (m: Measured) =>
+  m.seen.filter((s) => Number(s.split("x").pop()) < MIN - 0.5);
+
+for (const { slug, files, least } of [
+  // Two files: every row has all three buttons.
+  { slug: "merge-pdf", files: 2, least: 6 },
+  // Three pages, two rotate buttons each.
+  { slug: "rotate-pdf", files: 1, least: 6 },
+  // Three pages, four actions and a drag handle each.
+  { slug: "organize-pages", files: 1, least: 15 },
+]) {
+  test(`/tools/${slug} at 360: every icon button is ${MIN}px, and nothing is past the screen`, async ({
+    page,
+  }) => {
+    await page.goto(`/tools/${slug}`);
+    const input = fileInput(page);
+    await waitForHydration(input);
+    await input.setInputFiles(
+      await Promise.all(
+        Array.from({ length: files }, async (_, i) => ({
+          name: `part-${i + 1}.pdf`,
+          mimeType: "application/pdf",
+          buffer: Buffer.from(await makePdfBytes(`part ${i + 1}`, 3)),
+        })),
+      ),
+    );
+    await expect
+      .poll(async () => (await measure(page, ICON_TARGETS)).seen.length, {
+        timeout: 20_000,
+      })
+      .toBeGreaterThanOrEqual(least);
+    const m = await measure(page, ICON_TARGETS);
+    expect(m.small, `under ${MIN}px: ${m.small.join(" | ")}`).toEqual([]);
+    expect(m.overflow, `past the screen: ${m.overflow.join(" | ")}`).toEqual(
+      [],
+    );
+  });
+}
+
+test(`the footer at 360: every link it shows is a ${MIN}px row`, async ({
+  page,
+}) => {
+  await page.goto("/");
+  const m = await measure(page, "footer a");
+  // Health: the brand, the four columns' links and the bottom row.
+  expect(m.seen.length, m.seen.join(" | ")).toBeGreaterThanOrEqual(15);
+  // Height only: a link is as wide as its words, and a row of them is a
+  // 44px-tall line a thumb lands on anywhere along it.
+  expect(
+    tooShort(m),
+    `under ${MIN}px tall: ${tooShort(m).join(" | ")}`,
+  ).toEqual([]);
+});
+
+test(`OCR PDF at 360 with a file in: Remove and "What happens to your file" are ${MIN}px tall`, async ({
+  page,
+}) => {
+  await page.route("**/api/worker/status", (route) =>
+    json(route, READY_WORKER_STATUS),
+  );
+  await page.goto("/tools/ocr-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles(await fileFor(["PDF"]));
+  const panel = page.locator("[data-tool-panel]");
+  for (const name of ["Remove", "What happens to your file"]) {
+    const button = panel.getByRole("button", { name, exact: true });
+    await expect(button).toBeVisible();
+    const box = (await button.boundingBox())!;
+    expect(box.height, name).toBeGreaterThanOrEqual(MIN - 0.5);
+  }
+});
+
+test("negative control: the icon and footer predicates reject a 28px button and a 20px link", async ({
+  page,
+}) => {
+  await page.goto("/tools/merge-pdf");
+  const input = fileInput(page);
+  await waitForHydration(input);
+  await input.setInputFiles(await fileFor(["PDF"]));
+  await expect
+    .poll(async () => (await measure(page, ICON_TARGETS)).seen.length)
+    .toBeGreaterThanOrEqual(3);
+  expect((await measure(page, ICON_TARGETS)).small).toEqual([]);
+  expect(tooShort(await measure(page, "footer a"))).toEqual([]);
+  // The file-row button as it shipped (`size-7`), and a footer link as it
+  // shipped (an inline `text-sm` link, 20px tall).
+  await page.evaluate(() => {
+    const row = document.querySelector("[data-tool-panel] li")!;
+    const button = document.createElement("button");
+    button.setAttribute("aria-label", "Move control up");
+    button.style.cssText = "width:28px;height:28px;display:grid";
+    row.append(button);
+    const link = document.createElement("a");
+    link.href = "/";
+    link.textContent = "control link";
+    link.style.cssText = "font-size:14px;line-height:20px";
+    document.querySelector("footer p")!.append(link);
+  });
+  const icons = await measure(page, ICON_TARGETS);
+  expect(icons.small.some((s) => s.startsWith("Move control up"))).toBe(true);
+  const footer = tooShort(await measure(page, "footer a"));
+  expect(footer.some((s) => s.startsWith("control link"))).toBe(true);
 });

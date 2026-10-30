@@ -76,12 +76,12 @@ const content: ToolContent = {
 
   seoTitle: "Webpage to PDF: Convert a Web Page URL to PDF",
 
-  metaDescription: `Paste a public link and Chromium on pdf.xyz's secure worker loads the live page, runs its scripts and prints it to a PDF with real, selectable text.`,
+  metaDescription: `Paste a public link and Chromium on pdf.xyz's secure server loads the live page, runs its scripts and prints it to a PDF with real, selectable text.`,
 
   intro: [
     "Webpage to PDF turns a web address into a PDF without you opening the page. Paste the link and a headless copy of Chromium, the engine behind Chrome and Edge, loads it, lets its JavaScript run for a fixed budget of page time, and prints it to PDF with backgrounds included and any page size the site's print stylesheet sets. Text stays text, so the PDF can be searched and copied from, and a site that ships a print stylesheet gets that layout.",
-    `pdf.xyz's secure worker fetches the page, not your browser. The job carries only the address you typed, sent over TLS, and the site sees the worker's visit with none of your cookies. The temporary folder Chromium runs in is removed after each render, the download link lapses after ${LINK_MINUTES} minutes, and a storage rule on a daily cycle erases the stored copy after that. The full address is deleted from the job queue when the job finishes; the job's status record keeps only the PDF's file name, built from the site and path without the query string, until that record times out.`,
-    "The worker arrives as a signed-out stranger, so cookie banners, members-only walls and paywalls come along. The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Addresses written as localhost or as a private IPv4 number are refused before any job starts. For an HTML file on your computer, use HTML to PDF instead.",
+    `pdf.xyz's secure server fetches the page, not your browser. The job carries only the address you typed, sent over TLS, and the site sees our server's visit with none of your cookies. The temporary folder Chromium runs in is removed after each render, the download link lapses after ${LINK_MINUTES} minutes, and a storage rule on a daily cycle erases the stored copy after that. The full address is deleted from the job queue when the job finishes; the job's status record keeps only the PDF's file name, built from the site and path without the query string, until that record times out.`,
+    "Our server arrives as a signed-out stranger, so cookie banners, members-only walls and paywalls come along. The PDF carries the page and nothing else: pdf.xyz adds no date, title, address or page-number lines. Addresses written as localhost or as a private IPv4 number are refused before any job starts. For an HTML file on your computer, use HTML to PDF instead.",
   ],
 
   useCases: [
@@ -106,16 +106,16 @@ const content: ToolContent = {
   steps: [
     {
       title: "Paste the full address",
-      body: 'The field starts with "https://". Select it all and paste the complete link from your address bar over it: pasting after the prefix gives https://https://…, which is refused before any job starts. Only http and https links are accepted. If the secure worker is unavailable, the Render PDF button stays off and a status note and a "Notify me when this ships" button appear under it.',
+      body: 'The field starts with "https://". Select it all and paste the complete link from your address bar over it: pasting after the prefix gives https://https://…, which is refused before any job starts. Only http and https links are accepted. If our secure server is unavailable, the Render PDF button stays off and a status note and a "Notify me when this ships" button appear under it.',
     },
     HTML_LAYOUT_STEP,
     {
       title: "Press Render PDF",
-      body: "The button activates once the field holds more than its starting https://. Your address goes to the secure worker, where Chromium opens and prints the page.",
+      body: "The button activates once the field holds more than its starting https://. Your address goes to our secure server, where Chromium opens and prints the page.",
     },
     {
       title: "Wait while it renders",
-      body: 'While the job runs, the button says where it is: "Waiting for the worker…" while it is queued, "Rendering PDF…" while Chromium opens and prints the page, and "Downloading the result…" at the end. If the address is refused or the render fails, an error message appears under the button instead.',
+      body: 'While the job runs, the button says where it is: "Waiting for our server…" while it is queued, "Rendering PDF…" while Chromium opens and prints the page, and "Downloading the result…" at the end. If the address is refused or the render fails, an error message appears under the button instead.',
     },
     {
       title: "Download the PDF",
@@ -126,11 +126,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Can I convert a page I have to be logged in to see?",
-      a: "No. The worker receives only the address, never your cookies or anything else from your browser session, so a members-only or paywalled page usually comes out as the screen a logged-out stranger gets, or, if the site answers with an access-refused error, as an error message instead of a PDF. For those, open the page yourself and use your browser's Print dialog with Save as PDF.",
+      a: "No. Our server receives only the address, never your cookies or anything else from your browser session, so a members-only or paywalled page usually comes out as the screen a logged-out stranger gets, or, if the site answers with an access-refused error, as an error message instead of a PDF. For those, open the page yourself and use your browser's Print dialog with Save as PDF.",
     },
     {
       q: "Why was my address refused?",
-      a: "It must begin with http:// or https:// and must not carry a username or password before the host. Refused hosts include localhost, a name with no dot in it, names ending in .localhost, .local or .internal, and loopback, private or link-local addresses such as 127.0.0.1, 10.x.x.x, 192.168.x.x or [::1]. That first check reads only the address as written, and the worker repeats it before Chromium starts. While rendering, the worker also looks up where every name points, including redirects and the page's own images and scripts, and fetches only public addresses, so a link that leads into a private network ends with an error instead of a PDF.",
+      a: "It must begin with http:// or https:// and must not carry a username or password before the host. Refused hosts include localhost, a name with no dot in it, names ending in .localhost, .local or .internal, and loopback, private or link-local addresses such as 127.0.0.1, 10.x.x.x, 192.168.x.x or [::1]. That first check reads only the address as written, and our server repeats it before Chromium starts. While rendering, our server also looks up where every name points, including redirects and the page's own images and scripts, and fetches only public addresses, so a link that leads into a private network ends with an error instead of a PDF.",
     },
     {
       q: "Does it capture pages built with JavaScript?",
@@ -149,7 +149,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens to the address and the PDF afterwards?",
-      a: `The address is saved with the job so the worker knows which page to open, and it is deleted from the job queue when the job finishes (an automatic retry keeps it until the last attempt). The job's status record keeps the PDF's file name, made from the site and path without any query string, until that record expires. The PDF's download link works for ${LINK_MINUTES} minutes; after that, a storage rule that runs daily erases the file.`,
+      a: `The address is saved with the job so our server knows which page to open, and it is deleted from the job queue when the job finishes (an automatic retry keeps it until the last attempt). The job's status record keeps the PDF's file name, made from the site and path without any query string, until that record expires. The PDF's download link works for ${LINK_MINUTES} minutes; after that, a storage rule that runs daily erases the file.`,
     },
   ],
 

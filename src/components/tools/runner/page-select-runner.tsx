@@ -1,5 +1,6 @@
 "use client";
 
+import { RunReason } from "@/components/tools/runner/run-reason";
 import { useMemo, useRef, useState } from "react";
 import { Download, FileOutput, MousePointerClick, Trash2 } from "lucide-react";
 import { deletePages, extractPages } from "@/lib/pdf/engine";
@@ -279,15 +280,28 @@ function PageSelectEditor({
             </p>
           )}
           <div className="sm:ml-auto">
-            <RunButton
-              onClick={onRun}
-              busy={busy}
-              disabled={disabled}
-              busyLabel={config.busyLabel}
+            <RunReason
+              reason={
+                disabled
+                  ? selected.size === 0
+                    ? "Select at least one page first."
+                    : null
+                  : null
+              }
             >
-              <ActionIcon className="size-4" aria-hidden />
-              {config.actionLabel(selected.size)}
-            </RunButton>
+              {(describedBy) => (
+                <RunButton
+                  onClick={onRun}
+                  busy={busy}
+                  describedBy={describedBy}
+                  disabled={disabled}
+                  busyLabel={config.busyLabel}
+                >
+                  <ActionIcon className="size-4" aria-hidden />
+                  {config.actionLabel(selected.size)}
+                </RunButton>
+              )}
+            </RunReason>
           </div>
         </div>
       </RunBar>

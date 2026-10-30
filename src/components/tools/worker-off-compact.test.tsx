@@ -50,7 +50,7 @@ const OFF: WorkerStatus = {
   mode: "disabled",
   enabled: false,
   localDevOnly: false,
-  detail: "No secure worker is configured in this environment.",
+  detail: "No secure server is configured in this environment.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: false, detail: "not scanned" },
   ocr: { available: false, engine: null, languages: [], detail: "off" },
@@ -66,7 +66,7 @@ const OFF: WorkerStatus = {
     verdict: "off",
     observed: false,
     drainable: false,
-    detail: "no worker observed",
+    detail: "no server observed",
   },
 };
 
@@ -75,7 +75,7 @@ const SENTENCE = /^This tool is offline right now\. Try again later\.$/;
 /** Notify me's disclosure — what the press sends, read before pressing. */
 const PRIVACY_LINE = /ordinary server logs.*Google Analytics/;
 /** The long account, in each panel's own words: behind "Why?". */
-const LONG_ACCOUNT = /never pretends|Nothing is uploaded while the worker/;
+const LONG_ACCOUNT = /never pretends|Nothing is uploaded while our server/;
 
 /** Shown: no ancestor (or itself) carries `hidden`. */
 function shown(el: Element): boolean {

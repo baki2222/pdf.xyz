@@ -276,8 +276,8 @@ export function WorkspaceClient({
                   <DropSheetPick
                     className={cn(
                       "rounded-sheet relative flex cursor-pointer flex-col items-center justify-center gap-3 border-2 border-dashed px-6 py-10 text-center transition-colors duration-200",
-                      "has-[:focus-visible]:border-accent/40 has-[:focus-visible]:bg-accent/10 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-2",
-                      "border-line-strong bg-wash group-data-[armed]/sheet:border-accent/40 group-data-[over]/sheet:bg-accent/10",
+                      "has-[:focus-visible]:border-accent has-[:focus-visible]:ring-accent/40 has-[:focus-visible]:ring-2",
+                      "border-line-strong bg-wash group-data-[armed]/sheet:border-accent group-data-[over]/sheet:bg-accent/5",
                     )}
                   >
                     <span className="text-muted group-data-[armed]/sheet:text-accent grid size-14 place-items-center transition-colors">

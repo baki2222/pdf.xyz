@@ -111,11 +111,11 @@ const content: ToolContent = {
   faqs: [
     {
       q: 'What does "No selectable text found" mean?',
-      a: `No page of the PDF has stored characters, usually because the pages are scans or photos, or the lettering was converted to outlines. OCR PDF can recognise the words and return a searchable PDF, a .txt file, or both, but it is not local: the file goes over TLS to pdf.xyz's secure worker, the input is deleted when the job finishes, and the download link expires after ${OUTPUT_TTL} minutes.`,
+      a: `No page of the PDF has stored characters, usually because the pages are scans or photos, or the lettering was converted to outlines. OCR PDF can recognise the words and return a searchable PDF, a .txt file, or both, but it is not local: the file goes over TLS to pdf.xyz's secure server, the input is deleted when the job finishes, and the download link expires after ${OUTPUT_TTL} minutes.`,
     },
     {
       q: "Are columns, tables and spacing kept?",
-      a: "A new line on the page becomes a new line in the file; horizontal alignment is lost. Columns and table cells come out as plain text, split by spaces and line breaks, and a page stored a column at a time comes out a column at a time. For a grid you can sort and sum, Extract Tables returns a ZIP of per-table CSV files plus one Excel workbook; it runs on the secure worker, so that document is uploaded.",
+      a: "A new line on the page becomes a new line in the file; horizontal alignment is lost. Columns and table cells come out as plain text, split by spaces and line breaks, and a page stored a column at a time comes out a column at a time. For a grid you can sort and sum, Extract Tables returns a ZIP of per-table CSV files plus one Excel workbook; it runs on our secure server, so that document is uploaded.",
     },
     {
       q: "Why are my form entries missing from the text?",
@@ -123,7 +123,7 @@ const content: ToolContent = {
     },
     {
       q: "Can it open a password-protected PDF?",
-      a: "Not one that needs a password to open: it stops while loading with a message saying it is password-protected. Unlock PDF removes that password if you enter it, but it runs on pdf.xyz's secure worker, so the file and the password are uploaded. A PDF that opens without a password, even one whose author set it to forbid copying, is read like any other file.",
+      a: "Not one that needs a password to open: it stops while loading with a message saying it is password-protected. Unlock PDF removes that password if you enter it, but it runs on pdf.xyz's secure server, so the file and the password are uploaded. A PDF that opens without a password, even one whose author set it to forbid copying, is read like any other file.",
     },
     {
       q: "Will the text be readable in other languages and scripts?",

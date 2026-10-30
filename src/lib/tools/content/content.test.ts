@@ -410,7 +410,7 @@ const NEGATED_BEFORE =
 /** The work, or the file, leaving the device. Third person: "uploads the PDF",
  * never the reader's "upload a PNG of your signature", which picks a file. */
 const GOES_REMOTE =
-  /\b(?:secure worker|over TLS|pdf\.xyz's worker|(?:is|are|gets?|be) uploaded|uploads (?:it|your|the|a|each|them)|on (?:a|the) server|server-side)\b/i;
+  /\b(?:secure server|our (?:secure )?server|over TLS|pdf\.xyz's secure server|(?:is|are|gets?|be) uploaded|uploads (?:it|your|the|a|each|them)|on (?:a|the) server|server-side)\b/i;
 
 type Claim = "local" | "remote";
 

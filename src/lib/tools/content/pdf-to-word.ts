@@ -116,7 +116,7 @@ if (
 const ceiling = toolFileCeiling(tool);
 if (ceiling.tier !== "worker") {
   throw new Error(
-    `pdf-to-word content states the worker's upload cap, but the tool's ceiling tier is "${ceiling.tier}"`,
+    `pdf-to-word content states our server's upload cap, but the tool's ceiling tier is "${ceiling.tier}"`,
   );
 }
 /** The per-file cap this tool's upload is refused above, in whole MB. */
@@ -133,7 +133,7 @@ const BILEVEL_PX = MAX_BILEVEL_PICTURE_SIDE.toLocaleString("en-US");
 const MAX_PICTURES = MAX_DOCX_PICTURES.toLocaleString("en-US");
 /** Where the note can miss a picture: a page the reader cannot read ahead. */
 const UNNOTED =
-  "except on a page the worker cannot read before it is drawn, as in a damaged PDF, where a picture can be left out with no note";
+  "except on a page our server cannot read before it is drawn, as in a damaged PDF, where a picture can be left out with no note";
 
 const content: ToolContent = {
   slug: "pdf-to-word",
@@ -144,8 +144,8 @@ const content: ToolContent = {
 
   intro: [
     `PDF to Word lifts the text you could highlight in a PDF, and the photos, screenshots and scans on its pages, into a .docx file that opens and edits in Word. It is not a page replica: lines the PDF wrapped are joined back into paragraphs in Word's default Normal style, each picture sits on a line of its own between the paragraphs printed above and below it, and each PDF page with text or a picture starts on a new Word page. The Word page is the size of the PDF's first page, or A4 upright when that page is landscape, such as a slide (scaled to fit, its shape kept, when it is larger than Word allows), and a picture wider or taller than the page's text area is scaled down to fit. Fonts, colours, tables, and drawings made of lines and shapes are not carried across, and bold or italics only where a whole paragraph is set in them, such as a heading.`,
-    `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and the worker runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
-    `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure worker, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. The worker deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. A run handles a single PDF, and uploads above ${CEILING_MB} MB are refused.`,
+    `The extractor follows the page's reading order: a page set in two columns is read one column at a time, and a table whose cells each fit on one line comes through one row per paragraph, with its cells separated by tabs rather than placed in Word table cells. If no page has selectable text, as with a scan that was never OCR'd, the job stops rather than hand you a document of page pictures with nothing in it to edit. Tick “${WORD_OCR_LABEL}” before exporting and our server runs OCR on the file first, in the languages you pick, and converts the result in the same job.`,
+    `Conversion happens on a server, not in your browser. Your PDF travels over TLS to pdf.xyz's secure server, where poppler's pdftotext reads the text layer and pdf.js finds each picture and where the page shows it. Our server deletes the uploaded PDF when the job finishes; the DOCX link expires after ${OUTPUT_TTL} minutes, and a daily storage rule then erases the stored copy. A run handles a single PDF, and uploads above ${CEILING_MB} MB are refused.`,
   ],
 
   useCases: [
@@ -169,22 +169,22 @@ const content: ToolContent = {
       // CHANGED 2026-10-24: was "Recover text from a scan in two passes",
       // through OCR PDF and back — the only way until OCR ran in this job.
       title: "Recover text from a scan",
-      body: `A scanned contract usually arrives as page pictures with no text layer, so on its own it is refused here. Tick “${WORD_OCR_LABEL}” and pick the languages printed on it: the worker adds the recognised words to each page first, then converts, so each page's scan then comes through as a picture, followed by its words as text you can edit.`,
+      body: `A scanned contract usually arrives as page pictures with no text layer, so on its own it is refused here. Tick “${WORD_OCR_LABEL}” and pick the languages printed on it: our server adds the recognised words to each page first, then converts, so each page's scan then comes through as a picture, followed by its words as text you can edit.`,
     },
   ],
 
   steps: [
     {
       title: "Add one PDF",
-      body: "Drop your file on the Add your PDF area or choose browse to pick it; it is sent only when you press Export, which works once the status badge reads Secure worker. The page holds one PDF at a time; press Remove to swap it for another.",
+      body: "Drop your file on the Add your PDF area or choose browse to pick it; it is sent only when you press Export, which works once the status badge reads Secure server. The page holds one PDF at a time; press Remove to swap it for another.",
     },
     {
       title: "Press Export DOCX",
-      body: `A PDF larger than ${CEILING_MB} MB is refused as soon as you pick it, before anything is uploaded. Otherwise your file goes up over TLS: the button reads "Uploading your file…", then "Waiting for the worker…" while the job is queued, "Exporting DOCX…" while the secure worker reads its text and pictures, and "Downloading the result…" until the DOCX is in the page. The worker discards your upload once the job is done.`,
+      body: `A PDF larger than ${CEILING_MB} MB is refused as soon as you pick it, before anything is uploaded. Otherwise your file goes up over TLS: the button reads "Uploading your file…", then "Waiting for our server…" while the job is queued, "Exporting DOCX…" while our secure server reads its text and pictures, and "Downloading the result…" until the DOCX is in the page. Our server discards your upload once the job is done.`,
     },
     {
       title: "Download the Word file",
-      body: `When "Your DOCX file is ready." appears, press the Download button beneath it, named after your file with a .docx extension. The page has already fetched the DOCX, but save it before closing the tab: the worker's own link stops working after ${OUTPUT_TTL} minutes.`,
+      body: `When "Your DOCX file is ready." appears, press the Download button beneath it, named after your file with a .docx extension. The page has already fetched the DOCX, but save it before closing the tab: our server's own link stops working after ${OUTPUT_TTL} minutes.`,
     },
   ],
 
@@ -195,11 +195,11 @@ const content: ToolContent = {
     },
     {
       q: "Are the pictures kept at their full quality?",
-      a: `Mostly. A plain JPEG photo up to ${PICTURE_PX} pixels on its longer side goes into the DOCX byte for byte. A larger one is scaled down to ${PICTURE_PX} pixels on that side, a black-and-white scan to ${BILEVEL_PX}, and a picture that is not a plain JPEG is re-saved, as a PNG or, for a photograph, a JPEG. A one-colour stencil comes through in its colour, and a picture the page repeats comes through each time it is shown. A picture the page shows only part of is cropped in Word the same way, so the hidden part can be uncropped there, unless something is painted over the picture: then it is re-saved as the page shows it, at its own resolution, and what is covered is not in the file. A picture too large for the worker, or one it cannot decode, is left out, and the note beside the download names its page, ${UNNOTED}. Past ${MAX_PICTURES} pictures, the size of one file, or the time one conversion may take, a document's remaining pictures are left out too and counted in the same note; the text still comes through whole.`,
+      a: `Mostly. A plain JPEG photo up to ${PICTURE_PX} pixels on its longer side goes into the DOCX byte for byte. A larger one is scaled down to ${PICTURE_PX} pixels on that side, a black-and-white scan to ${BILEVEL_PX}, and a picture that is not a plain JPEG is re-saved, as a PNG or, for a photograph, a JPEG. A one-colour stencil comes through in its colour, and a picture the page repeats comes through each time it is shown. A picture the page shows only part of is cropped in Word the same way, so the hidden part can be uncropped there, unless something is painted over the picture: then it is re-saved as the page shows it, at its own resolution, and what is covered is not in the file. A picture too large for our server, or one it cannot decode, is left out, and the note beside the download names its page, ${UNNOTED}. Past ${MAX_PICTURES} pictures, the size of one file, or the time one conversion may take, a document's remaining pictures are left out too and counted in the same note; the text still comes through whole.`,
     },
     {
       q: "What happens to pages that are scans?",
-      a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Tick “${WORD_OCR_LABEL}” to have the words as text: the worker runs OCR first, keeping pages that already have text as they are, and converts its result. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page. ${RTL_WORD_SENTENCE}`,
+      a: `A scan has no selectable text, only a picture of its words. In a PDF that also has typed pages, a scanned page comes through as that picture, on its own Word page, with no editable words, and beside the download the panel says how many pages had text and names the ones that came through only as pictures (up to ${MAX_LISTED_PAGES}, then a count of the rest). If no page has any selectable text, the job is turned away instead, since a document of page pictures would have nothing in it to edit; lettering converted to vector outlines has the same effect. Tick “${WORD_OCR_LABEL}” to have the words as text: our server runs OCR first, keeping pages that already have text as they are, and converts its result. OCR in the wrong language does not fail, it produces plausible-looking gibberish, so choose every language printed on the page. ${RTL_WORD_SENTENCE}`,
     },
     {
       q: "How are tables and multi-column pages handled?",
@@ -207,11 +207,11 @@ const content: ToolContent = {
     },
     {
       q: "Can I turn a PDF that has an open password into Word?",
-      a: "Not directly. The worker cannot read text it cannot decrypt, so the job stops at once, without retrying, with a message that says the PDF is password-protected and a link to Unlock PDF. If you know the password, remove it with Unlock PDF and convert the decrypted copy. Unlock PDF cannot recover or bypass a password you do not have. A PDF that opens without a password and only restricts editing converts as it is, pictures included. A PDF whose structure the worker cannot read is rebuilt first, the way Repair PDF does, and the rebuilt copy is converted, with a note beside the download that says so; one that cannot be rebuilt into a readable file is not converted, and the message suggests Repair PDF.",
+      a: "Not directly. Our server cannot read text it cannot decrypt, so the job stops at once, without retrying, with a message that says the PDF is password-protected and a link to Unlock PDF. If you know the password, remove it with Unlock PDF and convert the decrypted copy. Unlock PDF cannot recover or bypass a password you do not have. A PDF that opens without a password and only restricts editing converts as it is, pictures included. A PDF whose structure our server cannot read is rebuilt first, the way Repair PDF does, and the rebuilt copy is converted, with a note beside the download that says so; one that cannot be rebuilt into a readable file is not converted, and the message suggests Repair PDF.",
     },
     {
       q: "Is my PDF kept once the DOCX is made?",
-      a: `No. The worker erases your uploaded PDF when the conversion ends. The DOCX stays retrievable for ${OUTPUT_TTL} minutes, then the link lapses and a daily storage rule wipes the leftover file. No sign-up is involved.`,
+      a: `No. Our server erases your uploaded PDF when the conversion ends. The DOCX stays retrievable for ${OUTPUT_TTL} minutes, then the link lapses and a daily storage rule wipes the leftover file. No sign-up is involved.`,
     },
   ],
 

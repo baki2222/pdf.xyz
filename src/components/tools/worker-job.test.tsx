@@ -58,19 +58,19 @@ const READY: WorkerStatus = {
   mode: "remote-configured",
   enabled: true,
   localDevOnly: false,
-  detail: "A worker backend is configured.",
+  detail: "A server backend is configured.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: true, detail: "scanned" },
   ocr: {
     available: true,
     engine: "ocrmypdf",
     languages: [...OCR_LANGUAGE_CODES],
-    detail: "OCR runs on the worker.",
+    detail: "OCR runs on our secure server.",
   },
   security: {
     available: true,
     operations: ["protect", "unlock"],
-    detail: "qpdf runs on the worker.",
+    detail: "qpdf runs on our secure server.",
   },
   providers: {
     ...providers,
@@ -208,7 +208,7 @@ describe.each(SUBJECTS.map((s) => [s.slug, s] as const))("%s", (slug, arm) => {
     // The run area is up (its status line has resolved)…
     await waitFor(() =>
       expect(document.body.textContent ?? "").not.toMatch(
-        /Checking the secure worker/,
+        /Checking our secure server/,
       ),
     );
     // …and there is no job to keep waiting on.
@@ -225,7 +225,7 @@ describe.each(SUBJECTS.map((s) => [s.slug, s] as const))("%s", (slug, arm) => {
     render(createElement(Panel, { tool: catalogTool(slug) }));
     await waitFor(() =>
       expect(document.body.textContent ?? "").not.toMatch(
-        /Checking the secure worker/,
+        /Checking our secure server/,
       ),
     );
     expect(screen.queryByRole("button", { name: /keep waiting/i })).toBeNull();
@@ -297,7 +297,7 @@ describe("a fresh run, end to end (Extract Tables)", () => {
     for (let i = 0; i < 20 && statusReads === 0; i += 1) await advance(500);
 
     // Queued, not "Extracting": the label says where the job is.
-    expect(document.body.textContent).toContain("Waiting for the worker…");
+    expect(document.body.textContent).toContain("Waiting for our server…");
     expect(screen.getByRole("button", { name: /^cancel$/i })).toBeTruthy();
     // The job id is saved while it may still be running.
     expect(sessionStorage.getItem(STORAGE_KEY("extract-tables"))).toContain(

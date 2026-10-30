@@ -63,7 +63,7 @@ function status(overrides: Partial<WorkerStatus> = {}): WorkerStatus {
       verdict: "off",
       observed: false,
       drainable: false,
-      detail: "no worker observed",
+      detail: "no server observed",
     },
     ...overrides,
   };

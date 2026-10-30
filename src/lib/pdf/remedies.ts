@@ -74,6 +74,10 @@ export function remedyCarries(toolSlug: string): boolean {
   return handoffCapabilityFor(toolSlug).supported;
 }
 
+/** Where a worker tool's file goes, and when: the clause both sentences end on. */
+export const UPLOAD_CLAUSE =
+  "it uploads to our secure server only when you start it";
+
 /**
  * The sentence for where a file goes in a worker tool; the worker tools are
  * the only ones today. `carries` says whether the click takes the file with
@@ -83,8 +87,8 @@ export function remedyCarries(toolSlug: string): boolean {
 export function whereFor(mode: ProcessingMode, carries = false): string | null {
   if (mode !== "server") return null;
   return carries
-    ? "Your file goes with you, and it uploads to the secure worker only when you start it."
-    : "You add the file there, and it uploads to the secure worker only when you start it.";
+    ? `Your file goes with you, and ${UPLOAD_CLAUSE}.`
+    : `You add the file there, and ${UPLOAD_CLAUSE}.`;
 }
 
 /** The words for an encrypted file, by what a reader made of its lock. */

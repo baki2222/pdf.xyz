@@ -168,7 +168,7 @@ export function LiveStages({
       aria-controls={detailsId}
       onClick={() => setOpen((was) => !was)}
       className={cn(
-        "hover:text-fg self-start font-medium underline-offset-4 transition hover:underline max-sm:-my-1.5 max-sm:py-1.5",
+        "hover:text-fg tap-y self-start font-medium underline-offset-4 transition hover:underline",
         className,
       )}
     >

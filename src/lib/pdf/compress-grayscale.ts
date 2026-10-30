@@ -10,4 +10,4 @@
  * into most runners' chunks, and this sentence belongs to one panel.
  */
 export const DEEP_COMPRESSION_GRAYSCALE_HINT =
-  "Turns every colour on the pages — pictures, text and drawings — into shades of gray. The worker checks the result and refuses it if a picture is still in colour.";
+  "Turns every colour on the pages — pictures, text and drawings — into shades of gray. Our server checks the result and refuses it if a picture is still in colour.";

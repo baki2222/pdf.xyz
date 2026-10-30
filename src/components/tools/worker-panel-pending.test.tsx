@@ -111,7 +111,7 @@ const OFF: WorkerStatus = {
   mode: "disabled",
   enabled: false,
   localDevOnly: false,
-  detail: "No secure worker is configured in this environment.",
+  detail: "No secure server is configured in this environment.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: false, detail: "not scanned" },
   ocr: { available: false, engine: null, languages: [], detail: "off" },
@@ -127,7 +127,7 @@ const OFF: WorkerStatus = {
     verdict: "off",
     observed: false,
     drainable: false,
-    detail: "no worker observed",
+    detail: "no server observed",
   },
 };
 
@@ -306,7 +306,7 @@ describe("the status-dependent part of every panel is a reserved slot", () => {
       const slot = slots[0]!;
       expect(slot.getAttribute("data-state")).toBe("loading");
       // The checking state is IN the slot, not beside it.
-      expect(slot.textContent).toMatch(/Checking the secure worker/);
+      expect(slot.textContent).toMatch(/Checking our secure server/);
       const classes = (slot.getAttribute("class") ?? "").split(/\s+/);
       for (const prefix of ["min-h-[", "sm:min-h-[", "lg:min-h-["])
         expect(

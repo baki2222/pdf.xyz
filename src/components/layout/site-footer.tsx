@@ -13,7 +13,7 @@ const FOOTER_GUIDES = 5;
 
 /** A column's heading: plain small type, not a mono capital kicker. */
 const HEADING = "text-fg text-sm font-semibold";
-const LINK = "text-muted hover:text-fg text-sm transition-colors";
+const LINK = "text-muted hover:text-fg tap-row text-sm transition-colors";
 
 /**
  * The columns the footer draws: every `footerNav` column but the one that
@@ -56,7 +56,7 @@ export function SiteFooter() {
       <Container className="py-10 sm:py-14">
         <div className="grid gap-8 lg:grid-cols-[1fr_3fr] lg:gap-12">
           <div className="flex flex-col gap-3">
-            <Logo />
+            <Logo className="tap-row" />
             <p className="text-muted max-w-xs text-sm leading-relaxed">
               {siteConfig.tagline} {toolCount} tools for every document — most
               run entirely in your browser.
@@ -100,7 +100,7 @@ export function SiteFooter() {
                 <li>
                   <Link
                     href="/guides"
-                    className="text-fg hover:text-accent text-sm font-medium transition-colors"
+                    className="text-fg hover:text-accent tap-row text-sm font-medium transition-colors"
                   >
                     All guides
                   </Link>
@@ -158,16 +158,28 @@ export function SiteFooter() {
                 policies. A site that processes people's documents and offers no
                 privacy policy anywhere is missing the document a visitor goes
                 looking for precisely when they are deciding whether to trust it. */}
-            <Link href="/privacy" className="hover:text-fg transition-colors">
+            <Link
+              href="/privacy"
+              className="hover:text-fg tap-row transition-colors"
+            >
               Privacy
             </Link>
-            <Link href="/terms" className="hover:text-fg transition-colors">
+            <Link
+              href="/terms"
+              className="hover:text-fg tap-row transition-colors"
+            >
               Terms
             </Link>
-            <Link href="/#security" className="hover:text-fg transition-colors">
+            <Link
+              href="/#security"
+              className="hover:text-fg tap-row transition-colors"
+            >
               Security practices
             </Link>
-            <Link href="/tools" className="hover:text-fg transition-colors">
+            <Link
+              href="/tools"
+              className="hover:text-fg tap-row transition-colors"
+            >
               All tools
             </Link>
           </div>

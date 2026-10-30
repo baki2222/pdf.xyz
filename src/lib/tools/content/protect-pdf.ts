@@ -62,7 +62,7 @@ import { toolFileCeilingMb } from "@/lib/tools/file-ceilings";
 const tool = getToolBySlug("protect-pdf");
 if (!tool || capabilityForMode(tool.processing) !== "secure-worker") {
   throw new Error(
-    "protect-pdf content says the file is uploaded to the worker, but the tool is not server-side",
+    "protect-pdf content says the file is uploaded to our server, but the tool is not server-side",
   );
 }
 const CEILING_MB = toolFileCeilingMb(tool);
@@ -103,9 +103,9 @@ const content: ToolContent = {
   metaDescription: `Password-protect a PDF with ${STRONG} or ${COMPATIBLE} encryption applied by qpdf. One file up to ${CEILING_MB} MB, no account, link expires in ${OUTPUT_TTL} min.`,
 
   intro: [
-    `Protect PDF puts an open password on a document. The result is encrypted with AES, so a PDF reader asks for the password before it will show a single page. Use it when a file travels by email, a shared drive or a USB stick. The encryption is applied by qpdf, and the worker re-inspects its own output: a file that does not come back encrypted fails the job instead of being handed over as if it were protected.`,
-    `qpdf is a native program, so this tool does not run in your browser. Your PDF is uploaded over TLS to pdf.xyz's secure worker, and the password travels with the job request so the worker can encrypt that one file. The uploaded input is deleted when the job finishes, the link to the protected copy expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that. The panel holds a single PDF at a time, and the upload is refused above ${CEILING_MB} MB.`,
-    `By default the same password becomes the owner password and every permission stays allowed, so whoever can open the file can also print it and copy its text. Under Permissions you can untick ${RESTRICTABLE}; the panel then asks for a separate owner password, and the worker reads the finished file's permission flags back and fails the job if one does not match what you chose. Filling in forms can be blocked only once comments are: ${FORMS_FOLLOW_ANNOTATE.charAt(0).toLowerCase()}${FORMS_FOLLOW_ANNOTATE.slice(1)} Text extraction for accessibility is ${ACCESSIBILITY_ALWAYS_ALLOWED.charAt(0).toLowerCase()}${ACCESSIBILITY_ALWAYS_ALLOWED.slice(1)} A PDF that is already encrypted is refused rather than wrapped twice.`,
+    `Protect PDF puts an open password on a document. The result is encrypted with AES, so a PDF reader asks for the password before it will show a single page. Use it when a file travels by email, a shared drive or a USB stick. The encryption is applied by qpdf, and our server re-inspects its own output: a file that does not come back encrypted fails the job instead of being handed over as if it were protected.`,
+    `qpdf is a native program, so this tool does not run in your browser. Your PDF is uploaded over TLS to pdf.xyz's secure server, and the password travels with the job request so our server can encrypt that one file. The uploaded input is deleted when the job finishes, the link to the protected copy expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that. The panel holds a single PDF at a time, and the upload is refused above ${CEILING_MB} MB.`,
+    `By default the same password becomes the owner password and every permission stays allowed, so whoever can open the file can also print it and copy its text. Under Permissions you can untick ${RESTRICTABLE}; the panel then asks for a separate owner password, and our server reads the finished file's permission flags back and fails the job if one does not match what you chose. Filling in forms can be blocked only once comments are: ${FORMS_FOLLOW_ANNOTATE.charAt(0).toLowerCase()}${FORMS_FOLLOW_ANNOTATE.slice(1)} Text extraction for accessibility is ${ACCESSIBILITY_ALWAYS_ALLOWED.charAt(0).toLowerCase()}${ACCESSIBILITY_ALWAYS_ALLOWED.slice(1)} A PDF that is already encrypted is refused rather than wrapped twice.`,
   ],
 
   useCases: [
@@ -171,8 +171,8 @@ const content: ToolContent = {
       a: "pdf.xyz cannot recover it: Unlock PDF removes a password you can type and never guesses one. Keep the unprotected original, or store the password in a password manager.",
     },
     {
-      q: "What happens to my file and password on the worker?",
-      a: `Both reach the worker over TLS, because qpdf needs the password to encrypt. The password sits in the job's queue record, which is deleted when the job ends, and reaches qpdf through a temporary argument file in a scratch folder that is removed after the run. It never appears in the output name or an error message. The input file is deleted when the job ends; the protected copy can be downloaded for ${OUTPUT_TTL} minutes, then a daily storage rule erases it. No account is needed.`,
+      q: "What happens to my file and password on our secure server?",
+      a: `Both reach our server over TLS, because qpdf needs the password to encrypt. The password sits in the job's queue record, which is deleted when the job ends, and reaches qpdf through a temporary argument file in a scratch folder that is removed after the run. It never appears in the output name or an error message. The input file is deleted when the job ends; the protected copy can be downloaded for ${OUTPUT_TTL} minutes, then a daily storage rule erases it. No account is needed.`,
     },
     {
       q: "Are there rules for the password itself?",

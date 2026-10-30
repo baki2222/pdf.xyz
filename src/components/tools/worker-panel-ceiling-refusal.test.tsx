@@ -371,7 +371,7 @@ describe.each(
 describe("no page these panels serve says an over-ceiling file still uploads", () => {
   const SHIPPED = [
     "Up to N MB. A bigger deck still uploads, but the LibreOffice step then refuses it and the job ends with a size error, without a retry.",
-    "The LibreOffice converter takes a file of up to N MB unless the worker is configured otherwise; a bigger one is still uploaded, then turned away with a size error before any conversion starts, so nothing half-rendered comes back.",
+    "The LibreOffice converter takes a file of up to N MB unless our server is configured otherwise; a bigger one is still uploaded, then turned away with a size error before any conversion starts, so nothing half-rendered comes back.",
     // word-to-pdf, until 2026-10-07: the same claim without "still", which
     // the first pattern let through (house rule 1: a synonym walks past).
     "One document per conversion, of up to N MB: the converter refuses a larger Word file before LibreOffice ever opens it, so it is uploaded and then comes back with a size error.",

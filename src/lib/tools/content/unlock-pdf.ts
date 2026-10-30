@@ -85,7 +85,7 @@ if (
   capabilityForMode(unlockTool.processing) !== "secure-worker"
 ) {
   throw new Error(
-    "unlock-pdf content says the file is uploaded to the worker, but the tool is not server-side",
+    "unlock-pdf content says the file is uploaded to our server, but the tool is not server-side",
   );
 }
 const ceilingMb = toolFileCeilingMb(unlockTool);
@@ -113,8 +113,8 @@ const content: ToolContent = {
 
   intro: [
     "Unlock PDF takes an encrypted PDF plus the password that opens it and gives you back the same document with the encryption removed, so it opens without a prompt and other tools can work on it. It is for files you are entitled to open and whose password is known to you, such as a statement or a contract a colleague locked before emailing it. It is not a password cracker: if the password you type does not open the file, the job stops and says so.",
-    `The decryption is done by qpdf, which rewrites the file without its security settings rather than printing the pages to images, so any text the original had stays selectable and searchable. Before anything is delivered the worker checks the result again, and a copy that still reports encryption counts as a failure, not a download.`,
-    `This tool runs on a server: your PDF, up to ${ceilingMb} MB, is uploaded over TLS to pdf.xyz's secure worker, and the password rides along in the job request, where it waits in the job queue until the job finishes. The input is deleted when the job finishes, the download link stops working after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that.`,
+    `The decryption is done by qpdf, which rewrites the file without its security settings rather than printing the pages to images, so any text the original had stays selectable and searchable. Before anything is delivered our server checks the result again, and a copy that still reports encryption counts as a failure, not a download.`,
+    `This tool runs on a server: your PDF, up to ${ceilingMb} MB, is uploaded over TLS to pdf.xyz's secure server, and the password rides along in the job request, where it waits in the job queue until the job finishes. The input is deleted when the job finishes, the download link stops working after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that.`,
   ],
 
   useCases: [
@@ -139,7 +139,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add the locked PDF",
-      body: `Drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. Nothing is sent until you press Unlock PDF, which works once the badge reads Secure worker; if no worker is available, the panel explains why under that button.`,
+      body: `Drop one PDF onto the area that reads "Add a locked PDF, or browse"; clicking that area opens a file picker instead. It holds a single file of up to ${ceilingMb} MB, and the Remove button next to the file name clears it so you can pick another. Nothing is sent until you press Unlock PDF, which works once the badge reads Secure server; if no server is available, the panel explains why under that button.`,
     },
     {
       title: "Type the current password",
@@ -147,11 +147,11 @@ const content: ToolContent = {
     },
     {
       title: "Select Unlock PDF",
-      body: "Nothing happens when you press it without a file, without a password, or with a password over the limit. Otherwise it shows a spinner for the whole run, and its label follows the job: Uploading your file…, Waiting for the worker…, Unlocking on the worker… while qpdf decrypts, then Downloading the result… as the unlocked copy comes back to your browser.",
+      body: "Nothing happens when you press it without a file, without a password, or with a password over the limit. Otherwise it shows a spinner for the whole run, and its label follows the job: Uploading your file…, Waiting for our server…, Unlocking on our secure server… while qpdf decrypts, then Downloading the result… as the unlocked copy comes back to your browser.",
     },
     {
       title: "Download the unlocked copy",
-      body: `When "Your PDF is unlocked and ready." appears, the file has already been fetched to your browser, and the button beneath it, labelled Download ${exampleOutput} for a file called statement.pdf, saves it. The worker's own link to that output expires after ${linkMinutes} minutes.`,
+      body: `When "Your PDF is unlocked and ready." appears, the file has already been fetched to your browser, and the button beneath it, labelled Download ${exampleOutput} for a file called statement.pdf, saves it. Our server's own link to that output expires after ${linkMinutes} minutes.`,
     },
   ],
 
@@ -170,7 +170,7 @@ const content: ToolContent = {
     },
     {
       q: "Is my file and password uploaded?",
-      a: `Yes. Decryption needs the native qpdf engine, so the PDF is uploaded over TLS to pdf.xyz's secure worker and the password is sent in the job request. The password is kept in the queue's record of the job while it waits and runs, including any automatic retry; that record is deleted when the job finishes, and one for a job that never finishes expires on the queue's own timer. qpdf receives it from a one-line-per-argument file in a scratch folder rather than on the process command line, and the folder is deleted when that qpdf call returns. The input PDF is deleted when the job finishes, the download link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that.`,
+      a: `Yes. Decryption needs the native qpdf engine, so the PDF is uploaded over TLS to pdf.xyz's secure server and the password is sent in the job request. The password is kept in the queue's record of the job while it waits and runs, including any automatic retry; that record is deleted when the job finishes, and one for a job that never finishes expires on the queue's own timer. qpdf receives it from a one-line-per-argument file in a scratch folder rather than on the process command line, and the folder is deleted when that qpdf call returns. The input PDF is deleted when the job finishes, the download link expires after ${linkMinutes} minutes, and the stored copy is erased by a daily storage rule after that.`,
     },
     {
       q: "Does unlocking change anything else in the document?",

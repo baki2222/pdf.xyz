@@ -114,7 +114,7 @@ export function ChatWithPdfWorkerPanel({
       engine={{ label: "AI chat", icon: Sparkles }}
       description={
         <>
-          The worker extracts your PDF&apos;s selectable text and asks a
+          Our server extracts your PDF&apos;s selectable text and asks a
           configured AI model to answer your question using only that text —
           with inline page citations when the document has page-level text —
           then returns an answer package (the model&apos;s answer, a plain-text
@@ -390,7 +390,7 @@ function ChatBuilder({
             <button
               type="button"
               onClick={() => chooseFile(null)}
-              className="text-muted hover:text-fg shrink-0 text-sm font-medium transition max-sm:-my-1.5 max-sm:py-1.5"
+              className="text-muted hover:text-fg tap-y shrink-0 text-sm font-medium transition"
             >
               Remove
             </button>
@@ -461,8 +461,8 @@ function ChatBuilder({
           <div className="flex flex-col gap-2">
             <p className="text-accent flex items-start gap-1.5 text-xs leading-relaxed">
               <ShieldCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-              Your PDF uploads to a private secure-worker job only when you ask.
-              The worker sends only the PDF&apos;s selectable text to a
+              Your PDF uploads to a private secure-server job only when you ask.
+              Our server sends only the PDF&apos;s selectable text to a
               configured AI model — it does not read scanned images (run OCR
               first) — and the model is told to answer only from that text. AI
               answers can still be wrong.
@@ -481,7 +481,7 @@ function ChatBuilder({
               {aiToolUnavailableDetail(status)}
             </p>
             <p className="text-muted text-xs leading-relaxed">
-              Asking stays off until the worker is ready, so {tool.name} never
+              Asking stays off until our server is ready, so {tool.name} never
               pretends to answer from a document it cannot actually read.
             </p>
           </>
@@ -582,7 +582,7 @@ function ContextNote({
       {notes.length > 0
         ? ` To stay within the request limits, ${notes.join(", and ")}.`
         : ""}{" "}
-      The PDF is re-sent and re-read each time — the worker keeps nothing
+      The PDF is re-sent and re-read each time — our server keeps nothing
       between questions.
     </p>
   );

@@ -109,12 +109,12 @@ const content: ToolContent = {
 
   seoTitle: `Excel to PDF Converter: ${formatsAnd} to PDF`,
 
-  metaDescription: `Convert one ${formatsOr} spreadsheet to PDF with LibreOffice on a secure worker. The workbook is deleted when the job ends; the PDF link lasts ${LINK_MINUTES} min.`,
+  metaDescription: `Convert one ${formatsOr} spreadsheet to PDF with LibreOffice on a secure server. The workbook is deleted when the job ends; the PDF link lasts ${LINK_MINUTES} min.`,
 
   intro: [
-    `Excel to PDF turns one spreadsheet into a PDF that anyone can open, print or file without owning Excel. Add one ${formatsOr} file, press Convert to PDF, and LibreOffice, the open-source office suite, opens it on pdf.xyz's secure worker and exports it with its own PDF writer. Output that lacks a PDF's opening signature or end-of-file marker is discarded, and the panel shows an error instead of a download.`,
+    `Excel to PDF turns one spreadsheet into a PDF that anyone can open, print or file without owning Excel. Add one ${formatsOr} file, press Convert to PDF, and LibreOffice, the open-source office suite, opens it on pdf.xyz's secure server and exports it with its own PDF writer. Output that lacks a PDF's opening signature or end-of-file marker is discarded, and the panel shows an error instead of a download.`,
     `This page has no layout controls: pdf.xyz hands LibreOffice your file and no conversion settings at all, so orientation, scaling and where wide columns break across pages are left to whatever page setup the workbook carries and to LibreOffice's defaults. A CSV carries no page setup, so it always gets the defaults. If a wide sheet has to fit, the file is the only place to say so: set orientation and fit-to-width scaling in your spreadsheet app and save before you upload. The result is a printout, not a working spreadsheet: a formula cell shows the figure it displayed when LibreOffice opened the file, and nothing in the PDF recalculates if the source numbers change later.`,
-    `None of the conversion happens on your computer. The spreadsheet travels over TLS to pdf.xyz's secure worker, is kept only for its job (through an automatic retry, if a temporary error triggers one), and is deleted as soon as that job ends, whether it succeeded or failed. The converted PDF stays downloadable from the worker for ${LINK_MINUTES} minutes, and this page fetches it the moment it is ready; after that window, a storage rule that runs once a day erases the stored PDF.`,
+    `None of the conversion happens on your computer. The spreadsheet travels over TLS to pdf.xyz's secure server, is kept only for its job (through an automatic retry, if a temporary error triggers one), and is deleted as soon as that job ends, whether it succeeded or failed. The converted PDF stays downloadable from our server for ${LINK_MINUTES} minutes, and this page fetches it the moment it is ready; after that window, a storage rule that runs once a day erases the stored PDF.`,
   ],
 
   useCases: [
@@ -143,15 +143,15 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your spreadsheet",
-      body: `Click the dashed area marked "Add your document, or browse" to pick one ${formatsOr} file, or drag the file onto it. Its name then appears in place of that area, and Remove clears it if you chose the wrong one. The area takes a file at once; Convert to PDF works only while the panel's badge says "Secure worker".`,
+      body: `Click the dashed area marked "Add your document, or browse" to pick one ${formatsOr} file, or drag the file onto it. Its name then appears in place of that area, and Remove clears it if you chose the wrong one. The area takes a file at once; Convert to PDF works only while the panel's badge says "Secure server".`,
     },
     {
       title: "Start the conversion",
-      body: `With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button shows where the job is: "Uploading your file…", then "Waiting for the worker…" while it is queued, "Converting to PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
+      body: `With the file in place, go straight to Convert to PDF; nothing needs setting beforehand. The button shows where the job is: "Uploading your file…", then "Waiting for our server…" while it is queued, "Converting to PDF…" while LibreOffice renders it, and "Downloading the result…" as the finished PDF comes back. A Cancel button below it stops the job while it runs.`,
     },
     {
       title: "Save the converted PDF",
-      body: `By the time "Your PDF is ready." appears the PDF is already in this tab, and the Download button saves it under your spreadsheet's name, so ${EXAMPLE_IN} comes back as ${EXAMPLE_OUT}. Saving uses the copy held in this tab, not the worker's, whose own download address stops answering ${LINK_MINUTES} minutes after the job.`,
+      body: `By the time "Your PDF is ready." appears the PDF is already in this tab, and the Download button saves it under your spreadsheet's name, so ${EXAMPLE_IN} comes back as ${EXAMPLE_OUT}. Saving uses the copy held in this tab, not our server's, whose own download address stops answering ${LINK_MINUTES} minutes after the job.`,
     },
   ],
 
@@ -174,11 +174,11 @@ const content: ToolContent = {
     },
     {
       q: "How large can the file be, and what if it fails?",
-      a: `${sizeRefusal} If LibreOffice cannot open the workbook, or the conversion runs past its time limit (${TIMEOUT_DEFAULT_SECONDS} seconds by default), the job fails once with a message saying why and returns no file. The same file would fail the same way, so it is not retried; only a temporary fault on the worker itself is retried automatically. If the page stops waiting before the job ends, it says the job may still be running and offers Keep waiting, which goes back to that same job rather than starting a new one.`,
+      a: `${sizeRefusal} If LibreOffice cannot open the workbook, or the conversion runs past its time limit (${TIMEOUT_DEFAULT_SECONDS} seconds by default), the job fails once with a message saying why and returns no file. The same file would fail the same way, so it is not retried; only a temporary fault on our secure server itself is retried automatically. If the page stops waiting before the job ends, it says the job may still be running and offers Keep waiting, which goes back to that same job rather than starting a new one.`,
     },
     {
       q: "Is my spreadsheet stored?",
-      a: `Only for the job. The workbook itself is removed from the worker at the end of the job, whether it converted or not. The PDF made from it has a ${LINK_MINUTES}-minute download window, and because the storage rule that erases it runs daily, the stored PDF typically survives a few hours past that.`,
+      a: `Only for the job. The workbook itself is removed from our server at the end of the job, whether it converted or not. The PDF made from it has a ${LINK_MINUTES}-minute download window, and because the storage rule that erases it runs daily, the stored PDF typically survives a few hours past that.`,
     },
   ],
 

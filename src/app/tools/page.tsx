@@ -61,7 +61,7 @@ export default function ToolsPage() {
         {/* A plain heading and one sentence, as on the home page (owner,
             2026-10-23). WAS a "TOOL CATALOG" mono eyebrow over "Every PDF
             tool, one place" and a sentence on whether each tool runs "in
-            your browser or on a secure worker". */}
+            your browser or on a secure server". */}
         <div className="flex flex-col gap-2 sm:gap-3">
           <h1 className="font-display text-fg text-display-2 font-medium tracking-tight text-balance">
             All PDF tools

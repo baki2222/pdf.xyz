@@ -54,14 +54,14 @@ const READY: WorkerStatus = {
   mode: "remote-configured",
   enabled: true,
   localDevOnly: false,
-  detail: "A worker backend is configured.",
+  detail: "A server backend is configured.",
   compress: { lossless: false, deep: false, engines: [] },
   scan: { active: false, detail: "not scanned" },
   ocr: { available: false, engine: null, languages: [], detail: "off" },
   security: {
     available: true,
     operations: ["protect", "unlock"],
-    detail: "qpdf runs on the worker.",
+    detail: "qpdf runs on our secure server.",
   },
   providers: {
     ...providers,
@@ -74,7 +74,7 @@ const READY: WorkerStatus = {
     verdict: "off",
     observed: false,
     drainable: false,
-    detail: "no worker observed",
+    detail: "no server observed",
   },
 };
 
@@ -393,7 +393,7 @@ describe("PDF to Word panel — pages kept only as pictures", () => {
     );
     // Not the reasons that are not this one.
     expect(box).not.toHaveTextContent(
-      /too large for the worker|could not be decoded/,
+      /too large for our server|could not be decoded/,
     );
     expect(screen.getByText(/Your DOCX file is ready/)).toBeInTheDocument();
   }, 60_000);
@@ -694,7 +694,7 @@ describe("PDF to PowerPoint panel — pictures that are not on their slides", ()
       /1 picture on page 1 is not on its slide/,
     );
     const box = sentence.closest('[role="status"]') as HTMLElement;
-    expect(box).toHaveTextContent(/it was too large for the worker to carry/);
+    expect(box).toHaveTextContent(/it was too large for our server to carry/);
     // No page lacks text, so nothing about text or OCR is said.
     expect(box).not.toHaveTextContent(/Text found on/);
     expect(
