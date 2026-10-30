@@ -457,7 +457,9 @@ export function MergeRunner() {
               aria-checked={mode === option}
               onClick={() => setMode(option)}
               className={cn(
-                "rounded-tag px-3 py-1 font-medium transition",
+                // 44 px tall: the phone pass measures every radio in the
+                // panel, and this one is a thumb's target on a phone.
+                "rounded-tag inline-flex h-11 items-center px-3 font-medium transition",
                 mode === option
                   ? "bg-panel text-fg"
                   : "text-muted hover:text-fg hover:bg-panel",
