@@ -436,7 +436,7 @@ export function EditorToolbar({
             if (e.target.value === "fit") onFit();
             else onZoom(Number(e.target.value));
           }}
-          className="border-line bg-canvas text-fg rounded-ctl h-9 shrink-0 border px-1.5 text-xs tabular-nums"
+          className="border-line bg-canvas text-fg rounded-ctl tap h-9 shrink-0 border px-1.5 text-xs tabular-nums"
         >
           <option value="fit">
             {fit ? `Fit width (${Math.round(zoom * 100)}%)` : "Fit width"}

@@ -644,7 +644,7 @@ function PermissionControls({
           return (
             <label
               key={info.key}
-              className="text-fg flex items-start gap-2.5 text-sm"
+              className="text-fg tap-row flex items-start gap-2.5 text-sm"
             >
               <input
                 type="checkbox"

@@ -435,7 +435,7 @@ export function MergeRunner() {
               key={sort}
               type="button"
               onClick={() => sortBy(sort)}
-              className="text-muted hover:text-fg hover:bg-panel rounded-tag px-3 py-1 font-medium transition"
+              className="text-muted hover:text-fg hover:bg-panel rounded-tag inline-flex h-11 items-center px-3 font-medium transition"
             >
               {MERGE_SORT_LABEL[sort]}
             </button>

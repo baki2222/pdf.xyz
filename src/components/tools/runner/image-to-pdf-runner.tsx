@@ -546,4 +546,4 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
 }
 
 const iconButtonClass =
-  "inline-grid size-8 place-items-center rounded-ctl border border-line bg-wash text-muted transition hover:bg-wash aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
+  "tap inline-grid size-8 place-items-center rounded-ctl border border-line bg-wash text-muted transition hover:bg-wash aria-disabled:cursor-not-allowed aria-disabled:opacity-40";

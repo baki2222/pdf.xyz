@@ -29,6 +29,14 @@ import { fileInput, makePdfBytes, waitForHydration } from "./helpers";
  * buttons and Rotate's and Organize's page-tile buttons, 28x28 and 24x24
  * until then, and the footer's links, 20px tall.)
  *
+ * THE THIRD PASS (2026-10-31): the panel selector named element kinds, so a
+ * plain `<button>` was never measured. Widened to every control in the
+ * panel, it found Merge's Sort chips (24px), Compress's "Analyze another
+ * file" (16px), JPG to PDF's image-row buttons (32x32), Split's range input
+ * (42px), the editor's zoom select (36px), Sign's name input (38px) and
+ * "Save for next time" (16px), and Protect's permission rows (20px). All
+ * are 44px now; what legitimately stays smaller is in `EXCEPTIONS`.
+ *
  * And on the worker tools the result was off the screen: a tap on Unlock
  * left focus on the button (it is never disabled, #46), so the result card
  * was announced but not scrolled to — its Download sat at y=1162 of an
@@ -50,21 +58,84 @@ test.use({ viewport: { width: SCREEN, height: 800 } });
 
 const POPULAR = tools.filter((t) => t.badge === "popular");
 
-/** The header controls, the run, and the option chips in the tool's panel. */
+/**
+ * The header controls, the run, and EVERY interactive control in the tool's
+ * panel. The panel half used to name element kinds (`button[aria-pressed]`,
+ * `[role=radio]`, `[role=tab]`) and so could not see a plain `<button>`:
+ * Merge's Sort chips (Name A-Z, Name Z-A, Order added) were 24px tall on a
+ * phone and this guard was green. It now DISCOVERS the panel's controls by
+ * what makes an element one a thumb can hit (a control element, a link, an
+ * interactive role, a tab stop), so a new kind of control is measured the
+ * day it ships rather than the day someone remembers to add it here. A
+ * checkbox, radio or file input is measured by the LABEL that wraps or
+ * names it, since that box is what the thumb lands on (see `measure`).
+ */
+const PANEL_CONTROLS = [
+  "button",
+  "a[href]",
+  "select",
+  "textarea",
+  "summary",
+  'input:not([type="hidden"])',
+  '[role="button"]',
+  '[role="radio"]',
+  '[role="tab"]',
+  '[role="checkbox"]',
+  '[role="switch"]',
+  '[role="option"]',
+  '[role="menuitem"]',
+  '[tabindex]:not([tabindex="-1"])',
+]
+  .map((kind) => `[data-tool-panel] ${kind}`)
+  .join(", ");
+
 const TARGETS = [
   "header button",
   "[data-tool-panel] [data-run-trigger]",
   "[data-tool-panel] [data-run-dock] button",
-  "[data-tool-panel] button[aria-pressed]",
-  '[data-tool-panel] [role="radiogroup"] [role="radio"]',
-  '[data-tool-panel] [role="tablist"] [role="tab"]',
+  PANEL_CONTROLS,
 ].join(", ");
+
+/**
+ * Controls that legitimately stay under 44px on a phone, each with its
+ * reason. Keyed by tool and matched on the start of the measured entry.
+ * Every entry must still match a control on its tool's page: an exception
+ * that excuses nothing is decoration, and one that outlives its control
+ * would silently excuse the next thing to take its name.
+ */
+const EXCEPTIONS: readonly {
+  slug: string;
+  label: string;
+  reason: string;
+}[] = [
+  // The editor's image picker: an `sr-only` file input, out of the tab
+  // order, that the toolbar's Image button (56x44, measured) opens. It is
+  // 1x1 and cannot be tapped; the thumb's target is the button.
+  ...["edit-pdf", "sign-pdf"].map((slug) => ({
+    slug,
+    label: "Choose a PNG or JPG image",
+    reason: "an sr-only input the measured Image button opens",
+  })),
+  // Edit PDF's help text names two tools in its own sentence. A link in a
+  // line of running text is WCAG 2.5.8's inline exception: growing it to
+  // 44px would split the paragraph's lines apart.
+  ...["OCR PDF", "PDF to Word"].map((label) => ({
+    slug: "edit-pdf",
+    label,
+    reason: "an inline link inside a sentence (WCAG 2.5.8 inline exception)",
+  })),
+];
+
+/** The fewest panel controls any popular tool shows with a file in. */
+const PANEL_FLOOR = 3;
 
 interface Measured {
   /** Every visible target, `name WxH`. */
   seen: string[];
   /** The ones under the minimum. */
   small: string[];
+  /** How many of the measured were inside the tool panel. */
+  panel: number;
   /** Elements past either edge of the screen (not inside a scroller). */
   overflow: string[];
   scrollWidth: number;
@@ -87,10 +158,30 @@ function measure(page: Page, selector = TARGETS): Promise<Measured> {
         const s = getComputedStyle(el);
         return r.width > 0 && r.height > 0 && s.visibility !== "hidden";
       };
+      // A checkbox, radio or file input is usually drawn as (or hidden
+      // inside) its label; the label is the target, so measure that box.
+      const target = (el: Element): Element => {
+        if (
+          el instanceof HTMLInputElement &&
+          ["checkbox", "radio", "file"].includes(el.type)
+        ) {
+          const label =
+            el.closest("label") ??
+            (el.id
+              ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`)
+              : null);
+          if (label) return label;
+        }
+        return el;
+      };
       const seen: string[] = [];
       const small: string[] = [];
-      for (const el of document.querySelectorAll(selector)) {
-        if (!shown(el)) continue;
+      const measured = new Set<Element>();
+      for (const found of document.querySelectorAll(selector)) {
+        const el = target(found);
+        if (measured.has(el) || !shown(el)) continue;
+        if (el.closest('[aria-hidden="true"], [inert]')) continue;
+        measured.add(el);
         const r = el.getBoundingClientRect();
         const entry = `${label(el)} ${Math.round(r.width)}x${Math.round(r.height)}`;
         seen.push(entry);
@@ -122,6 +213,8 @@ function measure(page: Page, selector = TARGETS): Promise<Measured> {
       return {
         seen,
         small,
+        panel: [...measured].filter((el) => el.closest("[data-tool-panel]"))
+          .length,
         overflow,
         scrollWidth: document.documentElement.scrollWidth,
       };
@@ -248,6 +341,11 @@ test(`health: the popular set is the catalogue's, and plausibly sized (${POPULAR
   // Both kinds of panel are in it, so neither run trigger goes unmeasured.
   expect(POPULAR.some((t) => t.slug === "merge-pdf")).toBe(true);
   expect(POPULAR.some((t) => t.slug === "protect-pdf")).toBe(true);
+  // An exception for a tool outside the set is never checked, so it could
+  // not fail on going stale.
+  expect(
+    EXCEPTIONS.filter((e) => !POPULAR.some((t) => t.slug === e.slug)),
+  ).toEqual([]);
 });
 
 for (const tool of POPULAR) {
@@ -268,12 +366,34 @@ for (const tool of POPULAR) {
     await page.evaluate(() => document.fonts.ready);
 
     const m = await measure(page);
+    test.info().annotations.push({
+      type: "measured",
+      description: `${m.panel} in panel: ${m.seen.join(" | ")}`,
+    });
     // The header's three and at least one run control were measured.
     expect(
       m.seen.length,
       `too few targets found: ${m.seen.join(" | ")}`,
     ).toBeGreaterThanOrEqual(4);
-    expect(m.small, `under ${MIN}px: ${m.small.join(" | ")}`).toEqual([]);
+    // And the panel's own controls: with a file in, every panel has at
+    // least the file's Remove, the run, and something between them. A
+    // selector that has gone blind measures nothing and passes everything.
+    expect(
+      m.panel,
+      `too few panel controls: ${m.seen.join(" | ")}`,
+    ).toBeGreaterThanOrEqual(PANEL_FLOOR);
+    const excused = EXCEPTIONS.filter((e) => e.slug === tool.slug);
+    // Each exception must still excuse a control that IS small: one whose
+    // control has gone, or grown to 44px, is decoration and must be removed.
+    for (const e of excused)
+      expect(
+        m.small.some((s) => s.startsWith(e.label)),
+        `exception "${e.label}" excuses nothing on ${tool.slug}: ${m.small.join(" | ")}`,
+      ).toBe(true);
+    const small = m.small.filter(
+      (s) => !excused.some((e) => s.startsWith(e.label)),
+    );
+    expect(small, `under ${MIN}px: ${small.join(" | ")}`).toEqual([]);
     expect(m.overflow, `past the screen: ${m.overflow.join(" | ")}`).toEqual(
       [],
     );
@@ -319,6 +439,12 @@ test("negative control: the predicates reject a 30px chip and a 400px-wide box",
   ).toBeVisible();
   const before = await measure(page);
   expect(before.small).toEqual([]);
+  // The floor: the real selector clears it, and one that has gone blind
+  // (matches nothing in the panel) does not.
+  expect(before.panel).toBeGreaterThanOrEqual(PANEL_FLOOR);
+  expect(
+    (await measure(page, "header button, [data-tool-panel] blink")).panel,
+  ).toBeLessThan(PANEL_FLOOR);
   expect(before.overflow).toEqual([]);
 
   // The shipped chip, as it was before this pass: `py-1.5 text-xs`, 30px.
@@ -329,6 +455,20 @@ test("negative control: the predicates reject a 30px chip and a 400px-wide box",
     chip.textContent = "control chip";
     chip.style.cssText = "height:30px;padding:0 12px;font-size:12px";
     panel.prepend(chip);
+    // Merge's Sort chip as it shipped (`px-3 py-1 text-xs`, 24px): a PLAIN
+    // button, no pressed state or role, which the kind-naming selector
+    // this file used until 2026-10-31 could not see.
+    const plain = document.createElement("button");
+    plain.type = "button";
+    plain.textContent = "control plain";
+    plain.style.cssText = "height:24px;padding:0 12px;font-size:12px";
+    panel.prepend(plain);
+    // And a ticked box whose label is the target: 20px tall, as Protect's
+    // permission rows shipped.
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;gap:8px;line-height:20px";
+    row.innerHTML = '<input type="checkbox"> control label';
+    panel.prepend(row);
     const wide = document.createElement("div");
     wide.textContent = "control box";
     wide.style.cssText = "width:400px;height:10px";
@@ -336,6 +476,12 @@ test("negative control: the predicates reject a 30px chip and a 400px-wide box",
   });
   const after = await measure(page);
   expect(after.small.some((s) => s.startsWith("control chip"))).toBe(true);
+  expect(after.small.some((s) => s.startsWith("control plain"))).toBe(true);
+  // Measured as its label (the row), not as the 13px box inside it.
+  expect(after.small.some((s) => /^control label \d+x20$/.test(s))).toBe(true);
+  // At least the three injected (the panel may finish rendering between
+  // the two readings, so not an exact count).
+  expect(after.panel).toBeGreaterThanOrEqual(before.panel + 3);
   expect(after.overflow).toContain('div "control box"');
   expect(after.scrollWidth).toBeGreaterThan(SCREEN);
 });
