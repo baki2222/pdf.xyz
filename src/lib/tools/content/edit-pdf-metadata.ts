@@ -79,7 +79,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: ["how-to-edit-pdf-metadata"],
 };
 
 export default content;
