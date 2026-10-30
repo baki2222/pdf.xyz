@@ -101,6 +101,9 @@ const REFRESH_PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="refresh" content="0;url=${secretUrl}"></head>
 <body><h1>${VISIBLE}</h1></body></html>`;
 
+/** How long the pre-fix argv may run before it is killed. */
+const PRE_FIX_TIMEOUT_MS = 60_000;
+
 /**
  * The argv this module used until 2026-09: the upload written to a
  * `pdfxyz-html-` temp dir, as the pre-fix code named it, and opened as file://.
@@ -129,7 +132,7 @@ async function renderWithPreFixArgv(html: string, name: string) {
         `--print-to-pdf=${output}`,
         pathToFileURL(input).toString(),
       ],
-      { timeout: 60_000 },
+      { timeout: PRE_FIX_TIMEOUT_MS },
       (error, _stdout, stderr) => done({ error, stderr: String(stderr) }),
     ),
   );
@@ -137,7 +140,7 @@ async function renderWithPreFixArgv(html: string, name: string) {
   // only a MISSING PDF is an error, and it says why.
   if (!existsSync(output)) {
     const cause = exit.error?.killed
-      ? `killed by the 60 s timeout (${exit.error.signal ?? "no signal"})`
+      ? `killed by the ${PRE_FIX_TIMEOUT_MS / 1000} s timeout (${exit.error.signal ?? "no signal"})`
       : exit.error
         ? `exited: ${exit.error.message}`
         : "exited 0";
