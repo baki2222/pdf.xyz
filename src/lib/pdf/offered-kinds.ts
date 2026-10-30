@@ -85,6 +85,22 @@ export const MARKUP_KINDS = [
 ] as const satisfies readonly EditorKind[];
 
 /**
+ * The kinds "Save markups as comments" writes as real PDF annotations
+ * (`editor/comments.ts`) — and so the only kinds the editor places on a
+ * restricted PDF whose author allows comments. Whiteout and Redact are left
+ * out on purpose: a comment can be deleted by whoever opens the file, so a
+ * cover saved as one would hide nothing.
+ */
+export const COMMENT_KINDS = [
+  "shape",
+  "line",
+  "highlight",
+  "ink",
+  "note",
+] as const satisfies readonly EditorKind[];
+export type CommentKind = (typeof COMMENT_KINDS)[number];
+
+/**
  * The coordinate-op engine's kinds (`edit.ts`). Not what the Edit PDF page
  * offers any more — see {@link EDITOR_KINDS}.
  */

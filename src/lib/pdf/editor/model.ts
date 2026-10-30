@@ -12,7 +12,9 @@
  * all count the same list (`offered-kinds.ts` reads {@link EDITOR_OBJECT_KINDS}).
  */
 import {
+  COMMENT_KINDS,
   EDITOR_KINDS,
+  type CommentKind,
   type EditorKind,
   type SignatureStyle,
 } from "../offered-kinds";
@@ -280,6 +282,18 @@ export type EditorObject =
   | FieldObject;
 
 export type EditorObjectKind = EditorObject["kind"];
+
+/** The objects "Save markups as comments" writes as annotations (`comments.ts`). */
+export type CommentObject =
+  HighlightObject | InkObject | NoteObject | ShapeObject | LineObject;
+
+export type CommentsAgree = Assert<Same<CommentObject["kind"], CommentKind>>;
+const COMMENT_SET: ReadonlySet<string> = new Set<CommentKind>(COMMENT_KINDS);
+
+/** Can this object be saved as a comment (and so, on a restricted PDF that allows comments, be placed)? */
+export function isCommentObject(obj: EditorObject): obj is CommentObject {
+  return COMMENT_SET.has(obj.kind);
+}
 
 /**
  * Every kind the editor places, in toolbar order — the `offered-kinds` list

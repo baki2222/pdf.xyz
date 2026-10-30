@@ -22,7 +22,8 @@ import {
  *
  * Two modes, and nothing between them:
  *  - RESTRICTED (no owner password): only what /P grants — here, filling
- *    the form's existing fields. {@link ProtectedPdf.saveChanges} appends
+ *    the form's existing fields and, when /P bit 6 is granted, adding
+ *    comments (`restricted-comments.test.ts`). {@link ProtectedPdf.saveChanges} appends
  *    an incremental update, so the copy keeps the original encryption,
  *    permissions and owner password byte for byte.
  *  - UNLOCKED (owner password verified): everything. The editor works on
@@ -70,6 +71,16 @@ export class ProtectedPdf {
     );
   }
 
+  /**
+   * May comments be added — highlights, drawings, notes, shapes and lines
+   * saved as annotations? (/P bit 6, "add or modify annotations".) Without
+   * the owner password they are written into an incremental update that
+   * rewrites the page's /Annots and nothing else of the page.
+   */
+  get canAnnotate(): boolean {
+    return this.#unlocked || this.permissions.annotate;
+  }
+
   get unlocked(): boolean {
     return this.#unlocked;
   }
@@ -83,9 +94,11 @@ export class ProtectedPdf {
   }
 
   /**
-   * `edited` (the decrypted copy after a form fill) as the ORIGINAL file
-   * plus an incremental update under its own encryption. Refuses an edit
-   * that touches a page (`RestrictedChangeError`).
+   * `edited` (the decrypted copy after a form fill, or with comments
+   * added) as the ORIGINAL file plus an incremental update under its own
+   * encryption. Refuses an edit that touches a page
+   * (`RestrictedChangeError`) — except a page's /Annots, when the author
+   * allows comments.
    */
   async saveChanges(edited: Uint8Array): Promise<IncrementalResult> {
     return writeIncrementalUpdate({
@@ -94,6 +107,7 @@ export class ProtectedPdf {
       xref: this.xref,
       plain: this.plain,
       edited,
+      allowAnnotations: this.permissions.annotate,
     });
   }
 

@@ -13,6 +13,7 @@ import {
   DEFAULT_STROKE,
   DEFAULT_TEXT_STYLE,
   linkUntouched,
+  isCommentObject,
   type EditorObject,
   type MarkGlyph,
   type NoteObject,
@@ -154,13 +155,49 @@ export interface EditorState {
 
 /**
  * What a restricted PDF's author allows the editor without the owner
- * password. Only filling the file's own fields can be written back under
- * the author's encryption (an incremental update); everything else the
- * editor makes is page content, which the author withheld.
+ * password. Two things can be written back under the author's encryption
+ * (an incremental update): the file's own fields filled, and — when the
+ * author allows comments — highlights, drawings, notes, shapes and lines
+ * saved as comments. Everything else the editor makes is page content,
+ * which the author withheld.
  */
 export interface EditorLock {
   /** The existing form fields may be filled (/P bit 9 or 6). */
   fill: boolean;
+  /** Comments may be added (/P bit 6): the comment tools work. */
+  annotate?: boolean;
+}
+
+/**
+ * The tools that place comments ("Save markups as comments" writes their
+ * objects as annotations) — what a restricted PDF whose author allows
+ * comments keeps, beside Select. Each places a kind of
+ * `@/lib/pdf/offered-kinds`'s COMMENT_KINDS (`editor-lock.test.ts`).
+ */
+export const COMMENT_TOOLS: ReadonlySet<Tool> = new Set<Tool>([
+  "rect",
+  "ellipse",
+  "line",
+  "arrow",
+  "highlight",
+  "ink",
+  "note",
+]);
+
+/** May `tool` be picked under `lock`? */
+export function toolAllowed(tool: Tool, lock: EditorLock | null): boolean {
+  if (!lock || tool === "select") return true;
+  return lock.annotate === true && COMMENT_TOOLS.has(tool);
+}
+
+/** Under `lock`, may this command land? Only comments, and never a page change. */
+function commandAllowed(command: Command, lock: EditorLock): boolean {
+  if (!lock.annotate || command.pages) return false;
+  return command.changes.every(
+    (c) =>
+      (c.before === null || isCommentObject(c.before)) &&
+      (c.after === null || isCommentObject(c.after)),
+  );
 }
 
 /** What the editor says when a locked action is tried. */
@@ -203,8 +240,9 @@ export function initialEditorState({
 }): EditorState {
   return {
     ...INITIAL_STATE,
-    // Locked, the only tool is Select (it is what fills a field).
-    tool: lock ? "select" : tool,
+    // Locked, the tool asked for if it places comments the author allows
+    // (Annotate PDF's Highlight), else Select (it is what fills a field).
+    tool: toolAllowed(tool, lock) ? tool : "select",
     lock,
     pages: sourcePages(pageCount),
     defaults: {
@@ -420,12 +458,19 @@ export function editorReducer(
   // The lock is enforced HERE, under every tool, shortcut, paste and drop:
   // a control that forgets to disable itself still cannot change a page the
   // author locked. (The writer refuses too — `@/lib/pdf/security/incremental`.)
+  // With comments allowed, a commit of comment objects only, a note's text
+  // edit, and the comment tools pass; nothing else does.
   if (state.lock) {
-    if (
-      LOCKED_ACTIONS.has(action.type) ||
-      (action.type === "tool" && action.tool !== "select")
-    )
-      return { ...state, said: say(state, LOCKED_ACTION_MESSAGE) };
+    const lock = state.lock;
+    const allowed =
+      action.type === "commit"
+        ? commandAllowed(action.command, lock)
+        : action.type === "startEdit"
+          ? lock.annotate === true && action.edit.base.kind === "note"
+          : action.type === "tool"
+            ? toolAllowed(action.tool, lock)
+            : !LOCKED_ACTIONS.has(action.type);
+    if (!allowed) return { ...state, said: say(state, LOCKED_ACTION_MESSAGE) };
     if (action.type === "fill" && !state.lock.fill)
       return { ...state, said: say(state, LOCKED_FILL_MESSAGE) };
   }

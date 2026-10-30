@@ -37,7 +37,11 @@ export function AnnotateRunner() {
   );
 }
 
-/** The load-bearing honesty of this tool: flattened markup, not comments. */
+/**
+ * The load-bearing honesty of this tool: how markups are saved. Flattened
+ * (the default) they are page content; saved as comments they are PDF
+ * annotations another app can delete — so whiteout never is one.
+ */
 function AnnotateFooter() {
   return (
     <div className="flex flex-col gap-4">
@@ -45,14 +49,13 @@ function AnnotateFooter() {
         <Info className="text-info mt-0.5 size-4 shrink-0" aria-hidden />
         <p className="leading-relaxed">
           <span className="font-semibold">
-            Markups are flattened into the page.
+            Flattened into the page, or saved as comments.
           </span>{" "}
-          Highlights, whiteout, drawing and notes are drawn as page content
-          where you place them. They are{" "}
-          <span className="font-semibold">not</span> a collaborative comment
-          layer — there are no reply threads or editable PDF annotation objects,
-          and a highlight is a rectangle you draw, not a selection snapped to
-          the text under it.
+          Choose beside Apply &amp; download. Flattened, the default,
+          highlights, drawings, notes and shapes are drawn as page content where
+          you place them. Saved as comments, they are standard PDF annotations
+          that other PDF apps can select, edit or delete. Whiteout is always
+          drawn into the page, and there are no reply threads here.
         </p>
       </div>
       <PrivacyLine>

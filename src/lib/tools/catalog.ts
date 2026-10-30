@@ -590,7 +590,7 @@ export const tools: Tool[] = [
     name: "Annotate PDF",
     tagline: "Highlight, draw, and add notes.",
     description:
-      "Highlight, draw, white out and add notes by dragging and clicking on your PDF's pages. Markups are flattened into the page — all in your browser.",
+      "Highlight, draw, white out and add notes by dragging and clicking on your PDF's pages. Flatten the markups or keep them editable — all in your browser.",
     category: "edit",
     icon: "annotate",
     processing: "client",

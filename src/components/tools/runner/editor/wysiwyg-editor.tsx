@@ -106,6 +106,7 @@ import { PagePreviewPlaceholder } from "../page-preview-placeholder";
 import { FileHeader } from "../single-pdf-runner";
 import type { LoadedPdf } from "../use-single-pdf";
 import {
+  toolAllowed,
   type Defaults,
   type EditorAction,
   type EditorState,
@@ -1245,7 +1246,7 @@ export function WysiwygEditor({
     (tool: Tool) => {
       dispatch({ type: "tool", tool });
       // Locked: the reducer refused it and said why; open no panel either.
-      if (stateRef.current.lock && tool !== "select") return;
+      if (!toolAllowed(tool, stateRef.current.lock)) return;
       const held = stateRef.current.pending;
       setSigning(tool === "signature" && (!held || held.kind === "image"));
       if (tool === "image") imageInput.current?.click();
@@ -2086,9 +2087,11 @@ export function WysiwygEditor({
     </p>
   ) : state.lock ? (
     <p className="text-muted text-xs leading-relaxed" data-locked-help="">
-      {state.lock.fill
-        ? "Click a form field on the page to fill it in. The other tools need the owner password."
-        : "This PDF's author allows no changes. Enter the owner password above to unlock the tools."}
+      {state.lock.annotate
+        ? "Highlight, Draw, Note and the shapes are saved as comments, which this PDF's author allows. Click a form field to fill it in. The other tools need the owner password."
+        : state.lock.fill
+          ? "Click a form field on the page to fill it in. The other tools need the owner password."
+          : "This PDF's author allows no changes. Enter the owner password above to unlock the tools."}
     </p>
   ) : (
     <p className="text-muted text-xs leading-relaxed">
@@ -2152,7 +2155,7 @@ export function WysiwygEditor({
       onFind={() => setFinding((f) => !f)}
       onPages={wide ? undefined : () => setPagesOpen((o) => !o)}
       pagesOpen={pagesOpen}
-      locked={state.lock !== null}
+      lock={state.lock}
     />
   );
 

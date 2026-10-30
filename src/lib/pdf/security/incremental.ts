@@ -26,6 +26,10 @@ import type { StandardSecurityHandler } from "./standard-handler";
  * page tree, or any stream a page draws as its content. Without the owner
  * password the author's "no changes to the page" is enforced here, below
  * every editor tool, so no tool can ship an edit the author did not allow.
+ * The one exception is the author's own: when /P grants "add or modify
+ * annotations" (bit 6), a page dictionary whose /Annots is ALL that changed
+ * may be rewritten — that is how a comment is attached to a page — and its
+ * content streams stay refused (`restricted-comments.test.ts`).
  */
 
 export class RestrictedChangeError extends Error {
@@ -91,6 +95,36 @@ export interface IncrementalInput {
   plain: Uint8Array;
   /** The same copy after the edit (pdf-lib's save of `plain` + changes). */
   edited: Uint8Array;
+  /**
+   * The author grants "add or modify annotations" (/P bit 6): a page
+   * dictionary may be rewritten when its /Annots is ALL that differs.
+   * Its content streams stay guarded either way.
+   */
+  allowAnnotations?: boolean;
+}
+
+/**
+ * Is `after` the page dictionary `before` with only its /Annots changed?
+ * That is an annotation change — what /P bit 6 allows — and nothing a
+ * page draws: /Contents, /Resources, the boxes and /Rotate must serialise
+ * byte for byte as they did.
+ */
+function onlyAnnotsDiffer(
+  lib: PdfLibModule,
+  before: PDFObject,
+  after: PDFObject,
+): boolean {
+  if (!(before instanceof lib.PDFDict) || !(after instanceof lib.PDFDict))
+    return false;
+  const page = lib.PDFName.of("Page");
+  const type = lib.PDFName.of("Type");
+  if (before.get(type) !== page || after.get(type) !== page) return false;
+  const strip = (d: PDFDict) => {
+    const copy = d.clone();
+    copy.delete(lib.PDFName.of("Annots"));
+    return serialize(copy);
+  };
+  return sameBytes(strip(before), strip(after));
 }
 
 export interface IncrementalResult {
@@ -118,7 +152,10 @@ export async function writeIncrementalUpdate(
     if (old === undefined) {
       added.push([ref, obj]);
     } else if (!sameBytes(serialize(old), serialize(obj))) {
-      if (guarded.has(ref.objectNumber))
+      if (
+        guarded.has(ref.objectNumber) &&
+        !(input.allowAnnotations && onlyAnnotsDiffer(lib, old, obj))
+      )
         throw new RestrictedChangeError(
           "This change would alter a page, and the PDF's author does not allow that without the owner password.",
         );

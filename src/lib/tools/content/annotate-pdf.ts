@@ -87,18 +87,18 @@ const content: ToolContent = {
   seoTitle: "Annotate PDF — Highlight, Add Notes, No Upload",
 
   metaDescription:
-    "Highlight, draw, add notes and white out parts of a PDF by dragging and clicking on its pages, flattened into the page by your own browser. Nothing is uploaded.",
+    "Highlight, draw, add notes and white out a PDF by clicking on its pages, then flatten them or save them as editable comments, in your browser. No upload.",
 
   intro: [
     "Annotate PDF shows every page of your document and opens with Highlight ready: drag across the page and a translucent bar lands there. Beside it in the toolbar are Whiteout, Draw for freehand ink and Note for a typed note on coloured paper, and the rest of the editor's tools: text, pictures, signatures, rectangles, ellipses, lines and arrows. Anything you place can be dragged, resized from its handles, restyled or deleted, and every step can be undone.",
     `The whole job runs in your browser: the PDF is drawn, marked and saved there, with no upload, so it stays on your device. The limit is ${CEILING_MB} MB, and an encrypted PDF will not load, even one a viewer opens without asking for a password. Notes in the Western European character set are drawn in a built-in font; otherwise the page fetches a Noto typeface from this site, covering ${noteScripts}. A note with characters none of those faces draws, such as ${refusedExamples}${emojiClause}, stops the export with a message naming them.${rtlClause}`,
-    "Markups are drawn as content inside the page, so the original text stays selectable and nothing becomes an image. They are therefore not PDF comments: a viewer's comment panel shows nothing to toggle, reply to or delete, and a highlight is a rectangle you draw, not a selection that follows the text.",
+    "Beside Apply & download you choose how highlights, drawings, notes, shapes and lines are saved. Flatten into the page, the default, draws them as content inside the page, so they show in every viewer and printout, the original text stays selectable and nothing becomes an image. Save markups as comments writes each one as a standard PDF annotation instead (a highlight, an ink drawing, a free-text note, a square, circle or line, each with its own appearance), which other PDF apps list as comments and let you select, edit or delete. Whiteout and redaction are always written into the page: a comment can be deleted by whoever opens the file, so a cover saved as one would hide nothing.",
   ],
 
   useCases: [
     {
       title: "Point a colleague at one clause",
-      body: "Drag a Highlight over the sentence that matters, add a Note in the margin and run an Arrow to it. Because the marks are part of the page, they also show in viewers and printouts that leave comments out.",
+      body: "Drag a Highlight over the sentence that matters, add a Note in the margin and run an Arrow to it. Flattened, the marks are part of the page, so they also show in viewers and printouts that leave comments out; saved as comments, your colleague can reply to or delete them in their own PDF app.",
     },
     {
       title: "Circle the figures on a form or statement",
@@ -129,18 +129,18 @@ const content: ToolContent = {
     },
     {
       title: "Apply and download",
-      body: "Apply & download writes the markups into the PDF and downloads it. Annotated PDF ready then gives the item count, the page count and the new file size; Download annotated PDF saves it again with -annotated added to the name, and Start over clears the tool.",
+      body: "Pick Flatten into the page or Save markups as comments beside the button, then Apply & download writes the markups into the PDF and downloads it. Annotated PDF ready then gives the item count, how many were saved as comments, the page count and the new file size; Download annotated PDF saves it again with -annotated added to the name, and Start over clears the tool.",
     },
   ],
 
   faqs: [
     {
       q: "Can I highlight text by selecting it?",
-      a: "No. A highlight is a see-through rectangle you drag over the words, not a selection of them, so it covers the area you draw. To hide text rather than mark it, use Redact PDF.",
+      a: "No. A highlight is a see-through rectangle you drag over the words, not a selection of them. Flattened, it covers exactly the area you draw. Saved as a comment, it fits itself to the lines of text under the box: one band per line, as tall as the line and as wide as your box, the way a viewer's own text highlight looks. To hide text rather than mark it, use Redact PDF.",
     },
     {
       q: "Can I take a markup out after saving?",
-      a: "Only with an editor that can change page content: each markup is drawn into the page like ink rather than stored as a separate object. Before you apply, any markup can be selected and deleted, or undone. Keep the original if you may want an unmarked copy.",
+      a: "Saved as comments, yes: each highlight, drawing, note, shape and line is its own annotation, which a PDF app that edits comments can select and delete. Flattened, only with an editor that can change page content, because each markup is drawn into the page like ink rather than stored as a separate object. Before you apply, any markup can be selected and deleted, or undone, either way. Keep the original if you may want an unmarked copy.",
     },
     {
       q: "Does annotating change anything else in my PDF?",

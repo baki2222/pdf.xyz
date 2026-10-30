@@ -1,9 +1,18 @@
 "use client";
 
-import { Suspense, lazy, useReducer, useState, type ReactNode } from "react";
+import {
+  Suspense,
+  lazy,
+  useId,
+  useReducer,
+  useState,
+  type ReactNode,
+} from "react";
 import { Download, FileDown, Info } from "lucide-react";
 import { downloadBytes } from "@/lib/pdf/browser";
 import type { EditorExportResult } from "@/lib/pdf/editor-export";
+import type { MarkupMode } from "@/lib/pdf/editor/comments";
+import { isCommentObject } from "@/lib/pdf/editor/model";
 import { buttonVariants } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
 import {
@@ -109,12 +118,15 @@ function EditorSession({
       // allows, enforced by the reducer (and again by the writer).
       lock:
         protection && !protection.unlocked
-          ? { fill: protection.canFillForms }
+          ? { fill: protection.canFillForms, annotate: protection.canAnnotate }
           : null,
     },
     initialEditorState,
   );
   const restricted = protection !== undefined && !unlocked;
+  // How highlights, drawings, notes, shapes and lines are saved. A
+  // restricted PDF has no choice: comments are all its author allows.
+  const [markups, setMarkups] = useState<MarkupMode>("flatten");
   const { busy, error, result, run, reset, setError } =
     useAsyncRun<EditorExportResult>();
   const name = config.outputName(pdf.file.name);
@@ -135,17 +147,22 @@ function EditorSession({
     }
     void run(async () => {
       const { exportEditedPdf } = await import("@/lib/pdf/editor-export");
-      // Restricted: the fills only, written onto the decrypted copy, then
-      // saved back as an incremental update under the author's encryption.
+      // Restricted: the fills and the comments only (the lock lets nothing
+      // else be placed), written onto the decrypted copy, then saved back as
+      // an incremental update under the author's encryption.
       // Unlocked (or never encrypted): the whole edit, an unencrypted file.
       const edited = restricted
-        ? await exportEditedPdf(pdf.bytes, [], undefined, {
-            fills: next.fills,
-          })
+        ? await exportEditedPdf(
+            pdf.bytes,
+            objects.filter(isCommentObject),
+            undefined,
+            { fills: next.fills, markups: "comments" },
+          )
         : await exportEditedPdf(pdf.bytes, objects, undefined, {
             pages: next.pages,
             removedLinks: removedLinks(next),
             fills: next.fills,
+            markups,
           });
       const out =
         restricted && protection
@@ -172,6 +189,11 @@ function EditorSession({
         title={config.resultTitle}
         summary={[
           `${result.objectCount} item${result.objectCount === 1 ? "" : "s"} written`,
+          ...(result.comments > 0
+            ? [
+                `${result.comments} saved as comment${result.comments === 1 ? "" : "s"}`,
+              ]
+            : []),
           ...(result.filled > 0
             ? [
                 `${result.filled} form field${result.filled === 1 ? "" : "s"} filled`,
@@ -201,6 +223,7 @@ function EditorSession({
   }
 
   const empty = !edited && !state.editing?.text.trim();
+  const hasMarkups = state.objects.some(isCommentObject);
   return (
     <Suspense fallback={null}>
       <WysiwygEditor
@@ -239,7 +262,16 @@ function EditorSession({
           <>
             {error && <ErrorNote message={error} />}
             <RunBar>
-              <div className="flex justify-end">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                {hasMarkups ? (
+                  <MarkupChoice
+                    value={restricted ? "comments" : markups}
+                    onChange={setMarkups}
+                    fixed={restricted}
+                  />
+                ) : (
+                  <span />
+                )}
                 <RunButton
                   onClick={onApply}
                   busy={busy}
@@ -255,5 +287,73 @@ function EditorSession({
         }
       />
     </Suspense>
+  );
+}
+
+/**
+ * "Save markups as comments (editable in other PDF apps)" or "Flatten into
+ * the page", beside Apply, once there is a markup to save. On a restricted
+ * PDF it is fixed to comments and says why.
+ */
+function MarkupChoice({
+  value,
+  onChange,
+  fixed,
+}: {
+  value: MarkupMode;
+  onChange: (mode: MarkupMode) => void;
+  fixed: boolean;
+}) {
+  const id = useId();
+  if (fixed) {
+    return (
+      <p
+        data-markup-mode="comments"
+        className="text-muted max-w-md text-xs leading-relaxed"
+      >
+        Highlights, drawings, notes and shapes are saved as comments, the one
+        change this PDF&apos;s author allows: other PDF apps can select, edit or
+        delete them.
+      </p>
+    );
+  }
+  const options: { mode: MarkupMode; label: string }[] = [
+    { mode: "flatten", label: "Flatten into the page" },
+    {
+      mode: "comments",
+      label: "Save markups as comments (editable in other PDF apps)",
+    },
+  ];
+  return (
+    <fieldset
+      data-markup-mode={value}
+      className="flex min-w-0 flex-col gap-1.5"
+    >
+      <legend className="text-fg mb-1 text-xs font-semibold">
+        Highlights, drawings, notes and shapes
+      </legend>
+      {options.map((o) => (
+        <label
+          key={o.mode}
+          className="text-fg flex min-h-9 cursor-pointer items-center gap-2 text-xs"
+        >
+          <input
+            type="radio"
+            name={`${id}-markups`}
+            value={o.mode}
+            checked={value === o.mode}
+            onChange={() => onChange(o.mode)}
+            className="accent-accent size-4 shrink-0"
+          />
+          {o.label}
+        </label>
+      ))}
+      {value === "comments" && (
+        <p className="text-muted max-w-md text-[11px] leading-relaxed">
+          Whiteout, redaction, text, pictures and signatures are still written
+          into the page.
+        </p>
+      )}
+    </fieldset>
   );
 }
