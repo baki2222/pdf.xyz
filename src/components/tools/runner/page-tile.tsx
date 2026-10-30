@@ -205,7 +205,7 @@ export function PageTile({
         </button>
       )}
       {cornerBadge && (
-        <span className="bg-canvas/80 text-fg ring-line rounded-tag absolute top-2 right-2 z-10 grid min-w-5 place-items-center px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ring-1">
+        <span className="bg-canvas/80 text-fg ring-line rounded-tag tnum absolute top-2 right-2 z-10 grid min-w-5 place-items-center px-1.5 py-0.5 text-[10px] font-semibold ring-1">
           {cornerBadge}
         </span>
       )}
@@ -233,7 +233,7 @@ export function PageTile({
         ) : (
           <div
             className={cn(
-              "rounded-ctl relative aspect-[1/1.414] h-[78%] overflow-hidden bg-gradient-to-br from-white/95 to-slate-200/85 shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300",
+              "rounded-ctl relative aspect-[1/1.414] h-[78%] overflow-hidden bg-[linear-gradient(to_bottom_right_in_oklab,color-mix(in_oklab,var(--color-white)_95%,transparent)_0px,color-mix(in_oklab,var(--color-slate-200)_85%,transparent)_100%)] shadow-md ring-1 shadow-black/40 ring-black/5 transition-transform duration-300",
               loading && "animate-pulse",
             )}
             style={{ transform: `rotate(${drawn}deg)` }}
@@ -246,7 +246,7 @@ export function PageTile({
       <div className="flex items-center gap-1.5">
         <span className="text-muted text-xs font-medium">{label}</span>
         {rotation !== 0 && (
-          <span className="bg-wash text-muted rounded-tag px-1 text-[10px] font-semibold tabular-nums">
+          <span className="bg-wash text-muted rounded-tag tnum px-1 text-[10px] font-semibold">
             {rotation}°
           </span>
         )}

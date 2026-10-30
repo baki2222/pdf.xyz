@@ -1166,9 +1166,7 @@ function StatTile({
         <Icon className="size-3.5" aria-hidden />
         {label}
       </span>
-      <span className="text-fg text-lg font-semibold tabular-nums">
-        {value}
-      </span>
+      <span className="text-fg tnum text-lg font-semibold">{value}</span>
       {hint && <span className="text-muted text-xs">{hint}</span>}
     </div>
   );

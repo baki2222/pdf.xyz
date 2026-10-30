@@ -178,7 +178,7 @@ function Thumb({
           className="block overflow-hidden bg-white shadow-sm ring-1 ring-black/10"
           style={{ width: THUMB_WIDTH, height: page.height * scale }}
         />
-        <span className="text-muted text-[11px] tabular-nums">{n}</span>
+        <span className="text-muted tnum text-[11px]">{n}</span>
       </button>
       {/* Locked by the file's author: no page operations to offer. */}
       {!locked && (

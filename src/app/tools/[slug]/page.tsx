@@ -176,10 +176,9 @@ export default async function ToolPage({
    * Every disclosure here is the homepage FAQ's (`faq-item`, the M20 open
    * animation), so this page adds no stylesheet rule of its own.
    */
-  const disclosure =
-    "faq-item group border-line border-b [&_summary::-webkit-details-marker]:hidden";
+  const disclosure = "faq-item group border-line border-b";
   const summaryRow =
-    "text-fg hover:text-accent flex cursor-pointer items-center justify-between gap-4 py-3 text-[15px] font-medium transition-colors";
+    "text-fg hover:text-accent flex cursor-pointer items-center justify-between gap-4 py-3 text-[15px] font-medium transition-colors [&::-webkit-details-marker]:hidden";
   const plus = (
     <span
       aria-hidden

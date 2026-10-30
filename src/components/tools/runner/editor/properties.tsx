@@ -199,7 +199,7 @@ function Toggle({
 }
 
 const input =
-  "border-line bg-canvas text-fg rounded-ctl h-8 border px-2 text-xs tabular-nums";
+  "border-line bg-canvas text-fg rounded-ctl h-8 border px-2 text-xs tnum";
 
 /** The values the panel shows: the first selected object's, or the defaults. */
 type Shown = StylePatch & { kind: StyleBucket; text?: string };

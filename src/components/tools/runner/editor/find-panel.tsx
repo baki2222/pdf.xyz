@@ -184,7 +184,7 @@ export function FindPanel({
           Match case
         </label>
         <p
-          className="text-muted text-xs tabular-nums"
+          className="text-muted tnum text-xs"
           aria-live="polite"
           data-find-status=""
         >

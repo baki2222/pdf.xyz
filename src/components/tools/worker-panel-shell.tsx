@@ -198,7 +198,7 @@ export function WorkerPanelShell({
             <div className="text-muted text-sm leading-relaxed">
               {description}
             </div>
-            <div className="bg-panel border-line divide-line rounded-panel divide-y border px-4 py-1">
+            <div className="bg-panel border-line rounded-panel border px-4 py-1">
               {specRows.map((row) => (
                 <SpecRow key={row.label} {...row} />
               ))}
@@ -213,7 +213,7 @@ export function WorkerPanelShell({
 
 function SpecRow({ icon: Icon, label, value }: SpecRowData) {
   return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
+    <div className="flex items-center justify-between gap-3 border-b py-2.5 last:border-b-0">
       <span className="text-muted inline-flex items-center gap-2 text-sm">
         <Icon className="text-muted size-4" aria-hidden />
         {label}

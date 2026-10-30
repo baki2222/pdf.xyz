@@ -541,11 +541,11 @@ export function OcrResultSummary({ meta }: { meta: OcrResultMeta }) {
   return (
     <div className="border-line bg-wash rounded-ctl mt-1 flex flex-col gap-1 border p-3">
       <h4 className="text-faint kicker">Recognition summary</h4>
-      <dl className="divide-line divide-y">
+      <dl>
         {rows.map((row) => (
           <div
             key={row.label}
-            className="flex items-center justify-between gap-3 py-1.5"
+            className="flex items-center justify-between gap-3 border-b py-1.5 last:border-b-0"
           >
             <dt className="text-muted inline-flex items-center gap-2 text-xs">
               <row.icon className="text-muted size-3.5" aria-hidden />

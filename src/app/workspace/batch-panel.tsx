@@ -207,7 +207,7 @@ export function BatchPanel({
         <div className="flex items-center justify-between gap-2">
           <span className="text-fg text-xs font-medium">
             2. Add files{" "}
-            <span className="text-muted font-normal tabular-nums">
+            <span className="text-muted tnum font-normal">
               ({queued} of {files.length})
             </span>
           </span>
@@ -249,7 +249,7 @@ export function BatchPanel({
                   key={id}
                   className="border-line bg-wash text-muted rounded-tag inline-flex max-w-full items-center gap-1.5 border py-1 pr-1 pl-2.5 text-xs"
                 >
-                  <span className="max-w-[10rem] truncate">{file.name}</span>
+                  <span className="max-w-40 truncate">{file.name}</span>
                   <button
                     type="button"
                     onClick={() => onRemove(id)}

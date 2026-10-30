@@ -98,11 +98,11 @@ const NO_ICONS: ToolIcons = {};
  * on my device — is a plain checkbox under the chips now.
  */
 const FILTER_ROW =
-  "-mx-5 flex snap-x snap-proximity scroll-px-6 items-center gap-2 overflow-x-auto pr-6 pl-6 [scrollbar-width:none] max-sm:-my-1.5 max-sm:py-1.5 max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
+  "-mx-5 flex [scroll-snap-type:x_proximity] scroll-px-6 items-center gap-2 overflow-x-auto pr-6 pl-6 [scrollbar-width:none] max-sm:-my-1.5 max-sm:py-1.5 max-sm:[mask-image:linear-gradient(to_right,transparent,#000_1.25rem,#000_calc(100%-1.25rem),transparent)] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden";
 /** A chip in the row: the home page's chip, and a snap point. */
 const CHIP = cn(FILTER_CHIP, "snap-start");
 const chipCount =
-  "text-faint group-aria-pressed:text-fg-invert/70 text-xs tabular-nums";
+  "text-faint group-aria-pressed:text-fg-invert/70 text-xs tnum";
 
 /**
  * Scroll a filter row SIDEWAYS so `control` is wholly in view, clear of the
@@ -575,7 +575,7 @@ export function ToolsExplorer({
               >
                 {category.name}
               </Link>
-              <span className="text-faint font-sans text-sm font-normal tracking-normal tabular-nums">
+              <span className="text-faint tnum font-sans text-sm font-normal tracking-normal">
                 {groupTools.length}
               </span>
             </h2>
@@ -655,7 +655,7 @@ export function ToolsExplorer({
               // One span: the row's flex gap would otherwise also sit
               // between the number and its word ("50  tools").
               <span>
-                <span className="tabular-nums">{results.length}</span>
+                <span className="tnum">{results.length}</span>
                 {results.length === 1 ? " tool" : " tools"}
               </span>
             )}
@@ -732,7 +732,7 @@ export function ToolsExplorer({
             />
             <ModeShape mode={keepLocal.mode} />
             {KEEP_LOCAL_LABEL}{" "}
-            <span className="text-faint text-xs tabular-nums">
+            <span className="text-faint tnum text-xs">
               {keepLocal.slugs.length}
             </span>
           </label>

@@ -199,12 +199,12 @@ export function LiveStages({
   return (
     <div className="flex flex-col gap-2" data-docket="">
       <h3 className="text-faint kicker">What happens to your file</h3>
-      <ol className="divide-line border-line rounded-ctl divide-y border px-3">
+      <ol className="border-line rounded-ctl border px-3">
         {rows.map((row) => (
           <li
             key={row.stage.id}
             aria-current={row.state === "current" ? "step" : undefined}
-            className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-sm"
+            className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b py-2 text-sm last:border-b-0"
           >
             <span
               aria-hidden
@@ -220,7 +220,7 @@ export function LiveStages({
             >
               {row.stage.title}
             </span>
-            <span className="text-muted ml-auto font-mono text-xs tabular-nums">
+            <span className="text-muted tnum ml-auto font-mono text-xs">
               {metaFor(row, bytes)}
             </span>
           </li>

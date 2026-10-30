@@ -348,7 +348,7 @@ function FieldsEditor({
         <fieldset
           disabled={!canFill}
           className={cn(
-            "border-line bg-wash divide-line rounded-panel flex flex-col divide-y overflow-hidden border",
+            "border-line bg-wash rounded-panel flex flex-col overflow-hidden border",
             !canFill && "opacity-60",
           )}
         >
@@ -434,7 +434,7 @@ function FieldRow({
   children: ReactNode;
 }) {
   return (
-    <div className="grid gap-2 p-3.5 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-center sm:gap-4">
+    <div className="grid gap-2 border-b p-3.5 last:border-b-0 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] sm:items-center sm:gap-4">
       <div className="flex min-w-0 flex-col gap-0.5">
         <span
           className="text-fg truncate text-sm font-medium"
@@ -585,7 +585,7 @@ function TextControl({
         />
       )}
       {showCount && (
-        <span className="text-muted self-end text-[11px] tabular-nums">
+        <span className="text-muted tnum self-end text-[11px]">
           {value.length}/{field.maxLength}
         </span>
       )}

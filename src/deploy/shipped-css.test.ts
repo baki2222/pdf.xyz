@@ -32,6 +32,17 @@
  * 132 left. The ceiling did NOT move. The blocklist is a claim — "no page
  * renders these" — so it is tested below, on every prerendered page.
  *
+ * 2026-10-31, against the same ceiling: main at bdfd8b28 shipped 15,353 (7
+ * left). Retiring four pieces of Tailwind machinery that each existed for
+ * one or two call sites — the gradient stops (three fades written as one
+ * `bg-[linear-gradient(…)]` each), the composable numeric variables
+ * (`tabular-nums` → the plain `tnum` utility in globals.css), `divide-y`'s
+ * reverse variable (the rows carry `border-b last:border-b-0`) and the
+ * snap-strictness variable — plus the unrendered ink scope (now an
+ * on-demand utility, tested below) and three exact duplicates took it to
+ * 14,805 (-548). Each swap was rendered against main's stylesheet and
+ * compared by computed value and by pixel. The ceiling did NOT move.
+ *
  * Runs under `pnpm test:bundle` (it needs `.next`), never `pnpm test`.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -198,6 +209,33 @@ describe("the shipped stylesheet", () => {
       "shadow",
       "shadow-lg",
     ]);
+  });
+
+  it("the ink scope ships only when a page renders it", () => {
+    // 2026-10-31: `.theme-ink` was a plain rule (97 B gzip) that no page had
+    // rendered since the colophon band went; it is now `@utility theme-ink`,
+    // generated only for a candidate in a scanned file. A comment spelling it
+    // whole is such a candidate — layout.tsx's did, and the first build after
+    // the move still shipped it. So: shipped implies rendered.
+    if (!built) return;
+    const css = readFileSync(GLOBALS, "utf8");
+    // Health: the scope is still defined, as a utility, so the check below is
+    // about delivery and not about a scope that silently left the source.
+    expect(css).toMatch(/@utility theme-ink\s*\{/);
+    const shipped = shippedStylesheets().some((f) =>
+      selectorClasses(readFileSync(f, "utf8")).has("theme-ink"),
+    );
+    const rendering = prerenderedPages(NEXT_DIR).filter((html) =>
+      renderedClasses(
+        readFileSync(path.join(NEXT_DIR, "server", "app", html), "utf8"),
+      ).has("theme-ink"),
+    );
+    if (rendering.length > 0) expect(shipped).toBe(true);
+    else
+      expect(
+        shipped,
+        "the build ships .theme-ink and no page renders it — some scanned file spells the class whole (a comment counts); reword it. If a client-only component really renders it, this check needs that component's markup",
+      ).toBe(false);
   });
 
   it(`weighs at most ${CEILING_GZ_KB.toFixed(1)} KB gzipped`, () => {
