@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { getAllToolSlugs } from "../src/lib/tools";
 import { toolFamilies } from "../src/lib/tools/families";
+import { GUIDE_META } from "../src/lib/guides/meta.generated";
 
 /**
  * The home page's tool cards, through the served page (owner's brief,
@@ -43,25 +44,69 @@ import { toolFamilies } from "../src/lib/tools/families";
  * measurement plus the same platform margin as before. At fifty tools the
  * derived bound is 5,250 / 10,700 — no looser than the typed one was.
  */
-const CHROME_MAX = { desktop: 3650, phone: 4450 } as const;
+// Re-measured 2026-10-30 with the guide list taken out (below): 3,650 and
+// 4,450 until then, when the chrome still held the list.
+const CHROME_MAX = { desktop: 3280, phone: 4260 } as const;
 const ROW_MAX = { desktop: 160, phone: 125 } as const;
 
+/**
+ * THE GUIDE LIST IS THE SECOND GRID, since 2026-10-30. The home page links
+ * every guide (`internal-links.test.ts`: the guides' strongest inbound
+ * links), in a column list (`guides-section.tsx`), so a guide added to the
+ * catalogue grows the page by design — and the typed CHROME_MAX above held
+ * that list's size the way the typed height once held the card count. Three
+ * guides (36 → 39, PR #241) put one row on the list and took the chrome to
+ * 3,650 on CI. The same cure as the cards: the list is measured on its own,
+ * its rows read from the page and held to ceil(visible / columns), and
+ * subtracted from the chrome:
+ *
+ *   height  <  CHROME_MAX  +  rows × ROW_MAX  +  guideRows × GUIDE_ROW_MAX
+ *
+ * On a phone the list shows its first few and hides the rest, so its rows
+ * do not grow there; the derivation still reads what is visible.
+ *
+ * Measured on the served build (Windows Chromium, 2026-10-30, 54 tools, 39
+ * guides): at 1440, guides 3 columns × 13 rows = 436px (33.5 a row), the
+ * rest of the page 3,215px; at 390, 6 shown in 1 × 6 = 192px (32.0 a row),
+ * the rest 3,981px. Each MAX is the measurement plus the margin the card
+ * bound already used (63px desktop, 277px phone for the chrome; a few px a
+ * row). CI measured 3,650 for chrome + list at 39 guides; this run read
+ * 3,651, so the margin is not spent on the platform difference.
+ */
+const GUIDE_ROW_MAX = { desktop: 36, phone: 36 } as const;
+
+interface HomeMeasure {
+  page: number;
+  grid: number;
+  rows: number;
+  guides: number;
+  guideRows: number;
+}
+
 /** The page's height against the derived bound — one predicate for both uses. */
-function fitsBound(
-  m: { page: number; grid: number; rows: number },
-  kind: keyof typeof CHROME_MAX,
-): string[] {
+function fitsBound(m: HomeMeasure, kind: keyof typeof CHROME_MAX): string[] {
   const out: string[] = [];
-  if (m.page - m.grid >= CHROME_MAX[kind])
-    out.push(`the page around the grid is ${m.page - m.grid}px`);
+  const chrome = m.page - m.grid - m.guides;
+  if (chrome >= CHROME_MAX[kind])
+    out.push(`the page around the grid and the guide list is ${chrome}px`);
   if (m.grid / m.rows >= ROW_MAX[kind])
     out.push(`a row of cards is ${(m.grid / m.rows).toFixed(1)}px`);
-  if (m.page >= CHROME_MAX[kind] + m.rows * ROW_MAX[kind])
-    out.push(`the page is ${m.page}px for ${m.rows} rows`);
+  if (m.guides / m.guideRows >= GUIDE_ROW_MAX[kind])
+    out.push(`a row of guides is ${(m.guides / m.guideRows).toFixed(1)}px`);
+  if (
+    m.page >=
+    CHROME_MAX[kind] +
+      m.rows * ROW_MAX[kind] +
+      m.guideRows * GUIDE_ROW_MAX[kind]
+  )
+    out.push(
+      `the page is ${m.page}px for ${m.rows} card rows and ${m.guideRows} guide rows`,
+    );
   return out;
 }
 
 const grid = "section#tools ul[data-tool-grid] > li";
+const guideList = "section#guides ul > li";
 
 test("the served HTML carries a card for every tool, none hidden", async ({
   request,
@@ -127,33 +172,72 @@ for (const [name, viewport, kind] of [
     await page.goto("/");
     // Health: a page that failed to render is short too.
     await expect(page.locator(grid)).toHaveCount(getAllToolSlugs().length);
-    const m = await page.evaluate((selector) => {
-      const items = [...document.querySelectorAll(selector)];
-      const tops = items.map((li) =>
-        Math.round(li.getBoundingClientRect().top + window.scrollY),
-      );
-      const rowTops = [...new Set(tops)];
-      const list = items[0]!.parentElement!.getBoundingClientRect();
-      return {
-        page: document.documentElement.scrollHeight,
-        grid: Math.round(list.height),
-        rows: rowTops.length,
-        cols: tops.filter((t) => t === rowTops[0]).length,
-        cards: items.length,
-      };
-    }, grid);
+    const m = await page.evaluate(
+      ([cardSel, guideSel]) => {
+        /** Rows, columns and height of a list's VISIBLE items. */
+        const measure = (selector: string) => {
+          const items = [...document.querySelectorAll(selector)].filter(
+            (li) => li.getClientRects().length > 0,
+          );
+          const tops = items.map((li) =>
+            Math.round(li.getBoundingClientRect().top + window.scrollY),
+          );
+          const rowTops = [...new Set(tops)];
+          const list = items[0]?.parentElement?.getBoundingClientRect();
+          return {
+            height: Math.round(list?.height ?? 0),
+            rows: rowTops.length,
+            cols: tops.filter((t) => t === rowTops[0]).length,
+            items: items.length,
+          };
+        };
+        const cards = measure(cardSel);
+        const guides = measure(guideSel);
+        return {
+          page: document.documentElement.scrollHeight,
+          grid: cards.height,
+          rows: cards.rows,
+          cols: cards.cols,
+          cards: cards.items,
+          guides: guides.height,
+          guideRows: guides.rows,
+          guideCols: guides.cols,
+          guideItems: guides.items,
+        };
+      },
+      [grid, guideList] as const,
+    );
+    console.log(
+      `home ${name}: page ${m.page}, cards ${m.cols}×${m.rows} = ${m.grid} (${(m.grid / m.rows).toFixed(1)}/row), guides ${m.guideItems} in ${m.guideCols}×${m.guideRows} = ${m.guides} (${(m.guides / m.guideRows).toFixed(1)}/row), rest ${m.page - m.grid - m.guides}`,
+    );
     expect(m.page).toBeGreaterThan(1500);
     // The rows are the grid's, not a stack: ceil(cards / columns).
     expect(m.rows).toBe(Math.ceil(m.cards / m.cols));
+    // The guide list is a grid too, and it was found: every guide on a
+    // wide screen, some on a phone.
+    expect(m.guideItems).toBeGreaterThan(0);
+    if (kind === "desktop") expect(m.guideItems).toBe(GUIDE_META.length);
+    expect(m.guideRows).toBe(Math.ceil(m.guideItems / m.guideCols));
     expect(fitsBound(m, kind)).toEqual([]);
     // Positive controls through the same predicate: 400px more page around
-    // the grid, or rows 20px taller, must each be caught.
+    // the grids, rows of cards 20px taller, or rows of guides 20px taller,
+    // must each be caught.
     expect(
       fitsBound({ ...m, page: m.page + 400 }, kind).length,
     ).toBeGreaterThan(0);
     expect(
       fitsBound(
         { ...m, grid: m.grid + 20 * m.rows, page: m.page + 20 * m.rows },
+        kind,
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      fitsBound(
+        {
+          ...m,
+          guides: m.guides + 20 * m.guideRows,
+          page: m.page + 20 * m.guideRows,
+        },
         kind,
       ).length,
     ).toBeGreaterThan(0);

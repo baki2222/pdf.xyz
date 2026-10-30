@@ -3,12 +3,20 @@
     "contentHash": "7c7848cba18f9853f83abb20ec3d00a6128d8a279cfc144e2c3d8fd7610c5d0d",
     "updated": "2026-10-29"
   },
+  "how-to-add-bates-numbers-to-a-pdf": {
+    "contentHash": "6bb251b647397593c7f2bcaa214b4fc088ab05d24b401c342299624acd6eb7c6",
+    "updated": "2026-10-30"
+  },
   "how-to-add-page-numbers-to-a-pdf": {
     "contentHash": "ff14fee37915e52d9b386f7db41aa42580b07d90457a9d531e33fef38844ccdb",
     "updated": "2026-09-27"
   },
   "how-to-add-text-to-a-pdf": {
     "contentHash": "9bd49bce554de18008d778db34f881f2f3df8388486c52103c7dd487c4c41ce3",
+    "updated": "2026-10-30"
+  },
+  "how-to-combine-double-sided-scans-into-one-pdf": {
+    "contentHash": "b29ac3c3a8a8c0ff68a4c6416ee3158b4a2808952f63eb471b927962bb951445",
     "updated": "2026-10-30"
   },
   "how-to-compare-two-pdf-files": {
@@ -24,8 +32,8 @@
     "updated": "2026-10-30"
   },
   "how-to-convert-jpg-to-pdf": {
-    "contentHash": "660c0f59317b56ce50b2c26ead97fe910c4017da62232644b62484c79db5d1a1",
-    "updated": "2026-10-24"
+    "contentHash": "628b92671636133f677ff24d320e4ef9ed828e038456862a7050a32349236cd5",
+    "updated": "2026-10-30"
   },
   "how-to-convert-markdown-to-pdf": {
     "contentHash": "69693c14c48f139b66a63514e3759367d705663c94aeb644f8fe9a63f6f321af",
@@ -45,6 +53,10 @@
   },
   "how-to-convert-pdf-to-word": {
     "contentHash": "c525695a44f4ca4cb0391c0f0a24100f11b5f9deb46808c4b26ffd7dab6065ad",
+    "updated": "2026-10-30"
+  },
+  "how-to-convert-webp-gif-or-bmp-to-pdf": {
+    "contentHash": "e8e301f316a4dd702566087e2c19af2bc973202a3e145f6fcb820b4850ab7539",
     "updated": "2026-10-30"
   },
   "how-to-convert-word-to-pdf": {

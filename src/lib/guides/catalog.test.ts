@@ -79,7 +79,11 @@ describe("the guides catalogue is structurally sound", () => {
     // derives its expected expansion from `guides.length` — so this ceiling
     // stands alone now: a count past it is a catalogue growing faster than
     // anyone reviewed, not a route walk running out of slack.
-    expect(slugs.length).toBeLessThanOrEqual(36);
+    // Revisited 2026-10-30: three guides for the options PR #236 shipped
+    // inside existing tools — Bates numbering, alternate-page merging for
+    // double-sided scans, and WebP / GIF / BMP to PDF (36 → 39). Each was
+    // checked against its runner and engine, not against the tool copy.
+    expect(slugs.length).toBeLessThanOrEqual(39);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,

@@ -116,6 +116,20 @@ import {
   type NUpCount,
 } from "@/lib/pdf/n-up";
 import { PT_PER_INCH } from "@/lib/pdf/page-geometry";
+import {
+  BATES_MAX_DIGITS,
+  DEFAULT_BATES_DIGITS,
+  NUMBER_STYLES,
+  batesFormat,
+  previewPageNumber,
+  type NumberStyle,
+} from "@/lib/pdf/page-numbers";
+import { MERGE_MODE_LABEL } from "@/lib/pdf/merge-order";
+import {
+  DECODED_IMAGE_LABELS,
+  REFUSED_IMAGE_LABELS,
+} from "@/lib/pdf/image-to-pdf";
+import { TRANSCODE_JPEG_QUALITY } from "@/lib/pdf/image-transcode";
 import type { Guide } from "./types";
 
 /**
@@ -276,6 +290,30 @@ function upName(count: NUpCount): string {
   }
   return `${count}-up`;
 }
+
+/** Add Page Numbers' Numbering style buttons, by value, as the runner labels them. */
+function numberStyleLabel(value: NumberStyle): string {
+  const found = NUMBER_STYLES.find((style) => style.value === value);
+  if (!found)
+    throw new Error(`a guide names unknown numbering style "${value}"`);
+  return found.label;
+}
+const BATES_STYLE = numberStyleLabel("bates");
+const PAGES_STYLE = numberStyleLabel("pages");
+const BATES_PREFIX = "ACME-";
+/** The label page `n` carries in the Bates style at the default digit count. */
+const batesAt = (n: number) =>
+  previewPageNumber(batesFormat(BATES_PREFIX, DEFAULT_BATES_DIGITS), n, n);
+
+/** Merge PDF's Page order buttons, as its runner labels them. */
+const MERGE_ALTERNATE = MERGE_MODE_LABEL.alternate;
+const MERGE_APPEND = MERGE_MODE_LABEL.append;
+
+/** The images JPG / PNG to PDF decode and re-encode, and the ones refused. */
+const DECODED_NAMES = listAnd(DECODED_IMAGE_LABELS);
+const DECODED_NAMES_OR = listOr(DECODED_IMAGE_LABELS);
+const REFUSED_NAMES = listAnd(REFUSED_IMAGE_LABELS);
+const TRANSCODE_QUALITY_PCT = Math.round(TRANSCODE_JPEG_QUALITY * 100);
 
 export const guides: Guide[] = [
   {
@@ -689,7 +727,7 @@ export const guides: Guide[] = [
         id: "limits-and-related-tools",
         heading: "Limits, formats, and where to go next",
         body: [
-          `The tool accepts JPG and JPEG files and produces a PDF. Each image can be up to ${MAX_IMAGE_MB} MB, and everything you add is assembled into one PDF on your device.`,
+          `The tool accepts JPG and JPEG files, and PNG, ${DECODED_NAMES} images as well, and produces a PDF. Each image can be up to ${MAX_IMAGE_MB} MB, and unless you choose a PDF per image, everything you add is assembled into one PDF on your device.`,
           "If your images are PNGs — transparent ones included — use the PNG to PDF tool, which also builds a single PDF right in your browser. Going the other direction, PDF to JPG turns PDF pages back into images. And once you have several PDFs, Merge PDF combines them into one.",
         ],
       },
@@ -720,12 +758,14 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I convert PNG images with this tool?",
-        answer:
-          "This tool accepts JPG and JPEG files. For PNGs — including transparent ones — use the PNG to PDF tool, which assembles a single PDF in your browser the same way.",
+        // Was "This tool accepts JPG and JPEG files." — false since PNG and
+        // JPG were taken on both image tools, and again since 2026-10-30
+        // added WebP, GIF and BMP (image-to-pdf.ts).
+        answer: `Yes. ${nameOf("jpg-to-pdf")} takes PNG images too, transparent ones included, alongside your JPGs in the same PDF, and ${DECODED_NAMES} images as well. ${nameOf("png-to-pdf")} accepts the same files and works the same way.`,
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-24",
+    updated: "2026-10-30",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
@@ -3285,6 +3325,241 @@ export const guides: Guide[] = [
         question: "Is my PDF sent to a server?",
         answer:
           "No. The sheets are made in your browser tab and saved on your device; the PDF is not sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-30",
+    updated: "2026-10-30",
+  },
+  {
+    slug: "how-to-add-bates-numbers-to-a-pdf",
+    title: "How to add Bates numbers to a PDF",
+    description: `Stamp Bates numbers such as ${batesAt(1)} on every page of a PDF: pick a prefix and a digit count, and carry on from the last batch. Runs in your browser.`,
+    tools: ["page-numbers", "merge-pdf"],
+    keywords: [
+      "how to add bates numbers to a pdf",
+      "bates numbering pdf",
+      "bates stamp pdf",
+      "add bates numbers online",
+      "legal page numbering pdf",
+      "zero padded page numbers pdf",
+    ],
+    intro: [
+      `To add Bates numbers to a PDF, open ${nameOf("page-numbers")}, add your file, and choose ${BATES_STYLE} under Format. Type a prefix, pick how many digits the number has, and press Add page numbers. Every page gets the prefix and a number padded with zeros, starting from ${batesAt(1)}.`,
+      "Bates numbering is how legal, insurance and audit work labels pages: every page in a set of documents gets its own reference, and the references never repeat. Because the number always has the same count of digits, the references sort in order and anyone can point to one page by quoting it.",
+      `It runs in your browser, so your PDF stays on your device. It numbers one file at a time, up to ${ceilingMb("page-numbers")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("page-numbers")} tool and drop your PDF where it says Drop your PDF here, or click browse. It stays on your device.`,
+      `Under Format, choose ${BATES_STYLE} in place of ${PAGES_STYLE}.`,
+      `Type a Prefix, such as ${BATES_PREFIX}, and set Digits to how long the number should be, from 1 to ${BATES_MAX_DIGITS}. The preview beside the Format heading shows the first page's label.`,
+      "Under Placement, pick where the number goes, and set First number to the number the first page should carry.",
+      "Press Add page numbers, then Download numbered PDF. The copy is named after yours, with -numbered added.",
+    ],
+    sections: [
+      {
+        id: "prefix-and-digits",
+        heading: "The prefix and the digits",
+        body: [
+          `The prefix is printed exactly as you type it, before the number, so it can be a case name, a client code or a party's initials, with a dash or a space to separate it. Leave it empty for a bare number. Digits sets how wide the number is: with ${DEFAULT_BATES_DIGITS} digits, the first page reads ${batesAt(1)} and page 250 reads ${batesAt(250)}.`,
+          `A number that grows past the width is printed in full, never cut short, so choose enough digits for the whole set at the start. The number is drawn on the page as real text in the font you pick, so it can be searched for and copied in any PDF reader.`,
+        ],
+      },
+      {
+        id: "several-files",
+        heading: "Numbering a set of several files",
+        body: [
+          `${nameOf("page-numbers")} numbers one PDF at a time, and each file starts counting from First number. It has no way to carry the count from one file to the next on its own, so a set of files can be numbered in one of two ways.`,
+          `The first is to combine the files with ${nameOf("merge-pdf")} before you number them, so the numbers run straight through one PDF. The second keeps the files apart: number the first file, note the last number on its last page, and set First number to the next one for the following file. A new batch of documents carries on from the last batch the same way.`,
+        ],
+      },
+      {
+        id: "every-page",
+        heading: "Making sure no page is skipped",
+        body: [
+          "A Bates number usually goes on every page, the cover and the blank pages included. So keep Start on page at 1, and under Pages, font and color, leave Leave the cover unnumbered unticked and Skip last pages at zero: both of those leave pages without a number.",
+          "The number is drawn on top of what is already on the page. If a footer or a page number already sits in that spot, choose another position under Placement or a larger Margin, and check the preview of the downloaded copy before you send it.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "What is a Bates number?",
+        answer: `A unique reference printed on every page of a document set, made of a prefix and a number with a fixed count of digits, such as ${batesAt(1)}. Lawyers and auditors use it to refer to a single page without ambiguity.`,
+      },
+      {
+        question: "Can I continue numbering from a previous batch?",
+        answer: `Yes. Set First number to the number after the last one you used. If the last batch ended on ${batesAt(250)}, set First number to 251 and the first page reads ${batesAt(251)}.`,
+      },
+      {
+        question: "Can I Bates number several PDFs in one go?",
+        answer: `Not in one step: the tool numbers one PDF at a time, and each file starts from First number. Combine the files with ${nameOf("merge-pdf")} first so the numbers run through all of them, or number each file in turn and set First number to carry on from the last.`,
+      },
+      {
+        question: "Can I write my own Bates template?",
+        answer: `Yes. With ${PAGES_STYLE} chosen, type into the Custom format field: {n:${DEFAULT_BATES_DIGITS}} prints the number padded to ${DEFAULT_BATES_DIGITS} digits, so ${BATES_PREFIX}{n:${DEFAULT_BATES_DIGITS}} gives the same labels as the ${BATES_STYLE} style, and you can add your own text around it.`,
+      },
+      {
+        question: "Is my PDF sent to a server?",
+        answer:
+          "No. The numbers are drawn in your browser tab and the copy is saved on your device; the PDF is not sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-30",
+    updated: "2026-10-30",
+  },
+  {
+    slug: "how-to-combine-double-sided-scans-into-one-pdf",
+    title: "How to combine double-sided scans into one PDF",
+    description: `Scanned the fronts and the backs of a stack as two PDFs? Interleave them into one in reading order, and reverse the backs if needed. Runs in your browser.`,
+    tools: ["merge-pdf", "remove-pages", "organize-pages"],
+    keywords: [
+      "how to combine double sided scans into one pdf",
+      "merge front and back scans pdf",
+      "interleave two pdfs",
+      "alternate pages from two pdfs",
+      "collate odd and even pages pdf",
+      "double sided scanning without duplex",
+    ],
+    intro: [
+      `A scanner without a two-sided feeder scans one side at a time: you feed the stack for the fronts, turn it over and feed it again for the backs, and end up with two PDFs. To put them back in reading order, open ${nameOf("merge-pdf")}, add the fronts file and then the backs file, and set Page order to ${MERGE_ALTERNATE}. The merged PDF takes one page from each file in turn.`,
+      "When you turn the stack over, the last sheet is usually scanned first, so the backs file runs backwards. Tick Reverse page order on that file and its pages are turned round before they are paired.",
+      `It runs in your browser, so your scans stay on your device. Each PDF can be up to ${ceilingMb("merge-pdf")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("merge-pdf")} tool and drop the PDF of front sides and the PDF of back sides where it says Drop your PDF here, or click browse. They stay on your device.`,
+      "Check the list: the fronts file should be at the top. Drag a row, or use its arrow buttons, to move it.",
+      `Under Page order, choose ${MERGE_ALTERNATE} in place of ${MERGE_APPEND}.`,
+      "If the backs were scanned last sheet first, tick Reverse page order on the backs file's row.",
+      "Press Merge 2 PDFs, then Download merged PDF. The copy is named after the top file, with -merged added.",
+    ],
+    sections: [
+      {
+        id: "how-pairing-works",
+        heading: "How the pages are paired",
+        body: [
+          `With ${MERGE_ALTERNATE}, page 1 of the top file comes first, then page 1 of the next file, then page 2 of each, and so on. Fronts 1, 2 and 3 with backs 1, 2 and 3 come out as front 1, back 1, front 2, back 2, front 3, back 3.`,
+          "If one file is longer, its extra pages go at the end in their own order. The same works for more than two files: one page from each in turn, top file first.",
+        ],
+      },
+      {
+        id: "reverse-page-order",
+        heading: "When to tick Reverse page order",
+        body: [
+          `Reverse page order appears on each file's row once ${MERGE_ALTERNATE} is chosen, and turns that file's pages round before they are paired. To tell whether the backs need it, open the backs file and look at its first page: if it shows the back of the last sheet, tick it.`,
+          "Each row's Pages box still works in this mode. The pages you type are taken in the file's own order first, and only then turned round.",
+        ],
+      },
+      {
+        id: "what-the-merge-keeps",
+        heading: "Bookmarks, blank backs and fixing the order later",
+        body: [
+          `A bookmark for each file and a contents page are not offered with ${MERGE_ALTERNATE}, because each file's pages are spread through the result. Bookmarks already in your files are kept and still open the right pages.`,
+          `Sheets printed on one side only leave blank backs in the merged PDF. Keep them while merging, because every back has to stay next to its front for the pairs to line up, and take them out afterwards with ${nameOf("remove-pages")}. If a page still lands in the wrong place, ${nameOf("organize-pages")} lets you drag it to where it belongs.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "How do I merge front and back scans into one PDF?",
+        answer: `Add the fronts file first and the backs file second, choose ${MERGE_ALTERNATE} under Page order, and merge. The result takes front 1, back 1, front 2, back 2, and so on.`,
+      },
+      {
+        question: "Why are the back pages in the wrong order?",
+        answer:
+          "The stack was turned over to scan the backs, so the last sheet went through first. Tick Reverse page order on the backs file's row and merge again.",
+      },
+      {
+        question: "What if the two files have different numbers of pages?",
+        answer:
+          "The extra pages of the longer file go at the end. A page missing from the middle of one file moves every pair after it, so check that both files hold one page per sheet, blank backs included.",
+      },
+      {
+        question: "Can I still add bookmarks or a contents page?",
+        answer: `Not with ${MERGE_ALTERNATE}: a file's pages are spread through the result, so there is no one page for its bookmark to open. With ${MERGE_APPEND}, both options are offered.`,
+      },
+      {
+        question: "Are my scans sent to a server?",
+        answer:
+          "No. The PDFs are read and merged in your browser tab and the copy is saved on your device; they are not sent to pdf.xyz.",
+      },
+    ],
+    published: "2026-10-30",
+    updated: "2026-10-30",
+  },
+  {
+    slug: "how-to-convert-webp-gif-or-bmp-to-pdf",
+    title: `How to convert ${DECODED_NAMES_OR} images to PDF`,
+    description: `Turn ${DECODED_NAMES} images into one PDF, mixed with JPGs and PNGs, one image per page. Your browser converts them, and no account is needed.`,
+    tools: ["jpg-to-pdf", "png-to-pdf", "compress-pdf"],
+    keywords: [
+      "webp to pdf",
+      "convert webp to pdf",
+      "gif to pdf",
+      "bmp to pdf",
+      "webp images to one pdf",
+      "convert image to pdf online",
+    ],
+    intro: [
+      `To turn ${DECODED_NAMES} images into a PDF, open ${nameOf("jpg-to-pdf")}, add the images, put them in order and press Create PDF. Each image becomes one page of the PDF, and you can mix them with JPG and PNG files in the same document. ${nameOf("png-to-pdf")} takes the same files and works the same way.`,
+      `A PDF can hold JPEG and PNG pictures but not the other formats as they are, so each ${DECODED_NAMES_OR} image is first decoded by your browser and saved again: as a JPEG at ${TRANSCODE_QUALITY_PCT}% quality when it has no transparent areas, and as a PNG when it has any.`,
+      `It runs in your browser, so your images stay on your device. Each image can be up to ${MAX_IMAGE_MB} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("jpg-to-pdf")} tool and drop your images on the box at the top of the page, or click it to pick them. ${DECODED_NAMES} files are taken alongside JPG and PNG.`,
+      "Put the pages in order with each image's Move up and Move down buttons, and press Remove to take one out.",
+      "Choose the Page size, Orientation and Margin, or keep the ones shown.",
+      "Under Output, keep One PDF, or choose One PDF per image (ZIP) to get several PDFs, one for each image.",
+      "Press Create PDF, then Download PDF. With several images and a PDF per image, the button downloads them together as a ZIP instead.",
+    ],
+    sections: [
+      {
+        id: "saved-again",
+        heading: "Why the image is saved again, and what that changes",
+        body: [
+          "A JPEG or PNG is copied into the PDF as it is. The other formats have to be redrawn first, and that is a second save of the picture, which has two costs worth knowing about.",
+          "A WebP photo saved again as a JPEG can come out a little softer, or a little larger in bytes, than the file you had, because WebP often compresses better than JPEG. And what the image file carried beside its pixels, such as the camera details and the date it was taken, is not kept. Keep the original file if you need either.",
+        ],
+      },
+      {
+        id: "gif-and-bmp",
+        heading: "GIF and BMP",
+        body: [
+          "An animated GIF gives its first frame only: one image, on one page. To keep a later frame, save that frame as an image of its own first.",
+          "A BMP is stored without compression, so it is usually much larger than the same picture as a JPEG or PNG; once saved into the PDF, it usually takes far less room. A picture with transparent areas keeps them, and the white page shows through.",
+        ],
+      },
+      {
+        id: "other-formats",
+        heading: "Formats that are turned away",
+        body: [
+          `${REFUSED_NAMES} images are not taken: browsers do not all have a decoder for them. Such a file is turned away when you add it, with a note naming its real format, so save or export it as a JPG or PNG first.`,
+          `Each file is judged by its contents, not its name, so a WebP saved with a .jpg name still goes in as a WebP. If the finished PDF is larger than you want, ${nameOf("compress-pdf")} can make it smaller.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "How do I convert a WebP image to PDF?",
+        answer: `Open ${nameOf("jpg-to-pdf")}, drop the WebP file on the box, and press Create PDF. The image is decoded in your browser and saved into the PDF as a JPEG, or as a PNG if it has transparent areas.`,
+      },
+      {
+        question: "Does an animated GIF keep its animation?",
+        answer:
+          "No. A PDF page holds a still picture, so only the GIF's first frame goes into the PDF.",
+      },
+      {
+        question: "Will the image lose quality?",
+        answer: `A little, possibly. A ${DECODED_NAMES_OR} image is saved again before it goes into the PDF, as a JPEG at ${TRANSCODE_QUALITY_PCT}% quality when it has no transparency, which can soften fine detail slightly. With transparency it is saved as a PNG, which does not soften detail.`,
+      },
+      {
+        question: `Can I convert ${REFUSED_NAMES} images?`,
+        answer:
+          "No. They are turned away when you add them, with a note naming the format. Save or export them as JPG or PNG first, then add those.",
+      },
+      {
+        question: "Are my images sent to a server?",
+        answer:
+          "No. The images are decoded and the PDF is made in your browser tab; the files are not sent to pdf.xyz.",
       },
     ],
     published: "2026-10-30",

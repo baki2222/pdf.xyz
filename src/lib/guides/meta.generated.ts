@@ -459,4 +459,43 @@ export const GUIDE_META: readonly GuideMeta[] = [
       "print slides as handouts",
     ],
   },
+  {
+    slug: "how-to-add-bates-numbers-to-a-pdf",
+    title: "How to add Bates numbers to a PDF",
+    primary: "page-numbers",
+    keywords: [
+      "how to add bates numbers to a pdf",
+      "bates numbering pdf",
+      "bates stamp pdf",
+      "add bates numbers online",
+      "legal page numbering pdf",
+      "zero padded page numbers pdf",
+    ],
+  },
+  {
+    slug: "how-to-combine-double-sided-scans-into-one-pdf",
+    title: "How to combine double-sided scans into one PDF",
+    primary: "merge-pdf",
+    keywords: [
+      "how to combine double sided scans into one pdf",
+      "merge front and back scans pdf",
+      "interleave two pdfs",
+      "alternate pages from two pdfs",
+      "collate odd and even pages pdf",
+      "double sided scanning without duplex",
+    ],
+  },
+  {
+    slug: "how-to-convert-webp-gif-or-bmp-to-pdf",
+    title: "How to convert WebP, GIF, or BMP images to PDF",
+    primary: "jpg-to-pdf",
+    keywords: [
+      "webp to pdf",
+      "convert webp to pdf",
+      "gif to pdf",
+      "bmp to pdf",
+      "webp images to one pdf",
+      "convert image to pdf online",
+    ],
+  },
 ];

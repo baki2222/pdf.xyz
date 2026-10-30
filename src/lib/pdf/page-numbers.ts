@@ -78,6 +78,21 @@ export interface PageNumberOptions {
   color?: RGB;
 }
 
+/**
+ * The runner's two numbering styles, by their on-screen labels. "Bates
+ * number" builds the template from a prefix and a digit count
+ * (`batesFormat`), counting from First number; it is not a preset, because
+ * its template is typed text. Here rather
+ * than in the runner so the Bates guide can name "Bates number" from the list
+ * the button is drawn from: a renamed style fails the guide's build instead
+ * of leaving it pointing at a button that is gone.
+ */
+export const NUMBER_STYLES = [
+  { value: "pages", label: "Page numbers" },
+  { value: "bates", label: "Bates number" },
+] as const;
+export type NumberStyle = (typeof NUMBER_STYLES)[number]["value"];
+
 /** The widest zero-padding a `{n:W}` token may ask for. */
 export const BATES_MAX_DIGITS = 12;
 

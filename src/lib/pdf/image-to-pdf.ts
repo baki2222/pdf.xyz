@@ -59,6 +59,20 @@ const DECODED_FORMATS = {
 } as const;
 export type DecodedImageFormat = keyof typeof DECODED_FORMATS;
 
+/** WebP, GIF, BMP — the decoded formats by the names the refusal note uses. */
+export const DECODED_IMAGE_LABELS: readonly string[] = Object.values(
+  DECODED_FORMATS,
+).map((format) => format.label);
+
+/**
+ * The image kinds a file's bytes are recognised as and REFUSED, by the name
+ * the refusal note gives them ({@link unsupportedImageMessage}). The type is
+ * what `describeImageBytes` returns, so a guide saying "HEIC is turned away"
+ * reads this list, and a format that gains a decoder must leave it.
+ */
+export const REFUSED_IMAGE_LABELS = ["HEIC", "TIFF", "AVIF"] as const;
+type RefusedImageLabel = (typeof REFUSED_IMAGE_LABELS)[number];
+
 /** Every format the image tools take. */
 export type ImageFormat = RasterImageFormat | DecodedImageFormat;
 const ALL_FORMATS: Record<
@@ -201,7 +215,7 @@ export function sniffImageFormat(bytes: Uint8Array): ImageFormat | null {
 const TAKEN = "PNG, JPG, WebP, GIF and BMP";
 
 /** Name the format of image bytes we cannot convert, when we can tell. */
-function describeImageBytes(bytes: Uint8Array): string | null {
+function describeImageBytes(bytes: Uint8Array): RefusedImageLabel | null {
   const ascii = (offset: number, length: number) =>
     String.fromCharCode(...bytes.subarray(offset, offset + length));
   const tiffLE = bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2a;

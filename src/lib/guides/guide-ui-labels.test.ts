@@ -470,6 +470,16 @@ function renderedBy(file: string): Rendered {
             parts.push("");
             holes++;
           } else {
+            // An element BEFORE any text or hole is a leading icon, a
+            // boundary rather than a word: `<Plus /> Merge {n} PDF{s}`
+            // reads "Merge 2 PDFs" on screen. Counted as a hole, it made
+            // the pattern open with no literal word, and the opening-word
+            // rule below dropped the button entirely (2026-10-30, the
+            // double-sided-scans guide). A leading `{…}` is still a hole.
+            if (holes === 0 && !/\p{L}/u.test(parts[0]!)) {
+              parts[0] = "";
+              continue;
+            }
             parts.push("");
             holes++;
           }
@@ -735,6 +745,27 @@ describe("every control a guide tells a reader to act on is on its tools' screen
       "Download cropped PDF",
     ]);
     expect(missing).toEqual([]);
+  });
+});
+
+describe("a leading icon is a boundary, not a word", () => {
+  const merge = guides.find((g) => g.slug === "how-to-merge-pdf-files")!;
+  const only = (step: string): Guide => ({
+    ...merge,
+    steps: [step],
+    intro: [],
+    sections: [],
+    faq: [],
+  });
+  it("an icon-led button with a count in it is matched", () => {
+    // merge-runner.tsx: <Plus /> Merge {items.length} PDF{…}
+    const { checked, missing } = audit([only("Press Merge 2 PDFs.")]);
+    expect(checked.map((f) => f.label)).toEqual(["Merge 2 PDFs"]);
+    expect(missing).toEqual([]);
+  });
+  it("and a label the button does not carry still fails", () => {
+    const { missing } = audit([only("Press Merge 2 files.")]);
+    expect(missing.map((f) => f.label)).toEqual(["Merge 2 files"]);
   });
 });
 
