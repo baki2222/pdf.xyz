@@ -21,6 +21,11 @@ import {
   type HandoffMode,
 } from "@/lib/handoff/capability";
 import { opensRestrictedPdfs } from "@/lib/pdf/registry";
+import { RESTRICTED_OPENERS } from "@/lib/pdf/restricted-openers";
+
+const RESTRICTED_OPENER_SLUGS: ReadonlySet<string> = new Set(
+  RESTRICTED_OPENERS.map((t) => t.href.slice("/tools/".length)),
+);
 import { tools } from "@/lib/tools";
 import { toolFileCeilingBytes } from "@/lib/tools/file-ceilings";
 import {
@@ -48,6 +53,13 @@ export interface ToolIndexEntry {
    * (it reads with pdf.js alone) — read from the runner registry.
    */
   readonly opensRestricted: boolean;
+  /**
+   * Opens an owner-restricted PDF to save what its author allows (a filled
+   * form, comments) — the editor tools in RESTRICTED_OPENERS. Separate from
+   * `opensRestricted` (the pdf.js readers): these still rewrite with pdf-lib,
+   * so a damaged file still needs Repair first.
+   */
+  readonly restrictedOpener: boolean;
   /** The one rule's answers for its mode (`processing-split.ts`), not a copy. */
   readonly mayUpload: boolean;
   readonly hasBrowserPath: boolean;
@@ -68,6 +80,7 @@ export function buildToolIndex(): ToolIndexEntry[] {
     handoffMode: handoffCapabilityFor(tool.slug).mode,
     ceilingBytes: toolFileCeilingBytes(tool),
     opensRestricted: opensRestrictedPdfs(tool.slug),
+    restrictedOpener: RESTRICTED_OPENER_SLUGS.has(tool.slug),
     mayUpload: modeUploadsFiles(tool.processing),
     hasBrowserPath: modeHasBrowserPath(tool.processing),
   }));

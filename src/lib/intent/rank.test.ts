@@ -22,6 +22,7 @@
  *     pdf.js readers and the workers; only a file that needs a password is
  *     called password-protected.
  */
+import { RESTRICTED_OPENERS } from "@/lib/pdf/restricted-openers";
 import { describe, expect, it } from "vitest";
 import { eligibleFilesFor, handoffPayload } from "@/lib/handoff";
 import type { PdfProbe } from "@/lib/pdf/probe";
@@ -131,7 +132,11 @@ const CORPUS: readonly Row[] = [
         sample: [],
       }),
     ],
-    top: ["unlock-pdf", "compress-pdf", "pdf-to-word"],
+    // WAS ["unlock-pdf", "compress-pdf", "pdf-to-word"] until 2026-10-30:
+    // Edit PDF was blocked "after Unlock PDF" though it opens the file
+    // (#225). Unblocked, its own prior puts it third; its page says at once
+    // what the author allows.
+    top: ["unlock-pdf", "compress-pdf", "edit-pdf"],
   },
   {
     mix: "a PDF whose lock could not be told",
@@ -497,10 +502,22 @@ describe("locks: two verdicts, read from the probe", () => {
     }
   });
 
-  it("a restricted file stays open to the pdf.js readers and the workers; the writers wait for Unlock PDF", () => {
+  // INVERTED 2026-10-30, history kept: Edit PDF was in the "writers wait for
+  // Unlock PDF" list below. Since #225/#231 Edit PDF, Annotate PDF and Fill
+  // Forms OPEN a restricted file (filling and commenting under the author's
+  // own encryption), so the desk told a reader to unlock a file those tools
+  // would have taken as it was. The set is RESTRICTED_OPENERS, the same list
+  // the refusal sentence names and `encryption-verdict.test.ts` holds to the
+  // runners that opt in — read here, not retyped.
+  it("a restricted file stays open to the pdf.js readers, the workers and the restricted openers; the other writers wait for Unlock PDF", () => {
     const r = rankForFiles([locked("restricted")], index);
     const all = [...r.top, ...r.more];
     const by = (slug: string) => all.find((s) => s.slug === slug)!;
+    const openers = RESTRICTED_OPENERS.map((t) =>
+      t.href.replace(/^\/tools\//, ""),
+    );
+    // Health: the list is the three editor tools, not empty.
+    expect(openers.length).toBeGreaterThanOrEqual(3);
     for (const slug of [
       "pdf-to-jpg",
       "pdf-to-png",
@@ -508,9 +525,10 @@ describe("locks: two verdicts, read from the probe", () => {
       "pdf-to-markdown",
       "pdf-to-word",
       "compress-pdf",
+      ...openers,
     ])
       expect(by(slug).blocked, slug).toBeNull();
-    for (const slug of ["merge-pdf", "rotate-pdf", "sign-pdf", "edit-pdf"]) {
+    for (const slug of ["merge-pdf", "rotate-pdf", "sign-pdf"]) {
       expect(by(slug).blocked, slug).toBe("unlock-first");
       expect(r.top.map((s) => s.slug)).not.toContain(slug);
       expect(by(slug).evidence.map(renderEvidence)).toContain(

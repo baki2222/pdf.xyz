@@ -1,4 +1,5 @@
 import { PDFJS_DOCUMENT_DEFAULTS } from "./wasm-assets";
+import { RESTRICTED_OPENERS } from "./restricted-openers";
 
 /**
  * What kind of lock a PDF carries — asked of a READER, not of our editor.
@@ -178,24 +179,7 @@ export type EncryptionVerdict = "opens-without-password" | "needs-password";
 export const UNLOCK_TOOL_NAME = "Unlock PDF";
 export const UNLOCK_TOOL_HREF = "/tools/unlock-pdf";
 
-/**
- * The tools that OPEN a restricted PDF (`openProtected`): they save what the
- * author allows — a filled form, comments — under the author's own
- * encryption, and unlock every tool with the owner password typed in the
- * page (`@/lib/pdf/security/protected-pdf`). Named as the catalogue names
- * them, and exactly the runners that opt in — both checked in
- * `encryption-verdict.test.ts`, which also holds the sentence below to name
- * every one of them.
- *
- * HISTORY. Until 2026-10-30 this was RESTRICTED_FORM_TOOLS, Edit PDF and Fill
- * Forms only, and the sentence said they "can still fill its form" — while
- * Annotate PDF, the same editor, refused the file with this very message.
- */
-export const RESTRICTED_OPENERS = [
-  { name: "Edit PDF", href: "/tools/edit-pdf" },
-  { name: "Annotate PDF", href: "/tools/annotate-pdf" },
-  { name: "Fill Forms", href: "/tools/fill-forms" },
-] as const;
+export { RESTRICTED_OPENERS };
 
 /**
  * Added 2026-10-29 (filling); comments named 2026-10-30. A literal, not built
