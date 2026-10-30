@@ -236,7 +236,7 @@
    COMPOSABLE — it writes `--tw-numeric-spacing` into a five-variable
    `font-variant-numeric`, and registering those five variables (an @property
    each, plus the properties-layer fallback) cost 119 B gzip of the 15,360 B
-   stylesheet ceiling on 2026-10-31. No call site composes it with another
+   stylesheet ceiling on 2026-10-30. No call site composes it with another
    numeric utility (none ships), so the computed value is the same
    `tabular-nums`. Writing `tabular-nums` again brings the machinery back. */
 @utility tnum {
@@ -327,7 +327,7 @@
 }
 
 /* The colophon scope — "the one band on the opposite ground" — as a utility,
-   so it ships only when a page renders it. Until 2026-10-31 it was a plain
+   so it ships only when a page renders it. Until 2026-10-30 it was a plain
    `.theme-ink` rule, and no page has rendered `theme-ink` since the footer
    stopped wearing it: its two blocks were 1,381 raw bytes (97 B gzip)
    downloaded on every page and applied to nothing. As a utility it is the
@@ -607,7 +607,7 @@
 
   html {
     /* `-webkit-text-size-adjust: 100%` is Tailwind's preflight (same layer,
-       same value); it was repeated here until 2026-10-31. */
+       same value); it was repeated here until 2026-10-30. */
     scroll-behavior: smooth;
 
     /* The sticky header height, declared ONCE and consumed by both the header

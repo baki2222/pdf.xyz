@@ -49,7 +49,7 @@ function scopes(css: string): Map<ScopeName, Map<string, string>> {
   const out = new Map<ScopeName, Map<string, string>>();
   for (const b of walk(parseCss(css))) {
     const selectors = b.prelude.split(",").map((s) => s.trim());
-    // The ink scope is `@utility theme-ink` since 2026-10-31 (it ships only
+    // The ink scope is `@utility theme-ink` since 2026-10-30 (it ships only
     // when rendered); its dark variant is the `@media` nested inside it, so
     // that block's own prelude is the scheme and its ancestor the scope.
     const own = [...b.ancestors, b.prelude];

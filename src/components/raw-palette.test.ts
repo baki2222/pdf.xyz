@@ -66,7 +66,7 @@ const SHIPPED = [
   "ring-1 ring·white/20 hover:ring·white/50",
   "border-line bg-panel crop-marks relative border p-4 shadow·[0_28px_48px_-32px_rgba(12,18,26,0.45)] sm:p-5",
   "size-1.5 shrink-0 rounded-full bg·emerald-600",
-  // Not shipped: the page tile's gradient as one arbitrary value (2026-10-31)
+  // Not shipped: the page tile's gradient as one arbitrary value (2026-10-30)
   // is a raw colour by theme variable, and must be caught like `from·white`.
   "rounded-ctl bg-[linear-gradient(to_bottom_right,var(--color·white),transparent)]",
 ].map((c) => c.replaceAll("·", "-"));

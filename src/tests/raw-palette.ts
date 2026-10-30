@@ -23,7 +23,7 @@ const RAW_UTILITY = new RegExp(
  * A raw colour inside an arbitrary value: `shadow-[0_2px_4px_rgba(…)]`, or a
  * palette colour named by its theme variable — `var(--color-white)` in a
  * `bg-[linear-gradient(…)]` is `from-white` spelled so the class pattern
- * above cannot see it (2026-10-31, when the page tile's gradient moved into
+ * above cannot see it (2026-10-30, when the page tile's gradient moved into
  * one arbitrary value to stop shipping Tailwind's gradient-stop machinery).
  */
 const RAW_ARBITRARY = new RegExp(
