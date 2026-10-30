@@ -550,7 +550,12 @@ describe("an offline promise in a guide agrees with what its tool's run fetches"
         true,
       );
     }
-  });
+    // Budget, not assertion (2026-10-30): up to 3.8 s on CI's slower 4-vCPU
+    // runners in the full unit run (26 logs, 10-24..10-30), against vitest's
+    // 5-second default. The work is the same; the runner is not.
+    // `src/tests/timeout-headroom.ts` names the next test past half its budget
+    // on every CI run.
+  }, 30_000);
 
   it("no guide promises a dropped connection is harmless for a tool whose run fetches", () => {
     for (const guide of guides) {
