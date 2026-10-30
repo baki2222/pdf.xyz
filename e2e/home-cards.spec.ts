@@ -23,9 +23,43 @@ import { toolFamilies } from "../src/lib/tools/families";
  * card to say. The bound is the measurement plus a platform margin (text
  * metrics differ between Windows and CI's Linux), so the page cannot grow
  * back toward 14,131 unseen.
+ *
+ * DERIVED FROM THE CARD COUNT since 2026-10-30. The bound was a typed height
+ * (5,200 at 1440, 11,300 at 390) written for fifty cards, and the owner's
+ * brief puts EVERY tool on the home page as a card — so four new tools
+ * (PR #233) made a correct page "too tall" (5,275 on CI): the number held
+ * the catalogue's size, not the page's compactness. What the brief asks is
+ * that the page around the grid stays short and each card stays a card, so
+ * the bound is now two parts, each measured and each held on its own:
+ *
+ *   height  <  CHROME_MAX  +  rows × ROW_MAX
+ *
+ * `rows` is read from the page (distinct card tops) and must equal
+ * ceil(cards / columns), so a grid that silently stacked into one column
+ * cannot buy itself room. Measured on the served build (Windows Chromium,
+ * 2026-10-30, 54 tools): at 1440, 5 columns × 11 rows, grid 1,686px
+ * (153.3px a row), the rest of the page 3,587px; at 390, 1 column × 54
+ * rows, grid 6,181px (114.5 a row), the rest 4,173px. Each MAX is that
+ * measurement plus the same platform margin as before. At fifty tools the
+ * derived bound is 5,250 / 10,700 — no looser than the typed one was.
  */
-// Desktop: the brief's 5,000 plus the same platform margin.
-const MAX_HEIGHT = { desktop: 5200, phone: 11300 } as const;
+const CHROME_MAX = { desktop: 3650, phone: 4450 } as const;
+const ROW_MAX = { desktop: 160, phone: 125 } as const;
+
+/** The page's height against the derived bound — one predicate for both uses. */
+function fitsBound(
+  m: { page: number; grid: number; rows: number },
+  kind: keyof typeof CHROME_MAX,
+): string[] {
+  const out: string[] = [];
+  if (m.page - m.grid >= CHROME_MAX[kind])
+    out.push(`the page around the grid is ${m.page - m.grid}px`);
+  if (m.grid / m.rows >= ROW_MAX[kind])
+    out.push(`a row of cards is ${(m.grid / m.rows).toFixed(1)}px`);
+  if (m.page >= CHROME_MAX[kind] + m.rows * ROW_MAX[kind])
+    out.push(`the page is ${m.page}px for ${m.rows} rows`);
+  return out;
+}
 
 const grid = "section#tools ul[data-tool-grid] > li";
 
@@ -82,22 +116,47 @@ test.describe("with JavaScript off", () => {
   });
 });
 
-for (const [name, viewport, max] of [
-  ["1440", { width: 1440, height: 900 }, MAX_HEIGHT.desktop],
-  ["390", { width: 390, height: 844 }, MAX_HEIGHT.phone],
+for (const [name, viewport, kind] of [
+  ["1440", { width: 1440, height: 900 }, "desktop"],
+  ["390", { width: 390, height: 844 }, "phone"],
 ] as const) {
-  test(`at ${name}px the home page is under ${max}px tall`, async ({
+  test(`at ${name}px the home page is no taller than its cards need`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
-    const height = await page.evaluate(
-      () => document.documentElement.scrollHeight,
-    );
     // Health: a page that failed to render is short too.
     await expect(page.locator(grid)).toHaveCount(getAllToolSlugs().length);
-    expect(height).toBeGreaterThan(1500);
-    expect(height).toBeLessThan(max);
+    const m = await page.evaluate((selector) => {
+      const items = [...document.querySelectorAll(selector)];
+      const tops = items.map((li) =>
+        Math.round(li.getBoundingClientRect().top + window.scrollY),
+      );
+      const rowTops = [...new Set(tops)];
+      const list = items[0]!.parentElement!.getBoundingClientRect();
+      return {
+        page: document.documentElement.scrollHeight,
+        grid: Math.round(list.height),
+        rows: rowTops.length,
+        cols: tops.filter((t) => t === rowTops[0]).length,
+        cards: items.length,
+      };
+    }, grid);
+    expect(m.page).toBeGreaterThan(1500);
+    // The rows are the grid's, not a stack: ceil(cards / columns).
+    expect(m.rows).toBe(Math.ceil(m.cards / m.cols));
+    expect(fitsBound(m, kind)).toEqual([]);
+    // Positive controls through the same predicate: 400px more page around
+    // the grid, or rows 20px taller, must each be caught.
+    expect(
+      fitsBound({ ...m, page: m.page + 400 }, kind).length,
+    ).toBeGreaterThan(0);
+    expect(
+      fitsBound(
+        { ...m, grid: m.grid + 20 * m.rows, page: m.page + 20 * m.rows },
+        kind,
+      ).length,
+    ).toBeGreaterThan(0);
   });
 }
 

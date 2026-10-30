@@ -465,7 +465,7 @@ function ScanTile({
   return (
     <li
       data-scan-page={index + 1}
-      className="border-line bg-wash rounded-panel flex items-center gap-3 border p-2"
+      className="border-line bg-wash rounded-panel flex min-w-0 items-center gap-3 border p-2"
     >
       <div className="bg-canvas rounded-tag grid h-16 w-16 shrink-0 place-items-center overflow-hidden">
         {preview ? (
@@ -486,6 +486,9 @@ function ScanTile({
             {" "}
             · {formatBytes(item.size)}
           </span>
+        </p>
+        <p className="text-muted truncate text-xs" title={item.name}>
+          {item.name}
         </p>
         <div className="flex flex-wrap gap-1">
           <TileButton
