@@ -31,7 +31,16 @@ import {
 } from "../../src/lib/pdf/pdf-to-image";
 import { DEFAULT_REDACTION_DRAFT } from "../../src/lib/pdf/redact-defaults";
 import { addWatermark } from "../../src/lib/pdf/watermark";
-import { addPageNumbers } from "../../src/lib/pdf/page-numbers";
+import { addPageNumbers, batesFormat } from "../../src/lib/pdf/page-numbers";
+import { mergePdfs } from "../../src/lib/pdf/engine";
+import { mergeAlternating } from "../../src/lib/pdf/merge-alternate";
+import {
+  BLUE,
+  RED,
+  bmpOf,
+  gifOf,
+  type RGB,
+} from "../../src/tests/image-format-fixtures";
 import { NO_CROP, cropPdf } from "../../src/lib/pdf/crop";
 import { SCAN_PAGE_SIZES, scansToPdf } from "../../src/lib/pdf/scan-to-pdf";
 import { RESIZE_SIZES, resizePdf } from "../../src/lib/pdf/resize";
@@ -431,6 +440,66 @@ const NUP_FAILS = {
   sheets: "four pages, two to a portrait A4 sheet",
   order: "page 1 above page 2 on sheet 1, page 3 above page 4 on sheet 2",
 } as const;
+
+/** Why each option-wave-2 proof (2026-10-30) rejects an artifact. */
+const ALTERNATE_FAILS = {
+  alternated: "pages alternate between the two files",
+  reversed: "the backs file's pages were taken last first",
+} as const;
+const BATES_FAILS = {
+  padded: "every page carries a zero-padded Bates number",
+  start: "the numbers start at First number (124)",
+} as const;
+const DECODED_FAILS = {
+  pages: "one page per image: a WebP, a GIF and a BMP",
+  sizes: "each page holds its image at the image's own pixel size",
+  firstFrame: "the GIF page is its first (red) frame",
+} as const;
+
+/** A solid-colour image the browser encodes (`image/webp` or `image/jpeg`). */
+async function solidImageInPage(
+  page: Page,
+  mime: "image/webp" | "image/jpeg",
+  width: number,
+  height: number,
+  [r, g, b]: RGB,
+): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ([type, w, h, fill]) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = w as number;
+      canvas.height = h as number;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("2d context unavailable");
+      ctx.fillStyle = fill as string;
+      ctx.fillRect(0, 0, w as number, h as number);
+      return canvas.toDataURL(type as string, 0.92);
+    },
+    [mime, width, height, `rgb(${r},${g},${b})`] as const,
+  );
+  if (!dataUrl.startsWith(`data:${mime}`)) {
+    throw new Error(`this browser cannot encode ${mime}`);
+  }
+  return Buffer.from(dataUrl.split(",")[1]!, "base64");
+}
+
+/** A PDF of one JPEG per page, each page the JPEG's own size. */
+async function jpegPagesPdf(jpegs: Buffer[]): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  for (const jpeg of jpegs) {
+    // A copy: a pooled Buffer shares an ArrayBuffer pdf-lib reads from 0.
+    // Through the one embed/draw boundary, as every other fixture here.
+    const image = await embedRasterImage(doc, new Uint8Array(jpeg), "jpg");
+    const page = doc.addPage([image.width, image.height]);
+    await drawRasterImage(page, image, {
+      x: 0,
+      y: 0,
+      width: image.width,
+      height: image.height,
+    });
+  }
+  return Buffer.from(await doc.save());
+}
 
 export const CASES: Record<string, ToolCase> = {
   "merge-pdf": {
@@ -2601,6 +2670,193 @@ export const VARIANTS: readonly VariantCase[] = [
       return [original, await withBlank(2), await withBlank(1, [240, 320])];
     },
     rejectsBecause: [THREE_PAGES, BLANK_SECOND, SAME_SIZE],
+  },
+
+  {
+    slug: "merge-pdf",
+    name: "Alternate pages, Reverse page order on the backs file",
+    kind: "merge",
+    artifact: "pdf",
+    run: async (ctx) => {
+      // A double-sided scan: fronts.pdf in sheet order, backs.pdf fed last
+      // sheet first, so its page n is the back of sheet 4 - n.
+      const fronts = Buffer.from(await makeTextPdf("fronts.pdf", { pages: 3 }));
+      const backs = Buffer.from(await makeTextPdf("backs.pdf", { pages: 3 }));
+      ctx.data["fronts.pdf"] = fronts;
+      ctx.data["backs.pdf"] = backs;
+      await uploadPayloads(ctx.page, [
+        { name: "fronts.pdf", mimeType: "application/pdf", buffer: fronts },
+        { name: "backs.pdf", mimeType: "application/pdf", buffer: backs },
+      ]);
+      await expect(
+        ctx.page.getByText("backs.pdf", { exact: true }),
+      ).toBeVisible();
+      const mode = ctx.page.getByRole("radio", { name: "Alternate pages" });
+      await waitForHydration(mode);
+      await mode.click();
+      await ctx.page
+        .getByRole("checkbox", { name: "Reverse the page order of backs.pdf" })
+        .check();
+      return runAndDownload(
+        ctx,
+        /merge 2 pdfs/i,
+        /pdfs merged/i,
+        /download merged pdf/i,
+      );
+    },
+    assert: async (buf) => {
+      const texts = (await pdfPageTexts(buf)).map(normalizeText);
+      const which = texts.map((t) =>
+        t.includes("fronts.pdf::")
+          ? "F"
+          : t.includes("backs.pdf::")
+            ? "B"
+            : "?",
+      );
+      expect(which, ALTERNATE_FAILS.alternated).toEqual([
+        "F",
+        "B",
+        "F",
+        "B",
+        "F",
+        "B",
+      ]);
+      const backs = texts.filter((t) => t.includes("backs.pdf::"));
+      expect(
+        backs.map((t) => /backs\.pdf::page-(\d)/.exec(t)?.[1]),
+        ALTERNATE_FAILS.reversed,
+      ).toEqual(["3", "2", "1"]);
+      expect(
+        texts
+          .filter((t) => t.includes("fronts.pdf::"))
+          .map((t) => /fronts\.pdf::page-(\d)/.exec(t)?.[1]),
+      ).toEqual(["1", "2", "3"]);
+    },
+    // Built by the engines in Node, each differing in ONE way: the default
+    // merge (one file after another), and Alternate pages without Reverse.
+    control: async (ctx) => {
+      const files = [input(ctx, "fronts.pdf"), input(ctx, "backs.pdf")];
+      return [
+        Buffer.from(await mergePdfs(files)),
+        Buffer.from(await mergeAlternating(files)),
+      ];
+    },
+    rejectsBecause: [ALTERNATE_FAILS.alternated, ALTERNATE_FAILS.reversed],
+  },
+
+  {
+    slug: "page-numbers",
+    name: "Bates number, prefix ACME-, 6 digits, from 124",
+    kind: "page-numbers",
+    artifact: "pdf",
+    run: async (ctx) => {
+      await uploadTextPdf(ctx, "production.pdf", { pages: 2 });
+      const style = ctx.page.getByRole("radio", { name: "Bates number" });
+      await waitForHydration(style);
+      await style.click();
+      await ctx.page.getByLabel("Prefix").fill("ACME-");
+      await ctx.page.getByLabel("First number").fill("124");
+      await expect(ctx.page.getByText("ACME-000124")).toBeVisible();
+      return runAndDownload(
+        ctx,
+        /add page numbers/i,
+        /page numbers added/i,
+        /download numbered pdf/i,
+      );
+    },
+    assert: async (buf) => {
+      const texts = (await pdfPageTexts(buf)).map(normalizeText);
+      expect(texts.length).toBe(2);
+      const numbers = texts.map((t) => /ACME-(\d+)/.exec(t)?.[1] ?? "");
+      expect(
+        numbers.every((n) => n.length === 6),
+        `${BATES_FAILS.padded}: ${numbers.join(", ")}`,
+      ).toBe(true);
+      expect(numbers, BATES_FAILS.start).toEqual(["000124", "000125"]);
+    },
+    // Each differs in ONE way: the unpadded prefix template the page used to
+    // recommend ("ACME-{n}"), and the right template from the default 1.
+    control: async (ctx) => {
+      const source = input(ctx, "production.pdf");
+      return [
+        Buffer.from(
+          await addPageNumbers(source, { format: "ACME-{n}", startAt: 124 }),
+        ),
+        Buffer.from(
+          await addPageNumbers(source, { format: batesFormat("ACME-", 6) }),
+        ),
+      ];
+    },
+    rejectsBecause: [BATES_FAILS.padded, BATES_FAILS.start],
+  },
+
+  {
+    slug: "jpg-to-pdf",
+    name: "a WebP, a two-frame GIF and a BMP",
+    kind: "image-to-pdf",
+    artifact: "pdf",
+    run: async (ctx) => {
+      const webp = await solidImageInPage(ctx.page, "image/webp", 40, 30, BLUE);
+      const gif = gifOf(12, 8, [RED, BLUE]);
+      const bmp = bmpOf(20, 10, BLUE);
+      await uploadPayloads(ctx.page, [
+        { name: "a.webp", mimeType: "image/webp", buffer: webp },
+        { name: "b.gif", mimeType: "image/gif", buffer: gif },
+        { name: "c.bmp", mimeType: "image/bmp", buffer: bmp },
+      ]);
+      await expect(ctx.page.getByText("c.bmp", { exact: true })).toBeVisible();
+      return runAndDownload(
+        ctx,
+        /create pdf/i,
+        /jpg pdf created/i,
+        /^download pdf$/i,
+      );
+    },
+    assert: async (buf, ctx) => {
+      const pages = await pdfPageImages(buf);
+      expect(pages.length, DECODED_FAILS.pages).toBe(3);
+      expect(
+        pages.map((p) => [p[0]?.width, p[0]?.height]),
+        DECODED_FAILS.sizes,
+      ).toEqual([
+        [40, 30],
+        [12, 8],
+        [20, 10],
+      ]);
+      // Opaque, so each was re-encoded as a JPEG.
+      expect(pages.map((p) => p[0]?.filter)).toEqual([
+        "/DCTDecode",
+        "/DCTDecode",
+        "/DCTDecode",
+      ]);
+      const gif = (await pdfImages(buf)).find(
+        (i) => i.width === 12 && i.height === 8,
+      )!;
+      const stats = await decodeImageInPage(ctx.page, gif.bytes, "image/jpeg");
+      expect(
+        stats.redPixels / stats.totalPixels,
+        DECODED_FAILS.firstFrame,
+      ).toBeGreaterThan(0.9);
+    },
+    // JPEG pages built in the browser and assembled by pdf-lib, each
+    // differing in ONE way: the GIF page missing; the GIF page at twice its
+    // size; the GIF page as its SECOND (blue) frame.
+    control: async (ctx) => {
+      const jpeg = (w: number, h: number, colour: RGB) =>
+        solidImageInPage(ctx.page, "image/jpeg", w, h, colour);
+      const webp = await jpeg(40, 30, BLUE);
+      const bmp = await jpeg(20, 10, BLUE);
+      return [
+        await jpegPagesPdf([webp, bmp]),
+        await jpegPagesPdf([webp, await jpeg(24, 16, RED), bmp]),
+        await jpegPagesPdf([webp, await jpeg(12, 8, BLUE), bmp]),
+      ];
+    },
+    rejectsBecause: [
+      DECODED_FAILS.pages,
+      DECODED_FAILS.sizes,
+      DECODED_FAILS.firstFrame,
+    ],
   },
 ];
 

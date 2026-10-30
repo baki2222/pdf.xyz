@@ -28,9 +28,12 @@ import { getPageCount, mergePdfs } from "@/lib/pdf/engine";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { baseName, mergedOutputName, partitionPdfFiles } from "@/lib/pdf/files";
 import {
+  MERGE_MODE_LABEL,
+  MERGE_MODES,
   MERGE_SORT_LABEL,
   MERGE_SORTS,
   sortMergeItems,
+  type MergeMode,
   type MergeSort,
 } from "@/lib/pdf/merge-order";
 import { parsePageList } from "@/lib/pdf/ranges";
@@ -74,6 +77,8 @@ interface MergeItem {
   seq: number;
   /** The pages to take, as typed ("1-3, 5"); empty takes every page. */
   range: string;
+  /** Alternate pages only: take this file's pages last first. */
+  reverse: boolean;
 }
 
 /** An item's page selection, read: the 0-based pages, or why it can't be. */
@@ -132,6 +137,10 @@ export function MergeRunner() {
   const bookmarksId = useId();
   const [contentsPage, setContentsPage] = useState(false);
   const contentsId = useId();
+  // How the pages are ordered: one file after another (the merge it always
+  // was), or one page from each file in turn.
+  const [mode, setMode] = useState<MergeMode>("append");
+  const alternate = mode === "alternate";
   const rangeIdBase = useId();
   // Files handed off from the workspace (merge collects many into one).
   const handoff = useToolHandoff("merge-pdf");
@@ -209,6 +218,7 @@ export function MergeRunner() {
               cover: null,
               seq: seqOf.get(file) ?? 0,
               range: "",
+              reverse: false,
             },
           ]);
           attachCover(id, bytes);
@@ -268,6 +278,7 @@ export function MergeRunner() {
     setOrdered(null);
     setFileBookmarks(false);
     setContentsPage(false);
+    setMode("append");
   };
 
   const keepDropOrder = () => {
@@ -286,12 +297,31 @@ export function MergeRunner() {
     setItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, range } : item)),
     );
+  const setReverse = (id: string, reverse: boolean) =>
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, reverse } : item)),
+    );
 
   const selections = useMemo(() => items.map(selectionOf), [items]);
   const selectionError = selections.some((s) => s.error !== null);
 
   const onMerge = () =>
     run(async () => {
+      if (alternate) {
+        // Loaded with the mode, not with the page: the default merge never
+        // pays for it.
+        const { mergeAlternating } = await import("@/lib/pdf/merge-alternate");
+        const bytes = await mergeAlternating(
+          items.map((i) => i.bytes),
+          {
+            ...(selections.some((s) => s.pages)
+              ? { pages: selections.map((s) => s.pages ?? undefined) }
+              : {}),
+            reverse: items.map((i) => i.reverse),
+          },
+        );
+        return { bytes, contentsPages: 0 };
+      }
       let contentsPages = 0;
       const bytes = await mergePdfs(
         items.map((i) => i.bytes),
@@ -412,6 +442,41 @@ export function MergeRunner() {
           ))}
         </span>
       </div>
+      <div
+        role="radiogroup"
+        aria-label="Page order"
+        className="flex flex-wrap items-center gap-2 text-xs"
+      >
+        <span className="text-muted">Page order</span>
+        <span className="border-line bg-wash rounded-ctl inline-flex flex-wrap gap-1 border p-1">
+          {MERGE_MODES.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={mode === option}
+              onClick={() => setMode(option)}
+              className={cn(
+                // 44 px tall: the phone pass measures every radio in the
+                // panel, and this one is a thumb's target on a phone.
+                "rounded-tag inline-flex h-11 items-center px-3 font-medium transition",
+                mode === option
+                  ? "bg-panel text-fg"
+                  : "text-muted hover:text-fg hover:bg-panel",
+              )}
+            >
+              {MERGE_MODE_LABEL[option]}
+            </button>
+          ))}
+        </span>
+        {alternate && (
+          <span className="text-muted w-full">
+            One page from each file in turn, top file first; a longer
+            file&apos;s extra pages go at the end. For a double-sided scan, tick
+            Reverse page order on a backs file scanned last page first.
+          </span>
+        )}
+      </div>
       <RunnerSection
         title={`${items.length} file${items.length === 1 ? "" : "s"} · ${totalPages} pages`}
         aside={
@@ -518,6 +583,17 @@ export function MergeRunner() {
                 error={selections[index]?.error ?? null}
                 onChange={(range) => setRange(item.id, range)}
               />
+              {alternate && (
+                <label className="text-muted flex w-full items-center gap-2 pl-7 text-xs sm:pl-28">
+                  <input
+                    type="checkbox"
+                    checked={item.reverse}
+                    onChange={(e) => setReverse(item.id, e.target.checked)}
+                    aria-label={`Reverse the page order of ${item.name}`}
+                  />
+                  Reverse page order
+                </label>
+              )}
             </li>
           ))}
           {/* The row a file is read into, at a file row's height: a 36 px
@@ -564,47 +640,57 @@ export function MergeRunner() {
         hint="Drop files or click to browse"
       />
 
-      <label
-        htmlFor={bookmarksId}
-        className="text-fg flex items-start gap-2 text-sm"
-      >
-        <input
-          id={bookmarksId}
-          type="checkbox"
-          checked={fileBookmarks}
-          onChange={(e) => setFileBookmarks(e.target.checked)}
-          className="mt-0.5"
-        />
-        <span>
-          Add a bookmark for each file
-          <span className="text-muted block text-xs">
-            Named after the file, opening its first page. Bookmarks already in
-            your files are kept either way; with this on, they sit under their
-            file&apos;s bookmark.
-          </span>
-        </span>
-      </label>
+      {alternate ? (
+        <p className="text-muted text-xs">
+          With alternating pages a file no longer has one first page, so a
+          bookmark for each file and a contents page are not offered. Bookmarks
+          already in your files are kept.
+        </p>
+      ) : (
+        <>
+          <label
+            htmlFor={bookmarksId}
+            className="text-fg flex items-start gap-2 text-sm"
+          >
+            <input
+              id={bookmarksId}
+              type="checkbox"
+              checked={fileBookmarks}
+              onChange={(e) => setFileBookmarks(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Add a bookmark for each file
+              <span className="text-muted block text-xs">
+                Named after the file, opening its first page. Bookmarks already
+                in your files are kept either way; with this on, they sit under
+                their file&apos;s bookmark.
+              </span>
+            </span>
+          </label>
 
-      <label
-        htmlFor={contentsId}
-        className="text-fg flex items-start gap-2 text-sm"
-      >
-        <input
-          id={contentsId}
-          type="checkbox"
-          checked={contentsPage}
-          onChange={(e) => setContentsPage(e.target.checked)}
-          className="mt-0.5"
-        />
-        <span>
-          Add a contents page
-          <span className="text-muted block text-xs">
-            A first page listing each file by name with the page it starts on;
-            click a line to go there. It follows the order and pages chosen
-            above.
-          </span>
-        </span>
-      </label>
+          <label
+            htmlFor={contentsId}
+            className="text-fg flex items-start gap-2 text-sm"
+          >
+            <input
+              id={contentsId}
+              type="checkbox"
+              checked={contentsPage}
+              onChange={(e) => setContentsPage(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Add a contents page
+              <span className="text-muted block text-xs">
+                A first page listing each file by name with the page it starts
+                on; click a line to go there. It follows the order and pages
+                chosen above.
+              </span>
+            </span>
+          </label>
+        </>
+      )}
 
       {rejectionsPanel}
       {error && <ErrorNote message={error} />}
@@ -613,7 +699,9 @@ export function MergeRunner() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted inline-flex items-center gap-1.5 text-xs">
             <Layers className="text-accent size-3.5" aria-hidden />
-            Files are combined in the order shown above.
+            {alternate
+              ? "Pages alternate between the files shown above."
+              : "Files are combined in the order shown above."}
           </p>
           <RunReason
             reason={

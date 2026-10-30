@@ -11,10 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from "@/lib/tools/limits";
-import {
-  isImageAllowedForKind,
-  sniffRasterFormat,
-} from "@/lib/pdf/image-to-pdf";
+import { isEmbeddableImage, sniffRasterFormat } from "@/lib/pdf/image-to-pdf";
 import {
   SCAN_ENHANCEMENTS,
   type ScanEnhancement,
@@ -102,7 +99,7 @@ export function ScanRunner() {
     const accepted: File[] = [];
     const rejected: Rejection[] = [];
     for (const file of files) {
-      if (!isImageAllowedForKind("jpg", file)) {
+      if (!isEmbeddableImage(file)) {
         rejected.push({ name: file.name, reason: "Choose JPG or PNG photos." });
       } else if (file.size <= 0) {
         rejected.push({ name: file.name, reason: "File is empty." });

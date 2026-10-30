@@ -37,6 +37,7 @@ import {
 } from "./formats";
 import type { ToolIndexEntry } from "./tool-index";
 import { unsupportedAnswer } from "./unsupported";
+import { isImageFormatLabel } from "@/lib/jobs/mime-by-format";
 
 /** The tools the model names. Every one is a catalogue slug (tested). */
 const UNLOCK = "unlock-pdf";
@@ -322,7 +323,7 @@ function filesNoun(files: readonly FileFacts[]): {
 } {
   if (files.length > 0 && files.every(isPdf))
     return { noun: "pdf", format: "PDF" };
-  if (files.every((f) => f.format === "JPG" || f.format === "PNG"))
+  if (files.every((f) => f.format !== null && isImageFormatLabel(f.format)))
     return { noun: "image", format: null };
   const formats = new Set(files.map((f) => f.format));
   return { noun: "file", format: formats.size === 1 ? [...formats][0]! : null };

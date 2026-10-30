@@ -299,7 +299,12 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
         container
           .querySelector<HTMLInputElement>('input[type="file"]')
           ?.getAttribute("accept") ?? "";
-      const corpus = ["png", "PNG", "jpg", "JPG", "jpeg", "webp", "gif", "pdf"]
+      // bmp, tiff, heic and avif joined 2026-10-30, when webp and gif became
+      // formats the runner takes: the refused half must not shrink.
+      const corpus = [
+        ...["png", "PNG", "jpg", "JPG", "jpeg", "webp", "gif", "bmp"],
+        ...["tiff", "heic", "avif", "pdf"],
+      ]
         .flatMap((ext) => [
           { name: `a.${ext}`, type: "" },
           { name: "a", type: `image/${ext.toLowerCase()}` },
@@ -344,7 +349,28 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
     });
   }
 
-  it("a WebP named .png is refused when it is picked, by its real format", async () => {
+  // HISTORY: "a WebP named .png is refused…" until 2026-10-30, when WebP
+  // became a format both image tools convert. A HEIC is refused the same way.
+  it("a HEIC named .png is refused when it is picked, by its real format", async () => {
+    const { container } = renderRunner(<ImageToPdfRunner kind="png" />);
+    const heic = new Uint8Array([
+      0,
+      0,
+      0,
+      0x18,
+      ...Buffer.from("ftypheic"),
+      0,
+      0,
+      0,
+      0,
+    ]);
+    pick(container, [new File([heic], "pic.png", { type: "image/png" })]);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/"pic\.png" is a HEIC image/);
+    expect(screen.queryByText(/1 image$/)).toBeNull();
+  });
+
+  it("a WebP named .png is taken when it is picked: it is listed, not refused", async () => {
     const { container } = renderRunner(<ImageToPdfRunner kind="png" />);
     const webp = new Uint8Array([
       ...Buffer.from("RIFF"),
@@ -357,9 +383,8 @@ describe("the image tools take a mixed batch, and judge files by their bytes", (
       0,
     ]);
     pick(container, [new File([webp], "pic.png", { type: "image/png" })]);
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/"pic\.png" is a WebP image/);
-    expect(screen.queryByText(/1 image$/)).toBeNull();
+    await screen.findByText(/1 image$/);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

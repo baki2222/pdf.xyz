@@ -61,6 +61,15 @@ const MARGINS = or(
  * claims-vs-capability.test.ts holds every paper and margin this page names
  * to the runner's offer and to the page the engine draws.
  *
+ * WEBP, GIF AND BMP, since 2026-10-30 (src/lib/pdf/image-transcode.ts): the
+ * runner sniffs them (`sniffImageFormat`) and the engine has the BROWSER
+ * decode each (`createImageBitmap`, which yields a GIF's first frame) and
+ * re-encodes the pixels on a canvas, JPEG at quality 0.92 when every pixel is
+ * opaque and PNG otherwise. src/lib/pdf/image-formats.test.ts reads the saved
+ * PDF's image XObjects back: pixel size, filter, soft mask, the GIF's colour.
+ * The FAQ said "HEIC and WebP are not supported" until then; the refusal
+ * example in the steps names an AVIF, which is still refused by name.
+ *
  * Deliberately NOT described:
  *  - "Start over". The runner passes `clearItems` as the result panel's
  *    `onReset`, which empties the list but never calls `useAsyncRun().reset`,
@@ -78,7 +87,7 @@ const content: ToolContent = {
   intro: [
     "JPG to PDF takes a batch of JPG or JPEG photos and builds a single PDF with one image on each page. You add the pictures, put them in the order you want, and press Create PDF. The assembly happens inside this browser tab: your photos are read from your device, laid onto pages there, and the finished PDF is saved when you press Download PDF. The images are not uploaded to pdf.xyz.",
     `Unless you change the page setup, each photo goes on a white, portrait US Letter page, centred inside a 0.5 in margin. Before you create the PDF you can pick the page size (${SIZES}), the orientation (${ORIENTATIONS}) and the margin (${MARGINS}). Auto turns the page sideways for a photo that is wider than it is tall, and Fit to image makes each page exactly the size of its photo plus the margin. On every page size a photo is shrunk only if it is too big to fit; one that already fits is never enlarged, so a low-resolution picture can look small in the middle of an A4 page.`,
-    `The JPEG data is copied into the PDF as it is rather than re-encoded, so there is no second round of compression and the PDF ends up close to the combined size of your photos. A single photo may be as large as ${MAX_IMAGE_MB} MB. PNG images, transparent ones included, can go into the same PDF, and any transparent areas come out white.`,
+    `The JPEG data is copied into the PDF as it is rather than re-encoded, so there is no second round of compression and the PDF ends up close to the combined size of your photos. A single photo may be as large as ${MAX_IMAGE_MB} MB. PNG images, transparent ones included, can go into the same PDF, and any transparent areas come out white. WebP, GIF and BMP images can go in too: your browser decodes each one and it is saved into the PDF again, as a high-quality JPEG when it has no transparency and as a PNG when it does, so unlike a JPEG it is re-encoded. A GIF contributes its first frame only.`,
   ],
   useCases: [
     {
@@ -105,7 +114,7 @@ const content: ToolContent = {
   steps: [
     {
       title: "Add your JPG images",
-      body: `Drop JPG or JPEG files (PNG works too) onto the box that reads "Drop JPG images here, or browse", or click it to pick them. The box stays on the page, so you can add more in several goes. An alert below the box names each file it turns away: "Choose PNG or JPG images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "photo.jpg" is a WebP image., when a file's contents are not a PNG or JPEG.`,
+      body: `Drop JPG or JPEG files (PNG works too) onto the box that reads "Drop JPG images here, or browse", or click it to pick them. The box stays on the page, so you can add more in several goes. WebP, GIF and BMP files are taken as well. An alert below the box names each file it turns away: "Choose PNG, JPG, WebP, GIF or BMP images." for another type, "File is empty." for a zero-byte file, "Max ${MAX_IMAGE_MB} MB per image." for one that is too big, "Could not read this file — pick it again." when the file cannot be read, and a note naming the real format, such as "photo.jpg" is an AVIF image., when a file's contents are none of those.`,
     },
     {
       title: "Set the page order",
@@ -138,8 +147,8 @@ const content: ToolContent = {
       a: "Yes. Because each JPEG goes into the PDF as it is, apart from a rotation tag reset to upright, any metadata stored inside it travels too, including camera details and GPS coordinates if your camera recorded them. Strip it from the photos first if the PDF will be shared widely.",
     },
     {
-      q: "Can I add PNG, HEIC or WebP images?",
-      a: 'PNG, yes. PNG and JPG files can go into the same PDF here, each on its own page, and any transparent areas of a PNG come out white. HEIC and WebP are not supported, so convert those pictures to JPG first. A .heic or .webp file is turned away when you add it with "Choose PNG or JPG images." One saved under a .jpg or .png name is caught by its contents, with a note naming its real format.',
+      q: "Can I add PNG, WebP, GIF or BMP images?",
+      a: 'Yes, all four, mixed with JPGs in the same PDF, each on its own page. A PNG goes in as it is, and any transparent areas come out white. A WebP, GIF or BMP is decoded by your browser and saved again: as a high-quality JPEG when the picture has no transparency, as a PNG when it does. That is a re-encode, so a WebP photo can come out slightly larger or softer than the file you had, and an animated GIF gives only its first frame. Each file is judged by its contents, not its name, so a WebP saved as .jpg still goes in. A file of any other kind is turned away when you add it with "Choose PNG, JPG, WebP, GIF or BMP images."',
     },
     {
       q: "Can I make A4 or landscape pages?",

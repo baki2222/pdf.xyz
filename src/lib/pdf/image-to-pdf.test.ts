@@ -49,8 +49,14 @@ describe("image-to-pdf", () => {
     expect(
       isImageAllowedForKind("png", { name: "a.jpg", type: "image/jpeg" }),
     ).toBe(true);
+    // INVERTED 2026-10-30: this asserted `false` while no browser decode
+    // existed; WebP is now decoded and re-encoded (image-formats.test.ts).
     expect(
       isImageAllowedForKind("png", { name: "a.webp", type: "image/webp" }),
+    ).toBe(true);
+    // The edge moved, it did not vanish: TIFF is still refused.
+    expect(
+      isImageAllowedForKind("png", { name: "a.tiff", type: "image/tiff" }),
     ).toBe(false);
   });
 
@@ -94,19 +100,22 @@ describe("image-to-pdf", () => {
   });
 
   it("names the real format of a file it cannot embed", async () => {
-    const webp = new Uint8Array([
-      ...Buffer.from("RIFF"),
-      0x1a,
+    // HISTORY: the bytes here were a WebP until 2026-10-30, when WebP became
+    // a format the tool converts. A HEIC named .png is the same shape now.
+    const heic = new Uint8Array([
       0,
       0,
       0,
-      ...Buffer.from("WEBPVP8 "),
+      0x18,
+      ...Buffer.from("ftypheic"),
+      0,
+      0,
       0,
       0,
     ]);
     await expect(
-      imagesToPdf("png", [{ name: "pic.png", type: "image/png", bytes: webp }]),
-    ).rejects.toThrow(/"pic\.png" is a WebP image/);
+      imagesToPdf("png", [{ name: "pic.png", type: "image/png", bytes: heic }]),
+    ).rejects.toThrow(/"pic\.png" is a HEIC image/);
   });
 
   it("names output from first image", () => {

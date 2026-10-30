@@ -461,6 +461,13 @@ const FACTS: Record<string, readonly ToolFact[]> = {
         "Drag files to reorder before merging, use each row's move buttons, or sort by name — the output follows top to bottom.",
     },
     {
+      // MERGE_MODE_LABEL.alternate; merge-alternate.ts, read back page by
+      // page from the saved file by merge-alternate.test.ts.
+      label: "Alternate pages",
+      value:
+        "Optional: one page from each file in turn, with a longer file's extra pages at the end, and Reverse page order per file for a double-sided scan whose backs were fed last sheet first.",
+    },
+    {
       // merge-contents.ts; merge-contents-split-text.test.ts reads the page's
       // text and each link's /Dest back from a merged file.
       label: "Contents page",
@@ -506,8 +513,18 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       // wrong twice: it undercounted (there are four) and omitted the custom
       // template entirely. `page-numbers-formats.test.ts` pins this line to
       // PAGE_NUMBER_PRESETS so a new preset cannot leave it stale.
+      // {n:6} is the width token `page-numbers.ts` pads (bates-numbering.test.ts
+      // reads the padded text back from the saved file with pdf.js).
       value:
-        "Presets “Page 1 of N”, “1 / N”, “1”, or “– 1 –” — or write your own template using {n} and {total}.",
+        "Presets “Page 1 of N”, “1 / N”, “1”, or “– 1 –” — or write your own template using {n} and {total}, where {n:6} pads the number with zeros to 6 digits.",
+    },
+    {
+      label: "Bates numbering",
+      // The runner's Numbering style "Bates number": Prefix + Digits, counted
+      // from First number. The example is batesFormat("ACME-", 6) at 1,
+      // checked as extractable text by bates-numbering.test.ts.
+      value:
+        "A Bates number style sets a prefix and a digit count, such as ACME-000001, counting on from First number so a new batch continues the last.",
     },
     {
       label: "Placement",

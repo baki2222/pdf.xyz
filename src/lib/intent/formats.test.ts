@@ -25,6 +25,7 @@ import {
 } from "@/lib/jobs/mime-by-format";
 import { isLikelyPdf } from "@/lib/pdf/files";
 import {
+  sniffImageFormat,
   sniffRasterFormat,
   unsupportedImageMessage,
 } from "@/lib/pdf/image-to-pdf";
@@ -358,34 +359,39 @@ describe("the bytes win when there are bytes", () => {
   it("names an unsupported image the way the image tools' refusal names it", () => {
     // The image runners refuse with `"x" is a WebP image.` — read from the
     // engine's own message, so the two recognisers cannot drift apart.
+    // HISTORY: WebP, GIF and BMP were rows here until 2026-10-30, when the
+    // image tools began converting them; the test below now holds those
+    // three to the engine's sniffer instead.
     const engineLabel: Partial<Record<FileFormat, string>> = {
-      WEBP: "WebP",
-      GIF: "GIF",
-      BMP: "BMP",
       TIFF: "TIFF",
       AVIF: "AVIF",
       HEIC: "HEIC",
       HEIF: "HEIC",
     };
-    const rows = (
-      [
-        "webp",
-        "gif",
-        "bmp",
-        "tiffLE",
-        "tiffBE",
-        "avif",
-        "heic",
-        "heif",
-      ] as const
-    ).map((key) => {
-      const ours = sniffFormat(HEADS[key], "x")!;
-      return [key, ours, unsupportedImageMessage("x", HEADS[key])] as const;
-    });
+    const rows = (["tiffLE", "tiffBE", "avif", "heic", "heif"] as const).map(
+      (key) => {
+        const ours = sniffFormat(HEADS[key], "x")!;
+        return [key, ours, unsupportedImageMessage("x", HEADS[key])] as const;
+      },
+    );
     for (const [key, ours, message] of rows) {
       expect(engineLabel[ours], key).toBeDefined();
-      expect(message, key).toContain(`is a ${engineLabel[ours]} image`);
+      expect(message, key).toMatch(
+        new RegExp(`is an? ${engineLabel[ours]} image`),
+      );
     }
+  });
+
+  it("the images the image tools convert are the same images to both recognisers", () => {
+    // Ours says WEBP / GIF / BMP; the engine's must say the same, or a file
+    // the hand-off sends to JPG to PDF is refused there (and the reverse).
+    for (const key of ["webp", "gif", "bmp"] as const) {
+      const ours = sniffFormat(HEADS[key], "x");
+      expect(ours, key).toBe(key.toUpperCase());
+      expect(sniffImageFormat(HEADS[key]), key).toBe(key);
+    }
+    // Positive control: a still-unsupported one is the engine's null.
+    expect(sniffImageFormat(HEADS.tiffLE)).toBeNull();
   });
 });
 

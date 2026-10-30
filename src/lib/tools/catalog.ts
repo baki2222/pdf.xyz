@@ -293,7 +293,9 @@ export const tools: Tool[] = [
     badge: "popular",
     // Both image runners take PNG and JPEG alike, and the page's "In:" row
     // reads this list (image-to-pdf-accept.test.ts holds it to the gate).
-    accept: ["JPG", "JPEG", "PNG"],
+    // WEBP, GIF and BMP since 2026-10-30: decoded in the browser and
+    // re-encoded (image-transcode.ts), on both image tools.
+    accept: ["JPG", "JPEG", "PNG", "WEBP", "GIF", "BMP"],
     // ZIP: "One PDF per image" delivers the PDFs as one archive.
     outputs: ["PDF", "ZIP"],
     keywords: ["jpg to pdf", "jpeg to pdf", "image to pdf", "photos to pdf"],
@@ -307,7 +309,7 @@ export const tools: Tool[] = [
     category: "convert-to",
     icon: "png",
     processing: "client",
-    accept: ["PNG", "JPG", "JPEG"],
+    accept: ["PNG", "JPG", "JPEG", "WEBP", "GIF", "BMP"],
     // ZIP: "One PDF per image" delivers the PDFs as one archive.
     outputs: ["PDF", "ZIP"],
     keywords: ["png to pdf", "image to pdf", "transparent png pdf", "logos"],

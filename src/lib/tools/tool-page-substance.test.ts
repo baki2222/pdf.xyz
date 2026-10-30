@@ -1350,11 +1350,13 @@ describe("the converters' pages describe the page they produce", () => {
     // Health: four worded refusals plus the one that names a real format.
     expect(literal.length, all.join("\n")).toBeGreaterThanOrEqual(4);
     expect(computed).toEqual(["unsupportedImageMessage(file.name, bytes)"]);
-    const webp = new Uint8Array(12);
-    webp.set([...Buffer.from("RIFF")], 0);
-    webp.set([...Buffer.from("WEBP")], 8);
-    const named = unsupportedImageMessage("NAME", webp).split(". ")[0]! + ".";
-    expect(named).toBe('"NAME" is a WebP image.');
+    // HISTORY: the bytes were a WebP ('"NAME" is a WebP image.') until
+    // 2026-10-30, when WebP became a format the image tools convert. An AVIF
+    // is still refused by name, so it carries the same check.
+    const avif = new Uint8Array(12);
+    avif.set([...Buffer.from("ftypavif")], 4);
+    const named = unsupportedImageMessage("NAME", avif).split(". ")[0]! + ".";
+    expect(named).toBe('"NAME" is an AVIF image.');
     const namedShape = new RegExp(
       named.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace("NAME", '[^"]+'),
     );
