@@ -1182,9 +1182,7 @@ export function ProofsCard({
 function LoopStat({ label, value }: { label: string; value: number }) {
   return (
     <div className="border-line bg-wash rounded-ctl flex flex-col border px-2.5 py-2">
-      <span className="text-fg text-sm font-semibold tabular-nums">
-        {value}
-      </span>
+      <span className="text-fg tnum text-sm font-semibold">{value}</span>
       <span className="text-faint text-[0.65rem] tracking-wide uppercase">
         {label}
       </span>

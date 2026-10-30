@@ -137,7 +137,7 @@ export function SignaturePad({
           onPointerMove={extendStroke}
           onPointerUp={endStroke}
           onPointerLeave={endStroke}
-          className="block aspect-[26/9] w-full cursor-crosshair touch-none select-none"
+          className="block aspect-[26/9] w-full cursor-crosshair [touch-action:none] select-none"
         />
         <span
           className="pointer-events-none absolute inset-x-8 bottom-10 h-px bg-slate-300"

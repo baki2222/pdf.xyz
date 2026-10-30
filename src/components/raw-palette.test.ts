@@ -66,6 +66,9 @@ const SHIPPED = [
   "ring-1 ring·white/20 hover:ring·white/50",
   "border-line bg-panel crop-marks relative border p-4 shadow·[0_28px_48px_-32px_rgba(12,18,26,0.45)] sm:p-5",
   "size-1.5 shrink-0 rounded-full bg·emerald-600",
+  // Not shipped: the page tile's gradient as one arbitrary value (2026-10-30)
+  // is a raw colour by theme variable, and must be caught like `from·white`.
+  "rounded-ctl bg-[linear-gradient(to_bottom_right,var(--color·white),transparent)]",
 ].map((c) => c.replaceAll("·", "-"));
 
 function literals(file: string, source: string): string[] {
@@ -135,7 +138,7 @@ describe("components name a role, never a hue", () => {
     expect(SHIPPED.filter((c) => rawColours(c).length === 0)).toEqual([]);
     expect(
       rawColours(
-        "bg-panel text-muted ring-line-strong divide-line shadow-sheet bg-ok/10 border-err/30 text-xs shadow-lg",
+        "bg-panel text-muted ring-line-strong divide-line shadow-sheet bg-ok/10 border-err/30 text-xs shadow-lg bg-[linear-gradient(to_right_in_oklab,var(--sf-panel)_0px,transparent_100%)] bg-[var(--color-cat-ink)]",
       ),
     ).toEqual([]);
     // A class quoted in a comment is not read as a class. (Restored from "·"

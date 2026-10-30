@@ -290,7 +290,7 @@ function Strip({ children }: { children: ReactNode }) {
         aria-hidden
         data-scroll-more="left"
         className={cn(
-          "from-panel pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r to-transparent transition-opacity sm:hidden",
+          "pointer-events-none absolute inset-y-0 left-0 w-6 bg-[linear-gradient(to_right_in_oklab,var(--sf-panel)_0px,transparent_100%)] transition-opacity sm:hidden",
           more.left ? "opacity-100" : "opacity-0",
         )}
       />
@@ -298,7 +298,7 @@ function Strip({ children }: { children: ReactNode }) {
         aria-hidden
         data-scroll-more="right"
         className={cn(
-          "from-panel pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l to-transparent transition-opacity sm:hidden",
+          "pointer-events-none absolute inset-y-0 right-0 w-8 bg-[linear-gradient(to_left_in_oklab,var(--sf-panel)_0px,transparent_100%)] transition-opacity sm:hidden",
           more.right ? "opacity-100" : "opacity-0",
         )}
       />
@@ -436,7 +436,7 @@ export function EditorToolbar({
             if (e.target.value === "fit") onFit();
             else onZoom(Number(e.target.value));
           }}
-          className="border-line bg-canvas text-fg rounded-ctl tap h-9 shrink-0 border px-1.5 text-xs tabular-nums"
+          className="border-line bg-canvas text-fg rounded-ctl tap tnum h-9 shrink-0 border px-1.5 text-xs"
         >
           <option value="fit">
             {fit ? `Fit width (${Math.round(zoom * 100)}%)` : "Fit width"}

@@ -103,7 +103,7 @@ export function NUpEditor({
       <RunnerSection
         title="Pages per sheet"
         aside={
-          <span className="text-muted text-xs tabular-nums">
+          <span className="text-muted tnum text-xs">
             {pdf.pageCount} page{pdf.pageCount === 1 ? "" : "s"} → {sheets}{" "}
             sheet{sheets === 1 ? "" : "s"}
           </span>

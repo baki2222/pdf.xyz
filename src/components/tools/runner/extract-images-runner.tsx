@@ -469,7 +469,7 @@ function SkippedNote({ skipped }: { skipped: SkippedImage[] }) {
       <ul className="text-muted flex flex-col gap-1 text-xs leading-relaxed">
         {rows.map(([reason, count]) => (
           <li key={reason} className="flex gap-2">
-            <span className="text-muted shrink-0 tabular-nums">{count}×</span>
+            <span className="text-muted tnum shrink-0">{count}×</span>
             <span>{reason}</span>
           </li>
         ))}

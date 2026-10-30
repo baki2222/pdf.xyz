@@ -26,9 +26,9 @@ export function FaqSection() {
             {faqs.map((faq) => (
               <details
                 key={faq.q}
-                className="faq-item group border-line border-b [&_summary::-webkit-details-marker]:hidden"
+                className="faq-item group border-line border-b"
               >
-                <summary className="text-fg hover:text-accent flex cursor-pointer items-center justify-between gap-4 py-4 text-[15px] font-medium transition-colors">
+                <summary className="text-fg hover:text-accent flex cursor-pointer items-center justify-between gap-4 py-4 text-[15px] font-medium transition-colors [&::-webkit-details-marker]:hidden">
                   {faq.q}
                   <span
                     aria-hidden

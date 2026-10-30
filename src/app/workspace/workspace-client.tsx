@@ -672,7 +672,7 @@ function RecentActivity({
                 <span className="text-muted min-w-0 flex-1 truncate text-xs">
                   {action.label}
                 </span>
-                <span className="text-muted shrink-0 text-[11px] tabular-nums">
+                <span className="text-muted tnum shrink-0 text-[11px]">
                   {formatRelative(action.at, now)}
                 </span>
               </li>

@@ -32,6 +32,17 @@
  * 132 left. The ceiling did NOT move. The blocklist is a claim — "no page
  * renders these" — so it is tested below, on every prerendered page.
  *
+ * 2026-10-30, against the same ceiling: main at bdfd8b28 shipped 15,353 (7
+ * left). Retiring four pieces of Tailwind machinery that each existed for
+ * one or two call sites — the gradient stops (three fades written as one
+ * `bg-[linear-gradient(…)]` each), the composable numeric variables
+ * (`tabular-nums` → the plain `tnum` utility in globals.css), `divide-y`'s
+ * reverse variable (the rows carry `border-b last:border-b-0`) and the
+ * snap-strictness variable — plus the unrendered ink scope (now an
+ * on-demand utility, tested below) and three exact duplicates took it to
+ * 14,805 (-548). Each swap was rendered against main's stylesheet and
+ * compared by computed value and by pixel. The ceiling did NOT move.
+ *
  * Runs under `pnpm test:bundle` (it needs `.next`), never `pnpm test`.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -96,6 +107,74 @@ export function blockedUtilities(css: string): string[] {
   return [...css.matchAll(/@source\s+not\s+inline\(\s*"([^"]*)"\s*\)/g)]
     .flatMap((m) => m[1]!.split(/\s+/))
     .filter(Boolean);
+}
+
+/**
+ * Tailwind utility families retired on 2026-10-30 to buy stylesheet headroom
+ * (15,353 → 14,805 B gzip). Each registers custom properties — an @property
+ * plus a properties-layer fallback — that every page downloads, and each had
+ * one to four call sites. A family is identified by the custom properties it
+ * DEFINES, so one call site writing the old class brings this list back.
+ */
+export const RETIRED_MACHINERY: {
+  prefix: string;
+  family: string;
+  replacement: string;
+}[] = [
+  {
+    prefix: "--tw-numeric-",
+    family: "composable numerics (`tabular-nums` and its siblings)",
+    replacement:
+      "write `tnum` (globals.css: a plain font-variant-numeric utility)",
+  },
+  {
+    prefix: "--tw-ordinal",
+    family: "composable numerics (`ordinal`)",
+    replacement: "write `tnum`, or a plain `[font-variant-numeric:…]`",
+  },
+  {
+    prefix: "--tw-slashed-zero",
+    family: "composable numerics (`slashed-zero`)",
+    replacement: "a plain `[font-variant-numeric:…]`",
+  },
+  {
+    prefix: "--tw-gradient-",
+    family:
+      "gradient stops (`bg-gradient-to-*`, `bg-linear-*`, `from-*`, `to-*`)",
+    replacement: "write one `bg-[linear-gradient(…)]` with explicit stops",
+  },
+  {
+    prefix: "--tw-divide-",
+    family: "`divide-x` / `divide-y`",
+    replacement: "put `border-b last:border-b-0` on the rows",
+  },
+  {
+    prefix: "--tw-scroll-snap-strictness",
+    family: "`snap-x` / `snap-y` with `snap-mandatory` / `snap-proximity`",
+    replacement:
+      "write `[scroll-snap-type:x_proximity]` (or the axis you need)",
+  },
+];
+
+/** Custom properties a stylesheet registers (`@property`) or declares (`--x:`). */
+export function customPropertiesDefined(css: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of css.matchAll(/@property\s+(--[\w-]+)/g)) out.add(m[1]!);
+  for (const m of css.matchAll(/[{;]\s*(--[\w-]+)\s*:/g)) out.add(m[1]!);
+  return out;
+}
+
+/** Each retired family's property a stylesheet still defines, with its fix. */
+export function retiredMachinery(
+  css: string,
+): { property: string; reason: string }[] {
+  return [...customPropertiesDefined(css)]
+    .flatMap((property) =>
+      RETIRED_MACHINERY.filter((r) => property.startsWith(r.prefix)).map(
+        (r) => ({ property, reason: `${r.family}: ${r.replacement}` }),
+      ),
+    )
+    .sort((a, b) => a.property.localeCompare(b.property));
 }
 
 /** Class tokens a page's HTML renders, in its `class` attributes. */
@@ -198,6 +277,75 @@ describe("the shipped stylesheet", () => {
       "shadow",
       "shadow-lg",
     ]);
+  });
+
+  it("the ink scope ships only when a page renders it", () => {
+    // 2026-10-30: `.theme-ink` was a plain rule (97 B gzip) that no page had
+    // rendered since the colophon band went; it is now `@utility theme-ink`,
+    // generated only for a candidate in a scanned file. A comment spelling it
+    // whole is such a candidate — layout.tsx's did, and the first build after
+    // the move still shipped it. So: shipped implies rendered.
+    if (!built) return;
+    const css = readFileSync(GLOBALS, "utf8");
+    // Health: the scope is still defined, as a utility, so the check below is
+    // about delivery and not about a scope that silently left the source.
+    expect(css).toMatch(/@utility theme-ink\s*\{/);
+    const shipped = shippedStylesheets().some((f) =>
+      selectorClasses(readFileSync(f, "utf8")).has("theme-ink"),
+    );
+    const rendering = prerenderedPages(NEXT_DIR).filter((html) =>
+      renderedClasses(
+        readFileSync(path.join(NEXT_DIR, "server", "app", html), "utf8"),
+      ).has("theme-ink"),
+    );
+    if (rendering.length > 0) expect(shipped).toBe(true);
+    else
+      expect(
+        shipped,
+        "the build ships .theme-ink and no page renders it — some scanned file spells the class whole (a comment counts); reword it. If a client-only component really renders it, this check needs that component's markup",
+      ).toBe(false);
+  });
+
+  it("health check: the retired-machinery detector reads every registration of a real build", () => {
+    if (!built) return;
+    const css = shippedStylesheets()
+      .map((f) => readFileSync(f, "utf8"))
+      .join("");
+    // A reader that lost the registrations would find none forbidden.
+    // 2026-10-30: the branch build defines 139 custom properties, 26 of them
+    // @property-registered (translate, shadow, ring, leading, …). Main's
+    // build at bdfd8b28 defined 155, and this detector found 16 retired ones
+    // in it — every family in RETIRED_MACHINERY, so the list is not decoration.
+    const seen = customPropertiesDefined(css);
+    expect(seen.size).toBeGreaterThan(20);
+    expect(seen).toContain("--tw-translate-x");
+    expect(seen).toContain("--tw-shadow");
+  });
+
+  it("positive control: a registration or declaration of a retired family is reported, a mention is not", () => {
+    expect(
+      retiredMachinery(
+        `@property --tw-numeric-spacing{syntax:"*";inherits:false}.x{--tw-gradient-from:#fff}`,
+      ).map((r) => r.property),
+    ).toEqual(["--tw-gradient-from", "--tw-numeric-spacing"]);
+    // Tailwind's own `.transition` lists `--tw-gradient-from` as a
+    // transition-property; naming a property is not shipping its machinery.
+    expect(
+      retiredMachinery(
+        `.transition{transition-property:color,--tw-gradient-from,--tw-gradient-to}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("ships none of the Tailwind machinery retired for headroom", () => {
+    if (!built) return;
+    const found = shippedStylesheets().flatMap((f) =>
+      retiredMachinery(readFileSync(f, "utf8")),
+    );
+    expect(
+      [...new Set(found.map((r) => `${r.property} — ${r.reason}`))],
+      "a retired utility family is back in the stylesheet; use its replacement",
+    ).toEqual([]);
   });
 
   it(`weighs at most ${CEILING_GZ_KB.toFixed(1)} KB gzipped`, () => {

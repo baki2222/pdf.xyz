@@ -19,9 +19,17 @@ const RAW_UTILITY = new RegExp(
   String.raw`(?<![\w/-])(?:[\w-]+:)*!?(?:${PREFIX})-(?:${PALETTE})(?:-\d{2,3})?(?:\/\d{1,3})?(?![\w-])`,
   "g",
 );
-/** A raw colour inside an arbitrary value: `shadow-[0_2px_4px_rgba(…)]`. */
-const RAW_ARBITRARY =
-  /(?<![\w-])(?:[\w-]+:)*!?[a-z][\w-]*-\[[^\]\s]*(?:#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|oklab\()[^\]\s]*\]/g;
+/**
+ * A raw colour inside an arbitrary value: `shadow-[0_2px_4px_rgba(…)]`, or a
+ * palette colour named by its theme variable — `var(--color-white)` in a
+ * `bg-[linear-gradient(…)]` is `from-white` spelled so the class pattern
+ * above cannot see it (2026-10-30, when the page tile's gradient moved into
+ * one arbitrary value to stop shipping Tailwind's gradient-stop machinery).
+ */
+const RAW_ARBITRARY = new RegExp(
+  String.raw`(?<![\w-])(?:[\w-]+:)*!?[a-z][\w-]*-\[[^\]\s]*(?:#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|oklab\(|var\(--color-(?:${PALETTE})(?![a-z]))[^\]\s]*\]`,
+  "g",
+);
 
 /** Every raw colour class in a class string, variants stripped. */
 export function rawColours(classes: string): string[] {
@@ -40,8 +48,7 @@ const ON_PAPER = "ink drawn on the white page, so it is set against paper";
 export const RAW_COLOUR_ALLOWANCE: Record<string, Record<string, string>> = {
   "src/components/tools/runner/page-tile.tsx": {
     "bg-white": PAPER,
-    "from-white/95": PAPER,
-    "to-slate-200/85": `${PAPER} (the sheet's shading)`,
+    "bg-[linear-gradient(to_bottom_right_in_oklab,color-mix(in_oklab,var(--color-white)_95%,transparent)_0px,color-mix(in_oklab,var(--color-slate-200)_85%,transparent)_100%)]": `${PAPER} (the sheet, shaded white to slate-200)`,
     "ring-black/5": `${PAPER} (its edge)`,
     "shadow-black/40": `${PAPER} (its cast shadow)`,
     "bg-slate-500/50": `${ON_PAPER} (the skeleton's text lines)`,

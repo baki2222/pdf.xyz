@@ -232,6 +232,17 @@
   letter-spacing: -0.01em;
 }
 
+/* Tabular figures, as one plain declaration. Tailwind's `tabular-nums` is
+   COMPOSABLE — it writes `--tw-numeric-spacing` into a five-variable
+   `font-variant-numeric`, and registering those five variables (an @property
+   each, plus the properties-layer fallback) cost 119 B gzip of the 15,360 B
+   stylesheet ceiling on 2026-10-30. No call site composes it with another
+   numeric utility (none ships), so the computed value is the same
+   `tabular-nums`. Writing `tabular-nums` again brings the machinery back. */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ------------------------------------------------------------------ *
  *  Theme scopes
  * ------------------------------------------------------------------ */
@@ -268,41 +279,6 @@
   --sf-cat-security: #c0262e;
   --sf-cat-optimize: #b1500c;
   --sf-cat-ai: #a52f80;
-}
-
-.theme-ink {
-  color-scheme: dark;
-
-  --sf-canvas: #10151a;
-  --sf-panel: #171e25;
-  --sf-wash: #ffffff0d;
-  --sf-invert: #f4f7f9;
-  --sf-fg: #f4f7f9;
-  --sf-muted: #aeb9c3;
-  --sf-faint: #97a2ad;
-  --sf-fg-invert: #10151a;
-  --sf-muted-invert: #55606b;
-  --sf-line: #f4f7f924;
-  --sf-line-strong: #f4f7f947;
-  --sf-accent: #53c1ee;
-  --sf-mark: #2fb4ea;
-  --sf-ok: #34d399;
-  --sf-warn: #fbbf24;
-  --sf-err: #f87171;
-  --sf-info: #7ca5f5;
-  --sf-select: #1d2e39;
-  --sf-scrim: rgb(16 21 26 / 0.92);
-  --sf-shadow-sheet:
-    0 28px 48px -28px rgb(0 0 0 / 0.8), 0 0 0 1px var(--sf-line);
-  --sf-shadow-lift: 0 18px 40px -20px rgb(0 0 0 / 0.7);
-  --sf-cat-ink: #ffffff;
-  --sf-cat-organize: #1f7a8c;
-  --sf-cat-convert: #3d74d6;
-  --sf-cat-edit: #7f5cd6;
-  --sf-cat-sign: #18865b;
-  --sf-cat-security: #d23f47;
-  --sf-cat-optimize: #c05a14;
-  --sf-cat-ai: #b8448f;
 }
 
 /* Dark scheme, by system preference. Paper becomes a cool graphite — the
@@ -348,8 +324,54 @@
     --sf-cat-optimize: #c05a14;
     --sf-cat-ai: #b8448f;
   }
+}
 
-  .theme-ink {
+/* The colophon scope — "the one band on the opposite ground" — as a utility,
+   so it ships only when a page renders it. Until 2026-10-30 it was a plain
+   `.theme-ink` rule, and no page has rendered `theme-ink` since the footer
+   stopped wearing it: its two blocks were 1,381 raw bytes (97 B gzip)
+   downloaded on every page and applied to nothing. As a utility it is the
+   same scope the moment an element carries the class — plus variants — and
+   `design-tokens.test.ts` still holds all four scopes to AA.
+
+   One difference, by construction: a utility sits in the utilities layer,
+   so on the SAME element as `.theme-paper` (unlayered, on <body>) the paper
+   scope wins. Put the class on a descendant, as a band always is. */
+@utility theme-ink {
+  color-scheme: dark;
+
+  --sf-canvas: #10151a;
+  --sf-panel: #171e25;
+  --sf-wash: #ffffff0d;
+  --sf-invert: #f4f7f9;
+  --sf-fg: #f4f7f9;
+  --sf-muted: #aeb9c3;
+  --sf-faint: #97a2ad;
+  --sf-fg-invert: #10151a;
+  --sf-muted-invert: #55606b;
+  --sf-line: #f4f7f924;
+  --sf-line-strong: #f4f7f947;
+  --sf-accent: #53c1ee;
+  --sf-mark: #2fb4ea;
+  --sf-ok: #34d399;
+  --sf-warn: #fbbf24;
+  --sf-err: #f87171;
+  --sf-info: #7ca5f5;
+  --sf-select: #1d2e39;
+  --sf-scrim: rgb(16 21 26 / 0.92);
+  --sf-shadow-sheet:
+    0 28px 48px -28px rgb(0 0 0 / 0.8), 0 0 0 1px var(--sf-line);
+  --sf-shadow-lift: 0 18px 40px -20px rgb(0 0 0 / 0.7);
+  --sf-cat-ink: #ffffff;
+  --sf-cat-organize: #1f7a8c;
+  --sf-cat-convert: #3d74d6;
+  --sf-cat-edit: #7f5cd6;
+  --sf-cat-sign: #18865b;
+  --sf-cat-security: #d23f47;
+  --sf-cat-optimize: #c05a14;
+  --sf-cat-ai: #b8448f;
+
+  @media (prefers-color-scheme: dark) {
     color-scheme: light;
 
     --sf-canvas: #f4f6f8;
@@ -584,8 +606,9 @@
   }
 
   html {
+    /* `-webkit-text-size-adjust: 100%` is Tailwind's preflight (same layer,
+       same value); it was repeated here until 2026-10-30. */
     scroll-behavior: smooth;
-    -webkit-text-size-adjust: 100%;
 
     /* The sticky header height, declared ONCE and consumed by both the header
        itself (`h-[var(--sf-header-h)]`) and the scroll padding below. A number

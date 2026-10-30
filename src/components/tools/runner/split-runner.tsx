@@ -557,7 +557,7 @@ export function SplitEditor({
                   key={part.name}
                   className="border-line bg-wash rounded-ctl flex items-center gap-3 border px-3 py-2 text-sm"
                 >
-                  <span className="bg-wash text-muted rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold tabular-nums">
+                  <span className="bg-wash text-muted rounded-tag tnum grid size-6 shrink-0 place-items-center text-xs font-semibold">
                     {i + 1}
                   </span>
                   <span className="min-w-0 flex-1">

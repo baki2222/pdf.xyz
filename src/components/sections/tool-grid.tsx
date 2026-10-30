@@ -73,7 +73,7 @@ export function ToolGrid() {
                 >
                   {chip.id !== ALL && <FamilySwatch family={chip.id} />}
                   {chip.label}{" "}
-                  <span className="text-faint group-aria-pressed:text-fg-invert/70 text-xs tabular-nums">
+                  <span className="text-faint group-aria-pressed:text-fg-invert/70 tnum text-xs">
                     {chip.count}
                   </span>
                 </button>

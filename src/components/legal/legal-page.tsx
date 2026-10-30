@@ -40,7 +40,7 @@ export function LegalPage({
             </h1>
             <p className="text-muted text-sm">
               Last updated{" "}
-              <time dateTime={updated} className="font-mono text-[0.8125rem]">
+              <time dateTime={updated} className="font-mono text-[13px]">
                 {new Date(`${updated}T00:00:00Z`).toLocaleDateString("en-GB", {
                   day: "numeric",
                   month: "long",

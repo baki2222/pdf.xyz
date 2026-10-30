@@ -121,7 +121,7 @@ export default async function CategoryPage({
             {runs.map((entry) => (
               <li key={entry.mode}>
                 {entry.label}:{" "}
-                <span className="text-fg tabular-nums">{entry.count}</span>
+                <span className="text-fg tnum">{entry.count}</span>
               </li>
             ))}
           </ul>

@@ -167,8 +167,9 @@ export default function RootLayout({
           and `:root` shares the token block in globals.css so html-level
           styling (viewport scrollbar, overscroll canvas) resolves the same
           values. Per-route wrappers only carry a scope when they mean to
-          CHANGE it (`.theme-ink`). */}
-      <body className="theme-paper bg-canvas text-fg min-h-dvh font-sans antialiased">
+          CHANGE it (the ink scope, an on-demand utility in globals.css —
+          spelled whole in any scanned file, Tailwind would ship it). */}
+      <body className="theme-paper bg-canvas text-fg min-h-dvh font-sans">
         <a
           href="#main"
           className="bg-invert text-fg-invert rounded-ctl sr-only px-4 py-2 text-sm font-semibold focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]"

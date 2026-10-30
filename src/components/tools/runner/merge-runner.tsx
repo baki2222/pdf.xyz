@@ -525,7 +525,7 @@ export function MergeRunner() {
                 className="text-muted size-4 shrink-0 cursor-grab"
                 aria-hidden
               />
-              <span className="bg-wash text-muted rounded-tag grid size-6 shrink-0 place-items-center text-xs font-semibold tabular-nums">
+              <span className="bg-wash text-muted rounded-tag tnum grid size-6 shrink-0 place-items-center text-xs font-semibold">
                 {index + 1}
               </span>
               <span className="bg-wash ring-line rounded-sheet grid size-9 shrink-0 place-items-center overflow-hidden ring-1">

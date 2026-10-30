@@ -49,13 +49,17 @@ function scopes(css: string): Map<ScopeName, Map<string, string>> {
   const out = new Map<ScopeName, Map<string, string>>();
   for (const b of walk(parseCss(css))) {
     const selectors = b.prelude.split(",").map((s) => s.trim());
+    // The ink scope is `@utility theme-ink` since 2026-10-30 (it ships only
+    // when rendered); its dark variant is the `@media` nested inside it, so
+    // that block's own prelude is the scheme and its ancestor the scope.
+    const own = [...b.ancestors, b.prelude];
     const kind = selectors.includes(".theme-paper")
       ? "paper"
-      : selectors.includes(".theme-ink")
+      : selectors.includes(".theme-ink") || own.includes("@utility theme-ink")
         ? "ink"
         : null;
     if (!kind) continue;
-    const scheme = b.ancestors.some(DARK) ? "dark" : "light";
+    const scheme = own.some(DARK) ? "dark" : "light";
     const name = `${scheme} ${kind}` as ScopeName;
     const tokens = out.get(name) ?? new Map<string, string>();
     for (const d of b.declarations)

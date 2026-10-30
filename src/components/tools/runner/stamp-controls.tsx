@@ -127,7 +127,7 @@ export function RangeField({
         <label htmlFor={id} className="text-muted text-xs font-medium">
           {label}
         </label>
-        <span className="text-muted text-xs tabular-nums">
+        <span className="text-muted tnum text-xs">
           {format ? format(value) : value}
         </span>
       </div>

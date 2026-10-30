@@ -131,7 +131,7 @@ function MarginField({
         onChange={(event) =>
           onChange(clampPt(toPoints(Number(event.target.value), unit)))
         }
-        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl w-20 shrink-0 border px-2 py-1 text-right text-xs tabular-nums transition outline-none focus:ring-2"
+        className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl tnum w-20 shrink-0 border px-2 py-1 text-right text-xs transition outline-none focus:ring-2"
       />
     </div>
   );
@@ -414,7 +414,7 @@ function CropEditor({ pdf, onReset }: { pdf: LoadedPdf; onReset: () => void }) {
         title="Crop preview"
         aside={
           mode === "auto" && plan ? (
-            <span className="text-muted text-xs tabular-nums">
+            <span className="text-muted tnum text-xs">
               Page {shownPage + 1} of {pdf.pageCount}
             </span>
           ) : undefined
@@ -537,7 +537,7 @@ function AutoPanel({
           {plan ? "Find margins again" : "Find white margins"}
         </ChipButton>
         {auto.status === "detecting" && (
-          <span className="text-muted text-xs tabular-nums" role="status">
+          <span className="text-muted tnum text-xs" role="status">
             Reading page {Math.min(auto.done + 1, auto.total)} of {auto.total}…
           </span>
         )}
