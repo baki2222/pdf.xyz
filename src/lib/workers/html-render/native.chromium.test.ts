@@ -1,6 +1,12 @@
 // @native-canvas
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -104,7 +110,13 @@ async function renderWithPreFixArgv(html: string, name: string) {
   const input = path.join(dir, `${name}.html`);
   const output = path.join(dir, `${name}.pdf`);
   writeFileSync(input, html);
-  await new Promise<void>((done) =>
+  // Chromium's exit is kept, not swallowed: on a slow CI runner it has hung
+  // until the 60 s kill (run 41104611412), and the control then failed as a
+  // bare ENOENT on the missing PDF — red for a reason nobody could read.
+  const exit = await new Promise<{
+    error: (Error & { killed?: boolean; signal?: string }) | null;
+    stderr: string;
+  }>((done) =>
     execFile(
       BIN!,
       [
@@ -118,9 +130,21 @@ async function renderWithPreFixArgv(html: string, name: string) {
         pathToFileURL(input).toString(),
       ],
       { timeout: 60_000 },
-      () => done(),
+      (error, _stdout, stderr) => done({ error, stderr: String(stderr) }),
     ),
   );
+  // A non-zero exit with a PDF written is normal for headless Chromium, so
+  // only a MISSING PDF is an error, and it says why.
+  if (!existsSync(output)) {
+    const cause = exit.error?.killed
+      ? `killed by the 60 s timeout (${exit.error.signal ?? "no signal"})`
+      : exit.error
+        ? `exited: ${exit.error.message}`
+        : "exited 0";
+    throw new Error(
+      `Chromium wrote no PDF, ${cause}; stderr tail: ${exit.stderr.slice(-600)}`,
+    );
+  }
   return {
     text: await pdfText(readFileSync(output)),
     url: pathToFileURL(input).toString(),
