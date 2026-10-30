@@ -207,6 +207,10 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     held = null;
   });
 
+  // Its own waits are bounded at 5 s each (four of them), so vitest's 5 s
+  // default for the whole test could not hold them: on CI's loaded runner it
+  // timed out three times in a week (2026-10-24 to 10-30, PRs #211 #225),
+  // always at the test level, never at a wait. 30 s, as #189 gave its peers.
   it("a second upload replaces the first — even if the paper toggle moves while it decodes", async () => {
     await openSignRunner();
     const { encoded } = stubBrowserImaging();
@@ -260,7 +264,7 @@ describe("Sign PDF, uploading a phone photo of a signature", () => {
     await screen.findByAltText("Signature preview");
     useSignature();
     await vi.waitFor(() => expect(placing()).toBe(true), { timeout: 5000 });
-  });
+  }, 30_000);
 
   it("decodes at a bounded size, crops to the ink, and keys out the paper — or keeps it as a JPEG", async () => {
     await openSignRunner();
