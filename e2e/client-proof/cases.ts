@@ -487,9 +487,16 @@ async function solidImageInPage(
 async function jpegPagesPdf(jpegs: Buffer[]): Promise<Buffer> {
   const doc = await PDFDocument.create();
   for (const jpeg of jpegs) {
-    const image = await doc.embedJpg(jpeg);
+    // A copy: a pooled Buffer shares an ArrayBuffer pdf-lib reads from 0.
+    // Through the one embed/draw boundary, as every other fixture here.
+    const image = await embedRasterImage(doc, new Uint8Array(jpeg), "jpg");
     const page = doc.addPage([image.width, image.height]);
-    page.drawImage(image, { x: 0, y: 0 });
+    await drawRasterImage(page, image, {
+      x: 0,
+      y: 0,
+      width: image.width,
+      height: image.height,
+    });
   }
   return Buffer.from(await doc.save());
 }
@@ -2700,7 +2707,11 @@ export const VARIANTS: readonly VariantCase[] = [
     assert: async (buf) => {
       const texts = (await pdfPageTexts(buf)).map(normalizeText);
       const which = texts.map((t) =>
-        t.includes("fronts.pdf::") ? "F" : t.includes("backs.pdf::") ? "B" : "?",
+        t.includes("fronts.pdf::")
+          ? "F"
+          : t.includes("backs.pdf::")
+            ? "B"
+            : "?",
       );
       expect(which, ALTERNATE_FAILS.alternated).toEqual([
         "F",

@@ -468,7 +468,7 @@ export function MergeRunner() {
           ))}
         </span>
         {alternate && (
-          <span className="text-muted basis-full">
+          <span className="text-muted w-full">
             One page from each file in turn, top file first; a longer
             file&apos;s extra pages go at the end. For a double-sided scan, tick
             Reverse page order on a backs file scanned last page first.

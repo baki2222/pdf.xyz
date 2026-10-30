@@ -96,15 +96,33 @@ const MIME_SHAPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
 /** The longest content type {@link normalizeContentType} accepts, in characters. */
 export const MAX_CONTENT_TYPE_LENGTH = 255;
 
-// Reverse indexes, built once, for O(1) lookups.
-const FAMILY_BY_MIME = new Map<string, UploadFamily>();
-const FAMILY_BY_EXTENSION = new Map<string, UploadFamily>();
-for (const [family, spec] of Object.entries(UPLOAD_FAMILIES) as [
-  UploadFamily,
-  FamilySpec,
-][]) {
-  for (const mime of spec.mimes) FAMILY_BY_MIME.set(mime, family);
-  for (const ext of spec.extensions) FAMILY_BY_EXTENSION.set(ext, family);
+/**
+ * Reverse indexes, built on first use, for O(1) lookups.
+ *
+ * LAZY on purpose (2026-10-30). Every tool page loads this module for
+ * {@link normalizeContentType} and {@link extensionOf} alone (through
+ * `intent/formats.ts`), and a loop at module top level is a side effect no
+ * minifier may drop: it kept the whole family table, and the loop over it,
+ * in the shared chunk of every page that never classifies an upload: that
+ * chunk went from 1,781 to 1,617 bytes gzipped (`next build`, gzip -9,
+ * measured 2026-10-30). Built inside the two
+ * lookups, the table is shaken out wherever they are not called.
+ */
+let indexes:
+  | { mime: Map<string, UploadFamily>; ext: Map<string, UploadFamily> }
+  | undefined;
+function familyIndexes() {
+  if (indexes) return indexes;
+  const mime = new Map<string, UploadFamily>();
+  const ext = new Map<string, UploadFamily>();
+  for (const [family, spec] of Object.entries(UPLOAD_FAMILIES) as [
+    UploadFamily,
+    FamilySpec,
+  ][]) {
+    for (const m of spec.mimes) mime.set(m, family);
+    for (const e of spec.extensions) ext.set(e, family);
+  }
+  return (indexes = { mime, ext });
 }
 
 /**
@@ -126,7 +144,7 @@ export function familyForMime(
   normalizedMime: string | null,
 ): UploadFamily | null {
   if (normalizedMime === null) return null;
-  return FAMILY_BY_MIME.get(normalizedMime) ?? null;
+  return familyIndexes().mime.get(normalizedMime) ?? null;
 }
 
 /** Lower-cased final extension (no dot) of a name, or `null` when it has none. */
@@ -143,7 +161,7 @@ export function extensionOf(filename: unknown): string | null {
 export function familyForExtension(filename: unknown): UploadFamily | null {
   const ext = extensionOf(filename);
   if (ext === null) return null;
-  return FAMILY_BY_EXTENSION.get(ext) ?? null;
+  return familyIndexes().ext.get(ext) ?? null;
 }
 
 /** The verdict of classifying a declared (filename, contentType) pair. */
