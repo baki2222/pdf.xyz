@@ -86,7 +86,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: ["how-to-scan-documents-to-pdf-with-your-phone"],
 };
 
 export default content;

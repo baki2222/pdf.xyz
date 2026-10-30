@@ -80,7 +80,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: [],
+  relatedGuides: ["how-to-print-multiple-pages-per-sheet"],
 };
 
 export default content;

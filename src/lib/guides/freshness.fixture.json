@@ -63,6 +63,10 @@
     "contentHash": "bf80bc67cb31e6c651400260eec422711f1294d83cd6cf15bb5c585907c6114a",
     "updated": "2026-10-07"
   },
+  "how-to-edit-pdf-metadata": {
+    "contentHash": "2bffda640c2e36db2b95d60c1204fec089c49c8368a26cf74cafdc007ffcaf64",
+    "updated": "2026-10-30"
+  },
   "how-to-edit-text-in-a-pdf": {
     "contentHash": "7431eb1fe4ae350df2f03255c50161606a10927c672c04036659cc536b3c525b",
     "updated": "2026-10-30"
@@ -95,6 +99,10 @@
     "contentHash": "c3e09d8c34f432f1984b8e5fdb16ccef133bed7928bb128d1dbd882d509294a2",
     "updated": "2026-10-30"
   },
+  "how-to-print-multiple-pages-per-sheet": {
+    "contentHash": "fefb508b2ddd2f2f6eafe3582a0821f938bcc8f352336e0d03c178e0ee687aa2",
+    "updated": "2026-10-30"
+  },
   "how-to-redact-a-pdf": {
     "contentHash": "6b222a927c3a6b752756ca362767f07d1c7a83a4f0d2072d1754c072ed3a6614",
     "updated": "2026-10-25"
@@ -111,9 +119,17 @@
     "contentHash": "7a0e83d8f460eb9186c93a0b5c125820f69c28cf8a8fbcee10440b44cd6092ba",
     "updated": "2026-10-30"
   },
+  "how-to-resize-pdf-pages": {
+    "contentHash": "0de277eaccb46e90c17938cfff313f290c227206227f448df8544e0d8df23288",
+    "updated": "2026-10-30"
+  },
   "how-to-rotate-a-pdf": {
     "contentHash": "606e9fb4887a6676d46ad0e3673c207f4585d1d5dcdf6bcce932e798717c5e87",
     "updated": "2026-09-27"
+  },
+  "how-to-scan-documents-to-pdf-with-your-phone": {
+    "contentHash": "af9119edaae536318bec6686af66b82e6f968bed3c14dd7ce2cd65be8490e232",
+    "updated": "2026-10-30"
   },
   "how-to-sign-a-pdf": {
     "contentHash": "4aaca80e5947753a4e97729022b594d907e91761b7da8fc0c0234d3aecaab3c5",
