@@ -95,7 +95,7 @@ const content: ToolContent = {
     },
     {
       title: "Download the ZIP",
-      body: `The button under the ready message reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. Your browser fetched the ZIP before showing that button, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3).`,
+      body: `The button under the ready message reads Download followed by the output name, so report.pdf comes back as ${EXAMPLE_ZIP}. That button appears only once your browser has fetched the ZIP, so clicking it writes the file to disk without another trip to the server. Inside are table-1.csv, table-2.csv and so on, plus tables.xlsx with sheets named like Table 1 (p3).`,
     },
     {
       title: "Check each sheet against its page",

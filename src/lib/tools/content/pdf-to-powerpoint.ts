@@ -233,7 +233,7 @@ const content: ToolContent = {
     },
     {
       title: "Add your PDF",
-      body: `The upload box takes a file as soon as the page loads, but the Export button works only while the panel's status badge reads Secure server; if it says Not enabled or Status unknown, nothing can be sent yet. Drop one PDF on the box headed "Add your PDF, or browse"; clicking inside the dashed outline brings up the file chooser as well. Anything over ${CEILING_MB} MB is turned away at upload. If you picked the wrong file, press Remove beside its name and the box comes back for another.`,
+      body: `The upload box takes a file as soon as the page loads, but the Export PPTX button works only while the panel's status badge reads Secure server; if it says Not enabled or Status unknown, nothing can be sent yet. Drop one PDF on the box headed "Add your PDF, or browse"; clicking inside the dashed outline brings up the file chooser as well. Anything over ${CEILING_MB} MB is turned away at upload. If you picked the wrong file, press Remove beside its name and the box comes back for another.`,
     },
     {
       title: "Press Export PPTX",

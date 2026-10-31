@@ -31,7 +31,10 @@ import {
   type NewRadioField,
   type NewTextField,
 } from "@/lib/pdf/create-forms";
-import { FIELD_TYPE_BUTTON, NEW_FIELD_TYPES } from "@/lib/pdf/offered-kinds";
+import {
+  FIELD_TYPE_BUTTON_LABELS,
+  NEW_FIELD_TYPES,
+} from "@/lib/pdf/offered-kinds";
 import { downloadBytes } from "@/lib/pdf/browser";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -251,7 +254,10 @@ function draftToSpec(d: FieldDraft): NewFormField {
 
 /** The kinds offered — the same list the tool page counts (`offered-kinds`). */
 const TYPE_OPTIONS: { value: NewFieldType; label: string }[] =
-  NEW_FIELD_TYPES.map((value) => ({ value, label: FIELD_TYPE_BUTTON[value] }));
+  NEW_FIELD_TYPES.map((value) => ({
+    value,
+    label: FIELD_TYPE_BUTTON_LABELS[value],
+  }));
 
 const MAX_COORD = 20000;
 

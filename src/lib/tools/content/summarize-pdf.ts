@@ -70,10 +70,17 @@ import { DEFAULT_OCR_OUTPUT_MODE, OCR_OUTPUT_MODES } from "@/lib/jobs/ocr";
  *    saves bytes already in the page; the 60-minute figure is the worker's
  *    link, not the button.
  *
- * NOT GUARDED, and said here so a reviewer knows: the panel labels quoted in
- * LENGTH_LABEL / FORMAT_LABEL, "Add your PDF, or" + Dropzone's "browse",
- * "Focus (optional)", "Summarize PDF" and "Summarizing…" are copies of JSX
- * text. A relabel in summarize-worker-panel.tsx will not fail anything.
+ * GUARDED since 2026-10-31 (until then this said NOT GUARDED: the labels
+ * were copies of JSX text and a relabel failed nothing):
+ * tools/tool-page-ui-labels.test.ts holds every control this page tells a
+ * reader to use to visible text the panel renders — "Add your PDF, or
+ * browse", "Summarize PDF", "Notify me when this ships", and every
+ * LENGTH_LABEL / FORMAT_LABEL value as the steps name them (that test lists
+ * them, so this sentence fails there if one stops being checked). The busy
+ * labels ("Summarizing…") are held by tools/busy-label-claims.test.ts. STILL
+ * UNCHECKED, because the extractor does not read them as an instruction: the
+ * headings "In Summary length" and "In Format", "in Focus (optional)", and "a
+ * … Check again button".
  *
  * DELIBERATELY NOT QUOTED: a page range for the 500,000-character window.
  * aiPagesAtDensest/aiPagesAtSparsest come from densities measured on
@@ -153,7 +160,8 @@ const OTHER_AI_TOOLS =
 /**
  * Option labels exactly as the panel renders them. A Record, so a new length
  * or format fails the build here. The label TEXT is a copy — the panel does not
- * export its option arrays — so a relabel in the panel is not caught by this.
+ * export its option arrays — and since 2026-10-31 a relabel in the panel fails
+ * tools/tool-page-ui-labels.test.ts, which reads the steps that quote these.
  */
 const LENGTH_LABEL: Record<SummaryLength, string> = {
   brief: "Brief — TL;DR + key points",
