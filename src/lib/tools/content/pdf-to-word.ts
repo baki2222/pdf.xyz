@@ -169,7 +169,7 @@ const content: ToolContent = {
       // CHANGED 2026-10-24: was "Recover text from a scan in two passes",
       // through OCR PDF and back — the only way until OCR ran in this job.
       title: "Recover text from a scan",
-      body: `A scanned contract usually arrives as page pictures with no text layer, so on its own it is refused here. Tick “${WORD_OCR_LABEL}” and pick the languages printed on it: our server adds the recognised words to each page first, then converts, so each page's scan then comes through as a picture, followed by its words as text you can edit.`,
+      body: `A scanned contract usually arrives as page pictures with no text layer, so on its own it is refused here. Tick “${WORD_OCR_LABEL}” and pick the languages printed on it: our server adds the recognised words to each page first, then converts, so each page's scan then comes through as a picture, followed by its words as text you can edit; a scanned line can arrive as a paragraph of its own, so expect to join some lines back up.`,
     },
   ],
 
