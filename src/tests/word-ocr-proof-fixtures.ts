@@ -39,10 +39,15 @@ export async function scannedTextPdf(): Promise<Uint8Array> {
  * only content of a page the same size — so it carries no text layer and only
  * OCR can read its words. Shared with the in-image language proof
  * (`@/lib/workers/ocr-languages-proof`), whose typed pages come from Chromium.
+ *
+ * `degrade`, when given, works on the grey pixels in place before they are
+ * encoded — the Bengali proof's noisy scan (`degradeScan` in
+ * `@/lib/probes/bengali-ocr-proof`).
  */
 export async function scanOfFirstPage(
   typed: Uint8Array,
   longSide: number,
+  degrade?: (gray: Uint8Array, width: number, height: number) => void,
 ): Promise<Uint8Array> {
   const [page] = await renderPdfPages(typed, longSide, {
     standardFonts: true,
@@ -62,6 +67,7 @@ export async function scanOfFirstPage(
       255 * (1 - a) + a * (0.299 * r + 0.587 * g + 0.114 * b),
     );
   }
+  degrade?.(gray, page.width, page.height);
   const scan = await PDFDocument.create();
   const img = await embedRasterImage(
     scan,

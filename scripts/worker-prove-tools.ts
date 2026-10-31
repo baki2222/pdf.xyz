@@ -184,6 +184,18 @@ import {
   type UnprovenCause,
 } from "@/lib/probes/proof-outcome";
 import { awaitPdfjsDocument } from "@/lib/pdf/pdfjs";
+import { readDocxParagraphs } from "@/lib/workers/pdf-office-export/docx-text";
+import {
+  BENGALI_CLEAN_DPI,
+  BENGALI_CLEAN_MIN,
+  BENGALI_NOISY_DPI,
+  BENGALI_NOISY_MIN,
+  a4LongSide,
+  bengaliVerdict,
+  degradeScan,
+  wrongLanguageVerdict,
+} from "@/lib/probes/bengali-ocr-proof";
+import { bengaliProofHtml } from "@/tests/bengali-ocr-fixtures";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
 /** When set, every downloaded artifact is also written here (see its use). */
@@ -597,6 +609,11 @@ interface ProofSpec {
   tool: string;
   /** Distinguishes two specs for the same tool (e.g. xlsx vs csv input). */
   label?: string;
+  /**
+   * A name several specs answer to on the command line, for a proof made of
+   * several jobs (`pnpm worker:prove-tools bengali-ocr` runs all nine).
+   */
+  group?: string;
   make?: () => Promise<Uint8Array> | Uint8Array;
   /** Reuse a previous spec's artifact as this one's input (protect → unlock). */
   from?: string;
@@ -1143,6 +1160,85 @@ const SPECS: ProofSpec[] = [
         ]
       : []),
   ]),
+  // Bengali OCR QUALITY (2026-10-31), the evidence behind the Bangla PDF to
+  // Word guide: a page of Bengali body text typed by the worker's Chromium,
+  // scanned here clean (300 DPI) and degraded (200 DPI, blur + grain +
+  // specks), each read by OCR PDF (its searchable PDF's text layer) and by
+  // PDF to Word with OCR (the DOCX's paragraphs) - and measured, graphemes
+  // against the typed truth, not merely found. The same scans read with
+  // English selected are the positive control: they must score BELOW the
+  // wrong-language bar, or the measure cannot see a wrong-language read.
+  // Bars and why: `@/lib/probes/bengali-ocr-proof`.
+  {
+    tool: "html-to-pdf",
+    label: "html-to-pdf (bengali proof page)",
+    group: "bengali-ocr",
+    make: () => bengaliProofHtml(),
+    name: "bengali.html",
+    type: "text/html",
+    options: { pageSize: "A4" },
+    expect: isPdf,
+    want: "a typed Bengali page",
+    verify: async (bytes) => {
+      const text = (await pdfPlainText(bytes)).trim();
+      return {
+        ok: text.length > 0,
+        detail: `${text.length} characters of text`,
+      };
+    },
+    keepArtifactAs: "bengali-proof-page",
+  },
+  ...(
+    [
+      ["clean", BENGALI_CLEAN_DPI, BENGALI_CLEAN_MIN, false],
+      ["noisy", BENGALI_NOISY_DPI, BENGALI_NOISY_MIN, true],
+    ] as const
+  ).flatMap(([variant, dpi, min, noisy]): ProofSpec[] => {
+    const scan = (typed: Buffer) =>
+      scanOfFirstPage(
+        new Uint8Array(typed),
+        a4LongSide(dpi),
+        noisy ? (g, w, h) => degradeScan(g, w, h) : undefined,
+      );
+    return (["ben", "eng"] as const).flatMap((lang): ProofSpec[] => {
+      const control = lang === "eng";
+      const judge = (read: string) =>
+        control ? wrongLanguageVerdict(read) : bengaliVerdict(read, min);
+      const tag = `bengali, ${variant}${control ? ", english control" : ""}`;
+      const want = control
+        ? "a clearly worse read than Bengali (the wrong-language control)"
+        : `at least ${min * 100}% of the Bengali graphemes`;
+      return [
+        {
+          tool: "ocr-pdf",
+          label: `ocr-pdf (${tag})`,
+          group: "bengali-ocr",
+          from: "bengali-proof-page",
+          fromTransform: scan,
+          name: "scan.pdf",
+          type: PDF_MIME,
+          options: { languages: [lang], outputMode: "searchable-pdf" },
+          expect: isPdf,
+          want,
+          verify: async (bytes) => judge(await pdfPlainText(bytes)),
+        },
+        {
+          tool: "pdf-to-word",
+          label: `pdf-to-word (ocr, ${tag})`,
+          group: "bengali-ocr",
+          from: "bengali-proof-page",
+          fromTransform: scan,
+          name: "scan.pdf",
+          type: PDF_MIME,
+          options: { ocr: true, languages: [lang] },
+          expect: isZipContainer,
+          want,
+          verify: async (bytes) =>
+            judge((await readDocxParagraphs(new Uint8Array(bytes))).join("\n")),
+        },
+      ];
+    });
+  }),
   // Until 2026-09-27 this sent one unstyled English line and accepted any
   // `%PDF-`, which the worker passed while its image had no fonts at all:
   // Calibri and Cambria came out in a face with other metrics, and CJK,
@@ -1915,7 +2011,8 @@ async function main(): Promise<number> {
     (s) =>
       ONLY.length === 0 ||
       ONLY.includes(s.tool) ||
-      ONLY.includes(s.label ?? ""),
+      ONLY.includes(s.label ?? "") ||
+      (s.group !== undefined && ONLY.includes(s.group)),
   );
   if (selected.length === 0) {
     console.log(`No spec matches ${ONLY.join(", ")}.`);
