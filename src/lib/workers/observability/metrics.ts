@@ -135,6 +135,7 @@ export const PROCESSOR_OUTCOMES = [
   "failed",
   "requeued",
   "canceled",
+  "lease_lost", // the attempt lost its lease; the result was discarded
 ] as const;
 export type ProcessorOutcome = (typeof PROCESSOR_OUTCOMES)[number];
 
@@ -225,6 +226,7 @@ export const TICK_OUTCOMES = [
   "failed",
   "requeued",
   "canceled",
+  "lease_lost",
   "error",
 ] as const satisfies readonly ExecutorOutcome[];
 const _tickOutcomesExhaustive: AssertNever<

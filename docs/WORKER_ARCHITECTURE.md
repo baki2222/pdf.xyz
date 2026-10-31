@@ -231,7 +231,12 @@ commit, stale-lease redelivery, heartbeat, advance, terminal finalize, and reque
 run through frozen Redis `EVAL` scripts with explicit status and lease-attempt
 preconditions. The executor threads the claim attempt fingerprint back into every
 running-state write, so a stale daemon whose lease was reclaimed cannot heartbeat,
-advance, complete, fail, or requeue the job. Providers that cannot run the atomic
+advance, complete, fail, or requeue the job. While a job runs the executor renews
+its lease every third of the granted lease (until 2026-10-31 it never did, so any
+job outliving its 30 s lease was claimable again mid-run); a renewal the queue
+rejects aborts the processor's `signal` and the attempt lets go — tick outcome
+`lease_lost`, no artifact or terminal write, inputs left for the new owner. A
+transient renewal error is logged (`lease_renew_failed`) and retried. Providers that cannot run the atomic
 scripts fail as typed `unavailable` instead of silently falling back to unsafe
 read→write behavior. See DEPLOYMENT.md for how to configure it and OBSERVABILITY.md
 for what to watch.
