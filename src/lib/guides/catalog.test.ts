@@ -112,7 +112,12 @@ describe("the guides catalogue is structurally sound", () => {
     // Signatures (as "How to prepare a PDF for other people to sign", since
     // the tool sends nothing to anyone) and AI Data Extraction (54 → 58),
     // each checked first against the guides with a neighbouring intent.
-    expect(slugs.length).toBeLessThanOrEqual(58);
+    // Revisited 2026-10-31 (UTC), after that: the last four tools with no
+    // guide of their own — PNG to PDF (for what is particular to PNG, not a
+    // second JPG guide), HTML to PDF (a file, where the webpage guide is a
+    // URL), Overlay PDF (as "How to add a letterhead to a PDF", the task it
+    // does) and Optimize PDF for Web (58 → 62). Every tool now has one.
+    expect(slugs.length).toBeLessThanOrEqual(62);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
