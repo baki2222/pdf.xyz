@@ -696,8 +696,13 @@ export const guides: Guide[] = [
     ],
     steps: [
       "Open the JPG to PDF tool.",
-      "Pick the JPG or JPEG photos you want in the PDF — they stay on your device the whole time.",
-      "Put them in page order with each photo's Move up and Move down buttons.",
+      // Was "Pick the JPG or JPEG photos" — one format of the five the tool
+      // takes since #236; guide-format-claims.test.ts holds this list to
+      // the tool's `accept`.
+      `Pick the JPG, PNG, ${DECODED_NAMES_OR} images you want in the PDF — they stay on your device the whole time.`,
+      // The arrows are icons: "Move up" / "Move down" are their tooltips,
+      // never drawn (guide-ui-labels.test.ts reads `title` as not visible).
+      "Put them in page order with the up and down arrows on each photo.",
       "Create the PDF — it is assembled in your browser, not on a server.",
       "Save the finished PDF to your device.",
     ],
@@ -727,8 +732,11 @@ export const guides: Guide[] = [
         id: "limits-and-related-tools",
         heading: "Limits, formats, and where to go next",
         body: [
-          `The tool accepts JPG and JPEG files, and PNG, ${DECODED_NAMES} images as well, and produces a PDF. Each image can be up to ${MAX_IMAGE_MB} MB, and unless you choose a PDF per image, everything you add is assembled into one PDF on your device.`,
-          "If your images are PNGs — transparent ones included — use the PNG to PDF tool, which also builds a single PDF right in your browser. Going the other direction, PDF to JPG turns PDF pages back into images. And once you have several PDFs, Merge PDF combines them into one.",
+          `The tool accepts JPG and JPEG files, and PNG, ${DECODED_NAMES} images as well, and produces a PDF. Each image can be up to ${MAX_IMAGE_MB} MB, and unless you choose One PDF per image, everything you add is assembled into one PDF on your device.`,
+          // Was "If your images are PNGs — transparent ones included — use
+          // the PNG to PDF tool": a redirect for a format this tool takes
+          // itself since #236 (guide-format-claims.test.ts, rule redirect).
+          `${nameOf("png-to-pdf")} takes the same files and builds the same PDF, so either page works. Going the other direction, PDF to JPG turns PDF pages back into images. And once you have several PDFs, Merge PDF combines them into one.`,
         ],
       },
     ],
@@ -741,7 +749,7 @@ export const guides: Guide[] = [
       {
         question: "Can I combine multiple JPG photos into one PDF?",
         answer:
-          "Yes — that is exactly what the tool does. Each photo becomes one page of a single PDF, in the order you set with the Move up and Move down buttons.",
+          "Yes — that is exactly what the tool does. Each photo becomes one page of a single PDF, in the order you set with the up and down arrows on each photo.",
       },
       {
         question: "Does JPG to PDF have page size or margin settings?",
@@ -765,7 +773,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-17",
-    updated: "2026-10-30",
+    updated: "2026-10-31",
   },
   {
     // ONE guide for the intent, from two lanes: L07 wrote this slug for the
@@ -3506,7 +3514,9 @@ export const guides: Guide[] = [
     ],
     steps: [
       `Open the ${nameOf("jpg-to-pdf")} tool and drop your images on the box at the top of the page, or click it to pick them. ${DECODED_NAMES} files are taken alongside JPG and PNG.`,
-      "Put the pages in order with each image's Move up and Move down buttons, and press Remove to take one out.",
+      // Was "press Remove": the button is an X icon whose only text is its
+      // `title` tooltip — guide-ui-labels.test.ts, the screen-reader rule.
+      "Put the pages in order with the up and down arrows on each image, and press the cross on an image to take it out.",
       "Choose the Page size, Orientation and Margin, or keep the ones shown.",
       "Under Output, keep One PDF, or choose One PDF per image (ZIP) to get several PDFs, one for each image.",
       "Press Create PDF, then Download PDF. With several images and a PDF per image, the button downloads them together as a ZIP instead.",
@@ -3563,6 +3573,6 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
-    updated: "2026-10-30",
+    updated: "2026-10-31",
   },
 ];

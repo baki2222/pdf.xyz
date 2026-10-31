@@ -69,6 +69,26 @@
  *   wildcard). A drop zone's "…, or" title is also read with the "browse"
  *   control that follows it on screen.
  *
+ * ── VISIBLE, NOT MERELY PRESENT (2026-10-31) ────────────────────────────────
+ *
+ * A guide writes for a SIGHTED reader ("choose Numbering style"), so a string
+ * that only assistive technology receives is not a label it may name. Until
+ * 2026-10-31 every string counted, and "Numbering style" — Add Page Numbers'
+ * `SegmentedControl` label, rendered only as the radiogroup's `aria-label` —
+ * would have passed. A string is HIDDEN when it is:
+ *
+ *  - the value of `aria-label` / `aria-description` / `aria-roledescription`
+ *    / `aria-valuetext` / `title` / `alt` on an INTRINSIC element (a
+ *    `title` is a hover tooltip: never on screen on touch, and not text);
+ *  - inside an element whose `className` carries the `sr-only` token;
+ *  - a prop of a component whose every use inside that component is in one
+ *    of those positions (one hop; `SegmentedControl`'s `label`).
+ *
+ * …unless the same string is ALSO visible anywhere in the guide's scope
+ * (find-panel's "Replace with" is an sr-only <label> and the input's
+ * placeholder, which is drawn). A label that matches only hidden text fails
+ * with the hidden string in the message.
+ *
  * From the modules OUTSIDE `src/components`, labels only: the string values of
  * `label` / `…Label` properties and of `…_LABEL(S)` constants — the convention
  * every option list the runners draw from uses (`SCAN_ENHANCEMENTS[i].label`,
@@ -101,7 +121,6 @@
  *    name neighbours' controls ("in Compress PDF, press …").
  */
 import ts from "typescript";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { guides } from "./catalog";
@@ -111,8 +130,10 @@ import { tools } from "@/lib/tools";
 import {
   SRC,
   ownPanelModules,
+  parsedSource,
   rel,
-  resolveSpecifier,
+  resolveComponent,
+  valueClosure,
 } from "@/tests/tool-panel-modules";
 
 /* ------------------------------------------------------------------ *
@@ -339,85 +360,19 @@ const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
 /** One apostrophe, so a ’ in prose meets a ' in code. */
 const norm = (s: string): string => squash(s).replace(/'/g, "’");
 
-const sources = new Map<string, ts.SourceFile>();
-function source(file: string): ts.SourceFile {
-  let sf = sources.get(file);
-  if (!sf) {
-    sf = ts.createSourceFile(
-      file,
-      readFileSync(file, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-      file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-    );
-    sources.set(file, sf);
-  }
-  return sf;
-}
-
-/** Modules `file` loads for their values: static, re-export, `import()`. */
-function valueEdges(file: string): string[] {
-  const out: string[] = [];
-  const add = (spec: string) => {
-    const r = resolveSpecifier(file, spec);
-    if (r) out.push(r);
-  };
-  const visit = (n: ts.Node): void => {
-    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
-      const c = n.importClause;
-      const typeOnly =
-        !!c &&
-        (c.isTypeOnly ||
-          (!c.name &&
-            !!c.namedBindings &&
-            ts.isNamedImports(c.namedBindings) &&
-            c.namedBindings.elements.length > 0 &&
-            c.namedBindings.elements.every((e) => e.isTypeOnly)));
-      if (!typeOnly) add(n.moduleSpecifier.text);
-      return;
-    }
-    if (
-      ts.isExportDeclaration(n) &&
-      !n.isTypeOnly &&
-      n.moduleSpecifier &&
-      ts.isStringLiteral(n.moduleSpecifier)
-    ) {
-      add(n.moduleSpecifier.text);
-      return;
-    }
-    if (
-      ts.isCallExpression(n) &&
-      n.expression.kind === ts.SyntaxKind.ImportKeyword &&
-      n.arguments[0] &&
-      ts.isStringLiteral(n.arguments[0])
-    )
-      add(n.arguments[0].text);
-    ts.forEachChild(n, visit);
-  };
-  visit(source(file));
-  return out;
-}
-
-/** Every module reachable from `entry` by value edges. */
-function closure(entry: string): string[] {
-  const seen = new Set([entry]);
-  const queue = [entry];
-  while (queue.length) {
-    for (const next of valueEdges(queue.pop()!))
-      if (!seen.has(next)) {
-        seen.add(next);
-        queue.push(next);
-      }
-  }
-  return [...seen];
-}
-
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 interface Rendered {
+  /** Strings a SIGHTED reader can see. */
   exact: Set<string>;
-  /** Strings with `${…}` / `{…}` holes, as anchored patterns. */
+  /** Strings with `${…}` / `{…}` holes, as anchored patterns (visible only). */
   patterns: RegExp[];
+  /**
+   * Strings that reach only assistive technology — never drawn on their own
+   * (see {@link HIDDEN_ATTRS}, {@link isSrOnly}, {@link hiddenProps}). After
+   * `uiOf`, a string that is ALSO visible somewhere in scope is not here.
+   */
+  hidden: Set<string>;
 }
 
 /** A string with holes, as a pattern whose holes are one or more words. */
@@ -427,44 +382,204 @@ const holed = (parts: string[]): RegExp =>
     "u",
   );
 
+/* ------------------------------------------------------------------ *
+ *  Visible or not: what a sighted reader never sees
+ * ------------------------------------------------------------------ */
+
+/**
+ * Attributes whose text is read out but not drawn. `title` is a hover
+ * tooltip — not on screen until a mouse rests there, never on touch — so it
+ * is not a label a guide can send a reader to look for either.
+ */
+const HIDDEN_ATTRS = new Set([
+  "aria-label",
+  "aria-description",
+  "aria-roledescription",
+  "aria-valuetext",
+  "title",
+  "alt",
+]);
+
+/**
+ * Does this element carry the `sr-only` class? The exact class token, in a
+ * literal or in any string inside the `className` expression (`cn(…)`). A
+ * responsive variant (`max-sm:sr-only`) is visible at other widths, so it is
+ * not the token. `sr-only focus:not-sr-only` (a skip button) still counts as
+ * hidden: it appears only under keyboard focus, never to a reader looking.
+ */
+function isSrOnly(el: ts.JsxOpeningLikeElement): boolean {
+  for (const prop of el.attributes.properties) {
+    if (!ts.isJsxAttribute(prop) || prop.name.getText() !== "className")
+      continue;
+    let hit = false;
+    const v = (x: ts.Node): void => {
+      if (
+        (ts.isStringLiteral(x) || ts.isNoSubstitutionTemplateLiteral(x)) &&
+        x.text.split(/\s+/).includes("sr-only")
+      )
+        hit = true;
+      ts.forEachChild(x, v);
+    };
+    if (prop.initializer) v(prop.initializer);
+    if (hit) return true;
+  }
+  return false;
+}
+
+/**
+ * A hidden attribute on an INTRINSIC element (`<div aria-label>`, `<button
+ * title>`). On a component, `title` is whatever that component makes of it —
+ * runner-kit's `<Section title="Format">` draws a heading — so a component's
+ * props go through {@link hiddenProps} instead.
+ */
+const isHiddenAttr = (a: ts.JsxAttribute): boolean =>
+  HIDDEN_ATTRS.has(a.name.getText()) &&
+  /^[a-z]/.test(a.parent.parent.tagName.getText());
+
+/** Is `n`, inside the function `stop`, in a hidden position? */
+function inHiddenPosition(n: ts.Node, stop: ts.Node): boolean {
+  for (let p: ts.Node | undefined = n.parent; p && p !== stop; p = p.parent) {
+    if (ts.isJsxAttribute(p) && isHiddenAttr(p)) return true;
+    if (ts.isJsxElement(p) && isSrOnly(p.openingElement)) return true;
+  }
+  return false;
+}
+
+/** The function that defines component `name` in `sf`, or null. */
+function componentFunction(
+  sf: ts.SourceFile,
+  name: string,
+): ts.FunctionLikeDeclaration | null {
+  const fnOf = (
+    x: ts.Expression | undefined,
+  ): ts.FunctionLikeDeclaration | null => {
+    if (!x) return null;
+    if (ts.isArrowFunction(x) || ts.isFunctionExpression(x)) return x;
+    // forwardRef(…) / memo(…)
+    if (ts.isCallExpression(x)) return fnOf(x.arguments[0]);
+    return null;
+  };
+  for (const st of sf.statements) {
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name) return st;
+    if (ts.isVariableStatement(st))
+      for (const d of st.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && d.name.text === name)
+          return fnOf(d.initializer);
+  }
+  return null;
+}
+
+const hiddenPropsCache = new Map<string, Set<string>>();
+/**
+ * The props of component `tag` (as `file` names it) that reach ONLY hidden
+ * positions inside it — `SegmentedControl`'s `label`, which renders as its
+ * radiogroup's `aria-label` and nowhere else, so "Numbering style" on Add
+ * Page Numbers is never on screen. One hop: a prop forwarded to another
+ * component counts as visible (the permissive direction), and so does a
+ * component this cannot follow (a package's).
+ */
+function hiddenProps(file: string, tag: string): Set<string> {
+  let resolved;
+  try {
+    resolved = resolveComponent(file, tag);
+  } catch (error) {
+    // Only "not ours to follow" (a package's component) is permissive. Any
+    // other throw — a ReferenceError, a cycle — is a broken instrument, and
+    // swallowing it would report every prop visible: the strongest pass.
+    if (/is neither declared there nor bound/.test(String(error)))
+      return new Set();
+    throw error;
+  }
+  const key = `${resolved.file}#${resolved.name}`;
+  const hit = hiddenPropsCache.get(key);
+  if (hit) return hit;
+  const out = new Set<string>();
+  hiddenPropsCache.set(key, out);
+  const fn = componentFunction(parsedSource(resolved.file), resolved.name);
+  const param = fn?.parameters[0];
+  if (!fn || !param || !ts.isObjectBindingPattern(param.name)) return out;
+  for (const el of param.name.elements) {
+    if (el.dotDotDotToken || !ts.isIdentifier(el.name)) continue;
+    const local = el.name.text;
+    const prop =
+      el.propertyName && ts.isIdentifier(el.propertyName)
+        ? el.propertyName.text
+        : local;
+    const uses: ts.Identifier[] = [];
+    const v = (x: ts.Node): void => {
+      // A reference, not a property NAME: `option.label` and `label=` are
+      // other things that happen to be spelt the same.
+      const p = x.parent;
+      const isName =
+        !!p &&
+        ((ts.isPropertyAccessExpression(p) && p.name === x) ||
+          (ts.isJsxAttribute(p) && p.name === x) ||
+          (ts.isPropertyAssignment(p) && p.name === x) ||
+          (ts.isPropertySignature(p) && p.name === x) ||
+          (ts.isBindingElement(p) && p.propertyName === x));
+      if (ts.isIdentifier(x) && x.text === local && x !== el.name && !isName)
+        uses.push(x);
+      ts.forEachChild(x, v);
+    };
+    if (fn.body) v(fn.body);
+    if (uses.length > 0 && uses.every((u) => inHiddenPosition(u, fn)))
+      out.add(prop);
+  }
+  return out;
+}
+
 const renderedCache = new Map<string, Rendered>();
 /** Every string a module can put on screen (see the docblock for which). */
 function renderedBy(file: string): Rendered {
   const cached = renderedCache.get(file);
   if (cached) return cached;
   const exact = new Set<string>();
+  const hidden = new Set<string>();
   const patterns: RegExp[] = [];
   const isComponent = file.startsWith(COMPONENTS);
-  const addText = (s: string) => {
+  const addText = (s: string, h: boolean) => {
     const t = norm(decode(s));
-    if (t) exact.add(t);
+    if (t) (h ? hidden : exact).add(t);
   };
-  const addTemplate = (parts: string[]) => {
+  const addTemplate = (parts: string[], h: boolean) => {
+    // A hidden template draws nothing a reader could be sent to look for.
+    if (h) return;
     // A pattern must OPEN with a literal word: `${name} PDF` would match
     // every "<anything> PDF" a guide could invent ("Frobnicate PDF" passed
     // through one on the first run).
     if (!/\p{L}/u.test(parts[0]!)) return;
     patterns.push(holed(parts.map(decode)));
   };
-  const sf = source(file);
-  const visit = (n: ts.Node): void => {
+  const sf = parsedSource(file);
+  /** `h`: this node is in a hidden position (an sr-only subtree, an aria-label). */
+  const visit = (n: ts.Node, h: boolean): void => {
+    let inner = h;
     if (isComponent) {
       if (ts.isStringLiteral(n) && !ts.isImportDeclaration(n.parent))
-        addText(n.text);
-      else if (ts.isNoSubstitutionTemplateLiteral(n)) addText(n.text);
+        addText(n.text, h);
+      else if (ts.isNoSubstitutionTemplateLiteral(n)) addText(n.text, h);
       else if (ts.isTemplateExpression(n))
-        addTemplate([
-          n.head.text,
-          ...n.templateSpans.map((s) => s.literal.text),
-        ]);
-      else if (ts.isJsxElement(n) || ts.isJsxFragment(n)) {
+        addTemplate(
+          [n.head.text, ...n.templateSpans.map((s) => s.literal.text)],
+          h,
+        );
+      else if (ts.isJsxAttribute(n)) {
+        const name = n.name.getText(sf);
+        const tag = n.parent.parent.tagName.getText(sf);
+        if (
+          isHiddenAttr(n) ||
+          (/^\p{Lu}\w*$/u.test(tag) && hiddenProps(file, tag).has(name))
+        )
+          inner = true;
+      } else if (ts.isJsxElement(n) || ts.isJsxFragment(n)) {
+        if (ts.isJsxElement(n) && isSrOnly(n.openingElement)) inner = true;
         // The element's own text, `{…}` children as holes, nested
         // elements as boundaries: "Download {kind} PDF".
         const parts: string[] = [""];
         let holes = 0;
         for (const child of n.children) {
           if (ts.isJsxText(child)) {
-            addText(child.text);
+            addText(child.text, inner);
             parts[parts.length - 1] += child.text;
           } else if (ts.isJsxExpression(child) && child.expression) {
             parts.push("");
@@ -484,16 +599,17 @@ function renderedBy(file: string): Rendered {
             holes++;
           }
         }
-        if (holes > 0) addTemplate(parts);
+        if (holes > 0) addTemplate(parts, inner);
       }
     } else {
-      // Outside the components: labels only.
+      // Outside the components: labels only — and whether one is drawn is
+      // decided where a component renders it, so these count as visible.
       if (
         ts.isPropertyAssignment(n) &&
         /^(label|.*Label)$/.test(n.name.getText(sf)) &&
         ts.isStringLiteral(n.initializer)
       )
-        addText(n.initializer.text);
+        addText(n.initializer.text, false);
       if (
         ts.isVariableDeclaration(n) &&
         ts.isIdentifier(n.name) &&
@@ -502,16 +618,16 @@ function renderedBy(file: string): Rendered {
       ) {
         const v = (x: ts.Node): void => {
           if (ts.isStringLiteral(x) || ts.isNoSubstitutionTemplateLiteral(x))
-            addText(x.text);
+            addText(x.text, false);
           ts.forEachChild(x, v);
         };
         v(n.initializer);
       }
     }
-    ts.forEachChild(n, visit);
+    ts.forEachChild(n, (c) => visit(c, inner));
   };
-  visit(sf);
-  const value = { exact, patterns };
+  visit(sf, false);
+  const value = { exact, patterns, hidden };
   renderedCache.set(file, value);
   return value;
 }
@@ -524,16 +640,34 @@ function uiOf(slugs: readonly string[]): Rendered & { files: string[] } {
   for (const slug of slugs) {
     const panel = bySlug.get(slug);
     if (!panel) continue;
-    for (const f of closure(panel.file)) files.add(f);
+    for (const f of valueClosure(panel.file)) files.add(f);
   }
   const exact = new Set<string>();
+  const hidden = new Set<string>();
   const patterns: RegExp[] = [];
   for (const f of files) {
     const r = renderedBy(f);
     for (const s of r.exact) exact.add(s);
+    for (const s of r.hidden) hidden.add(s);
     patterns.push(...r.patterns);
   }
-  return { exact, patterns, files: [...files] };
+  // Visible anywhere in the scope is visible.
+  for (const s of exact) hidden.delete(s);
+  return { exact, patterns, hidden, files: [...files] };
+}
+
+/**
+ * The screen-reader-only string a missing label names, for the message: the
+ * label is in the code, and a sighted reader never sees it.
+ */
+function hiddenMatch(x: Extracted, ui: Rendered): string | null {
+  const run = norm(x.run).split(" ");
+  const coreLen = norm(x.core).split(" ").length;
+  for (let n = coreLen; n <= run.length; n++) {
+    const candidate = run.slice(0, n).join(" ");
+    if (ui.hidden.has(candidate)) return candidate;
+  }
+  return null;
 }
 
 /**
@@ -604,6 +738,8 @@ interface Finding {
   label: string;
   /** What it matched on screen, or null. */
   evidence?: string | null;
+  /** When it matched nothing visible: the screen-reader-only string it names. */
+  srOnly?: string;
 }
 
 const scopes = new Map<string, { ui: Rendered; clauses: Set<string> }>();
@@ -636,6 +772,7 @@ function audit(list: readonly Guide[]) {
   const missing: Finding[] = [];
   const allowUsed = new Set<string>();
   const byRule = new Map<Rule, number>();
+  let srOnlyHits = 0;
   for (const guide of list) {
     for (const { at, text } of proseStrings(guide)) {
       for (const x of extractLabels(text)) {
@@ -648,27 +785,34 @@ function audit(list: readonly Guide[]) {
         }
         const evidence = matches(x, ui, clauses);
         checked.push({ ...f, evidence });
-        if (!evidence) missing.push(f);
+        if (!evidence) {
+          const sr = hiddenMatch(x, ui);
+          missing.push(sr ? { ...f, srOnly: sr } : f);
+          if (sr) srOnlyHits++;
+        }
       }
     }
   }
-  return { checked, missing, allowUsed, byRule };
+  return { checked, missing, allowUsed, byRule, srOnlyHits };
 }
 
 const show = (f: Finding) =>
-  `${f.guide} ${f.at} [${f.rule}] “${f.label}”${f.evidence ? ` ${f.evidence}` : ""}`;
+  `${f.guide} ${f.at} [${f.rule}] “${f.label}”${f.evidence ? ` ${f.evidence}` : ""}${f.srOnly ? ` (only screen-reader text: “${f.srOnly}”)` : ""}`;
 
 describe("every control a guide tells a reader to act on is on its tools' screens", () => {
   const result = audit(guides);
 
   it("health: the corpus is plausibly large, every rule fires, and is printed", () => {
     // Recorded 2026-10-30 on 36 guides — see the PR for the full corpus.
+    // 2026-10-31, 39 guides: 207 checked (quoted=33, verb=162, chain=17,
+    // button=1); the screen-reader rule failed one ("press Remove", a
+    // tooltip-only X button), rewritten.
     console.log(
       `guide-ui-labels: ${result.checked.length} labels checked across ${guides.length} guides; by rule: ${[
         ...result.byRule,
       ]
         .map(([r, n]) => `${r}=${n}`)
-        .join(", ")}`,
+        .join(", ")}; screen-reader-only matches: ${result.srOnlyHits}`,
     );
     if (process.env.GUIDE_UI_LABELS_PRINT)
       console.log(result.checked.map(show).join("\n"));
@@ -745,6 +889,76 @@ describe("every control a guide tells a reader to act on is on its tools' screen
       "Download cropped PDF",
     ]);
     expect(missing).toEqual([]);
+  });
+});
+
+describe("a label a sighted reader never sees is not a label", () => {
+  // 2026-10-31: until then every string in a component counted as on
+  // screen, so "choose Numbering style" passed — a `SegmentedControl` label
+  // that renders only as its radiogroup's `aria-label`.
+  const only = (slug: string, step: string): Guide => ({
+    ...guides.find((g) => g.slug === slug)!,
+    steps: [step],
+    intro: [],
+    sections: [],
+    faq: [],
+  });
+  const missingOf = (slug: string, step: string) =>
+    audit([only(slug, step)]).missing.map((f) => [f.label, f.srOnly]);
+
+  it("health: each hidden position is seen, and a component's title is not one", () => {
+    const numbers = uiOf(["page-numbers"]);
+    // Through a component's prop into an `aria-label`.
+    expect(numbers.hidden.has("Numbering style")).toBe(true);
+    expect(numbers.exact.has("Numbering style")).toBe(false);
+    // `<Section title="Format">` draws a heading: a component's `title` is
+    // what the component makes of it, not the HTML attribute.
+    expect(numbers.exact.has("Format")).toBe(true);
+    const edit = uiOf(["edit-pdf"]);
+    // An `sr-only` element's text (thumbnail-rail.tsx's keyboard-only Up
+    // button, `cn(iconBtn, "sr-only focus:not-sr-only")`), and an intrinsic
+    // `aria-label` (the toolbar's).
+    expect(edit.hidden.has("Up")).toBe(true);
+    expect(edit.hidden.has("Editor tools")).toBe(true);
+    // find-panel.tsx: "Replace with" is an sr-only <label> AND the input's
+    // placeholder — and a placeholder is drawn, so it is visible.
+    expect(edit.exact.has("Replace with")).toBe(true);
+    expect(edit.hidden.has("Replace with")).toBe(false);
+  });
+
+  it("positive control: a prop that reaches only aria-label fails, and says why", () => {
+    expect(
+      missingOf(
+        "how-to-add-page-numbers-to-a-pdf",
+        "Choose Numbering style, then press Add page numbers.",
+      ),
+    ).toEqual([["Numbering style", "Numbering style"]]);
+  });
+
+  it("positive control: sr-only text and an intrinsic aria-label fail", () => {
+    expect(
+      missingOf("how-to-add-text-to-a-pdf", "Under Editor tools pick a tool."),
+    ).toEqual([["Editor tools", "Editor tools"]]);
+    expect(
+      missingOf("how-to-add-text-to-a-pdf", "Press Up to move a page."),
+    ).toEqual([["Up", "Up"]]);
+  });
+
+  it("negative control: visible labels beside them pass", () => {
+    // Visible through a placeholder, though its <label> is sr-only.
+    expect(
+      missingOf(
+        "how-to-add-text-to-a-pdf",
+        "Type the new words where it says “Replace with”.",
+      ),
+    ).toEqual([]);
+    // TextField draws its `label` in a <label> — visible.
+    expect(
+      missingOf(
+        "how-to-add-bates-numbers-to-a-pdf",
+        "Under Prefix, type ACME-, then press Add page numbers.",
+      ),
+    ).toEqual([]);
   });
 });
 
