@@ -269,6 +269,8 @@ const OCR_LANGUAGE_NAMES = listAnd(OCR_LANGUAGES.map((l) => l.label));
 /** Example scripts a guide names; each is a typed `OcrLanguage`, so a withdrawn one fails the build. */
 const OCR_EXAMPLES: readonly OcrLanguage[] = ["ben", "hin", "ara", "tam"];
 const OCR_EXAMPLE_NAMES = listAnd(OCR_EXAMPLES.map(describeOcrLanguage));
+/** The OCR menu's name for Bengali, as the Bangla guide writes it. */
+const BN = describeOcrLanguage("ben");
 /** The right-to-left languages PDF to Word's OCR option withholds. */
 const RTL_OCR_NAMES = listAnd(RTL_OCR_LANGUAGES.map(describeOcrLanguage));
 
@@ -3818,6 +3820,102 @@ export const guides: Guide[] = [
       {
         question: "How large can my image be?",
         answer: `Up to ${MAX_IMAGE_MB} MB per image.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // Added 2026-10-31 for the "Bangla PDF to Word" search family. Written
+  // only after production read a Bengali page back, measured: the proof is
+  // `pnpm worker:prove-tools bengali-ocr` (a typed page of Bengali body
+  // text, scanned clean and degraded, read by both tools, with an English
+  // read of the same scans as the positive control), and its bars and why
+  // are in `@/lib/probes/bengali-ocr-proof`. No accuracy figure is printed
+  // here: no test pins one. The shape of the DOCX described below (the
+  // scan's picture, then the text, a scanned line sometimes a paragraph of
+  // its own) is what that run's DOCX held; the labels are the panels'
+  // constants, the retention windows the ones the privacy page reads.
+  {
+    slug: "how-to-convert-bangla-pdf-to-word",
+    title: "How to convert Bangla PDF to Word",
+    description: `Turn a scanned ${BN} PDF into editable Word: our server reads the text with OCR.`,
+    tools: ["pdf-to-word", "ocr-pdf"],
+    keywords: [
+      "bangla pdf to word",
+      "bengali pdf to word",
+      "bangla ocr",
+      "convert bangla scan to word",
+      "বাংলা pdf থেকে word",
+      "বাংলা ocr",
+    ],
+    intro: [
+      `To turn a scanned ${BN} PDF into a Word document you can edit, open ${nameOf("pdf-to-word")}, add the PDF, tick “${WORD_OCR_LABEL}”, select ${BN} under Languages, and press Export DOCX. Our server reads the ${BN} letters on each page with OCR (optical character recognition), then writes them into a DOCX file as text you can edit, copy and search.`,
+      `Choosing ${BN} is the step that decides the result. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens, and a ${BN} page read as ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} does not fail: it comes back as Latin letters that look like words and mean nothing, with no error.`,
+      `This runs on our secure server, not in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-word")} tool and drop your scanned PDF where it says Add your PDF, or click to pick one. Files up to ${ceilingMb("pdf-to-word")} MB are accepted.`,
+      `Tick “${WORD_OCR_LABEL}”. Without it, a scan has no text for the conversion to carry.`,
+      `Under Languages, select ${BN}. If the page also has English words, such as names, addresses or technical terms, leave the ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} chip on as well; if it has none, deselect ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)}.`,
+      "Press Export DOCX, which uploads your PDF over an encrypted connection to our server, where the OCR and the conversion run in one job.",
+      `Download the DOCX when it is ready. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      "Open it in Word, LibreOffice or Google Docs and read the text through against the page before you use it.",
+    ],
+    sections: [
+      {
+        id: "what-the-word-file-holds",
+        heading: "What the Word file holds",
+        body: [
+          `Each scanned page comes through as its picture, followed by the ${BN} text read from it, as plain paragraphs you can edit. The words are real ${BN} text in Unicode, so you can search them, copy them into another document, or change them.`,
+          "The look of the page is not rebuilt. Fonts, columns, tables and spacing are not carried over, and a line of the scan can come through as a paragraph of its own, so expect to join some lines and to style the headings yourself. Delete the picture once you no longer need it to compare against.",
+          "Word picks its own Bengali font to display the text, such as Nirmala UI or Vrinda on Windows. If the letters show as empty boxes, the computer has no Bengali font installed; the text in the file is still correct, and it shows once a Bengali font is installed.",
+        ],
+      },
+      {
+        id: "getting-a-good-result",
+        heading: "Getting a good result",
+        body: [
+          `OCR reads printed and typed ${BN}: books, letters, forms, office documents and newspaper pages. It is not made for handwriting, which usually comes back as nonsense or not at all.`,
+          "The clearer the scan, the fewer mistakes. Scan in your scanner's document or text setting rather than a low-resolution preview, keep the page straight and flat, and avoid shadows, glare and blur if you photograph it with a phone.",
+          "Even on a clean scan, read the result through. A misread usually changes one letter cluster, not a whole word: a vowel sign or a small mark such as the chandrabindu (ঁ) can be dropped, or a conjunct read as a similar one.",
+        ],
+      },
+      {
+        id: "searchable-pdf-instead",
+        heading: "When you want a searchable PDF instead",
+        body: [
+          `If you need to find and copy ${BN} words in the document but not edit it, use ${nameOf("ocr-pdf")}: select ${BN} under Languages, choose ${ocrModeLabel("searchable-pdf")} under Output, and press Recognize text. The page looks exactly as before, with the recognised text laid invisibly under it.`,
+          `If your scan is a JPG or PNG photo rather than a PDF, ${nameOf("ocr-pdf")} takes it as it is; for a Word file, turn the photo into a PDF first with ${nameOf("jpg-to-pdf")}.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I convert a Bangla PDF to Word for free?",
+        answer: `Yes. There is no account and no payment: open ${nameOf("pdf-to-word")}, tick “${WORD_OCR_LABEL}”, select ${BN}, and download the DOCX.`,
+      },
+      {
+        question:
+          "Why does my Bangla text come out as English-looking gibberish?",
+        answer: `Because the page was read with the wrong language. ${describeOcrLanguage(DEFAULT_OCR_LANGUAGE)} is selected when the page opens; select ${BN} under Languages and run the job again. A blurry or sideways scan can cause the same symptom.`,
+      },
+      {
+        question: "My PDF already has selectable Bangla text. Do I need OCR?",
+        answer: `No. If you can select the words in your PDF viewer and they paste as ${BN} letters, leave “${WORD_OCR_LABEL}” unticked and ${nameOf("pdf-to-word")} carries that text across as it is.`,
+      },
+      {
+        question:
+          "Why does text copied from my Bangla PDF paste as Latin letters?",
+        answer: `Because the PDF was typed in an older, non-Unicode Bangla font, such as the SutonnyMJ fonts used with Bijoy, which stores ${BN} letters as Latin ones. The conversion carries that text across exactly as stored, and OCR does not replace it: pages that already have text are kept as they are. One way round it is to make the pages pictures first, with ${nameOf("pdf-to-jpg")} and then ${nameOf("jpg-to-pdf")}, and convert that PDF with “${WORD_OCR_LABEL}” ticked.`,
+      },
+      {
+        question: "Can it read handwritten Bangla?",
+        answer:
+          "No. The OCR is made for printed and typed text; handwriting usually comes back as nonsense or not at all.",
+      },
+      {
+        question: "Is my file uploaded?",
+        answer: `Yes. OCR needs a recognition engine that runs on our secure server, so your PDF is uploaded over an encrypted connection. The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
       },
     ],
     published: "2026-10-31",

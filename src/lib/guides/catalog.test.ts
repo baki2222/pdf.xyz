@@ -90,7 +90,12 @@ describe("the guides catalogue is structurally sound", () => {
     // convert JPG to PDF under 100 KB", for JPG / PNG to PDF's new Max file
     // size (40 → 41) — the search family that feature exists for. Checked
     // against `image-size-limit.ts`, its ladder tests and the e2e proof.
-    expect(slugs.length).toBeLessThanOrEqual(41);
+    // Revisited 2026-10-31 (UTC), later again: one guide, "How to convert
+    // Bangla PDF to Word" (41 → 42), for a search
+    // family the Bengali OCR pack serves. Written only after production read
+    // a Bengali page back and was measured against it
+    // (`pnpm worker:prove-tools bengali-ocr`).
+    expect(slugs.length).toBeLessThanOrEqual(42);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,

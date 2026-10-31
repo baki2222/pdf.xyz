@@ -524,4 +524,17 @@ export const GUIDE_META: readonly GuideMeta[] = [
       "jpg to pdf for online application",
     ],
   },
+  {
+    slug: "how-to-convert-bangla-pdf-to-word",
+    title: "How to convert Bangla PDF to Word",
+    primary: "pdf-to-word",
+    keywords: [
+      "bangla pdf to word",
+      "bengali pdf to word",
+      "bangla ocr",
+      "convert bangla scan to word",
+      "বাংলা pdf থেকে word",
+      "বাংলা ocr",
+    ],
+  },
 ];
