@@ -19,6 +19,7 @@ import { docxDocumentOf, scannedPictures } from "./docx-layout";
 import { DOCX_PICTURE_OVERHEAD_BYTES, docxPackage } from "./docx-package";
 import { readDocxBody } from "./docx-read";
 import { classifyPdfTextFailure } from "./encryption";
+import { rethrowIfAttemptAbort, type RunControl } from "../attempt-abort";
 import { layoutGrid } from "./layout-grid";
 import {
   PageScanDecodeBudgetError,
@@ -68,9 +69,15 @@ export const PDF_TO_POWERPOINT_ENGINE = "pdfjs-pptx-faithful" as const;
  */
 export const PDF_TO_WORD_ENGINE = "pdftotext-pdfjs-docx-pictures" as const;
 
-export type PdfTextExtractor = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+export type PdfTextExtractor = (
+  bytes: Uint8Array,
+  run?: RunControl,
+) => Promise<ExtractedPdfText>;
 /** Reading-order paragraphs, for PDF to Word. See `../pdf-text/flow`. */
-export type PdfFlowExtractor = (bytes: Uint8Array) => Promise<PdfFlowText>;
+export type PdfFlowExtractor = (
+  bytes: Uint8Array,
+  run?: RunControl,
+) => Promise<PdfFlowText>;
 export interface PdfOfficeExportDeps {
   /** The page's visual arrangement (`-layout`) — Excel and PowerPoint. */
   extract?: PdfTextExtractor;
@@ -101,7 +108,10 @@ export interface PdfOfficeExportDeps {
    * (`PageScanUnreadableError`); absent where qpdf is, and then such a file
    * is refused.
    */
-  repairPdf?: (bytes: Uint8Array) => Promise<Uint8Array | null>;
+  repairPdf?: (
+    bytes: Uint8Array,
+    run?: RunControl,
+  ) => Promise<Uint8Array | null>;
   /**
    * The PowerPoint writer. Defaults to `./pptx-package`; injectable so a test
    * can hand the engine a writer that regressed and see what it delivers.
@@ -308,7 +318,11 @@ async function scanOrRebuild(
   } catch (error) {
     if (!(error instanceof PageScanUnreadableError)) throw error;
     if (!deps.repairPdf) return DAMAGED;
-    const rebuilt = await deps.repairPdf(input).catch(() => null);
+    const rebuilt = await deps.repairPdf(input).catch((failure: unknown) => {
+      // "Could not be rebuilt" is about the file; a lost attempt is not.
+      rethrowIfAttemptAbort(failure);
+      return null;
+    });
     if (!rebuilt) return DAMAGED_NOT_REBUILT;
     try {
       return { scan: await scanPages(rebuilt, options), rebuilt };
@@ -686,11 +700,35 @@ async function renderPowerPoint(
   };
 }
 
+/**
+ * The deps with every call that starts a child process (pdftotext, qpdf's
+ * rebuild) bound to the attempt's signal, so no render path below has to
+ * remember to pass it. The page reader (`scanPages`) is pdfjs in this process,
+ * bounded by its own timeout; it starts no child.
+ */
+function boundToAttempt(
+  deps: PdfOfficeExportDeps,
+  signal: AbortSignal | undefined,
+): PdfOfficeExportDeps {
+  if (!signal) return deps;
+  const run: RunControl = { signal };
+  const { extract, extractFlow, repairPdf } = deps;
+  return {
+    ...deps,
+    ...(extract ? { extract: (bytes) => extract(bytes, run) } : {}),
+    ...(extractFlow ? { extractFlow: (bytes) => extractFlow(bytes, run) } : {}),
+    ...(repairPdf ? { repairPdf: (bytes) => repairPdf(bytes, run) } : {}),
+  };
+}
+
 export async function runPdfOfficeExport(
   tool: PdfOfficeExportTool,
   input: Uint8Array,
-  deps: PdfOfficeExportDeps,
+  unbound: PdfOfficeExportDeps,
+  /** The attempt's abort signal, passed to every child process the export starts. */
+  signal?: AbortSignal,
 ): Promise<PdfOfficeExportRun> {
+  const deps = boundToAttempt(unbound, signal);
   const { extract, extractFlow, scanPages } = deps;
   if (
     tool === PDF_TO_WORD_TOOL
@@ -746,6 +784,7 @@ export async function runPdfOfficeExport(
       coverage: rendered.coverage,
     };
   } catch (error) {
+    rethrowIfAttemptAbort(error);
     if (error instanceof PageScanTooLargeError)
       return {
         ok: false,

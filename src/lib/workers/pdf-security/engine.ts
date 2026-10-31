@@ -43,6 +43,11 @@ import {
 } from "@/lib/jobs/pdf-permissions";
 import { looksLikePdf } from "../compression/engine";
 import { readEncryptPermissions } from "./permission-bits";
+import {
+  rethrowIfAttemptAbort,
+  signalOption,
+  type RunControl,
+} from "../attempt-abort";
 
 /** The two tools this engine powers. */
 export const PROTECT_TOOL = "protect-pdf";
@@ -128,13 +133,24 @@ export interface QpdfRunner {
    * answer); false only for a file qpdf can open. Throws on a file qpdf cannot
    * open, so an unreadable output can never pass as "no longer encrypted".
    */
-  isEncrypted(input: Uint8Array): Promise<boolean>;
+  isEncrypted(input: Uint8Array, run?: RunControl): Promise<boolean>;
   /** Whether opening the input needs a password (needs no password to answer). */
-  requiresPassword(input: Uint8Array): Promise<QpdfPasswordRequirement>;
+  requiresPassword(
+    input: Uint8Array,
+    run?: RunControl,
+  ): Promise<QpdfPasswordRequirement>;
   /** Encrypt the input and return the encrypted bytes. Throws on failure. */
-  protect(input: Uint8Array, opts: QpdfProtectInput): Promise<Uint8Array>;
+  protect(
+    input: Uint8Array,
+    opts: QpdfProtectInput,
+    run?: RunControl,
+  ): Promise<Uint8Array>;
   /** Decrypt the input with the given password; says why when it refuses. */
-  unlock(input: Uint8Array, opts: QpdfUnlockInput): Promise<QpdfUnlockOutcome>;
+  unlock(
+    input: Uint8Array,
+    opts: QpdfUnlockInput,
+    run?: RunControl,
+  ): Promise<QpdfUnlockOutcome>;
 }
 
 /** Strict resource limits for the native path. */
@@ -299,10 +315,13 @@ export async function runProtect(
   input: Uint8Array,
   options: ProtectPdfOptions,
   deps: PdfSecurityDeps,
+  /** The attempt's abort signal, passed to every qpdf run. */
+  signal?: AbortSignal,
 ): Promise<PdfSecurityRun> {
   const pre = await preflight(input, deps);
   if (!pre.ok) return pre.run;
   const qpdf = deps.qpdf!;
+  const run = signalOption(signal);
   const validate = deps.validate ?? looksLikePdf;
 
   // Ask the question each message states. `isEncrypted` answers "yes" for a
@@ -310,8 +329,9 @@ export async function runProtect(
   // it cannot tell the two refusals apart.
   let requirement: QpdfPasswordRequirement;
   try {
-    requirement = await qpdf.requiresPassword(input);
-  } catch {
+    requirement = await qpdf.requiresPassword(input, run);
+  } catch (error) {
+    rethrowIfAttemptAbort(error);
     return failed();
   }
   if (requirement === "needs-password") {
@@ -335,13 +355,18 @@ export async function runProtect(
 
   let output: Uint8Array;
   try {
-    output = await qpdf.protect(input, {
-      userPassword: options.password,
-      ownerPassword: options.ownerPassword,
-      keyLength: options.keyLength,
-      permissions,
-    });
-  } catch {
+    output = await qpdf.protect(
+      input,
+      {
+        userPassword: options.password,
+        ownerPassword: options.ownerPassword,
+        keyLength: options.keyLength,
+        permissions,
+      },
+      run,
+    );
+  } catch (error) {
+    rethrowIfAttemptAbort(error);
     return failed();
   }
 
@@ -353,8 +378,9 @@ export async function runProtect(
   if (!(await validate(output))) return failed();
   let outputRequirement: QpdfPasswordRequirement;
   try {
-    outputRequirement = await qpdf.requiresPassword(output);
-  } catch {
+    outputRequirement = await qpdf.requiresPassword(output, run);
+  } catch (error) {
+    rethrowIfAttemptAbort(error);
     return failed();
   }
   if (outputRequirement !== "needs-password") return failed();
@@ -406,10 +432,13 @@ export async function runUnlock(
   input: Uint8Array,
   options: UnlockPdfOptions,
   deps: PdfSecurityDeps,
+  /** The attempt's abort signal, passed to every qpdf run. */
+  signal?: AbortSignal,
 ): Promise<PdfSecurityRun> {
   const pre = await preflight(input, deps);
   if (!pre.ok) return pre.run;
   const qpdf = deps.qpdf!;
+  const run = signalOption(signal);
   const validate = deps.validate ?? looksLikePdf;
 
   // Which password (if any) opens the input decides both "nothing to unlock"
@@ -418,8 +447,9 @@ export async function runUnlock(
   // locked, and the user of the second has no open password to type.
   let requirement: QpdfPasswordRequirement;
   try {
-    requirement = await qpdf.requiresPassword(input);
-  } catch {
+    requirement = await qpdf.requiresPassword(input, run);
+  } catch (error) {
+    rethrowIfAttemptAbort(error);
     return failed();
   }
   if (requirement === "not-encrypted") {
@@ -429,8 +459,9 @@ export async function runUnlock(
 
   let outcome: QpdfUnlockOutcome;
   try {
-    outcome = await qpdf.unlock(input, { password: options.password });
-  } catch {
+    outcome = await qpdf.unlock(input, { password: options.password }, run);
+  } catch (error) {
+    rethrowIfAttemptAbort(error);
     return failed();
   }
   if (!outcome.ok) {
@@ -464,8 +495,9 @@ export async function runUnlock(
   // one qpdf cannot open: `isEncrypted` throws for it rather than say "no".
   let stillEncrypted: boolean;
   try {
-    stillEncrypted = await qpdf.isEncrypted(output);
-  } catch {
+    stillEncrypted = await qpdf.isEncrypted(output, run);
+  } catch (error) {
+    rethrowIfAttemptAbort(error);
     return failed();
   }
   if (stillEncrypted) return failed();

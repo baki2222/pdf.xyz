@@ -31,6 +31,7 @@ import {
   type QpdfStructureSeams,
 } from "@/lib/workers/pdf-structure/native";
 import type { PdfOfficeExportDeps } from "./engine";
+import type { RunControl } from "../attempt-abort";
 import { scanPdfPages } from "./page-scan";
 import { nodePdfjsAvailable } from "./pdfjs-node";
 
@@ -51,8 +52,8 @@ export function pdfOfficeExportDeps(
     ...(available ? { scanPages: scanPdfPages } : {}),
     ...(structure.qpdf
       ? {
-          repairPdf: async (bytes: Uint8Array) => {
-            const run = await runRepair(bytes, structure);
+          repairPdf: async (bytes: Uint8Array, control?: RunControl) => {
+            const run = await runRepair(bytes, structure, control?.signal);
             return run.ok ? run.output : null;
           },
         }

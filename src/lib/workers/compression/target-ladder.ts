@@ -47,6 +47,7 @@ import type {
   CompressionTool,
   NativeCompressor,
 } from "./engine";
+import { rethrowIfAttemptAbort } from "../attempt-abort";
 
 /** The rungs below the chosen Quality, highest first. Ends at the worker's 72 DPI floor. */
 export const TARGET_DPI_LADDER = [300, 200, 150, 120, 96, 72] as const;
@@ -104,6 +105,8 @@ export interface TargetLadderDeps {
   /** The shared time budget; absent ⇒ unbounded (tests, and callers with no limit). */
   budgetMs?: number;
   now: () => number;
+  /** The attempt's abort signal: an aborted rung stops the ladder, no rung after it runs. */
+  signal?: AbortSignal;
 }
 
 /** Climb down the ladder for `options.targetBytes`. See the module comment. */
@@ -141,9 +144,12 @@ export async function runTargetLadder(
         // resolution changes from rung to rung.
         options: { ...options, targetDpi: dpi },
         ...(left === undefined ? {} : { timeoutMs: left }),
+        ...(deps.signal ? { signal: deps.signal } : {}),
       });
       out = (await deps.validate(bytes)) ? bytes : null;
-    } catch {
+    } catch (error) {
+      // Not an `engine_error` rung: nobody is waiting for this ladder.
+      rethrowIfAttemptAbort(error);
       out = null;
     }
     tried.push({ dpi, bytes: out ? out.byteLength : null });

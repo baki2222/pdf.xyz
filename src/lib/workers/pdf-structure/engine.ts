@@ -14,6 +14,11 @@ import { acceptsDamagedPdf } from "@/lib/jobs/damaged-input";
 import { looksLikePdf, looksRepairable } from "../compression/engine";
 import { isLinearized } from "@/lib/pdf/linearization";
 import { QpdfRefusedError } from "./errors";
+import {
+  rethrowIfAttemptAbort,
+  signalOption,
+  type RunControl,
+} from "../attempt-abort";
 
 export const REPAIR_TOOL = "repair-pdf";
 export const OPTIMIZE_WEB_TOOL = "optimize-web";
@@ -38,9 +43,9 @@ export interface QpdfStructureOutput {
 
 export interface QpdfStructureRunner {
   /** Rewrite/recover the input PDF and return the repaired bytes. */
-  repair(input: Uint8Array): Promise<QpdfStructureOutput>;
+  repair(input: Uint8Array, run?: RunControl): Promise<QpdfStructureOutput>;
   /** Linearize the input PDF for fast web viewing and return the output bytes. */
-  linearize(input: Uint8Array): Promise<QpdfStructureOutput>;
+  linearize(input: Uint8Array, run?: RunControl): Promise<QpdfStructureOutput>;
 }
 
 export interface PdfStructureLimits {
@@ -214,6 +219,7 @@ async function runStructure(
   input: Uint8Array,
   deps: PdfStructureDeps,
   operation: "repair" | "linearize",
+  signal: AbortSignal | undefined,
 ): Promise<PdfStructureRun> {
   const pre = await preflight(input, deps, operation);
   if (!pre.ok) return pre.run;
@@ -227,9 +233,10 @@ async function runStructure(
   try {
     result =
       operation === "repair"
-        ? await qpdf.repair(input)
-        : await qpdf.linearize(input);
+        ? await qpdf.repair(input, signalOption(signal))
+        : await qpdf.linearize(input, signalOption(signal));
   } catch (error) {
+    rethrowIfAttemptAbort(error);
     // A classified refusal is a property of the document and must stay one.
     // This was a bare `catch {}` mapping every throw to `failed` — the kind the
     // processor retries — so a locked PDF was run three times.
@@ -260,13 +267,17 @@ async function runStructure(
 export function runRepair(
   input: Uint8Array,
   deps: PdfStructureDeps,
+  /** The attempt's abort signal, passed to every qpdf run. */
+  signal?: AbortSignal,
 ): Promise<PdfStructureRun> {
-  return runStructure(input, deps, "repair");
+  return runStructure(input, deps, "repair", signal);
 }
 
 export function runOptimizeWeb(
   input: Uint8Array,
   deps: PdfStructureDeps,
+  /** The attempt's abort signal, passed to every qpdf run. */
+  signal?: AbortSignal,
 ): Promise<PdfStructureRun> {
-  return runStructure(input, deps, "linearize");
+  return runStructure(input, deps, "linearize", signal);
 }

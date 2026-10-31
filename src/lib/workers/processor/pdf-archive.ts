@@ -128,7 +128,7 @@ export function createPdfArchiveProcessor(deps: PdfArchiveDeps): Processor {
       const inputError = singleInput(input);
       if (inputError) return inputError;
       const file = input.inputs[0]!;
-      const run = await runPdfToPdfA(file.bytes, deps);
+      const run = await runPdfToPdfA(file.bytes, deps, input.signal);
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
         [

@@ -76,6 +76,7 @@ describe("html-render processor", () => {
     expect(renderUrl).toHaveBeenCalledWith(
       "https://example.com/report",
       DEFAULT_HTML_RENDER_OPTIONS,
+      {},
     );
     if (result.ok)
       expect(result.artifacts[0]?.filename).toBe("example.com-report.pdf");
@@ -97,12 +98,16 @@ describe("html-render processor", () => {
         onePage: true,
       },
     });
-    expect(renderUrl).toHaveBeenCalledWith("https://example.com/report", {
-      ...DEFAULT_HTML_RENDER_OPTIONS,
-      pageSize: "A4",
-      orientation: "landscape",
-      onePage: true,
-    });
+    expect(renderUrl).toHaveBeenCalledWith(
+      "https://example.com/report",
+      {
+        ...DEFAULT_HTML_RENDER_OPTIONS,
+        pageSize: "A4",
+        orientation: "landscape",
+        onePage: true,
+      },
+      {},
+    );
     await processor.process({
       tool: "html-to-pdf",
       options: { margin: "none", viewport: "phone" },
@@ -115,11 +120,15 @@ describe("html-render processor", () => {
         },
       ],
     });
-    expect(renderHtml).toHaveBeenCalledWith(expect.any(Uint8Array), {
-      ...DEFAULT_HTML_RENDER_OPTIONS,
-      margin: "none",
-      viewport: "phone",
-    });
+    expect(renderHtml).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      {
+        ...DEFAULT_HTML_RENDER_OPTIONS,
+        margin: "none",
+        viewport: "phone",
+      },
+      {},
+    );
   });
 
   it("refuses a layout value it does not offer, finally, before rendering", async () => {

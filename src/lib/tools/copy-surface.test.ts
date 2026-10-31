@@ -106,6 +106,9 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/resize.ts",
       "src/lib/pdf/n-up.ts",
       "src/lib/workers/read-error.ts",
+      // Added 2026-10-31: the lost-attempt error's two sentences. The executor
+      // discards that result, but a log or a job record could carry them.
+      "src/lib/workers/attempt-abort.ts",
       // Added 2026-10-09 (WP-04): the sentence a tool page says about files
       // that arrived from another page ("Loaded 2 files you added.").
       "src/lib/handoff/origin.ts",

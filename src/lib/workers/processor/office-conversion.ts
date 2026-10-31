@@ -137,6 +137,7 @@ export function createOfficeConversionProcessor(
         file.bytes,
         file.filename,
         deps,
+        input.signal,
       );
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(

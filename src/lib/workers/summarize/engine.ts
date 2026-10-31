@@ -1,4 +1,9 @@
 import JSZip from "jszip";
+import {
+  rethrowIfAttemptAbort,
+  signalOption,
+  type RunControl,
+} from "../attempt-abort";
 import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
 import { NO_SELECTABLE_TEXT_MESSAGE } from "@/lib/jobs/ai-no-text";
 import {
@@ -49,7 +54,10 @@ export const SUMMARIZE_TOOL = "summarize-pdf" as const;
 export const SUMMARIZE_ENGINE = "ai-text-summary" as const;
 
 /** Extract selectable text from a PDF; throws on an unreadable PDF. */
-export type PdfTextExtractor = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+export type PdfTextExtractor = (
+  bytes: Uint8Array,
+  run?: RunControl,
+) => Promise<ExtractedPdfText>;
 
 export interface SummarizeLimits {
   maxInputBytes?: number;
@@ -290,6 +298,8 @@ export async function runSummarize(
   input: Uint8Array,
   options: SummarizeOptions,
   deps: SummarizeDeps,
+  /** The attempt's abort signal, passed to the text extractor's child. */
+  signal?: AbortSignal,
 ): Promise<SummarizeRun> {
   const { extract, provider } = deps;
   if (!extract) {
@@ -327,8 +337,9 @@ export async function runSummarize(
 
   let extracted: ExtractedPdfText;
   try {
-    extracted = await extract(input);
+    extracted = await extract(input, signalOption(signal));
   } catch (err) {
+    rethrowIfAttemptAbort(err);
     // A file the extractor cannot OPEN (it needs a password, or is not a
     // readable PDF) gets its own reason, never the generic failure. No model
     // has been called yet, so this failure has spent nothing.

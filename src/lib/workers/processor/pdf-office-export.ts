@@ -246,7 +246,12 @@ export function createPdfOfficeExportProcessor(
         }
       }
 
-      const run = await runPdfOfficeExport(input.tool, bytes, deps);
+      const run = await runPdfOfficeExport(
+        input.tool,
+        bytes,
+        deps,
+        input.signal,
+      );
       if (!run.ok) {
         const error = jobError(run);
         // "Run OCR first" is false advice after OCR has run.

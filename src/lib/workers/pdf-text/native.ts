@@ -45,6 +45,13 @@ import {
   PdfTextOpenError,
 } from "./errors";
 import { flowText, type PdfFlowText } from "./flow";
+import {
+  AttemptAbortedError,
+  isAttemptAbort,
+  signalOption,
+  throwIfAttemptAborted,
+  type RunControl,
+} from "../attempt-abort";
 import { parseBboxFlow, parseBboxLayout, parseLayoutText } from "./parse";
 import {
   resolveNativePdfTextConfig,
@@ -59,7 +66,13 @@ import {
 export type PdfTextExec = (
   command: string,
   args: readonly string[],
-  options: { timeout: number; maxBuffer: number; windowsHide: boolean },
+  options: {
+    timeout: number;
+    maxBuffer: number;
+    windowsHide: boolean;
+    /** The attempt's abort signal: Node kills the child on abort. */
+    signal?: AbortSignal;
+  },
 ) => Promise<string>;
 
 export interface PdfTextFs {
@@ -78,13 +91,17 @@ export interface PdfTextSeams {
   fs?: PdfTextFs;
 }
 
-const defaultExec: PdfTextExec = (command, args, options) =>
+/** The real subprocess runner; exported so an abort test drives THIS function. */
+export const defaultPdfTextExec: PdfTextExec = (command, args, options) =>
   new Promise((resolve, reject) => {
     execFile(
       command,
       [...args],
       { ...options, encoding: "utf8" },
       (error, stdout) => {
+        // Before the exit-status mapping: an abort has no status to read.
+        if (error && isAttemptAbort(error))
+          return reject(new AttemptAbortedError());
         // The exit status and kill flag travel on the error: they are what
         // separates "this document will not open" (the same on every retry)
         // from "this run did not finish". See `./errors`.
@@ -166,11 +183,13 @@ async function runPdfText(
   seams: PdfTextSeams,
   mode: "layout" | "bbox",
   input: Uint8Array,
+  run: RunControl = {},
 ): Promise<string> {
   if (input.byteLength > config.maxInputBytes) {
     throw new Error("Input exceeds the configured maximum size.");
   }
-  const exec = seams.exec ?? defaultExec;
+  throwIfAttemptAborted(run.signal);
+  const exec = seams.exec ?? defaultPdfTextExec;
   const fs = seams.fs ?? defaultFs;
   const dir = await fs.mkdtemp(
     path.join(config.tmpDir ?? tmpdir(), "pdfxyz-pdftext-"),
@@ -178,11 +197,13 @@ async function runPdfText(
   const inputPath = path.join(dir, "input.pdf");
   try {
     await fs.writeFile(inputPath, input);
+    throwIfAttemptAborted(run.signal);
     try {
       return await exec(binary, pdfTextArgs(mode, inputPath), {
         timeout: config.timeoutMs,
         maxBuffer: config.maxOutputBytes,
         windowsHide: true,
+        ...signalOption(run.signal),
       });
     } catch (err) {
       // poppler could not OPEN the file. Say why, from the file's own bytes
@@ -219,8 +240,18 @@ export function createNativePdfTextExtractor(
   padding: LayoutPadding,
   seams: PdfTextSeams = {},
 ): PdfTextExtractor {
-  return async (bytes: Uint8Array): Promise<ExtractedPdfText> => {
-    const stdout = await runPdfText(binary, config, seams, "layout", bytes);
+  return async (
+    bytes: Uint8Array,
+    run?: RunControl,
+  ): Promise<ExtractedPdfText> => {
+    const stdout = await runPdfText(
+      binary,
+      config,
+      seams,
+      "layout",
+      bytes,
+      run,
+    );
     return parseLayoutText(
       padding === "collapse" ? collapseLayoutPadding(stdout) : stdout,
     );
@@ -240,9 +271,11 @@ export function createNativePdfFlowExtractor(
   config: NativePdfTextConfig,
   seams: PdfTextSeams = {},
 ): PdfFlowExtractor {
-  return async (bytes: Uint8Array): Promise<PdfFlowText> =>
+  return async (bytes: Uint8Array, run?: RunControl): Promise<PdfFlowText> =>
     flowText(
-      parseBboxFlow(await runPdfText(binary, config, seams, "bbox", bytes)),
+      parseBboxFlow(
+        await runPdfText(binary, config, seams, "bbox", bytes, run),
+      ),
     );
 }
 
@@ -251,8 +284,10 @@ export function createNativePdfLayoutExtractor(
   config: NativePdfTextConfig,
   seams: PdfTextSeams = {},
 ): PdfLayoutExtractor {
-  return async (bytes: Uint8Array): Promise<PdfLayout> =>
-    parseBboxLayout(await runPdfText(binary, config, seams, "bbox", bytes));
+  return async (bytes: Uint8Array, run?: RunControl): Promise<PdfLayout> =>
+    parseBboxLayout(
+      await runPdfText(binary, config, seams, "bbox", bytes, run),
+    );
 }
 
 /**

@@ -16,6 +16,13 @@ import {
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 import { PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS } from "./contract";
 import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
+import {
+  AttemptAbortedError,
+  isAttemptAbort,
+  rethrowIfAttemptAbort,
+  signalOption,
+  throwIfAttemptAborted,
+} from "../attempt-abort";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 const MAX_BUFFER_CODE = "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
@@ -81,7 +88,13 @@ export interface GhostscriptExecResult {
 export type GhostscriptExec = (
   command: string,
   args: readonly string[],
-  options: { timeout: number; maxBuffer: number; windowsHide: boolean },
+  options: {
+    timeout: number;
+    maxBuffer: number;
+    windowsHide: boolean;
+    /** The attempt's abort signal: Node kills the child on abort. */
+    signal?: AbortSignal;
+  },
 ) => Promise<GhostscriptExecResult>;
 
 export interface GhostscriptFs {
@@ -101,8 +114,13 @@ export interface GhostscriptSeams {
   fs?: GhostscriptFs;
 }
 
-const defaultExec: GhostscriptExec = (command, args, options) =>
-  new Promise((resolve) => {
+/** The real subprocess runner; exported so an abort test drives THIS function. */
+export const defaultGhostscriptExec: GhostscriptExec = (
+  command,
+  args,
+  options,
+) =>
+  new Promise((resolve, reject) => {
     execFile(
       command,
       [...args],
@@ -115,6 +133,12 @@ const defaultExec: GhostscriptExec = (command, args, options) =>
         const diagnostics = `${decode(stdout)}\n${decode(stderr)}`;
         if (!error) {
           resolve({ code: 0, timedOut: false, diagnostics });
+          return;
+        }
+        // Checked before the string-code branch below, which would otherwise
+        // read `ABORT_ERR` as a spawn failure and call it transient.
+        if (isAttemptAbort(error)) {
+          reject(new AttemptAbortedError());
           return;
         }
         // A string `code` means Node never got an exit status: either the spawn
@@ -294,7 +318,7 @@ export function createNativeGhostscriptPdfARunner(
   config: NativePdfArchiveConfig,
   seams: GhostscriptSeams = {},
 ): GhostscriptPdfARunner {
-  const exec = seams.exec ?? defaultExec;
+  const exec = seams.exec ?? defaultGhostscriptExec;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
   const qpdfAvailable = config.qpdfBinary.startsWith("/")
@@ -318,8 +342,10 @@ export function createNativeGhostscriptPdfARunner(
    */
   async function openPasswordAnswer(
     inputPath: string,
+    signal: AbortSignal | undefined,
   ): Promise<OpenPasswordAnswer | "no-qpdf"> {
     if (!qpdfAvailable) return "no-qpdf";
+    throwIfAttemptAborted(signal);
     const probe = await exec(
       config.qpdfBinary,
       ["--requires-password", inputPath],
@@ -327,8 +353,13 @@ export function createNativeGhostscriptPdfARunner(
         timeout: PDF_ARCHIVE_PASSWORD_PROBE_TIMEOUT_MS,
         maxBuffer: EXEC_MAX_BUFFER,
         windowsHide: true,
+        ...signalOption(signal),
       },
-    ).catch(() => null);
+    ).catch((error: unknown) => {
+      // An inconclusive probe is "unknown"; a lost attempt is not a probe.
+      rethrowIfAttemptAbort(error);
+      return null;
+    });
     return readOpenPasswordAnswer(probe);
   }
 
@@ -346,9 +377,12 @@ export function createNativeGhostscriptPdfARunner(
     upFront: OpenPasswordAnswer | "no-qpdf",
     reason: "engine_exit" | "bad_output",
     message: string,
+    signal: AbortSignal | undefined,
   ): Promise<GhostscriptRunError> {
     const answer =
-      upFront === "unknown" ? await openPasswordAnswer(inputPath) : upFront;
+      upFront === "unknown"
+        ? await openPasswordAnswer(inputPath, signal)
+        : upFront;
     return answer === "needs-password"
       ? new GhostscriptRunError(
           "password_required",
@@ -358,9 +392,11 @@ export function createNativeGhostscriptPdfARunner(
   }
 
   return {
-    async convertToPdfA(input) {
+    async convertToPdfA(input, options) {
+      const signal = options?.signal;
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");
+      throwIfAttemptAborted(signal);
       let dir: string;
       try {
         dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-pdfa-"));
@@ -381,12 +417,13 @@ export function createNativeGhostscriptPdfARunner(
           throw new GhostscriptRunError("io", "Could not stage the input.");
         }
         // Before Ghostscript: its success is not evidence the file opened.
-        const upFront = await openPasswordAnswer(inputPath);
+        const upFront = await openPasswordAnswer(inputPath, signal);
         if (upFront === "needs-password")
           throw new GhostscriptRunError(
             "password_required",
             "The input needs an open password.",
           );
+        throwIfAttemptAborted(signal);
         const result = await exec(
           config.binary,
           ghostscriptPdfAArgs(
@@ -399,6 +436,7 @@ export function createNativeGhostscriptPdfARunner(
             timeout: config.timeoutMs,
             maxBuffer: EXEC_MAX_BUFFER,
             windowsHide: true,
+            ...signalOption(signal),
           },
         );
         if (result.spawnError !== undefined)
@@ -411,6 +449,7 @@ export function createNativeGhostscriptPdfARunner(
             upFront,
             "engine_exit",
             "Ghostscript PDF/A conversion failed.",
+            signal,
           );
         let output: Uint8Array;
         try {
@@ -423,6 +462,7 @@ export function createNativeGhostscriptPdfARunner(
               upFront,
               "bad_output",
               "Ghostscript produced no usable PDF output.",
+              signal,
             );
           throw new GhostscriptRunError("io", "Could not read the output.");
         }
@@ -438,6 +478,7 @@ export function createNativeGhostscriptPdfARunner(
             upFront,
             "bad_output",
             "Ghostscript produced no usable PDF output.",
+            signal,
           );
         }
         return {

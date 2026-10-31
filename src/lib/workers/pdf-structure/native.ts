@@ -22,6 +22,12 @@ import {
 import { sanitizeNativeDiagnostics } from "../native-diagnostics";
 import { QPDF_EXIT_ERROR, QPDF_EXIT_WARNINGS } from "../qpdf-exit";
 import { QpdfRefusedError } from "./errors";
+import {
+  AttemptAbortedError,
+  isAttemptAbort,
+  signalOption,
+  throwIfAttemptAborted,
+} from "../attempt-abort";
 
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 
@@ -40,7 +46,13 @@ export interface QpdfStructureExecResult {
 export type QpdfStructureExec = (
   command: string,
   args: readonly string[],
-  options: { timeout: number; maxBuffer: number; windowsHide: boolean },
+  options: {
+    timeout: number;
+    maxBuffer: number;
+    windowsHide: boolean;
+    /** The attempt's abort signal: Node kills the child on abort. */
+    signal?: AbortSignal;
+  },
 ) => Promise<QpdfStructureExecResult>;
 
 export interface QpdfStructureFs {
@@ -60,8 +72,13 @@ export interface QpdfStructureSeams {
   fs?: QpdfStructureFs;
 }
 
-const defaultExec: QpdfStructureExec = (command, args, options) =>
-  new Promise((resolve) => {
+/** The real subprocess runner; exported so an abort test drives THIS function. */
+export const defaultQpdfStructureExec: QpdfStructureExec = (
+  command,
+  args,
+  options,
+) =>
+  new Promise((resolve, reject) => {
     execFile(
       command,
       [...args],
@@ -73,6 +90,10 @@ const defaultExec: QpdfStructureExec = (command, args, options) =>
       ) => {
         if (!error) {
           resolve({ code: 0, timedOut: false, stderr: text(stderr) });
+          return;
+        }
+        if (isAttemptAbort(error)) {
+          reject(new AttemptAbortedError());
           return;
         }
         if (error.killed) {
@@ -166,26 +187,30 @@ export function createNativeQpdfStructureRunner(
   config: NativePdfStructureConfig,
   seams: QpdfStructureSeams = {},
 ): QpdfStructureRunner {
-  const exec = seams.exec ?? defaultExec;
+  const exec = seams.exec ?? defaultQpdfStructureExec;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
 
   async function withJob(
     input: Uint8Array,
     build: (inputPath: string, outputPath: string) => string[],
+    signal: AbortSignal | undefined,
   ): Promise<QpdfStructureOutput> {
     if (input.byteLength > config.maxInputBytes) {
       throw new Error("Input exceeds the configured maximum size.");
     }
+    throwIfAttemptAborted(signal);
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-structure-"));
     const inputPath = path.join(dir, "input.pdf");
     const outputPath = path.join(dir, "output.pdf");
     try {
       await fs.writeFile(inputPath, input);
+      throwIfAttemptAborted(signal);
       const result = await exec(config.binary, build(inputPath, outputPath), {
         timeout: config.timeoutMs,
         maxBuffer: EXEC_MAX_BUFFER,
         windowsHide: true,
+        ...signalOption(signal),
       });
       // Exit 3 is qpdf's documented "warnings issued, output was created". For a
       // damaged file that IS the successful outcome — it is what recovering a
@@ -199,6 +224,7 @@ export function createNativeQpdfStructureRunner(
       // disk, whether the reason is a password — the one cause the user can
       // remove with another tool — and say which; the engine makes it final.
       if (result.code === QPDF_EXIT_ERROR) {
+        throwIfAttemptAborted(signal);
         const probe = await exec(
           config.binary,
           requiresPasswordArgs(inputPath),
@@ -206,6 +232,7 @@ export function createNativeQpdfStructureRunner(
             timeout: config.timeoutMs,
             maxBuffer: EXEC_MAX_BUFFER,
             windowsHide: true,
+            ...signalOption(signal),
           },
         );
         throw new QpdfRefusedError(
@@ -243,8 +270,8 @@ export function createNativeQpdfStructureRunner(
   }
 
   return {
-    repair: (input) => withJob(input, repairArgs),
-    linearize: (input) => withJob(input, linearizeArgs),
+    repair: (input, run = {}) => withJob(input, repairArgs, run.signal),
+    linearize: (input, run = {}) => withJob(input, linearizeArgs, run.signal),
   };
 }
 

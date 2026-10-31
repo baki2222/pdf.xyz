@@ -61,6 +61,12 @@ import type {
 } from "./processor/ocr";
 import type { ProcessorArtifact, ProcessorInputFile } from "./processor/types";
 import { countPdfPages as countPdfPagesShared } from "@/lib/pdf/page-count";
+import {
+  rethrowIfAttemptAbort,
+  signalOption,
+  throwIfAttemptAborted,
+  type RunControl,
+} from "./attempt-abort";
 
 /** stdout/stderr capture ceiling. Engines are `--quiet` and write to files, so this is generous. */
 const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
@@ -90,7 +96,13 @@ const META_TSV_MAX_PARSE_BYTES = 16 * 1024 * 1024;
 export type NativeOcrExec = (
   command: string,
   args: readonly string[],
-  options: { timeout: number; maxBuffer: number; windowsHide: boolean },
+  options: {
+    timeout: number;
+    maxBuffer: number;
+    windowsHide: boolean;
+    /** The attempt's abort signal: Node kills the child on abort. */
+    signal?: AbortSignal;
+  },
 ) => Promise<unknown>;
 
 /** The temp-file operations the runner needs. Injectable for deterministic tests. */
@@ -130,6 +142,7 @@ export interface NativeOcrSeams {
    */
   readExistingText?: (
     pdf: Uint8Array,
+    run?: RunControl,
   ) => Promise<{ pages: readonly { text: string }[] }>;
   /**
    * Seams for the `pdftotext` probe {@link nativeOcrDeps} uses to build
@@ -139,7 +152,8 @@ export interface NativeOcrSeams {
 }
 
 const runExecFile = promisify(execFile);
-const defaultExec: NativeOcrExec = (command, args, options) =>
+/** The real subprocess runner; exported so an abort test drives THIS function. */
+export const defaultNativeOcrExec: NativeOcrExec = (command, args, options) =>
   runExecFile(command, [...args], options);
 
 const defaultFs: NativeOcrFs = {
@@ -507,6 +521,7 @@ async function fillSkippedPages(
   sidecar: Uint8Array,
   inputPdf: Uint8Array,
   readExistingText: NativeOcrSeams["readExistingText"],
+  signal: AbortSignal | undefined,
 ): Promise<Uint8Array> {
   if (!readExistingText || sidecar.byteLength > META_TEXT_MAX_MEASURE_BYTES) {
     return sidecar;
@@ -514,13 +529,15 @@ async function fillSkippedPages(
   const text = new TextDecoder("utf-8", { fatal: false }).decode(sidecar);
   if (skippedSidecarPages(text).length === 0) return sidecar;
   try {
-    const existing = await readExistingText(inputPdf);
+    const existing = await readExistingText(inputPdf, signalOption(signal));
     const { text: filled, filled: pages } = fillSkippedSidecarPages(
       text,
       existing.pages.map((page) => page.text),
     );
     return pages.length > 0 ? new TextEncoder().encode(filled) : sidecar;
-  } catch {
+  } catch (error) {
+    // Best-effort for a reader that failed; not for an attempt that is over.
+    rethrowIfAttemptAbort(error);
     return sidecar;
   }
 }
@@ -537,12 +554,13 @@ export function createNativeOcrRunner(
   config: NativeOcrConfig,
   seams: NativeOcrSeams = {},
 ): OcrRunner {
-  const exec = seams.exec ?? defaultExec;
+  const exec = seams.exec ?? defaultNativeOcrExec;
   const fs = seams.fs ?? defaultFs;
   const countPages = seams.countPages ?? countPdfPages;
   const baseTmp = config.tmpDir ?? tmpdir();
 
-  return async ({ options, inputs }): Promise<OcrRunResult> => {
+  return async ({ options, inputs, signal }): Promise<OcrRunResult> => {
+    throwIfAttemptAborted(signal);
     const input = inputs[0];
     // OCR runs over a single document; the processor refuses more before this,
     // and the tool page states the same number.
@@ -589,13 +607,18 @@ export function createNativeOcrRunner(
           wantText,
         },
       );
+      throwIfAttemptAborted(signal);
       try {
         await exec(command, args, {
           timeout: config.timeoutMs,
           maxBuffer: EXEC_MAX_BUFFER,
           windowsHide: true,
+          ...signalOption(signal),
         });
       } catch (error) {
+        // Before the refusal reading: an abort is neither the document's
+        // fault nor a crash worth retrying.
+        rethrowIfAttemptAbort(error);
         // A failure that belongs to the DOCUMENT (encrypted, signed, unreadable,
         // already has text) is thrown typed, so the processor can report it as
         // final with its next step instead of retrying it three times. Exit
@@ -633,6 +656,7 @@ export function createNativeOcrRunner(
             txt,
             input.bytes,
             seams.readExistingText,
+            signal,
           );
         }
         if (txt.byteLength === 0 || txt.byteLength > config.maxOutputBytes) {

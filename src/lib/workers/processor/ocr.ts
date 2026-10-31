@@ -28,6 +28,7 @@ import {
   type OcrEngineAvailability,
 } from "../ocr";
 import { OCR_REFUSAL_MESSAGES, OcrEngineRefusal } from "../ocr-engine-errors";
+import { attemptAbortedJobError, isAttemptAbort } from "../attempt-abort";
 import {
   processorFail,
   processorOk,
@@ -60,6 +61,8 @@ export interface OcrRunResult {
 export type OcrRunner = (input: {
   options: OcrOptions;
   inputs: ProcessorInputFile[];
+  /** The attempt's abort signal: the runner kills its engine's child on abort. */
+  signal?: AbortSignal;
 }) => Promise<OcrRunResult>;
 
 /**
@@ -242,8 +245,13 @@ export function createOcrProcessor(deps: OcrProcessorDeps = {}): Processor {
         run = await deps.runner({
           options: parsed.value,
           inputs: input.inputs,
+          ...(input.signal ? { signal: input.signal } : {}),
         });
       } catch (error) {
+        // Not `internal_error`: the executor reads it as a lost attempt.
+        if (isAttemptAbort(error)) {
+          return processorFail(attemptAbortedJobError());
+        }
         if (error instanceof OcrEngineRefusal) {
           return processorFail({
             code: "unprocessable_entity",

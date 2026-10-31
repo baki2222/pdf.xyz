@@ -8,6 +8,11 @@ import {
 } from "../ooxml/sheet-cells";
 import { CELL_GAP_EMS, isListItem, LONG_CELL_WORDS } from "../pdf-text/flow";
 import { classifyPdfTextFailure } from "../pdf-office-export/encryption";
+import {
+  rethrowIfAttemptAbort,
+  signalOption,
+  type RunControl,
+} from "../attempt-abort";
 
 /**
  * Table extraction engine for the `extract-tables` tool.
@@ -79,7 +84,10 @@ export interface DetectedTable {
 }
 
 /** Pull the positioned layout of a PDF; absent ⇒ the engine fails as `unsupported`. */
-export type PdfLayoutExtractor = (bytes: Uint8Array) => Promise<PdfLayout>;
+export type PdfLayoutExtractor = (
+  bytes: Uint8Array,
+  run?: RunControl,
+) => Promise<PdfLayout>;
 
 export interface TableExtractDeps {
   extractLayout?: PdfLayoutExtractor;
@@ -755,6 +763,8 @@ export async function buildTablesZip(
 export async function runTableExtract(
   input: Uint8Array,
   deps: TableExtractDeps,
+  /** The attempt's abort signal, passed to pdftotext. */
+  signal?: AbortSignal,
 ): Promise<TableExtractRun> {
   const { extractLayout } = deps;
   if (!extractLayout) {
@@ -775,7 +785,7 @@ export async function runTableExtract(
     };
   }
   try {
-    const layout = await extractLayout(input);
+    const layout = await extractLayout(input, signalOption(signal));
     const hasText = layout.pages.some((page) =>
       page.items.some((item) => item.text.trim().length > 0),
     );
@@ -823,6 +833,7 @@ export async function runTableExtract(
       },
     };
   } catch (error) {
+    rethrowIfAttemptAbort(error);
     // Every throw used to land here as one retryable `failed`, so a
     // password-protected statement was requeued twice with nothing changed
     // and then reported as "could not be processed". Ask the shared

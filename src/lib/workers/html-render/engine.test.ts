@@ -52,9 +52,11 @@ describe("html-render engine", () => {
       meta: { engine: "chromium", source: "html", outputBytes: PDF.byteLength },
     });
     // No layout asked for: the defaults, which render exactly as before.
+    // The third argument is the run control: no attempt signal here.
     expect(chromium.renderHtml).toHaveBeenCalledWith(
       HTML,
       DEFAULT_HTML_RENDER_OPTIONS,
+      {},
     );
   });
 
@@ -67,11 +69,12 @@ describe("html-render engine", () => {
       onePage: true,
     };
     await runHtmlToPdf(HTML, { chromium }, layout);
-    expect(chromium.renderHtml).toHaveBeenCalledWith(HTML, layout);
+    expect(chromium.renderHtml).toHaveBeenCalledWith(HTML, layout, {});
     await runWebpageToPdf("https://example.com/report", { chromium }, layout);
     expect(chromium.renderUrl).toHaveBeenCalledWith(
       "https://example.com/report",
       layout,
+      {},
     );
   });
 
@@ -87,6 +90,7 @@ describe("html-render engine", () => {
     expect(chromium.renderUrl).toHaveBeenCalledWith(
       "https://example.com/report",
       DEFAULT_HTML_RENDER_OPTIONS,
+      {},
     );
   });
 

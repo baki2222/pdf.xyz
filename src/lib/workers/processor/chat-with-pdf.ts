@@ -186,13 +186,18 @@ export function createChatWithPdfProcessor(deps: ChatWithPdfDeps): Processor {
        */
       const cap = perCallReadCap(input.delivery);
       if (!cap.ok) return processorFail(cap.error);
-      const run = await runChatWithPdf(file.bytes, parsed.value, {
-        ...deps,
-        limits: {
-          ...deps.limits,
-          ...(cap.cap ? { delivery: cap.cap } : {}),
+      const run = await runChatWithPdf(
+        file.bytes,
+        parsed.value,
+        {
+          ...deps,
+          limits: {
+            ...deps.limits,
+            ...(cap.cap ? { delivery: cap.cap } : {}),
+          },
         },
-      });
+        input.signal,
+      );
       // A run that failed AFTER a provider call still owes the job record what
       // it spent — see `aiResultsFromFailure`. Absent when no call happened.
       if (!run.ok)

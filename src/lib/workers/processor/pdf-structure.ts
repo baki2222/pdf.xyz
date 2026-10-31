@@ -162,8 +162,8 @@ export function createPdfStructureProcessor(deps: PdfStructureDeps): Processor {
 
       const run =
         input.tool === REPAIR_TOOL
-          ? await runRepair(file.bytes, deps)
-          : await runOptimizeWeb(file.bytes, deps);
+          ? await runRepair(file.bytes, deps, input.signal)
+          : await runOptimizeWeb(file.bytes, deps, input.signal);
       if (!run.ok) return processorFail(pdfStructureJobError(run));
 
       return processorOk(

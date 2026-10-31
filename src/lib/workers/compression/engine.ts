@@ -23,6 +23,7 @@ import { PDFDocument } from "pdf-lib";
 import { countPdfPagesDetailed } from "@/lib/pdf/page-count";
 import { apiError, type ParseResult } from "@/lib/jobs";
 import { hasColourImage } from "./image-colour";
+import { rethrowIfAttemptAbort } from "../attempt-abort";
 import { MAX_TARGET_BYTES, MIN_TARGET_BYTES } from "@/lib/pdf/compress-target";
 import {
   runTargetLadder,
@@ -365,6 +366,11 @@ export type NativeCompressor = (
      * smaller of it and its own configured timeout; absent ⇒ its own.
      */
     timeoutMs?: number;
+    /**
+     * The attempt's abort signal (`ProcessorInput.signal`): the runner refuses
+     * to start, or kills, its child when it aborts.
+     */
+    signal?: AbortSignal;
   },
 ) => Promise<Uint8Array>;
 
@@ -566,6 +572,8 @@ export async function runCompression(
   input: Uint8Array,
   options: CompressionOptions,
   deps: CompressionDeps,
+  /** The attempt's abort signal, passed to every native run. */
+  signal?: AbortSignal,
 ): Promise<CompressionRun> {
   const plan = planCompression(options, deps.tools);
   if (!plan.supported) {
@@ -657,6 +665,7 @@ export async function runCompression(
             native: deps.native,
             validate: deps.validate ?? looksLikePdf,
             now: deps.now ?? Date.now,
+            ...(signal ? { signal } : {}),
             ...(deps.limits?.targetBudgetMs === undefined
               ? {}
               : { budgetMs: deps.limits.targetBudgetMs }),
@@ -672,10 +681,16 @@ export async function runCompression(
         }
         output = run.output;
       } else {
-        output = await deps.native(input, { engine: plan.engine, options });
+        output = await deps.native(input, {
+          engine: plan.engine,
+          options,
+          ...(signal ? { signal } : {}),
+        });
       }
     }
-  } catch {
+  } catch (error) {
+    // A lost attempt is not a damaged file nor a failed engine: it propagates.
+    rethrowIfAttemptAbort(error);
     // A lossless throw almost always means the bytes weren't a readable PDF; a
     // native throw is an engine/runtime failure. Never leak the raw error text.
     if (!isNative) {
