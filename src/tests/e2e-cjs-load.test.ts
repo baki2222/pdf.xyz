@@ -47,7 +47,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { Module } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import vm from "node:vm";
@@ -138,10 +137,26 @@ function runtimeSpecifiers(file: string, source: string): string[] {
   return specs;
 }
 
-/** Compile as Node's CJS loader would; the SyntaxError message, or null. */
+/** Node's CommonJS wrapper parameters, in its own order. */
+const CJS_PARAMS = ["exports", "require", "module", "__filename", "__dirname"];
+
+/**
+ * Compile as Node's CJS loader would; the SyntaxError message, or null.
+ *
+ * Node compiles a module body with `vm.compileFunction` over these
+ * parameters, NOT by splicing it into the `Module.wrap` string. The two
+ * disagree on a leading `#!`: the splice moves it off the first line, where
+ * it is a SyntaxError, while Node accepts it. That false red stopped PR #254
+ * (scripts/indexnow-submit.mjs, which Node and Playwright both load fine).
+ *
+ * The extension is neutralised for the same reason. TypeScript treats a
+ * `.mjs`/`.mts` file as ESM whatever `module` says, and emits its `import`s
+ * untouched; Playwright's transform rewrites them to `require` like any other
+ * file — which is why an `import.meta` in that same script DID fail to load.
+ */
 function cjsCompileError(file: string, source: string): string | null {
   const cjs = ts.transpileModule(source, {
-    fileName: file,
+    fileName: file.replace(/\.m([jt]sx?)$/, ".$1"),
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,
@@ -150,7 +165,7 @@ function cjsCompileError(file: string, source: string): string | null {
     },
   }).outputText;
   try {
-    new vm.Script(Module.wrap(cjs), { filename: file });
+    vm.compileFunction(cjs, CJS_PARAMS, { filename: file });
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -308,6 +323,25 @@ describe("the CommonJS load detector (controls)", () => {
       "type-only.ts",
     ]);
     expect(report.cjsFailures).toEqual([]);
+  });
+
+  it("accepts a leading hashbang, as Node does, and still flags import.meta behind one", () => {
+    // Node's own loader is the reference: it requires this file without
+    // complaint, so the detector must too.
+    const hashbang = write(
+      "hashbang.mjs",
+      `#!/usr/bin/env node\nexport const z = 1;\n`,
+    );
+    const hashbangMeta = write(
+      "hashbang-meta.mjs",
+      `#!/usr/bin/env node\nexport const w = import.meta.url;\n`,
+    );
+    expect(loadGraph([hashbang]).cjsFailures).toEqual([]);
+    const report = loadGraph([hashbangMeta]);
+    expect(report.cjsFailures.map((f) => path.basename(f.file))).toEqual([
+      "hashbang-meta.mjs",
+    ]);
+    expect(report.cjsFailures[0]?.error).toMatch(/import\.meta/);
   });
 
   it("reports an unresolvable relative import", () => {
