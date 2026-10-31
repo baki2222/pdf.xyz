@@ -156,11 +156,25 @@ describe("publish workflow deploys what it pushed, and verifies at the wire", ()
 
   it("gates the deploy exactly like the push — main only, and both exist", () => {
     // A branch dispatch must validate the pipeline without touching
-    // production; count the gates rather than trusting step prose.
-    const gates = publish.match(/if:\s*github\.ref == 'refs\/heads\/main'/g);
-    expect(publish).toContain("Push both images");
-    expect(publish).toContain("Deploy both tiers");
-    expect(gates?.length).toBe(2);
+    // production. Until 2026-10-31 this COUNTED the gates (exactly 2), so
+    // adding a third main-only step failed it while a gate moved from the
+    // deploy to another step would have passed. Pin each step to its gate.
+    const steps = publish
+      .split("\n")
+      .filter((l) => !/^\s*#/.test(l))
+      .join("\n")
+      .split(/\n(?=\s{6}- name: )/)
+      .slice(1);
+    const gated = (name: string) => {
+      const step = steps.filter((s) => s.includes(`- name: ${name}`));
+      expect(step, `exactly one "${name}" step`).toHaveLength(1);
+      return /\n\s+if:\s*github\.ref == 'refs\/heads\/main'\n/.test(step[0]!);
+    };
+    expect(gated("Push both images"), "the push runs off main").toBe(true);
+    expect(gated("Deploy both tiers"), "the deploy runs off main").toBe(true);
+    // Positive control: a step that must run on every ref is NOT gated, so
+    // the predicate can say false.
+    expect(gated("Build web image")).toBe(false);
   });
 
   it("the worker rides the Service restart endpoint with latest=true — never the generic /deploy", () => {

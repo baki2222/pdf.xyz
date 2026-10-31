@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
+import path from "node:path";
 import { attachConsoleGuard } from "./helpers";
+import { findIndexNowKey } from "../scripts/indexnow-submit.mjs";
 
 test.describe("core pages", () => {
   test("homepage renders, is navigable, and ships structured data", async ({
@@ -167,6 +169,17 @@ test.describe("production hardening", () => {
     const manifestJson = JSON.parse(await manifest.text());
     expect(manifestJson.name).toContain("pdf.xyz");
     expect(Array.isArray(manifestJson.icons)).toBe(true);
+  });
+
+  test("the IndexNow key file is served at the host root", async ({
+    request,
+  }) => {
+    // IndexNow fetches this before it accepts a submission; a 404 or a body
+    // that is not the key turns every publish's submission into a 403.
+    const key = findIndexNowKey(path.join(process.cwd(), "public"));
+    const res = await request.get(`/${key}.txt`);
+    expect(res.status()).toBe(200);
+    expect((await res.text()).trim()).toBe(key);
   });
 
   test("the OpenGraph share image is wired and generated", async ({
