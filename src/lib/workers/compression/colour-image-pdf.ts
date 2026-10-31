@@ -77,17 +77,41 @@ export async function noisePhotoPdf({
   px,
   inches,
   pages = 1,
+  kind = "noise",
 }: {
   px: number;
   inches: number;
   pages?: number;
+  /**
+   * `noise`: every sample random. `smooth`: a photo-like picture — colour
+   * gradients with a little grain — to compare how Ghostscript encodes an
+   * ordinary photo at each rung against the worst case.
+   */
+  kind?: "noise" | "smooth";
 }): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const samples = new Uint8Array(px * px * 3);
   let seed = 0x2545f491;
   for (let i = 0; i < samples.length; i++) {
     seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
-    samples[i] = seed >>> 24;
+    if (kind === "noise") {
+      samples[i] = seed >>> 24;
+      continue;
+    }
+    const p = Math.floor(i / 3);
+    const x = p % px;
+    const y = Math.floor(p / px);
+    const c = i % 3;
+    const base =
+      c === 0
+        ? (255 * x) / px
+        : c === 1
+          ? (255 * y) / px
+          : 128 + 100 * Math.sin((x + y) / 40);
+    samples[i] = Math.max(
+      0,
+      Math.min(255, Math.round(base + ((seed >>> 24) - 128) / 16)),
+    );
   }
   const image = doc.context.flateStream(samples, {
     Type: "XObject",

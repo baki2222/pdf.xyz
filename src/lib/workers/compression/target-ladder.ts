@@ -7,21 +7,25 @@
  * The rungs are image resolutions. The first is the Quality the person chose
  * (`targetDpi`, Balanced 150 by default); below it come the fixed rungs of
  * {@link TARGET_DPI_LADDER}, down to the worker's floor of 72 DPI (`MIN_DPI`
- * in `engine.ts`, the Extreme preset). The answer is the FIRST rung — the
- * highest resolution — whose file is at or under the target.
+ * in `engine.ts`, the Extreme preset). They run from the top, and the answer
+ * is the FIRST rung — the highest resolution — whose file is at or under the
+ * target. If none is, the answer is the SMALLEST file among the rungs that
+ * ran, reported as not met.
  *
- * The order is floor first, then top down. The floor is the smallest file
- * the ladder can make, so it answers "can anything fit?" in one run: when it
- * cannot, the job stops there and returns that smallest file, reported as
- * not met. When it can, the rungs above it run from the top, and the first
- * that fits wins; if none does, the floor's file is already in hand and is
- * not made twice. A target nothing can reach — the expensive case if the
- * ladder ran top down — costs ONE run; the worst case is one run per rung.
+ * ── WHY NOT FLOOR FIRST (inverted the same day) ───────────────────────────
  *
- * That shortcut assumes a lower resolution never makes a bigger file. It is
- * how Ghostscript's downsampling behaves (fewer pixels, then the same
- * encoder), and the in-image proof (`../options-proof.ts`) measures each
- * rung's size on the real engine and fails if they do not descend.
+ * The first version ran the 72 DPI floor first and, when it did not fit,
+ * stopped: "the floor is the smallest file the ladder can make". That assumed
+ * a lower resolution never makes a bigger file, and the in-image proof — which
+ * asserted the assumption — failed on the real Ghostscript (container.yml,
+ * run 41164786989): 300 DPI 347,330 B, 200 DPI 158,359 B, 150 DPI 579,622 B,
+ * 120 DPI 392,474 B, 96 DPI 252,391 B, 72 DPI 143,420 B. Sizes are NOT
+ * monotonic in resolution: Ghostscript's AutoFilter chooses the image encoder
+ * per image and per run (DCT or Flate), so a lower rung can switch to the
+ * lossless encoder and come out bigger (`native.ts`, and the PR for the
+ * measurement). So nothing here assumes an order of sizes: every rung that
+ * runs is measured, the first fit wins, and "smallest" means the smallest
+ * file actually made. The proof now asserts those properties instead.
  *
  * ── WHAT BOUNDS IT ─────────────────────────────────────────────────────────
  *
@@ -30,7 +34,9 @@
  *    worker sets to the same `PDFXYZ_COMPRESSION_TIMEOUT_MS` a single run is
  *    allowed (`native.ts`). Each rung's subprocess timeout is what is left,
  *    and no rung starts with under {@link MIN_RUNG_MS}. So a target job can
- *    never take longer than one ordinary deep job is already allowed to.
+ *    never take longer than one ordinary deep job is already allowed to. A
+ *    ladder cut short by the budget says so (`stoppedBy: "budget"`), and its
+ *    "smallest" is the smallest of what ran.
  *  - grayscale: carried to every rung exactly as asked. The ladder never
  *    drops colour to hit a size; the panel suggests it, the person decides.
  *  - engines: only Ghostscript reads the resolution. qpdf and mutool would
@@ -67,10 +73,10 @@ export interface TargetAttempt {
 
 /** Why the ladder stopped where it did. */
 export type TargetStop =
-  /** A rung fit (or every rung ran and the floor's file fit). */
+  /** A rung fit; the rungs below it did not run. */
   | "fit"
-  /** The floor did not fit, so nothing could; its file is the smallest. */
-  | "floor_missed"
+  /** Every rung ran and none fit; the smallest of them was returned. */
+  | "exhausted"
   /** The shared time budget ran out before the next rung. */
   | "budget"
   /** A rung's engine run failed or made an unreadable file. */
@@ -88,7 +94,7 @@ export interface TargetLadderReport {
 
 export type TargetLadderRun =
   | { ok: true; output: Uint8Array; report: TargetLadderReport }
-  /** Only when the FIRST run (the floor) produced nothing usable. */
+  /** Only when NO rung produced a usable file. */
   | { ok: false; report: TargetLadderReport };
 
 export interface TargetLadderDeps {
@@ -109,25 +115,24 @@ export async function runTargetLadder(
   const rungs = DPI_TOOLS.includes(deps.engine)
     ? ladderRungs(options.targetDpi)
     : [options.targetDpi];
-  const floor = rungs[rungs.length - 1]!;
-  const order = [floor, ...rungs.slice(0, -1)];
   const started = deps.now();
+  const remaining = () =>
+    deps.budgetMs === undefined
+      ? undefined
+      : deps.budgetMs - (deps.now() - started);
   const tried: TargetAttempt[] = [];
-  const report = (
-    chosenDpi: number | null,
-    stoppedBy: TargetStop,
-  ): TargetLadderReport => ({
-    targetBytes: options.targetBytes,
-    tried,
-    chosenDpi,
-    stoppedBy,
-  });
+  /** The smallest usable file made so far, and its rung. */
+  let smallest: { dpi: number; output: Uint8Array } | null = null;
+  let stoppedBy: TargetStop = "exhausted";
 
-  const attempt = async (dpi: number): Promise<Uint8Array | null> => {
-    const remaining =
-      deps.budgetMs === undefined
-        ? undefined
-        : deps.budgetMs - (deps.now() - started);
+  for (const [i, dpi] of rungs.entries()) {
+    const left = remaining();
+    // The first rung always runs, on the whole budget; later ones only with
+    // enough of it left to be worth starting.
+    if (i > 0 && left !== undefined && left < MIN_RUNG_MS) {
+      stoppedBy = "budget";
+      break;
+    }
     let out: Uint8Array | null = null;
     try {
       const bytes = await deps.native(input, {
@@ -135,45 +140,41 @@ export async function runTargetLadder(
         // Grayscale and every other option ride along untouched; only the
         // resolution changes from rung to rung.
         options: { ...options, targetDpi: dpi },
-        ...(remaining === undefined ? {} : { timeoutMs: remaining }),
+        ...(left === undefined ? {} : { timeoutMs: left }),
       });
       out = (await deps.validate(bytes)) ? bytes : null;
     } catch {
       out = null;
     }
     tried.push({ dpi, bytes: out ? out.byteLength : null });
-    return out;
-  };
-
-  const smallest = await attempt(floor);
-  if (!smallest) return { ok: false, report: report(null, "engine_error") };
-  if (smallest.byteLength > options.targetBytes) {
-    return {
-      ok: true,
-      output: smallest,
-      report: report(floor, "floor_missed"),
-    };
-  }
-
-  let stoppedBy: TargetStop = "fit";
-  for (const dpi of order.slice(1)) {
-    if (
-      deps.budgetMs !== undefined &&
-      deps.budgetMs - (deps.now() - started) < MIN_RUNG_MS
-    ) {
-      stoppedBy = "budget";
-      break;
-    }
-    const out = await attempt(dpi);
     if (!out) {
       stoppedBy = "engine_error";
       break;
     }
     if (out.byteLength <= options.targetBytes) {
-      return { ok: true, output: out, report: report(dpi, "fit") };
+      return {
+        ok: true,
+        output: out,
+        report: {
+          targetBytes: options.targetBytes,
+          tried,
+          chosenDpi: dpi,
+          stoppedBy: "fit",
+        },
+      };
+    }
+    if (!smallest || out.byteLength < smallest.output.byteLength) {
+      smallest = { dpi, output: out };
     }
   }
-  // Nothing above the floor fit (or the ladder was cut short): the floor's
-  // file, already made, is the highest-quality one known to fit.
-  return { ok: true, output: smallest, report: report(floor, stoppedBy) };
+
+  const report: TargetLadderReport = {
+    targetBytes: options.targetBytes,
+    tried,
+    chosenDpi: smallest ? smallest.dpi : null,
+    stoppedBy,
+  };
+  return smallest
+    ? { ok: true, output: smallest.output, report }
+    : { ok: false, report };
 }

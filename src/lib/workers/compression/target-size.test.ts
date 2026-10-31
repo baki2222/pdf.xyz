@@ -64,8 +64,28 @@ interface Call {
   timeoutMs: number | undefined;
 }
 
-/** Ghostscript, played: output size follows the DPI asked for. */
-function playedGs(calls: Call[], over: Partial<{ throwAt: number }> = {}) {
+/**
+ * The sizes the REAL Ghostscript made of the in-image proof's photo, rung by
+ * rung (container.yml run 41164786989), in KB: NOT monotonic in resolution.
+ * The first ladder assumed they were and was wrong on this very data.
+ */
+const MEASURED_KB: Record<number, number> = {
+  300: 339,
+  200: 155,
+  150: 566,
+  120: 383,
+  96: 246,
+  72: 140,
+};
+
+/**
+ * Ghostscript, played: output size follows the DPI asked for (about `dpi`
+ * KB), or `kbAt[dpi]` KB when a size table is given.
+ */
+function playedGs(
+  calls: Call[],
+  over: Partial<{ throwAt: number; kbAt: Record<number, number> }> = {},
+) {
   const native: NativeCompressor = async (_input, ctx) => {
     calls.push({
       dpi: ctx.options.targetDpi,
@@ -73,7 +93,10 @@ function playedGs(calls: Call[], over: Partial<{ throwAt: number }> = {}) {
       timeoutMs: ctx.timeoutMs,
     });
     if (over.throwAt === ctx.options.targetDpi) throw new Error("engine died");
-    return outputAt(ctx.options.targetDpi, ctx.options.grayscale ? 1 : 3);
+    const kb = over.kbAt?.[ctx.options.targetDpi];
+    return kb === undefined
+      ? outputAt(ctx.options.targetDpi, ctx.options.grayscale ? 1 : 3)
+      : outputAt(kb, ctx.options.grayscale ? 1 : 3);
   };
   return native;
 }
@@ -179,6 +202,12 @@ describe("the ladder's shape", () => {
 });
 
 describe("runCompression with a target", () => {
+  // INVERTED 2026-10-31 (same day). The first ladder ran the 72 DPI floor
+  // first and stopped when it missed, assuming lower resolution never makes
+  // a bigger file; these tests pinned that order ([72, 150, 120], "stops
+  // after ONE attempt", "floor_missed"). The real Ghostscript disproved the
+  // assumption (MEASURED_KB above), so the ladder now runs top down, and
+  // not-met returns the smallest file it actually made.
   it("returns the FIRST (highest-quality) rung at or under the target", async () => {
     const input = await INPUT;
     const calls: Call[] = [];
@@ -189,8 +218,8 @@ describe("runCompression with a target", () => {
     );
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    // Floor first (does anything fit at all?), then from the top down.
-    expect(calls.map((c) => c.dpi)).toEqual([72, 150, 120]);
+    // Top down; the rungs below the first fit never run.
+    expect(calls.map((c) => c.dpi)).toEqual([150, 120]);
     expect(run.output).toBe(await outputAt(120));
     expect(run.output.byteLength).toBeLessThanOrEqual(130 * KB);
     // Positive control: the rung above really was over, so 120 is the first fit.
@@ -198,10 +227,9 @@ describe("runCompression with a target", () => {
     expect(run.meta.target).toEqual({
       targetBytes: 130 * KB,
       met: true,
-      attempts: 3,
+      attempts: 2,
       dpi: 120,
       tried: [
-        { dpi: 72, bytes: (await outputAt(72)).byteLength },
         { dpi: 150, bytes: (await outputAt(150)).byteLength },
         { dpi: 120, bytes: (await outputAt(120)).byteLength },
       ],
@@ -210,32 +238,54 @@ describe("runCompression with a target", () => {
     expect(run.meta.pageCheck).toBe("verified");
   });
 
-  it("stops after ONE attempt and reports not-met with the smallest when the floor does not fit", async () => {
+  it("on the REAL engine's non-monotonic sizes, the sharpest fit wins even with bigger rungs below it", async () => {
     const input = await INPUT;
     const calls: Call[] = [];
     const run = await runCompression(
       input,
-      deep({ targetDpi: 300, targetBytes: 40 * KB }),
-      gsDeps(playedGs(calls)),
+      deep({ targetDpi: 300, targetBytes: 200 * KB }),
+      gsDeps(playedGs(calls, { kbAt: MEASURED_KB })),
+    );
+    // 300 (339 KB) misses, 200 (155 KB) fits: 150 (566 KB) is never made.
+    expect(calls.map((c) => c.dpi)).toEqual([300, 200]);
+    expect(run.ok && run.meta.target).toMatchObject({ met: true, dpi: 200 });
+  });
+
+  it("not met: every rung runs, and the SMALLEST file made is returned — not the floor's", async () => {
+    const input = await INPUT;
+    const calls: Call[] = [];
+    // The real sizes with the 200 rung the smallest of all, so "the floor
+    // is the smallest" would return the wrong file here.
+    const kbAt = { ...MEASURED_KB, 200: 130 };
+    const run = await runCompression(
+      input,
+      deep({ targetDpi: 300, targetBytes: 100 * KB }),
+      gsDeps(playedGs(calls, { kbAt })),
     );
     expect(run.ok).toBe(true);
     if (!run.ok) return;
-    expect(calls.map((c) => c.dpi)).toEqual([72]);
-    expect(run.output).toBe(await outputAt(72));
-    expect(run.output.byteLength).toBeGreaterThan(40 * KB);
+    expect(calls.map((c) => c.dpi)).toEqual([300, 200, 150, 120, 96, 72]);
+    expect(run.output).toBe(await outputAt(130));
+    const tried = run.meta.target!.tried.map((t) => t.bytes!);
+    expect(run.output.byteLength).toBe(Math.min(...tried));
+    expect(tried.every((b) => b > 100 * KB)).toBe(true);
+    // Control: the floor's file is a different, bigger one.
+    expect((await outputAt(140)).byteLength).toBeGreaterThan(
+      run.output.byteLength,
+    );
     // The not-met path carries exactly the success path's metadata.
     expect(run.meta.target).toMatchObject({
-      targetBytes: 40 * KB,
+      targetBytes: 100 * KB,
       met: false,
-      attempts: 1,
-      dpi: 72,
-      stoppedBy: "floor_missed",
+      attempts: 6,
+      dpi: 200,
+      stoppedBy: "exhausted",
     });
     expect(run.meta.outputBytes).toBe(run.output.byteLength);
     expect(run.meta.pageCheck).toBe("verified");
   });
 
-  it("keeps the floor's result when only the floor fits, after trying every rung once", async () => {
+  it("reaches the floor when only the floor fits, after trying every rung once", async () => {
     const input = await INPUT;
     const calls: Call[] = [];
     const run = await runCompression(
@@ -244,7 +294,7 @@ describe("runCompression with a target", () => {
       gsDeps(playedGs(calls)),
     );
     expect(run.ok && run.meta.target?.met).toBe(true);
-    expect(calls.map((c) => c.dpi)).toEqual([72, 300, 200, 150, 120, 96]);
+    expect(calls.map((c) => c.dpi)).toEqual([300, 200, 150, 120, 96, 72]);
     expect(calls.length).toBeLessThanOrEqual(MAX_TARGET_ATTEMPTS);
     if (run.ok) {
       expect(run.output).toBe(await outputAt(72));
@@ -312,21 +362,22 @@ describe("runCompression with a target", () => {
       deep({ targetDpi: 300, targetBytes: 80 * KB }),
       gsDeps(slow, { limits: { targetBudgetMs: 10_000 }, now: () => clock }),
     );
-    // 10 s: 72 (budget 10 s), 300 (6 s left), 200 (2 s left), then 0 s left.
+    // 10 s: 300 (budget 10 s), 200 (6 s left), 150 (2 s left), then 0 s left.
     expect(calls.map((c) => [c.dpi, c.timeoutMs])).toEqual([
-      [72, 10_000],
-      [300, 6_000],
-      [200, 2_000],
+      [300, 10_000],
+      [200, 6_000],
+      [150, 2_000],
     ]);
+    // Cut short with nothing fitting: the smallest of what RAN, said so.
     expect(run.ok && run.meta.target).toMatchObject({
-      met: true,
-      dpi: 72,
+      met: false,
+      dpi: 150,
       attempts: 3,
       stoppedBy: "budget",
     });
   });
 
-  it("a rung that dies after the floor fit keeps the floor's file, and says why it stopped", async () => {
+  it("a rung that dies mid-ladder keeps the smallest file made so far, and says why it stopped", async () => {
     const input = await INPUT;
     const calls: Call[] = [];
     const run = await runCompression(
@@ -334,21 +385,25 @@ describe("runCompression with a target", () => {
       deep({ targetDpi: 300, targetBytes: 80 * KB }),
       gsDeps(playedGs(calls, { throwAt: 200 })),
     );
-    expect(calls.map((c) => c.dpi)).toEqual([72, 300, 200]);
+    expect(calls.map((c) => c.dpi)).toEqual([300, 200]);
     expect(run.ok && run.meta.target).toMatchObject({
-      met: true,
-      dpi: 72,
+      met: false,
+      dpi: 300,
+      tried: [
+        { dpi: 300, bytes: (await outputAt(300)).byteLength },
+        { dpi: 200, bytes: null },
+      ],
       stoppedBy: "engine_error",
     });
   });
 
-  it("a floor that dies is a failed run, and the failure still reports what it spent", async () => {
+  it("a first rung that dies is a failed run, and the failure still reports what it spent", async () => {
     const input = await INPUT;
     const calls: Call[] = [];
     const run = await runCompression(
       input,
       deep({ targetDpi: 150, targetBytes: 80 * KB }),
-      gsDeps(playedGs(calls, { throwAt: 72 })),
+      gsDeps(playedGs(calls, { throwAt: 150 })),
     );
     expect(run.ok).toBe(false);
     if (!run.ok && run.kind === "failed") {
@@ -411,7 +466,7 @@ describe("the composed chain: engine → processor → job record → browser", 
       expect(onRecord?.compression?.target).toEqual({
         targetBytes,
         met,
-        attempts: met ? 3 : 1,
+        attempts: met ? 2 : 4,
         outputBytes: bytes,
       });
     }

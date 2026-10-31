@@ -797,8 +797,10 @@ describe(
         undefined,
         { timeout: 10_000 },
       );
-      // Floor first, then from Balanced down: 150 (~152 KB) is the first fit.
-      expect(seen.map((s) => s.targetDpi)).toEqual([72, 150]);
+      // Top down from Balanced: 150 (~152 KB) is the first fit, so nothing
+      // below it runs. (Was [72, 150] — floor first — until the real engine
+      // showed sizes are not monotonic in DPI; see target-ladder.ts.)
+      expect(seen.map((s) => s.targetDpi)).toEqual([150]);
       expect(line).toHaveTextContent(
         /^Now 15\d\.\d KB — under your 200 KB target\.$/,
       );
@@ -821,7 +823,9 @@ describe(
         undefined,
         { timeout: 10_000 },
       );
-      expect(seen.map((s) => s.targetDpi)).toEqual([72]);
+      // Every rung runs (was [72]: the floor-first shortcut, inverted the
+      // same day), and the smallest file made — 72 DPI here — is returned.
+      expect(seen.map((s) => s.targetDpi)).toEqual([150, 120, 96, 72]);
       expect(line).toHaveTextContent(
         /^The smallest we could make is 7\d\.\d KB, above your 40 KB target\. Try Grayscale, or split the file\.$/,
       );

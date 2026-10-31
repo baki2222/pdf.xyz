@@ -3649,7 +3649,8 @@ export const guides: Guide[] = [
         id: "how-the-target-is-reached",
         heading: "How the target is reached",
         body: [
-          `Our server first makes the file at the lowest resolution it offers, ${TARGET_FLOOR_LABEL}, to learn whether the target can be reached at all. If even that is too big, it stops there and gives you that file, the smallest it can make, with a line saying it is above your target. If it fits, the server works down from your Quality setting and returns the first, sharpest version that is at or under the target.`,
+          `Our server makes the file at your Quality setting first, then at each lower resolution in turn, as far as ${TARGET_FLOOR_LABEL}, and stops at the first one at or under the target: the sharpest version that fits. If none fits, it gives you the smallest file it made, with a line saying it is above your target.`,
+          "A lower resolution usually makes a smaller file, but not always. For each picture, the program that does the work chooses how to store it, and at a lower setting it can choose a way that takes more room. So the server measures every file it makes rather than assuming, and a run where nothing fits tries every setting before it answers, which takes longer.",
           "Only the pictures in the file are made smaller. Typed text and drawn lines are not pictures, so they stay as sharp as before, and they are also why a text-heavy PDF cannot be squeezed much. The server checks that the result opens as a PDF and, when it can count them, that no page went missing.",
           `Colour is kept. The server never turns pages gray to reach a size: it does that only when you tick “Grayscale”, and gray pages are often much smaller.`,
         ],
@@ -3679,7 +3680,7 @@ export const guides: Guide[] = [
       },
       {
         question: "Why is my PDF still above the target?",
-        answer: `Because the lowest resolution our server offers, ${TARGET_FLOOR_LABEL}, still made a bigger file. That happens with a mostly-text PDF, where there are few pictures to shrink, and with long documents full of photos. Try “Grayscale”, or split the file.`,
+        answer: `Because none of the resolutions our server tried, down to ${TARGET_FLOOR_LABEL}, made a small enough file. That happens with a mostly-text PDF, where there are few pictures to shrink, and with long documents full of photos. Try “Grayscale”, or split the file.`,
       },
       {
         question: "Will my PDF turn black and white to hit the target?",

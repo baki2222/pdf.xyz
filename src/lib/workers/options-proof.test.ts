@@ -12,7 +12,7 @@ import {
   type PdfPermissions,
 } from "@/lib/jobs/pdf-permissions";
 import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
-import type { NativeCompressor } from "./compression/engine";
+import { runCompression, type NativeCompressor } from "./compression/engine";
 import type { QpdfRunner } from "./pdf-security/engine";
 import { readEncryptPermissions } from "./pdf-security/permission-bits";
 import { runWorkerOptionsProof, type OptionsProofDeps } from "./options-proof";
@@ -44,10 +44,23 @@ const encryptedWithP = (p: number) =>
   );
 
 /**
+ * The sizes the REAL Ghostscript made of the proof's photo per rung, in KB
+ * (container.yml run 41164786989) — not monotonic in DPI, and played that
+ * way, so a ladder that assumes an order is caught here before CI.
+ */
+const MEASURED_KB: Record<number, number> = {
+  300: 339,
+  200: 155,
+  150: 566,
+  120: 383,
+  96: 246,
+  72: 140,
+};
+
+/**
  * Ghostscript, played: gray when asked, colour otherwise — and, since the
- * target-size proof (2026-10-31), a file whose size follows the resolution
- * asked for (pdf-lib writes the /Subject pad as UTF-16 hex, 4 B a character,
- * so about 1 KB per DPI).
+ * target-size proof (2026-10-31), a file of `MEASURED_KB[dpi]` KB (pdf-lib
+ * writes the /Subject pad as UTF-16 hex, 4 B a character).
  */
 const ghostscript: NativeCompressor = async (_input, ctx) =>
   ctx.options.grayscale
@@ -56,7 +69,7 @@ const ghostscript: NativeCompressor = async (_input, ctx) =>
         components: 3,
         size: 48,
         pages: 2,
-        pad: ctx.options.targetDpi * 256,
+        pad: (MEASURED_KB[ctx.options.targetDpi] ?? 400) * 256,
       });
 
 function qpdf(writeP: (perms: PdfPermissions) => number): QpdfRunner {
@@ -139,17 +152,98 @@ describe("runWorkerOptionsProof", () => {
     expect(
       lines.filter((l) => l.startsWith("PASS")).length,
     ).toBeGreaterThanOrEqual(15);
-    // The three target-size checks ran, by name.
+    // The three target-size checks ran, by name, and the rungs were reported.
     for (const name of [
-      "target ladder rungs descend",
+      "target rungs differ",
       "target met",
       "target not met",
     ]) {
       expect(lines.some((l) => l.startsWith(`PASS ${name}:`))).toBe(true);
     }
+    expect(lines.filter((l) => l.startsWith("INFO target rungs"))).toHaveLength(
+      2,
+    );
   });
 
-  it("FAILS a Ghostscript that ignores the resolution (the ladder's one assumption)", async () => {
+  it("FAILS a ladder that returns a NON-minimal file when the target is not met", async () => {
+    // The ladder as first written: on not-met, the floor's file — which, on
+    // these non-monotonic sizes, is not the smallest one it made.
+    const floorOnMiss: typeof runCompression = async (input, options, d) => {
+      const run = await runCompression(input, options, d);
+      if (!run.ok || run.meta.target?.met !== false) return run;
+      const floor = await d.native!(input, {
+        engine: "ghostscript",
+        options: { ...options, targetDpi: 72 },
+      });
+      return {
+        ...run,
+        output: floor,
+        meta: { ...run.meta, outputBytes: floor.length },
+      };
+    };
+    // Sizes where the smallest file is NOT the floor's (96 DPI smallest),
+    // as AutoFilter can make them; the second-smallest stays sharper than it.
+    const kb: Record<number, number> = { ...MEASURED_KB, 200: 130, 96: 120 };
+    const twisted: NativeCompressor = async (input, ctx) =>
+      ctx.options.grayscale
+        ? ghostscript(input, ctx)
+        : colourImagePdf({
+            components: 3,
+            size: 48,
+            pages: 2,
+            pad: (kb[ctx.options.targetDpi] ?? 400) * 256,
+          });
+    const compression = {
+      tools: { ghostscript: true, qpdf: false, mutool: false },
+      native: twisted,
+    };
+    // Health: with the REAL ladder these sizes pass every target check.
+    const honest: string[] = [];
+    await runWorkerOptionsProof(
+      deps({ compression, log: (l) => honest.push(l) }),
+    );
+    expect(honest.filter((l) => /^(PASS|FAIL) target/.test(l))).toEqual(
+      honest.filter((l) => /^PASS target/.test(l)),
+    );
+    const lines: string[] = [];
+    expect(
+      await runWorkerOptionsProof(
+        deps({ compression, compress: floorOnMiss, log: (l) => lines.push(l) }),
+      ),
+    ).toBe(1);
+    expect(lines.some((l) => l.startsWith("FAIL target not met:"))).toBe(true);
+    // Control: the met check, which this wrapper does not touch, still passes.
+    expect(lines.some((l) => l.startsWith("PASS target met:"))).toBe(true);
+  });
+
+  it("FAILS a ladder that returns a fit that is not the sharpest", async () => {
+    // Prefers the floor whenever the floor fits.
+    const floorFirst: typeof runCompression = async (input, options, d) => {
+      if (options.targetBytes === undefined)
+        return runCompression(input, options, d);
+      const floor = await runCompression(
+        input,
+        { ...options, targetDpi: 72 },
+        d,
+      );
+      return floor.ok && floor.meta.target?.met
+        ? floor
+        : runCompression(input, options, d);
+    };
+    const lines: string[] = [];
+    expect(
+      await runWorkerOptionsProof(
+        deps({ compress: floorFirst, log: (l) => lines.push(l) }),
+      ),
+    ).toBe(1);
+    expect(lines.some((l) => l.startsWith("FAIL target met:"))).toBe(true);
+  });
+
+  // INVERTED 2026-10-31: was "FAILS ... (the ladder's one assumption)", on a
+  // check that sizes descend with DPI — false on the real engine. A
+  // Ghostscript that ignores the resolution is still a defect the proof must
+  // see, now as "the resolution changes nothing".
+  it("FAILS a Ghostscript that ignores the resolution", async () => {
     const flat: NativeCompressor = async (_input, ctx) =>
       ctx.options.grayscale
         ? colourImagePdf({ components: 1, size: 96, pages: 2 })
@@ -166,9 +260,9 @@ describe("runWorkerOptionsProof", () => {
         }),
       ),
     ).toBe(1);
-    expect(
-      lines.some((l) => l.startsWith("FAIL target ladder rungs descend:")),
-    ).toBe(true);
+    expect(lines.some((l) => l.startsWith("FAIL target rungs differ:"))).toBe(
+      true,
+    );
   });
 
   it("FAILS a Ghostscript that ignores grayscale", async () => {
