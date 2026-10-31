@@ -139,7 +139,7 @@ const content: ToolContent = {
     },
     {
       title: "Photos to print on A4 or Letter paper",
-      body: "Pick the paper your printer holds under Page size, and Auto orientation for a mix of landscape and portrait shots. Each image is scaled to sit inside the margin and is never cropped, so no photo runs off the edge of the sheet.",
+      body: "Pick the paper your printer holds under Page size, and Auto under Orientation for a mix of landscape and portrait shots. Each image is scaled to sit inside the margin and is never cropped, so no photo runs off the edge of the sheet.",
     },
     {
       title: "One PDF for every photo",

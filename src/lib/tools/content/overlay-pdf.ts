@@ -164,7 +164,7 @@ const content: ToolContent = {
     },
     {
       title: "Apply and download",
-      body: 'Press "Overlay onto" followed by your page count. "Overlay applied" then lists the pages stamped, scale, opacity and file size; press "Download overlaid PDF" for a file ending in "-overlay.pdf".',
+      body: 'Press "Overlay onto 3 pages", which carries your own page count. "Overlay applied" then lists the pages stamped, scale, opacity and file size; press "Download overlaid PDF" for a file ending in "-overlay.pdf".',
     },
   ],
 

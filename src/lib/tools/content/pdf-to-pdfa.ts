@@ -171,12 +171,12 @@ const content: ToolContent = {
       a: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Before your file is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART}, conformance ${PDFA_EXPECTED_CONFORMANCE} in its XMP metadata, plus an embedded colour profile (a ${PDFA_OUTPUT_INTENT_SUBTYPE} output intent). If either declaration is missing, no file is returned. A declaration is not proof of conformance, so the file carries no compliance guarantee; check it with the validator your archive uses. One oddity: Ghostscript's metadata notices say "PDF/A1" even though it runs with its PDF/A-2 setting. The notes show that wording unchanged, and we have not established why Ghostscript uses it.`,
     },
     {
-      q: "Can I choose PDF/A-1b, PDF/A-2u or PDF/A-3?",
+      q: "Can I convert to PDF/A-1b, PDF/A-2u or PDF/A-3?",
       a: `No. The panel has no level picker and every conversion targets ${PDF_A_STANDARD}, so for any other level you need software that lets you choose it.`,
     },
     {
       q: 'What does "discarding DOCINFO" mean for my title or author?',
-      a: "DOCINFO is the older dictionary where a PDF keeps its title, author, producer and similar fields. The notice says Ghostscript found a text string there that it cannot represent in PDF/A's XMP metadata, and that it discarded DOCINFO. It does not list which fields went, so if the title or author matters, open the copy's document properties and check.",
+      a: "DOCINFO is the older dictionary where a PDF keeps its title, author, producer and similar fields. The notice means Ghostscript found a text string there that it cannot represent in PDF/A's XMP metadata, and that it discarded DOCINFO. It does not list which fields went, so if the title or author matters, open the copy's document properties and check.",
     },
     {
       q: "Does converting a scan to PDF/A make its text searchable?",

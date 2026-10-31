@@ -112,7 +112,7 @@ const content: ToolContent = {
     },
     {
       title: "Finish a PDF that is only partly scanned",
-      body: "When typed pages and scanned pages sit in the same file, just run it: pages that already have text are skipped and kept as they are, and only the image pages are recognised. A scanned page that already carries any text, such as a digitally added stamp or header, counts as having text and is skipped too. Tick Redo existing OCR only when an earlier OCR text layer is poor and should be recognised again; text typed into the document is kept either way.",
+      body: "When typed pages and scanned pages sit in the same file, just run it: pages that already have text are skipped and kept as they are, and only the image pages are recognised. A scanned page that already carries any text, such as a digitally added stamp or header, counts as having text and is skipped too. Tick “Redo existing OCR” only when an earlier OCR text layer is poor and should be recognised again; text typed into the document is kept either way.",
     },
   ],
 
@@ -123,7 +123,7 @@ const content: ToolContent = {
     },
     {
       title: "Choose what you want back",
-      body: `Under Output, pick ${PDF_MODE}, ${TEXT_MODE} (a .txt file), or ${BOTH_MODE}. Pages of a PDF that already have text are skipped and kept as they are; tick Redo existing OCR only if the PDF's existing OCR text is poor and should be recognised again.`,
+      body: `Under Output, pick ${PDF_MODE}, ${TEXT_MODE} (a .txt file), or ${BOTH_MODE}. Pages of a PDF that already have text are skipped and kept as they are; tick “Redo existing OCR” only if the PDF's existing OCR text is poor and should be recognised again.`,
     },
     {
       title: "Add the scan and run it",

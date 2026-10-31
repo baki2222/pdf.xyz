@@ -121,7 +121,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "Does converting to grayscale send my PDF anywhere?",
-      a: "No. Rendering, the gray conversion and building the new PDF all happen in your browser tab, and the file is not sent to pdf.xyz. The PDF engines themselves are fetched from the site when you choose a file and when you press Convert, so stay online until the conversion finishes; saving the finished file needs no connection.",
+      a: "No. Rendering, the gray conversion and building the new PDF all happen in your browser tab, and the file is not sent to pdf.xyz. The PDF engines themselves are fetched from the site when you choose a file and when you press Convert to grayscale, so stay online until the conversion finishes; saving the finished file needs no connection.",
     },
     {
       q: "Can I still select or search the text after converting?",
