@@ -315,15 +315,29 @@ async function newImageDoc(lib: PdfLib, kind: ImagePdfKind): Promise<PdfDoc> {
   return doc;
 }
 
+/**
+ * An image saved again for a size limit (`image-size-fit.ts`): the bytes to
+ * embed in place of the file's, and the size to lay the page out by — the
+ * image's own upright size, so a smaller re-encode lands on the very page,
+ * in the very box, the original would have.
+ */
+export interface PreparedImage {
+  bytes: Uint8Array;
+  format: RasterImageFormat;
+  layoutWidth: number;
+  layoutHeight: number;
+}
+
 /** Embed one image and draw it on its own page, laid out by `options`. */
 async function addImagePage(
   lib: PdfLib,
   doc: PdfDoc,
   file: ImagePdfInput,
   options: ImagePageOptions,
+  prepared?: PreparedImage,
 ): Promise<void> {
-  let bytes = file.bytes;
-  let format = sniffRasterFormat(bytes);
+  let bytes = prepared?.bytes ?? file.bytes;
+  let format = prepared?.format ?? sniffRasterFormat(bytes);
   if (!format) {
     const decoded = sniffDecodedFormat(bytes);
     if (!decoded) {
@@ -347,7 +361,9 @@ async function addImagePage(
   }
   // Lay the image out as the browser SHOWED it: a portrait phone photo is
   // stored as landscape pixels plus an EXIF turn, and the preview is upright.
-  const shown = rasterDisplaySize(image);
+  const shown = prepared
+    ? { width: prepared.layoutWidth, height: prepared.layoutHeight }
+    : rasterDisplaySize(image);
   const layout = imagePageLayout(shown.width, shown.height, options);
   const page = doc.addPage([layout.pageWidth, layout.pageHeight]);
   page.drawRectangle({
@@ -402,4 +418,31 @@ export async function imagesToPdfs(
     out.push({ name: names[index]!, bytes: await doc.save() });
   }
   return out;
+}
+
+/**
+ * One PDF of `files` with some images swapped for re-encoded ones —
+ * `prepared[i]` stands in for `files[i]`; an absent entry keeps the file as
+ * it is. The size-limit ladder's builder (`image-size-fit.ts`); with no
+ * `prepared` at all it is {@link imagesToPdf}.
+ */
+export async function buildImagePdf(
+  kind: ImagePdfKind,
+  files: ImagePdfInput[],
+  options: ImagePageOptions,
+  prepared: readonly (PreparedImage | undefined)[] = [],
+): Promise<Uint8Array> {
+  validateImagePdfInputs(kind, files);
+  const lib = await loadPdfLib();
+  const doc = await newImageDoc(lib, kind);
+  for (const [i, file] of files.entries())
+    await addImagePage(lib, doc, file, options, prepared[i]);
+  return doc.save();
+}
+
+/** The names {@link imagesToPdfs} gives its PDFs, for a caller building them one by one. */
+export function perImagePdfNames(
+  files: readonly Pick<ImagePdfInput, "name">[],
+): string[] {
+  return perImageNames(files);
 }

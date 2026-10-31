@@ -31,7 +31,7 @@ interface Canvas2D {
   ): { data: Uint8ClampedArray };
 }
 
-type AnyCanvas = {
+export type AnyCanvas = {
   width: number;
   height: number;
   getContext(kind: "2d"): unknown;
@@ -42,7 +42,8 @@ type AnyCanvas = {
   toBlob?: (cb: (blob: Blob | null) => void, type: string, q?: number) => void;
 };
 
-function makeCanvas(width: number, height: number): AnyCanvas {
+/** A canvas of the given size: an OffscreenCanvas where there is one. */
+export function makeCanvas(width: number, height: number): AnyCanvas {
   if (typeof OffscreenCanvas !== "undefined")
     return new OffscreenCanvas(width, height) as unknown as AnyCanvas;
   const canvas = document.createElement("canvas");
@@ -51,7 +52,8 @@ function makeCanvas(width: number, height: number): AnyCanvas {
   return canvas as unknown as AnyCanvas;
 }
 
-async function encode(
+/** The canvas's pixels as `type` (a JPEG at `quality`), or `null`. */
+export async function encodeCanvas(
   canvas: AnyCanvas,
   type: string,
   quality: number,
@@ -107,7 +109,7 @@ export async function transcodeImage(
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close?.();
   const png = hasTransparency(ctx, width, height);
-  const blob = await encode(
+  const blob = await encodeCanvas(
     canvas,
     png ? "image/png" : "image/jpeg",
     TRANSCODE_JPEG_QUALITY,

@@ -98,6 +98,11 @@ import { withoutComments } from "./copy-surface";
 import { FONT_PACKS } from "@/lib/pdf/font-packs";
 import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
 import { TARGET_EXAMPLE, TARGET_SIZE_PRESETS } from "@/lib/pdf/compress-target";
+import {
+  KB,
+  LIMIT_EXAMPLE,
+  MAX_SIZE_PRESETS,
+} from "@/lib/pdf/image-size-limit";
 import { MAX_PDF_PASSWORD_BYTES } from "@/lib/jobs/pdf-security";
 import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
 import { nativeHtmlRenderDeps } from "@/lib/workers/html-render/native";
@@ -405,6 +410,22 @@ const OTHER_SIZES: readonly {
     window: 160,
     shipped:
       "the panel then says, for example, “Now 184.0 KB — under your 200 KB target.”",
+  },
+  // Added 2026-10-31: JPG / PNG to PDF's "Max file size" presets and the
+  // panel's own example — sizes a PDF is made to fit UNDER, never one an
+  // image is refused above (that is still the per-image ceiling).
+  {
+    what: "a size an image PDF is made to fit under",
+    valuesMb: [
+      ...MAX_SIZE_PRESETS.map((p) => MB_OF(p.bytes)),
+      MB_OF(LIMIT_EXAMPLE.limitBytes),
+      MB_OF(LIMIT_EXAMPLE.outputBytes),
+      // "Here 1 KB is 1,024 bytes": the unit the limit is counted in.
+      MB_OF(KB),
+    ],
+    near: /\b1 KB is\b|\blimit\b|\bMax file size\b|\bsmaller than\b|\bcaps? the size\b|\bunder a size\b/i,
+    window: 160,
+    shipped: "Can I make the PDF smaller than 100 KB or 200 KB?",
   },
 ];
 
@@ -761,7 +782,12 @@ describe("every declared ceiling is the constant its runner gates on", () => {
       widened.length,
       "no runner's transitive closure over-names its gate any more",
     ).toBeGreaterThanOrEqual(1);
-  });
+    // 2026-10-31: the walk takes ~2.2 s alone and timed out at the 5 s
+    // default inside the full `--no-file-parallelism` run (6.9 s) once JPG /
+    // PNG to PDF's runner gained the Max file size modules. Its cost grows
+    // with every runner's import graph; the bound is on time, not on what it
+    // checks.
+  }, 30_000);
 });
 
 /* ================================================================== *

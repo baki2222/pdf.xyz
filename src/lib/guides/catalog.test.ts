@@ -86,7 +86,11 @@ describe("the guides catalogue is structurally sound", () => {
     // Revisited 2026-10-31 (UTC): one guide, "How to compress a PDF to
     // 100 KB", for the deep step's new Target size (39 → 40) — the search
     // the feature was built for. Checked against the ladder and its tests.
-    expect(slugs.length).toBeLessThanOrEqual(40);
+    // Revisited 2026-10-31 (UTC), later the same day: one guide, "How to
+    // convert JPG to PDF under 100 KB", for JPG / PNG to PDF's new Max file
+    // size (40 → 41) — the search family that feature exists for. Checked
+    // against `image-size-limit.ts`, its ladder tests and the e2e proof.
+    expect(slugs.length).toBeLessThanOrEqual(41);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,

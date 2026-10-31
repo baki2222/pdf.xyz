@@ -9,6 +9,12 @@ import {
 } from "../../src/lib/pdf/gray-jpeg";
 import { imagesToPdf, imagesToPdfs } from "../../src/lib/pdf/image-to-pdf";
 import {
+  KB,
+  MAX_LIMIT_ATTEMPTS,
+  MAX_SIZE_PRESETS,
+  limitOutcome,
+} from "../../src/lib/pdf/image-size-limit";
+import {
   IMAGE_MARGINS,
   IMAGE_PAGE_SIZES,
 } from "../../src/lib/pdf/image-page-layout";
@@ -2153,6 +2159,113 @@ const AUTO_INK: [number, number, number, number] = [80, 150, 280, 450];
 const A4 = IMAGE_PAGE_SIZES.find((s) => s.id === "a4")!.size!;
 const SMALL_MARGIN_PT = IMAGE_MARGINS.find((m) => m.id === "small")!.points;
 
+/** Why the Max file size variants reject an artifact (added 2026-10-31). */
+const LIMIT_FITS = "the PDF is at or under the 100 KB limit";
+const LIMIT_PAGES = "one page per image";
+const LIMIT_DRAWN = "every page's image decodes to its colours, not blank";
+const LIMIT_TOLD = "the line names this PDF's size, and it is the first fit";
+const LIMIT_SMALLEST = "the PDF is the smallest one made, and the line says so";
+
+const LIMIT_100 = MAX_SIZE_PRESETS.find((p) => p.bytes === 100 * KB)!;
+
+/**
+ * A photo-like image drawn by the browser: a red left half and a blue right
+ * half, each with per-pixel grain so it does not compress to nothing. With
+ * `transparentTop`, the top third is fully transparent (a PNG only).
+ */
+async function grainyImageInPage(
+  page: Page,
+  width: number,
+  height: number,
+  mime: "image/jpeg" | "image/png",
+  grain: number,
+  transparentTop = false,
+): Promise<Buffer> {
+  const dataUrl = await page.evaluate(
+    ([w, h, type, amp, clear]) => {
+      const W = w as number;
+      const H = h as number;
+      const canvas = document.createElement("canvas");
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("2d context unavailable");
+      const img = ctx.createImageData(W, H);
+      let seed = 12345;
+      const rand = () => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return seed / 0x7fffffff;
+      };
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = (y * W + x) * 4;
+          const n = (rand() - 0.5) * (amp as number);
+          const red = x < W / 2;
+          img.data[i] = red ? 220 + n : 20 + n;
+          img.data[i + 1] = 30 + n;
+          img.data[i + 2] = red ? 20 + n : 220 + n;
+          img.data[i + 3] = clear && y < H / 3 ? 0 : 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      return canvas.toDataURL(type as string, 0.92);
+    },
+    [width, height, mime, grain, transparentTop] as const,
+  );
+  return Buffer.from(dataUrl.split(",")[1]!, "base64");
+}
+
+/**
+ * The share of red-or-blue pixels in every colour image the PDF embeds:
+ * JPEGs decoded by the browser under test, 8-bit Flate RGB inflated here.
+ * A gray soft mask (a PNG's alpha) is not a page image and is skipped; any
+ * other shape FAILS rather than being skipped.
+ */
+async function pageImageColour(page: Page, buf: Buffer): Promise<number[]> {
+  const out: number[] = [];
+  for (const image of await pdfImages(buf)) {
+    if (image.filter?.includes("DCTDecode")) {
+      const st = await decodeImageInPage(page, image.bytes, "image/jpeg");
+      out.push((st.redPixels + st.bluePixels) / st.totalPixels);
+      continue;
+    }
+    if (image.colorSpace === "/DeviceGray") continue;
+    expect(
+      [image.filter, image.colorSpace, image.bitsPerComponent],
+      "an embedded image this reader cannot decode",
+    ).toEqual(["/FlateDecode", "/DeviceRGB", 8]);
+    const px = inflateSync(image.bytes);
+    let colour = 0;
+    for (let i = 0; i + 2 < px.length; i += 3) {
+      const r = px[i]!;
+      const b = px[i + 2]!;
+      if ((r > 160 && b < 96) || (b > 160 && r < 96)) colour++;
+    }
+    out.push(colour / (px.length / 3));
+  }
+  return out;
+}
+
+/** The result line a limited run drew, as the page drew it. */
+async function readLimitLine(ctx: CaseContext): Promise<void> {
+  const line = ctx.page.locator("[data-limit-met]");
+  await expect(line).toHaveCount(1);
+  ctx.data.limitText = (await line.innerText()).trim();
+  ctx.data.limitMet = (await line.getAttribute("data-limit-met")) ?? "";
+  ctx.data.limitTried = (await line.getAttribute("data-limit-tried")) ?? "";
+  ctx.data.limitStop = (await line.getAttribute("data-limit-stop")) ?? "";
+}
+
+const triedOf = (ctx: CaseContext): number[] =>
+  String(ctx.data.limitTried).split(" ").map(Number);
+
+/** A one-component white JPEG: an image PDF page that draws nothing. */
+const blankJpeg = (w: number, h: number) => ({
+  name: "blank.jpg",
+  type: "image/jpeg",
+  bytes: new Uint8Array(grayJpegOf(w, h, true)),
+});
+
 export const VARIANTS: readonly VariantCase[] = [
   {
     slug: "pdf-to-jpg",
@@ -2473,6 +2586,205 @@ export const VARIANTS: readonly VariantCase[] = [
       ];
     },
     rejectsBecause: [FIT_PAGES, NO_MARGIN],
+  },
+
+  // Added 2026-10-31: Max file size. The positive control of both is the PDF
+  // a ladder that "returns the first attempt regardless of size" would hand
+  // over — the file as made with No limit, built by the engine in Node.
+  {
+    slug: "jpg-to-pdf",
+    name: "Max file size 100 KB, a photo and a transparent PNG",
+    kind: "image-to-pdf",
+    artifact: "pdf",
+    run: async (ctx) => {
+      const photo = await grainyImageInPage(
+        ctx.page,
+        2400,
+        1600,
+        "image/jpeg",
+        60,
+      );
+      const logo = await grainyImageInPage(
+        ctx.page,
+        900,
+        600,
+        "image/png",
+        60,
+        true,
+      );
+      ctx.data["photo.jpg"] = photo;
+      ctx.data["logo.png"] = logo;
+      await uploadPayloads(ctx.page, [
+        { name: "photo.jpg", mimeType: "image/jpeg", buffer: photo },
+        { name: "logo.png", mimeType: "image/png", buffer: logo },
+      ]);
+      await expect(
+        ctx.page.getByText("logo.png", { exact: true }),
+      ).toBeVisible();
+      await ctx.page
+        .getByRole("button", { name: LIMIT_100.label, exact: true })
+        .click();
+      const buf = await runAndDownload(
+        ctx,
+        /create pdf/i,
+        /jpg pdf created/i,
+        /^download pdf$/i,
+      );
+      await readLimitLine(ctx);
+      return buf;
+    },
+    assert: async (buf, ctx) => {
+      // Health: the fixture is over the limit as made, so the ladder ran.
+      const tried = triedOf(ctx);
+      expect(
+        tried[0],
+        "the fixture fits as made: the ladder never ran",
+      ).toBeGreaterThan(LIMIT_100.bytes);
+      expect(buf.byteLength, LIMIT_FITS).toBeLessThanOrEqual(LIMIT_100.bytes);
+      expect(await pdfPageCount(buf), LIMIT_PAGES).toBe(2);
+      const colour = await pageImageColour(ctx.page, buf);
+      expect(colour.length, LIMIT_DRAWN).toBe(2);
+      for (const share of colour)
+        expect(share, LIMIT_DRAWN).toBeGreaterThan(0.3);
+      // The line is the panel's own sentence for THIS file's bytes, and the
+      // file is the first attempt that fit: every one before it was over.
+      expect(ctx.data.limitMet, LIMIT_TOLD).toBe("true");
+      expect(ctx.data.limitText, LIMIT_TOLD).toBe(
+        limitOutcome({
+          limitBytes: LIMIT_100.bytes,
+          outputBytes: buf.byteLength,
+          reencoded: true,
+          flattened: true,
+          images: 2,
+        }).text,
+      );
+      expect(tried.at(-1), LIMIT_TOLD).toBe(buf.byteLength);
+      for (const t of tried.slice(0, -1))
+        expect(t, LIMIT_TOLD).toBeGreaterThan(LIMIT_100.bytes);
+    },
+    // 1. The first attempt, whatever its size (the neutered ladder).
+    // 2. Two pages under the limit that draw nothing.
+    // 3. One page under the limit (an image dropped).
+    // 4. Two drawn pages under the limit that are not the file the line names.
+    control: async (ctx) => {
+      const files = [
+        {
+          name: "photo.jpg",
+          type: "image/jpeg",
+          bytes: new Uint8Array(ctx.data["photo.jpg"] as Buffer),
+        },
+        {
+          name: "logo.png",
+          type: "image/png",
+          bytes: new Uint8Array(ctx.data["logo.png"] as Buffer),
+        },
+      ];
+      const small = makePngFixture("small.png", 240, 160);
+      const smallFile = {
+        name: "small.png",
+        type: "image/png",
+        bytes: new Uint8Array(small.bytes),
+      };
+      return [
+        Buffer.from(await imagesToPdf("jpg", files)),
+        Buffer.from(
+          await imagesToPdf("jpg", [blankJpeg(400, 300), blankJpeg(400, 300)]),
+        ),
+        Buffer.from(await imagesToPdf("jpg", [blankJpeg(400, 300)])),
+        Buffer.from(await imagesToPdf("jpg", [smallFile, smallFile])),
+      ];
+    },
+    rejectsBecause: [LIMIT_FITS, LIMIT_DRAWN, LIMIT_PAGES, LIMIT_TOLD],
+  },
+
+  {
+    slug: "png-to-pdf",
+    name: "Max file size an impossible 10 KB, five grainy PNGs",
+    kind: "image-to-pdf",
+    artifact: "pdf",
+    run: async (ctx) => {
+      const names = ["one.png", "two.png", "three.png", "four.png", "five.png"];
+      for (const name of names)
+        ctx.data[name] = await grainyImageInPage(
+          ctx.page,
+          1200,
+          900,
+          "image/png",
+          120,
+        );
+      await uploadPayloads(
+        ctx.page,
+        names.map((name) => ({
+          name,
+          mimeType: "image/png",
+          buffer: ctx.data[name] as Buffer,
+        })),
+      );
+      await expect(
+        ctx.page.getByText("five.png", { exact: true }),
+      ).toBeVisible();
+      await ctx.page
+        .getByRole("button", { name: "Custom", exact: true })
+        .click();
+      await ctx.page
+        .getByRole("textbox", { name: "Custom max file size in KB" })
+        .fill("10");
+      const buf = await runAndDownload(
+        ctx,
+        /create pdf/i,
+        /png pdf created/i,
+        /^download pdf$/i,
+      );
+      await readLimitLine(ctx);
+      return buf;
+    },
+    assert: async (buf, ctx) => {
+      const tried = triedOf(ctx);
+      // Every attempt ran (none fit), and the page said it was over.
+      expect(ctx.data.limitMet).toBe("false");
+      expect(ctx.data.limitStop).toBe("exhausted");
+      expect(tried.length).toBe(MAX_LIMIT_ATTEMPTS);
+      expect(await pdfPageCount(buf), LIMIT_PAGES).toBe(5);
+      const colour = await pageImageColour(ctx.page, buf);
+      expect(colour.length, LIMIT_DRAWN).toBe(5);
+      for (const share of colour)
+        expect(share, LIMIT_DRAWN).toBeGreaterThan(0.3);
+      expect(buf.byteLength, LIMIT_SMALLEST).toBe(Math.min(...tried));
+      expect(ctx.data.limitText, LIMIT_SMALLEST).toBe(
+        limitOutcome({
+          limitBytes: 10 * KB,
+          outputBytes: buf.byteLength,
+          reencoded: true,
+          flattened: false,
+          images: 5,
+        }).text,
+      );
+    },
+    // 1. The first attempt (No limit's PDF): drawn, 5 pages, not the smallest.
+    // 2. Five pages that draw nothing.
+    control: async (ctx) => {
+      const files = [
+        "one.png",
+        "two.png",
+        "three.png",
+        "four.png",
+        "five.png",
+      ].map((name) => ({
+        name,
+        type: "image/png",
+        bytes: new Uint8Array(ctx.data[name] as Buffer),
+      }));
+      return [
+        Buffer.from(await imagesToPdf("png", files)),
+        Buffer.from(
+          await imagesToPdf(
+            "png",
+            Array.from({ length: 5 }, () => blankJpeg(400, 300)),
+          ),
+        ),
+      ];
+    },
+    rejectsBecause: [LIMIT_SMALLEST, LIMIT_DRAWN],
   },
 
   {

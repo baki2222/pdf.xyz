@@ -1,7 +1,7 @@
 "use client";
 
 import { MAX_IMAGE_BYTES, MAX_IMAGE_MB } from "@/lib/tools/limits";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -34,6 +34,17 @@ import {
   type ImagePageOptions,
 } from "@/lib/pdf/image-page-layout";
 import { inches } from "@/lib/pdf/page-geometry";
+import {
+  KB,
+  MAX_SIZE_LABELS,
+  MAX_SIZE_PRESETS,
+  MIN_LIMIT_BYTES,
+  MAX_SIZE_HINT,
+  chosenLimitBytes,
+  limitOutcome,
+  type SizeLimitChoice,
+} from "@/lib/pdf/image-size-limit";
+import type { FittedPdf } from "@/lib/pdf/image-size-fit";
 import type { NamedBytes } from "@/lib/pdf/types";
 import { downloadBytes, readFileBytes } from "@/lib/pdf/browser";
 import { naturalOrder, orderNote } from "@/lib/intent/defaults";
@@ -78,10 +89,50 @@ interface Rejection {
   reason: string;
 }
 
-/** What a run made: one PDF, or one PDF per image for the ZIP. */
+/**
+ * What a run made: one PDF, or one PDF per image for the ZIP. A run under a
+ * Max file size also carries what each PDF took (`fits`, one per PDF).
+ */
 type ImagePdfResult =
-  | { kind: "single"; bytes: Uint8Array }
-  | { kind: "per-image"; files: NamedBytes[] };
+  | { kind: "single"; bytes: Uint8Array; fits?: FittedPdf[] }
+  | { kind: "per-image"; files: NamedBytes[]; fits?: FittedPdf[] };
+
+/**
+ * The panel's line for each PDF a limited run made, worked out from the
+ * bytes the person downloads (`limitOutcome`).
+ */
+function LimitOutcomes({ fits }: { fits?: FittedPdf[] }) {
+  if (!fits?.length) return null;
+  return (
+    <div className="flex w-full flex-col gap-1">
+      {fits.map((fit) => {
+        const o = limitOutcome({
+          limitBytes: fit.report.limitBytes,
+          outputBytes: fit.bytes.byteLength,
+          reencoded: fit.reencoded,
+          flattened: fit.flattened,
+          images: fit.images,
+        });
+        return (
+          <p
+            key={fit.name}
+            data-limit-met={o.met}
+            // What the ladder ran, for a reader of the page (and the e2e
+            // proof) to check the size named against every size made.
+            data-limit-tried={fit.report.tried.map((t) => t.bytes).join(" ")}
+            data-limit-stop={fit.report.stoppedBy}
+            className={cn(
+              "tnum text-sm font-medium",
+              o.met ? "text-ok" : "text-warn",
+            )}
+          >
+            {fits.length > 1 ? `${fit.name}: ${o.text}` : o.text}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   const slug = kind === "jpg" ? "jpg-to-pdf" : "png-to-pdf";
@@ -220,6 +271,11 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
   const [outputMode, setOutputMode] =
     useState<ImageOutputId>(DEFAULT_IMAGE_OUTPUT);
   const { zipping, zipError, downloadZip } = useZipDownload();
+  // Max file size. "none" runs exactly the PDF this tool always made.
+  const [limit, setLimit] = useState<SizeLimitChoice>("none");
+  const [customKb, setCustomKb] = useState("");
+  const limitBytes = chosenLimitBytes(limit, customKb);
+  const customId = useId();
   const fitToImage = page.pageSize === "fit";
   const setPageOption = (next: Partial<ImagePageOptions>) => {
     if (busy) return;
@@ -265,7 +321,33 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
       }));
       // One image is one PDF either way: a ZIP is built only for more than
       // one output, as on every in-browser tool (in-browser-claims.test.ts).
-      return outputMode === "per-image" && inputs.length > 1
+      const perImage = outputMode === "per-image" && inputs.length > 1;
+      if (typeof limitBytes === "number") {
+        // Loaded only for a limited run: No limit never fetches the ladder.
+        const fit = await import("@/lib/pdf/image-size-fit");
+        if (perImage) {
+          const fits = await fit.imagesToPdfsUnderLimit(
+            kind,
+            inputs,
+            page,
+            limitBytes,
+          );
+          return {
+            kind: "per-image",
+            files: fits.map((f) => ({ name: f.name, bytes: f.bytes })),
+            fits,
+          };
+        }
+        const one = await fit.imagesToPdfUnderLimit(
+          kind,
+          inputs,
+          page,
+          limitBytes,
+          imagePdfOutputName(kind, inputs[0]?.name),
+        );
+        return { kind: "single", bytes: one.bytes, fits: [one] };
+      }
+      return perImage
         ? { kind: "per-image", files: await imagesToPdfs(kind, inputs, page) }
         : { kind: "single", bytes: await imagesToPdf(kind, inputs, page) };
     });
@@ -284,6 +366,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         onAdjust={reset}
       >
         <div className="flex w-full flex-col gap-3">
+          <LimitOutcomes fits={result.fits} />
           {zipError && <ErrorNote message={zipError} />}
           <button
             type="button"
@@ -320,6 +403,7 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
         // One page per image.
         expectedPages={items.length}
       >
+        <LimitOutcomes fits={result.fits} />
         <button
           type="button"
           onClick={() =>
@@ -486,6 +570,72 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
               ))}
             </div>
           </RunnerSection>
+          <RunnerSection title={MAX_SIZE_LABELS.heading}>
+            <div
+              role="group"
+              aria-label={MAX_SIZE_LABELS.heading}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <ChipButton
+                onClick={() => {
+                  if (!busy) setLimit("none");
+                }}
+                disabled={busy}
+                active={limit === "none"}
+              >
+                {MAX_SIZE_LABELS.none}
+              </ChipButton>
+              {MAX_SIZE_PRESETS.map((p) => (
+                <ChipButton
+                  key={p.bytes}
+                  onClick={() => {
+                    if (!busy) setLimit(p.bytes);
+                  }}
+                  disabled={busy}
+                  active={limit === p.bytes}
+                >
+                  {p.label}
+                </ChipButton>
+              ))}
+              <ChipButton
+                onClick={() => {
+                  if (!busy) setLimit("custom");
+                }}
+                disabled={busy}
+                active={limit === "custom"}
+              >
+                {MAX_SIZE_LABELS.custom}
+              </ChipButton>
+              {limit === "custom" && (
+                <span className="text-muted inline-flex items-center gap-1.5 text-xs">
+                  <input
+                    id={customId}
+                    type="text"
+                    inputMode="numeric"
+                    aria-label="Custom max file size in KB"
+                    placeholder="150"
+                    value={customKb}
+                    readOnly={busy}
+                    onChange={(event) => setCustomKb(event.target.value)}
+                    className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl h-11 w-24 border px-3.5 text-sm transition outline-none focus:ring-2"
+                  />
+                  <label htmlFor={customId}>KB</label>
+                </span>
+              )}
+            </div>
+            {limit !== "none" && (
+              <p
+                className={cn(
+                  "text-xs leading-relaxed",
+                  limitBytes === "invalid" ? "text-warn" : "text-muted",
+                )}
+              >
+                {limitBytes === "invalid"
+                  ? `Enter a whole number of KB, ${MIN_LIMIT_BYTES / KB} or more.`
+                  : MAX_SIZE_HINT}
+              </p>
+            )}
+          </RunnerSection>
           <RunnerSection title="Output">
             <div className="flex flex-wrap gap-2">
               {IMAGE_OUTPUTS.map((o) => (
@@ -533,7 +683,9 @@ export function ImageToPdfRunner({ kind }: { kind: ImagePdfKind }) {
           <RunButton
             onClick={onRun}
             busy={busy}
-            disabled={items.length === 0 || loading > 0}
+            disabled={
+              items.length === 0 || loading > 0 || limitBytes === "invalid"
+            }
             busyLabel="Creating PDF…"
           >
             <FileImage className="size-4" aria-hidden />
