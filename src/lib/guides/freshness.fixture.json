@@ -1,4 +1,8 @@
 {
+  "how-to-add-a-header-and-footer-to-a-pdf": {
+    "contentHash": "63baae12f66b84dd107275b9a727517393aad6643ee16dc3bf7b0ed4004b8633",
+    "updated": "2026-10-31"
+  },
   "how-to-add-a-watermark-to-a-pdf": {
     "contentHash": "7c7848cba18f9853f83abb20ec3d00a6128d8a279cfc144e2c3d8fd7610c5d0d",
     "updated": "2026-10-29"
@@ -37,6 +41,10 @@
   },
   "how-to-convert-a-pdf-to-black-and-white": {
     "contentHash": "ddadfab6d93831dce9292a5641436125443cef418855483b0e775c17b40f74d0",
+    "updated": "2026-10-31"
+  },
+  "how-to-convert-a-text-file-to-pdf": {
+    "contentHash": "c7dd54756725db08c8495da9526526f707ce6c6912158c23dd8f802cc00ba2f2",
     "updated": "2026-10-31"
   },
   "how-to-convert-a-webpage-to-pdf": {
@@ -167,6 +175,10 @@
     "contentHash": "c3e09d8c34f432f1984b8e5fdb16ccef133bed7928bb128d1dbd882d509294a2",
     "updated": "2026-10-30"
   },
+  "how-to-prepare-a-pdf-for-others-to-sign": {
+    "contentHash": "11dde63dfe8341a1b01cf9d5bc37ad5679f3feaaa9cc28bce14f0dd754266d19",
+    "updated": "2026-10-31"
+  },
   "how-to-print-multiple-pages-per-sheet": {
     "contentHash": "c6576fef85d8cdd19042ac8a8b6b31e396c158b11d2ab657aec79cd770e73db5",
     "updated": "2026-10-30"
@@ -214,5 +226,9 @@
   "how-to-translate-a-pdf": {
     "contentHash": "805572bc1d044a4cd8ad6e132d05388cc0da823de466bf8407cdafbba2cc069a",
     "updated": "2026-10-30"
+  },
+  "how-to-extract-data-from-a-pdf-with-ai": {
+    "contentHash": "845f1d994cb27b2c122073de50333f22cd811bfb11bfbe4970350d64cb042c6b",
+    "updated": "2026-10-31"
   }
 }

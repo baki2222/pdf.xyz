@@ -34,7 +34,7 @@ export interface TextLayout {
 /** Keep user text readable and avoid accidentally rendering huge files in-browser. */
 export function validatePlainTextInput(text: string): void {
   if (text.trim().length === 0) {
-    throw new PdfEngineError("Add some text or upload a non-empty .txt file.");
+    throw new PdfEngineError("Add some text or choose a non-empty .txt file.");
   }
   const bytes = new TextEncoder().encode(text).byteLength;
   if (bytes > MAX_TEXT_BYTES) {

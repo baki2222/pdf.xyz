@@ -107,7 +107,12 @@ describe("the guides catalogue is structurally sound", () => {
     // guide of their own — Annotate PDF (as "How to highlight text in a
     // PDF"), Chat with PDF, Extract Tables and PDF to Markdown (50 → 54),
     // each checked first for an existing guide with the same search intent.
-    expect(slugs.length).toBeLessThanOrEqual(54);
+    // Revisited 2026-10-31 (UTC), after that: four more for tools with no
+    // guide of their own — PDF Header & Footer, Text to PDF, Request
+    // Signatures (as "How to prepare a PDF for other people to sign", since
+    // the tool sends nothing to anyone) and AI Data Extraction (54 → 58),
+    // each checked first against the guides with a neighbouring intent.
+    expect(slugs.length).toBeLessThanOrEqual(58);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
