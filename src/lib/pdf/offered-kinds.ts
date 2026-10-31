@@ -136,8 +136,12 @@ export const FIELD_TYPE_LABELS: Record<NewFieldType, string> = {
   radio: "Radio group",
   optionlist: "Option list",
 };
-/** The builder's (shorter) button labels. */
-export const FIELD_TYPE_BUTTON: Record<NewFieldType, string> = {
+/**
+ * The builder's (shorter) button labels. Named `…_LABELS` so the prose-to-UI
+ * label guards (src/tests/ui-labels.ts) read it as labels; until 2026-10-31 it
+ * was `FIELD_TYPE_BUTTON`, and "Pick … Radio or List" was checked by nothing.
+ */
+export const FIELD_TYPE_BUTTON_LABELS: Record<NewFieldType, string> = {
   text: "Text",
   checkbox: "Checkbox",
   dropdown: "Dropdown",

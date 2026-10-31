@@ -117,7 +117,7 @@ const content: ToolContent = {
   faqs: [
     {
       q: "What can I enter in the page box?",
-      a: "Comma-separated entries: 6 marks one page, 4-9 marks a span, 12- marks page 12 through the end, and -3 marks pages 1 to 3; nothing is removed until you press the Delete button. A backwards range, page 0, or a page beyond the end is rejected with a message naming the entry. Applying a list replaces whatever was selected before.",
+      a: "Comma-separated entries: 6 marks one page, 4-9 marks a span, 12- marks page 12 through the end, and -3 marks pages 1 to 3; nothing is removed until you press Delete 3 pages, the button that counts what is marked. A backwards range, page 0, or a page beyond the end is rejected with a message naming the entry. Applying a list replaces whatever was selected before.",
     },
     {
       q: "Can I delete every page in the PDF?",

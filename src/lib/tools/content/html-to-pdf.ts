@@ -193,7 +193,7 @@ const content: ToolContent = {
     },
     {
       q: "What happens if the file is too big or will not render?",
-      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, our server tries again, and when every attempt fails the note says Chromium could not render the file. If the page stops waiting while the render is still going, a note says our server is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job; a finished PDF stays available for ${LINK_MINUTES} minutes.`,
+      a: `${SIZE_SENTENCE} Images embedded as data: URIs count toward it, and base64 makes each one about a third larger than the image file itself. If Chromium crashes or produces no usable PDF, our server tries again, and when every attempt fails the note reports that Chromium could not render the file. If the page stops waiting while the render is still going, a note says our server is still on the job and offers Keep waiting, which picks up the same job rather than uploading the file again or starting a new one, or Cancel the job; a finished PDF stays available for ${LINK_MINUTES} minutes.`,
     },
   ],
 

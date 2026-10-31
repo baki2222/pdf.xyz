@@ -105,7 +105,7 @@ const content: ToolContent = {
   intro: [
     `Protect PDF puts an open password on a document. The result is encrypted with AES, so a PDF reader asks for the password before it will show a single page. Use it when a file travels by email, a shared drive or a USB stick. The encryption is applied by qpdf, and our server re-inspects its own output: a file that does not come back encrypted fails the job instead of being handed over as if it were protected.`,
     `qpdf is a native program, so this tool does not run in your browser. Your PDF is uploaded over TLS to pdf.xyz's secure server, and the password travels with the job request so our server can encrypt that one file. The uploaded input is deleted when the job finishes, the link to the protected copy expires after ${OUTPUT_TTL} minutes, and a daily storage rule erases the stored copy after that. The panel holds a single PDF at a time, and the upload is refused above ${CEILING_MB} MB.`,
-    `By default the same password becomes the owner password and every permission stays allowed, so whoever can open the file can also print it and copy its text. Under Permissions you can untick ${RESTRICTABLE}; the panel then asks for a separate owner password, and our server reads the finished file's permission flags back and fails the job if one does not match what you chose. Filling in forms can be blocked only once comments are: ${FORMS_FOLLOW_ANNOTATE.charAt(0).toLowerCase()}${FORMS_FOLLOW_ANNOTATE.slice(1)} Text extraction for accessibility is ${ACCESSIBILITY_ALWAYS_ALLOWED.charAt(0).toLowerCase()}${ACCESSIBILITY_ALWAYS_ALLOWED.slice(1)} A PDF that is already encrypted is refused rather than wrapped twice.`,
+    `By default the same password becomes the owner password and every permission stays allowed, so whoever can open the file can also print it and copy its text. Under Permissions, you can untick ${RESTRICTABLE}; the panel then asks for a separate owner password, and our server reads the finished file's permission flags back and fails the job if one does not match what you chose. Filling in forms can be blocked only once comments are: ${FORMS_FOLLOW_ANNOTATE.charAt(0).toLowerCase()}${FORMS_FOLLOW_ANNOTATE.slice(1)} Text extraction for accessibility is ${ACCESSIBILITY_ALWAYS_ALLOWED.charAt(0).toLowerCase()}${ACCESSIBILITY_ALWAYS_ALLOWED.slice(1)} A PDF that is already encrypted is refused rather than wrapped twice.`,
   ],
 
   useCases: [
@@ -142,7 +142,7 @@ const content: ToolContent = {
     },
     {
       title: "Optional: restrict permissions",
-      body: `Every box under Permissions starts ticked. Untick what readers may not do, then type an Owner password that differs from the open password; it is the one that lifts the restrictions later.`,
+      body: `Under Permissions, every box starts ticked. Untick what readers may not do, then type an Owner password that differs from the open password; it is the one that lifts the restrictions later.`,
     },
     {
       title: "Encrypt and download",

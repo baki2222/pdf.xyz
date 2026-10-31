@@ -86,11 +86,14 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    dropped from citedPages. (Local Git-for-Windows poppler, not the worker
  *    image's.)
  *
- * NOT GUARDED: the panel labels quoted below are copies of JSX text; a relabel
- * in chat-with-pdf-worker-panel.tsx will not fail anything here. The busy
- * labels are the exception: tools/busy-label-claims.test.ts derives them from
- * every `jobBusyLabel(` call and holds a step that names one to the stages
- * around it.
+ * PARTLY GUARDED since 2026-10-31 (until then this said NOT GUARDED: the
+ * labels below were copies of JSX text and a relabel failed nothing):
+ * tools/tool-page-ui-labels.test.ts holds every control this page tells a
+ * reader to use ("press Ask the PDF") to visible text the panel renders. The
+ * busy labels are held by tools/busy-label-claims.test.ts, which derives them
+ * from every `jobBusyLabel(` call. STILL UNCHECKED, because no sentence
+ * introduces them with an instruction the extractor reads: "Add your PDF, or
+ * browse", "Your question", "Ask a follow-up", "Send follow-up", "Remove".
  */
 
 /** A tool this page sends readers to, by its catalogue name. */

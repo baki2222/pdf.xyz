@@ -841,8 +841,15 @@ const LAYOUT = {
    * 6,752-6,754 measured (6,752 after merging #222/#223), set 12-14 B under so chunk-id churn between machines
    * cannot trip the health check below (being under only makes the
    * remainder smaller).
+   *
+   * Lowered 6,740 -> 6,725 on 2026-10-31 (UTC): the layout chunk gzips to
+   * 6,739 B on Windows on main itself (no change of ours; seen on two
+   * branches that do not touch the layout), 1 B under the old base, so the
+   * health check failed locally on machine churn while CI passed. Diffing
+   * a main and a branch layout chunk showed only module-id changes. Lowered,
+   * never raised: a smaller base only shrinks the remainder.
    */
-  baseBytes: 6_740,
+  baseBytes: 6_725,
 };
 /** G.1, tool pages: 10.0 − (0.8 + 4.5 + 1.5 + 0.3 + 2.5), held by no package. */
 const UNALLOCATED = 0.4;

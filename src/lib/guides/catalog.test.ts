@@ -95,7 +95,11 @@ describe("the guides catalogue is structurally sound", () => {
     // family the Bengali OCR pack serves. Written only after production read
     // a Bengali page back and was measured against it
     // (`pnpm worker:prove-tools bengali-ocr`).
-    expect(slugs.length).toBeLessThanOrEqual(42);
+    // Revisited 2026-10-31 (UTC), last: four guides for tools that had none
+    // of their own — Excel to PDF, PowerPoint to PDF, Extract Pages and
+    // Summarize PDF (42 → 46). Each was written from its tool's content
+    // file, runner and shared helpers, and claims nothing those pages do not.
+    expect(slugs.length).toBeLessThanOrEqual(46);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
