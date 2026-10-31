@@ -118,7 +118,7 @@ const content: ToolContent = {
     },
     {
       title: "Set the page order",
-      body: "Under Image order, each thumbnail is labelled with the page it will become. The Move up and Move down arrows shift a photo one place, Remove takes it out, and Clear below the list empties it.",
+      body: "Under Image order, each thumbnail is labelled with the page it will become. The up and down arrows on a thumbnail (Move up, Move down) shift a photo one place, the cross (Remove) takes it out, and Clear below the list empties it.",
     },
     {
       title: "Choose the page setup",
