@@ -742,3 +742,88 @@ export function ownPanelModules(): {
     );
   return { bySlug, modules: [...modules.values()] };
 }
+
+/* ------------------------------------------------------------------ *
+ *  The value-import closure of a module
+ * ------------------------------------------------------------------ */
+
+const parsedCache = new Map<string, TS.SourceFile>();
+
+/** `file`, parsed once (TSX for `.tsx`). */
+export function parsedSource(file: string): TS.SourceFile {
+  let sf = parsedCache.get(file);
+  if (!sf) {
+    sf = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    parsedCache.set(file, sf);
+  }
+  return sf;
+}
+
+/** Modules `file` loads for their values: static, re-export, `import()`. */
+function valueEdges(file: string): string[] {
+  const out: string[] = [];
+  const add = (spec: string) => {
+    const r = resolveSpecifier(file, spec);
+    if (r) out.push(r);
+  };
+  const visit = (n: TS.Node): void => {
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+      const c = n.importClause;
+      const typeOnly =
+        !!c &&
+        (c.isTypeOnly ||
+          (!c.name &&
+            !!c.namedBindings &&
+            ts.isNamedImports(c.namedBindings) &&
+            c.namedBindings.elements.length > 0 &&
+            c.namedBindings.elements.every((e) => e.isTypeOnly)));
+      if (!typeOnly) add(n.moduleSpecifier.text);
+      return;
+    }
+    if (
+      ts.isExportDeclaration(n) &&
+      !n.isTypeOnly &&
+      n.moduleSpecifier &&
+      ts.isStringLiteral(n.moduleSpecifier)
+    ) {
+      add(n.moduleSpecifier.text);
+      return;
+    }
+    if (
+      ts.isCallExpression(n) &&
+      n.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      n.arguments[0] &&
+      ts.isStringLiteral(n.arguments[0])
+    )
+      add(n.arguments[0].text);
+    ts.forEachChild(n, visit);
+  };
+  visit(parsedSource(file));
+  return out;
+}
+
+/**
+ * Every module in `src` reachable from `entry` by a VALUE import (static,
+ * re-export, or `import()`). `import type` is erased at runtime and is not
+ * followed (CLAUDE.md rule 4: following it ADDS edges nothing executes).
+ * It is a MODULE graph, so it over-approximates what renders: a module
+ * loaded is not a function run.
+ */
+export function valueClosure(entry: string): string[] {
+  const seen = new Set([entry]);
+  const queue = [entry];
+  while (queue.length) {
+    for (const next of valueEdges(queue.pop()!))
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+  }
+  return [...seen];
+}
