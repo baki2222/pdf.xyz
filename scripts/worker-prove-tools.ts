@@ -117,6 +117,22 @@ import {
   viewportVerdict,
 } from "@/lib/workers/html-render/layout-proof";
 import { grayscaleVerdict } from "@/lib/workers/compression/image-colour";
+import { noisePhotoPdf } from "@/lib/workers/compression/colour-image-pdf";
+import { targetProofVerdict } from "@/lib/workers/compression/target-proof";
+import {
+  MIN_TARGET_BYTES,
+  TARGET_SIZE_PRESETS,
+} from "@/lib/pdf/compress-target";
+
+/**
+ * The target-size proofs' photo: 1380 px over 3 in (460 DPI), one page. Its
+ * smallest rung (72 DPI, 216 px of noise) is far over the 20 KB floor, so
+ * the floor target cannot be met, and far under 500 KB, so that one can.
+ */
+const TARGET_PROOF_PHOTO = { px: 1380, inches: 3 };
+const TARGET_PROOF_MET = TARGET_SIZE_PRESETS.find(
+  (p) => p.label === "500 KB",
+)!.bytes;
 import { readEncryptPermissions } from "@/lib/workers/pdf-security/permission-bits";
 import {
   ALL_PERMISSIONS_ALLOWED,
@@ -676,6 +692,40 @@ const SPECS: ProofSpec[] = [
     expect: isPdf,
     want: "1-component gray images",
     verify: (bytes) => grayscaleVerdict(new Uint8Array(bytes)),
+  },
+  // Target size (2026-10-31), both outcomes. The fixture is a 460 DPI photo
+  // of noise, so only downsampling can shrink it; the verdict reads the
+  // download and holds the job record's target block to it — a worker
+  // image older than the feature carries no block and FAILS here.
+  {
+    tool: "compress-pdf",
+    label: "compress-pdf (target size)",
+    make: async () => Buffer.from(await noisePhotoPdf(TARGET_PROOF_PHOTO)),
+    name: "scan.pdf",
+    type: PDF_MIME,
+    options: { profile: "deep", targetBytes: TARGET_PROOF_MET },
+    expect: isPdf,
+    want: `a PDF at or under ${TARGET_PROOF_MET} B`,
+    verify: async (bytes, job) =>
+      targetProofVerdict(new Uint8Array(bytes), job.results, {
+        targetBytes: TARGET_PROOF_MET,
+        met: true,
+      }),
+  },
+  {
+    tool: "compress-pdf",
+    label: "compress-pdf (target size, not met)",
+    make: async () => Buffer.from(await noisePhotoPdf(TARGET_PROOF_PHOTO)),
+    name: "scan.pdf",
+    type: PDF_MIME,
+    options: { profile: "deep", targetBytes: MIN_TARGET_BYTES },
+    expect: isPdf,
+    want: "the smallest PDF, reported above the target",
+    verify: async (bytes, job) =>
+      targetProofVerdict(new Uint8Array(bytes), job.results, {
+        targetBytes: MIN_TARGET_BYTES,
+        met: false,
+      }),
   },
   // Until 2026-09-27 this sent the healthy `textPdf` under the name
   // `broken.pdf`, so the only real-job proof of Repair PDF exercised qpdf's

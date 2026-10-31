@@ -176,6 +176,8 @@ export function copyFiles(): string[] {
     // Compress PDF's Grayscale sentence (2026-10-24), its own leaf so it is
     // not bundled with every runner that reads offered-kinds.
     path.join(ROOT, "src", "lib", "pdf", "compress-grayscale.ts"),
+    // Compress PDF's Target size labels, hint and outcome (2026-10-31).
+    path.join(ROOT, "src", "lib", "pdf", "compress-target.ts"),
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     // The WYSIWYG editor's export refusals (2026-10-24): new phrase code,
     // so walked rather than recorded outside.

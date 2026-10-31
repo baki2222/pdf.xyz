@@ -14,6 +14,12 @@
  *     (`grayscaleVerdict`), the input demonstrably was not (positive control),
  *     and a colour run of the same file still reads as colour (the reader is
  *     not blind to colour);
+ *   - target size (2026-10-31): every rung of the ladder run alone and its
+ *     size and image encoders REPORTED (sizes are not monotonic in DPI on
+ *     the real engine); then a reachable target must come back met at the
+ *     first rung, top down, whose lone run fit, with every sharper rung over
+ *     it, in colour, pages verified; and an unreachable one not met after
+ *     every rung, at the smallest size any rung made;
  *   - permissions: the output's /P, read without a password
  *     (`readEncryptPermissions`), withholds exactly the switches asked for at
  *     both key lengths; qpdf's OWN `--show-encryption` reports the same /P (a
@@ -36,8 +42,14 @@ import {
   permissionMismatches,
   type PdfPermissions,
 } from "@/lib/jobs/pdf-permissions";
-import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
+import {
+  colourImagePdf,
+  noisePhotoPdf,
+} from "@/lib/workers/compression/colour-image-pdf";
 import { runCompression, type CompressionDeps } from "./compression/engine";
+import { PDFArray, PDFDocument, PDFName, PDFRawStream } from "pdf-lib";
+import { TARGET_DPI_LADDER, ladderRungs } from "./compression/target-ladder";
+import { MIN_TARGET_BYTES } from "@/lib/pdf/compress-target";
 import { grayscaleVerdict, hasColourImage } from "./compression/image-colour";
 import { runProtect, type PdfSecurityDeps } from "./pdf-security/engine";
 import { readEncryptPermissions } from "./pdf-security/permission-bits";
@@ -57,8 +69,39 @@ import {
   viewportVerdict,
 } from "./html-render/layout-proof";
 
+/**
+ * Each image XObject's encoder in a PDF, as `Filter@Width` — what Ghostscript
+ * chose per rung, which is why rung sizes are not monotonic in DPI.
+ */
+async function imageFilters(bytes: Uint8Array): Promise<string[]> {
+  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const out: string[] = [];
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFRawStream)) continue;
+    const dict = obj.dict;
+    if (dict.get(PDFName.of("Subtype")) !== PDFName.of("Image")) continue;
+    const filter = dict.get(PDFName.of("Filter"));
+    const name =
+      filter instanceof PDFName
+        ? filter.decodeText()
+        : filter instanceof PDFArray
+          ? filter
+              .asArray()
+              .map((f) => (f instanceof PDFName ? f.decodeText() : "?"))
+              .join(",")
+          : "none";
+    out.push(`${name}@${String(dict.get(PDFName.of("Width")) ?? "?")}`);
+  }
+  return out.length > 0 ? out : ["no-image"];
+}
+
 export interface OptionsProofDeps {
   compression: CompressionDeps;
+  /**
+   * The engine entry the target-size checks call; the real `runCompression`
+   * unless a test swaps in a wrong one to show the checks can fail.
+   */
+  compress?: typeof runCompression;
   pdfSecurity: PdfSecurityDeps;
   /** HTML/Webpage to PDF's renderer — the image's Chromium (2026-10-25). */
   htmlRender: HtmlRenderDeps;
@@ -213,6 +256,133 @@ export async function runWorkerOptionsProof(
       ? "a run without grayscale still reads as colour"
       : `${kept.kind}: ${kept.message}`,
   );
+
+  // ── target size (2026-10-31) ────────────────────────────────────────────
+  // INVERTED the same day. This section first asserted that each rung's size
+  // descends with resolution — the ladder's assumption, not its property —
+  // and the real Ghostscript failed it (run 41164786989: 150 DPI 579,622 B
+  // over 300 DPI 347,330 B). Now every rung is measured alone and REPORTED
+  // (with the encoder Ghostscript chose for each image, the cause), and the
+  // checks are the properties a reader relies on, judged against those
+  // independent sizes:
+  //  - met: the file is at or under the target, every sharper rung the
+  //    ladder tried was over it, and the rung chosen is the first one, top
+  //    down, whose lone run fit;
+  //  - not met: every rung ran and was over the target, and the file is the
+  //    smallest the ladder made — the smallest of the lone runs too.
+  // 1380 px over 3 in is 460 DPI: above 1.5x the top rung, so every rung
+  // downsamples (`noisePhotoPdf`).
+  const compress = deps.compress ?? runCompression;
+  const rungs = ladderRungs(TARGET_DPI_LADDER[0]);
+  // Each fixture is built once: the noise photo is the one the checks use,
+  // and its lone runs are the independent sizes they are judged against.
+  const photo = await noisePhotoPdf({ px: 1380, inches: 3, pages: 2 });
+  const single = new Map<number, number>();
+  for (const kind of ["noise", "smooth"] as const) {
+    const sample =
+      kind === "noise"
+        ? photo
+        : await noisePhotoPdf({ px: 1380, inches: 3, pages: 2, kind });
+    const parts: string[] = [];
+    for (const dpi of rungs) {
+      const r = await runCompression(
+        sample,
+        { profile: "deep", targetDpi: dpi },
+        deps.compression,
+      );
+      if (kind === "noise" && r.ok && r.meta.target === undefined) {
+        single.set(dpi, r.output.length);
+      }
+      parts.push(
+        r.ok
+          ? `${dpi} DPI ${r.output.length} B ${(await imageFilters(r.output)).join("+")}`
+          : `${dpi} DPI ${r.kind}`,
+      );
+    }
+    log(`INFO target rungs, ${kind} photo: ${parts.join(", ")}`);
+  }
+  const sizes = rungs.map((dpi) => single.get(dpi) ?? Number.NaN);
+  check(
+    sizes.every(Number.isFinite) && new Set(sizes).size > 1,
+    "target rungs differ",
+    `the resolution changes the file: ${rungs.map((dpi, i) => `${dpi} DPI ${sizes[i]} B`).join(", ")}`,
+  );
+  // Met: just over the SECOND-smallest rung. Two rungs fit, and the answer
+  // must be the sharper of them — not the smallest file — while the top rung
+  // is over the target, so a sharper rung is tried and missed first.
+  const bySize = [...sizes].sort((a, b) => a - b);
+  const metTarget = bySize[1]! + 512;
+  const wantDpi = rungs.find(
+    (dpi) => (single.get(dpi) ?? Infinity) <= metTarget,
+  );
+  const smallestDpi = rungs[sizes.indexOf(bySize[0]!)];
+  if (
+    !(sizes[0]! > metTarget) ||
+    wantDpi === undefined ||
+    wantDpi === smallestDpi
+  ) {
+    check(
+      false,
+      "target met",
+      `fixture: the top rung (${sizes[0]} B) must be over ${metTarget} B, and the sharpest fit (${wantDpi} DPI) must not be the smallest file (${smallestDpi} DPI)`,
+    );
+  } else {
+    const met = await compress(
+      photo,
+      { profile: "deep", targetDpi: rungs[0]!, targetBytes: metTarget },
+      deps.compression,
+    );
+    const t = met.ok ? met.meta.target : undefined;
+    const at = t ? t.tried.findIndex((a) => a.dpi === t.dpi) : -1;
+    const sharperMissed =
+      !!t &&
+      at >= 0 &&
+      t.tried.slice(0, at).every((a) => (a.bytes ?? 0) > metTarget);
+    check(
+      met.ok &&
+        t?.met === true &&
+        met.output.length <= metTarget &&
+        t.tried[at]?.bytes === met.output.length &&
+        sharperMissed &&
+        t.dpi === wantDpi &&
+        met.meta.pageCheck === "verified" &&
+        (await hasColourImage(met.output)),
+      "target met",
+      met.ok
+        ? `target ${metTarget} B: ${met.output.length} B at ${t?.dpi} DPI (first lone fit ${wantDpi} DPI) after ${t?.attempts} runs [${t?.tried.map((a) => `${a.dpi}:${a.bytes}`).join(" ")}], sharper rungs all over: ${sharperMissed}, pages ${met.meta.pageCheck}`
+        : `${met.kind}: ${met.message}`,
+    );
+  }
+  // Not met: under every rung, so nothing fits — the smallest file made.
+  const smallestAlone = Math.min(...sizes);
+  const missTarget = Math.max(MIN_TARGET_BYTES, smallestAlone - 1024);
+  if (!(smallestAlone > missTarget)) {
+    check(
+      false,
+      "target not met",
+      `fixture: the smallest rung (${smallestAlone} B) must be over ${MIN_TARGET_BYTES} B`,
+    );
+  } else {
+    const miss = await compress(
+      photo,
+      { profile: "deep", targetDpi: rungs[0]!, targetBytes: missTarget },
+      deps.compression,
+    );
+    const t = miss.ok ? miss.meta.target : undefined;
+    const triedBytes = t ? t.tried.map((a) => a.bytes ?? Infinity) : [];
+    check(
+      miss.ok &&
+        t?.met === false &&
+        t.attempts === rungs.length &&
+        triedBytes.every((b) => b > missTarget) &&
+        miss.output.length === Math.min(...triedBytes) &&
+        Math.abs(miss.output.length - smallestAlone) <= 512,
+      "target not met",
+      miss.ok
+        ? `target ${missTarget} B: ${miss.output.length} B at ${t?.dpi} DPI after ${t?.attempts} runs [${t?.tried.map((a) => `${a.dpi}:${a.bytes}`).join(" ")}], smallest lone run ${smallestAlone} B, met ${t?.met}`
+        : `${miss.kind}: ${miss.message}`,
+    );
+  }
 
   // ── permissions ─────────────────────────────────────────────────────────
   const plain = await colourImagePdf({ components: 1, size: 8 });

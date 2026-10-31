@@ -730,3 +730,153 @@ describe(
     });
   },
 );
+
+describe(
+  "Compress: Target size on our secure server (2026-10-31)",
+  { timeout: 30_000 },
+  () => {
+    // Through the REAL local-dev adapter — job-option parser, processor,
+    // engine and its ladder, the job record's sanitizer — with only the
+    // Ghostscript binary played: a file about `dpi` KB (pdf-lib writes the
+    // /Subject pad as UTF-16 hex, 4 B a character), so which rung shipped is
+    // readable from the size.
+    const KB = 1024;
+    async function runTarget(choose: (() => void) | null, gray = false) {
+      const seen: { targetDpi: number; grayscale?: boolean }[] = [];
+      answerWithLocalWorker(async (_input, ctx) => {
+        seen.push({
+          targetDpi: ctx.options.targetDpi,
+          grayscale: ctx.options.grayscale,
+        });
+        return colourImagePdf({
+          components: ctx.options.grayscale ? 1 : 3,
+          size: 8,
+          pad: ctx.options.targetDpi * 256,
+        });
+      });
+      const input = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: (600 * KB) / 4,
+      });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(input, "scan.pdf")]);
+      const run = await screen.findByRole(
+        "button",
+        { name: /compress images on our server/i },
+        { timeout: 10_000 },
+      );
+      choose?.();
+      if (gray)
+        fireEvent.click(screen.getByRole("checkbox", { name: /grayscale/i }));
+      fireEvent.click(run);
+      return { seen, input };
+    }
+
+    it("No target is the default, and its run is today's: one engine run, no target sentence", async () => {
+      const { seen } = await runTarget(null);
+      await screen.findByRole(
+        "button",
+        { name: /download compressed pdf/i },
+        { timeout: 10_000 },
+      );
+      expect(screen.getByRole("button", { name: "No target" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(seen).toEqual([{ targetDpi: 150, grayscale: false }]);
+      expect(screen.queryByText(/your .* target/i)).toBeNull();
+    });
+
+    it("200 KB: the first rung that fits ships, and the panel says it is under", async () => {
+      const { seen } = await runTarget(() =>
+        fireEvent.click(screen.getByRole("button", { name: "200 KB" })),
+      );
+      const line = await screen.findByText(
+        /under your 200 KB target/,
+        undefined,
+        { timeout: 10_000 },
+      );
+      // Top down from Balanced: 150 (~152 KB) is the first fit, so nothing
+      // below it runs. (Was [72, 150] — floor first — until the real engine
+      // showed sizes are not monotonic in DPI; see target-ladder.ts.)
+      expect(seen.map((s) => s.targetDpi)).toEqual([150]);
+      expect(line).toHaveTextContent(
+        /^Now 15\d\.\d KB — under your 200 KB target\.$/,
+      );
+      expect(line).toHaveAttribute("data-target-met", "true");
+      expect(
+        screen.getByRole("button", { name: /download compressed pdf/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("a custom 40 KB: not met, the smallest still downloads, and the panel says so plainly", async () => {
+      const { seen } = await runTarget(() => {
+        fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+        fireEvent.change(
+          screen.getByRole("textbox", { name: /custom target size in kb/i }),
+          { target: { value: "40" } },
+        );
+      });
+      const line = await screen.findByText(
+        /above your 40 KB target/,
+        undefined,
+        { timeout: 10_000 },
+      );
+      // Every rung runs (was [72]: the floor-first shortcut, inverted the
+      // same day), and the smallest file made — 72 DPI here — is returned.
+      expect(seen.map((s) => s.targetDpi)).toEqual([150, 120, 96, 72]);
+      expect(line).toHaveTextContent(
+        /^The smallest we could make is 7\d\.\d KB, above your 40 KB target\. Try Grayscale, or split the file\.$/,
+      );
+      expect(line).toHaveAttribute("data-target-met", "false");
+      expect(
+        screen.getByRole("button", { name: /download compressed pdf/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("grayscale is sent only when ticked, on every rung", async () => {
+      const { seen } = await runTarget(
+        () => fireEvent.click(screen.getByRole("button", { name: "100 KB" })),
+        true,
+      );
+      await screen.findByText(/100 KB target/, undefined, { timeout: 10_000 });
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((s) => s.grayscale === true)).toBe(true);
+    });
+
+    it("a preset the file is already under cannot be chosen, and an invalid custom value holds the run", async () => {
+      answerWorkerStatus(DEEP_READY);
+      const small = await colourImagePdf({
+        components: 3,
+        size: 8,
+        pad: 60_000,
+      });
+      const { container } = render(withRouter(<CompressRunner />));
+      await drop(container, [asFile(small, "small.pdf")]);
+      const run = await screen.findByRole(
+        "button",
+        { name: /compress images on our server/i },
+        { timeout: 10_000 },
+      );
+      expect(small.byteLength).toBeLessThan(500 * KB);
+      expect(screen.getByRole("button", { name: "500 KB" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      // Control: a preset under the file is offered.
+      expect(
+        screen.getByRole("button", { name: "100 KB" }),
+      ).not.toHaveAttribute("aria-disabled");
+      fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+      fireEvent.change(
+        screen.getByRole("textbox", { name: /custom target size in kb/i }),
+        { target: { value: "5" } },
+      );
+      expect(
+        screen.getByText(/enter a whole number of kb from 20/i),
+      ).toBeVisible();
+      expect(run).toHaveAttribute("aria-disabled", "true");
+    });
+  },
+);

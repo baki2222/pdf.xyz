@@ -66,6 +66,7 @@ import {
 } from "@/lib/pdf/pdf-to-image";
 import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
 import {
+  DEEP_COMPRESSION_PRESETS,
   SIGNATURE_SOURCES,
   SIGNATURE_STYLE_LABEL,
   SIGNATURE_STYLES,
@@ -130,6 +131,14 @@ import {
   REFUSED_IMAGE_LABELS,
 } from "@/lib/pdf/image-to-pdf";
 import { TRANSCODE_JPEG_QUALITY } from "@/lib/pdf/image-transcode";
+import {
+  KB as TARGET_KB,
+  TARGET_EXAMPLE,
+  TARGET_SIZE_LABELS,
+  TARGET_SIZE_PRESETS,
+  targetOutcome,
+} from "@/lib/pdf/compress-target";
+import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import type { Guide } from "./types";
 
 /**
@@ -138,6 +147,36 @@ import type { Guide } from "./types";
  * style and naming a "print-and-scan style" the runner does not have.
  */
 const signatureWays = countWord(SIGNATURE_SOURCES.length);
+
+/** Compress PDF's Target size presets, labelled as its panel labels them. */
+const TARGET_PRESET_LABELS = TARGET_SIZE_PRESETS.map((p) => p.label);
+function targetPreset(bytes: number): string {
+  const preset = TARGET_SIZE_PRESETS.find((p) => p.bytes === bytes);
+  if (!preset) {
+    throw new Error(
+      `a guide names a target of ${bytes} that the panel does not offer`,
+    );
+  }
+  return preset.label;
+}
+const KB_BYTES = TARGET_KB;
+const TARGET_PRESET_100 = targetPreset(100 * KB_BYTES);
+const TARGET_PRESET_200 = targetPreset(200 * KB_BYTES);
+/** The ladder's floor and the panel's default Quality, by their own labels. */
+const TARGET_FLOOR_LABEL = DEEP_COMPRESSION_PRESETS[0].label;
+const TARGET_DEFAULT_QUALITY_LABEL = (() => {
+  const preset = DEEP_COMPRESSION_PRESETS.find((p) => p.dpi === 150);
+  if (!preset) throw new Error("the guide's default Quality is not offered");
+  return preset.label;
+})();
+/** A whole-KB target under 100,000 bytes, for a portal that counts KB as 1,000. */
+const PORTAL_SAFE_100_KB = Math.floor(100_000 / KB_BYTES);
+/** The panel's own sentence for a met target, from the function it calls. */
+const TARGET_EXAMPLE_SENTENCE = targetOutcome({
+  ...TARGET_EXAMPLE,
+  appliedTargetBytes: TARGET_EXAMPLE.targetBytes,
+  grayscale: false,
+}).text;
 
 /** The raster preset selected when PDF to JPG / PNG opens, by its label. */
 const DEFAULT_RESOLUTION_LABEL = resolutionById(DEFAULT_RESOLUTION_ID).label;
@@ -3573,6 +3612,91 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-30",
+    updated: "2026-10-31",
+  },
+  // Added 2026-10-31 with the deep step's Target size. Every label is read
+  // from the panel's constants (`compress-target.ts`, `offered-kinds.ts`),
+  // the retention windows from the code the privacy page reads, and the
+  // KB arithmetic from the same KB the panel compares with.
+  {
+    slug: "how-to-compress-a-pdf-to-100-kb",
+    title: `How to compress a PDF to ${TARGET_PRESET_100} (or ${TARGET_PRESET_200})`,
+    description: `Make a PDF fit an upload limit of ${listOr(TARGET_PRESET_LABELS)}: pick a target size, and our server shrinks the images until it fits or can go no smaller.`,
+    tools: ["compress-pdf", "split-pdf", "remove-pages"],
+    keywords: [
+      "compress pdf to 100kb",
+      "compress pdf to 200kb",
+      "reduce pdf size to 100 kb",
+      "make a pdf smaller for an upload form",
+      "compress pdf to a specific size",
+      "pdf size for online application",
+    ],
+    intro: [
+      `To compress a PDF to ${TARGET_PRESET_100}, open ${nameOf("compress-pdf")}, add the file, and in the “Deep image compression (secure server)” panel choose a “${TARGET_SIZE_LABELS.heading}” of ${TARGET_PRESET_100} — or ${listOr(TARGET_PRESET_LABELS.slice(1))}, or “${TARGET_SIZE_LABELS.custom}” for a number of KB of your own. Then press Compress images on our server. Our server starts at your Quality setting, lowers the resolution of the images step by step, as far as ${TARGET_FLOOR_LABEL}, and gives back the highest-quality version that fits.`,
+      "Whether a file can get that small depends on what is in it. A scan, or a phone photo of a page, is mostly picture, and picture resolution is what this lowers, so such files often shrink a long way. A PDF that is mostly typed text, or whose size comes from its fonts, may hardly shrink at all; then the panel tells you the smallest file it could make, and you can still download it.",
+      `This step uploads your file to our server; the size breakdown and the lossless copy on the same page run in your browser. Our privacy policy says the uploaded file is deleted when the job ends, the result can be downloaded for ${RETENTION_WINDOWS.outputLink}, and the stored copy is erased by a daily storage rule some time after it is ${RETENTION_WINDOWS.outputStorageRule} old.`,
+    ],
+    steps: [
+      `Open the ${nameOf("compress-pdf")} tool and drop your PDF on the box, or click it to pick one. Its size breakdown appears first.`,
+      `In the “Deep image compression (secure server)” panel, keep the Quality at ${TARGET_DEFAULT_QUALITY_LABEL} or pick another. It is the best quality our server will try; with a target it only goes down from there.`,
+      `Under “${TARGET_SIZE_LABELS.heading}”, choose ${listOr(TARGET_PRESET_LABELS)}, or choose “${TARGET_SIZE_LABELS.custom}” and type a whole number of KB. A size your file is already under cannot be chosen.`,
+      "Press Compress images on our server, which uploads your file. A run with a target can take longer, because each step down is another run.",
+      `Read the line on the result. “${TARGET_EXAMPLE_SENTENCE}” means it fits: press Download compressed PDF.`,
+      `If the line says the file is above your target, tick “Grayscale” and run again, or make the document shorter with ${nameOf("split-pdf")} or ${nameOf("remove-pages")} first.`,
+    ],
+    sections: [
+      {
+        id: "how-the-target-is-reached",
+        heading: "How the target is reached",
+        body: [
+          `Our server makes the file at your Quality setting first, then at each lower resolution in turn, as far as ${TARGET_FLOOR_LABEL}, and stops at the first one at or under the target: the sharpest version that fits. If none fits, it gives you the smallest file it made, with a line saying it is above your target.`,
+          "A lower resolution usually makes a smaller file, but not always. For each picture, the program that does the work chooses how to store it, and at a lower setting it can choose a way that takes more room. So the server measures every file it makes rather than assuming, and a run where nothing fits tries every setting before it answers, which takes longer.",
+          "Only the pictures in the file are made smaller. Typed text and drawn lines are not pictures, so they stay as sharp as before, and they are also why a text-heavy PDF cannot be squeezed much. The server checks that the result opens as a PDF and, when it can count them, that no page went missing.",
+          `Colour is kept. The server never turns pages gray to reach a size: it does that only when you tick “Grayscale”, and gray pages are often much smaller.`,
+        ],
+      },
+      {
+        id: "how-big-is-a-kb",
+        heading: "How big is 100 KB, here and on the form you are filling in",
+        body: [
+          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${TARGET_PRESET_100} target means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some upload portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${TARGET_SIZE_LABELS.custom}” and enter ${PORTAL_SAFE_100_KB} KB, which is under 100,000 bytes.`,
+          "The file usually comes back a little under your target rather than exactly on it, because the server stops at the first version that fits.",
+        ],
+      },
+      {
+        id: "when-it-will-not-fit",
+        heading: "When the file will not fit",
+        body: [
+          `A target can be out of reach for a long document full of photos, or for a document that is mostly text. Running again with “Grayscale” ticked often helps a colour scan. Otherwise, make the document shorter: ${nameOf("split-pdf")} can cut it into parts that each fit, and ${nameOf("remove-pages")} can drop pages the form does not need.`,
+          `Your original is never changed. Each run starts from the file you added, so you can try a different target or setting as often as you like. The per-file cap is ${ceilingMb("compress-pdf")} MB.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: `Can I compress a PDF to exactly ${TARGET_PRESET_100}?`,
+        answer:
+          "To at most that size, not to exactly it. Our server returns the sharpest version at or under your target, so the file usually comes back a little smaller than the number you chose.",
+      },
+      {
+        question: "Why is my PDF still above the target?",
+        answer: `Because none of the resolutions our server tried, down to ${TARGET_FLOOR_LABEL}, made a small enough file. That happens with a mostly-text PDF, where there are few pictures to shrink, and with long documents full of photos. Try “Grayscale”, or split the file.`,
+      },
+      {
+        question: "Will my PDF turn black and white to hit the target?",
+        answer:
+          "No. Colour is kept unless you tick “Grayscale” yourself; the server never removes it to reach a size.",
+      },
+      {
+        question: "Is my PDF uploaded?",
+        answer: `Yes, to reach a target: the size breakdown and the lossless copy run in your browser, but a target is reached by the deep step on our server. ${HYBRID_WORKER_STEP} The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
+      },
+      {
+        question: "How large can my PDF be?",
+        answer: `Up to ${ceilingMb("compress-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-10-31",
     updated: "2026-10-31",
   },
 ];

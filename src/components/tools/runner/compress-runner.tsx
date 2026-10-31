@@ -30,6 +30,17 @@ import { downloadBytes } from "@/lib/pdf/browser";
 import { LOCKED_PDF_COPY } from "@/lib/pdf/encryption";
 import { DEEP_COMPRESSION_PRESETS } from "@/lib/pdf/offered-kinds";
 import { DEEP_COMPRESSION_GRAYSCALE_HINT } from "@/lib/pdf/compress-grayscale";
+import {
+  KB,
+  MIN_TARGET_BYTES,
+  TARGET_SIZE_HINT,
+  TARGET_SIZE_LABELS,
+  TARGET_SIZE_PRESETS,
+  chosenTargetBytes,
+  maxTargetKb,
+  targetOutcome,
+  type TargetChoice,
+} from "@/lib/pdf/compress-target";
 import { outputName, partitionPdfFiles } from "@/lib/pdf/files";
 import {
   runWorkerCompression,
@@ -764,11 +775,15 @@ function WorkerDeepPanel({
         : shared.status;
   const [dpi, setDpi] = useState<number>(150);
   const [grayscale, setGrayscale] = useState(false);
+  const [target, setTarget] = useState<TargetChoice>("none");
+  const [customKb, setCustomKb] = useState("");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<CompressWorkerResult | null>(null);
   // What the run that drew `outcome` asked for — not the toggle's state now,
   // which the reader may have changed since.
   const [ranGrayscale, setRanGrayscale] = useState(false);
+  const [ranTarget, setRanTarget] = useState<number | null>(null);
+  const targetBytes = chosenTargetBytes(target, customKb, originalBytes);
 
   const canRunDeep = canRunDeepCompression(status);
   // A run still in flight when the panel unmounts settles its hold then.
@@ -796,10 +811,12 @@ function WorkerDeepPanel({
         profile: "deep",
         targetDpi: dpi,
         grayscale,
+        ...(typeof targetBytes === "number" ? { targetBytes } : {}),
       });
       // Its card draws with its ending (`endingReady`).
       if (res.ok) await endingReady();
       setRanGrayscale(grayscale);
+      setRanTarget(typeof targetBytes === "number" ? targetBytes : null);
       setOutcome(res);
     } catch {
       // A rejected fetch — offline, DNS failure, a reset connection, CORS. There
@@ -855,6 +872,12 @@ function WorkerDeepPanel({
           grayscale={grayscale}
           onGrayscale={setGrayscale}
           ranGrayscale={ranGrayscale}
+          target={target}
+          onTarget={setTarget}
+          customKb={customKb}
+          onCustomKb={setCustomKb}
+          targetInvalid={targetBytes === "invalid"}
+          ranTarget={ranTarget}
           busy={busy}
           outcome={outcome}
           onRun={run}
@@ -912,6 +935,12 @@ function DeepRunControls({
   grayscale,
   onGrayscale,
   ranGrayscale,
+  target,
+  onTarget,
+  customKb,
+  onCustomKb,
+  targetInvalid,
+  ranTarget,
   busy,
   outcome,
   onRun,
@@ -926,6 +955,14 @@ function DeepRunControls({
   onGrayscale: (on: boolean) => void;
   /** Whether the run that drew `outcome` asked for grayscale. */
   ranGrayscale: boolean;
+  target: TargetChoice;
+  onTarget: (choice: TargetChoice) => void;
+  customKb: string;
+  onCustomKb: (kb: string) => void;
+  /** The chosen target is one the worker would refuse; the run waits. */
+  targetInvalid: boolean;
+  /** The target the run that drew `outcome` asked for, in bytes. */
+  ranTarget: number | null;
   busy: boolean;
   outcome: CompressWorkerResult | null;
   onRun: () => void;
@@ -949,10 +986,26 @@ function DeepRunControls({
   // A grayscale run's file is a different document from the original even
   // when it is not smaller, so it always gets the card and the download.
   const showCard = outcome?.ok === true && (savedBytes > 0 || ranGrayscale);
+  // Read from the bytes the browser received, and from whether the job
+  // record says the worker applied the target at all (`compress-target.ts`).
+  const reached =
+    outcome?.ok === true && ranTarget !== null
+      ? targetOutcome({
+          targetBytes: ranTarget,
+          outputBytes: outcome.output.byteLength,
+          appliedTargetBytes:
+            outcome.job?.results?.compression?.target?.targetBytes ?? null,
+          grayscale: ranGrayscale,
+        })
+      : null;
+  const noGainTarget = reached
+    ? `${reached.text} Your original came back unchanged, so there is no smaller file to download.`
+    : null;
   const noGain = useOutcomeFocus<HTMLParagraphElement>(
     outcome?.ok === true && !showCard,
-    "Compression finished. Our server could not shrink this file further without losing quality — the original is already efficient.",
+    `Compression finished. ${noGainTarget ?? "Our server could not shrink this file further without losing quality — the original is already efficient."}`,
   );
+  const customId = useId();
 
   return (
     <div className="flex flex-col gap-3 pl-6">
@@ -980,6 +1033,72 @@ function DeepRunControls({
         ))}
       </div>
 
+      <div
+        role="group"
+        aria-label={TARGET_SIZE_LABELS.heading}
+        className="flex flex-wrap items-center gap-2"
+      >
+        <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
+          {TARGET_SIZE_LABELS.heading}
+        </span>
+        <ChipButton
+          onClick={() => onTarget("none")}
+          active={target === "none"}
+          disabled={busy}
+        >
+          {TARGET_SIZE_LABELS.none}
+        </ChipButton>
+        {TARGET_SIZE_PRESETS.map((p) => (
+          <ChipButton
+            key={p.bytes}
+            onClick={() => onTarget(p.bytes)}
+            active={target === p.bytes}
+            // A file already under a preset has nothing to aim for.
+            disabled={busy || p.bytes >= originalBytes}
+            {...(p.bytes >= originalBytes
+              ? { title: "Your file is already smaller than this" }
+              : {})}
+          >
+            {p.label}
+          </ChipButton>
+        ))}
+        <ChipButton
+          onClick={() => onTarget("custom")}
+          active={target === "custom"}
+          disabled={busy}
+        >
+          {TARGET_SIZE_LABELS.custom}
+        </ChipButton>
+        {target === "custom" && (
+          <span className="text-muted inline-flex items-center gap-1.5 text-xs">
+            <input
+              id={customId}
+              type="text"
+              inputMode="numeric"
+              aria-label="Custom target size in KB"
+              placeholder={String(Math.min(150, maxTargetKb(originalBytes)))}
+              value={customKb}
+              readOnly={busy}
+              onChange={(event) => onCustomKb(event.target.value)}
+              className="border-line text-fg focus:border-accent/40 focus:ring-accent/50 bg-canvas rounded-ctl h-11 w-24 border px-3.5 text-sm transition outline-none focus:ring-2"
+            />
+            <label htmlFor={customId}>KB</label>
+          </span>
+        )}
+      </div>
+      {target !== "none" && (
+        <p
+          className={cn(
+            "text-xs leading-relaxed",
+            targetInvalid ? "text-warn" : "text-muted",
+          )}
+        >
+          {targetInvalid
+            ? `Enter a whole number of KB from ${MIN_TARGET_BYTES / KB} to ${maxTargetKb(originalBytes)}.`
+            : TARGET_SIZE_HINT}
+        </p>
+      )}
+
       <label className="text-muted flex items-start gap-2.5 text-sm">
         <input
           type="checkbox"
@@ -1003,7 +1122,7 @@ function DeepRunControls({
       <WorkerRunButton
         onClick={onRun}
         busy={busy}
-        disabled={blockedBySignatures}
+        disabled={blockedBySignatures || targetInvalid}
         busyLabel="Compressing on our secure server…"
         icon={ServerCog}
       >
@@ -1020,17 +1139,28 @@ function DeepRunControls({
       {outcome?.ok === true &&
         (showCard ? (
           <ResultCard
-            announce={
+            announce={`${
               savedBytes > 0
                 ? `Compression finished. Our server shrank this file by ${formatBytes(savedBytes)}${ranGrayscale ? " and converted it to grayscale" : ""} — ${formatBytes(outcome.output.byteLength)} final.`
                 : `Compression finished. Our server converted this file to grayscale — ${formatBytes(outcome.output.byteLength)} final. It did not get smaller.`
-            }
+            }${reached ? ` ${reached.text}` : ""}`}
             output={outputFile(
               outcome.output,
               outcome.artifact.filename || outputName(filename, "compressed"),
             )}
             inputBytes={originalBytes}
           >
+            {reached && (
+              <p
+                data-target-met={reached.met}
+                className={cn(
+                  "tnum text-sm font-medium",
+                  reached.met ? "text-ok" : "text-warn",
+                )}
+              >
+                {reached.text}
+              </p>
+            )}
             {savedBytes > 0 ? (
               <p className="text-ok text-sm">
                 Our server shrank this file by {formatBytes(savedBytes)} (
@@ -1087,8 +1217,12 @@ function DeepRunControls({
             aria-label="Compression finished with no size reduction"
             className="border-line bg-wash text-muted focus-visible:ring-ok/50 rounded-panel border p-4 text-sm outline-none focus-visible:ring-2"
           >
-            Our server couldn&apos;t shrink this file further without losing
-            quality — the original is already efficient.
+            {noGainTarget ?? (
+              <>
+                Our server couldn&apos;t shrink this file further without losing
+                quality — the original is already efficient.
+              </>
+            )}
           </p>
         ))}
     </div>

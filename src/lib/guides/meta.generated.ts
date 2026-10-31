@@ -498,4 +498,17 @@ export const GUIDE_META: readonly GuideMeta[] = [
       "convert image to pdf online",
     ],
   },
+  {
+    slug: "how-to-compress-a-pdf-to-100-kb",
+    title: "How to compress a PDF to 100 KB (or 200 KB)",
+    primary: "compress-pdf",
+    keywords: [
+      "compress pdf to 100kb",
+      "compress pdf to 200kb",
+      "reduce pdf size to 100 kb",
+      "make a pdf smaller for an upload form",
+      "compress pdf to a specific size",
+      "pdf size for online application",
+    ],
+  },
 ];

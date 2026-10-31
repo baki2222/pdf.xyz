@@ -83,7 +83,10 @@ describe("the guides catalogue is structurally sound", () => {
     // inside existing tools — Bates numbering, alternate-page merging for
     // double-sided scans, and WebP / GIF / BMP to PDF (36 → 39). Each was
     // checked against its runner and engine, not against the tool copy.
-    expect(slugs.length).toBeLessThanOrEqual(39);
+    // Revisited 2026-10-31 (UTC): one guide, "How to compress a PDF to
+    // 100 KB", for the deep step's new Target size (39 → 40) — the search
+    // the feature was built for. Checked against the ladder and its tests.
+    expect(slugs.length).toBeLessThanOrEqual(40);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,

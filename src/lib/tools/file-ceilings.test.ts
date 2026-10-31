@@ -97,6 +97,7 @@ import { getAllToolSlugs, tools } from "./index";
 import { withoutComments } from "./copy-surface";
 import { FONT_PACKS } from "@/lib/pdf/font-packs";
 import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
+import { TARGET_EXAMPLE, TARGET_SIZE_PRESETS } from "@/lib/pdf/compress-target";
 import { MAX_PDF_PASSWORD_BYTES } from "@/lib/jobs/pdf-security";
 import { nativeOfficeConversionDeps } from "@/lib/workers/office-conversion/native";
 import { nativeHtmlRenderDeps } from "@/lib/workers/html-render/native";
@@ -389,6 +390,21 @@ const OTHER_SIZES: readonly {
     near: /\b(?:picture|image|photo|PNG|JPG)\b/i,
     window: 80,
     shipped: "Choose a PNG or JPG of up to 10 MB",
+  },
+  // Added 2026-10-31: Compress PDF's "Target size" presets, and the sizes
+  // in the panel's own example sentence — sizes a file is compressed TO,
+  // never one it is refused above. Values from the constants the panel uses.
+  {
+    what: "a size the deep step compresses a file to",
+    valuesMb: [
+      ...TARGET_SIZE_PRESETS.map((p) => MB_OF(p.bytes)),
+      MB_OF(TARGET_EXAMPLE.targetBytes),
+      MB_OF(TARGET_EXAMPLE.outputBytes),
+    ],
+    near: /\btarget\b|\bcompress(?:es|ed|ing)? (?:a |your )?PDF to\b/i,
+    window: 160,
+    shipped:
+      "the panel then says, for example, “Now 184.0 KB — under your 200 KB target.”",
   },
 ];
 

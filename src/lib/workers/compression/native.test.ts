@@ -175,6 +175,25 @@ describe("createNativeCompressor — success path", () => {
     });
     expect(execCalls[0]).toBe("/opt/gs/bin/gs");
   });
+
+  // Target size (2026-10-31): a ladder rung runs on what is left of one shared
+  // budget — and never on more than the configured ceiling.
+  it("runs a ladder rung on the smaller of its share and the configured timeout", async () => {
+    const timeouts: number[] = [];
+    const exec: NativeExec = async (_c, _a, options) => {
+      timeouts.push(options.timeout);
+    };
+    const { fs } = fakeFs(() => VALID_PDF);
+    const run = createNativeCompressor(cfg(), { exec, fs });
+    for (const timeoutMs of [7_500, 999_999, undefined]) {
+      await run(new Uint8Array([1]), {
+        engine: "ghostscript",
+        options: DEEP,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      });
+    }
+    expect(timeouts).toEqual([7_500, 120_000, 120_000]);
+  });
 });
 
 describe("createNativeCompressor — failure paths always clean up", () => {
@@ -317,6 +336,14 @@ describe("probeNativeTools / nativeCompressionDeps — from the environment", ()
       { resolveOnPath: () => false },
     );
     expect(deps.limits?.maxInputBytes).toBe(1048576);
+    // A target ladder shares the time one run is allowed — the same variable.
+    expect(deps.limits?.targetBudgetMs).toBe(120_000);
+    expect(
+      nativeCompressionDeps(
+        { PDFXYZ_COMPRESSION_TIMEOUT_MS: "30000" },
+        { resolveOnPath: () => false },
+      ).limits?.targetBudgetMs,
+    ).toBe(30_000);
     expect(typeof deps.native).toBe("function");
     expect(deps.tools).toEqual({
       ghostscript: false,
