@@ -55,6 +55,9 @@ export type ExecutorOutcome =
   | "failed" // a job failed terminally
   | "requeued" // a retryable failure was returned to the queue
   | "canceled" // the job was canceled before it could complete
+  // This attempt lost its lease (another attempt reclaimed the job) and let go:
+  // it wrote no artifact or terminal state, and left the inputs for the owner.
+  | "lease_lost"
   | "error"; // the queue itself could not be reached
 
 export interface ExecutorTick {
@@ -124,7 +127,19 @@ export interface ExecutorLogEvent {
      * configuration: every spend recorded nothing, silently, while the test
      * suite stayed green. Content-free: it names the event, never an amount.
      */
-    | "ai_spend_unrecorded";
+    | "ai_spend_unrecorded"
+    /**
+     * A lease renewal failed transiently (the queue was unreachable). The job
+     * keeps running and renewal keeps trying: only the queue's own ownership
+     * check can say the lease is gone. `errorCode` is the queue failure reason.
+     */
+    | "lease_renew_failed"
+    /**
+     * This attempt no longer owns the job — a renewal or a terminal write was
+     * rejected because another attempt reclaimed it. The processor is aborted
+     * and nothing is written; the tick reports `lease_lost`.
+     */
+    | "lease_lost";
   jobId: string;
   tool: string;
   attempt: number;

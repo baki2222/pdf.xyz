@@ -52,6 +52,15 @@ export interface ProcessorInput {
    * every job queued before the cap existed.
    */
   delivery?: JobDeliveryCap;
+  /**
+   * Aborted by the executor when this attempt stops owning the job: its lease
+   * renewal was rejected because another attempt reclaimed it, or the job was
+   * canceled while running. A processor that honors it can stop early; one that
+   * does not simply runs to completion, and the executor discards the result
+   * either way (it never writes an artifact or a terminal state for an attempt
+   * it no longer owns). Absent for callers outside the executor.
+   */
+  signal?: AbortSignal;
 }
 
 /**

@@ -118,6 +118,7 @@ describe("worker operations snapshot", () => {
         failed: 0,
         requeued: 0,
         canceled: 0,
+        leaseLost: 0,
         idle: 0,
         errors: 0,
       },
@@ -129,6 +130,25 @@ describe("worker operations snapshot", () => {
     expect(snapshot.proofs.ocr).toBe("available");
     expect(snapshot.lifecycleVerification.verdict).toBe("verified");
     expect(snapshot.lastLoop?.health).toBe("ok");
+
+    // The same loop with one attempt that lost its lease is no longer healthy:
+    // a worker stalled past its renewal window and another attempt took over.
+    const stalled = collectRuntimeOperationsSnapshot(runtime, {
+      lifecycleVerification: { verdict: "verified" },
+      lastLoop: {
+        mode: "once",
+        reason: "drained",
+        ticks: 1,
+        completed: 0,
+        failed: 0,
+        requeued: 0,
+        canceled: 0,
+        leaseLost: 1,
+        idle: 0,
+        errors: 0,
+      },
+    });
+    expect(stalled.lastLoop?.health).toBe("warn");
   });
 
   it("serializes without secrets, endpoints, paths, object keys, filenames, or OCR text", () => {

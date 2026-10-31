@@ -623,7 +623,9 @@ coverage against the fake Redis transport and provider integration tests.
 - **Lease-attempt ownership**: every claim carries an attempt fingerprint. The
   executor passes that fingerprint into heartbeat/advance/complete/fail/requeue, so
   a worker whose lease expired and was reclaimed cannot resurrect, complete, or fail
-  a job after another daemon owns it.
+  a job after another daemon owns it. (The heartbeat half was not wired until
+  2026-10-31: the executor now renews the lease every third of the grant while a
+  job runs, and lets go — `lease_lost` — when a renewal is rejected.)
 - **Pinned concurrency invariants**: tests cover single-winner claim/redelivery,
   holder-only heartbeat, terminal transition preconditions, requeue/dead-letter
   behavior, idempotent submit safety, and script payload stability — all through
