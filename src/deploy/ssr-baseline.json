@@ -13,7 +13,7 @@
     },
     "_not-found.html": {
       "title": "Page not found — pdf.xyz",
-      "description": "pdf.xyz is a modern, fast, privacy-first PDF platform. Merge, split, compress, convert, edit, sign, and use AI on your documents — most tools run entirely in your browser.",
+      "description": "Merge, split, compress, convert, edit and sign PDFs, plus AI tools. Fast and privacy-first — most tools run entirely in your browser.",
       "canonical": null,
       "robots": "noindex",
       "h1": ["This page took a wrong turn"],
@@ -109,7 +109,7 @@
       "robots": "index, follow",
       "h1": ["PDF guides"],
       "h2": [
-        "How to OCR a PDF in Bengali, Hindi, Arabic and other languages",
+        "How to OCR a PDF in Bengali, Hindi, Arabic and more",
         "How to add Bates numbers to a PDF",
         "How to add a watermark to a PDF",
         "How to add page numbers to a PDF",
@@ -3819,11 +3819,11 @@
       ]
     },
     "guides/how-to-ocr-a-pdf-in-other-languages.html": {
-      "title": "How to OCR a PDF in Bengali, Hindi, Arabic and other languages — pdf.xyz",
+      "title": "How to OCR a PDF in Bengali, Hindi, Arabic and more — pdf.xyz",
       "description": "OCR a scanned PDF in any of 34 languages, including Bengali, Hindi, Arabic, and Tamil, up to 4 per job. Get a searchable PDF, text, or a Word file.",
       "canonical": "https://pdf.xyz/guides/how-to-ocr-a-pdf-in-other-languages",
       "robots": "index, follow",
-      "h1": ["How to OCR a PDF in Bengali, Hindi, Arabic and other languages"],
+      "h1": ["How to OCR a PDF in Bengali, Hindi, Arabic and more"],
       "h2": [
         "Common questions",
         "Documents in more than one language",
@@ -5377,7 +5377,7 @@
     },
     "index.html": {
       "title": "pdf.xyz — Every PDF tool. Private by design.",
-      "description": "pdf.xyz is a modern, fast, privacy-first PDF platform. Merge, split, compress, convert, edit, sign, and use AI on your documents — most tools run entirely in your browser.",
+      "description": "Merge, split, compress, convert, edit and sign PDFs, plus AI tools. Fast and privacy-first — most tools run entirely in your browser.",
       "canonical": "https://pdf.xyz",
       "robots": "index, follow",
       "h1": ["Every PDF tool you need, free and private"],
@@ -5526,7 +5526,7 @@
     },
     "privacy.html": {
       "title": "Privacy Policy — pdf.xyz",
-      "description": "What pdf.xyz does with your files. Most tools never upload anything; the rest process on a server that deletes the upload when the job ends and stops serving the result after 60 minutes. No accounts, no advertising, no sale of personal data.",
+      "description": "What pdf.xyz does with your files. Most tools never upload them; server tools delete the upload when a job ends and stop serving the result after 60 minutes.",
       "canonical": "https://pdf.xyz/privacy",
       "robots": "index, follow",
       "h1": ["Privacy Policy"],
@@ -5631,7 +5631,7 @@
     },
     "status.html": {
       "title": "System status — pdf.xyz",
-      "description": "What pdf.xyz can do right now: which tools run entirely in your browser (and never upload files) versus whether an optional secure worker is enabled in this environment.",
+      "description": "What pdf.xyz can do right now: which tools run entirely in your browser and never upload files, and whether the optional secure worker is enabled.",
       "canonical": "https://pdf.xyz/status",
       "robots": "index, follow",
       "h1": ["System status"],
