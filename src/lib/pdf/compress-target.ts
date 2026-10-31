@@ -13,21 +13,21 @@
  */
 import { formatBytes } from "@/lib/utils";
 import { DEEP_COMPRESSION_PRESETS } from "./offered-kinds";
+import { KB, MB, SIZE_PRESETS, sizeLabel } from "./size-presets";
 
-export const KB = 1024;
-const MB = 1024 * KB;
+export { KB };
 
 /** The smallest target the worker accepts: below it a PDF is hardly a page. */
 export const MIN_TARGET_BYTES = 20 * KB;
 /** The largest it accepts — the native engine's absolute input ceiling. */
 export const MAX_TARGET_BYTES = 2 * 1024 * MB;
 
-/** The panel's presets — the sizes application portals ask for most. */
-export const TARGET_SIZE_PRESETS: readonly { bytes: number; label: string }[] =
-  [100 * KB, 200 * KB, 500 * KB, MB].map((bytes) => ({
-    bytes,
-    label: targetLabel(bytes),
-  }));
+/**
+ * The panel's presets — the sizes application portals ask for most. The ONE
+ * list in `size-presets.ts`, which JPG / PNG to PDF's Max file size also
+ * reads, so the two panels cannot offer different sizes.
+ */
+export const TARGET_SIZE_PRESETS = SIZE_PRESETS;
 
 /** The panel's words for the choice, named once so copy can quote them. */
 export const TARGET_SIZE_LABELS = {
@@ -74,8 +74,7 @@ export function chosenTargetBytes(
 
 /** A target as the panel names it: whole MB when it is one, else KB. */
 export function targetLabel(bytes: number): string {
-  if (bytes % MB === 0) return `${bytes / MB} MB`;
-  return `${Math.round(bytes / KB)} KB`;
+  return sizeLabel(bytes);
 }
 
 /** What the run that drew a result asked for, and what the server said back. */

@@ -511,4 +511,17 @@ export const GUIDE_META: readonly GuideMeta[] = [
       "pdf size for online application",
     ],
   },
+  {
+    slug: "how-to-convert-jpg-to-pdf-under-100-kb",
+    title: "How to convert JPG to PDF under 100 KB (or 200 KB)",
+    primary: "jpg-to-pdf",
+    keywords: [
+      "jpg to pdf under 100kb",
+      "jpg to pdf under 200kb",
+      "convert photo to pdf under 100 kb",
+      "signature jpg to pdf under 100kb",
+      "image to pdf less than 100kb",
+      "jpg to pdf for online application",
+    ],
+  },
 ];

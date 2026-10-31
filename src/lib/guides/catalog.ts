@@ -138,6 +138,17 @@ import {
   TARGET_SIZE_PRESETS,
   targetOutcome,
 } from "@/lib/pdf/compress-target";
+import {
+  LIMIT_EXAMPLE,
+  LIMIT_TIME_BUDGET_MS,
+  MAX_LIMIT_ATTEMPTS,
+  MAX_SIZE_LABELS,
+  MAX_SIZE_PRESETS,
+  MIN_LONG_EDGE_PX,
+  REENCODE_LADDER,
+  limitOutcome,
+} from "@/lib/pdf/image-size-limit";
+import { IMAGE_OUTPUTS } from "@/lib/pdf/image-page-layout";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
 import type { Guide } from "./types";
 
@@ -353,6 +364,35 @@ const DECODED_NAMES = listAnd(DECODED_IMAGE_LABELS);
 const DECODED_NAMES_OR = listOr(DECODED_IMAGE_LABELS);
 const REFUSED_NAMES = listAnd(REFUSED_IMAGE_LABELS);
 const TRANSCODE_QUALITY_PCT = Math.round(TRANSCODE_JPEG_QUALITY * 100);
+
+/**
+ * JPG / PNG to PDF's Max file size (2026-10-31), every figure and label from
+ * the panel's own constants (`image-size-limit.ts`): the presets are
+ * Compress PDF's list itself, so the two guides name the same sizes.
+ */
+function limitPreset(bytes: number): string {
+  const preset = MAX_SIZE_PRESETS.find((p) => p.bytes === bytes);
+  if (!preset) {
+    throw new Error(
+      `a guide names a limit of ${bytes} that the panel does not offer`,
+    );
+  }
+  return preset.label;
+}
+const LIMIT_100 = limitPreset(100 * KB_BYTES);
+const LIMIT_200 = limitPreset(200 * KB_BYTES);
+const LIMIT_PRESET_LABELS = MAX_SIZE_PRESETS.map((p) => p.label);
+const LIMIT_MET_SENTENCE = limitOutcome({
+  ...LIMIT_EXAMPLE,
+  reencoded: false,
+  flattened: false,
+  images: 1,
+}).text;
+const LIMIT_TOP_QUALITY_PCT = Math.round(REENCODE_LADDER[0]!.quality * 100);
+const LIMIT_LOW_QUALITY_PCT = Math.round(REENCODE_LADDER.at(-1)!.quality * 100);
+const LIMIT_LOW_SCALE_PCT = Math.round(REENCODE_LADDER.at(-1)!.scale * 100);
+const LIMIT_BUDGET_S = LIMIT_TIME_BUDGET_MS / 1000;
+const PER_IMAGE_OUTPUT = IMAGE_OUTPUTS.find((o) => o.id === "per-image")!.label;
 
 export const guides: Guide[] = [
   {
@@ -3694,6 +3734,90 @@ export const guides: Guide[] = [
       {
         question: "How large can my PDF be?",
         answer: `Up to ${ceilingMb("compress-pdf")} MB per file.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  // Added 2026-10-31 with JPG / PNG to PDF's Max file size. Every label and
+  // figure is read from the panel's constants (`image-size-limit.ts`), the
+  // met sentence from the function the panel calls, and the KB arithmetic
+  // from the same KB the compress guide uses.
+  {
+    slug: "how-to-convert-jpg-to-pdf-under-100-kb",
+    title: `How to convert JPG to PDF under ${LIMIT_100} (or ${LIMIT_200})`,
+    description: `Make a PDF of a photo, signature or scan that fits a limit of ${listOr(LIMIT_PRESET_LABELS)}. Your browser shrinks the image until it fits.`,
+    tools: ["jpg-to-pdf", "png-to-pdf"],
+    keywords: [
+      "jpg to pdf under 100kb",
+      "jpg to pdf under 200kb",
+      "convert photo to pdf under 100 kb",
+      "signature jpg to pdf under 100kb",
+      "image to pdf less than 100kb",
+      "jpg to pdf for online application",
+    ],
+    intro: [
+      `To turn a JPG into a PDF under ${LIMIT_100}, open ${nameOf("jpg-to-pdf")}, add the image, and under “${MAX_SIZE_LABELS.heading}” choose ${LIMIT_100} — or ${listOr(LIMIT_PRESET_LABELS.slice(1))}, or “${MAX_SIZE_LABELS.custom}” for a number of KB of your own. Then press Create PDF. If the PDF comes out bigger than your limit, your browser saves the image again at a lower quality and a smaller pixel size, step by step, and keeps the sharpest version that fits.`,
+      "Application portals for jobs, exams and visas often limit the PDF of a photo, a signature or a certificate scan at a size like this. A single phone photo is usually several times too big, and a scan of one page often is too, so the limit is what does the work here.",
+      `It all happens in your browser tab: the image is not sent to pdf.xyz, and the PDF is saved straight to your device. ${nameOf("png-to-pdf")} has the same setting for PNG images.`,
+    ],
+    steps: [
+      `Open the ${nameOf("jpg-to-pdf")} tool and drop your JPG on the box at the top of the page, or click it to pick one. Add more images if the form wants them in one PDF; each becomes a page.`,
+      "Choose the Page size, Orientation and Margin, or keep the ones shown. They set the page, not the file size.",
+      `Under “${MAX_SIZE_LABELS.heading}”, choose ${listOr(LIMIT_PRESET_LABELS)}, or choose “${MAX_SIZE_LABELS.custom}” and type a whole number of KB.`,
+      "Press Create PDF. With a limit, it can take a few seconds longer, because each step down is another PDF made and measured.",
+      `Read the line on the result. “${LIMIT_MET_SENTENCE}” means it fits: press Download PDF.`,
+      `If the line says the PDF is above your limit, take out an image. With more than one image, you can also choose ${PER_IMAGE_OUTPUT} under Output, so that each image gets a PDF, and a limit, of its own.`,
+    ],
+    sections: [
+      {
+        id: "how-the-limit-is-reached",
+        heading: "How the limit is reached",
+        body: [
+          `The PDF is made first exactly as it would be with “${MAX_SIZE_LABELS.none}”. If that is already at or under your limit, it is what you get, untouched. If not, the images are saved again as JPEGs, starting at ${LIMIT_TOP_QUALITY_PCT}% quality and full size and stepping down, as far as ${LIMIT_LOW_QUALITY_PCT}% quality and ${LIMIT_LOW_SCALE_PCT}% of their width. The long side of an image is never made shorter than ${MIN_LONG_EDGE_PX} pixels.`,
+          `After each step the whole PDF is made again and measured, and the first one at or under the limit is the one you get: the sharpest version that fits. A lower setting usually makes a smaller file, but not always, so nothing is assumed — every PDF is measured. An image whose saved-again copy would be bigger than the original keeps its original. At most ${MAX_LIMIT_ATTEMPTS} versions are made, within about ${LIMIT_BUDGET_S} seconds; if none fits, you get the smallest one that was made, and a line saying it is above your limit.`,
+        ],
+      },
+      {
+        id: "what-changes",
+        heading: "What saving the image again changes",
+        body: [
+          "A smaller file means fewer pixels and stronger compression, so a saved-again photo looks softer, and fine print on a scanned certificate can blur. Check the PDF before you send it in; if the text is hard to read, try the largest limit the form allows.",
+          "What the image file carried beside its pixels, such as the camera details, the date and any location, is not kept in a saved-again image. A PNG with transparent areas becomes a JPEG, which has none, so those areas are filled with white — the colour of the page, so it looks the same — and the line on the result says so.",
+        ],
+      },
+      {
+        id: "how-big-is-a-kb",
+        heading: "How big is 100 KB, here and on the form",
+        body: [
+          `On this page 1 KB is ${KB_BYTES.toLocaleString("en-US")} bytes, so a ${LIMIT_100} limit means at most ${(100 * KB_BYTES).toLocaleString("en-US")} bytes — the same unit every size on the page is shown in. Some application portals count 1 KB as 1,000 bytes instead. If yours does, and is strict, choose “${MAX_SIZE_LABELS.custom}” and enter ${PORTAL_SAFE_100_KB} KB, which is under 100,000 bytes.`,
+          "The PDF usually comes back a little under your limit rather than exactly on it, because the first version that fits is the one kept.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: `Can I convert a JPG to a PDF of exactly ${LIMIT_100}?`,
+        answer:
+          "To at most that size, not to exactly it. You get the sharpest version at or under your limit, so the PDF usually comes back a little smaller than the number you chose.",
+      },
+      {
+        question: "Why is my PDF still above the limit?",
+        answer: `Because even the smallest version made was too big. That happens with many images in one PDF, or with a limit far below what a page can hold. Take out an image; with more than one image, ${PER_IMAGE_OUTPUT} applies the limit to each image's PDF on its own.`,
+      },
+      {
+        question: "Will my photo look worse?",
+        answer:
+          "Only if it has to. A PDF that already fits keeps the photo exactly as it was. One that does not is made with a softer, smaller copy of the photo, the sharpest that fits.",
+      },
+      {
+        question: "Is my photo sent to a server?",
+        answer:
+          "No. The image is shrunk and the PDF is made in your browser tab; the file is not sent to pdf.xyz.",
+      },
+      {
+        question: "How large can my image be?",
+        answer: `Up to ${MAX_IMAGE_MB} MB per image.`,
       },
     ],
     published: "2026-10-31",

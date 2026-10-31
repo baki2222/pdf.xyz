@@ -178,6 +178,10 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "pdf", "compress-grayscale.ts"),
     // Compress PDF's Target size labels, hint and outcome (2026-10-31).
     path.join(ROOT, "src", "lib", "pdf", "compress-target.ts"),
+    // JPG / PNG to PDF's Max file size (2026-10-31): labels, hint, outcome
+    // lines, and the browser re-encoder's error messages.
+    path.join(ROOT, "src", "lib", "pdf", "image-size-limit.ts"),
+    path.join(ROOT, "src", "lib", "pdf", "image-reencode.ts"),
     path.join(ROOT, "src", "lib", "pdf", "offered-kinds.ts"),
     // The WYSIWYG editor's export refusals (2026-10-24): new phrase code,
     // so walked rather than recorded outside.
