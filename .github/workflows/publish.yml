@@ -61,6 +61,15 @@ jobs:
       # are loaded side by side for the smokes, so the toolchains ubuntu-latest
       # preinstalls and no step here uses are removed first.
       # src/deploy/ci-workflow.test.ts requires this before any loaded build.
+      # IndexNow (scripts/indexnow-submit.mjs) is told which URLs are NEW or
+      # CHANGED, so it needs the sitemap as production served it BEFORE this
+      # run deploys anything. Read here, ahead of every build and the deploy,
+      # past the edge cache (a unique query string), or the snapshot is
+      # whatever Cloudflare held — up to a day old.
+      - name: Snapshot the live sitemap before deploying
+        if: github.ref == 'refs/heads/main'
+        run: curl -fsS "https://pdf.xyz/sitemap.xml?indexnow=before-${GITHUB_RUN_ID}" -o /tmp/sitemap-before.xml
+
       - name: Free runner disk for two loaded images
         run: |
           df -h /
@@ -270,3 +279,11 @@ jobs:
           # rather than silent.
           echo "web serves this build's BUILD_ID; worker publishes this build's source fingerprint"
           echo "note: the worker fingerprint cannot see the Dockerfile, the lockfile or the compose file"
+
+      # Only once the wire serves THIS build: the new pages and the key file
+      # must already be live when Bing comes to read them. Best-effort — an
+      # IndexNow outage is no reason to call a deploy failed — but loud.
+      - name: Tell IndexNow which pages are new or changed
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: node scripts/indexnow-submit.mjs --before=/tmp/sitemap-before.xml || { echo "::warning::IndexNow submission failed; see the log above"; exit 1; }
