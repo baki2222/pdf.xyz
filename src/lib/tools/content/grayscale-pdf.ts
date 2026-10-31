@@ -31,6 +31,9 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    RASTER_MAX_DEVICE_PX. That constant is not exported, so no figure for it
  *    is stated below; the cap is reached at a smaller page size for the
  *    higher-DPI preset, so the copy does not claim both presets are cut.
+ *    AMENDED 2026-10-31: RASTER_MAX_DEVICE_PX is now exported from
+ *    src/lib/pdf/pdf-to-image.ts (the PDF to PNG guide states it); this page
+ *    still states no figure.
  *  - use-single-pdf.ts → engine.ts loadPdf — PDFDocument.load without
  *    ignoreEncryption, so ANY /Encrypt dictionary is refused. RUN 2026-09-27:
  *    an owner-password-only PDF (pypdf, user password "", opens with an

@@ -99,7 +99,11 @@ describe("the guides catalogue is structurally sound", () => {
     // of their own — Excel to PDF, PowerPoint to PDF, Extract Pages and
     // Summarize PDF (42 → 46). Each was written from its tool's content
     // file, runner and shared helpers, and claims nothing those pages do not.
-    expect(slugs.length).toBeLessThanOrEqual(46);
+    // Revisited 2026-10-31 (UTC), after that: four more for tools with no
+    // guide of their own — PDF to PDF/A, PDF to PNG, PDF to Text and
+    // Grayscale PDF (46 → 50), written the same way, from each tool's
+    // content file, runner or worker panel, and the helpers they call.
+    expect(slugs.length).toBeLessThanOrEqual(50);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,

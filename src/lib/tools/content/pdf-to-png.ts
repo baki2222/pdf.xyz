@@ -35,7 +35,9 @@ import { RUNNER_FILE_CEILINGS } from "@/lib/tools/file-ceilings";
  *    (embedded) rotation.
  *  - pixel cap: RASTER_MAX_DEVICE_PX in render.ts is not exported, so the copy
  *    says a cap exists and gives no number, and no page size is promised the
- *    full DPI.
+ *    full DPI. AMENDED 2026-10-31: RASTER_MAX_DEVICE_PX and
+ *    RASTER_PREVIEW_LIMIT are now exported from src/lib/pdf/pdf-to-image.ts,
+ *    and the PDF to PNG guide states both; this page still states neither.
  *  - encryption (AMENDED 2026-10-06): the runner reads with reader="pdfjs"
  *    (single-pdf-reader.test.ts), and pdf.js opens an owner-password-only file,
  *    so it converts; only a file that needs a password to open is refused, with
