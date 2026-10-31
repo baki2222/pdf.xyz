@@ -142,7 +142,9 @@ function deps(over: Partial<OptionsProofDeps> = {}): OptionsProofDeps {
   };
 }
 
-describe("runWorkerOptionsProof", () => {
+// Each run builds two 1380 px photos (target size, 2026-10-31) and the
+// controls below run the proof twice: 5 s was 159% used on CI's runner.
+describe("runWorkerOptionsProof", { timeout: 30_000 }, () => {
   it("passes engines that do what they are asked", async () => {
     const lines: string[] = [];
     expect(

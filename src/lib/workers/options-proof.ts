@@ -274,8 +274,15 @@ export async function runWorkerOptionsProof(
   // downsamples (`noisePhotoPdf`).
   const compress = deps.compress ?? runCompression;
   const rungs = ladderRungs(TARGET_DPI_LADDER[0]);
+  // Each fixture is built once: the noise photo is the one the checks use,
+  // and its lone runs are the independent sizes they are judged against.
+  const photo = await noisePhotoPdf({ px: 1380, inches: 3, pages: 2 });
+  const single = new Map<number, number>();
   for (const kind of ["noise", "smooth"] as const) {
-    const sample = await noisePhotoPdf({ px: 1380, inches: 3, pages: 2, kind });
+    const sample =
+      kind === "noise"
+        ? photo
+        : await noisePhotoPdf({ px: 1380, inches: 3, pages: 2, kind });
     const parts: string[] = [];
     for (const dpi of rungs) {
       const r = await runCompression(
@@ -283,6 +290,9 @@ export async function runWorkerOptionsProof(
         { profile: "deep", targetDpi: dpi },
         deps.compression,
       );
+      if (kind === "noise" && r.ok && r.meta.target === undefined) {
+        single.set(dpi, r.output.length);
+      }
       parts.push(
         r.ok
           ? `${dpi} DPI ${r.output.length} B ${(await imageFilters(r.output)).join("+")}`
@@ -290,16 +300,6 @@ export async function runWorkerOptionsProof(
       );
     }
     log(`INFO target rungs, ${kind} photo: ${parts.join(", ")}`);
-  }
-  const photo = await noisePhotoPdf({ px: 1380, inches: 3, pages: 2 });
-  const single = new Map<number, number>();
-  for (const dpi of rungs) {
-    const r = await runCompression(
-      photo,
-      { profile: "deep", targetDpi: dpi },
-      deps.compression,
-    );
-    if (r.ok && r.meta.target === undefined) single.set(dpi, r.output.length);
   }
   const sizes = rungs.map((dpi) => single.get(dpi) ?? Number.NaN);
   check(
