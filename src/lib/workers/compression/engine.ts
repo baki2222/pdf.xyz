@@ -23,6 +23,13 @@ import { PDFDocument } from "pdf-lib";
 import { countPdfPagesDetailed } from "@/lib/pdf/page-count";
 import { apiError, type ParseResult } from "@/lib/jobs";
 import { hasColourImage } from "./image-colour";
+import { MAX_TARGET_BYTES, MIN_TARGET_BYTES } from "@/lib/pdf/compress-target";
+import {
+  runTargetLadder,
+  type TargetAttempt,
+  type TargetLadderReport,
+  type TargetStop,
+} from "./target-ladder";
 
 /**
  * How hard to compress:
@@ -60,6 +67,13 @@ export interface CompressionOptions {
    * parser always sets it.
    */
   grayscale?: boolean;
+  /**
+   * The size the person needs the file to fit (deep only), in bytes. When
+   * set, the worker climbs down a bounded ladder of resolutions from
+   * `targetDpi` and returns the first file at or under it
+   * (`./target-ladder.ts`). Absent ⇒ one run at `targetDpi`, as before.
+   */
+  targetBytes?: number;
 }
 
 /**
@@ -142,7 +156,53 @@ export function parseCompressionOptions(
     };
   }
 
-  return { ok: true, value: { profile: rawProfile, targetDpi, grayscale } };
+  let targetBytes: number | undefined;
+  if (options.targetBytes !== undefined) {
+    const t = options.targetBytes;
+    if (
+      typeof t !== "number" ||
+      !Number.isInteger(t) ||
+      t < MIN_TARGET_BYTES ||
+      t > MAX_TARGET_BYTES
+    ) {
+      return {
+        ok: false,
+        error: apiError(
+          "invalid_request",
+          `\`options.targetBytes\` must be an integer between ${MIN_TARGET_BYTES} and ${MAX_TARGET_BYTES}.`,
+          [{ field: "options.targetBytes", message: "Out of range." }],
+        ),
+      };
+    }
+    // Same rule as grayscale: the lossless repack never re-encodes an image,
+    // so it has nothing to step down. Refused, not ignored.
+    if (rawProfile === "lossless") {
+      return {
+        ok: false,
+        error: apiError(
+          "invalid_request",
+          '`options.targetBytes` needs the "deep" profile.',
+          [
+            {
+              field: "options.targetBytes",
+              message: 'A target size needs the "deep" profile.',
+            },
+          ],
+        ),
+      };
+    }
+    targetBytes = t;
+  }
+
+  return {
+    ok: true,
+    value: {
+      profile: rawProfile,
+      targetDpi,
+      grayscale,
+      ...(targetBytes === undefined ? {} : { targetBytes }),
+    },
+  };
 }
 
 /**
@@ -297,7 +357,15 @@ export async function losslessRepack(bytes: Uint8Array): Promise<Uint8Array> {
  */
 export type NativeCompressor = (
   input: Uint8Array,
-  ctx: { engine: CompressionTool; options: CompressionOptions },
+  ctx: {
+    engine: CompressionTool;
+    options: CompressionOptions;
+    /**
+     * This run's share of a target ladder's time budget. The runner uses the
+     * smaller of it and its own configured timeout; absent ⇒ its own.
+     */
+    timeoutMs?: number;
+  },
 ) => Promise<Uint8Array>;
 
 /** Strict resource limits enforced by the deep/native path (lossless is unaffected). */
@@ -314,6 +382,13 @@ export interface CompressionLimits {
    * memory, so this is a real budget line and not a formality.
    */
   maxPageCountParseBytes?: number;
+  /**
+   * The ONE time budget every rung of a target-size ladder shares (ms). The
+   * worker sets it to the native timeout a single run is allowed, so a
+   * target job is bounded by what one deep job already was. Absent ⇒ no
+   * budget beyond each run's own timeout.
+   */
+  targetBudgetMs?: number;
 }
 
 /**
@@ -340,6 +415,29 @@ export interface CompressionDeps {
   validate?: (bytes: Uint8Array) => boolean | Promise<boolean>;
   /** Strict resource limits for the native/deep path. */
   limits?: CompressionLimits;
+  /** Clock for the target ladder's budget; defaults to `Date.now`. */
+  now?: () => number;
+}
+
+/**
+ * What a target-size run asked for, spent and got. The SAME shape on every
+ * outcome — met, not met, and the failures after a ladder ran — because the
+ * runs a failure spent are as real as a success's (CLAUDE.md rule 3).
+ */
+export interface CompressionTargetMeta {
+  targetBytes: number;
+  /** True only when the FINAL artifact is at or under `targetBytes`. */
+  met: boolean;
+  /** Engine runs the ladder made (each one a Ghostscript process). */
+  attempts: number;
+  /**
+   * The resolution of the file that shipped; `null` when none of the
+   * ladder's files did (the original came back unchanged, or the run failed
+   * before a rung was usable).
+   */
+  dpi: number | null;
+  tried: TargetAttempt[];
+  stoppedBy: TargetStop;
 }
 
 /** Derived, serializable metrics for a successful compression run. */
@@ -389,6 +487,8 @@ export interface CompressionResultMeta {
   pagesIn: number | null;
   /** Output page count when known; `null` on the paths that do not measure it. */
   pagesOut: number | null;
+  /** Present only on a run that asked for a target size. */
+  target?: CompressionTargetMeta;
 }
 
 /**
@@ -417,13 +517,32 @@ export type CompressionRun =
       pagesIn: number;
       pagesOut: number;
       message: string;
+      target?: CompressionTargetMeta;
     }
   /**
    * A grayscale run whose output still carries a colour image. Not `failed`:
    * the same engine given the same flag keeps the same colour, so it is final.
    */
-  | { ok: false; kind: "colour_kept"; message: string }
-  | { ok: false; kind: "failed"; message: string };
+  | {
+      ok: false;
+      kind: "colour_kept";
+      message: string;
+      target?: CompressionTargetMeta;
+    }
+  /** A target that is not below the file's own size: nothing to aim for. */
+  | {
+      ok: false;
+      kind: "invalid_target";
+      targetBytes: number;
+      inputBytes: number;
+      message: string;
+    }
+  | {
+      ok: false;
+      kind: "failed";
+      message: string;
+      target?: CompressionTargetMeta;
+    };
 
 /**
  * Plan and run a compression request. Returns an honest result:
@@ -474,6 +593,47 @@ export async function runCompression(
     }
   }
 
+  // A target the file already meets has nothing to aim for. Refused before
+  // anything runs, like every other deterministic input problem.
+  const targetBytes = options.targetBytes;
+  if (
+    isNative &&
+    targetBytes !== undefined &&
+    targetBytes >= input.byteLength
+  ) {
+    return {
+      ok: false,
+      kind: "invalid_target",
+      targetBytes,
+      inputBytes: input.byteLength,
+      message: "The target size must be smaller than the file you sent.",
+    };
+  }
+
+  // Set once a target ladder has run; every outcome after it reports it.
+  let ladder: TargetLadderReport | undefined;
+  const targetMeta = (
+    finalBytes: number | null,
+    shippedLadderFile: boolean,
+  ): CompressionTargetMeta | undefined =>
+    ladder && {
+      targetBytes: ladder.targetBytes,
+      met: finalBytes !== null && finalBytes <= ladder.targetBytes,
+      attempts: ladder.tried.length,
+      dpi: shippedLadderFile ? ladder.chosenDpi : null,
+      tried: ladder.tried,
+      stoppedBy: ladder.stoppedBy,
+    };
+  /** A failure after the ladder ran, carrying what the ladder spent. */
+  type SpendingFailure = Extract<
+    CompressionRun,
+    { kind: "failed" | "page_loss" | "colour_kept" }
+  >;
+  const spent = (fail: SpendingFailure): SpendingFailure => {
+    const target = targetMeta(null, true);
+    return target ? { ...fail, target } : fail;
+  };
+
   let output: Uint8Array;
   try {
     // Compare `plan.engine` directly (not the `isNative` alias) so TypeScript
@@ -488,7 +648,32 @@ export async function runCompression(
           message: "No native compressor executor is configured.",
         };
       }
-      output = await deps.native(input, { engine: plan.engine, options });
+      if (targetBytes !== undefined) {
+        const run = await runTargetLadder(
+          input,
+          { ...options, targetBytes },
+          {
+            engine: plan.engine,
+            native: deps.native,
+            validate: deps.validate ?? looksLikePdf,
+            now: deps.now ?? Date.now,
+            ...(deps.limits?.targetBudgetMs === undefined
+              ? {}
+              : { budgetMs: deps.limits.targetBudgetMs }),
+          },
+        );
+        ladder = run.report;
+        if (!run.ok) {
+          return spent({
+            ok: false,
+            kind: "failed",
+            message: "The compression engine failed to process this file.",
+          });
+        }
+        output = run.output;
+      } else {
+        output = await deps.native(input, { engine: plan.engine, options });
+      }
     }
   } catch {
     // A lossless throw almost always means the bytes weren't a readable PDF; a
@@ -517,11 +702,11 @@ export async function runCompression(
   if (isNative) {
     const validate = deps.validate ?? looksLikePdf;
     if (!(await validate(output))) {
-      return {
+      return spent({
         ok: false,
         kind: "failed",
         message: "The compression engine produced an unreadable PDF.",
-      };
+      });
     }
     if (options.grayscale) {
       // The one property this request adds, read from the file itself. An
@@ -535,12 +720,12 @@ export async function runCompression(
         colour = false;
       }
       if (colour) {
-        return {
+        return spent({
           ok: false,
           kind: "colour_kept",
           message:
             "The compression engine did not convert this file to grayscale, so it was rejected. Your original file is unchanged.",
-        };
+        });
       }
     }
     // A grayscale run never swaps the original back: the original is in
@@ -551,11 +736,11 @@ export async function runCompression(
       // a larger artifact — but only if the original is itself a readable PDF, so
       // we never dress up non-PDF bytes as a successful result.
       if (!(await validate(input))) {
-        return {
+        return spent({
           ok: false,
           kind: "failed",
           message: "The compression engine produced an unreadable PDF.",
-        };
+        });
       }
       output = input;
       returnedOriginal = true;
@@ -581,22 +766,22 @@ export async function runCompression(
       // permissions-only PDF with object streams (pdf-lib cannot decrypt the
       // stream that holds its page tree) that Ghostscript could not shrink was
       // reported as "an unreadable PDF" — about the file the person uploaded.
-      return {
+      return spent({
         ok: false,
         kind: "failed",
         message: "The compression engine produced an unreadable PDF.",
-      };
+      });
     }
     if (countIn.ok && countOut.ok) {
       if (countOut.count < countIn.count) {
-        return {
+        return spent({
           ok: false,
           kind: "page_loss",
           pagesIn: countIn.count,
           pagesOut: countOut.count,
           message:
             "Compression finished but the result was missing pages, so it was rejected. Your original file is unchanged.",
-        };
+        });
       }
       pageCheck = "verified";
     } else {
@@ -611,6 +796,9 @@ export async function runCompression(
   const outputBytes = output.byteLength;
   const savedBytes = Math.max(0, originalBytes - outputBytes);
   const savedRatio = originalBytes > 0 ? savedBytes / originalBytes : 0;
+  // `met` is read from the file that ships — after the no-worse swap — so a
+  // run that handed back the original is judged by the original's size.
+  const target = targetMeta(outputBytes, !returnedOriginal);
   return {
     ok: true,
     output,
@@ -625,6 +813,7 @@ export async function runCompression(
       outputBytes,
       savedBytes,
       savedRatio,
+      ...(target ? { target } : {}),
     },
   };
 }

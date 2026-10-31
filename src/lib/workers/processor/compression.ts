@@ -74,6 +74,14 @@ export function compressionJobError(run: CompressionFailure): JobError {
         message: `${run.message} (${run.pagesIn} pages in, ${run.pagesOut} out.)`,
         retryable: false,
       };
+    case "invalid_target":
+      // The request itself: the same target against the same file is wrong
+      // every time. Named as the field, like every other option error.
+      return {
+        code: "invalid_request",
+        message: `${run.message} (\`options.targetBytes\` ${run.targetBytes}, file ${run.inputBytes} bytes.)`,
+        retryable: false,
+      };
     case "colour_kept":
       // Deterministic: the same engine given the same flag keeps the same
       // colour, so a retry would fail the same way twice more.
@@ -179,6 +187,14 @@ export function createCompressionProcessor(deps: CompressionDeps): Processor {
           savedBytes: run.meta.savedBytes,
           savedRatio: run.meta.savedRatio,
           pageCheck: run.meta.pageCheck,
+          // The CPU a target run spent, in engine runs, on the flat log seam.
+          ...(run.meta.target
+            ? {
+                targetBytes: run.meta.target.targetBytes,
+                targetMet: run.meta.target.met,
+                targetAttempts: run.meta.target.attempts,
+              }
+            : {}),
         },
         // Only the deep path reports. The lossless repack's verdict is
         // `not-applicable` with two nulls — a block carrying no information,
@@ -192,6 +208,16 @@ export function createCompressionProcessor(deps: CompressionDeps): Processor {
                 pageCheck: run.meta.pageCheck,
                 pagesIn: run.meta.pagesIn,
                 pagesOut: run.meta.pagesOut,
+                ...(run.meta.target
+                  ? {
+                      target: {
+                        targetBytes: run.meta.target.targetBytes,
+                        met: run.meta.target.met,
+                        attempts: run.meta.target.attempts,
+                        outputBytes: run.meta.outputBytes,
+                      },
+                    }
+                  : {}),
               },
             },
       );

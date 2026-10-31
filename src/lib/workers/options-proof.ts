@@ -14,6 +14,11 @@
  *     (`grayscaleVerdict`), the input demonstrably was not (positive control),
  *     and a colour run of the same file still reads as colour (the reader is
  *     not blind to colour);
+ *   - target size (2026-10-31): every rung of the ladder run alone, its size
+ *     measured, and the sizes must descend (the ladder's one assumption about
+ *     the engine); then a target just over the 150 DPI rung must come back
+ *     met AT 150 DPI, in colour, pages verified, and a target under the floor
+ *     must come back not met after ONE run, at the floor's own size;
  *   - permissions: the output's /P, read without a password
  *     (`readEncryptPermissions`), withholds exactly the switches asked for at
  *     both key lengths; qpdf's OWN `--show-encryption` reports the same /P (a
@@ -36,8 +41,13 @@ import {
   permissionMismatches,
   type PdfPermissions,
 } from "@/lib/jobs/pdf-permissions";
-import { colourImagePdf } from "@/lib/workers/compression/colour-image-pdf";
+import {
+  colourImagePdf,
+  noisePhotoPdf,
+} from "@/lib/workers/compression/colour-image-pdf";
 import { runCompression, type CompressionDeps } from "./compression/engine";
+import { TARGET_DPI_LADDER, ladderRungs } from "./compression/target-ladder";
+import { MIN_TARGET_BYTES } from "@/lib/pdf/compress-target";
 import { grayscaleVerdict, hasColourImage } from "./compression/image-colour";
 import { runProtect, type PdfSecurityDeps } from "./pdf-security/engine";
 import { readEncryptPermissions } from "./pdf-security/permission-bits";
@@ -213,6 +223,86 @@ export async function runWorkerOptionsProof(
       ? "a run without grayscale still reads as colour"
       : `${kept.kind}: ${kept.message}`,
   );
+
+  // ── target size (2026-10-31) ────────────────────────────────────────────
+  // The ladder's one assumption about the engine — a lower resolution never
+  // makes a bigger file — measured rung by rung on the real Ghostscript; then
+  // both outcomes, each judged by sizes measured independently of the ladder.
+  // 1380 px over 3 in is 460 DPI: above 1.5x the top rung, so every rung
+  // downsamples (`noisePhotoPdf`).
+  const photo = await noisePhotoPdf({ px: 1380, inches: 3, pages: 2 });
+  const rungs = ladderRungs(TARGET_DPI_LADDER[0]);
+  const single = new Map<number, number>();
+  for (const dpi of rungs) {
+    const r = await runCompression(
+      photo,
+      { profile: "deep", targetDpi: dpi },
+      deps.compression,
+    );
+    if (r.ok && r.meta.target === undefined) single.set(dpi, r.output.length);
+  }
+  const sizes = rungs.map((dpi) => single.get(dpi) ?? Number.NaN);
+  const descends =
+    sizes.every((s, i) => i === 0 || s <= sizes[i - 1]!) &&
+    sizes[sizes.length - 1]! < sizes[0]!;
+  check(
+    descends,
+    "target ladder rungs descend",
+    rungs.map((dpi, i) => `${dpi} DPI ${sizes[i]} B`).join(", "),
+  );
+  const at = (dpi: number) => single.get(dpi) ?? Number.NaN;
+  // Met: just over the 150 rung, under the 200 rung — so 150 is the first fit.
+  const metTarget = at(150) + 1024;
+  if (!(at(200) > metTarget)) {
+    check(
+      false,
+      "target met",
+      `fixture: the 200 rung (${at(200)} B) must be over ${metTarget} B`,
+    );
+  } else {
+    const met = await runCompression(
+      photo,
+      { profile: "deep", targetDpi: 300, targetBytes: metTarget },
+      deps.compression,
+    );
+    check(
+      met.ok &&
+        met.meta.target?.met === true &&
+        met.meta.target.dpi === 150 &&
+        met.output.length <= metTarget &&
+        met.meta.pageCheck === "verified" &&
+        (await hasColourImage(met.output)),
+      "target met",
+      met.ok
+        ? `target ${metTarget} B: ${met.output.length} B at ${met.meta.target?.dpi} DPI after ${met.meta.target?.attempts} runs, pages ${met.meta.pageCheck}, colour kept`
+        : `${met.kind}: ${met.message}`,
+    );
+  }
+  // Not met: under the floor, so nothing fits — one run, the smallest file.
+  const missTarget = at(72) - 1024;
+  if (!(missTarget >= MIN_TARGET_BYTES)) {
+    check(
+      false,
+      "target not met",
+      `fixture: the floor (${at(72)} B) must be over ${MIN_TARGET_BYTES + 1024} B`,
+    );
+  } else {
+    const miss = await runCompression(
+      photo,
+      { profile: "deep", targetDpi: 150, targetBytes: missTarget },
+      deps.compression,
+    );
+    check(
+      miss.ok &&
+        miss.meta.target?.met === false &&
+        miss.meta.target.attempts === 1 &&
+        Math.abs(miss.output.length - at(72)) <= 512,
+      "target not met",
+      miss.ok
+        ? `target ${missTarget} B: smallest ${miss.output.length} B (floor alone ${at(72)} B) after ${miss.meta.target?.attempts} run, met ${miss.meta.target?.met}`
+        : `${miss.kind}: ${miss.message}`,
+    );
+  }
 
   // ── permissions ─────────────────────────────────────────────────────────
   const plain = await colourImagePdf({ components: 1, size: 8 });

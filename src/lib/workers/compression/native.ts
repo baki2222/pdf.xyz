@@ -229,7 +229,15 @@ export function createNativeCompressor(
         { grayscale: ctx.options.grayscale === true },
       );
       await exec(command, args, {
-        timeout: config.timeoutMs,
+        // A target ladder's rung gets what is left of the ladder's budget;
+        // never MORE than the configured ceiling, whatever it was handed.
+        timeout:
+          ctx.timeoutMs === undefined
+            ? config.timeoutMs
+            : Math.max(
+                1,
+                Math.min(config.timeoutMs, Math.floor(ctx.timeoutMs)),
+              ),
         maxBuffer: EXEC_MAX_BUFFER,
         windowsHide: true,
       });
@@ -309,6 +317,11 @@ export function nativeCompressionDeps(
   return {
     tools: probeNativeToolsFromConfig(config, seams),
     native: createNativeCompressor(config, seams),
-    limits: { maxInputBytes: config.maxInputBytes },
+    limits: {
+      maxInputBytes: config.maxInputBytes,
+      // Every rung of a target-size ladder shares the time ONE run is allowed,
+      // so a target job can never outlast an ordinary deep job.
+      targetBudgetMs: config.timeoutMs,
+    },
   };
 }

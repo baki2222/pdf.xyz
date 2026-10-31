@@ -64,3 +64,50 @@ export async function colourImagePdf({
   if (pad > 0) doc.setSubject("x".repeat(pad));
   return doc.save({ useObjectStreams: false });
 }
+
+/**
+ * A "phone scan" for the target-size proof (2026-10-31): one RGB image of
+ * true noise (an LCG, so Flate cannot shrink it and neither can anything but
+ * downsampling), drawn `inches` wide on each page at `px` pixels — so its
+ * resolution is `px / inches` DPI. Above 1.5x a rung's DPI, Ghostscript
+ * downsamples it (`-dDownsample*`, threshold 1.5), so every rung of the
+ * ladder makes a different file.
+ */
+export async function noisePhotoPdf({
+  px,
+  inches,
+  pages = 1,
+}: {
+  px: number;
+  inches: number;
+  pages?: number;
+}): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const samples = new Uint8Array(px * px * 3);
+  let seed = 0x2545f491;
+  for (let i = 0; i < samples.length; i++) {
+    seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+    samples[i] = seed >>> 24;
+  }
+  const image = doc.context.flateStream(samples, {
+    Type: "XObject",
+    Subtype: "Image",
+    Width: px,
+    Height: px,
+    BitsPerComponent: 8,
+    ColorSpace: "DeviceRGB",
+  });
+  const ref = doc.context.register(image);
+  const side = inches * 72;
+  for (let p = 0; p < pages; p++) {
+    const page = doc.addPage([side + 72, side + 72]);
+    const name: PDFName = page.node.newXObject("Im", ref);
+    page.pushOperators(
+      pushGraphicsState(),
+      concatTransformationMatrix(side, 0, 0, side, 36, 36),
+      drawObject(name),
+      popGraphicsState(),
+    );
+  }
+  return doc.save({ useObjectStreams: false });
+}

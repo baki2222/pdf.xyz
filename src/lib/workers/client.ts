@@ -33,6 +33,8 @@ export interface CompressWorkerInput {
   targetDpi?: number;
   /** Convert colour to gray (`deep` only; needs Ghostscript on the worker). */
   grayscale?: boolean;
+  /** The size the file must fit, in bytes (`deep` only); absent ⇒ no target. */
+  targetBytes?: number;
 }
 
 export interface CompressWorkerSuccess {
@@ -163,6 +165,10 @@ async function runWorkerCompressionSteps(
   // Sent only when on, so a colour run's request is byte-for-byte what it was.
   if (input.profile === "deep" && input.grayscale === true) {
     options_.grayscale = true;
+  }
+  // Likewise only when set: a run with "No target" sends what it always did.
+  if (input.profile === "deep" && input.targetBytes !== undefined) {
+    options_.targetBytes = input.targetBytes;
   }
   const jobRes = await fetchImpl("/api/jobs", {
     method: "POST",

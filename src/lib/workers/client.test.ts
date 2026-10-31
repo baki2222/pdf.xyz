@@ -205,7 +205,17 @@ describe("runWorkerCompression", () => {
     await runWorkerCompression(input, {
       fetchImpl: makeFetch(routes).fetchImpl,
     });
-    expect(bodies).toHaveLength(2);
+    // Target size (2026-10-31): sent when set, and only then (bodies[1]).
+    await runWorkerCompression(
+      { ...input, targetBytes: 200 * 1024 },
+      { fetchImpl: makeFetch(routes).fetchImpl },
+    );
+    expect(bodies).toHaveLength(3);
+    expect((bodies[2] as { options: unknown }).options).toEqual({
+      profile: "deep",
+      targetDpi: 150,
+      targetBytes: 200 * 1024,
+    });
     expect((bodies[0] as { options: unknown }).options).toEqual({
       profile: "deep",
       targetDpi: 72,

@@ -23,6 +23,54 @@ export interface CompressionResultBlock {
   pagesIn: number | null;
   /** Output page count when known; `null` on paths that do not measure it. */
   pagesOut: number | null;
+  /**
+   * What a target-size run asked for and got (2026-10-31). Present only on a
+   * job that asked for a target — its absence is how the panel tells a worker
+   * that ignored the target (an image older than the feature) from one that
+   * tried and could not reach it.
+   */
+  target?: CompressionTargetBlock;
+}
+
+/** A target-size run, as the job record carries it. Counts only. */
+export interface CompressionTargetBlock {
+  targetBytes: number;
+  /** At or under the target — re-derived from the two sizes below, never trusted. */
+  met: boolean;
+  /** Engine runs the worker made to get there. */
+  attempts: number;
+  /** Size of the artifact that shipped. */
+  outputBytes: number;
+}
+
+/** A non-negative safe integer, or `null`. */
+function count(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
+/**
+ * Re-bound a target block. `met` is RECOMPUTED from the two sizes: a block
+ * claiming the target was met by a file over it is the one lie this field
+ * exists to prevent, so the claim is not read at all. A block missing either
+ * size is dropped whole rather than guessed at.
+ */
+function buildTargetBlock(raw: unknown): CompressionTargetBlock | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const t = raw as Partial<Record<keyof CompressionTargetBlock, unknown>>;
+  const targetBytes = count(t.targetBytes);
+  const outputBytes = count(t.outputBytes);
+  const attempts = count(t.attempts);
+  if (targetBytes === null || outputBytes === null || attempts === null) {
+    return undefined;
+  }
+  return {
+    targetBytes,
+    met: outputBytes <= targetBytes,
+    attempts,
+    outputBytes,
+  };
 }
 
 const CHECKS: readonly CompressionPageCheck[] = [
@@ -71,9 +119,11 @@ export function buildCompressionResultBlock(
     claimed !== "verified" ||
     (pagesIn !== null && pagesOut !== null && pagesOut >= pagesIn);
 
+  const target = buildTargetBlock(raw.target);
   return {
     pageCheck: justified ? claimed : "unverified",
     pagesIn,
     pagesOut,
+    ...(target ? { target } : {}),
   };
 }

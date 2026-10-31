@@ -43,11 +43,21 @@ const encryptedWithP = (p: number) =>
     `%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n9 0 obj\n<< /Filter /Standard /V 5 /R 6 /P ${p} >>\nendobj\ntrailer\n<< /Root 1 0 R /Encrypt 9 0 R >>\n${"0".repeat(64)}\n%%EOF\n`,
   );
 
-/** Ghostscript, played: gray when asked, smaller colour otherwise. */
+/**
+ * Ghostscript, played: gray when asked, colour otherwise — and, since the
+ * target-size proof (2026-10-31), a file whose size follows the resolution
+ * asked for (pdf-lib writes the /Subject pad as UTF-16 hex, 4 B a character,
+ * so about 1 KB per DPI).
+ */
 const ghostscript: NativeCompressor = async (_input, ctx) =>
   ctx.options.grayscale
     ? colourImagePdf({ components: 1, size: 96, pages: 2 })
-    : colourImagePdf({ components: 3, size: 48, pages: 2 });
+    : colourImagePdf({
+        components: 3,
+        size: 48,
+        pages: 2,
+        pad: ctx.options.targetDpi * 256,
+      });
 
 function qpdf(writeP: (perms: PdfPermissions) => number): QpdfRunner {
   const outputs = new Set<Uint8Array>();
@@ -128,7 +138,37 @@ describe("runWorkerOptionsProof", () => {
     // Health: every check ran, not just the first.
     expect(
       lines.filter((l) => l.startsWith("PASS")).length,
-    ).toBeGreaterThanOrEqual(12);
+    ).toBeGreaterThanOrEqual(15);
+    // The three target-size checks ran, by name.
+    for (const name of [
+      "target ladder rungs descend",
+      "target met",
+      "target not met",
+    ]) {
+      expect(lines.some((l) => l.startsWith(`PASS ${name}:`))).toBe(true);
+    }
+  });
+
+  it("FAILS a Ghostscript that ignores the resolution (the ladder's one assumption)", async () => {
+    const flat: NativeCompressor = async (_input, ctx) =>
+      ctx.options.grayscale
+        ? colourImagePdf({ components: 1, size: 96, pages: 2 })
+        : colourImagePdf({ components: 3, size: 48, pages: 2, pad: 30_000 });
+    const lines: string[] = [];
+    expect(
+      await runWorkerOptionsProof(
+        deps({
+          compression: {
+            tools: { ghostscript: true, qpdf: false, mutool: false },
+            native: flat,
+          },
+          log: (l) => lines.push(l),
+        }),
+      ),
+    ).toBe(1);
+    expect(
+      lines.some((l) => l.startsWith("FAIL target ladder rungs descend:")),
+    ).toBe(true);
   });
 
   it("FAILS a Ghostscript that ignores grayscale", async () => {
