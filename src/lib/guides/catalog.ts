@@ -154,7 +154,7 @@ function targetPreset(bytes: number): string {
   const preset = TARGET_SIZE_PRESETS.find((p) => p.bytes === bytes);
   if (!preset) {
     throw new Error(
-      `a guide names a ${bytes}-byte target, which is not offered`,
+      `a guide names a target of ${bytes} that the panel does not offer`,
     );
   }
   return preset.label;
