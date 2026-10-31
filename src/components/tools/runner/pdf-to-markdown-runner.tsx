@@ -106,7 +106,11 @@ function PdfToMarkdownEditor({
             </button>
           </div>
         ) : (
-          <NoSelectableTextNote extra="For table-heavy documents, Extract Tables may also help when AI table extraction is enabled." />
+          // No `extra`: it once suggested Extract Tables "when AI table
+          // extraction is enabled". That tool is not AI (pdftotext word
+          // positions) and needs selectable text too, so it cannot help a
+          // PDF that reached this note (removed 2026-10-31).
+          <NoSelectableTextNote />
         )}
       </ResultPanel>
     );

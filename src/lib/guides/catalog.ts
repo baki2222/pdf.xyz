@@ -177,6 +177,23 @@ import {
   grayscalePresetById,
   grayscaleTitle,
 } from "@/lib/pdf/grayscale";
+import { annotatedOutputName } from "@/lib/pdf/annotate";
+import { DEFAULT_HIGHLIGHT } from "@/lib/pdf/editor/model";
+import { INITIAL_DEFAULTS } from "@/components/tools/runner/editor/editor-state";
+import {
+  MAX_QUESTION_CHARS,
+  chatAnswerOutputName,
+} from "@/lib/jobs/chat-with-pdf";
+import { MAX_CONTEXT_EXCHANGES } from "@/lib/workers/chat-with-pdf-conversation";
+import { tableExtractOutputName } from "@/lib/workers/processor/table-extract";
+import { LONG_CELL_WORDS } from "@/lib/workers/pdf-text/flow";
+import { MAX_SIGNIFICANT_DIGITS } from "@/lib/workers/ooxml/sheet-cells";
+import {
+  HEADING_MAX_CHARS,
+  HEADING_SIZE_RATIO,
+  PARAGRAPH_GAP_RATIO,
+  markdownOutputName,
+} from "@/lib/pdf/pdf-to-markdown";
 import type { Guide } from "./types";
 
 /**
@@ -501,6 +518,33 @@ const GRAY_PRESET_CHOICES = listOr(
 );
 const GRAY_EXAMPLE_OUT = grayscaleOutputName("report.pdf");
 const GRAY_EXAMPLE_TITLE = grayscaleTitle("Annual report", "report.pdf");
+
+/**
+ * Annotate PDF's Highlight (2026-10-31): the opacity a new highlight starts
+ * at, from the editor's own defaults, and the download name from the
+ * function its runner names the file with. The guide calls the default
+ * colour yellow, so a different default stops the build here.
+ */
+const HIGHLIGHT_OPACITY_PCT = Math.round(
+  INITIAL_DEFAULTS.highlight.opacity * 100,
+);
+if (DEFAULT_HIGHLIGHT !== "#facc15") {
+  throw new Error(
+    `the highlight guide calls the default highlight yellow; it is now ${DEFAULT_HIGHLIGHT}`,
+  );
+}
+const ANNOTATED_EXAMPLE_OUT = annotatedOutputName("report.pdf");
+
+/** Chat with PDF (2026-10-31), from its job contract and conversation module. */
+const CHAT_QUESTION_CHARS = MAX_QUESTION_CHARS.toLocaleString("en-US");
+const CHAT_EXAMPLE_ZIP = chatAnswerOutputName("lease.pdf");
+
+/** Extract Tables (2026-10-31): the worker's own names and detector bound. */
+const TABLES_EXAMPLE_ZIP = tableExtractOutputName("report.pdf", "zip");
+
+/** PDF to Markdown (2026-10-31), from the converter's own constants. */
+const MD_HEADING_PCT = Math.round((HEADING_SIZE_RATIO - 1) * 100);
+const MD_EXAMPLE_OUT = markdownOutputName("report.pdf");
 
 export const guides: Guide[] = [
   {
@@ -4702,6 +4746,348 @@ export const guides: Guide[] = [
       {
         question: "Does it work on password-protected PDFs?",
         answer: `No. Any encrypted PDF is turned away when you choose it, including one that opens without a password but restricts printing or copying, and the message says which lock it has. ${nameOf("unlock-pdf")} removes the encryption if you give it the password, but it runs on our secure server; bring the unlocked copy back here.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-highlight-text-in-a-pdf",
+    title: "How to highlight text in a PDF",
+    description:
+      "Drag a highlight over the words on a PDF page, set its colour and opacity, then flatten it into the page or keep it as a comment. It runs in your browser.",
+    tools: ["annotate-pdf", "edit-pdf", "redact-pdf"],
+    keywords: [
+      "how to highlight text in a pdf",
+      "highlight pdf",
+      "highlight text in pdf online",
+      "pdf highlighter",
+      "highlight a pdf for free",
+      "mark up a pdf",
+    ],
+    intro: [
+      `To highlight text in a PDF, open ${nameOf("annotate-pdf")}, add your PDF, and drag across the words you want to mark. Highlight is already chosen when the pages appear, and a see-through yellow bar lands where you drag. Press Apply & download when you are done, and the marked copy downloads.`,
+      "A highlight here is a rectangle you draw over the words, not a selection of the text itself, so you decide how much it covers: half a line, or a whole paragraph in one drag. If you save it as a comment rather than into the page, it is fitted to the lines of text under it, the way a PDF viewer's own highlight looks.",
+      `The PDF is drawn, marked and saved in your browser, so it stays on your device, and there is no account to create. It takes one PDF of up to ${ceilingMb("annotate-pdf")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("annotate-pdf")} tool.`,
+      "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its pages appear in a scrolling view, with Highlight already selected in the toolbar.",
+      "Drag across the words you want to mark. A single click instead drops a short bar you can stretch afterwards.",
+      `To change the colour, use Colour in the panel beside the page; Opacity starts at ${HIGHLIGHT_OPACITY_PCT}%. With nothing selected, these set the next highlight; to change one already on the page, choose Select, click it, and the panel sets that one. With Select you can also drag a highlight to move it, or drag a handle to resize it.`,
+      "Under “Highlights, drawings, notes and shapes”, beside Apply & download, keep Flatten into the page, or choose to save markups as comments instead.",
+      `Press Apply & download. The copy downloads at once, named after your file: report.pdf becomes ${ANNOTATED_EXAMPLE_OUT}. Under Annotated PDF ready, Download annotated PDF saves it again.`,
+    ],
+    sections: [
+      {
+        id: "flattened-or-comments",
+        heading: "Flattened into the page, or saved as comments",
+        body: [
+          "Flatten into the page, the choice selected to start, draws each highlight into the page itself, with its colour multiplied over the words so they stay readable. It shows in every viewer and printout, the original text stays selectable, and nothing becomes an image. The cost is that it cannot be taken out later except with an editor that changes page content, so keep the original if you may want an unmarked copy.",
+          "Saving markups as comments writes each highlight as a standard PDF highlight annotation instead. Where the box lies over lines of text, it is fitted to them: one band per line, as tall as the line and as wide as your box. Over a picture of text, such as a scanned page, it stays the box you drew. Other PDF apps list it as a comment and let you select, edit or delete it; there are no reply threads here.",
+        ],
+      },
+      {
+        id: "other-marks",
+        heading: "Notes, drawings and covers on the same page",
+        body: [
+          "Highlight sits in the toolbar's Mark up group, beside Whiteout, Redact, Draw for freehand ink, and Note for a typed note on coloured paper; the Shapes group has Rectangle, Ellipse, Line and Arrow. Anything you place can be moved, resized, restyled or deleted before you apply, and Undo and Redo step back and forward.",
+          `Whiteout only paints a white box: the words under it are still in the file, and search, copy and text extraction can find them. Redact removes what lies under its box. Both are always written into the page, even when the other markups are saved as comments, because a comment can be deleted by whoever opens the file. For a document you need to hand over with words removed, ${nameOf("redact-pdf")} also works in your browser and can search the text for what to remove.`,
+          `${nameOf("edit-pdf")} opens the same editor on Select, with the same Highlight in its toolbar, for when you also need to change the PDF's own words.`,
+        ],
+      },
+      {
+        id: "locked-and-signed-pdfs",
+        heading: "Locked, restricted and signed PDFs",
+        body: [
+          `A PDF that needs a password to open has to be unlocked first; ${nameOf("unlock-pdf")} removes the password if you know it, but it runs on our secure server rather than in your browser. A PDF that opens without a password but whose author restricted changes opens here with the author's rules in force: if the author allows comments, highlights are always saved as comments and the copy keeps the author's encryption, and if not, the mark-up tools stay locked. Typing the owner password into the page unlocks every tool for that file.`,
+          "On an ordinary PDF, the copy is written out as a new file, so an existing digital signature will no longer validate, and the file's Creator and Producer become this site's name. Its pages, text, bookmarks and form fields are otherwise kept.",
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I highlight text by selecting it, like in a PDF viewer?",
+        answer:
+          "No. You drag a see-through box over the words instead of selecting them. Flattened, it covers exactly the area you draw. Saved as a comment, it fits itself to the lines of text under the box, one band per line, the way a viewer's own text highlight looks.",
+      },
+      {
+        question: "Can I change the highlight colour?",
+        answer: `Yes. Use Colour in the panel beside the page, which opens your browser's colour picker; highlights start yellow at ${HIGHLIGHT_OPACITY_PCT}% opacity. Set it before you drag to colour the next highlight, or select one already on the page to change just that one.`,
+      },
+      {
+        question: "Can I remove a highlight after saving?",
+        answer:
+          "Saved as a comment, yes: a PDF app that edits comments can select and delete it. Flattened, only with an editor that can change page content, because the highlight is drawn into the page. Before you press Apply & download, any highlight can be selected and deleted, or undone.",
+      },
+      {
+        question: "Can I highlight a scanned PDF?",
+        answer: `Yes. A highlight is a box drawn over the page, so it works on a picture of text too. Saved as a comment, it stays the box you drew, because there are no text lines under it to fit to. To make the words searchable as well, run the scan through ${nameOf("ocr-pdf")} first, which runs on our secure server rather than in your browser.`,
+      },
+      {
+        question: "Is my PDF sent anywhere when I highlight it?",
+        answer:
+          "No. The PDF is read, marked and saved by code running in your browser tab. If you also add a note in a script beyond the Western European character set, the page fetches a Noto typeface from this site to draw it; your PDF is not sent.",
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-chat-with-a-pdf",
+    title: "How to chat with a PDF using AI",
+    description:
+      "Ask a PDF questions and get AI answers from its text, with [p.N] page citations to check and follow-up questions. Scans need OCR first. No account needed.",
+    tools: ["chat-with-pdf", "ocr-pdf", "summarize-pdf"],
+    keywords: [
+      "how to chat with a pdf",
+      "chat with pdf",
+      "ask questions about a pdf",
+      "ai pdf chat",
+      "talk to a pdf",
+      "pdf question answering",
+    ],
+    intro: [
+      `To chat with a PDF, open ${nameOf("chat-with-pdf")}, add your PDF, type a question in the Your question box, and press Ask the PDF. An AI model answers from the document's text and marks the pages it drew on as [p.N], and the box then becomes Ask a follow-up for your next question.`,
+      "Use the answers to find your way around a document, not in place of reading it. The model is told to answer only from the document's text, to use no outside knowledge, and to say plainly when the answer is not there, yet nothing checks an answer against the pages afterwards, so an answer can still be wrong. Each answer carries a reminder to check it against your PDF.",
+      `${nameOf("chat-with-pdf")} is one of the AI tools, so the work does not happen in your browser. With each question, your PDF uploads over an encrypted connection to our secure server, which extracts the selectable text and sends that text, with your question and the recent exchanges, to a third-party AI provider; the PDF file itself is never sent to the provider. The upload is deleted when the job ends, and our server's link to each answer stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("chat-with-pdf")} tool. Ask the PDF works once the status badge reads Secure server.`,
+      "Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. It needs selectable text; for a scan, run OCR PDF first.",
+      `Type your question in the Your question box, up to ${CHAT_QUESTION_CHARS} characters, in plain language: the notice period in a lease, say, or the total due on an invoice.`,
+      "Press Ask the PDF. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model answers.",
+      "Read the answer in the conversation above the box. Where it shows a [p.N] marker, open that page of your PDF and check the wording before you rely on it.",
+      `For another question, type in Ask a follow-up and press Send follow-up. Each answer has a button named after its ZIP that saves it to your device: lease.pdf gives ${CHAT_EXAMPLE_ZIP}.`,
+    ],
+    sections: [
+      {
+        id: "what-a-citation-is",
+        heading: "What a [p.N] citation is, and what it is not",
+        body: [
+          "Before the model sees the text, our server marks each page that has text with its number, and the model is told to cite the pages it uses as [p.N]. The number is the page's position in the file, counted from the first page with blank pages included, so it can differ from the number printed on the page when a document opens with a cover or roman-numbered front matter.",
+          "A citation is the model's own pointer, not a quotation checked by software. The answer.md file in each download lists the cited pages, keeping only page numbers that exist in your file, but nothing checks that a cited page says what the answer says it does. Treat [p.N] as where to look, and read that page. An answer with no citation gives you nothing to look up, so search the document for it before you rely on it.",
+        ],
+      },
+      {
+        id: "follow-up-questions",
+        heading: "Follow-up questions and long documents",
+        body: [
+          `The conversation lives in your browser tab, and every question is a job of its own: the page uploads the PDF again and sends the most recent exchanges with it, up to ${MAX_CONTEXT_EXCHANGES}. A note above the button says how many travel with the next question, and whether any were shortened or left out to stay within the request limits.`,
+          "Our server does not link one question to the next. Reloading the page, choosing another file, or pressing Remove beside the file name starts a new conversation.",
+          `Each question reads a bounded amount of text, with your question and the conversation sent with it counted first, and the exact figure is stated on the ${nameOf("chat-with-pdf")} page. Past that point the model is told not to claim the document lacks something, and a notice above the answer says how far into the document the reading got. For a long file, pull the part you need into its own PDF with ${nameOf("extract-pages")} and ask that; its [p.N] citations then count the pages of the extracted copy. Files are capped at ${ceilingMb("chat-with-pdf")} MB.`,
+        ],
+      },
+      {
+        id: "allowance-and-privacy",
+        heading: "The free allowance and where your text goes",
+        body: [
+          `Questions are free, within a daily allowance. ${aiAllowanceFactFor("chat-with-pdf")} The charge is taken when the job is submitted, so a question our server refuses or that fails still uses it.`,
+          "Our server sends the PDF's extracted text, with your question and the recent exchanges, to a third-party AI provider; the PDF file itself is never sent to the provider. The settings in our provider account that would let it use this text to improve its models are switched off, though the provider may keep what it receives for a limited time to watch for abuse. Because the same text goes again with every follow-up, the provider also holds it in a short-lived cache, measured in minutes rather than days. Section 3 of our privacy policy covers the provider's side.",
+        ],
+      },
+      {
+        id: "scanned-pdfs-need-ocr-first",
+        heading: "Scanned PDFs need OCR first",
+        body: [
+          `The tool reads only text stored in the PDF as text. Your browser checks the file for text before anything is sent, and a scan with none is stopped there with a message pointing you to ${nameOf("ocr-pdf")}; that refusal takes nothing from the allowance.`,
+          `Run the scan through ${nameOf("ocr-pdf")} with the document's language selected, then ask your questions of the searchable copy. Answers can only be as good as the recognised text.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I trust the page citations?",
+        answer:
+          "Use them as pointers, not proof. The model is told to cite the pages it used as [p.N], and the download lists only page numbers that exist in your file, but nothing checks that the page says what the answer claims. Open the cited page and read it before you rely on the answer.",
+      },
+      {
+        question: "How many questions can I ask for free?",
+        answer: aiAllowanceFactFor("chat-with-pdf"),
+      },
+      {
+        question: "Who sees the text of my PDF?",
+        answer: `A third-party AI provider receives the extracted text, your question and the recent exchanges; the PDF file never reaches it. Our server deletes each upload when its job ends, and the link to each answer stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      },
+      {
+        question: "Does it remember my conversation?",
+        answer:
+          "Only in your open browser tab. The page re-sends the recent exchanges with each follow-up, and our server keeps nothing that links one question to the next, so reloading the page or removing the file starts over.",
+      },
+      {
+        question: "Should I chat with the PDF or summarize it?",
+        answer: `Chat when you have a specific question, such as a date, a figure or a clause. For an overview of the whole document as paragraphs, bullet points or an outline, ${nameOf("summarize-pdf")} draws on the same daily allowance.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-extract-tables-from-a-pdf",
+    title: "How to extract tables from a PDF",
+    description:
+      "Pull the tables out of a text-based PDF into CSV files and one Excel workbook, a sheet per table. It runs on a secure server; scans need OCR first.",
+    tools: ["extract-tables", "pdf-to-excel", "ocr-pdf"],
+    keywords: [
+      "how to extract tables from a pdf",
+      "extract tables from pdf",
+      "pdf table to csv",
+      "pdf table to excel",
+      "copy a table from a pdf",
+      "pdf table extractor",
+    ],
+    intro: [
+      `To extract tables from a PDF, open ${nameOf("extract-tables")}, add your PDF, press Extract tables, and download the ZIP. Each table it finds comes back as its own CSV file and as its own sheet in one Excel workbook, with the titles and paragraphs around it left out.`,
+      "It finds tables by where the words sit on the page: words on one line form a row, words set a normal space apart stay in one cell, and columns come from the white space that runs down the rows. There are no settings to choose. It reads only text stored in the PDF as text, so a scanned table needs OCR first.",
+      `${nameOf("extract-tables")} runs on a secure server, not in your browser, because the word positions come from a native PDF text engine. Your PDF, up to ${ceilingMb("extract-tables")} MB, travels over an encrypted connection and is deleted when the job finishes; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("extract-tables")} tool. Extract tables works once the status badge reads Secure server.`,
+      `Drop one PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. A file over ${ceilingMb("extract-tables")} MB is refused as soon as you pick it, before anything is sent.`,
+      "Press Extract tables. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job until the ZIP is back in the page.",
+      `When the tables are ready, press Download ${TABLES_EXAMPLE_ZIP}, the button named after your file: report.pdf comes back as ${TABLES_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it right away.`,
+      "Open each sheet beside the page named on its tab, such as Table 1 (p3), and check its rows and columns before you use them.",
+    ],
+    sections: [
+      {
+        id: "what-counts-as-a-table",
+        heading: "What counts as a table",
+        body: [
+          `A block of lines is kept as a table only when at least two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words each and is not mostly bullet items, and no sentence wraps from one row into the next. Titles, captions, paragraph lines and footnotes end a table rather than joining it, so one page can give several tables.`,
+          "Two columns of prose, side-by-side bulleted lists and letterhead lines fail those tests on purpose. A table whose every column holds longer text can fail them too. If nothing in the file passes, the job ends with a message that no table-like structure was detected, and no ZIP is made.",
+        ],
+      },
+      {
+        id: "what-you-download",
+        heading: "What you download",
+        body: [
+          "The ZIP holds table-1.csv, table-2.csv and so on, one per table, plus tables.xlsx with a sheet per table named by its number and page, such as Table 1 (p3). The CSV files follow the common RFC 4180 layout with no byte-order mark, so a script can read them directly; if accented letters look wrong after a double-click, open the file through Excel's text import.",
+          `In tables.xlsx, a cell that holds exactly one number, such as ${XLSX_AMOUNTS}, is stored as a number, so a formula can add up the column. A code with leading zeros such as 00123, a number of more than ${MAX_SIGNIFICANT_DIGITS} significant digits, a European 1.250,00, a date and a negative in brackets stay text, exactly as printed.`,
+        ],
+      },
+      {
+        id: "layouts-to-check",
+        heading: "Layouts to check by hand",
+        body: [
+          "Three layouts trip the detector: two tables side by side on the same rows come out as one wide table, a cell that wraps in the first column ends its table early, and a centred one-line note directly under a table can be taken as its last row. A one-line subheading set in a table's first column also ends it, so a sectioned table can come back as several. Merged header cells are not rebuilt.",
+          "Each page is read on its own, so a table that runs over three pages comes out as at least one table per page, with any header row the PDF repeats on each page repeated in each sheet. Stack the sheets and delete the repeated headers to rebuild it.",
+        ],
+      },
+      {
+        id: "tables-or-excel",
+        heading: "Extract Tables, PDF to Excel, or OCR first",
+        body: [
+          `${nameOf("pdf-to-excel")} puts every line of the PDF's text into one sheet, each value in the column it sits in, which suits getting all of the text into a grid. ${nameOf("extract-tables")} keeps only the table-shaped blocks, each on its own sheet. Both run on our secure server.`,
+          `A scanned page has no text to read, so it produces nothing, and a file with no text on any page stops with a message pointing you to ${nameOf("ocr-pdf")}. Run it there with the page's language selected, choose a searchable PDF as the result, and bring that file back.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can it extract tables from a scanned PDF?",
+        answer: `Not directly. A scan holds a picture of its words, so there are no word positions to read. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then extract the tables from the searchable copy, and check the figures, since recognition can misread them.`,
+      },
+      {
+        question: "Why did a page with an obvious table give nothing?",
+        answer: `A block counts as a table only when two columns each hold something in two or more rows, one column holds short values of fewer than ${LONG_CELL_WORDS} words, and no sentence runs on from one row into the next. A table of long text, or one cut into single rows by one-line subheadings, can miss those tests.`,
+      },
+      {
+        question: "Will Excel see my numbers as numbers?",
+        answer: `Yes, in tables.xlsx, when a cell holds exactly one number such as ${XLSX_AMOUNTS}. Dates, codes with leading zeros, European-style 1.250,00 and negatives in brackets stay text. The CSV files are plain text, so the program that opens them decides.`,
+      },
+      {
+        question: "Is my PDF uploaded?",
+        answer: `Yes. The word positions are read by a native program a browser cannot run, so your PDF travels over an encrypted connection to our secure server, which deletes it when the job finishes. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored ZIP.`,
+      },
+      {
+        question: "Can I choose which pages to read?",
+        answer: `No. There are no options: every page is read. To work on a few pages, make a smaller PDF of them first with ${nameOf("extract-pages")}, which runs in your browser, and remember that the page numbers on the sheet tabs then count the pages of that copy.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-pdf-to-markdown",
+    title: "How to convert a PDF to Markdown",
+    description:
+      "Turn a PDF's selectable text into a Markdown .md file with a title, page headings, paragraphs and list items worked out from the page, in your browser.",
+    tools: ["pdf-to-markdown", "pdf-to-text", "ocr-pdf"],
+    keywords: [
+      "how to convert pdf to markdown",
+      "pdf to markdown",
+      "pdf to md",
+      "convert pdf to md file",
+      "pdf text to markdown",
+      "pdf to markdown for notes",
+    ],
+    intro: [
+      `To convert a PDF to Markdown, open ${nameOf("pdf-to-markdown")}, add your PDF, press Create Markdown, check the preview, and press Download MD. You get a UTF-8 .md file built from the text stored in the PDF.`,
+      "A PDF stores positioned lines, not headings, paragraphs or lists, so the structure is worked out from the size and position of each line. It is usually close, rarely perfect: read the result before you publish it or paste it into a wiki.",
+      `The Markdown is made in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("pdf-to-markdown")} MB, and there are no settings to choose.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-markdown")} tool.`,
+      "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear.",
+      "Press Create Markdown. The button reads Creating Markdown… while every page's text is read and arranged.",
+      "Under “Markdown created”, check the character and page counts and read the Markdown in the scrollable box. Select any part of it to copy just that passage.",
+      `Press Download MD. report.pdf is saved as ${MD_EXAMPLE_OUT}. Start over clears the page for another document.`,
+    ],
+    sections: [
+      {
+        id: "what-structure-you-get",
+        heading: "What structure you get",
+        body: [
+          "The file name, minus its extension, becomes the # title. In a PDF of more than one page, each page that has text gets its own ## Page heading with its page number.",
+          `Within a page, lines that wrap are joined back into sentences, and a word hyphenated at a line end is rejoined. A new paragraph starts where the gap between two lines is more than ${PARAGRAPH_GAP_RATIO} times the spacing of a paragraph's wrapped lines, where a line is indented like a first line, or where the text moves back up the page to a new column without a sentence running on across it. A page with no wrapped line gives no spacing to measure and can arrive as one paragraph.`,
+          `A short line set at least ${MD_HEADING_PCT}% larger than the body text becomes a heading, larger sizes ranking higher; one longer than ${HEADING_MAX_CHARS} characters or ending in a full stop, comma or semicolon stays ordinary text. Lines that start with -, *, +, a number, or a bullet character such as • stay list items.`,
+        ],
+      },
+      {
+        id: "what-is-left-out",
+        heading: "What is left out",
+        body: [
+          "Font weight and style are not read, so nothing comes out bold or italic. Images are dropped, and so are the web addresses behind links. A table's cells run together as plain words, without its grid.",
+          `For the tables themselves, ${nameOf("extract-tables")} detects them by where the words sit and returns CSV files and an Excel workbook, but it runs on our secure server rather than in your browser. For the text with its line breaks as they are and no Markdown added, ${nameOf("pdf-to-text")} reads the same text, also in your browser.`,
+        ],
+      },
+      {
+        id: "markdown-characters",
+        heading: "Characters that look like Markdown",
+        body: [
+          "Words are not rewritten. A paragraph that would otherwise read as Markdown syntax, such as one starting with # and a space, a rule like ---, a > quote or a | table row, gets a backslash in front so a Markdown viewer shows it as typed, and a < or & that would open an HTML tag or entity is escaped. Other asterisks, underscores and backticks pass through, so a Markdown viewer may format them.",
+        ],
+      },
+      {
+        id: "scanned-pdfs",
+        heading: "Scanned PDFs and “No selectable text found”",
+        body: [
+          "A page with no stored text, such as a scan or a phone photo, adds nothing to the Markdown. When no page has any text, the result reads “No selectable text found” and no file is made.",
+          `${nameOf("ocr-pdf")} can recognise the words and return a searchable PDF to bring back here; select every language printed on the pages. Unlike this tool, ${nameOf("ocr-pdf")} runs on our secure server rather than in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent anywhere when I convert it to Markdown?",
+        answer:
+          "No. The text is read in your browser tab and the .md file is made there too, so the PDF stays on your device from start to finish.",
+      },
+      {
+        question: "Are tables kept?",
+        answer: `Not as Markdown tables. Their cells come through as plain words. ${nameOf("extract-tables")} returns tables as CSV and Excel files instead, on our secure server.`,
+      },
+      {
+        question: "Why are my headings missing?",
+        answer: `A line becomes a heading only when it is short and set at least ${MD_HEADING_PCT}% larger than the body text. A heading in the body size, made bold instead of larger, stays ordinary text, because font weight is not read.`,
+      },
+      {
+        question: `How is this different from ${nameOf("pdf-to-text")}?`,
+        answer: `Both read the same text in your browser. ${nameOf("pdf-to-text")} writes a plain .txt file with the PDF's line breaks and no markers; ${nameOf("pdf-to-markdown")} joins lines into paragraphs, turns larger type into headings, keeps list lines apart and adds the title and page headings.`,
+      },
+      {
+        question: "Can it convert a password-protected PDF?",
+        answer: `Not one that needs a password to open: it is refused as it opens. ${nameOf("unlock-pdf")} removes that password if you know it, but it runs on our secure server. A PDF that opens without a password and only restricts copying or printing converts like any other.`,
       },
     ],
     published: "2026-10-31",
