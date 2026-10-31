@@ -29,6 +29,14 @@ import { DEFAULT_RETENTION } from "@/lib/jobs/types";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
 import { aiAllowanceFactFor } from "@/lib/jobs/ai-allowance";
 import {
+  DEFAULT_SUMMARY_FORMAT,
+  DEFAULT_SUMMARY_LENGTH,
+  MAX_SUMMARY_FOCUS_CHARS,
+  summaryOutputName,
+  type SummaryFormat,
+  type SummaryLength,
+} from "@/lib/jobs/summarize-pdf";
+import {
   EVERY_OTHER_PAGE_EXAMPLE,
   MARKDOWN_SYNTAX_FACT,
   PDF_TO_WORD_KEEPS,
@@ -395,6 +403,26 @@ const LIMIT_LOW_QUALITY_PCT = Math.round(REENCODE_LADDER.at(-1)!.quality * 100);
 const LIMIT_LOW_SCALE_PCT = Math.round(REENCODE_LADDER.at(-1)!.scale * 100);
 const LIMIT_BUDGET_S = LIMIT_TIME_BUDGET_MS / 1000;
 const PER_IMAGE_OUTPUT = IMAGE_OUTPUTS.find((o) => o.id === "per-image")!.label;
+
+/**
+ * Summarize PDF's choices, by the words its panel's selects show (a Record,
+ * so a new length or format fails the build here; the label TEXT is held to
+ * the panel by guide-ui-labels.test.ts, which reads the panel's options).
+ */
+const SUMMARY_LENGTH_LABEL: Record<SummaryLength, string> = {
+  brief: "Brief",
+  standard: "Standard",
+  detailed: "Detailed",
+};
+const SUMMARY_FORMAT_LABEL: Record<SummaryFormat, string> = {
+  paragraphs: "Paragraphs",
+  bullets: "Bullet points",
+  outline: "Section outline",
+};
+const SUMMARY_FORMAT_NAMES = listOr(Object.values(SUMMARY_FORMAT_LABEL));
+const SUMMARY_FOCUS_CHARS = MAX_SUMMARY_FOCUS_CHARS.toLocaleString("en-US");
+/** The download name the panel shows, from the function the worker uses. */
+const SUMMARY_EXAMPLE_ZIP = summaryOutputName("report.pdf");
 
 export const guides: Guide[] = [
   {
@@ -3916,6 +3944,337 @@ export const guides: Guide[] = [
       {
         question: "Is my file uploaded?",
         answer: `Yes. OCR needs a recognition engine that runs on our secure server, so your PDF is uploaded over an encrypted connection. The uploaded file is deleted when the job ends, and the result can be downloaded for ${RETENTION_WINDOWS.outputLink}.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-excel-to-pdf",
+    title: "How to convert Excel to PDF",
+    description:
+      "Turn an Excel workbook or CSV file into a PDF with LibreOffice on a secure server that deletes your file after the job. No account needed.",
+    tools: ["excel-to-pdf", "merge-pdf", "word-to-pdf"],
+    keywords: [
+      "how to convert excel to pdf",
+      "excel to pdf",
+      "xlsx to pdf",
+      "xls to pdf",
+      "csv to pdf",
+      "save spreadsheet as pdf",
+    ],
+    intro: [
+      `To convert an Excel spreadsheet to PDF, open ${nameOf("excel-to-pdf")}, add your .xlsx, .xls or .csv file, press Convert to PDF, and download the result. Anyone can open, print or file the PDF without owning Excel, and nobody can overtype a cell by accident.`,
+      "The PDF is a printout of your spreadsheet, not a working copy of it. Each formula cell shows the figure it displayed when the file was opened, and nothing in the PDF recalculates later. The pages are laid out by LibreOffice, the open-source office suite, using the page setup saved in your workbook.",
+      `${nameOf("excel-to-pdf")} runs on a secure server. Your spreadsheet, up to ${ceilingMb("excel-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("excel-to-pdf")} tool.`,
+      "Before you start, set the page layout in Excel if a wide sheet must fit: choose landscape and fit-all-columns-on-one-page scaling, then save. The tool has no layout settings of its own.",
+      "Drag your .xlsx, .xls or .csv onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Press Convert to PDF. Your spreadsheet uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
+      `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
+    ],
+    sections: [
+      {
+        id: "how-the-pages-are-laid-out",
+        heading: "How the pages are laid out",
+        body: [
+          "The converter gets your file and no settings at all. Orientation, scaling and where wide columns break onto a new page come from the page setup saved in the workbook, and LibreOffice's defaults fill in the rest. So if columns spill onto extra pages or the text comes out tiny, fix it in your spreadsheet app: set landscape and fit-to-width scaling, save, and convert again.",
+          "A CSV file is plain text and cannot store any page setup, so it always gets the default layout and plain formatting. If a CSV export needs to fit the page, open it in your spreadsheet app, set the layout, save it as .xlsx and convert that copy.",
+        ],
+      },
+      {
+        id: "what-carries-over",
+        heading: "Formulas, sheets and macros",
+        body: [
+          "Formulas do not come across as formulas. Each cell is printed as the result it shows, which suits a month-end report or an audit folder: later edits to the workbook never change the PDF.",
+          "There is no sheet picker, so the whole workbook goes to the converter. To send just one sheet, copy it into a new workbook and convert that. A macro-enabled .xlsm is refused as soon as you add it, before anything uploads; save a copy as .xlsx first.",
+          `${nameOf("excel-to-pdf")} converts one spreadsheet per job. To hand over several as a single file, convert each one, then combine the PDFs with ${nameOf("merge-pdf")}. For Word documents, ${nameOf("word-to-pdf")} works the same way.`,
+        ],
+      },
+      {
+        id: "where-your-file-goes",
+        heading: "Where your spreadsheet goes",
+        body: [
+          `The conversion does not happen on your computer. Your spreadsheet travels over an encrypted connection to our secure server, is kept only for its job, and is deleted when that job ends, whether it worked or not. The finished PDF's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
+          `The page fetches the PDF as soon as it is ready, so the Download button saves the copy already in your tab. Files over ${ceilingMb("excel-to-pdf")} MB are refused when you add them, before anything is uploaded.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Can I choose which sheets go into the PDF?",
+        answer:
+          "Not on this page: there is no sheet picker, and the whole workbook goes to the converter. Copy the sheet you want into a new workbook and convert that.",
+      },
+      {
+        question: "Why are my columns split across pages?",
+        answer:
+          "Because the converter follows the workbook's own page setup and has no layout options. In Excel or LibreOffice Calc, set landscape and fit-all-columns-on-one-page scaling, save, and convert again. A CSV stores no page setup, so save it as .xlsx first.",
+      },
+      {
+        question: "Which files can I convert?",
+        answer: `Excel workbooks in .xlsx or the older .xls format, and CSV files, one per conversion, up to ${ceilingMb("excel-to-pdf")} MB. A macro-enabled .xlsm is refused; save a copy as .xlsx and convert that.`,
+      },
+      {
+        question: "Can I convert a password-protected workbook?",
+        answer:
+          "No. The page has no password field, so a workbook that asks for a password to open cannot be converted. Remove the password in your spreadsheet app, save a copy, and convert the copy.",
+      },
+      {
+        question: "Is my spreadsheet uploaded?",
+        answer: `Yes. It travels over an encrypted connection to our secure server, which deletes it when the conversion job ends. The PDF's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-powerpoint-to-pdf",
+    title: "How to convert PowerPoint to PDF",
+    description:
+      "Turn a .pptx or .ppt deck into a PDF with one slide per page, made by LibreOffice on a secure server that deletes your file after the job.",
+    tools: ["powerpoint-to-pdf", "merge-pdf", "word-to-pdf"],
+    keywords: [
+      "how to convert powerpoint to pdf",
+      "powerpoint to pdf",
+      "pptx to pdf",
+      "ppt to pdf",
+      "save slides as pdf",
+      "convert presentation to pdf",
+    ],
+    intro: [
+      `To convert a PowerPoint presentation to PDF, open ${nameOf("powerpoint-to-pdf")}, add your .pptx or .ppt file, press Convert to PDF, and download the result. You get one slide per page, and anyone can open it without PowerPoint.`,
+      "Each page keeps the slide's shape, so a widescreen deck is not squeezed onto a paper size. Text typed into text boxes stays text you can search and copy; words inside a picture stay part of the picture.",
+      `${nameOf("powerpoint-to-pdf")} runs on a secure server. Your deck, up to ${ceilingMb("powerpoint-to-pdf")} MB, travels over an encrypted connection and is deleted when the job ends; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("powerpoint-to-pdf")} tool.`,
+      "In PowerPoint, unhide any slide you want in the PDF and save. Hidden slides and speaker notes are left out.",
+      "Drag your .pptx or .ppt onto the box that says “Add your document, or browse”, or click it to choose the file. Remove swaps it for another.",
+      "Press Convert to PDF. The deck uploads over an encrypted connection, and the button follows the job while LibreOffice converts it.",
+      `When “Your PDF is ready.” appears, press Download. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save the PDF before you close the tab.`,
+      "Skim the pages before you send them: a missing font or an elaborate effect can come out slightly different.",
+    ],
+    sections: [
+      {
+        id: "what-the-pdf-looks-like",
+        heading: "What the PDF looks like",
+        body: [
+          "The slides are drawn by LibreOffice, the open-source office suite, not by Microsoft PowerPoint, using its standard PDF settings. The result is usually close to what you see in PowerPoint, but not pixel for pixel: a font our server lacks is swapped for a stand-in, which can move a line break or overflow a text box, and complex effects or some SmartArt may be drawn differently.",
+          "Animations do not carry over, so bullet points that appeared one click at a time all show together. Speaker notes and slides marked hidden are not exported, and the page has no option to add them.",
+        ],
+      },
+      {
+        id: "several-decks-and-other-formats",
+        heading: "Several decks, and other presentation apps",
+        body: [
+          `The tool converts one presentation per job. For a workshop handout, convert each deck in turn, then combine the PDFs with ${nameOf("merge-pdf")}. Word documents go through ${nameOf("word-to-pdf")} the same way.`,
+          "Only PowerPoint files are accepted; any other type is refused before anything is uploaded. From Google Slides, download the deck as a Microsoft PowerPoint file first. From Keynote, export it to PowerPoint, then convert that file here.",
+        ],
+      },
+      {
+        id: "where-your-deck-goes",
+        heading: "Where your deck goes",
+        body: [
+          `Your presentation travels over an encrypted connection to our secure server and is deleted when the job finishes, whether it worked or not. The finished PDF's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
+          `A deck over ${ceilingMb("powerpoint-to-pdf")} MB is refused as soon as you pick it, before anything is uploaded. Decks that big usually carry large photos or video; PowerPoint's Compress Pictures command can shrink them before you try again.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Are speaker notes included?",
+        answer:
+          "No. The PDF has the slides only, one per page, and the page has no option to add notes. Hidden slides are left out too, so unhide any you want before converting.",
+      },
+      {
+        question: "Why do some slides look different in the PDF?",
+        answer:
+          "LibreOffice, not PowerPoint, draws the slides. A font our server does not have is replaced by a substitute, which can move line breaks, and some effects and SmartArt may be drawn differently. Check the pages before you send them.",
+      },
+      {
+        question: "Can I convert a password-protected presentation?",
+        answer:
+          "No. The page has no password field, so a deck that needs a password to open cannot be converted. Remove the password in PowerPoint, save an unprotected copy, and convert that.",
+      },
+      {
+        question: "How big can the presentation be?",
+        answer: `Up to ${ceilingMb("powerpoint-to-pdf")} MB, one deck per conversion. A bigger file is refused when you pick it, before it is uploaded.`,
+      },
+      {
+        question: "Is my presentation uploaded?",
+        answer: `Yes. It travels over an encrypted connection to our secure server, which deletes it when the job finishes. The PDF's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-extract-pages-from-a-pdf",
+    title: "How to extract pages from a PDF",
+    description:
+      "Save just the pages you need as a new PDF by clicking thumbnails or typing a range, right in your browser, so the file never leaves your device.",
+    tools: ["extract-pages", "split-pdf", "remove-pages"],
+    keywords: [
+      "how to extract pages from a pdf",
+      "extract pages from pdf",
+      "save pages of a pdf as a new file",
+      "pull pages out of a pdf",
+      "select pages from pdf",
+    ],
+    intro: [
+      `To extract pages from a PDF, open ${nameOf("extract-pages")}, pick your file, select the pages you want, and download them as a new PDF. Every page appears as a thumbnail, so you can see exactly what you are keeping.`,
+      `The work happens in your browser: the PDF stays on your device from start to finish, and there is no account to create. Your original is never changed, and the new file is named after it with -extracted added. Files up to ${ceilingMb("extract-pages")} MB are accepted.`,
+      `This guide covers the ways to select pages, what the new file keeps, and when ${nameOf("split-pdf")} or ${nameOf("remove-pages")} is the better fit.`,
+    ],
+    steps: [
+      `Open the ${nameOf("extract-pages")} tool.`,
+      "Pick the PDF, or drop it on the dashed area. It stays on your device, and a grid of page thumbnails fills in.",
+      "Click each page you want to keep. Hold Shift and click to select a whole run of pages at once.",
+      "Or type the pages as a list, such as 1-3, 5, and press Select.",
+      "Press the button under the pages to build the new file on your device. It counts your selection, so it reads Extract 4 pages when four are chosen.",
+      "Press Download PDF to save the new file, or Start over to load another document.",
+    ],
+    sections: [
+      {
+        id: "selecting-pages",
+        heading: "Ways to select pages",
+        body: [
+          "Clicking a thumbnail selects that page, and clicking it again deselects it. Holding Shift while you click selects every page between the one you touched last and this one.",
+          `In a long document, typing is faster. Enter single pages and ranges separated by commas, such as 1-3, 5, and press Select. A range can be left open: 8- runs from page eight to the end. To keep every other page, list them: ${EVERY_OTHER_PAGE_EXAMPLE}. Typing a list replaces the current selection, and you can fine-tune it by clicking thumbnails afterwards.`,
+          "Select all, Clear and Invert change the whole selection at once. Invert is handy when it is easier to click the few pages you do not want: select those, press Invert, and extract the rest.",
+        ],
+      },
+      {
+        id: "what-the-new-file-keeps",
+        heading: "What the new file keeps",
+        body: [
+          pageToolKeeps("subset"),
+          "The new PDF always follows the original page order, so picking page 9 before page 2 still gives you 2, then 9. Pages are copied as they are rather than redrawn, so text stays selectable and images are not recompressed.",
+          "A link from a kept page to a page you left out is switched off, so the skipped page is not copied as a page. Two things can still come along. When a file's pages share one list of resources, as some programs write them, an image drawn only on a left-out page can still sit inside the new file, unseen; if it must not travel, black it out with Redact PDF first. And text you can see is copied as it is, so a contents page still lists sections you did not keep.",
+        ],
+      },
+      {
+        id: "related-tools",
+        heading: "When another tool fits better",
+        body: [
+          `${nameOf("extract-pages")} always makes one combined file. To cut a document into several files, such as one per chapter or one per page, use ${nameOf("split-pdf")}; more than one piece downloads as a ZIP.`,
+          `If it is quicker to name the pages to throw away, ${nameOf("remove-pages")} is the mirror image: select the pages to remove and download what is left. Both run in your browser as well.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent to a server when I extract pages?",
+        answer:
+          "No. Extract Pages runs entirely in your browser, and the file stays on your device from start to finish.",
+      },
+      {
+        question: "Can I put the extracted pages in a different order?",
+        answer:
+          "Not in this tool: the new PDF follows the original order whatever order you click in. Use Organize Pages afterwards if you need to rearrange them.",
+      },
+      {
+        question: "Does the new PDF keep bookmarks and form fields?",
+        answer: pageToolKeepsAnswer("subset"),
+      },
+      {
+        question: "How do I save each page as its own PDF?",
+        answer: `Use ${nameOf("split-pdf")} instead. ${nameOf("extract-pages")} always produces one file; Split PDF can make one file per page and gives you the pieces as a ZIP.`,
+      },
+      {
+        question: "Why won't my PDF open?",
+        answer: `The message on screen names the cause. A file over ${ceilingMb("extract-pages")} MB is too large. An encrypted PDF has to be unlocked first, even one that only restricts printing or copying; if you know the password, Unlock PDF makes a decrypted copy you can bring back here. Unlike this tool, Unlock PDF runs on our secure server rather than in your browser.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-summarize-a-pdf",
+    title: "How to summarize a PDF with AI",
+    description:
+      "Get an AI summary of a PDF as paragraphs, bullet points or an outline, brief to detailed, with an optional focus. No account needed.",
+    tools: ["summarize-pdf", "ocr-pdf", "translate-pdf"],
+    keywords: [
+      "how to summarize a pdf",
+      "summarize pdf",
+      "ai pdf summarizer",
+      "pdf summary",
+      "summarize a pdf online",
+      "tl;dr of a pdf",
+    ],
+    intro: [
+      `To summarize a PDF, open ${nameOf("summarize-pdf")}, add your file, choose a length and a format, and press Summarize PDF. An AI model writes a summary of the document's text, and you download it as a ZIP with Markdown and plain-text copies.`,
+      "Use the summary to decide what to read, not in place of reading. The model is told to work only from the document's text and to add no facts, yet a summary can still leave a point out or get one wrong, so check anything you plan to act on against the original pages.",
+      `${nameOf("summarize-pdf")} is one of the AI tools, so the work does not happen in your browser. Your PDF uploads over an encrypted connection to our secure server, which extracts the selectable text and sends that text, not the file, to a third-party AI provider. Your PDF is deleted when the job ends, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("summarize-pdf")} tool.`,
+      "Drop your PDF on the box that says “Add your PDF, or browse”, or click it to choose the file. It takes one PDF with selectable text; for a scan, run OCR PDF first.",
+      `Pick a length under Summary length (${listOr(Object.values(SUMMARY_LENGTH_LABEL))}) and a shape under Format (${SUMMARY_FORMAT_NAMES}). The page starts on ${SUMMARY_LENGTH_LABEL[DEFAULT_SUMMARY_LENGTH]} and ${SUMMARY_FORMAT_LABEL[DEFAULT_SUMMARY_FORMAT]}.`,
+      `Optionally, type up to ${SUMMARY_FOCUS_CHARS} characters in Focus (optional), such as “deadlines and costs”, to say what the summary should pay attention to.`,
+      "Press Summarize PDF. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while the model writes.",
+      `Download the ZIP; report.pdf comes back as ${SUMMARY_EXAMPLE_ZIP}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it to your device.`,
+    ],
+    sections: [
+      {
+        id: "choosing-length-and-format",
+        heading: "Choosing a length, a format and a focus",
+        body: [
+          "Brief asks for a short TL;DR followed by the key points, which suits a report you need to grasp before a meeting. Standard covers the main points, and Detailed works through every major section.",
+          `The format sets the shape: ${SUMMARY_FORMAT_NAMES}. A section outline under headings is useful for comparing several papers side by side. The focus line asks the model to pay special attention to what you name, such as payment terms or risks; leave it empty for a general summary.`,
+          `The model is told to write in the document's own language, so a Spanish report should come back summarized in Spanish. There is no setting for a different summary language; for the full text in another language, use ${nameOf("translate-pdf")}.`,
+        ],
+      },
+      {
+        id: "what-you-get-back",
+        heading: "What you get back",
+        body: [
+          "The download is a ZIP holding summary.md, summary.txt, manifest.json and README.txt. The Markdown and plain-text files hold the same summary; the manifest and README record which provider and model wrote it and the options you chose.",
+          `The model reads a bounded amount of the document's text, and the exact figure is stated on the Summarize PDF page itself. A longer document is summarized from its first page up to that point, and both the results panel and summary.md say how far the reading got, by page. Files themselves are capped at ${ceilingMb("summarize-pdf")} MB.`,
+        ],
+      },
+      {
+        id: "allowance-and-privacy",
+        heading: "The free allowance and where your text goes",
+        body: [
+          `Summaries are free, within a daily allowance. ${aiAllowanceFactFor("summarize-pdf")} The charge is taken when the job is submitted, so a job our server refuses or that fails still uses it.`,
+          "Our server sends the PDF's extracted text, with your length, format and focus, to a third-party AI provider; the PDF file itself is never sent to the provider. The settings in our provider account that would let it use this text to improve its models are switched off, though the provider may keep what it receives for a limited time to watch for abuse. Section 3 of our privacy policy covers the provider's side.",
+        ],
+      },
+      {
+        id: "scanned-pdfs-need-ocr-first",
+        heading: "Scanned PDFs need OCR first",
+        body: [
+          `The tool reads only text stored in the PDF as text. A scan is a picture of text, so a PDF with no text layer is turned away with a message pointing you to ${nameOf("ocr-pdf")}. Your browser checks for text before the upload starts, so that refusal takes nothing from the allowance.`,
+          `Run the scan through ${nameOf("ocr-pdf")} with the document's language selected, then bring the result back to ${nameOf("summarize-pdf")}.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is the AI summary accurate?",
+        answer:
+          "Treat it as a reading aid. The model is told to use only the document's text and add no facts, figures or names, but a summary can still leave out a point or state it wrongly. Check anything you plan to rely on against the original pages.",
+      },
+      {
+        question: "How many PDFs can I summarize for free?",
+        answer: aiAllowanceFactFor("summarize-pdf"),
+      },
+      {
+        question: "Who sees the text of my PDF?",
+        answer: `A third-party AI provider receives the extracted text and your options; the PDF file never reaches it. Our server deletes your PDF when the job ends, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+      },
+      {
+        question: "How long a PDF can it summarize?",
+        answer: `Files up to ${ceilingMb("summarize-pdf")} MB can be added, and the model reads a bounded amount of their text, stated on the Summarize PDF page. Past that, the summary covers the opening pages, and the result says how far the reading got.`,
+      },
+      {
+        question: "Can it summarize a scanned PDF?",
+        answer: `Not directly. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then summarize the result. A PDF with no text is refused before it uploads, so it costs nothing from the allowance.`,
       },
     ],
     published: "2026-10-31",
