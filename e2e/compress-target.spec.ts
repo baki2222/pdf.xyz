@@ -33,7 +33,8 @@ async function pdfOfAbout(kb: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.addPage([200, 200]);
   doc.setSubject("x".repeat((kb * KB) / 4));
-  return doc.save();
+  // Without object streams: inside one, the pad is Flate-compressed to nothing.
+  return doc.save({ useObjectStreams: false });
 }
 
 const json = (route: Route, body: unknown) =>
@@ -152,9 +153,12 @@ test("200 KB: the job asks for it, and the result says it is under, from the dow
   await preset.click();
   await expect(preset).toHaveAttribute("aria-pressed", "true");
   await run.click();
-  await expect(
-    page.getByText(/^Now 15\d\.\d KB — under your 200 KB target\.$/),
-  ).toBeVisible({ timeout: 20_000 });
+  const line = page.locator("[data-target-met]");
+  await expect(line).toHaveText(
+    /^Now 15\d\.\d KB — under your 200 KB target\.$/,
+    { timeout: 20_000 },
+  );
+  await expect(line).toHaveAttribute("data-target-met", "true");
   await expect(
     page.getByRole("button", { name: /download compressed pdf/i }),
   ).toBeVisible();
@@ -171,10 +175,12 @@ test("a worker that ignored the target is not reported as 'the smallest we could
   const run = await openWith(page, await pdfOfAbout(320));
   await page.getByRole("button", { name: "200 KB", exact: true }).click();
   await run.click();
-  await expect(page.getByText(/did not apply your 200 KB target/)).toBeVisible({
+  // The result's own line (the card also announces it to a screen reader).
+  const line = page.locator("[data-target-met]");
+  await expect(line).toHaveText(/did not apply your 200 KB target/, {
     timeout: 20_000,
   });
-  await expect(page.getByText(/smallest we could make/)).toHaveCount(0);
+  await expect(line).not.toHaveText(/smallest we could make/);
   expect(sent[0]?.targetBytes).toBe(200 * KB);
 });
 
@@ -191,6 +197,7 @@ test("No target is the default and sends what a run always sent", async ({
   await expect(
     page.getByRole("button", { name: /download compressed pdf/i }),
   ).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/your 200 KB target/)).toHaveCount(0);
+  // No target line on the result (the FAQ's quoted example is not one).
+  await expect(page.locator("[data-target-met]")).toHaveCount(0);
   expect(sent).toEqual([{ profile: "deep", targetDpi: 150 }]);
 });
