@@ -17,7 +17,7 @@ import { AvailabilityGlyph } from "@/components/status/status-ui";
 export const metadata: Metadata = buildMetadata({
   title: "System status",
   description:
-    "What pdf.xyz can do right now: which tools run entirely in your browser (and never upload files) versus whether an optional secure worker is enabled in this environment.",
+    "What pdf.xyz can do right now: which tools run entirely in your browser and never upload files, and whether the optional secure worker is enabled.",
   path: "/status",
 });
 

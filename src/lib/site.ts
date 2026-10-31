@@ -11,7 +11,7 @@ export const siteConfig = {
   shortName: "pdf.xyz",
   tagline: "Every PDF tool. Private by design.",
   description:
-    "pdf.xyz is a modern, fast, privacy-first PDF platform. Merge, split, compress, convert, edit, sign, and use AI on your documents — most tools run entirely in your browser.",
+    "Merge, split, compress, convert, edit and sign PDFs, plus AI tools. Fast and privacy-first — most tools run entirely in your browser.",
   // Canonical production URL. Used as metadataBase for absolute OG/canonical URLs.
   url: "https://pdf.xyz",
   // Generated at build time by src/app/opengraph-image.tsx.

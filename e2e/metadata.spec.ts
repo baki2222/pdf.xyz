@@ -79,6 +79,46 @@ function titlesIn(html: string): string[] {
   );
 }
 
+/**
+ * What a results page shows before it truncates: about 600 px of title and
+ * about 920 px of description, which in Google's fonts is roughly 60–65 and
+ * 155–165 characters. The ceilings sit at the top of those ranges, so every
+ * page the sitemap publishes keeps its whole title and its last clause.
+ */
+const TITLE_MAX = 65;
+const DESCRIPTION_MAX = 165;
+
+/** The characters a reader sees, not the entity-escaped bytes. */
+function decoded(text: string): string {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCodePoint(parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/** One sentence per served string a results page would cut short. */
+function serpOverruns(
+  path: string,
+  title: string,
+  description: string,
+): string[] {
+  const out: string[] = [];
+  const t = decoded(title);
+  const d = decoded(description);
+  if (t.length > TITLE_MAX)
+    out.push(`${path}: title is ${t.length} chars (max ${TITLE_MAX}): ${t}`);
+  if (d.length > DESCRIPTION_MAX)
+    out.push(
+      `${path}: description is ${d.length} chars (max ${DESCRIPTION_MAX})`,
+    );
+  return out;
+}
+
 test.describe("served document metadata", () => {
   for (const route of ROUTES) {
     test(`${route.path} serves exactly one title, and it is the page's own`, async ({
@@ -102,6 +142,53 @@ test.describe("served document metadata", () => {
       );
     });
   }
+
+  test("every sitemap page serves a title and description a results page shows whole", async ({
+    request,
+  }) => {
+    // The per-collection ceilings (tool seoTitle 50 + the 10-character
+    // " — pdf.xyz" suffix, guide description 165) were checked on what each
+    // author typed; the home, /privacy and /status descriptions had no
+    // ceiling at all and served 171, 241 and 169 characters. Measure what a
+    // results page receives instead: the served bytes of every URL the
+    // sitemap publishes, so a page added tomorrow is in the set.
+    const sitemap = await (await request.get("/sitemap.xml")).text();
+    const paths = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map(
+      (m) => new URL(m[1]!).pathname,
+    );
+    // Health check: a sitemap the regex half-read would pass vacuously.
+    expect(paths.length, "the sitemap is implausibly small").toBeGreaterThan(
+      100,
+    );
+
+    const tooLong: string[] = [];
+    for (const path of paths) {
+      const res = await request.get(path);
+      expect(res.status(), path).toBe(200);
+      const html = await res.text();
+      const title = titlesIn(html)[0];
+      const description = html.match(
+        /<meta name="description" content="([^"]*)"/,
+      )?.[1];
+      expect(title, `${path}: no <title> served`).toBeTruthy();
+      expect(description, `${path}: no description served`).toBeTruthy();
+      tooLong.push(...serpOverruns(path, title!, description!));
+    }
+    expect(tooLong, tooLong.join("\n")).toEqual([]);
+  });
+
+  test("the length predicate reports an overrun, decoded", () => {
+    // Positive control: a predicate that measured nothing would agree with
+    // every page. Entities count as the one character a reader sees.
+    expect(serpOverruns("/x", "a".repeat(TITLE_MAX), "b")).toEqual([]);
+    expect(serpOverruns("/x", "a".repeat(TITLE_MAX + 1), "b")).toHaveLength(1);
+    expect(serpOverruns("/x", "t", "&amp;".repeat(DESCRIPTION_MAX))).toEqual(
+      [],
+    );
+    expect(
+      serpOverruns("/x", "t", "&amp;".repeat(DESCRIPTION_MAX + 1)),
+    ).toHaveLength(1);
+  });
 
   test("no route serves the brand title ahead of a page title", async ({
     request,

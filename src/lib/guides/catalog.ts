@@ -2773,7 +2773,7 @@ export const guides: Guide[] = [
   },
   {
     slug: "how-to-ocr-a-pdf-in-other-languages",
-    title: `How to OCR a PDF in ${OCR_EXAMPLES.slice(0, 3).map(describeOcrLanguage).join(", ")} and other languages`,
+    title: `How to OCR a PDF in ${OCR_EXAMPLES.slice(0, 3).map(describeOcrLanguage).join(", ")} and more`,
     description: `OCR a scanned PDF in any of ${OCR_LANGUAGES.length} languages, including ${OCR_EXAMPLE_NAMES}, up to ${MAX_OCR_LANGUAGES} per job. Get a searchable PDF, text, or a Word file.`,
     tools: ["ocr-pdf", "pdf-to-word"],
     keywords: [
@@ -2847,7 +2847,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-10-31",
   },
   {
     slug: "how-to-convert-a-webpage-to-pdf",
