@@ -32,6 +32,19 @@ const KEY_FILE = /^([0-9a-f]{32})\.txt$/;
 /** IndexNow's per-request ceiling. */
 const MAX_URLS = 10_000;
 
+/**
+ * The sitemap as the ORIGIN serves it now. Cloudflare holds `/sitemap.xml`
+ * for up to a day (`s-maxage=86400`, plus a week stale-while-revalidate —
+ * deliberate, see src/deploy/cdn-cache-rules.test.ts), so a plain GET right
+ * after a deploy returns the PREVIOUS build's list: measured 2026-10-31, 110
+ * URLs at the edge (`Age: 7617`, HIT) against 114 at the origin. Diffing that
+ * against the pre-deploy snapshot would submit nothing, every run, green.
+ * A query string is part of the edge's cache key, so a unique one is a miss.
+ */
+export function freshSitemapUrl(base, tag = String(Date.now())) {
+  return `${base}/sitemap.xml?indexnow=${encodeURIComponent(tag)}`;
+}
+
 /** The one key `publicDir` serves, or a thrown reason there is not exactly one. */
 export function findIndexNowKey(publicDir) {
   const keys = readdirSync(publicDir).flatMap((name) => {
@@ -96,8 +109,9 @@ async function main(argv) {
   // Run from the repository root (publish.yml runs it from the checkout).
   const key = findIndexNowKey(path.resolve("public"));
 
-  const res = await fetch(`${base}/sitemap.xml`);
-  if (!res.ok) throw new Error(`GET ${base}/sitemap.xml → ${res.status}`);
+  const sitemapUrl = freshSitemapUrl(base);
+  const res = await fetch(sitemapUrl);
+  if (!res.ok) throw new Error(`GET ${sitemapUrl} → ${res.status}`);
   const live = await res.text();
   const urls = all
     ? [...sitemapEntries(live).keys()]

@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import {
   changedUrls,
   findIndexNowKey,
+  freshSitemapUrl,
   indexNowPayload,
   sitemapEntries,
 } from "../../scripts/indexnow-submit.mjs";
@@ -90,6 +91,18 @@ describe("which URLs are submitted", () => {
     expect(changedUrls(before, before)).toEqual([]);
   });
 
+  it("reads the sitemap past the edge cache: a unique query string each time", () => {
+    // The edge held /sitemap.xml at 110 URLs while the origin served 114
+    // (2026-10-31). A cache key without a query is the edge's copy.
+    const a = freshSitemapUrl("https://pdf.xyz", "1");
+    const b = freshSitemapUrl("https://pdf.xyz", "2");
+    expect(a).toMatch(/^https:\/\/pdf\.xyz\/sitemap\.xml\?./);
+    expect(a).not.toBe(b);
+    expect(freshSitemapUrl("https://pdf.xyz")).not.toBe(
+      "https://pdf.xyz/sitemap.xml",
+    );
+  });
+
   it("reads every entry, with or without a lastmod", () => {
     expect([...sitemapEntries(before)]).toEqual([
       ["https://pdf.xyz/", ""],
@@ -143,8 +156,10 @@ describe("publish.yml wiring", () => {
       "publish.yml parsed to implausibly few steps",
     ).toBeGreaterThan(8);
 
+    // The snapshot must miss the edge cache too (a query string), or it is
+    // whatever Cloudflare held — possibly the very copy the submit reads.
     const snapshot = index((b) =>
-      /curl[^\n]*\/sitemap\.xml[^\n]*-o \/tmp\/sitemap-before\.xml/.test(b),
+      /curl[^\n]*\/sitemap\.xml\?[^\n]*-o \/tmp\/sitemap-before\.xml/.test(b),
     );
     const deploy = index((b) => /COOLIFY_TOKEN/.test(b));
     const submit = index((b) =>

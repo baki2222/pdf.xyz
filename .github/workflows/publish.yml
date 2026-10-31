@@ -63,10 +63,12 @@ jobs:
       # src/deploy/ci-workflow.test.ts requires this before any loaded build.
       # IndexNow (scripts/indexnow-submit.mjs) is told which URLs are NEW or
       # CHANGED, so it needs the sitemap as production served it BEFORE this
-      # run deploys anything. Read here, ahead of every build and the deploy.
+      # run deploys anything. Read here, ahead of every build and the deploy,
+      # past the edge cache (a unique query string), or the snapshot is
+      # whatever Cloudflare held — up to a day old.
       - name: Snapshot the live sitemap before deploying
         if: github.ref == 'refs/heads/main'
-        run: curl -fsS https://pdf.xyz/sitemap.xml -o /tmp/sitemap-before.xml
+        run: curl -fsS "https://pdf.xyz/sitemap.xml?indexnow=before-${GITHUB_RUN_ID}" -o /tmp/sitemap-before.xml
 
       - name: Free runner disk for two loaded images
         run: |
