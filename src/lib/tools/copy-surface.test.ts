@@ -90,6 +90,8 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/crop-disclosure.ts",
       // Added 2026-10-24: Compress PDF's Grayscale sentence, in its own leaf.
       "src/lib/pdf/compress-grayscale.ts",
+      // Added 2026-10-31: Compress PDF's Target size labels, hint and outcome.
+      "src/lib/pdf/compress-target.ts",
       "src/lib/pdf/offered-kinds.ts",
       "src/lib/pdf/overlay.ts",
       // Added 2026-10-30: the four new in-browser tools' phrase modules.

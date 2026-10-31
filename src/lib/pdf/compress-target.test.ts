@@ -5,19 +5,55 @@
 import { describe, expect, it } from "vitest";
 import {
   KB,
+  MIN_TARGET_BYTES,
+  chosenTargetBytes,
+  maxTargetKb,
   TARGET_SIZE_PRESETS,
   targetLabel,
   targetOutcome,
 } from "./compress-target";
 
 describe("targetLabel", () => {
-  it("names each preset by its own label", () => {
-    for (const p of TARGET_SIZE_PRESETS)
-      expect(targetLabel(p.bytes)).toBe(p.label);
+  it("the presets are the sizes portals ask for, labelled as the panel shows them", () => {
+    // Labels are derived from the bytes (`targetLabel`), so this pins both:
+    // a preset whose bytes drifted would be relabelled, and fail here.
+    expect(TARGET_SIZE_PRESETS.map((p) => p.label)).toEqual([
+      "100 KB",
+      "200 KB",
+      "500 KB",
+      "1 MB",
+    ]);
+    expect(TARGET_SIZE_PRESETS.map((p) => p.bytes)).toEqual([
+      100 * KB,
+      200 * KB,
+      500 * KB,
+      1024 * KB,
+    ]);
   });
   it("names a custom KB value in KB", () => {
     expect(targetLabel(150 * KB)).toBe("150 KB");
     expect(targetLabel(2048 * KB)).toBe("2 MB");
+  });
+});
+
+describe("chosenTargetBytes", () => {
+  const file = 600 * KB;
+  it("no target sends nothing", () => {
+    expect(chosenTargetBytes("none", "", file)).toBe(undefined);
+  });
+  it("a preset under the file is its bytes; one at or over it is invalid", () => {
+    expect(chosenTargetBytes(200 * KB, "", file)).toBe(200 * KB);
+    expect(chosenTargetBytes(1024 * KB, "", file)).toBe("invalid");
+  });
+  it("a custom value is whole KB, from the floor to just under the file", () => {
+    expect(chosenTargetBytes("custom", "150", file)).toBe(150 * KB);
+    expect(chosenTargetBytes("custom", " 20 ", file)).toBe(MIN_TARGET_BYTES);
+    expect(chosenTargetBytes("custom", String(maxTargetKb(file)), file)).toBe(
+      599 * KB,
+    );
+    for (const bad of ["", "19", "600", "12.5", "-5", "1e3", "abc"]) {
+      expect(chosenTargetBytes("custom", bad, file), bad).toBe("invalid");
+    }
   });
 });
 
