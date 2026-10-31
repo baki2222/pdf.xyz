@@ -160,7 +160,7 @@ const content: ToolContent = {
     },
   ],
 
-  relatedGuides: ["how-to-compress-a-pdf"],
+  relatedGuides: ["how-to-compress-a-pdf", "how-to-compress-a-pdf-to-100-kb"],
 };
 
 export default content;
