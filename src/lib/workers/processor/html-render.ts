@@ -165,7 +165,12 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
         const inputError = requireSingleHtmlInput(input);
         if (inputError) return inputError;
         const file = input.inputs[0]!;
-        const run = await runHtmlToPdf(file.bytes, deps, layout.value);
+        const run = await runHtmlToPdf(
+          file.bytes,
+          deps,
+          layout.value,
+          input.signal,
+        );
         if (!run.ok) return processorFail(jobError(run));
         return processorOk(
           [
@@ -188,7 +193,12 @@ export function createHtmlRenderProcessor(deps: HtmlRenderDeps): Processor {
             retryable: false,
           });
         }
-        const run = await runWebpageToPdf(url, deps, layout.value);
+        const run = await runWebpageToPdf(
+          url,
+          deps,
+          layout.value,
+          input.signal,
+        );
         if (!run.ok) return processorFail(jobError(run));
         return processorOk(
           [

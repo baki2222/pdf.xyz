@@ -183,13 +183,18 @@ export function createTranslateProcessor(deps: TranslateDeps): Processor {
           retryable: false,
         });
       }
-      const run = await runTranslate(file.bytes, parsed.value, {
-        ...deps,
-        limits: {
-          ...deps.limits,
-          ...(cap.cap ? { delivery: cap.cap } : {}),
+      const run = await runTranslate(
+        file.bytes,
+        parsed.value,
+        {
+          ...deps,
+          limits: {
+            ...deps.limits,
+            ...(cap.cap ? { delivery: cap.cap } : {}),
+          },
         },
-      });
+        input.signal,
+      );
       // A run that failed AFTER a provider call still owes the job record what
       // it spent — see `aiResultsFromFailure`. Absent when no call happened.
       if (!run.ok)

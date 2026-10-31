@@ -177,7 +177,12 @@ export function createPdfSecurityProcessor(deps: PdfSecurityDeps): Processor {
             retryable: false,
           });
         }
-        const run = await runProtect(file.bytes, parsed.value, deps);
+        const run = await runProtect(
+          file.bytes,
+          parsed.value,
+          deps,
+          input.signal,
+        );
         if (!run.ok) return processorFail(pdfSecurityJobError(run));
         return processorOk(
           [
@@ -200,7 +205,7 @@ export function createPdfSecurityProcessor(deps: PdfSecurityDeps): Processor {
           retryable: false,
         });
       }
-      const run = await runUnlock(file.bytes, parsed.value, deps);
+      const run = await runUnlock(file.bytes, parsed.value, deps, input.signal);
       if (!run.ok) return processorFail(pdfSecurityJobError(run));
       return processorOk(
         [

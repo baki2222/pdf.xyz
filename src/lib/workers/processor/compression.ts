@@ -163,7 +163,12 @@ export function createCompressionProcessor(deps: CompressionDeps): Processor {
         });
       }
 
-      const run = await runCompression(file.bytes, parsed.value, deps);
+      const run = await runCompression(
+        file.bytes,
+        parsed.value,
+        deps,
+        input.signal,
+      );
       if (!run.ok) return processorFail(compressionJobError(run));
 
       return processorOk(

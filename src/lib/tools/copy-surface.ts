@@ -213,6 +213,10 @@ export function copyFiles(): string[] {
     // (2026-10-29): the kind, the HTTP status and the next step. New phrase
     // code beside the upload engine, so walked, like read-error.ts.
     path.join(ROOT, "src", "lib", "workers", "slot-upload.ts"),
+    // The lost-attempt error's sentences (2026-10-31). The executor discards
+    // that result, but a log or a job record could carry them. Listed, as
+    // the record outside the walk may not grow.
+    path.join(ROOT, "src", "lib", "workers", "attempt-abort.ts"),
     // The fix a known refusal offers, and where its file goes there (WP-08):
     // the words an error's remedy line says. Beside engine code, so listed.
     path.join(ROOT, "src", "lib", "pdf", "remedies.ts"),

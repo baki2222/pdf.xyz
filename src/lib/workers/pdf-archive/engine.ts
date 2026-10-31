@@ -1,6 +1,7 @@
 import { looksLikePdf } from "../compression/engine";
 import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
 import { inspectPdfAMarkers, type PdfAMarkerReport } from "./pdfa-markers";
+import { rethrowIfAttemptAbort, signalOption } from "../attempt-abort";
 
 export const PDF_TO_PDFA_TOOL = "pdf-to-pdfa";
 export const PDF_ARCHIVE_TOOLS = [PDF_TO_PDFA_TOOL] as const;
@@ -25,7 +26,11 @@ export interface PdfAConversion {
 export interface GhostscriptPdfARunner {
   convertToPdfA(
     input: Uint8Array,
-    options: { standard: typeof PDF_A_STANDARD },
+    options: {
+      standard: typeof PDF_A_STANDARD;
+      /** The attempt's abort signal; the runner kills its child on abort. */
+      signal?: AbortSignal;
+    },
   ): Promise<PdfAConversion>;
 }
 
@@ -169,6 +174,8 @@ function runFailure(error: unknown): PdfArchiveRun {
 export async function runPdfToPdfA(
   input: Uint8Array,
   deps: PdfArchiveDeps,
+  /** The attempt's abort signal, passed to Ghostscript and the qpdf probe. */
+  signal?: AbortSignal,
 ): Promise<PdfArchiveRun> {
   if (!deps.ghostscript) return unsupported();
   const limit = deps.limits?.maxInputBytes;
@@ -194,8 +201,11 @@ export async function runPdfToPdfA(
   try {
     conversion = await deps.ghostscript.convertToPdfA(input, {
       standard: PDF_A_STANDARD,
+      ...signalOption(signal),
     });
   } catch (error) {
+    // Not `engine_exit`: an untyped throw would read as the file's fault.
+    rethrowIfAttemptAbort(error);
     return runFailure(error);
   }
   const output = conversion.bytes;

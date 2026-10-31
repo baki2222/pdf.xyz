@@ -80,6 +80,7 @@ import type {
 } from "./types";
 import { aiSpendTokens } from "@/lib/jobs/ai-spend-ceiling";
 import { recordAiSpend } from "@/lib/ratelimit/guard";
+import { settleAttempt } from "../attempt-abort";
 
 /** Everything the executor needs, all injectable for deterministic tests. */
 export interface ExecutorDeps {
@@ -684,17 +685,23 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     const kind = processorKindForId(processor.id);
     const startedAt = metrics ? now() : 0;
 
-    const result = await processor.process({
-      tool: job.tool,
-      options,
-      inputs: files,
-      // Threaded rather than re-derived: the executor has no idea what the
-      // caller declared, and a cap recomputed here would be a second opinion
-      // about a number that was already charged for.
-      ...(delivery ? { delivery } : {}),
-      // Aborted if this attempt stops owning the job mid-run (see LeaseRenewal).
-      signal: lease.signal,
-    });
+    // `settleAttempt`: an attempt whose lease was lost mid-run comes back as
+    // `attempt_aborted` (its engine's child was killed, not a file at fault) and
+    // keeps whatever AI usage it spent, for the spend hook below.
+    const result = await settleAttempt(lease.signal, () =>
+      processor.process({
+        tool: job.tool,
+        options,
+        inputs: files,
+        // Threaded rather than re-derived: the executor has no idea what the
+        // caller declared, and a cap recomputed here would be a second opinion
+        // about a number that was already charged for.
+        ...(delivery ? { delivery } : {}),
+        // Aborted if this attempt stops owning the job mid-run (see
+        // LeaseRenewal). Engines pass it down to every child process they start.
+        signal: lease.signal,
+      }),
+    );
 
     // Record the processor's wall-clock latency (bucketed at construction) for both a
     // successful and a failed run, before the disposition branches below.

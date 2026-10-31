@@ -65,7 +65,11 @@ describe("office-conversion processor", () => {
       ],
     });
     expect(result.ok).toBe(true);
-    expect(convertToPdf).toHaveBeenCalledWith(DOCX, "quarterly.report.docx");
+    expect(convertToPdf).toHaveBeenCalledWith(
+      DOCX,
+      "quarterly.report.docx",
+      {},
+    );
     if (result.ok) {
       expect(result.artifacts[0]).toMatchObject({
         filename: "quarterly.report.pdf",

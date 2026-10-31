@@ -40,6 +40,7 @@ import {
   type NativeCompressor,
   type ToolAvailability,
 } from "./engine";
+import { rethrowIfAttemptAbort, throwIfAttemptAborted } from "../attempt-abort";
 import {
   resolveNativeCompressionConfig,
   type NativeCompressionConfig,
@@ -52,7 +53,13 @@ const EXEC_MAX_BUFFER = 16 * 1024 * 1024;
 export type NativeExec = (
   command: string,
   args: readonly string[],
-  options: { timeout: number; maxBuffer: number; windowsHide: boolean },
+  options: {
+    timeout: number;
+    maxBuffer: number;
+    windowsHide: boolean;
+    /** The attempt's abort signal: Node kills the child on abort. */
+    signal?: AbortSignal;
+  },
 ) => Promise<unknown>;
 
 /** The temp-file operations the compressor needs. Injectable for deterministic tests. */
@@ -79,7 +86,11 @@ export interface NativeSeams {
 }
 
 const runExecFile = promisify(execFile);
-const defaultExec: NativeExec = (command, args, options) =>
+/**
+ * The real subprocess runner. Exported so an abort test can drive THIS function
+ * (with a long-running stand-in child) rather than a copy of it.
+ */
+export const defaultNativeExec: NativeExec = (command, args, options) =>
   runExecFile(command, [...args], options);
 
 const defaultFs: NativeFs = {
@@ -204,11 +215,13 @@ export function createNativeCompressor(
   config: NativeCompressionConfig,
   seams: NativeSeams = {},
 ): NativeCompressor {
-  const exec = seams.exec ?? defaultExec;
+  const exec = seams.exec ?? defaultNativeExec;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
 
   return async (input, ctx) => {
+    // A lost attempt starts nothing (Node would spawn, then kill, the child).
+    throwIfAttemptAborted(ctx.signal);
     // Backstop the input ceiling here too, in case a caller reaches the native
     // runner without the engine-level `limits` guard. Deterministic → the engine
     // classifies the throw as a failure rather than looping.
@@ -228,7 +241,9 @@ export function createNativeCompressor(
         ctx.options.targetDpi,
         { grayscale: ctx.options.grayscale === true },
       );
+      throwIfAttemptAborted(ctx.signal);
       await exec(command, args, {
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
         // A target ladder's rung gets what is left of the ladder's budget;
         // never MORE than the configured ceiling, whatever it was handed.
         timeout:
@@ -240,6 +255,9 @@ export function createNativeCompressor(
               ),
         maxBuffer: EXEC_MAX_BUFFER,
         windowsHide: true,
+      }).catch((error: unknown) => {
+        rethrowIfAttemptAbort(error);
+        throw error;
       });
       const output = await fs.readFile(outputPath);
       if (

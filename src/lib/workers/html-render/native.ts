@@ -32,6 +32,12 @@ import {
   DEFAULT_HTML_RENDER_OPTIONS,
   type HtmlRenderOptions,
 } from "@/lib/jobs/html-render-options";
+import {
+  AttemptAbortedError,
+  signalOption,
+  throwIfAttemptAborted,
+  type RunControl,
+} from "../attempt-abort";
 
 /**
  * Chromium, driven over a CDP pipe, with every request it makes decided by
@@ -66,7 +72,12 @@ export interface ChromiumProcess {
 export type ChromiumLaunch = (
   command: string,
   args: readonly string[],
-  options: { env: Record<string, string>; windowsHide: boolean },
+  options: {
+    env: Record<string, string>;
+    windowsHide: boolean;
+    /** The attempt's abort signal: Node kills the browser on abort. */
+    signal?: AbortSignal;
+  },
 ) => ChromiumProcess;
 
 export interface ChromiumFs {
@@ -96,12 +107,18 @@ export interface ChromiumSeams {
   platform?: NodeJS.Platform;
 }
 
-const defaultLaunch: ChromiumLaunch = (command, args, options) => {
+/** The real launcher; exported so an abort test drives THIS function. */
+export const defaultChromiumLaunch: ChromiumLaunch = (
+  command,
+  args,
+  options,
+) => {
   const child: ChildProcess = spawn(command, [...args], {
     // fd 3: we write commands; fd 4: Chromium writes replies.
     stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"],
     env: options.env as NodeJS.ProcessEnv,
     windowsHide: options.windowsHide,
+    ...signalOption(options.signal),
   });
   const input = child.stdio[3] as Writable;
   const output = child.stdio[4] as Readable;
@@ -326,7 +343,7 @@ export function createNativeChromiumPdfRunner(
   config: NativeHtmlRenderConfig,
   seams: ChromiumSeams = {},
 ): ChromiumPdfRunner {
-  const launch = seams.launch ?? defaultLaunch;
+  const launch = seams.launch ?? defaultChromiumLaunch;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
   const binary =
@@ -568,12 +585,15 @@ export function createNativeChromiumPdfRunner(
   async function render(
     target: RenderTarget,
     options: HtmlRenderOptions,
+    signal: AbortSignal | undefined,
   ): Promise<Uint8Array> {
     const plan = planPrint(options);
+    throwIfAttemptAborted(signal);
     const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-html-"));
     const proc = launch(binary, chromiumArgs(path.join(dir, "profile")), {
       env: chromiumEnv(dir, seams.parentEnv, seams.platform),
       windowsHide: true,
+      ...signalOption(signal),
     });
     const cdp = new CdpConnection(proc.pipe);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -586,13 +606,31 @@ export function createNativeChromiumPdfRunner(
     const died = proc.exited.then(() => {
       throw new Error("Chromium exited before the render finished.");
     });
+    // The attempt lost its lease: stop waiting on Chromium at once. The
+    // finally below kills it (SIGKILL) and removes the profile, as on a timeout.
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new AttemptAbortedError());
+      // Aborted during mkdtemp: a listener added now would never fire.
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener("abort", onAbort, { once: true });
+    });
     deadline.catch(() => {});
     died.catch(() => {});
+    aborted.catch(() => {});
     try {
       let bytes: Uint8Array;
       try {
-        bytes = await Promise.race([drive(cdp, target, plan), deadline, died]);
+        bytes = await Promise.race([
+          aborted,
+          drive(cdp, target, plan),
+          deadline,
+          died,
+        ]);
       } catch (error) {
+        // Before any other reading: a browser killed by the abort reports
+        // "exited before the render finished", which is not what happened.
+        if (signal?.aborted) throw new AttemptAbortedError();
         // What the site did travels to the user intact.
         if (error instanceof WebpageFetchError) throw error;
         throw new Error(
@@ -609,6 +647,7 @@ export function createNativeChromiumPdfRunner(
       return bytes;
     } finally {
       clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
       cdp.close("render finished");
       proc.kill();
       await Promise.race([
@@ -620,13 +659,17 @@ export function createNativeChromiumPdfRunner(
   }
 
   return {
-    renderHtml(input, options = DEFAULT_HTML_RENDER_OPTIONS) {
+    renderHtml(input, options = DEFAULT_HTML_RENDER_OPTIONS, run = {}) {
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");
-      return render({ kind: "html", bytes: input }, options);
+      return render({ kind: "html", bytes: input }, options, run.signal);
     },
-    renderUrl(url, options = DEFAULT_HTML_RENDER_OPTIONS) {
-      return render({ kind: "url", url }, options);
+    renderUrl(
+      url,
+      options = DEFAULT_HTML_RENDER_OPTIONS,
+      run: RunControl = {},
+    ) {
+      return render({ kind: "url", url }, options, run.signal);
     },
   };
 }

@@ -156,10 +156,15 @@ export function createSummarizeProcessor(deps: SummarizeDeps): Processor {
         deps.limits?.maxInputChars,
       );
       if (!readLimit.ok) return processorFail(readLimit.error);
-      const run = await runSummarize(file.bytes, parsed.value, {
-        ...deps,
-        limits: { ...deps.limits, maxInputChars: readLimit.maxInputChars },
-      });
+      const run = await runSummarize(
+        file.bytes,
+        parsed.value,
+        {
+          ...deps,
+          limits: { ...deps.limits, maxInputChars: readLimit.maxInputChars },
+        },
+        input.signal,
+      );
       // A run that failed AFTER a provider call still owes the job record what
       // it spent — see `aiResultsFromFailure`. Absent when no call happened.
       if (!run.ok)

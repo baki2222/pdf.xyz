@@ -1,4 +1,9 @@
 import JSZip from "jszip";
+import {
+  rethrowIfAttemptAbort,
+  signalOption,
+  type RunControl,
+} from "../attempt-abort";
 import { pdfTextOpenFailure } from "@/lib/workers/pdf-text/errors";
 import {
   PAGE_JOIN,
@@ -72,7 +77,10 @@ export const TRANSLATE_TOOL = "translate-pdf" as const;
 export const TRANSLATE_ENGINE = "ai-text-translation" as const;
 
 /** Extract selectable text from a PDF; throws on an unreadable PDF. */
-export type PdfTextExtractor = (bytes: Uint8Array) => Promise<ExtractedPdfText>;
+export type PdfTextExtractor = (
+  bytes: Uint8Array,
+  run?: RunControl,
+) => Promise<ExtractedPdfText>;
 
 export interface TranslateLimits {
   maxInputBytes?: number;
@@ -454,6 +462,8 @@ export async function runTranslate(
   input: Uint8Array,
   options: TranslateOptions,
   deps: TranslateDeps,
+  /** The attempt's abort signal, passed to the text extractor's child. */
+  signal?: AbortSignal,
 ): Promise<TranslateRun> {
   const { extract, provider } = deps;
   if (!extract) {
@@ -491,8 +501,9 @@ export async function runTranslate(
 
   let extracted: ExtractedPdfText;
   try {
-    extracted = await extract(input);
+    extracted = await extract(input, signalOption(signal));
   } catch (err) {
+    rethrowIfAttemptAbort(err);
     // A file the extractor cannot OPEN (it needs a password, or is not a
     // readable PDF) gets its own reason, never the generic failure. No model
     // has been called yet, so this failure has spent nothing.

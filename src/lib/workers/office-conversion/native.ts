@@ -7,6 +7,12 @@ import { looksLikePdf } from "../compression/engine";
 import type { LibreOfficePdfRunner, OfficeConversionDeps } from "./engine";
 import { LibreOfficeRunError } from "./errors";
 import {
+  AttemptAbortedError,
+  isAttemptAbort,
+  signalOption,
+  throwIfAttemptAborted,
+} from "../attempt-abort";
+import {
   resolveNativeOfficeConversionConfig,
   type NativeOfficeConversionConfig,
 } from "./native-config";
@@ -20,7 +26,13 @@ export interface LibreOfficeExecResult {
 export type LibreOfficeExec = (
   command: string,
   args: readonly string[],
-  options: { timeout: number; maxBuffer: number; windowsHide: boolean },
+  options: {
+    timeout: number;
+    maxBuffer: number;
+    windowsHide: boolean;
+    /** The attempt's abort signal: Node kills the child on abort. */
+    signal?: AbortSignal;
+  },
 ) => Promise<LibreOfficeExecResult>;
 export interface LibreOfficeFs {
   mkdtemp: (prefix: string) => Promise<string>;
@@ -38,8 +50,13 @@ export interface LibreOfficeSeams {
   fs?: LibreOfficeFs;
 }
 
-const defaultExec: LibreOfficeExec = (command, args, options) =>
-  new Promise((resolve) => {
+/** The real subprocess runner; exported so an abort test drives THIS function. */
+export const defaultLibreOfficeExec: LibreOfficeExec = (
+  command,
+  args,
+  options,
+) =>
+  new Promise((resolve, reject) => {
     execFile(
       command,
       [...args],
@@ -48,6 +65,8 @@ const defaultExec: LibreOfficeExec = (command, args, options) =>
         error: (Error & { code?: number | string; killed?: boolean }) | null,
       ) => {
         if (!error) return resolve({ code: 0, timedOut: false });
+        // Not a timeout and not "stopped before it finished": nobody wants it.
+        if (isAttemptAbort(error)) return reject(new AttemptAbortedError());
         resolve({
           code: typeof error.code === "number" ? error.code : -1,
           timedOut: !!error.killed,
@@ -127,7 +146,7 @@ export function createNativeLibreOfficePdfRunner(
   config: NativeOfficeConversionConfig,
   seams: LibreOfficeSeams = {},
 ): LibreOfficePdfRunner {
-  const exec = seams.exec ?? defaultExec;
+  const exec = seams.exec ?? defaultLibreOfficeExec;
   const fs = seams.fs ?? defaultFs;
   const baseTmp = config.tmpDir ?? tmpdir();
   const binary =
@@ -135,9 +154,10 @@ export function createNativeLibreOfficePdfRunner(
     config.candidates[0] ??
     "soffice";
   return {
-    async convertToPdf(input, filename) {
+    async convertToPdf(input, filename, run = {}) {
       if (input.byteLength > config.maxInputBytes)
         throw new Error("Input exceeds size limit.");
+      throwIfAttemptAborted(run.signal);
       const dir = await fs.mkdtemp(path.join(baseTmp, "pdfxyz-office-"));
       const inputName = safeInputName(filename);
       const inputPath = path.join(dir, inputName);
@@ -147,6 +167,7 @@ export function createNativeLibreOfficePdfRunner(
       );
       try {
         await fs.writeFile(inputPath, input);
+        throwIfAttemptAborted(run.signal);
         const result = await exec(
           binary,
           libreOfficeConvertArgs(inputPath, dir),
@@ -154,6 +175,7 @@ export function createNativeLibreOfficePdfRunner(
             timeout: config.timeoutMs,
             maxBuffer: EXEC_MAX_BUFFER,
             windowsHide: true,
+            ...signalOption(run.signal),
           },
         );
         // Typed by what a retry could change (see `./errors`). A timeout and

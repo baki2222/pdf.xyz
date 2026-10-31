@@ -43,7 +43,12 @@ describe("office-conversion engine", () => {
         outputBytes: PDF.byteLength,
       },
     });
-    expect(libreoffice.convertToPdf).toHaveBeenCalledWith(DOCX, "report.docx");
+    // The third argument is the run control: no attempt signal here.
+    expect(libreoffice.convertToPdf).toHaveBeenCalledWith(
+      DOCX,
+      "report.docx",
+      {},
+    );
   });
 
   it("rejects wrong tool/input pair and oversized input", async () => {

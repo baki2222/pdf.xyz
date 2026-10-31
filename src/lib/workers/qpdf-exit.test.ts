@@ -90,7 +90,10 @@ const EXIT_SHAPE_VIOLATIONS: readonly RegExp[] = [
   new RegExp(String.raw`\b[1-9]\d*\s*[!=]==?\s*${EXIT_VALUE}`, "i"),
   /\bpromisify\(\s*(?:execFile|exec)\s*\)/,
   /\b(?:execFileSync|execSync)\b/,
-  /\breject\s*\(/,
+  // A rejection is the defect when it carries the exit. An abort (the attempt
+  // lost its lease, `./attempt-abort`) has no exit to carry; rejecting it is
+  // what keeps it from being read as a status at all.
+  /\breject\s*\((?!\s*new AttemptAbortedError\(\s*\))/,
 ];
 
 const violationsIn = (source: string): string[] =>
@@ -174,7 +177,15 @@ describe("qpdf exit statuses — one definition, and the runners found reading i
     expect(
       violationsIn("execFile(bin, args, (e) => e ? reject(e) : resolve())"),
     ).not.toEqual([]);
+    expect(
+      violationsIn("if (error) return reject(pdfTextExecErrorFrom(error));"),
+    ).not.toEqual([]);
     // Negative controls: the legal shapes the fixed runners use.
+    expect(
+      violationsIn(
+        "if (isAttemptAbort(error)) return reject(new AttemptAbortedError());",
+      ),
+    ).toEqual([]);
     expect(violationsIn("if (result.code === 0) return true;")).toEqual([]);
     expect(
       violationsIn("if (result.code === QPDF_EXIT_WARNINGS) return x;"),

@@ -2,6 +2,11 @@ import { looksLikePdf } from "../compression/engine";
 import { describeByteCeiling } from "../engine-file-ceilings";
 import { isEncryptedOoxml, LibreOfficeRunError } from "./errors";
 import {
+  rethrowIfAttemptAbort,
+  signalOption,
+  type RunControl,
+} from "../attempt-abort";
+import {
   EXCEL_TO_PDF_TOOL,
   POWERPOINT_TO_PDF_TOOL,
   WORD_TO_PDF_TOOL,
@@ -18,7 +23,11 @@ export {
 export const OFFICE_TO_PDF_ENGINE = "libreoffice" as const;
 
 export interface LibreOfficePdfRunner {
-  convertToPdf(input: Uint8Array, filename: string): Promise<Uint8Array>;
+  convertToPdf(
+    input: Uint8Array,
+    filename: string,
+    run?: RunControl,
+  ): Promise<Uint8Array>;
 }
 
 export interface OfficeConversionDeps {
@@ -99,6 +108,8 @@ export async function runOfficeToPdf(
   input: Uint8Array,
   filename: string,
   deps: OfficeConversionDeps,
+  /** The attempt's abort signal, passed to LibreOffice. */
+  signal?: AbortSignal,
 ): Promise<OfficeConversionRun> {
   if (!supportsOfficeInput(tool, filename)) {
     return {
@@ -144,8 +155,13 @@ export async function runOfficeToPdf(
   };
   let output: Uint8Array;
   try {
-    output = await deps.libreoffice.convertToPdf(input, filename);
+    output = await deps.libreoffice.convertToPdf(
+      input,
+      filename,
+      signalOption(signal),
+    );
   } catch (error) {
+    rethrowIfAttemptAbort(error);
     if (!(error instanceof LibreOfficeRunError))
       return {
         ok: false,

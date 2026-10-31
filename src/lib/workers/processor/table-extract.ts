@@ -134,7 +134,7 @@ export function createTableExtractProcessor(deps: TableExtractDeps): Processor {
       const bad = inputError(input);
       if (bad) return bad;
       const file = input.inputs[0]!;
-      const run = await runTableExtract(file.bytes, deps);
+      const run = await runTableExtract(file.bytes, deps, input.signal);
       if (!run.ok) return processorFail(jobError(run));
       return processorOk(
         [
