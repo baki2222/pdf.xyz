@@ -3169,7 +3169,6 @@ export const guides: Guide[] = [
       "url to pdf",
       "save web page as pdf",
       "website to pdf",
-      "html file to pdf",
     ],
     intro: [
       `To save a web page as a PDF, open ${nameOf("webpage-to-pdf")}, paste the page's full address, choose a page layout if you want one, and press Render PDF. A copy of Chromium, the engine behind Chrome and Edge, loads the page, lets its scripts run, and prints it to a PDF whose text you can search and copy.`,
@@ -3233,7 +3232,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-10-29",
-    updated: "2026-10-30",
+    updated: "2026-10-31",
   },
   {
     slug: "how-to-extract-images-from-a-pdf",

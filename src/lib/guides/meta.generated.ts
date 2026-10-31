@@ -380,7 +380,6 @@ export const GUIDE_META: readonly GuideMeta[] = [
       "url to pdf",
       "save web page as pdf",
       "website to pdf",
-      "html file to pdf",
     ],
   },
   {
