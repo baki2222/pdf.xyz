@@ -68,8 +68,12 @@ import {
   RASTER_PREVIEW_LIMIT,
   RASTER_RESOLUTION_CHOICES,
   RASTER_RESOLUTIONS,
+  RASTER_COLORS,
+  RASTER_RESOLUTION_DPIS,
   pageImageName,
+  rasterCapInches,
   resolutionById,
+  zipOutputName,
   type RasterResolution,
 } from "@/lib/pdf/pdf-to-image";
 import { MAX_EDIT_IMAGE_BYTES } from "@/lib/pdf/edit";
@@ -158,6 +162,21 @@ import {
 } from "@/lib/pdf/image-size-limit";
 import { IMAGE_OUTPUTS } from "@/lib/pdf/image-page-layout";
 import { RETENTION_WINDOWS } from "@/lib/retention-windows";
+import { PDF_A_STANDARD } from "@/lib/jobs/pdfa-results";
+import {
+  PDFA_EXPECTED_CONFORMANCE,
+  PDFA_EXPECTED_PART,
+} from "@/lib/workers/pdf-archive/pdfa-markers";
+import { pdfaOutputName } from "@/lib/workers/processor/pdf-archive";
+import { LARGE_RASTER_PAGES } from "@/lib/intent/defaults";
+import { textOutputName } from "@/lib/pdf/text";
+import {
+  GRAYSCALE_DPI_PRESETS,
+  GRAYSCALE_GREW_NOTE,
+  grayscaleOutputName,
+  grayscalePresetById,
+  grayscaleTitle,
+} from "@/lib/pdf/grayscale";
 import type { Guide } from "./types";
 
 /**
@@ -423,6 +442,65 @@ const SUMMARY_FORMAT_NAMES = listOr(Object.values(SUMMARY_FORMAT_LABEL));
 const SUMMARY_FOCUS_CHARS = MAX_SUMMARY_FOCUS_CHARS.toLocaleString("en-US");
 /** The download name the panel shows, from the function the worker uses. */
 const SUMMARY_EXAMPLE_ZIP = summaryOutputName("report.pdf");
+
+/**
+ * PDF to PDF/A (2026-10-31). The prose explains conformance level b and the
+ * engine's PDF/A-2 setting, so a change of target stops the build here
+ * rather than shipping sentences true of the old one (the tool page's guard,
+ * `content/pdf-to-pdfa.ts`, repeated where this guide's sentences are).
+ */
+if (PDF_A_STANDARD !== "PDF/A-2b") {
+  throw new Error(
+    `the PDF/A guide is written for PDF/A-2b; the engine now targets ${String(PDF_A_STANDARD)}`,
+  );
+}
+/** The download name, from the function the worker names the output with. */
+const PDFA_EXAMPLE_OUT = pdfaOutputName("report.pdf");
+
+/**
+ * PDF to PNG's choices (2026-10-31), by the labels its runner draws from the
+ * same lists. The page-size cap is the one the Print chip's tooltip states.
+ */
+const PNG_COLOUR = labelOf(RASTER_COLORS, "color");
+const PNG_GRAY = labelOf(RASTER_COLORS, "gray");
+const PNG_SCREEN = rasterPreset("screen");
+const PNG_PRINT = rasterPreset("print");
+const PNG_PRINT_CAP_IN = rasterCapInches(PNG_PRINT.dpi, RASTER_MAX_DEVICE_PX);
+const PNG_MAX_PX = RASTER_MAX_DEVICE_PX.toLocaleString("en-US");
+const PNG_EXAMPLE_PAGES = 120;
+const PNG_EXAMPLE_ZIP = zipOutputName("manual.pdf", "png");
+const PNG_EXAMPLE_FIRST = pageImageName(
+  "manual.pdf",
+  0,
+  PNG_EXAMPLE_PAGES,
+  "png",
+);
+const PNG_EXAMPLE_PAGE_7 = pageImageName(
+  "manual.pdf",
+  6,
+  PNG_EXAMPLE_PAGES,
+  "png",
+);
+const PNG_EXAMPLE_SINGLE = pageImageName("logo.pdf", 0, 1, "png");
+
+/** PDF to Text's download name, from the function its runner calls. */
+const TEXT_EXAMPLE_OUT = textOutputName("report.pdf");
+/** OCR PDF's plain-text output, by the label its panel shows. */
+const OCR_TEXT_MODE = ocrModeLabel("text");
+const OCR_PDF_MODE = ocrModeLabel("searchable-pdf");
+
+/**
+ * Grayscale PDF's Output quality choices (2026-10-31), as its runner labels
+ * them. The runner opens on "print" (`useState("print")`, a literal the
+ * module does not export), so the guide resolves that same id.
+ */
+const GRAY_SCREEN = grayscalePresetById("screen");
+const GRAY_PRINT = grayscalePresetById("print");
+const GRAY_PRESET_CHOICES = listOr(
+  GRAYSCALE_DPI_PRESETS.map((p) => `${p.label} (${p.dpi} DPI)`),
+);
+const GRAY_EXAMPLE_OUT = grayscaleOutputName("report.pdf");
+const GRAY_EXAMPLE_TITLE = grayscaleTitle("Annual report", "report.pdf");
 
 export const guides: Guide[] = [
   {
@@ -896,7 +974,7 @@ export const guides: Guide[] = [
     slug: "how-to-convert-pdf-to-jpg",
     title: "How to convert a PDF to JPG or PNG images",
     description:
-      "Turn every page of a PDF into a JPG or PNG image right in your browser — your file never leaves your device. Pick a resolution; several pages arrive as one ZIP.",
+      "Turn PDF pages into JPG or PNG images right in your browser — your file never leaves your device. Pick the pages, colour and resolution; several arrive as one ZIP.",
     tools: ["pdf-to-jpg", "pdf-to-png", "extract-images"],
     keywords: [
       "pdf to jpg",
@@ -907,14 +985,15 @@ export const guides: Guide[] = [
       "save pdf pages as images",
     ],
     intro: [
-      "To convert a PDF to JPG, open the PDF to JPG tool — or PDF to PNG for lossless images — add your PDF, choose a resolution, and render. Every page becomes its own image, drawn right in your browser. A one-page PDF downloads as a single image; a document with more than one page arrives as one ZIP with an image for each page.",
+      "To convert a PDF to JPG, open the PDF to JPG tool — or PDF to PNG for lossless images — add your PDF, choose a resolution, and render. Each page you choose becomes its own image, drawn right in your browser. A single page downloads as one image; several pages arrive as one ZIP with an image for each page.",
       "The rendering happens on your own device. The tool draws each page with pdf.js, a PDF renderer bundled with the site, and encodes it in the browser, so your PDF stays on your device from start to finish. There is no account to create.",
       `That makes it a quick way to share a page in a chat or on a slide, to drop a page into a document that only takes images, or to show a PDF on a device with no viewer. Each PDF can be up to ${ceilingMb("pdf-to-jpg")} MB.`,
     ],
     steps: [
       "Open the PDF to JPG tool, or PDF to PNG for lossless images.",
       "Add your PDF. It is read in your browser, and the file stays on your device.",
-      `Choose a resolution: ${RASTER_RESOLUTION_CHOICES}. ${DEFAULT_RESOLUTION_LABEL} is selected to start.`,
+      `Under Resolution, pick ${RASTER_RESOLUTION_CHOICES}.`,
+      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
       "Render the pages. A progress count shows each page as it is drawn.",
       `Download the result: a single page saves as one image, and several pages save as one ZIP with an image for each page. Each of the first ${RASTER_PREVIEW_LIMIT} pages can also be saved on its own from its preview.`,
     ],
@@ -924,6 +1003,7 @@ export const guides: Guide[] = [
         heading: "Choosing a resolution",
         body: [
           `DPI is how many image pixels each inch of the page becomes. ${presetText(rasterPreset("screen"))} is enough for a page read on a monitor or in a chat. ${presetText(rasterPreset("high"))} is a sharper all-rounder. ${presetText(rasterPreset("print"))} is for printing, or for zooming in on small text. Every step up draws more pixels per page, so the images get larger and take longer to render.`,
+          `${DEFAULT_RESOLUTION_LABEL} is selected the first time you use the tool. After that, this browser remembers the resolution and colour you last rendered with, and a PDF of more than ${LARGE_RASTER_PAGES} pages opens at ${PNG_SCREEN.label}, with a note saying why. You can still pick another resolution before you render.`,
           `Neither side of a rendered page may exceed ${RASTER_MAX_DEVICE_PX.toLocaleString("en-US")} pixels, which keeps the memory a page needs in check. A very large page, such as a poster or an engineering drawing, is rendered below the preset rather than failing.`,
         ],
       },
@@ -972,7 +1052,8 @@ export const guides: Guide[] = [
       },
       {
         question: "Can I convert just one page?",
-        answer: `Every page is rendered, and each of the first ${RASTER_PREVIEW_LIMIT} gets its own download button, so you can save only the page you need. For a page past those, use Extract Pages first to make a one-page PDF — it runs in your browser too — and convert that.`,
+        answer:
+          "Yes. Under Pages, click Select pages and type that page's number, such as 7; only the pages you list are rendered. The image keeps the page's number from the document in its name.",
       },
       {
         question: "How do I get PNG images instead?",
@@ -985,7 +1066,7 @@ export const guides: Guide[] = [
       },
     ],
     published: "2026-09-27",
-    updated: "2026-09-27",
+    updated: "2026-10-31",
   },
   {
     slug: "how-to-rotate-a-pdf",
@@ -4275,6 +4356,352 @@ export const guides: Guide[] = [
       {
         question: "Can it summarize a scanned PDF?",
         answer: `Not directly. Run it through ${nameOf("ocr-pdf")} first to add a text layer, then summarize the result. A PDF with no text is refused before it uploads, so it costs nothing from the allowance.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-pdf-to-pdfa",
+    title: "How to convert a PDF to PDF/A",
+    description: `Convert a PDF to ${PDF_A_STANDARD} for archiving with Ghostscript on a secure server, and read what it had to drop before you download. No account needed.`,
+    tools: ["pdf-to-pdfa", "ocr-pdf", "unlock-pdf"],
+    keywords: [
+      "how to convert pdf to pdf/a",
+      "pdf to pdf/a",
+      "convert pdf to pdfa",
+      "pdf/a-2b",
+      "save pdf as pdf/a",
+      "archive pdf",
+    ],
+    intro: [
+      `To convert a PDF to PDF/A, open ${nameOf("pdf-to-pdfa")}, add your PDF, press Convert to PDF/A, read any notes, and download the copy. PDF/A is the archiving form of PDF, meant for documents that must still open and look the same years from now, and every job here targets ${PDF_A_STANDARD}.`,
+      "The copy is rewritten by Ghostscript, the open-source PDF engine, with its PDF/A-2 setting switched on. Conformance level b (basic) is about how the pages look; the tagged structure that level a requires is not added. Nothing checks the result against the PDF/A specification afterwards, so treat it as a best-effort conversion, not a certificate.",
+      `${nameOf("pdf-to-pdfa")} runs on a secure server, because that is where Ghostscript is installed. Your PDF, up to ${ceilingMb("pdf-to-pdfa")} MB, travels over an encrypted connection and is deleted once the job is over; the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes. No account is needed.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-pdfa")} tool. The badge at the top reads Secure server when conversion is available; otherwise Convert to PDF/A stays off and nothing is sent.`,
+      "Drop one PDF on the area that says “Add a PDF, or browse”, or click it to choose the file. Remove, beside its name, swaps it for another.",
+      "Press Convert to PDF/A. Your PDF uploads over an encrypted connection to our secure server, and the button follows the job while Ghostscript rewrites it.",
+      "If Ghostscript reported anything, “What PDF/A could not keep” lists it above “Your PDF/A file is ready.” Read it before you replace your original.",
+      `Press Download to save the copy: report.pdf comes back as ${PDFA_EXAMPLE_OUT}. The link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, so save it before you close the tab.`,
+      "If an archive or portal asked for PDF/A, check the copy with its own checker before you submit it.",
+    ],
+    sections: [
+      {
+        id: "what-the-conversion-drops",
+        heading: "What the conversion drops, and how you find out",
+        body: [
+          "Some of what a PDF can carry has no place in PDF/A. Ghostscript is told to drop it and carry on rather than abandon the job, and what it reports while doing so is shown above your download in its own words, with any line that names a file path held back. The line you are most likely to meet ends in “discarding DOCINFO”: DOCINFO is the older place a PDF keeps its title, author and producer, and the notice does not say which fields went, so open the copy's document properties if they matter.",
+          "PDF/A also requires every font to be embedded. Where your original only names a font without carrying it, Ghostscript uses one from its own set; on our secure server, NimbusSans was seen standing in for Helvetica. The notes do not report that swap, so compare the copy with the original page by page before you rely on it.",
+        ],
+      },
+      {
+        id: "what-is-checked",
+        heading: "What is checked, and what is not",
+        body: [
+          `Before the copy is returned, our server checks that it is not empty, that it has a PDF header and end-of-file marker, and that it declares ${PDF_A_STANDARD}: PDF/A identification part ${PDFA_EXPECTED_PART} and conformance ${PDFA_EXPECTED_CONFORMANCE} in its metadata, plus an embedded colour profile. If either declaration is missing, no file is returned.`,
+          "A declaration is not proof of conformance. If a university repository, court or records system needs PDF/A, run its own checker, or an independent validator such as veraPDF, on the copy. There is no level picker either: a portal that names PDF/A-1b or PDF/A-3b needs other software.",
+        ],
+      },
+      {
+        id: "scans-and-passwords",
+        heading: "Scans, passwords and damaged files",
+        body: [
+          `Converting a scan to PDF/A does not make its text searchable: a scanned page stays a picture of words. Run it through ${nameOf("ocr-pdf")} first, which adds a searchable text layer on our secure server, then convert that file and search the PDF/A copy to confirm the words survived.`,
+          `The page has no password field, so Ghostscript is never given one. If your file asks for a password when it opens, ${nameOf("unlock-pdf")} removes it once you enter that password; then convert the unlocked copy. The PDF/A copy is written without encryption, which PDF/A does not allow in any case.`,
+          "Our server first looks for a PDF header at the start of your file and an end-of-file marker near its end. A file missing either, such as a download that stopped partway, is refused as one that could not be read as a PDF, and nothing is produced.",
+        ],
+      },
+      {
+        id: "where-your-pdf-goes",
+        heading: "Where your PDF goes",
+        body: [
+          `Your PDF travels over an encrypted connection to our secure server, where Ghostscript works in a temporary folder that a cleanup step deletes whether or not the conversion worked. The stored upload is deleted once the job ends, or held for a retry if the job hit a temporary error. The PDF/A copy's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Will the converted file pass a PDF/A validator?",
+        answer: `It targets ${PDF_A_STANDARD}, but pdf.xyz runs no PDF/A validator. Our server checks that the copy declares the standard and carries a colour profile, and returns no file if it does not; a declaration is not proof, so check the copy with the validator your archive uses.`,
+      },
+      {
+        question: "Can I convert to a different PDF/A level?",
+        answer: `No. There is no level picker, and every conversion targets ${PDF_A_STANDARD}. If an archive asks for another level, such as PDF/A-1b or PDF/A-3b, you need software that offers it.`,
+      },
+      {
+        question: "What does “discarding DOCINFO” mean?",
+        answer:
+          "Ghostscript found text in the PDF's older information dictionary, where the title, author and producer live, that it could not carry into PDF/A's metadata, and dropped that dictionary. It does not list which fields went, so check the copy's document properties if the title or author matters.",
+      },
+      {
+        question: "Does PDF/A make a scanned PDF searchable?",
+        answer: `No. A scanned page stays a picture of text. Run the scan through ${nameOf("ocr-pdf")} first, then convert the result and search the PDF/A copy to check the words came through.`,
+      },
+      {
+        question: "Is my PDF uploaded?",
+        answer: `Yes. Ghostscript runs on our secure server, so the PDF travels there over an encrypted connection and is deleted once the job ends. The PDF/A copy's download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-pdf-to-png",
+    title: "How to convert a PDF to PNG images",
+    description: `Save PDF pages as lossless PNG images at ${RASTER_RESOLUTION_DPIS} DPI, every page or only the ones you pick, in colour or grayscale. Your PDF stays on your device.`,
+    tools: ["pdf-to-png", "pdf-to-jpg", "extract-images"],
+    keywords: [
+      "how to convert pdf to png",
+      "pdf to png",
+      "convert pdf to png",
+      "save pdf page as png",
+      "pdf to png high resolution",
+      "pdf page to image",
+    ],
+    intro: [
+      `To convert a PDF to PNG, open ${nameOf("pdf-to-png")}, add your PDF, choose a resolution, and press the Render button. Each page becomes one PNG picture of the whole page, with its text, drawings and photos together. A single page downloads as one PNG; more than one arrives as a ZIP.`,
+      "PNG is lossless: every pixel is kept exactly, so small type and thin lines keep clean edges instead of the smudges JPEG compression can leave around them. The cost is larger files, and as with any picture of a page, the words in it can no longer be selected or searched.",
+      `The pages are drawn in your browser by pdf.js, a PDF renderer bundled with the site, so your PDF stays on your device and there is no account to create. Each PDF can be up to ${ceilingMb("pdf-to-png")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-png")} tool.`,
+      "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear once it has loaded.",
+      `Under Resolution, pick ${RASTER_RESOLUTION_CHOICES}.`,
+      `Under Pages, keep All pages, or click Select pages and type the pages you want, such as 1-3, 5. Under Colour, keep ${PNG_COLOUR} or pick ${PNG_GRAY}.`,
+      "Press the Render button. It counts the pages it will draw, so it reads Render 3 pages when three are chosen, and a progress count follows each page.",
+      `Press Download PNG for a single page, or Download ZIP when there are several. Each of the first ${RASTER_PREVIEW_LIMIT} pages also has its own download button on its preview.`,
+    ],
+    sections: [
+      {
+        id: "choosing-a-resolution",
+        heading: "Choosing a resolution",
+        body: [
+          `DPI is how many pixels each inch of the page becomes. ${presetText(PNG_SCREEN)} suits a page read on a monitor or in a chat, ${presetText(rasterPreset("high"))} is a sharper all-rounder, and ${presetText(PNG_PRINT)} is for printing or zooming in on small print. Doubling the DPI roughly quadruples the pixels on a page, so files grow and rendering slows.`,
+          `${DEFAULT_RESOLUTION_LABEL} is selected the first time you use the tool. After that, this browser remembers the resolution and colour you last rendered with in ${nameOf("pdf-to-png")} or ${nameOf("pdf-to-jpg")}, and a PDF of more than ${LARGE_RASTER_PAGES} pages opens at ${PNG_SCREEN.label}, with a note saying why: every page is held in memory as an image, and a long document at a high resolution is the job most likely to run a browser tab out of memory. You can still pick another resolution before you render.`,
+          `Neither side of a page image may exceed ${PNG_MAX_PX} pixels. At ${PNG_PRINT.label}, a page longer than ${PNG_PRINT_CAP_IN} inches on a side, such as a poster or a drawing, is rendered below the preset rather than failing, and the result says what resolution it got.`,
+        ],
+      },
+      {
+        id: "pages-and-colour",
+        heading: "Choosing pages and colour",
+        body: [
+          `Select pages takes single pages and ranges separated by commas, the same way ${nameOf("extract-pages")} reads them: 1-3, 5 gives four pages, and 8- runs from page eight to the end. Only those pages are rendered, and the Render button counts them.`,
+          `${PNG_GRAY} draws the pages in shades of gray instead of ${PNG_COLOUR.toLowerCase()}. The files are still ordinary PNGs holding gray pixels, not one-channel grayscale images. If you need a gray PDF rather than images, ${nameOf("grayscale-pdf")} makes one.`,
+        ],
+      },
+      {
+        id: "what-you-download",
+        heading: "What you download",
+        body: [
+          `A one-page PDF saves as a single image named after the file: logo.pdf gives ${PNG_EXAMPLE_SINGLE}. With more than one page rendered, the images come in one ZIP, numbered with leading zeros so they sort in reading order: all pages of a ${PNG_EXAMPLE_PAGES}-page manual.pdf give ${PNG_EXAMPLE_ZIP}, starting with ${PNG_EXAMPLE_FIRST}. A page keeps its number from the document when you pick only some, so page 7 of that manual is ${PNG_EXAMPLE_PAGE_7}.`,
+          "Pages are painted onto white, so every PNG has a solid white background. If a picture inside the PDF cannot be decoded, it comes out blank while the rest of the page renders, and the result gives the number of images affected across the document.",
+        ],
+      },
+      {
+        id: "png-jpg-or-embedded-images",
+        heading: "PNG, JPG, or the images inside the PDF",
+        body: [
+          `PNG suits text, line drawings, charts and screenshots. For photo-heavy pages, ${nameOf("pdf-to-jpg")} usually makes smaller files, with the same resolution and page choices.`,
+          `Both draw whole pages. To save the photos embedded in a PDF at their own resolution instead of pictures of whole pages, use ${nameOf("extract-images")}, which also runs in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent anywhere when I convert it to PNG?",
+        answer:
+          "No. pdf.js draws the pages inside your browser tab and the PNG files are made there too, so the PDF stays on your device from start to finish.",
+      },
+      {
+        question: "Is PNG or JPG better for PDF pages?",
+        answer: `PNG is lossless, which suits text, line drawings and flat colour. JPEG is built for photographs and usually makes smaller files from photo-heavy pages; ${nameOf("pdf-to-jpg")} offers the same resolutions. Neither keeps the text selectable.`,
+      },
+      {
+        question: "Can I convert just one page?",
+        answer: `Yes. Click Select pages under Pages and type its number. A single page downloads on its own as a PNG and keeps its page number in the file name, as in ${PNG_EXAMPLE_PAGE_7}.`,
+      },
+      {
+        question: "Why does my PNG have fewer pixels than the DPI I chose?",
+        answer: `Because the page is large. No side of an image may pass ${PNG_MAX_PX} pixels, so at ${PNG_PRINT.label} a page longer than ${PNG_PRINT_CAP_IN} inches is rendered lower, and the result panel says at what DPI.`,
+      },
+      {
+        question: "Can it convert a password-protected PDF?",
+        answer: `Not one that needs a password to open: it stops while loading and asks you to unlock it first. ${nameOf("unlock-pdf")} removes the password if you know it, but it runs on our secure server rather than in your browser. A PDF that opens without a password and only restricts printing or copying converts like any other.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-pdf-to-text",
+    title: "How to convert a PDF to text",
+    description:
+      "Copy the selectable text out of a PDF into a plain UTF-8 .txt file, preview it before you save, and see which pages had none. Your PDF stays on your device.",
+    tools: ["pdf-to-text", "ocr-pdf", "pdf-to-markdown"],
+    keywords: [
+      "how to convert pdf to text",
+      "pdf to text",
+      "pdf to txt",
+      "extract text from pdf",
+      "copy text from pdf",
+      "save pdf as text file",
+    ],
+    intro: [
+      `To convert a PDF to text, open ${nameOf("pdf-to-text")}, add your PDF, press Extract text, check the preview, and press Download TXT. You get the words stored in the PDF as a plain UTF-8 .txt file, without fonts, pictures or layout.`,
+      `It reads only the text a PDF stores as text, the kind you can select in a viewer. A scanned page is a picture of words, so it gives nothing until ${nameOf("ocr-pdf")} has recognised them.`,
+      `The text is read in your browser by pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF at a time, up to ${ceilingMb("pdf-to-text")} MB, and there are no settings to choose.`,
+    ],
+    steps: [
+      `Open the ${nameOf("pdf-to-text")} tool.`,
+      "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file. Its name, page count and size appear.",
+      "Press Extract text. The button reads Extracting text… while the pages are read.",
+      "Under “Text extracted”, check the character and page counts and read the text in the scrollable box. Select any part of it to copy just that passage.",
+      `Press Download TXT, which shows the size of the file it will save. report.pdf is saved as ${TEXT_EXAMPLE_OUT}. Start over clears the page for another document.`,
+    ],
+    sections: [
+      {
+        id: "what-the-file-holds",
+        heading: "What the text file holds",
+        body: [
+          "A PDF records where each run of text sits on the page rather than where its lines end, so the extractor works the breaks out from positions: a new line where the text drops down the page, and a space where the gap between letters is wide enough to be one. Pages are separated by one blank line, and no page numbers or markers are added. Typefaces, bold, colour, pictures and ruled lines are left behind.",
+          "The file is UTF-8, so any script comes through as long as the PDF maps its letters back to characters. A font embedded without that map gives wrong characters or none, and this tool cannot repair them.",
+        ],
+      },
+      {
+        id: "reading-order",
+        heading: "Reading order, columns and tables",
+        body: [
+          "Where a PDF stores its text out of step with the page, the extractor puts it back in reading order: a heading stored after the text under it, a running header stored last, or a page number stored first is moved to where it reads. A page stored a column at a time comes out a column at a time, and a page with rotated or vertical text keeps the order stored in the file.",
+          "Horizontal alignment is lost. Columns and table cells come out as plain text, split by spaces and line breaks, so a table will not line up in a text editor.",
+          `If you want paragraphs and obvious list lines kept as Markdown instead of plain text, ${nameOf("pdf-to-markdown")} reads the same selectable text, also in your browser.`,
+        ],
+      },
+      {
+        id: "pages-with-no-text",
+        heading: "Pages with no text, and scanned PDFs",
+        body: [
+          "When some pages give nothing, the counts say how many of the document's pages the text came from, and a note names the pages with no selectable text. They may be blank, or scanned images. When no page has any text, the result reads “No selectable text found” and no file is made.",
+          `For scanned pages, use ${nameOf("ocr-pdf")}. It recognises the words and can return them as a .txt file with its ${OCR_TEXT_MODE} output, or as a ${OCR_PDF_MODE} you can bring back here. Unlike this tool, ${nameOf("ocr-pdf")} runs on our secure server rather than in your browser.`,
+        ],
+      },
+      {
+        id: "hidden-text",
+        heading: "Hidden text comes out too",
+        body: [
+          "The extractor reads every character stored on the page, not only the ones you can see. White lettering, words under a black box drawn on top of them, and the invisible layer an OCR pass adds are all extracted, which makes this a quick test of whether a redaction really removed the words.",
+          `Answers typed into fillable form fields belong to the form, not the page, so they are not extracted. Run the file through ${nameOf("flatten-pdf")} first, which also works in your browser, and the entries become page text.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Is my PDF sent anywhere when I extract the text?",
+        answer:
+          "No. The text is read in your browser tab and the .txt file is made there too, so the PDF stays on your device from start to finish.",
+      },
+      {
+        question: "What does “No selectable text found” mean?",
+        answer: `No page of the PDF stores characters, usually because the pages are scans or photos, or the lettering was turned into outlines. ${nameOf("ocr-pdf")} can recognise the words and return a .txt file, but it runs on our secure server rather than in your browser.`,
+      },
+      {
+        question: "Are columns and tables kept?",
+        answer:
+          "A new line on the page becomes a new line in the file, but horizontal alignment is lost. Columns and table cells come out as plain text split by spaces and line breaks.",
+      },
+      {
+        question: "Why are my form entries missing from the text?",
+        answer: `Entries typed into fillable fields are part of the form, not the page, so they are not extracted. Flatten the PDF first with ${nameOf("flatten-pdf")}, then extract the text from the flattened copy.`,
+      },
+      {
+        question: "Can it read a password-protected PDF?",
+        answer: `Not one that needs a password to open: it stops while loading and says the file is password-protected. ${nameOf("unlock-pdf")} removes that password if you know it, but it runs on our secure server. A PDF that opens without a password, even one set to forbid copying, is read like any other.`,
+      },
+    ],
+    published: "2026-10-31",
+    updated: "2026-10-31",
+  },
+  {
+    slug: "how-to-convert-a-pdf-to-black-and-white",
+    title: "How to convert a PDF to black and white",
+    description: `Turn a color PDF into shades of gray for printing, right in your browser. Choose ${GRAY_SCREEN.dpi} or ${GRAY_PRINT.dpi} DPI; pages become images, so keep the original.`,
+    tools: ["grayscale-pdf", "pdf-to-png", "ocr-pdf"],
+    keywords: [
+      "how to convert a pdf to black and white",
+      "pdf to black and white",
+      "convert pdf to grayscale",
+      "make pdf grayscale",
+      "black and white pdf for printing",
+      "remove color from pdf",
+    ],
+    intro: [
+      `To make a PDF black and white, open ${nameOf("grayscale-pdf")}, add your PDF, choose an output quality, press Convert to grayscale, and download the copy. Every page comes back in shades of gray, ready for a monochrome printer or a portal that asks for grayscale files.`,
+      "Shades of gray, not pure black and white: each pixel becomes a brightness value that counts green most and blue least, so pure red and pure green end up as two different grays. Nothing is pushed to solid black or white, so photos and shaded charts keep their tones.",
+      `The conversion runs in your browser with pdf.js, so your PDF stays on your device and there is no account to create. It takes one PDF of up to ${ceilingMb("grayscale-pdf")} MB.`,
+    ],
+    steps: [
+      `Open the ${nameOf("grayscale-pdf")} tool.`,
+      "Drop your PDF on the panel that says “Drop your PDF here, or browse”, or click it to choose the file.",
+      `Under Output quality, choose ${GRAY_PRESET_CHOICES}. ${GRAY_PRINT.label} is selected to start; ${GRAY_SCREEN.label} draws fewer pixels per page and usually makes a smaller file.`,
+      "Press Convert to grayscale. A progress count follows each page, and the new PDF is put together after the last one.",
+      `Press Download grayscale PDF. The copy is named after your file, so report.pdf becomes ${GRAY_EXAMPLE_OUT}.`,
+    ],
+    sections: [
+      {
+        id: "pages-become-images",
+        heading: "Every page becomes an image",
+        body: [
+          "The tool draws each page to an image, turns it gray, and builds a new PDF from those images alone, each page at the size the original shows it. Each page image is stored as a single-channel gray image, either losslessly compressed or as a JPEG, whichever is smaller for that page.",
+          `So the copy is for printing or submitting, not for editing. Text can no longer be selected or searched, sharp vector lines become pixels, and links and bookmarks do not carry over. Form fields and comments are painted in from their saved appearance, so they can no longer be filled in or clicked. The new file's title is the original's with the word grayscale added in brackets, as in ${GRAY_EXAMPLE_TITLE}, or is made from the file name when the original has no title. Keep the original alongside it.`,
+        ],
+      },
+      {
+        id: "file-size",
+        heading: "Why the file can get bigger",
+        body: [
+          `A page of text is a few drawing instructions in the original and a full picture in the copy, so a text-only PDF usually grows, often by a lot. A scanned or photo-heavy PDF can shrink instead. The result shows both sizes, and when the copy is larger it says so: “${GRAYSCALE_GREW_NOTE}”`,
+          `${GRAY_SCREEN.label} (${GRAY_SCREEN.dpi} DPI) draws fewer pixels per page than ${GRAY_PRINT.label} (${GRAY_PRINT.dpi} DPI), so it gives a lighter file that reads well on a monitor. ${GRAY_PRINT.label} keeps small type and fine lines crisper on paper.`,
+        ],
+      },
+      {
+        id: "printing-and-portals",
+        heading: "Printers, portals and charts",
+        body: [
+          "Converting before you print sends the printer gray pixels instead of leaving the color-to-gray mapping to its driver, and you can check the result on screen first. A print shop's or a portal's check that reads the declared color space reports grayscale, because no page image is stored in color. A check that also expects live text or vector artwork will not find any.",
+          "Two chart series told apart only by hue, with similar brightness, come out as nearly the same gray. A quick conversion flags a chart that needs patterns or labels before it goes on black-and-white handouts.",
+        ],
+      },
+      {
+        id: "related-tools",
+        heading: "Gray images, or searchable text again",
+        body: [
+          `If you want gray page images rather than a PDF, ${nameOf("pdf-to-png")} has a ${PNG_GRAY} option under Colour, and it also runs in your browser.`,
+          `To make the gray copy searchable again, run it through ${nameOf("ocr-pdf")}, which adds a recognised text layer; ${GRAY_PRINT.label} gives it more pixels to read. Unlike this tool, ${nameOf("ocr-pdf")} runs on our secure server rather than in your browser.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Will the pages be pure black and white, with no gray?",
+        answer:
+          "No. The tool converts to grayscale: every color becomes a shade of gray, and nothing is forced to solid black or white. Black text on a white page stays black on white; photos, colored areas and shading become gray tones.",
+      },
+      {
+        question: "Is my PDF sent anywhere when I convert it?",
+        answer: `No. Drawing the pages, turning them gray and building the new PDF all happen in your browser tab, so the PDF stays on your device. ${offlineAnswer("grayscale-pdf")}`,
+      },
+      {
+        question: "Can I still select or search the text afterwards?",
+        answer: `No. Each page is stored as one image, so the text is part of the picture. ${nameOf("ocr-pdf")} can add a recognised text layer to the gray copy, but it runs on our secure server rather than in your browser.`,
+      },
+      {
+        question: "Why is the gray PDF bigger than the original?",
+        answer: `Because every page is now a picture. A text-only PDF usually grows, while a scanned one can shrink. ${GRAY_SCREEN.label} draws fewer pixels than ${GRAY_PRINT.label} and usually makes a smaller file.`,
+      },
+      {
+        question: "Does it work on password-protected PDFs?",
+        answer: `No. Any encrypted PDF is turned away when you choose it, including one that opens without a password but restricts printing or copying, and the message says which lock it has. ${nameOf("unlock-pdf")} removes the encryption if you give it the password, but it runs on our secure server; bring the unlocked copy back here.`,
       },
     ],
     published: "2026-10-31",

@@ -31,6 +31,10 @@
     "contentHash": "7c28882f37a5b9a585c41aed922381c37f5e808d3187448b1153dccd7f402fd4",
     "updated": "2026-10-31"
   },
+  "how-to-convert-a-pdf-to-black-and-white": {
+    "contentHash": "ddadfab6d93831dce9292a5641436125443cef418855483b0e775c17b40f74d0",
+    "updated": "2026-10-31"
+  },
   "how-to-convert-a-webpage-to-pdf": {
     "contentHash": "3e021519de177639ed59bcd3e206f77c79159667e7882aca9d8d04393e49289f",
     "updated": "2026-10-30"
@@ -60,12 +64,24 @@
     "updated": "2026-10-30"
   },
   "how-to-convert-pdf-to-jpg": {
-    "contentHash": "718ab521d28ed77cb65456c8e2545f20ef36a367c5592d3731b1ba2fd8516ba9",
-    "updated": "2026-09-27"
+    "contentHash": "f8ed7ea6288d3681e574d2914449d8492aefd4d7e43fe67ff7fc4d2fff0d3885",
+    "updated": "2026-10-31"
+  },
+  "how-to-convert-pdf-to-pdfa": {
+    "contentHash": "6127f3fbb279fa756d07affdd41075001e06bd05db2840601f2388d6e5d547dd",
+    "updated": "2026-10-31"
+  },
+  "how-to-convert-pdf-to-png": {
+    "contentHash": "6a0c5749bd021824be65780c1ecbec938feaf384aaea1947304627ed7936c2d1",
+    "updated": "2026-10-31"
   },
   "how-to-convert-pdf-to-powerpoint": {
     "contentHash": "c115298772f339661881f9d5fe078d3a8d2fb18529d2e36835696cbb8f54f85b",
     "updated": "2026-10-30"
+  },
+  "how-to-convert-pdf-to-text": {
+    "contentHash": "269a10f1853d22069d4cf3604663da7baff97906e24cf62b62ee379265723a5c",
+    "updated": "2026-10-31"
   },
   "how-to-convert-pdf-to-word": {
     "contentHash": "c525695a44f4ca4cb0391c0f0a24100f11b5f9deb46808c4b26ffd7dab6065ad",
