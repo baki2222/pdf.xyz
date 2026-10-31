@@ -1045,6 +1045,9 @@ function loopHealth(summary: DaemonRunSummary): HealthClass {
   // look; terminal job failures likewise (a spike is the docs' alerting signal).
   if (summary.reason === "queue_error") return "warn";
   if (summary.errors > 0 || summary.failed > 0) return "warn";
+  // An attempt that lost its lease means a worker stalled (or was partitioned)
+  // past its renewal window and another attempt took the job: worth a look.
+  if (summary.leaseLost > 0) return "warn";
   return "ok";
 }
 

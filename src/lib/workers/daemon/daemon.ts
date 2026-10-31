@@ -140,6 +140,8 @@ export interface DaemonRunSummary {
   failed: number;
   requeued: number;
   canceled: number;
+  /** Ticks whose attempt lost its lease and let go of the job (see executor). */
+  leaseLost: number;
   idle: number;
   errors: number;
   reason: DaemonStopReason;
@@ -234,6 +236,7 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
       failed: 0,
       requeued: 0,
       canceled: 0,
+      leaseLost: 0,
       idle: 0,
       errors: 0,
       reason: "stopped",
@@ -253,6 +256,9 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
           break;
         case "canceled":
           summary.canceled += 1;
+          break;
+        case "lease_lost":
+          summary.leaseLost += 1;
           break;
         case "idle":
           summary.idle += 1;
@@ -328,7 +334,7 @@ export function createWorkerDaemon(deps: WorkerDaemonDeps): WorkerDaemon {
         // Work arrived: drop back to the fast cadence, because more is likely.
         consecutiveIdle = 0;
       }
-      // A productive outcome (completed/failed/requeued/canceled) loops straight
+      // A productive outcome (completed/failed/requeued/canceled/lease_lost) loops straight
       // into the next claim with no sleep, so a busy queue drains at full speed.
     }
   }

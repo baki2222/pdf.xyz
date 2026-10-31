@@ -9,9 +9,10 @@
  * for its tool, writes the produced artifacts, and drives the job to a terminal
  * state — handling cancellation, retryable-vs-terminal failures, and artifact
  * cleanup along the way. It is dependency-injected and node-free, so it is unit
- * tested deterministically with a fake clock and in-memory queue/storage; it does
- * NOT start any timer, thread, or long-running process, so importing it never
- * spins up a background service in the app runtime.
+ * tested deterministically with a fake clock and in-memory queue/storage. Importing
+ * it starts nothing: the only timer it ever creates is the lease-renewal interval
+ * of a job it has claimed, started after the claim and cleared before `runOnce`
+ * returns on every path (see {@link leaseRenewalIntervalMs}).
  *
  * Honesty and privacy guarantees:
  *  - a job is `completed` only after real artifact bytes were written;
@@ -36,9 +37,9 @@
  *    number, and an error code — never bytes, filenames, keys, or paths.
  */
 
-import type { JobArtifact, JobError } from "@/lib/jobs";
+import type { JobArtifact, JobError, JobStatus } from "@/lib/jobs";
 import { sanitizeDisplayFilename } from "@/lib/jobs/filenames";
-import type { ClaimableQueue } from "../queue/claim";
+import type { ClaimableQueue, ClaimedJob } from "../queue/claim";
 import type { ProcessorInputFile } from "../processor/types";
 import type { ProcessorRegistry } from "../processor/registry";
 import type { MalwareScanner } from "../scanner/types";
@@ -153,7 +154,8 @@ export interface ExecutorDeps {
    * `metrics` is present) and to stamp a quarantine receipt (read when
    * `onSoundnessReceipt` is present and the gate rejects an input). Defaults to
    * `Date.now`; tests inject a fake to make the latency bucket and receipt timestamp
-   * deterministic. It never influences orchestration logic.
+   * deterministic. It never influences orchestration logic (lease renewal reads
+   * the wall clock — the clock its timers run on — not this one).
    */
   now?: () => number;
 }
@@ -167,6 +169,8 @@ function processorOutcomeFromTick(outcome: ExecutorOutcome): ProcessorOutcome {
       return "requeued";
     case "canceled":
       return "canceled";
+    case "lease_lost":
+      return "lease_lost";
     default:
       return "failed";
   }
@@ -269,6 +273,40 @@ const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 
 /**
+ * How often a claimed job's lease is renewed while the job runs: a third of the
+ * lease, so two consecutive renewals can fail transiently (a broker blip) and the
+ * third still lands before the lease lapses.
+ *
+ * WHY THIS EXISTS. The executor used to claim with a 30 s lease and never renew
+ * it, although `ClaimedJob.leaseExpiresAt` says the executor "must finish or
+ * heartbeat before it". Deep compression (120 s timeout), OCR and office
+ * conversion routinely outlive 30 s, so every such job became claimable again
+ * while it was still running — duplicated work, and two attempts racing to
+ * complete one job. `executor.lease.test.ts` holds the property (a job running 3x
+ * its lease is never claimable by a second worker), through both queues.
+ */
+export function leaseRenewalIntervalMs(leaseMs: number): number {
+  return Math.max(1, Math.floor(leaseMs / 3));
+}
+
+/** Statuses in which a job is still alive in the queue — owned by an attempt, or waiting for one. */
+const LIVE_STATUSES: readonly JobStatus[] = [
+  "queued",
+  "scanning",
+  "processing",
+];
+
+/** The lease-renewal loop of one claimed job. */
+interface LeaseRenewal {
+  /** Aborted the moment a renewal is REJECTED (the lease is no longer this attempt's). */
+  readonly signal: AbortSignal;
+  /** True once the queue refused a renewal on ownership/state grounds (never for a transient error). */
+  rejected(): boolean;
+  /** Stop renewing. Idempotent; a renewal still in flight is ignored when it lands. */
+  stop(): void;
+}
+
+/**
  * How long a retryable requeue waits before the job is claimable again.
  *
  * Before this existed, "retry" meant three provider calls inside a few
@@ -326,14 +364,117 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
     return current.ok && current.value.status === "canceled";
   };
 
+  /**
+   * Renew a claimed job's lease on an interval until stopped, passing the claim's
+   * attempt fingerprint so a lease another attempt has taken is REJECTED by the
+   * queue's compare-and-set rather than resurrected.
+   *
+   * Only the queue can say the lease is gone, so only a non-transient refusal
+   * (`conflict` — stolen, superseded or canceled; `not_found` — the record is
+   * gone) stops renewal and aborts the processor. A transient one (`unavailable`,
+   * or a throw) is logged and retried on the next tick: if the lease really does
+   * lapse meanwhile, the reclaim bumps the attempt and the NEXT renewal is
+   * rejected, which is the signal this loop acts on.
+   */
+  function startLeaseRenewal(claimed: ClaimedJob): LeaseRenewal {
+    const { job, attempt, leaseExpiresAt } = claimed;
+    const base = { jobId: job.jobId, tool: job.tool, attempt };
+    // A queue may grant less lease than was asked (Redis caps it at its own
+    // configured ceiling); pace renewal to the grant, never to the request. Read
+    // on the wall clock the interval runs on; a queue on a different clock (a
+    // test's fixed fake) yields a nonsensical grant and falls back to leaseMs.
+    const granted = leaseExpiresAt - Date.now();
+    const effectiveLeaseMs =
+      Number.isFinite(granted) && granted > 0
+        ? Math.min(leaseMs, granted)
+        : leaseMs;
+    const controller = new AbortController();
+    let rejected = false;
+    let stopped = false;
+    let inFlight = false;
+
+    const renew = async (): Promise<void> => {
+      if (inFlight || stopped || rejected) return;
+      inFlight = true;
+      try {
+        const beat = await queue.heartbeat(job.jobId, leaseMs, attempt);
+        if (stopped || beat.ok) return;
+        if (beat.error.reason === "unavailable") {
+          log({
+            event: "lease_renew_failed",
+            ...base,
+            errorCode: beat.error.reason,
+          });
+          return;
+        }
+        rejected = true;
+        clearInterval(timer);
+        controller.abort();
+      } catch {
+        if (!stopped) {
+          log({ event: "lease_renew_failed", ...base, errorCode: "threw" });
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const timer = setInterval(() => {
+      void renew();
+    }, leaseRenewalIntervalMs(effectiveLeaseMs));
+
+    return {
+      signal: controller.signal,
+      rejected: () => rejected,
+      stop() {
+        stopped = true;
+        clearInterval(timer);
+      },
+    };
+  }
+
   async function runOnce(): Promise<ExecutorTick> {
     const claim = await queue.claim({ leaseMs });
     if (!claim.ok) return { outcome: "error" };
     if (claim.value === null) return { outcome: "idle" };
 
-    const { job, inputs, inputNames, options, delivery, attempt } = claim.value;
+    const lease = startLeaseRenewal(claim.value);
+    try {
+      return await runClaimed(claim.value, lease);
+    } finally {
+      lease.stop();
+    }
+  }
+
+  async function runClaimed(
+    claimed: ClaimedJob,
+    lease: LeaseRenewal,
+  ): Promise<ExecutorTick> {
+    const { job, inputs, inputNames, options, delivery, attempt } = claimed;
     const base = { jobId: job.jobId, tool: job.tool, attempt };
     log({ event: "claimed", ...base });
+
+    /**
+     * Why did the queue refuse a write (or a renewal) from this attempt? A
+     * refusal used to be read as "canceled" unconditionally, which, for a stolen
+     * lease, WIPED THE INPUTS the new owner was about to read. `lost` means the
+     * job is alive under another attempt (or back in the queue for one): write
+     * nothing, keep the inputs. Anything else keeps the pre-existing reading.
+     */
+    const refusalCause = async (): Promise<"canceled" | "lost"> => {
+      const current = await queue.status(job.jobId);
+      if (current.ok && current.value.status === "canceled") return "canceled";
+      if (lease.rejected()) return "lost";
+      return current.ok && LIVE_STATUSES.includes(current.value.status)
+        ? "lost"
+        : "canceled";
+    };
+
+    /** Let go of a job this attempt no longer owns: no terminal write, inputs kept. */
+    const abandon = (): ExecutorTick => {
+      log({ event: "lease_lost", ...base });
+      return { outcome: "lease_lost", jobId: job.jobId, attempt };
+    };
     // A claim past the first attempt is a redelivery (a prior lease expired or a
     // retryable requeue returned the job to the queue). Content-free — no id leaves.
     if (attempt > 1) emit(redeliveryMetric());
@@ -357,6 +498,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
         attempt,
       );
       if (!disposition.ok) {
+        if ((await refusalCause()) === "lost") return abandon();
         await wipeInputs(inputs);
         log({ event: "canceled", ...base });
         emit(jobTerminalMetric("canceled"));
@@ -529,6 +671,7 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       attempt,
     );
     if (!advanced.ok) {
+      if ((await refusalCause()) === "lost") return abandon();
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });
       emit(jobTerminalMetric("canceled"));
@@ -549,6 +692,8 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       // caller declared, and a cap recomputed here would be a second opinion
       // about a number that was already charged for.
       ...(delivery ? { delivery } : {}),
+      // Aborted if this attempt stops owning the job mid-run (see LeaseRenewal).
+      signal: lease.signal,
     });
 
     // Record the processor's wall-clock latency (bucketed at construction) for both a
@@ -591,6 +736,22 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
           log({ event: "ai_spend_unrecorded", ...base });
         }
       }
+    }
+
+    // The renewal was refused while the processor ran: this attempt no longer
+    // owns the job. Checked AFTER the spend hook above (the tokens were spent
+    // whoever owns the job) and BEFORE anything is persisted, so a stolen attempt
+    // never writes an artifact or a terminal state.
+    if (lease.rejected()) {
+      if ((await refusalCause()) === "canceled") {
+        await wipeInputs(inputs);
+        log({ event: "canceled", ...base });
+        emit(processorMetric(kind, "canceled"));
+        emit(jobTerminalMetric("canceled"));
+        return { outcome: "canceled", jobId: job.jobId, attempt };
+      }
+      emit(processorMetric(kind, "lease_lost"));
+      return abandon();
     }
 
     if (!result.ok) {
@@ -730,8 +891,9 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
       result.results,
     );
     if (!completed.ok) {
-      // The job was canceled between processing and completion — clean up the
-      // artifacts we just wrote so nothing outlives the cancellation.
+      // The job was canceled — or its lease taken by another attempt — between
+      // processing and completion. Either way clean up the artifacts we just
+      // wrote so nothing outlives the refusal.
       for (const artifact of artifacts) {
         await storage.deleteArtifact(artifact.artifactId);
       }
@@ -750,6 +912,12 @@ export function createWorkerExecutor(deps: ExecutorDeps): WorkerExecutor {
             at: new Date(now()).toISOString(),
           }),
         );
+      }
+      if ((await refusalCause()) === "lost") {
+        // Not a cancellation: the job lives on under another attempt, which
+        // still needs its inputs.
+        emit(processorMetric(kind, "lease_lost"));
+        return abandon();
       }
       await wipeInputs(inputs);
       log({ event: "canceled", ...base });
