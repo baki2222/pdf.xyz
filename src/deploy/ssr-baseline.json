@@ -118,11 +118,11 @@
         "How to compare two PDF files",
         "How to compress a PDF",
         "How to compress a PDF to 100 KB (or 200 KB)",
+        "How to convert Bangla PDF to Word",
         "How to convert JPG to PDF",
         "How to convert JPG to PDF under 100 KB (or 200 KB)",
         "How to convert Markdown to PDF",
         "How to convert WebP, GIF, or BMP images to PDF",
-        "How to convert a Bangla (Bengali) PDF or scan to editable Word",
         "How to convert a PDF to Excel",
         "How to convert a PDF to JPG or PNG images",
         "How to convert a PDF to PowerPoint",
@@ -1268,11 +1268,11 @@
       ]
     },
     "guides/how-to-convert-bangla-pdf-to-word.html": {
-      "title": "How to convert a Bangla (Bengali) PDF or scan to editable Word — pdf.xyz",
-      "description": "Turn a scanned Bengali PDF into a Word file you can edit: our server reads the Bengali text with OCR and puts it in a DOCX. বাংলা PDF থেকে Word, no account.",
+      "title": "How to convert Bangla PDF to Word — pdf.xyz",
+      "description": "Turn a scanned Bengali PDF into editable Word: our server reads the text with OCR.",
       "canonical": "https://pdf.xyz/guides/how-to-convert-bangla-pdf-to-word",
       "robots": "index, follow",
-      "h1": ["How to convert a Bangla (Bengali) PDF or scan to editable Word"],
+      "h1": ["How to convert Bangla PDF to Word"],
       "h2": [
         "Common questions",
         "Getting a good result",

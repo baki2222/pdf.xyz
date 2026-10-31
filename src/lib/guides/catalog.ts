@@ -3837,8 +3837,8 @@ export const guides: Guide[] = [
   // constants, the retention windows the ones the privacy page reads.
   {
     slug: "how-to-convert-bangla-pdf-to-word",
-    title: "How to convert a Bangla (Bengali) PDF or scan to editable Word",
-    description: `Turn a scanned ${BN} PDF into a Word file you can edit: our server reads the ${BN} text with OCR and puts it in a DOCX. বাংলা PDF থেকে Word, no account.`,
+    title: "How to convert Bangla PDF to Word",
+    description: `Turn a scanned ${BN} PDF into editable Word: our server reads the text with OCR.`,
     tools: ["pdf-to-word", "ocr-pdf"],
     keywords: [
       "bangla pdf to word",

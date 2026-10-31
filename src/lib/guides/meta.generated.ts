@@ -526,7 +526,7 @@ export const GUIDE_META: readonly GuideMeta[] = [
   },
   {
     slug: "how-to-convert-bangla-pdf-to-word",
-    title: "How to convert a Bangla (Bengali) PDF or scan to editable Word",
+    title: "How to convert Bangla PDF to Word",
     primary: "pdf-to-word",
     keywords: [
       "bangla pdf to word",
