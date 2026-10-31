@@ -1596,7 +1596,7 @@ function workerFaq(tool: Tool): ToolFaqEntry[] {
           // CHANGED 2026-10-24: "Not into text. … Run the scan through OCR
           // PDF first, then export the result" — true until the panel could
           // run OCR in the same job.
-          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. With the switch on, our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and converts its result in the same job: each page's scan then comes through as a picture, followed by its words as text.`,
+          answer: `Yes, with “${WORD_OCR_LABEL}” turned on. On its own a scanned page is a picture with no selectable text: a PDF with none at all is refused, since a document of page pictures would have nothing to edit, and in a PDF that mixes the two, each scanned page comes through as its picture, with no editable words. With the switch on, our server runs ${toolName("ocr-pdf")}'s engine first, in the languages you pick, and converts its result in the same job: each page's scan then comes through as a picture, followed by its words as text — recognised lines are not always joined back into paragraphs, so a scanned line can arrive as a paragraph of its own.`,
         },
       ];
     case "pdf-to-excel":
