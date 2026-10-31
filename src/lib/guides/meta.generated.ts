@@ -358,7 +358,7 @@ export const GUIDE_META: readonly GuideMeta[] = [
   },
   {
     slug: "how-to-ocr-a-pdf-in-other-languages",
-    title: "How to OCR a PDF in Bengali, Hindi, Arabic and other languages",
+    title: "How to OCR a PDF in Bengali, Hindi, Arabic and more",
     primary: "ocr-pdf",
     keywords: [
       "ocr pdf in other languages",

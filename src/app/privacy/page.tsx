@@ -53,7 +53,7 @@ const {
 
 export const metadata: Metadata = buildMetadata({
   title: "Privacy Policy",
-  description: `What pdf.xyz does with your files. Most tools never upload anything; the rest process on a server that deletes the upload when the job ends and stops serving the result after ${outputWindow}. No accounts, no advertising, no sale of personal data.`,
+  description: `What pdf.xyz does with your files. Most tools never upload them; server tools delete the upload when a job ends and stop serving the result after ${outputWindow}.`,
   path: "/privacy",
 });
 
