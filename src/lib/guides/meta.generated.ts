@@ -358,7 +358,7 @@ export const GUIDE_META: readonly GuideMeta[] = [
   },
   {
     slug: "how-to-ocr-a-pdf-in-other-languages",
-    title: "How to OCR a PDF in Bengali, Hindi, Arabic and other languages",
+    title: "How to OCR a PDF in Bengali, Hindi, Arabic and more",
     primary: "ocr-pdf",
     keywords: [
       "ocr pdf in other languages",
@@ -535,6 +535,57 @@ export const GUIDE_META: readonly GuideMeta[] = [
       "convert bangla scan to word",
       "বাংলা pdf থেকে word",
       "বাংলা ocr",
+    ],
+  },
+  {
+    slug: "how-to-convert-excel-to-pdf",
+    title: "How to convert Excel to PDF",
+    primary: "excel-to-pdf",
+    keywords: [
+      "how to convert excel to pdf",
+      "excel to pdf",
+      "xlsx to pdf",
+      "xls to pdf",
+      "csv to pdf",
+      "save spreadsheet as pdf",
+    ],
+  },
+  {
+    slug: "how-to-convert-powerpoint-to-pdf",
+    title: "How to convert PowerPoint to PDF",
+    primary: "powerpoint-to-pdf",
+    keywords: [
+      "how to convert powerpoint to pdf",
+      "powerpoint to pdf",
+      "pptx to pdf",
+      "ppt to pdf",
+      "save slides as pdf",
+      "convert presentation to pdf",
+    ],
+  },
+  {
+    slug: "how-to-extract-pages-from-a-pdf",
+    title: "How to extract pages from a PDF",
+    primary: "extract-pages",
+    keywords: [
+      "how to extract pages from a pdf",
+      "extract pages from pdf",
+      "save pages of a pdf as a new file",
+      "pull pages out of a pdf",
+      "select pages from pdf",
+    ],
+  },
+  {
+    slug: "how-to-summarize-a-pdf",
+    title: "How to summarize a PDF with AI",
+    primary: "summarize-pdf",
+    keywords: [
+      "how to summarize a pdf",
+      "summarize pdf",
+      "ai pdf summarizer",
+      "pdf summary",
+      "summarize a pdf online",
+      "tl;dr of a pdf",
     ],
   },
 ];
