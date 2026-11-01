@@ -50,6 +50,7 @@ import {
 import { NO_CROP, cropPdf } from "../../src/lib/pdf/crop";
 import { SCAN_PAGE_SIZES, scansToPdf } from "../../src/lib/pdf/scan-to-pdf";
 import { RESIZE_SIZES, resizePdf } from "../../src/lib/pdf/resize";
+import { splitPagesInHalf } from "../../src/lib/pdf/split-half";
 import {
   DEFAULT_N_UP_OPTIONS,
   N_UP_SHEETS,
@@ -445,6 +446,11 @@ const RESIZE_FAILS = {
 const NUP_FAILS = {
   sheets: "four pages, two to a portrait A4 sheet",
   order: "page 1 above page 2 on sheet 1, page 3 above page 4 on sheet 2",
+} as const;
+/** Why the Split Pages in Half proof (2026-11-01) rejects an artifact. */
+const SPLIT_HALF_FAILS = {
+  halves: "two 600 × 240 pages become four 300 × 240 halves",
+  order: "each page's left half (its marker) comes before its right half",
 } as const;
 
 /** Why each option-wave-2 proof (2026-10-30) rejects an artifact. */
@@ -2020,6 +2026,52 @@ export const CASES: Record<string, ToolCase> = {
     },
     rejectsBecause: [NUP_FAILS.sheets, NUP_FAILS.order],
   },
+
+  "split-pages-in-half": {
+    kind: "split-half",
+    artifact: "pdf",
+    // Two 600 × 240 spreads, split with the defaults: Left and right, Left
+    // page first, every page. Each page's marker sits at x = 20, in its
+    // LEFT half, so it must be on output pages 1 and 3 and on neither right
+    // half (pdf.js reads no text outside a page's crop box).
+    run: async (ctx) => {
+      await uploadTextPdf(ctx, "spread.pdf", { pages: 2, size: [600, 240] });
+      return runAndDownload(
+        ctx,
+        /^split pages$/i,
+        /pages split in half/i,
+        /download split pdf/i,
+      );
+    },
+    assert: async (buf) => {
+      const pages = await pdfTextPositions(buf);
+      expect(pages.length, SPLIT_HALF_FAILS.halves).toBe(4);
+      for (const page of pages) {
+        expect(
+          [Math.round(page.width), Math.round(page.height)],
+          SPLIT_HALF_FAILS.halves,
+        ).toEqual([300, 240]);
+      }
+      const has = (i: number, n: number) =>
+        pages[i]!.runs.some((r) => r.str.includes(marker("spread.pdf", n)));
+      expect(
+        [has(0, 1), has(1, 1), has(2, 2), has(3, 2)],
+        SPLIT_HALF_FAILS.order,
+      ).toEqual([true, false, true, false]);
+    },
+    // 1. the upload itself — two whole spreads, not four halves;
+    // 2. the tool's own writer with Right page first, so only which half
+    //    comes first differs.
+    control: async (ctx) => {
+      const source = input(ctx, "spread.pdf");
+      const wrong = await splitPagesInHalf(source, {
+        direction: "left-right",
+        order: "right-first",
+      });
+      return [source, Buffer.from(wrong.bytes)];
+    },
+    rejectsBecause: [SPLIT_HALF_FAILS.halves, SPLIT_HALF_FAILS.order],
+  },
 };
 
 /**
@@ -3198,6 +3250,8 @@ export const PROOF_LIMITS: Record<string, string> = {
     "Only the defaults: A4, Match each page, Scale content to fit, all pages. Change canvas only, custom sizes and units, selected pages, pages carrying /Rotate or an inset CropBox, and links moved with the content are proven in Node by src/lib/pdf/resize.test.ts, through pdf.js, not in a real browser.",
   "n-up-pdf":
     "Only the defaults: 2 per sheet, A4, Auto (portrait here), Across, then down, Small margin, no borders. 4, 6 and 9 per sheet, Down, then across, US Letter, borders and /Rotate pages are proven in Node by src/lib/pdf/n-up.test.ts, through pdf.js, not in a real browser.",
+  "split-pages-in-half":
+    "Only the defaults: Left and right, Left page first, every page, on unrotated pages. Right page first, Top and bottom, Selected pages, the two cover checkboxes, /Rotate pages and an existing CropBox are proven in Node by src/lib/pdf/split-half.test.ts, which renders every output half through pdf.js against the source page's own render, not in a real browser.",
   "sign-pdf":
     "Only the TYPED signature source is exercised. The drawn-signature path (signature-pad.tsx) needs real pointer strokes on a canvas, and the uploaded-image source is untested.",
   "annotate-pdf":

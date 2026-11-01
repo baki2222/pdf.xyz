@@ -105,6 +105,8 @@ describe("the copy surface reaches what the guards must read", () => {
       "src/lib/pdf/metadata.ts",
       "src/lib/pdf/resize.ts",
       "src/lib/pdf/n-up.ts",
+      // Added 2026-11-01: Split Pages in Half's phrase module.
+      "src/lib/pdf/split-half.ts",
       "src/lib/workers/read-error.ts",
       // Added 2026-10-31: the lost-attempt error's two sentences. The executor
       // discards that result, but a log or a job record could carry them.

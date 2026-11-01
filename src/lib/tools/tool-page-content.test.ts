@@ -440,6 +440,9 @@ const NAMES_WITHOUT_HEAD_TERM = [
   "page-numbers",
   "remove-pages",
   "request-signatures",
+  // Added 2026-11-01: "Split Pages in Half" is the phrase competitors and
+  // searchers use for the job; its seoTitle leads with "Split PDF Pages".
+  "split-pages-in-half",
   "watermark-pdf",
 ];
 

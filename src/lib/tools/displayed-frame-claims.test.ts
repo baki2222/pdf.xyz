@@ -292,6 +292,9 @@ describe("pages whose engine reads the displayed frame do not describe the store
       "redact-pdf",
       "resize-pdf",
       "sign-pdf",
+      // Joined 2026-11-01: each half is half of the visible frame (CropBox,
+      // turned by /Rotate), and the page says halves are cut as displayed.
+      "split-pages-in-half",
       "watermark-pdf",
     ]);
     expect(FRAME_FUNCTIONS.has("visiblePageFrame")).toBe(true);

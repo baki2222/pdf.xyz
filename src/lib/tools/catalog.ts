@@ -50,8 +50,21 @@ export const tools: Tool[] = [
     featured: true,
     accept: ["PDF"],
     outputs: ["PDF", "ZIP"],
-    keywords: ["split pdf", "separate pdf", "extract range", "divide pdf"],
-    related: ["merge-pdf", "extract-pages", "organize-pages"],
+    keywords: [
+      "split pdf",
+      "separate pdf",
+      "extract range",
+      "divide pdf",
+      // Added 2026-11-01 with Split Pages in Half, whose NAME holds the
+      // phrase: the redesign spec wants "split pages" to open Split PDF first.
+      "split pages",
+    ],
+    related: [
+      "merge-pdf",
+      "extract-pages",
+      "split-pages-in-half",
+      "organize-pages",
+    ],
   },
   {
     slug: "organize-pages",
@@ -141,6 +154,21 @@ export const tools: Tool[] = [
     outputs: ["PDF"],
     keywords: ["n-up pdf", "pages per sheet", "2 up pdf"],
     related: ["organize-pages", "resize-pdf", "merge-pdf"],
+  },
+  {
+    slug: "split-pages-in-half",
+    name: "Split Pages in Half",
+    tagline: "Cut two-page scans into single pages.",
+    description:
+      "Cut each page of a scanned book or two-page spread into two pages, left and right or top and bottom, with covers kept whole. Runs in your browser.",
+    category: "organize",
+    icon: "splitHalf",
+    processing: "client",
+    badge: "new",
+    accept: ["PDF"],
+    outputs: ["PDF"],
+    keywords: ["split pages in half", "split scanned book", "two page spread"],
+    related: ["crop-pdf", "split-pdf", "redact-pdf"],
   },
 
   // ─────────────────────────────── Optimize ───────────────────────────────
@@ -685,7 +713,13 @@ export const tools: Tool[] = [
     accept: ["PDF"],
     outputs: ["PDF"],
     keywords: ["crop pdf", "trim margins", "cut pdf", "resize pages"],
-    related: ["rotate-pdf", "redact-pdf", "organize-pages", "edit-pdf"],
+    related: [
+      "rotate-pdf",
+      "redact-pdf",
+      "organize-pages",
+      "edit-pdf",
+      "split-pages-in-half",
+    ],
   },
   {
     slug: "resize-pdf",

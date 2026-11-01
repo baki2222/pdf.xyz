@@ -106,6 +106,7 @@ export const RUNNER_FILE_CEILINGS: Record<RunnerKind, number> = {
   metadata: MAX_PDF_BYTES,
   resize: MAX_PDF_BYTES,
   "n-up": MAX_PDF_BYTES,
+  "split-half": MAX_PDF_BYTES,
 };
 
 /**

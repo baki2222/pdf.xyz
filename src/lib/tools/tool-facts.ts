@@ -33,7 +33,10 @@ import {
   AI_CHARACTER_ALLOWANCE_DELIVERED,
   aiAllowanceFactFor,
 } from "@/lib/jobs/ai-allowance";
-import { CROP_KEEPS_CONTENT } from "@/lib/pdf/crop-disclosure";
+import {
+  CROP_KEEPS_CONTENT,
+  SPLIT_HALF_KEEPS_CONTENT,
+} from "@/lib/pdf/crop-disclosure";
 import { capabilityForMode, getToolInputKind } from "@/lib/jobs/capabilities";
 import { HYBRID_SUMMARY } from "./processing";
 import { OCR_LANGUAGES, MAX_OCR_LANGUAGES } from "@/lib/jobs/ocr";
@@ -582,6 +585,14 @@ const FACTS: Record<string, readonly ToolFact[]> = {
       value: CROP_KEEPS_CONTENT,
     },
   ],
+  // The halves are crop boxes (split-half.ts), so the page carries Crop's
+  // disclosure in its own words; pinned in crop-disclosure.test.tsx.
+  "split-pages-in-half": [
+    {
+      label: "Hidden, not deleted",
+      value: SPLIT_HALF_KEEPS_CONTENT,
+    },
+  ],
   // Was "Eight element types, including text, boxes, lines, images, and filled
   // shapes" over an editor with four — a filled box is an option on the box.
   // Then, correctly, the coordinate form's four; since 2026-10-24 the
@@ -852,6 +863,7 @@ export const RUNNER_MID_RUN_FETCHES: Readonly<
   metadata: [],
   resize: [],
   "n-up": [],
+  "split-half": [],
 };
 
 /** The document-dependent fetches the tool behind `slug` can make mid-run. */

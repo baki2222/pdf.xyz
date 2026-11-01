@@ -29,6 +29,7 @@ import {
 } from "./engine";
 import { combineRanges, splitPdfBySize } from "./split-modes";
 import { mergeAlternating } from "./merge-alternate";
+import { splitPagesInHalf } from "./split-half";
 import { loadPdfjs } from "./pdfjs";
 import { buildSplitParts, rangesPerPage } from "./ranges";
 import type { OrganizePlanItem } from "./types";
@@ -1351,6 +1352,32 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
   };
 
   /**
+   * Subset carriers that keep EVERY page and repeat some, each repeat in
+   * place after its page: Split Pages in Half (2026-11-01) gives each split
+   * page two copies, one per half. `KEPT` is not a part they can produce
+   * either, so each is held to `organizePages` given the same sequence of
+   * pages — Organize's duplicate path is the one `assemblePages` runs for
+   * both — and everything SUBSET_TOOLS proves of organizePages carries over.
+   */
+  const DUPLICATING_SUBSET_TOOLS: Record<
+    string,
+    { run: (bytes: Uint8Array) => Promise<Uint8Array>; sequence: number[] }
+  > = {
+    splitPagesInHalf: {
+      run: async (b) =>
+        (
+          await splitPagesInHalf(b, {
+            direction: "left-right",
+            order: "left-first",
+            pages: KEPT,
+          })
+        ).bytes,
+      // Pages 1, 3 and 5 split; 2 and 4 whole.
+      sequence: [0, 0, 1, 2, 2, 3, 4, 4],
+    },
+  };
+
+  /**
    * The engine's own answer to "which tools carry a subset's document state":
    * every exported function that assembles with `documentState: "subset"`. A
    * new subset tool joins this set without anyone naming it. (Until d4b37dd
@@ -1392,6 +1419,7 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
       [
         ...Object.keys(SUBSET_TOOLS),
         ...Object.keys(CONSECUTIVE_SUBSET_TOOLS),
+        ...Object.keys(DUPLICATING_SUBSET_TOOLS),
       ].sort(),
     );
   });
@@ -1414,6 +1442,28 @@ describe("page tools keep the document's bookmarks, page labels and metadata", (
       // Positive control: the reference is not vacuously empty.
       const first = await readAsViewer(reference[0]!.bytes);
       expect(first.outline.length).toBeGreaterThan(0);
+    });
+  }
+
+  for (const [tool, { run, sequence }] of Object.entries(
+    DUPLICATING_SUBSET_TOOLS,
+  )) {
+    it(`${tool}: carries what organizePages carries for the same page sequence`, async () => {
+      const bytes = await handbookDoc();
+      const out = await run(bytes);
+      const reference = await organizePages(
+        bytes,
+        sequence.map((sourceIndex) => ({ sourceIndex, rotation: 0 })),
+      );
+      // Health: the tool produced the sequence's page count.
+      expect((await PDFDocument.load(out)).getPageCount()).toBe(
+        sequence.length,
+      );
+      const got = await readAsViewer(out);
+      const want = await readAsViewer(reference);
+      expect(got).toEqual(want);
+      // Positive control: the reference is not vacuously empty.
+      expect(want.outline.length).toBeGreaterThan(0);
     });
   }
 
