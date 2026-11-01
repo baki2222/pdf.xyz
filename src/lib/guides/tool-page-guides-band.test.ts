@@ -112,11 +112,36 @@ describe("each tool page's Guides band points the right way", () => {
     const withBand = [...pages].filter(([, html]) => bandCards(html) !== null);
     // Every tool some guide lists could carry a band; there are 11+ guides
     // with up to three tools each, so a census with a handful is broken.
+    // The floor WAS `guides.length`, a guide count standing in for a page
+    // count: true while guides were fewer than banded pages, and red
+    // 2026-10-31 at 54 guides over 52 banded pages with nothing wrong. Every
+    // guide's PRIMARY tool page must carry a band (a guide never reverses
+    // its own primary), so their distinct count is the floor the property
+    // actually implies.
+    const primaries = new Set(guides.map((g) => g.tools[0]));
+    expect(primaries.size, "distinct primary tools").toBeGreaterThan(20);
     expect(
       withBand.length,
       withBand.map(([s]) => s).join(", "),
-    ).toBeGreaterThanOrEqual(guides.length);
-    expect(withBand.length).toBeLessThan(tools.length);
+    ).toBeGreaterThanOrEqual(primaries.size);
+    for (const slug of primaries)
+      expect(
+        withBand.some(([s]) => s === slug),
+        `${slug} is a guide's primary tool but its page has no Guides band`,
+      ).toBe(true);
+    // INVERTED 2026-10-31 (history kept): this was
+    // `expect(withBand.length).toBeLessThan(tools.length)`, a ceiling meant
+    // to catch a parser that sees a band on every page. Its premise was that
+    // some tool has no guide; with PNG to PDF, HTML to PDF, Overlay PDF and
+    // Optimize PDF for Web every tool is a guide's primary, so every page
+    // carries a band and the ceiling went red with nothing wrong. The
+    // property it stood for is that the parser keys on the band itself, so
+    // that is asked directly: a real banded page with its band heading
+    // renamed must parse as no band.
+    expect(withBand.length).toBeLessThanOrEqual(tools.length);
+    const [, sample] = withBand[0]!;
+    expect(bandCards(sample)).not.toBeNull();
+    expect(bandCards(sample.replace(">Guides</h2>", ">Other</h2>"))).toBeNull();
 
     // Positive control for the rule: the RAW relationship (every guide that
     // lists a tool) contains reverse-direction guides. If it did not, the

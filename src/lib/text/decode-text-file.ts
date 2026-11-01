@@ -180,12 +180,12 @@ export function describeDecoding(decoded: DecodedTextFile): string | null {
   if (decoded.basis === "fallback") {
     parts.push(
       `This file is not UTF-8, so it was read as ${GUESSED[decoded.encoding]}. ` +
-        "If any characters look wrong, re-save the file as UTF-8 and upload it again.",
+        "If any characters look wrong, re-save the file as UTF-8 and add it again.",
     );
   } else if (decoded.basis === "nul-pattern") {
     parts.push(
       `This file has no byte-order mark, so it was read as ${GUESSED[decoded.encoding]}. ` +
-        "If the text looks wrong, re-save the file as UTF-8 and upload it again.",
+        "If the text looks wrong, re-save the file as UTF-8 and add it again.",
     );
   }
   if (decoded.removedControls > 0) {
