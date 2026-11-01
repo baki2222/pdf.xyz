@@ -6063,4 +6063,79 @@ export const guides: Guide[] = [
     published: "2026-11-01",
     updated: "2026-11-01",
   },
+  // OCR PDF's "Straighten crooked pages" (#262): OCRmyPDF --deskew, read off
+  // ocr-native.ts, jobs/ocr.ts and ocr-worker-panel.tsx. Only pages with no
+  // text yet (--skip-text copies a page with text through); not with Redo
+  // existing OCR (the route refuses the pair); PDF only (a JPG or PNG goes to
+  // Tesseract, which has no deskew step); a page it straightens is saved as a
+  // new image. Proven on production 2026-11-01 (worker 5f1aa6bb5884): a 3.5°
+  // scan came back at 0.09° with deskew on and 3.50° with it off, both
+  // searchable, 388,248 B against 256,037 B. No angle range is claimed, and
+  // nothing turns a sideways page upright.
+  {
+    slug: "how-to-straighten-a-scanned-pdf",
+    title: "How to straighten a crooked scanned PDF (deskew)",
+    description:
+      "Level the pages of a PDF that went through the scanner at a slight angle, and make it searchable in the same step. Runs on our secure server.",
+    tools: ["ocr-pdf", "rotate-pdf"],
+    keywords: [
+      "deskew pdf",
+      "straighten scanned pdf",
+      "fix crooked scan pdf",
+      "straighten pdf pages",
+      "deskew scanned document",
+      "scanned pdf is tilted",
+    ],
+    intro: [
+      `To straighten a scanned PDF whose pages went through the scanner at a slight angle, open ${nameOf("ocr-pdf")}, add the PDF, tick “Straighten crooked pages” and press Recognize text. Each crooked page is turned level before its words are read, so the file you download is straight and searchable at once.`,
+      `The work happens on our secure server, not in your browser. The PDF, up to ${ceilingMb("ocr-pdf")} MB, uploads over an encrypted connection and is deleted when the job ends, and the download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes.`,
+    ],
+    steps: [
+      `Open the ${nameOf("ocr-pdf")} tool and drop your PDF on the box that says “Add a scan to OCR, or”, or click browse to pick it.`,
+      `Under Languages, select the language your pages are written in, and keep ${ocrModeLabel("searchable-pdf")} under Output.`,
+      "Tick “Straighten crooked pages”, and leave “Redo existing OCR” off: the two cannot be used together.",
+      "Press Recognize text. The file uploads when you press it, and the button shows the job's progress.",
+      "When the job finishes, press the download button that appears, which is named after the file: scan.pdf comes back as scan-ocr.pdf.",
+    ],
+    sections: [
+      {
+        id: "which-pages",
+        heading: "Which pages it straightens",
+        body: [
+          "Straightening works on scanned pages that have no text yet, which is what a scanner or a phone app usually produces. A page that already has text, typed or recognised before, is kept exactly as it is, so it is not straightened. That is why it cannot be combined with “Redo existing OCR”, which would recognise those pages again.",
+          "It takes a PDF. A JPG or PNG added to the same tool is read as it is, without straightening, and the tickbox turns itself off for one. Each page it straightens is saved as a new, level image of that page rather than the original picture, so the downloaded file can be larger than the scan you started with.",
+        ],
+      },
+      {
+        id: "sideways-pages",
+        heading: "Sideways or upside-down pages",
+        body: [
+          `Straightening is for a slight tilt, the few degrees a page picks up in a feeder or on the glass. It does not turn a page that was scanned sideways or upside down. For those, turn the pages the right way up first with ${nameOf("rotate-pdf")}, then straighten and recognise the result here.`,
+        ],
+      },
+    ],
+    faq: [
+      {
+        question: "Does straightening change how my pages look?",
+        answer:
+          "Only the crooked ones. A page it straightens is saved as a new, level image of that page; the rest keep their original pictures, with an invisible text layer added underneath so the words can be searched and copied.",
+      },
+      {
+        question: "Why was a page not straightened?",
+        answer:
+          "Usually because it already had text, which keeps a page exactly as it was. A page turned sideways is not straightened either; rotate it first. And a JPG or PNG is never straightened: only PDFs are.",
+      },
+      {
+        question: "Can I straighten a scan without making it searchable?",
+        answer:
+          "Not on its own. Straightening is part of the recognition run, so the PDF you get back is level and searchable together; the text layer is invisible and does not change how the pages look.",
+      },
+      {
+        question: "What happens to my file?",
+        answer: `It uploads over an encrypted connection to our secure server and is deleted when the job ends, whether it succeeds or not. The download link stops working after ${DEFAULT_RETENTION.outputTtlMinutes} minutes, and a daily storage rule erases the stored copy after that.`,
+      },
+    ],
+    published: "2026-11-01",
+    updated: "2026-11-01",
+  },
 ];
