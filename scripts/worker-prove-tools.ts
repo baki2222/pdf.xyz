@@ -196,6 +196,16 @@ import {
   wrongLanguageVerdict,
 } from "@/lib/probes/bengali-ocr-proof";
 import { bengaliProofHtml } from "@/tests/bengali-ocr-fixtures";
+import {
+  DESKEW_SENTINEL,
+  FIXTURE_SKEW_DEGREES,
+  SKEW_TOLERANCE_DEGREES,
+  STRAIGHT_DEGREES,
+  greyOf,
+  measureBarSkew,
+  skewedBarsPage,
+} from "@/lib/workers/ocr-deskew-proof";
+import { renderPdfPages } from "@/tests/pdf-render";
 
 const BASE = process.env.BASE ?? "https://pdf.xyz";
 /** When set, every downloaded artifact is also written here (see its use). */
@@ -556,6 +566,53 @@ async function pdfPlainText(bytes: Buffer): Promise<string> {
   return text.replace(/\s+/g, " ");
 }
 
+/**
+ * OCR's "Straighten crooked pages" at the deployment: the worker-image
+ * proof's own crooked scan (`ocr-deskew-proof.ts`: four bars and rows of
+ * text, turned 3.5°, made pixels only), measured on the downloaded PDF with
+ * the same instrument and thresholds. The image proof shows the ENGINE
+ * straightens; this one shows the deployed path does — panel options through
+ * the route, the queue and the worker that is actually running.
+ */
+async function crookedScan(): Promise<Buffer> {
+  return Buffer.from(
+    await scanOfFirstPage(await skewedBarsPage(FIXTURE_SKEW_DEGREES), 2000),
+  );
+}
+
+async function deskewVerdict(
+  bytes: Buffer,
+  want: "straight" | "crooked",
+): Promise<{ ok: boolean; detail: string }> {
+  const [page] = await renderPdfPages(new Uint8Array(bytes), 1100);
+  if (!page)
+    return { ok: false, detail: "the downloaded PDF rendered no page" };
+  let degrees: number;
+  try {
+    degrees = measureBarSkew(greyOf(page)).degrees;
+  } catch (error) {
+    return { ok: false, detail: `instrument: ${(error as Error).message}` };
+  }
+  const level =
+    want === "straight"
+      ? Math.abs(degrees) < STRAIGHT_DEGREES
+      : Math.abs(degrees - FIXTURE_SKEW_DEGREES) <= SKEW_TOLERANCE_DEGREES;
+  const text = await pdfPlainText(bytes);
+  const words = DESKEW_SENTINEL.split(" ");
+  const found = words.filter((w) => text.includes(w)).length;
+  // Searchable is the tool's job either way; the angle is what the option
+  // changes. The control is crooked AND must still be read.
+  const ok = level && found === words.length;
+  return {
+    ok,
+    detail: `page 1 measures ${degrees.toFixed(2)}° (want ${
+      want === "straight"
+        ? `under ${STRAIGHT_DEGREES}°`
+        : `~${FIXTURE_SKEW_DEGREES}°, deskew off`
+    }); ${found} of ${words.length} sentinel words in the text layer`,
+  };
+}
+
 function csvFile(): Buffer {
   return Buffer.from("Region,Q1,Q2\nNorth,1200,1350\nSouth,980,1020\n", "utf8");
 }
@@ -849,6 +906,36 @@ const SPECS: ProofSpec[] = [
     // file; the pure-scan `imagePdf` proof above can never hit it. The same
     // verdict runs through real poppler in `ocr-native.test.ts`.
     verify: (bytes) => mixedSidecarVerdict(bytes),
+  },
+  // "Straighten crooked pages" (2026-11-01, #262). The pair is the proof:
+  // ON must come back level, and OFF — the same scan, the same path — must
+  // come back at the fixture's angle, so a level ON cannot be an instrument
+  // that reads every page as level.
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (deskew)",
+    make: crookedScan,
+    name: "crooked.pdf",
+    type: PDF_MIME,
+    options: { languages: ["eng"], outputMode: "searchable-pdf", deskew: true },
+    expect: isPdf,
+    want: "a level searchable PDF",
+    verify: (bytes) => deskewVerdict(bytes, "straight"),
+  },
+  {
+    tool: "ocr-pdf",
+    label: "ocr-pdf (deskew off control)",
+    make: crookedScan,
+    name: "crooked.pdf",
+    type: PDF_MIME,
+    options: {
+      languages: ["eng"],
+      outputMode: "searchable-pdf",
+      deskew: false,
+    },
+    expect: isPdf,
+    want: "a still-crooked searchable PDF",
+    verify: (bytes) => deskewVerdict(bytes, "crooked"),
   },
   {
     tool: "protect-pdf",
