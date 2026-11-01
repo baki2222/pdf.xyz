@@ -25,11 +25,11 @@ export function AnnotateRunner() {
       firstStep={
         <>
           <span className="font-semibold">Mark up:</span> Highlight is ready —
-          drag across the page where it goes. Whiteout, Draw and Note are beside
-          it in the toolbar.
+          drag across the page where it goes. Whiteout, Redact, Draw and Note
+          are beside it in the toolbar.
         </>
       }
-      emptyReason="Add a highlight, whiteout, drawing or note to a page first."
+      emptyReason="Add a highlight, whiteout, redaction, drawing or note to a page first."
       resultTitle="Annotated PDF ready"
       downloadLabel="Download annotated PDF"
       outputName={annotatedOutputName}

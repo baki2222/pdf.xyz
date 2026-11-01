@@ -60,12 +60,11 @@ import {
  *    whenever it can draw the text (Polish, Cyrillic, box drawing). Only text
  *    it cannot draw (Greek, CJK, Bengali, ⇒) reaches a proportional Noto face.
  *
- * Deliberately NOT mentioned: the result panel's "Start over" link. Its
- * `onReset` clears the source text but never calls `useAsyncRun().reset()`, so
- * the result panel stays on screen and the editor does not come back; a step
- * telling a reader to use it would be false until the runner is fixed. The
- * FAQ on several files therefore tells the reader to reload the page, which is
- * true whether or not that link is fixed.
+ * Not mentioned: the result panel's "Start over" link. HISTORY: its `onReset`
+ * once cleared the source text without `useAsyncRun().reset()`, so the result
+ * panel stayed on screen and the editor did not come back; a2333ae7 fixed it
+ * on 2026-09-27 and `runner-flows.test.tsx` drives it. The FAQ on several
+ * files tells the reader to reload the page, which was true either way.
  *
  * relatedGuides is empty because no guide in `src/lib/guides/catalog.ts`
  * covers plain text.

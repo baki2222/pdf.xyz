@@ -106,14 +106,16 @@ const LIMIT_MET = limitOutcome({
  * case told readers this step could not shrink anything.
  *
  * Deliberately NOT described:
- *  - "Start over". The runner passes `clearItems` as the result panel's
- *    `onReset`, which empties the list but never calls `useAsyncRun().reset`,
- *    so the result panel stays up (now reading "0 images") and Download PDF
- *    still serves the old PDF. Describe it once that is fixed.
- *  - relatedGuides is empty on purpose: the only JPG guide
- *    ("how-to-convert-jpg-to-pdf" in src/lib/guides/catalog.ts) tells readers
- *    to set page size, orientation and margins and says the tool is built on
- *    WebAssembly. None of that exists. Link it again once it is corrected.
+ *  - "Start over". HISTORY: until 2026-09-27 the result panel's `onReset`
+ *    (`clearItems`) emptied the list without `useAsyncRun().reset`, so the
+ *    panel stayed up reading "0 images" with the old PDF behind Download.
+ *    a2333ae7 fixed it and `runner-flows.test.tsx` drives it; it is simply
+ *    not a step worth a reader's time.
+ *  - relatedGuides is empty, and that hides nothing: it only ORDERS the
+ *    Guides band (`pageGuides` in src/lib/tools/page-copy.ts), which is
+ *    discovered from each guide's own `tools` field. HISTORY: this note once
+ *    said the JPG guide promised page size, orientation and margin controls
+ *    that did not exist; they shipped 2026-10-24 and the guide states them.
  */
 const content: ToolContent = {
   slug: "jpg-to-pdf",
