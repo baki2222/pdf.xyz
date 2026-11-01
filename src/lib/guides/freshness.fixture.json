@@ -15,6 +15,10 @@
     "contentHash": "9bd49bce554de18008d778db34f881f2f3df8388486c52103c7dd487c4c41ce3",
     "updated": "2026-10-30"
   },
+  "how-to-chat-with-a-pdf": {
+    "contentHash": "41b63a743bf16622d1e812f862122af385ba010860255a5ae7011497001e5ba8",
+    "updated": "2026-10-31"
+  },
   "how-to-combine-double-sided-scans-into-one-pdf": {
     "contentHash": "b29ac3c3a8a8c0ff68a4c6416ee3158b4a2808952f63eb471b927962bb951445",
     "updated": "2026-10-30"
@@ -65,6 +69,10 @@
   },
   "how-to-convert-pdf-to-jpg": {
     "contentHash": "f8ed7ea6288d3681e574d2914449d8492aefd4d7e43fe67ff7fc4d2fff0d3885",
+    "updated": "2026-10-31"
+  },
+  "how-to-convert-pdf-to-markdown": {
+    "contentHash": "b79a012fe7744aeea39d93e22560571239931f1bb591dca8c20f8328e7e02bed",
     "updated": "2026-10-31"
   },
   "how-to-convert-pdf-to-pdfa": {
@@ -127,6 +135,10 @@
     "contentHash": "f1cb5342b2fccc6090362cd2d9f346dc524bdd177dc8e07175dedee3a6eb259a",
     "updated": "2026-10-31"
   },
+  "how-to-extract-tables-from-a-pdf": {
+    "contentHash": "721ccf0a4bc41bda7e3d9850d0fcaca657426b54137716b7d26433c543e0feb8",
+    "updated": "2026-10-31"
+  },
   "how-to-fill-out-a-pdf-form": {
     "contentHash": "1b64f90e9934f94eeb3070969d7f84f91f5e077bf60dd2d152a93baae037813e",
     "updated": "2026-09-27"
@@ -134,6 +146,10 @@
   "how-to-flatten-a-pdf-form": {
     "contentHash": "dea28bea475bf32ea8648773832f6cb15fd856e46fa0ab40a2255eb64e2e2000",
     "updated": "2026-10-30"
+  },
+  "how-to-highlight-text-in-a-pdf": {
+    "contentHash": "5a0d77e45a085e09ab5b8d436897392ab5397bf6c4c5826cf0d9142f4e794395",
+    "updated": "2026-10-31"
   },
   "how-to-make-a-scanned-pdf-searchable": {
     "contentHash": "a1339fe30a4eabac03a1c7fe8e88d5e0eef8eb69127f0dd6cafaceb60b322891",

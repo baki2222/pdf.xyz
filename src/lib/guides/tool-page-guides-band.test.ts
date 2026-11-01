@@ -112,10 +112,23 @@ describe("each tool page's Guides band points the right way", () => {
     const withBand = [...pages].filter(([, html]) => bandCards(html) !== null);
     // Every tool some guide lists could carry a band; there are 11+ guides
     // with up to three tools each, so a census with a handful is broken.
+    // The floor WAS `guides.length`, a guide count standing in for a page
+    // count: true while guides were fewer than banded pages, and red
+    // 2026-10-31 at 54 guides over 52 banded pages with nothing wrong. Every
+    // guide's PRIMARY tool page must carry a band (a guide never reverses
+    // its own primary), so their distinct count is the floor the property
+    // actually implies.
+    const primaries = new Set(guides.map((g) => g.tools[0]));
+    expect(primaries.size, "distinct primary tools").toBeGreaterThan(20);
     expect(
       withBand.length,
       withBand.map(([s]) => s).join(", "),
-    ).toBeGreaterThanOrEqual(guides.length);
+    ).toBeGreaterThanOrEqual(primaries.size);
+    for (const slug of primaries)
+      expect(
+        withBand.some(([s]) => s === slug),
+        `${slug} is a guide's primary tool but its page has no Guides band`,
+      ).toBe(true);
     expect(withBand.length).toBeLessThan(tools.length);
 
     // Positive control for the rule: the RAW relationship (every guide that

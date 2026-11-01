@@ -103,7 +103,11 @@ describe("the guides catalogue is structurally sound", () => {
     // guide of their own — PDF to PDF/A, PDF to PNG, PDF to Text and
     // Grayscale PDF (46 → 50), written the same way, from each tool's
     // content file, runner or worker panel, and the helpers they call.
-    expect(slugs.length).toBeLessThanOrEqual(50);
+    // Revisited 2026-10-31 (UTC), after that: four more for tools with no
+    // guide of their own — Annotate PDF (as "How to highlight text in a
+    // PDF"), Chat with PDF, Extract Tables and PDF to Markdown (50 → 54),
+    // each checked first for an existing guide with the same search intent.
+    expect(slugs.length).toBeLessThanOrEqual(54);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
@@ -208,10 +212,21 @@ describe("the guides catalogue is structurally sound", () => {
     // running image"; the guide makes none — it says LibreOffice lays the
     // pages out, substitutes missing fonts and can move breaks, the same
     // caveats the tool page states and claims-vs-capability holds.
-    const KNOWN_GAPS: Record<string, string> = {
-      "chat-with-pdf":
-        "AI on the worker: answer-grounding claims need a real job against the running image",
-    };
+    // "chat-with-pdf" left the ledger 2026-10-31 when how-to-chat-with-a-pdf
+    // shipped. Its excuse was "answer-grounding claims need a real job
+    // against the running image"; the guide makes none. It states the
+    // INSTRUCTION the engine gives the model (`buildSystemPrompt` in
+    // workers/chat-with-pdf/engine.ts), says nothing checks an answer
+    // against the pages, and calls a [p.N] citation the model's pointer, to
+    // be checked by opening the page. The excuse's own exit was then met
+    // before it merged: on 2026-11-01 a real job ran against
+    // https://pdf.xyz (`worker:prove-tools "chat-with-pdf" "chat-with-pdf
+    // (follow-up)"`, 2/2 PASS). In each answer ZIP, answer.md — the file the
+    // guide says lists the cited pages — read "Cited pages: p.2", and the
+    // answer ended "[p.2]": the page CHAT_FACT_PAGE plants the fact on, not
+    // merely one in range. The follow-up sent 2 prior turns and named the
+    // asked-about team's channel, not a decoy's.
+    const KNOWN_GAPS: Record<string, string> = {};
     // Only a tool whose claims cannot be checked in this tree may be excused.
     const excusable = (slug: string): boolean => {
       const tool = getToolBySlug(slug);
