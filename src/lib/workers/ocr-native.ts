@@ -231,6 +231,11 @@ export interface NativeOcrArgsContext {
   languages: readonly string[];
   /** Replace an existing OCR text layer (`--redo-ocr`) instead of keeping it. */
   redoOcr: boolean;
+  /**
+   * Straighten skewed pages before recognition (`--deskew`). OCRmyPDF only;
+   * never together with {@link redoOcr} (a usage error in OCRmyPDF).
+   */
+  deskew: boolean;
   wantPdf: boolean;
   wantText: boolean;
 }
@@ -252,9 +257,19 @@ export interface NativeOcrArgsContext {
  *    tagged PDF, which is what every "searchable" scan and office export used to
  *    hit. Passing both is a usage error. `--force-ocr` is never passed: it
  *    rasterizes every page and destroys vector text.
+ *
+ *    `--deskew` is passed only when asked (since 2026-11-01; until then this
+ *    said "no `--deskew`", and the page said nothing straightens). It acts on
+ *    the pages OCRmyPDF recognizes — under `--skip-text` a page with text is
+ *    copied through and is NOT straightened — and a straightened page's
+ *    image is re-rendered, not copied. OCRmyPDF rejects `--redo-ocr` with
+ *    `--deskew` as a usage error, so the pair throws here rather than being
+ *    resolved by dropping one; `parseOcrOptions` refuses it first, with the
+ *    reason, so this is the backstop and never the user's message.
  *  - **Tesseract** OCRs an image and writes `<base>.pdf` / `<base>.txt` selected by
  *    trailing `pdf`/`txt` config tokens. An image has no text layer, so neither
- *    flag applies to it.
+ *    text flag applies to it, and Tesseract has no deskew step, so `deskew`
+ *    passes nothing here (the panel disables it for an image).
  */
 export function nativeOcrArgs(
   engine: OcrEngine,
@@ -264,6 +279,9 @@ export function nativeOcrArgs(
   const lang = ctx.languages.join("+");
   switch (engine) {
     case "ocrmypdf": {
+      if (ctx.deskew && ctx.redoOcr) {
+        throw new Error("OCR deskew cannot be combined with redo OCR.");
+      }
       const pdfOut = path.join(ctx.workDir, "output.pdf");
       const txtOut = path.join(ctx.workDir, "output.txt");
       const args = [
@@ -272,6 +290,7 @@ export function nativeOcrArgs(
         "--output-type",
         "pdf",
         ctx.redoOcr ? "--redo-ocr" : "--skip-text",
+        ...(ctx.deskew ? ["--deskew"] : []),
         ...(ctx.wantText ? ["--sidecar", txtOut] : []),
         "--quiet",
         ctx.inputPath,
@@ -603,6 +622,7 @@ export function createNativeOcrRunner(
           workDir: dir,
           languages: options.languages,
           redoOcr: options.redoOcr,
+          deskew: options.deskew,
           wantPdf,
           wantText,
         },

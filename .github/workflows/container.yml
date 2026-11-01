@@ -209,6 +209,19 @@ jobs:
       - name: Worker image OCR languages proof — packs, recognition, reading order (inside the built worker image)
         run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-languages-proof
 
+      # OCR deskew (2026-11-01): OCR PDF's "Straighten crooked pages"
+      # through the image's REAL OCRmyPDF --deskew, via the registry's OCR
+      # processor. A generated scan of long, thick bars turned 3.5 degrees is
+      # MEASURED on its rendered page 1 (each bar's top edge fitted across
+      # the page): with deskew the output must measure under 0.5 degrees,
+      # without it (the control) still about 3.5, and the fixture itself and
+      # a straight copy must read as drawn, so the instrument is seen to see.
+      # The straightened output must stay searchable, and the image's
+      # OCRmyPDF must refuse --redo-ocr with --deskew, the reason the panel
+      # and the job refuse the pair. No user document, secret, queue or store.
+      - name: Worker image OCR deskew proof — crooked scan measured straight (inside the built worker image)
+        run: docker run --rm pdfxyz-worker:ci pnpm worker:ocr-deskew-proof
+
       # The container HEALTHCHECK / readiness probe must honestly report
       # not-configured (exit 2) when nothing is wired — it claims no job.
       - name: Worker readiness probe is honest with no config (exit 2)

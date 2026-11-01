@@ -867,9 +867,15 @@ const TOOL_PAGES_TO_COME = {
   //     each per page to begin with, and nothing to offset.
   //   WP-11 + WP-13, merged into WP-10 at 507b6383: rotate 252.1 -> 253.5,
   //     ocr 254.6 -> 255.1, summarize 259.6 -> 260.2 (one merge, one figure).
-  // WP-14 (radius vocabulary) was allocated no tool-page growth in G.1, so
-  // what is still to come here is WP-12's share and the 0.4 no one holds.
-  "WP-12": 0.3,
+  // WP-14 (radius vocabulary) was allocated no tool-page growth in G.1.
+  //
+  // WP-12 landed the same day (#196, 577dda39: the signature and motion
+  // layer, which touches the tool page) and kept its 0.3 here for eleven
+  // days: the PR that landed it did not delete its entry, as the rule above
+  // says it must, and this comment went on calling it "still to come".
+  // Deleted 2026-11-01, when the OCR row came up 0.22 short on CI (needs
+  // 0.51, has 0.29) while holding back room for work already inside its
+  // measured weight. What WP-12 spent is in every measurement since.
   // 0.32 of the unallocated 0.4 TAKEN on 2026-10-30 by the four new
   // in-browser tools (Scan to PDF, Edit PDF Metadata, Resize PDF, Multiple
   // Pages per Sheet) — A RE-ALLOCATION OF G.1, flagged for the owner in that
@@ -889,6 +895,7 @@ const TOOL_PAGES_TO_COME = {
 const TOOL_PAGES_TO_COME_AT_WP07 = {
   "WP-08": 4.5,
   "WP-11": 1.5,
+  "WP-12": 0.3,
   ...TOOL_PAGES_TO_COME,
   // The whole 0.4, as it stood then — not what is left of it today.
   unallocated: UNALLOCATED,

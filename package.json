@@ -40,6 +40,7 @@
     "worker:docx-pictures-proof": "tsx scripts/worker-docx-pictures-proof.ts",
     "worker:options-proof": "tsx scripts/worker-options-proof.ts",
     "worker:ocr-languages-proof": "tsx scripts/worker-ocr-languages-proof.ts",
+    "worker:ocr-deskew-proof": "tsx scripts/worker-ocr-deskew-proof.ts",
     "worker:restricted-edit-proof": "tsx scripts/worker-restricted-edit-proof.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

@@ -199,6 +199,7 @@ describe("the TSV renderer is requested only where it can be read", () => {
       workDir: "/tmp/j",
       languages: ["ben", "eng"],
       redoOcr: false,
+      deskew: false,
       wantPdf: true,
       wantText: false,
     });
@@ -218,6 +219,7 @@ describe("the TSV renderer is requested only where it can be read", () => {
       workDir: "/tmp/j",
       languages: ["eng"],
       redoOcr: false,
+      deskew: false,
       wantPdf: true,
       wantText: true,
     });

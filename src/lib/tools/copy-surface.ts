@@ -172,6 +172,9 @@ export function copyFiles(): string[] {
     path.join(ROOT, "src", "lib", "jobs", "html-render-options.ts"),
     path.join(ROOT, "src", "lib", "workers", "html-render", "layout-proof.ts"),
     path.join(ROOT, "src", "lib", "workers", "ocr-languages-proof.ts"),
+    // The OCR deskew proof's verdict lines and fixture words (2026-11-01),
+    // walked for the reason options-proof.ts is.
+    path.join(ROOT, "src", "lib", "workers", "ocr-deskew-proof.ts"),
     path.join(ROOT, "src", "lib", "pdf", "crop-disclosure.ts"),
     // Compress PDF's Grayscale sentence (2026-10-24), its own leaf so it is
     // not bundled with every runner that reads offered-kinds.

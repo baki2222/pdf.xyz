@@ -120,7 +120,11 @@ describe("text-drawing call sites", () => {
       drawing.length,
       "the text-API scan matched almost nothing — the patterns are stale and this guard is checking an empty set",
     ).toBeGreaterThanOrEqual(8);
-    expect(drawing.length).toBeLessThan(30);
+    // 30 until 2026-11-01, when the OCR deskew proof's fixture
+    // (`src/lib/workers/ocr-deskew-proof.ts`, its sentinel line through
+    // embedDrawingFont) became the 30th real member — a member the set
+    // should hold, not a widened scan. Raised by a margin, not to infinity.
+    expect(drawing.length).toBeLessThan(36);
   });
 
   it("finds the modules that are known to draw text", () => {

@@ -224,7 +224,34 @@ export interface OcrOptions {
    * longer decides anything: skipping is the default, not an option.
    */
   redoOcr: boolean;
+  /**
+   * Straighten pages that were scanned at a slight angle before they are
+   * recognized (OCRmyPDF `--deskew`). Off by default. Added 2026-11-01.
+   *
+   * What it does and does not do, each from OCRmyPDF rather than from hope:
+   *  - it applies only to pages OCRmyPDF actually recognizes. With
+   *    `--skip-text` (the default) a page that already has text is copied
+   *    through untouched, so such a page is NOT straightened — this is for
+   *    the scan case, pages with no text yet;
+   *  - a straightened page is redrawn: OCRmyPDF rasterizes it, rotates the
+   *    pixels, and the output page shows that new image instead of the
+   *    original one, so it is not a lossless change;
+   *  - it cannot be combined with {@link redoOcr}: OCRmyPDF rejects
+   *    `--redo-ocr` with `--deskew` as a usage error, so
+   *    {@link parseOcrOptions} refuses the pair (never trust the browser);
+   *  - JPG and PNG inputs go to Tesseract directly, not OCRmyPDF, so it does
+   *    not apply to them; the panel disables it for an image and the runner
+   *    passes no flag to Tesseract.
+   */
+  deskew: boolean;
 }
+
+/**
+ * Why a job asking for both {@link OcrOptions.deskew} and
+ * {@link OcrOptions.redoOcr} is refused. Names the panel's two controls.
+ */
+export const OCR_DESKEW_WITH_REDO_MESSAGE =
+  "“Straighten crooked pages” cannot be combined with “Redo existing OCR”. Turn one of them off. Nothing was processed.";
 
 function invalid(message: string, field: string): ParseResult<never> {
   return {
@@ -324,7 +351,26 @@ export function parseOcrOptions(
     redoOcr = rawRedo;
   }
 
-  return { ok: true, value: { languages, outputMode: rawMode, redoOcr } };
+  // ── deskew ── optional boolean; never coerce a truthy string.
+  const rawDeskew = options.deskew;
+  let deskew = false;
+  if (rawDeskew !== undefined) {
+    if (typeof rawDeskew !== "boolean") {
+      return invalid("`options.deskew` must be a boolean.", "options.deskew");
+    }
+    deskew = rawDeskew;
+  }
+  // OCRmyPDF treats `--redo-ocr` with `--deskew` as a usage error. Refused
+  // here, final, with the reason — not passed on to fail inside the engine,
+  // and not quietly resolved by dropping one of the two choices.
+  if (deskew && redoOcr) {
+    return unprocessable(OCR_DESKEW_WITH_REDO_MESSAGE, "options.deskew");
+  }
+
+  return {
+    ok: true,
+    value: { languages, outputMode: rawMode, redoOcr, deskew },
+  };
 }
 
 /**
