@@ -117,7 +117,9 @@ describe("the guides catalogue is structurally sound", () => {
     // second JPG guide), HTML to PDF (a file, where the webpage guide is a
     // URL), Overlay PDF (as "How to add a letterhead to a PDF", the task it
     // does) and Optimize PDF for Web (58 → 62). Every tool now has one.
-    expect(slugs.length).toBeLessThanOrEqual(62);
+    // Revisited 2026-11-01: Split PDF Pages in Half shipped (#260) with no
+    // guide, and no existing guide covers cutting a page in two (62 → 63).
+    expect(slugs.length).toBeLessThanOrEqual(63);
     for (const guide of guides) {
       expect(
         copyStrings(guide).length,
