@@ -30,9 +30,11 @@ function listOf(items: readonly string[], joiner = "and"): string {
  * sentence was rewritten with it.
  *
  * Facts this page leans on:
- *  - Mark-up group: MARKUP_KINDS in offered-kinds (Whiteout, Highlight,
- *    Draw, Note), the list the tool facts count; every other editor tool is
- *    in the same toolbar.
+ *  - Mark-up group: MARKUP_KINDS in offered-kinds (Whiteout, Redact,
+ *    Highlight, Draw, Note), the list the tool facts count; every other
+ *    editor tool is in the same toolbar. WAS "(Whiteout, Highlight, Draw,
+ *    Note)" here and in the intro, How-to and first step until 2026-11-01:
+ *    Redact joined the group on 2026-10-24 and only the derived fact said so.
  *  - Highlight: a filled rectangle drawn with the Multiply blend at the
  *    chosen opacity (40% by default) — `editor-export.ts`.
  *  - Notes: typed on the page, wrapped in their box, on a coloured paper;
@@ -98,7 +100,7 @@ const content: ToolContent = {
     "Highlight, draw, add notes and white out a PDF by clicking on its pages, then flatten them or save them as editable comments, in your browser. No upload.",
 
   intro: [
-    "Annotate PDF shows every page of your document and opens with Highlight ready: drag across the page and a translucent bar lands there. Beside it in the toolbar are Whiteout, Draw for freehand ink and Note for a typed note on coloured paper, and the rest of the editor's tools: text, pictures, signatures, rectangles, ellipses, lines and arrows. Anything you place can be dragged, resized from its handles, restyled or deleted, and every step can be undone.",
+    "Annotate PDF shows every page of your document and opens with Highlight ready: drag across the page and a translucent bar lands there. Beside it in the toolbar are Whiteout, Redact, Draw for freehand ink and Note for a typed note on coloured paper, and the rest of the editor's tools, among them text, pictures, signatures, rectangles, ellipses, lines and arrows. Whiteout only paints over what is under it; Redact removes the text and picture pixels under its box. Anything you place can be dragged, resized from its handles, restyled or deleted, and every step can be undone.",
     `The whole job runs in your browser: the PDF is drawn, marked and saved there, with no upload, so it stays on your device. The limit is ${CEILING_MB} MB. A PDF that needs a password to open has to be unlocked first; one that opens without a password but whose author restricted changes opens with only what the author allows, as described below. Notes in the Western European character set are drawn in a built-in font; otherwise the page fetches a Noto typeface from this site, covering ${noteScripts}. A note with characters none of those faces draws, such as ${refusedExamples}${emojiClause}, stops the export with a message naming them.${rtlClause}`,
     "Beside Apply & download you choose how highlights, drawings, notes, shapes and lines are saved. Flatten into the page, the default, draws them as content inside the page, so they show in every viewer and printout, the original text stays selectable and nothing becomes an image. Save markups as comments writes each one as a standard PDF annotation instead (a highlight, an ink drawing, a free-text note, a square, circle or line, each with its own appearance), which other PDF apps list as comments and let you select, edit or delete. Whiteout and redaction are always written into the page: a comment can be deleted by whoever opens the file, so a cover saved as one would hide nothing.",
     "A PDF whose author restricted changes, but that opens without a password, opens here with the author's rules in force. If the author allows comments, highlights, drawings, notes, shapes and lines are always saved as comments, never flattened, and the copy you download keeps the author's encryption, restrictions and owner password, with the original file kept byte for byte and the comments added after it. If the author does not allow comments, the mark-up tools stay locked and the page says so. Either way, typing the owner password into the page unlocks every tool for that file, checked in your browser and not sent anywhere, and the copy is then saved without encryption.",
@@ -130,7 +132,7 @@ const content: ToolContent = {
     },
     {
       title: "Mark up the page",
-      body: "Drag across the page to highlight. Choose Whiteout, Draw or Note in the Mark up group for the others: Whiteout and Highlight draw where you drag, Draw follows your pointer, and Note opens a box to type in where you click.",
+      body: "Drag across the page to highlight. Choose Whiteout, Redact, Draw or Note in the Mark up group for the others: Whiteout, Redact and Highlight draw where you drag, Draw follows your pointer, and Note opens a box to type in where you click.",
     },
     {
       title: "Adjust",

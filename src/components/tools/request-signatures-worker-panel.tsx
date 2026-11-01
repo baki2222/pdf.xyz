@@ -486,7 +486,7 @@ export function RequestBuilder({
           multiple={false}
           compact
           title="Add your PDF, or"
-          hint="PDF to send for signature"
+          hint="PDF to prepare for signing"
         />
       )}
 

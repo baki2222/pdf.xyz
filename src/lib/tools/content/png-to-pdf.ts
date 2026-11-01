@@ -53,10 +53,10 @@ const LIMIT_MET = limitOutcome({
  *    Page size, Orientation, Margin and Output chips
  *    (src/lib/pdf/image-page-layout.ts), defaulting to the old fixed layout;
  *    "One PDF per image (ZIP)" gives Download ZIP for more than one image.
- *  - The result panel's "Start over" is deliberately NOT described: its
- *    onReset is `clearItems`, which empties the list but never clears the
- *    run's `result`, so the panel stays up reading "0 images" (as of
- *    2026-09-27). Describe it only once it really resets.
+ *  - The result panel's "Start over" is not described. HISTORY: its onReset
+ *    (`clearItems`) once emptied the list without clearing the run's
+ *    `result`, so the panel stayed up reading "0 images"; a2333ae7 fixed it
+ *    on 2026-09-27 and `runner-flows.test.tsx` drives it.
  *  - engine: src/lib/pdf/image-to-pdf.ts — one page per image (by default
  *    portrait US Letter), white rectangle under it, margin, scale capped at 1
  *    (downscale only; below that, one point per pixel — the PNG's pHYs/DPI is
@@ -95,10 +95,11 @@ const LIMIT_MET = limitOutcome({
  *    the soft mask gone. "A PNG is never turned into JPEG" and "No PNG pixel
  *    is re-saved as JPEG" were unconditional until then; both now name the
  *    exception, and the transparency FAQ says what a limit changes.
- *  - relatedGuides is empty on purpose, matching jpg-to-pdf: the only image
- *    guide ("how-to-convert-jpg-to-pdf", which lists png-to-pdf in its
- *    tools) promises page size, orientation and margin controls and says the
- *    tool is built on WebAssembly. None of that exists. Link it once fixed.
+ *  - relatedGuides is empty, and that hides nothing: it only ORDERS the
+ *    Guides band (`pageGuides` in src/lib/tools/page-copy.ts), which is
+ *    discovered from each guide's own `tools` field. HISTORY: this note once
+ *    said the JPG guide (which lists png-to-pdf) promised page controls that
+ *    did not exist; they shipped 2026-10-24 and the guide states them.
  */
 const content: ToolContent = {
   slug: "png-to-pdf",

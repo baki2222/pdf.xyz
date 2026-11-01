@@ -80,6 +80,9 @@ const DELIVERY_CLAIMS: readonly RegExp[] = [
   // is collection by another name.
   /\bemails? (?:it|them|(?:a |the )?(?:document|pdf|request|package)s?) to (?:each |every |all |the |your )?(?:signers?|recipients?|others|other people)\b/gi,
   /\btrack(?:s|ing)? (?:who has signed|who signed|(?:the |signing |signature )?status)\b/gi,
+  // Added 2026-11-01: the Request Signatures drop zone's hint read "PDF to
+  // send for signature" — on the tool's own page, the tool is the sender.
+  /\bsend(?:s|ing)? (?:it |them |(?:a |the )?(?:document|pdf)s? )?for (?:signatures?|signing)\b/gi,
 ];
 
 /** Copy that says compare finds every change. */
@@ -98,6 +101,8 @@ const SHIPPED = {
     "To collect signatures from others, use the Request Signatures tool, which sends a document to recipients",
     // Review of seo/content, 2026-09-27: the synonym that passed the suite.
     "pdf.xyz emails the PDF to each signer and tracks who has signed.",
+    // request-signatures-worker-panel.tsx, the drop zone hint, until 2026-11-01.
+    "PDF to send for signature",
   ],
   exhaustiveDiff: [
     "lock form fields into the page, or compare two versions to see exactly what changed.",
