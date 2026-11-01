@@ -39,9 +39,12 @@ import { WORKER_FILE_CEILING } from "@/lib/tools/file-ceilings";
  *    without text (`--skip-text` copies a page with text through, so it is
  *    not straightened); not with Redo existing OCR (`parseOcrOptions`
  *    refuses the pair, OCRmyPDF calls it a usage error); and a page it
- *    works on is a new image of the page (OCRmyPDF shows the preprocessed
- *    image on a page it deskews). That it actually straightens is
- *    MEASURED in the built worker image by `pnpm worker:ocr-deskew-proof`
+ *    straightens is a new image of the page (OCRmyPDF shows the
+ *    preprocessed image: measured 2026-11-01 in the live image, a 3.5° page
+ *    came back as different, larger image bytes; a page it found level kept
+ *    its picture's bytes, so "every page it works on" was not claimed).
+ *    That it actually straightens is MEASURED in the built worker image by
+ *    `pnpm worker:ocr-deskew-proof`
  *    (src/lib/workers/ocr-deskew-proof.ts), with deskew off as the control.
  *    Still not claimed: any angle range, or turning a sideways page upright;
  *  - src/lib/jobs/ocr.ts — the language list, the cap, the output modes;
@@ -131,7 +134,7 @@ const content: ToolContent = {
     },
     {
       title: "Straighten a scan that went in crooked",
-      body: "A sheet fed through the scanner at a slight angle comes out with every line on a slope. Tick “Straighten crooked pages” and each page of the PDF that has no text yet is turned level before its words are recognised, so the downloaded file reads straight. It works on scanned pages that have no text yet: a page that already has text is kept exactly as it is, so it is not straightened. Each page it works on is saved as a new image of that page rather than the original picture. It cannot be combined with “Redo existing OCR”, and a JPG or PNG is read as it is, without straightening.",
+      body: "A sheet fed through the scanner at a slight angle comes out with every line on a slope. Tick “Straighten crooked pages” and each page of the PDF that has no text yet is turned level before its words are recognised, so the downloaded file reads straight. It works on scanned pages that have no text yet: a page that already has text is kept exactly as it is, so it is not straightened. Each page it straightens is saved as a new image of that page rather than the original picture. It cannot be combined with “Redo existing OCR”, and a JPG or PNG is read as it is, without straightening.",
     },
   ],
 
@@ -161,7 +164,7 @@ const content: ToolContent = {
     },
     {
       q: "Does OCR change how my PDF looks?",
-      a: `The ${PDF_MODE} output keeps your pages and adds hidden text underneath them, so it looks like the scan you uploaded. The exception is “Straighten crooked pages”: each page it works on is saved as a new, level image of that page rather than the original picture. The words are not made editable on the page. To rewrite them, run the OCR'd file through PDF to Word, which turns its new text layer into plain paragraphs in a DOCX.`,
+      a: `The ${PDF_MODE} output keeps your pages and adds hidden text underneath them, so it looks like the scan you uploaded. The exception is “Straighten crooked pages”: each page it straightens is saved as a new, level image of that page rather than the original picture. The words are not made editable on the page. To rewrite them, run the OCR'd file through PDF to Word, which turns its new text layer into plain paragraphs in a DOCX.`,
     },
     {
       q: "Can I OCR a photo or screenshot?",

@@ -68,6 +68,24 @@ const SENTINEL_BASELINE = 330;
 const SENTINEL_SIZE = 28;
 
 /**
+ * Lines of body text under the sentinel. OCRmyPDF's deskew (Leptonica)
+ * finds a page's angle from its rows of TEXT: the first version of this
+ * fixture, four bars and one line, went through `--deskew` in the image
+ * (OCRmyPDF 14.0.1) and came out at 3.50°, unturned, so the proof failed
+ * for the fixture, not the feature. Measured in a throwaway container of
+ * the live worker image, 2026-11-01, the same page at 3.5°: 0 lines →
+ * 3.5° after, 8 lines → 0.0°, 14 lines → 0.0°. Fourteen, so the margin is
+ * the fixture's, not luck's. They sit below the bars, so a column read from
+ * the top still meets the four bars first.
+ */
+const BODY_LINE =
+  "Scanned pages often arrive at a slight angle from the feeder tray.";
+const BODY_LINES = 14;
+const BODY_TOP = 290;
+const BODY_STEP = 16;
+const BODY_SIZE = 11;
+
+/**
  * A TYPED page: the bars and the sentinel line, every item turned by
  * `angle` degrees counter-clockwise about the page centre. pdf-lib rotates
  * an item about its own origin, so each origin is first moved to where the
@@ -76,7 +94,7 @@ const SENTINEL_SIZE = 28;
 export async function skewedBarsPage(angle: number): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const page = doc.addPage(PAGE);
-  const font = await embedDrawingFont(doc, [DESKEW_SENTINEL]);
+  const font = await embedDrawingFont(doc, [DESKEW_SENTINEL, BODY_LINE]);
   const [cx, cy] = [PAGE[0] / 2, PAGE[1] / 2];
   const t = (angle * Math.PI) / 180;
   const turn = (x: number, y: number) => ({
@@ -100,6 +118,15 @@ export async function skewedBarsPage(angle: number): Promise<Uint8Array> {
     color: rgb(0, 0, 0),
     rotate: degrees(angle),
   });
+  for (let i = 0; i < BODY_LINES; i++) {
+    page.drawText(BODY_LINE, {
+      ...turn(BAR.x, BODY_TOP - i * BODY_STEP),
+      size: BODY_SIZE,
+      font,
+      color: rgb(0, 0, 0),
+      rotate: degrees(angle),
+    });
+  }
   return doc.save();
 }
 

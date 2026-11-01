@@ -324,16 +324,12 @@ function OcrBody({
             id={`${deskewId}-hint`}
             className="text-muted text-xs leading-relaxed"
           >
-            Straightens pages that went through the scanner at a slight angle,
-            before their text is recognized. It applies to scanned pages without
-            text: a page that already has text is kept as it is. Each page it
-            works on is saved as a new image of the page rather than the
-            original one. Cannot be combined with Redo existing OCR. PDFs only.
+            For scanned pages without text; each one it levels is saved as a new
+            image. Not with Redo existing OCR. PDFs only.
           </span>
           {imageChosen && (
             <span className="text-muted text-xs leading-relaxed">
-              Off for this file: a JPG or PNG is read as it is, without
-              straightening.
+              Off for this file: a JPG or PNG is read as it is.
             </span>
           )}
         </span>
